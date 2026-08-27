@@ -82,9 +82,9 @@ They are review criteria and, increasingly, test-enforced contracts:
 - **Surface growth is gated.** Public `__all__` sets are pinned by snapshot
   tests. Adding a public symbol is a deliberate, reviewed decision, not an
   incidental export.
-- **Discovery is progressive and bounded.** `marivo.help()` is a short,
-  family-grouped index; detail is reached by drilling in, never by dumping a
-  full catalog.
+- **Discovery is progressive and bounded.** `marivo.help()` is a short concept
+  page that routes only to the authoring or analysis tree; detail is reached by
+  drilling in, never by dumping a flat catalog.
 - **Precise types over optional-field mega-classes.** The surface prefers one
   entry shape with closed, kind-dispatched variants (e.g. `MetricFrame[time_series]`)
   over a single class riddled with optional fields. Precise types fail loudly at
@@ -270,11 +270,11 @@ call away.
 
 There are three disclosure ladders, and they compose:
 
-1. **Static contract, on demand.** `marivo.help()` opens as a compact, typed directory
+1. **Static contract, on demand.** `marivo.help()` opens as a compact concept page
    (~2–3 KB), not a 70 KB manual
    ([help progressive disclosure](../superpowers/plans/2026-06-02-help-progressive-disclosure.md)).
-   The agent drills from the index into a symbol, and only then sees full
-   parameters and constraints. The analysis index additionally carries one
+   The agent chooses the authoring or analysis secondary root, drills into a
+   symbol, and only then sees full parameters and constraints. The analysis root additionally carries one
    guarded first-observation path so an agent can acquire a session, inspect a
    current metric entry, check readiness, and materialize its first artifact
    without Python reflection.
@@ -282,7 +282,8 @@ There are three disclosure ladders, and they compose:
    ```python
    import marivo
 
-   marivo.help()  # compact global index, grouped by family
+   marivo.help()  # concepts plus the authoring and analysis routes
+   marivo.help("authoring")  # datasource, semantic, and optional ontology authoring
    marivo.help("analysis")  # bounded index plus one guarded first observation
    marivo.help("analysis.events")  # registered namespace members
    marivo.help("semantic.time_dimension_column")  # one constructor contract

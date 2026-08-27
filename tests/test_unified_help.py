@@ -84,7 +84,7 @@ def test_public_help_preserves_unknown_target_error() -> None:
     with pytest.raises(MarivoHelpTargetError) as captured:
         marivo.help("not-a-registered-target")
 
-    assert 'marivo.help("targets")' in str(captured.value)
+    assert "Use marivo.help() to choose authoring or analysis" in str(captured.value)
 
 
 def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
@@ -123,13 +123,10 @@ def test_marivo_help_is_the_only_public_help_callable(
         assert not hasattr(surface, "help_text")
 
 
-def test_public_targets_help_prints_the_inventory_and_returns_none(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    assert marivo.help("targets") is None
-    output = capsys.readouterr().out
-    assert output.startswith("Marivo help targets\n")
-    assert output.rstrip().endswith("- ontology.related_to")
+@pytest.mark.parametrize("target", ("load", "targets"))
+def test_removed_flat_global_topics_do_not_resolve(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help(target)
 
 
 def test_domain_help_attribute_raises_guiding_error() -> None:
@@ -138,24 +135,30 @@ def test_domain_help_attribute_raises_guiding_error() -> None:
         mv.help("analysis.observe")  # type: ignore[attr-defined]
 
 
-def test_root_help_identifies_coordinator_and_native_content_owners() -> None:
+def test_root_help_introduces_marivo_and_routes_to_two_secondary_roots() -> None:
     text = _text()
 
-    assert "one public coordinator" in text
-    assert "datasource.* -> marivo.datasource capability registry" in text
-    assert "semantic.*   -> marivo.semantic capability registry" in text
-    assert "analysis.*   -> marivo.analysis capability registry" in text
-    assert "ontology.*   -> marivo.ontology capability registry" in text
-    assert 'marivo.help("targets")' in text
+    assert text.startswith("Marivo\n")
+    assert "pure Python library for governed, auditable analysis" in text
+    assert "Datasource -> physical connections and source evidence" in text
+    assert "Semantic   -> governed business objects and stable refs" in text
+    assert "Analysis   -> typed artifacts, findings, evidence, and lineage" in text
+    assert 'marivo.help("authoring")' in text
+    assert 'marivo.help("analysis")' in text
+    assert 'marivo.help("load")' not in text
+    assert 'marivo.help("targets")' not in text
     assert "Domain modules expose no public .help alias" in text
 
 
-def test_root_help_only_advertises_resolvable_datasource_targets() -> None:
+def test_root_help_advertises_only_the_two_resolvable_secondary_roots() -> None:
     text = _text()
+    advertised = tuple(
+        line.strip() for line in text.splitlines() if line.strip().startswith("marivo.help(")
+    )
 
-    assert 'marivo.help("datasource.DiscoverySnapshot")' in text
-    assert 'marivo.help("datasource.snapshot")' not in text
-    assert isinstance(route_help_target("datasource.DiscoverySnapshot"), NativeHelpRoute)
+    assert advertised == ('marivo.help("authoring")', 'marivo.help("analysis")')
+    assert route_help_target("authoring") == TopicHelpRoute("authoring")
+    assert route_help_target("analysis") == SurfaceRootHelpRoute("analysis")
 
 
 @pytest.mark.parametrize(
@@ -213,12 +216,7 @@ def test_every_unique_unqualified_registry_target_routes_to_its_only_owner() -> 
         assert route.resolved.descriptor is _REGISTRIES[owners[0]].by_canonical_id(canonical_id)
 
 
-def test_unregistered_multi_owner_target_never_uses_surface_order(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import marivo._help.route as route_module
-
-    monkeypatch.setattr(route_module, "_GLOBAL_TOPICS", frozenset())
+def test_unregistered_multi_owner_target_never_uses_surface_order() -> None:
     with pytest.raises(MarivoHelpTargetError) as exc_info:
         route_help_target("load")
 
@@ -246,13 +244,12 @@ def test_multi_owner_alias_never_prefers_a_canonical_owner(target: str) -> None:
     assert error.candidates == (f"semantic.{semantic_id}", f"analysis.{target}")
 
 
-@pytest.mark.parametrize("target", ("authoring", "load"))
-def test_registered_global_composition_topics_win_over_native_duplicates(target: str) -> None:
-    route = route_help_target(target)
-    assert route == TopicHelpRoute(target)
-    text = _text(target)
-    assert f"datasource.{target}" in text
-    assert f"semantic.{target}" in text
+def test_global_authoring_composition_topic_wins_over_native_duplicates() -> None:
+    route = route_help_target("authoring")
+    assert route == TopicHelpRoute("authoring")
+    text = _text("authoring")
+    assert "datasource.authoring" in text
+    assert "semantic.authoring" in text
 
 
 def test_global_authoring_routes_exploration_and_exact_project_catalog_reads() -> None:
@@ -268,94 +265,30 @@ def test_global_authoring_routes_exploration_and_exact_project_catalog_reads() -
         assert f'marivo.help("{owner}")' in text
 
 
-def _expected_canonical_string_target_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    groups: list[tuple[str, tuple[str, ...]]] = [("Global", ("authoring", "load", "targets"))]
+def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> None:
     for owner in _SURFACE_NAMES:
-        surface = _SURFACES[owner]
-        targets = (
-            owner,
-            *(f"{owner}.{target}" for target in surface.registry.discovery_ids()),
-        )
-        groups.append((owner.title(), targets))
-    return tuple(groups)
-
-
-def test_targets_help_is_the_deterministic_canonical_discovery_index() -> None:
-    expected_groups = _expected_canonical_string_target_groups()
-    expected_lines = ["Marivo help targets", f"Version: {marivo.__version__}", ""]
-    for index, (heading, targets) in enumerate(expected_groups):
-        expected_lines.append(heading)
-        expected_lines.extend(f"- {target}" for target in targets)
-        if index != len(expected_groups) - 1:
-            expected_lines.append("")
-
-    text = _text("targets")
-
-    assert route_help_target("targets") == TopicHelpRoute("targets")
-    assert text == "\n".join(expected_lines)
-    assert text == _text("targets")
-    assert text.endswith("- ontology.related_to")
-
-
-def test_every_inventory_target_resolves_without_aliases_or_ambiguity() -> None:
-    groups = _expected_canonical_string_target_groups()
-    targets = tuple(target for _heading, group in groups for target in group)
-
-    assert len(targets) == 120
-    assert len(targets) == len(set(targets))
-    assert "analysis.alignment" in targets
-    assert "analysis.sampling" in targets
-    assert "analysis.SamplingPolicy" not in targets
-    assert "analysis.Session.observe" not in targets
-    assert "analysis.session.observe" not in targets
-    assert all(not target.startswith(("mv.", "ms.", "md.", "mo.")) for target in targets)
-
-    global_targets = frozenset({"authoring", "load", "targets"})
-    surface_roots = frozenset(_SURFACE_NAMES)
-    for target in targets:
-        route = route_help_target(target)
-        if target in global_targets:
-            assert isinstance(route, TopicHelpRoute)
-            assert route.topic == target
-        elif target in surface_roots:
-            assert isinstance(route, SurfaceRootHelpRoute)
-            assert route.owner == target
-        else:
-            owner, separator, native_target = target.partition(".")
-            assert separator and native_target
-            assert owner in surface_roots
+        for target in _SURFACES[owner].registry.discovery_ids():
+            route = route_help_target(f"{owner}.{target}")
             assert isinstance(route, NativeHelpRoute)
             assert route.owner == owner
 
 
-def test_type_and_error_names_remain_resolvable_without_joining_discovery() -> None:
-    inventory = {
-        target
-        for _heading, targets in _expected_canonical_string_target_groups()
-        for target in targets
-    }
+def test_type_and_error_names_remain_exactly_resolvable() -> None:
     for owner in _SURFACE_NAMES:
         surface = _SURFACES[owner]
         for type_name in dict.fromkeys(surface.type_index.values()):
-            assert f"{owner}.{type_name}" not in inventory
             route = route_help_target(f"{owner}.{type_name}")
             assert isinstance(route, NativeHelpRoute)
             assert route.resolved.kind == "type_contract"
             assert route.resolved.type_name == type_name
         for error_type in dict.fromkeys(surface.error_types.values()):
-            assert f"{owner}.{error_type.__name__}" not in inventory
             route = route_help_target(f"{owner}.{error_type.__name__}")
             assert isinstance(route, NativeHelpRoute)
             assert route.resolved.kind == "error_contract"
             assert route.resolved.error_name == error_type.__name__
 
 
-def test_receiver_members_and_grouped_leaves_resolve_without_joining_discovery() -> None:
-    inventory = {
-        target
-        for _heading, targets in _expected_canonical_string_target_groups()
-        for target in targets
-    }
+def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None:
     for target in (
         "datasource.SourceInspection.sample",
         "semantic.readiness",
@@ -363,12 +296,7 @@ def test_receiver_members_and_grouped_leaves_resolve_without_joining_discovery()
         "analysis.session.evidence.trace",
         "analysis.MetricFrame.as_time_series",
     ):
-        assert target not in inventory
         assert isinstance(route_help_target(target), NativeHelpRoute)
-
-    assert "analysis.transform" in inventory
-    assert "analysis.recovery" in inventory
-    assert "analysis.artifacts" in inventory
 
 
 def test_model_state_handle_has_one_semantic_help_owner() -> None:
@@ -513,7 +441,6 @@ def test_current_rendered_help_never_points_to_removed_domain_help_paths() -> No
     targets = [
         None,
         "authoring",
-        "load",
         *(
             f"{owner}.{canonical_id}"
             for owner, registry in _REGISTRIES.items()

@@ -347,7 +347,10 @@ def resolve_method_descriptor(
             surface=surface,
             kind="unknown",
             symbol=dotted_path,
-            summary=f"Unknown help target {dotted_path!r}. Call help() to list entries.",
+            summary=(
+                f"Unknown help target {dotted_path!r}. "
+                "Call marivo.help() to choose authoring or analysis."
+            ),
         )
     return Descriptor(
         surface=surface,

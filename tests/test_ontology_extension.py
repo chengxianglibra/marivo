@@ -136,8 +136,16 @@ def test_ontology_public_surface_and_help_are_closed(capsys) -> None:
 
     marivo.help()
     root_text = capsys.readouterr().out
-    assert "marivo.ontology capability registry" in root_text
-    assert 'marivo.help("ontology.authoring")' in root_text
+    assert 'marivo.help("authoring")' in root_text
+    assert 'marivo.help("analysis")' in root_text
+    assert 'marivo.help("ontology")' not in root_text
+
+    marivo.help("ontology")
+    ontology_text = capsys.readouterr().out
+    assert "marivo.ontology" in ontology_text
+    assert 'marivo.help("ontology.<target>")' in ontology_text
+    assert "authoring: Load the one optional project ontology" in ontology_text
+    assert "Ontology is not executable semantic authority" in ontology_text
 
     marivo.help("ontology.influences")
     text = capsys.readouterr().out

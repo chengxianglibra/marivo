@@ -50,7 +50,7 @@ def render_bootstrap_help() -> str:
             "  Do not append a surface or target to `python -m marivo help`.",
             "  marivo.help()",
             '  marivo.help("authoring")',
-            '  marivo.help("analysis.observe")',
+            '  marivo.help("analysis")',
             "  marivo.help(entry)",
         )
     )

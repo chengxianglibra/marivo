@@ -17,7 +17,7 @@ from marivo._help.object_briefing import (
     semantic_object_path,
 )
 from marivo._help.route import render_native_route, render_surface_root, route_help_target
-from marivo._help.topics import render_authoring, render_load, render_root, render_targets
+from marivo._help.topics import render_authoring, render_root
 from marivo.refs import Ref, SemanticKindTag
 from marivo.render import RenderableResult
 from marivo.telemetry import track_operation
@@ -58,9 +58,7 @@ def _topic_text(route: TopicHelpRoute) -> str:
         return render_root()
     if route.topic == "authoring":
         return render_authoring()
-    if route.topic == "load":
-        return render_load()
-    return render_targets()
+    raise RuntimeError(f"unsupported global help topic: {route.topic!r}")
 
 
 def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | None]:
@@ -90,9 +88,8 @@ def help(target: PublicHelpTarget = None) -> None:
     Parameters
     ----------
     target:
-        ``None`` for the global index, a registered string, callable, type,
-        result, error, exact semantic ``Ref``, or loaded ``CatalogEntry``. Use
-        ``"targets"`` to list the canonical discovery targets in this version.
+        ``None`` for the global concept root, a registered string, callable, type,
+        result, error, exact semantic ``Ref``, or loaded ``CatalogEntry``.
 
     Returns
     -------
@@ -101,7 +98,8 @@ def help(target: PublicHelpTarget = None) -> None:
     Example
     -------
     >>> import marivo
-    >>> marivo.help("targets")
+    >>> marivo.help()
+    >>> marivo.help("analysis")
     >>> marivo.help("analysis.observe")
     """
     attributes = {"marivo.help.target_kind": _target_kind(target)}

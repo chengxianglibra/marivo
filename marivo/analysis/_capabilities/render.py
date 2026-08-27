@@ -14,6 +14,9 @@ from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
+    AnalysisHelpDescriptor,
+    AnalysisMethodFamily,
+    AnalysisNavigationTopic,
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
@@ -252,7 +255,12 @@ def render_root_help() -> str:
         label = _GROUP_LABELS.get(group, group.replace("_", " ").title())
         lines.append(f"  {label} [{group}]:")
         for desc in descriptors:
-            lines.append(f"    {desc.public_entrypoint:<44} {desc.root_summary or desc.summary}")
+            entrypoint = (
+                f'marivo.help("analysis.{desc.canonical_id}")'
+                if isinstance(desc, AnalysisNavigationTopic)
+                else desc.public_entrypoint
+            )
+            lines.append(f"    {entrypoint:<44} {REGISTRY.discovery_summary(desc)}")
         lines.append("")
 
     # Drill-down instruction
@@ -301,7 +309,7 @@ def _format_artifact_shape_admission(desc: OperatorCapability) -> list[str]:
     return rows
 
 
-def _resolve_callable(desc: CapabilityDescriptor) -> object | None:
+def _resolve_callable(desc: AnalysisHelpDescriptor) -> object | None:
     """Resolve the callable_path to a live callable object."""
     if desc.callable_path is None:
         return None
@@ -543,7 +551,7 @@ def _related_targets(desc: CapabilityDescriptor) -> list[str]:
     return related[:5]
 
 
-def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
+def _grouping_members(desc: AnalysisHelpDescriptor) -> list[CapabilityDescriptor]:
     """Return the real registered members taught by a non-invokable topic."""
     if desc.callable_path is not None:
         return []
@@ -561,13 +569,9 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
     for candidate in REGISTRY.descriptors:
         if candidate is desc or candidate.callable_path is None:
             continue
-        if (
-            candidate.id.startswith(f"{desc.id}.")
-            or (desc.id == "recovery" and candidate.root_group == "recovery")
-            or (
-                desc.id == "artifacts"
-                and (candidate.id.startswith("BaseFrame.") or candidate.id == "boundary.to_pandas")
-            )
+        if candidate.id.startswith(f"{desc.id}.") or (
+            desc.id == "artifacts"
+            and (candidate.id.startswith("BaseFrame.") or candidate.id == "boundary.to_pandas")
         ):
             members.append(candidate)
     if desc.id == "artifacts":
@@ -698,8 +702,41 @@ def _discover_strategy_lines(desc: OperatorCapability) -> list[str]:
     return lines
 
 
-def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
+def _render_navigation_help(desc: AnalysisNavigationTopic) -> str:
+    """Preserve the current focused page until the public navigation cutover."""
+
+    lines = [
+        desc.canonical_id,
+        f'  Entrypoint: marivo.help("analysis.{desc.canonical_id}")',
+        f"  {REGISTRY.focused_summary(desc)}",
+        "",
+        "  Members:",
+    ]
+    for member in _grouping_members(desc):
+        member_obj = _resolve_callable(member)
+        member_return_type = _property_return_type(member_obj)
+        if member_return_type is None:
+            lines.append(f"    {member.public_entrypoint}  [{member.help_target}]")
+        else:
+            lines.append(
+                f"    {member.public_entrypoint}  "
+                f"(property -> {member_return_type}; inspect with .show())  "
+                f"[{member.help_target}]"
+            )
+    return enforce_budget(
+        "\n".join(lines),
+        max_lines=SURFACE_LIMITS.focused_help_max_lines,
+        max_codepoints=SURFACE_LIMITS.focused_help_max_codepoints,
+    )
+
+
+def _render_descriptor_help(desc: AnalysisHelpDescriptor) -> str:
     """Render focused help for a single capability descriptor."""
+    if isinstance(desc, AnalysisNavigationTopic):
+        return _render_navigation_help(desc)
+    if isinstance(desc, AnalysisMethodFamily):
+        raise RuntimeError("analysis method-family rendering is not active in Slice 1")
+
     lines: list[str] = []
 
     callable_obj = _resolve_callable(desc)
@@ -1314,7 +1351,9 @@ def _cumulative_composition_briefing(composition: object) -> list[str]:
 
 
 def render_help_target(
-    resolved: ResolvedLiveTarget[CapabilityDescriptor],
+    resolved: (
+        ResolvedLiveTarget[AnalysisHelpDescriptor] | ResolvedLiveTarget[CapabilityDescriptor]
+    ),
     *,
     project: SemanticProject | None = None,
     original_target: object = None,

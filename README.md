@@ -132,16 +132,18 @@ Then use the selected project interpreter for focused help.
 import marivo
 
 marivo.help()
-marivo.help("targets")
+marivo.help("authoring")
+marivo.help("analysis")
 marivo.help("semantic.metric")
 marivo.help("analysis.observe")
 ```
 
-`marivo.help("targets")` lists the installed Marivo version's canonical
-discovery index. Use the fully qualified names it prints instead of depending
-on short-name disambiguation. Focused help also accepts registered public types,
-errors, and member targets when they are already known or obtained from a live
-result.
+`marivo.help()` introduces Marivo's core concepts and routes to two secondary
+roots. Use `marivo.help("authoring")` to connect data and define governed
+semantics; use `marivo.help("analysis")` to discover typed analysis. Follow the
+qualified routes from those pages rather than depending on short-name
+disambiguation. Focused help also accepts registered public types, errors, and
+member targets when they are already known or obtained from a live result.
 
 If the project already contains `marivo.toml` and `models/`, reuse its semantic layer.
 For a new project, tell the agent which datasource and business outcome you need, then

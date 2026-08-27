@@ -1,10 +1,9 @@
-"""Tests for the closed capability kernel models and surface limits.
+"""Tests for the closed capability kernel and native help topology.
 
 These tests pin the private ``_capabilities`` package: the closed descriptor
-union, root-group teaching order, artifact-family vocabulary, frozen
-dataclass behavior, the single ``SURFACE_LIMITS`` value, absence of
-kernel types from the public ``marivo.analysis.__all__``, and the
-complete immutable capability registry with type algebra.
+union, registry-owned discovery, artifact-family vocabulary, frozen
+dataclass behavior, static Help budgets, absence of kernel types from the
+public ``marivo.analysis.__all__``, and the immutable capability registry.
 """
 
 from __future__ import annotations
@@ -18,14 +17,21 @@ from typing import get_args
 import pytest
 
 from marivo.analysis._capabilities import (
+    ANALYSIS_HELP_RENDER_BUDGETS,
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
+    AnalysisHelpDescriptor,
+    AnalysisHelpRenderBudget,
+    AnalysisHelpRenderClass,
+    AnalysisMethodFamily,
+    AnalysisNavigationTopic,
     ArtifactOutputContract,
     AuthorityPolicy,
     BoundaryCapability,
     CapabilityBase,
     CapabilityDescriptor,
     ConstructorCapability,
+    EpistemicKind,
     OperatorCapability,
     ReadCapability,
     RecoveryCapability,
@@ -34,7 +40,7 @@ from marivo.analysis._capabilities import (
 )
 from marivo.analysis._capabilities.model import HelpExample
 from marivo.analysis._capabilities.registry import REGISTRY
-from marivo.introspection.live.model import SURFACE_LIMITS, SurfaceLimits
+from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget, SurfaceLimits
 
 # ---------------------------------------------------------------------------
 # Root groups
@@ -73,17 +79,13 @@ def test_root_group_order_has_no_duplicates() -> None:
     assert len(set(ROOT_GROUP_ORDER)) == len(ROOT_GROUP_ORDER)
 
 
-def test_every_descriptor_root_group_is_in_root_group_order() -> None:
-    """Every registered capability descriptor must reference a root group that
-    is actually in the teaching order. A descriptor that points at a group
-    removed from ``ROOT_GROUP_ORDER`` would silently never render in root help;
-    this pins that invariant so future group removals cannot leave dangling
-    references behind."""
-    for descriptor in REGISTRY.descriptors:
-        assert descriptor.root_group in ROOT_GROUP_ORDER, (
-            f"{descriptor.id} references root_group {descriptor.root_group!r} "
-            f"which is not in ROOT_GROUP_ORDER"
-        )
+def test_exact_capabilities_do_not_own_root_placement() -> None:
+    field_names = {field.name for field in fields(CapabilityBase)}
+
+    assert "root_group" not in field_names
+    assert "root_visibility" not in field_names
+    assert "root_summary" not in field_names
+    assert tuple(group for group, _members in REGISTRY.discovery_groups()) == ROOT_GROUP_ORDER
 
 
 def test_root_group_order_matches_render_labels() -> None:
@@ -103,6 +105,49 @@ def test_root_group_literal_matches_order() -> None:
     caught only by mypy — but widening it (keeping a removed group) passes
     every gate unless this contract pins the two sets equal."""
     assert set(get_args(RootGroup)) == set(ROOT_GROUP_ORDER)
+
+
+def test_native_root_topology_has_six_hubs_and_one_exact_terminal_edge() -> None:
+    from marivo.analysis.frames.base import BaseFrame
+
+    assert tuple(topic.canonical_id for topic in REGISTRY.navigation_topics) == (
+        "entry",
+        "methods",
+        "inputs",
+        "artifacts",
+        "evidence",
+        "runtime",
+    )
+    assert tuple(target.canonical_id for target in REGISTRY.root_members) == (
+        "entry",
+        "methods",
+        "inputs",
+        "artifacts",
+        "evidence",
+        "runtime",
+        "boundary.to_pandas",
+    )
+    assert all(topic.render_class == "decision_hub" for topic in REGISTRY.navigation_topics)
+    assert all(topic.public_entrypoint is None for topic in REGISTRY.navigation_topics)
+    assert all(topic.callable_path is None for topic in REGISTRY.navigation_topics)
+    assert REGISTRY.by_id("boundary.to_pandas") is REGISTRY.by_callable(BaseFrame.to_pandas)
+
+
+def test_native_topology_is_inactive_until_the_public_cutover() -> None:
+    assert "entry" not in REGISTRY.canonical_ids()
+    assert "methods" not in REGISTRY.canonical_ids()
+    assert "inputs" not in REGISTRY.canonical_ids()
+    assert "evidence" not in REGISTRY.canonical_ids()
+    assert "runtime" not in REGISTRY.canonical_ids()
+    assert "artifacts" in REGISTRY.canonical_ids()
+
+
+def test_runtime_registry_iteration_contains_exact_capabilities_only() -> None:
+    assert not any(
+        isinstance(descriptor, (AnalysisNavigationTopic, AnalysisMethodFamily))
+        for descriptor in REGISTRY.descriptors
+    )
+    assert isinstance(REGISTRY.by_canonical_id("artifacts"), AnalysisNavigationTopic)
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +204,35 @@ def test_capability_descriptor_union_contains_all_kinds() -> None:
     }
 
 
+def test_analysis_help_descriptor_adds_native_topology_without_widening_capabilities() -> None:
+    assert set(get_args(AnalysisHelpDescriptor)) == {
+        *get_args(CapabilityDescriptor),
+        AnalysisNavigationTopic,
+        AnalysisMethodFamily,
+    }
+
+
+def test_native_topology_vocabularies_are_closed() -> None:
+    assert set(get_args(AnalysisHelpRenderClass)) == {
+        "root",
+        "decision_hub",
+        "navigation",
+        "exact_callable",
+        "public_type",
+        "current_briefing",
+    }
+    assert set(get_args(EpistemicKind)) == {
+        "observed",
+        "algebraic",
+        "candidate",
+        "association",
+        "statistical_decision",
+        "projection",
+        "quality_evaluation",
+        "selection",
+    }
+
+
 @pytest.mark.parametrize(
     "cls,expected_kind",
     [
@@ -177,8 +251,6 @@ def test_descriptor_kind_default(cls: type[CapabilityBase], expected_kind: str) 
         public_entrypoint="test.capability()",
         help_target="test.capability",
         summary="test summary",
-        root_group="typed_analysis",
-        root_visibility="direct",
         **variant_kwargs,  # type: ignore[arg-type]
     )
     assert instance.kind == expected_kind
@@ -193,8 +265,6 @@ _BASE_INIT_KWARGS: dict[str, str] = {
     "public_entrypoint": "test.frozen()",
     "help_target": "test.frozen",
     "summary": "frozen check",
-    "root_group": "recovery",
-    "root_visibility": "direct",
 }
 
 _FROZEN_INSTANCES: list[object] = [
@@ -207,6 +277,27 @@ _FROZEN_INSTANCES: list[object] = [
     ReadCapability(**_BASE_INIT_KWARGS),  # type: ignore[call-arg]
     RecoveryCapability(**_BASE_INIT_KWARGS),  # type: ignore[call-arg]
     BoundaryCapability(**_BASE_INIT_KWARGS),  # type: ignore[call-arg]
+    AnalysisNavigationTopic(
+        canonical_id="test.navigation",
+        summary="Test navigation.",
+        render_class="navigation",
+        members=(
+            LiveHelpTarget(surface="analysis", canonical_id="one"),
+            LiveHelpTarget(surface="analysis", canonical_id="two"),
+        ),
+    ),
+    AnalysisMethodFamily(
+        canonical_id="test.methods",
+        summary="Test methods.",
+        epistemic_kinds=("observed",),
+        members=(
+            LiveHelpTarget(surface="analysis", canonical_id="one"),
+            LiveHelpTarget(surface="analysis", canonical_id="two"),
+        ),
+        input_routes=(),
+        output_routes=(),
+    ),
+    AnalysisHelpRenderBudget(1, 1, 1, 0),
     SameAsInputFamily(parameter="receiver"),
     SurfaceLimits(),
 ]
@@ -227,9 +318,6 @@ def test_capability_base_required_fields() -> None:
     assert "public_entrypoint" in field_names
     assert "help_target" in field_names
     assert "summary" in field_names
-    assert "root_group" in field_names
-    assert "root_visibility" in field_names
-    assert "root_summary" in field_names
     assert "constraint_ids" in field_names
     assert "callable_path" in field_names
     assert "additional_examples" in field_names
@@ -241,10 +329,7 @@ def test_capability_base_defaults() -> None:
         public_entrypoint="test.base()",
         help_target="test.base",
         summary="base summary",
-        root_group="recovery",
-        root_visibility="direct",
     )
-    assert base.root_summary is None
     assert base.constraint_ids == ()
     assert base.callable_path is None
     assert base.additional_examples == ()
@@ -272,8 +357,6 @@ def test_registry_rejects_invalid_additional_examples(
         public_entrypoint="test.call()",
         help_target="test.call",
         summary="test",
-        root_group="artifact_inspection",
-        root_visibility="direct",
         additional_examples=(example,),
     )
     with pytest.raises(ValueError, match=error):
@@ -312,8 +395,6 @@ def test_operator_capability_defaults() -> None:
         public_entrypoint="session.test()",
         help_target="test",
         summary="test op",
-        root_group="typed_analysis",
-        root_visibility="direct",
         authority_policy="materialized_only",
     )
     assert cap.receiver == ""
@@ -337,8 +418,6 @@ def test_read_capability_defaults() -> None:
         public_entrypoint="artifact.show()",
         help_target="test",
         summary="test read",
-        root_group="artifact_inspection",
-        root_visibility="direct",
     )
     assert cap.receiver_family == ""
     assert cap.result_kind == "immutable_metadata"
@@ -351,8 +430,6 @@ def test_recovery_capability_defaults() -> None:
         public_entrypoint="session.get_frame()",
         help_target="test",
         summary="test recovery",
-        root_group="recovery",
-        root_visibility="direct",
     )
     assert cap.identity_input == ""
     assert cap.restored_family == ""
@@ -365,8 +442,6 @@ def test_boundary_capability_defaults() -> None:
         public_entrypoint="frame.to_pandas()",
         help_target="boundary.test",
         summary="test boundary",
-        root_group="boundaries",
-        root_visibility="direct",
     )
     assert cap.direction == "terminal_exit"
     assert cap.accepted_inputs == {}
@@ -381,8 +456,6 @@ def test_constructor_capability_defaults() -> None:
         public_entrypoint="window_bucket()",
         help_target="test",
         summary="test ctor",
-        root_group="policies_builders",
-        root_visibility="direct",
     )
     assert cap.output_type == ""
 
@@ -403,6 +476,33 @@ def test_same_as_input_family_is_frozen_dataclass() -> None:
 # ---------------------------------------------------------------------------
 # Surface limits
 # ---------------------------------------------------------------------------
+
+EXPECTED_ANALYSIS_HELP_BUDGETS = {
+    "root": (32, 3_000, 8, 0),
+    "decision_hub": (44, 4_500, 10, 0),
+    "navigation": (64, 6_500, 16, 0),
+    "exact_callable": (104, 9_000, 10, 1),
+    "public_type": (72, 7_000, 10, 0),
+    "current_briefing": (72, 7_000, 6, 1),
+}
+
+
+def test_analysis_static_help_budgets_are_complete_and_exact() -> None:
+    assert REGISTRY.render_budgets == ANALYSIS_HELP_RENDER_BUDGETS
+    assert {
+        render_class: (
+            budget.max_lines,
+            budget.max_codepoints,
+            budget.max_outgoing_routes,
+            budget.max_examples_or_snippets,
+        )
+        for render_class, budget in REGISTRY.render_budgets.items()
+    } == EXPECTED_ANALYSIS_HELP_BUDGETS
+
+
+def test_analysis_static_help_budgets_are_immutable() -> None:
+    with pytest.raises(TypeError):
+        REGISTRY.render_budgets["root"] = AnalysisHelpRenderBudget(1, 1, 1, 0)  # type: ignore[index]
 
 
 def test_surface_limits_is_the_single_expected_value() -> None:
@@ -446,6 +546,13 @@ _KERNEL_TYPE_NAMES = [
     "SurfaceLimits",
     "SURFACE_LIMITS",
     "CapabilityDescriptor",
+    "AnalysisHelpDescriptor",
+    "AnalysisNavigationTopic",
+    "AnalysisMethodFamily",
+    "AnalysisHelpRenderBudget",
+    "AnalysisHelpRenderClass",
+    "EpistemicKind",
+    "ANALYSIS_HELP_RENDER_BUDGETS",
     "ROOT_GROUP_ORDER",
     "ARTIFACT_FAMILIES",
 ]
@@ -464,12 +571,12 @@ def test_kernel_types_absent_from_mv_all() -> None:
 
 
 def test_registry_has_no_duplicate_ids() -> None:
-    ids = [d.id for d in REGISTRY.descriptors]
+    ids = [d.id for d in REGISTRY.help_descriptors]
     assert len(ids) == len(set(ids)), f"duplicate ids: {ids}"
 
 
 def test_registry_has_no_duplicate_help_targets() -> None:
-    targets = [d.help_target for d in REGISTRY.descriptors]
+    targets = [d.help_target for d in REGISTRY.help_descriptors]
     assert len(targets) == len(set(targets)), f"duplicate help_targets: {targets}"
 
 
@@ -489,8 +596,6 @@ def test_registry_rejects_duplicate_callable_paths() -> None:
         public_entrypoint="test.dup_a()",
         help_target="test.dup_a",
         summary="first",
-        root_group="recovery",
-        root_visibility="direct",
         callable_path="some.module.fn",
         receiver_family="TestType",
         result_kind="immutable_metadata",
@@ -501,8 +606,6 @@ def test_registry_rejects_duplicate_callable_paths() -> None:
         public_entrypoint="test.dup_b()",
         help_target="test.dup_b",
         summary="second",
-        root_group="recovery",
-        root_visibility="direct",
         callable_path="some.module.fn",
         receiver_family="TestType",
         result_kind="immutable_metadata",
@@ -512,13 +615,214 @@ def test_registry_rejects_duplicate_callable_paths() -> None:
         _finalize_registry((desc_a, desc_b))
 
 
+def _validate_topology_fixture(
+    *,
+    navigation_topics: tuple[AnalysisNavigationTopic, ...] | None = None,
+    method_families: tuple[AnalysisMethodFamily, ...] = (),
+    root_members: tuple[LiveHelpTarget, ...] | None = None,
+    render_budgets: Mapping[
+        AnalysisHelpRenderClass,
+        AnalysisHelpRenderBudget,
+    ] = ANALYSIS_HELP_RENDER_BUDGETS,
+) -> None:
+    from marivo.analysis._capabilities.registry import _validate_help_topology
+
+    _validate_help_topology(
+        descriptors=REGISTRY.descriptors,
+        navigation_topics=(
+            REGISTRY.navigation_topics if navigation_topics is None else navigation_topics
+        ),
+        method_families=method_families,
+        root_members=REGISTRY.root_members if root_members is None else root_members,
+        render_budgets=render_budgets,
+    )
+
+
+@pytest.mark.parametrize("member_count", (0, 1))
+def test_registry_rejects_singleton_navigation(member_count: int) -> None:
+    members = tuple(
+        LiveHelpTarget(surface="analysis", canonical_id=str(index)) for index in range(member_count)
+    )
+    invalid = AnalysisNavigationTopic(
+        canonical_id="invalid.navigation",
+        summary="Invalid navigation.",
+        render_class="navigation",
+        members=members,
+    )
+
+    with pytest.raises(ValueError, match="at least two members"):
+        _validate_topology_fixture(
+            navigation_topics=(*REGISTRY.navigation_topics, invalid),
+            root_members=(),
+        )
+
+
+def test_registry_rejects_duplicate_navigation_members() -> None:
+    target = LiveHelpTarget(surface="analysis", canonical_id="same")
+    invalid = AnalysisNavigationTopic(
+        canonical_id="invalid.navigation",
+        summary="Invalid navigation.",
+        render_class="navigation",
+        members=(target, target),
+    )
+
+    with pytest.raises(ValueError, match="duplicate members"):
+        _validate_topology_fixture(
+            navigation_topics=(*REGISTRY.navigation_topics, invalid),
+            root_members=(),
+        )
+
+
+def test_registry_rejects_empty_method_family_epistemic_kind() -> None:
+    invalid = AnalysisMethodFamily(
+        canonical_id="invalid.methods",
+        summary="Invalid methods.",
+        epistemic_kinds=(),
+        members=(
+            LiveHelpTarget(surface="analysis", canonical_id="one"),
+            LiveHelpTarget(surface="analysis", canonical_id="two"),
+        ),
+        input_routes=(),
+        output_routes=(),
+    )
+
+    with pytest.raises(ValueError, match="requires an epistemic kind"):
+        _validate_topology_fixture(method_families=(invalid,))
+
+
+def test_registry_rejects_singleton_method_family() -> None:
+    invalid = AnalysisMethodFamily(
+        canonical_id="invalid.methods",
+        summary="Invalid methods.",
+        epistemic_kinds=("observed",),
+        members=(LiveHelpTarget(surface="analysis", canonical_id="one"),),
+        input_routes=(),
+        output_routes=(),
+    )
+
+    with pytest.raises(ValueError, match="at least two members"):
+        _validate_topology_fixture(method_families=(invalid,))
+
+
+@pytest.mark.parametrize("field_name", ("public_entrypoint", "callable_path"))
+def test_registry_rejects_invokable_navigation(field_name: str) -> None:
+    invalid = AnalysisNavigationTopic(
+        canonical_id="invalid.navigation",
+        summary="Invalid navigation.",
+        render_class="navigation",
+        members=(
+            LiveHelpTarget(surface="analysis", canonical_id="one"),
+            LiveHelpTarget(surface="analysis", canonical_id="two"),
+        ),
+    )
+    object.__setattr__(invalid, field_name, "invalid.callable")
+
+    with pytest.raises(ValueError, match="must not be invokable"):
+        _validate_topology_fixture(
+            navigation_topics=(*REGISTRY.navigation_topics, invalid),
+            root_members=(),
+        )
+
+
+def test_registry_rejects_duplicate_help_canonical_ids() -> None:
+    duplicate = AnalysisNavigationTopic(
+        canonical_id="entry",
+        summary="Duplicate entry.",
+        render_class="decision_hub",
+        members=(
+            LiveHelpTarget(surface="analysis", canonical_id="one"),
+            LiveHelpTarget(surface="analysis", canonical_id="two"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate analysis help canonical id"):
+        _validate_topology_fixture(
+            navigation_topics=(*REGISTRY.navigation_topics, duplicate),
+        )
+
+
+def test_registry_rejects_navigation_id_colliding_with_exact_canonical_id() -> None:
+    exact = REGISTRY.by_id("catalog.period_calendars.period")
+    assert exact.help_target == "calendar.period"
+    duplicate = AnalysisNavigationTopic(
+        canonical_id=exact.canonical_id,
+        summary="Duplicate exact capability identity.",
+        render_class="navigation",
+        members=(
+            LiveHelpTarget(surface="analysis", canonical_id="one"),
+            LiveHelpTarget(surface="analysis", canonical_id="two"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate analysis help canonical id"):
+        _validate_topology_fixture(
+            navigation_topics=(*REGISTRY.navigation_topics, duplicate),
+            root_members=(),
+        )
+
+
+def test_registry_rejects_method_family_id_colliding_with_exact_canonical_id() -> None:
+    exact = REGISTRY.by_id("catalog.period_calendars.period")
+    assert exact.help_target == "calendar.period"
+    duplicate = AnalysisMethodFamily(
+        canonical_id=exact.canonical_id,
+        summary="Duplicate exact capability identity.",
+        epistemic_kinds=("observed",),
+        members=(
+            LiveHelpTarget(surface="analysis", canonical_id="one"),
+            LiveHelpTarget(surface="analysis", canonical_id="two"),
+        ),
+        input_routes=(),
+        output_routes=(),
+    )
+
+    with pytest.raises(ValueError, match="duplicate analysis help canonical id"):
+        _validate_topology_fixture(method_families=(duplicate,))
+
+
+def test_registry_rejects_missing_render_budget() -> None:
+    budgets = dict(ANALYSIS_HELP_RENDER_BUDGETS)
+    budgets.pop("current_briefing")
+
+    with pytest.raises(ValueError, match="cover every render class"):
+        _validate_topology_fixture(render_budgets=budgets)  # type: ignore[arg-type]
+
+
+def test_registry_rejects_unknown_navigation_render_class() -> None:
+    invalid = AnalysisNavigationTopic(
+        canonical_id="invalid.navigation",
+        summary="Invalid navigation.",
+        render_class="unknown",  # type: ignore[arg-type]
+        members=(
+            LiveHelpTarget(surface="analysis", canonical_id="one"),
+            LiveHelpTarget(surface="analysis", canonical_id="two"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="unknown analysis navigation render class"):
+        _validate_topology_fixture(
+            navigation_topics=(*REGISTRY.navigation_topics, invalid),
+            root_members=(),
+        )
+
+
+def test_registry_rejects_illegal_root_edge() -> None:
+    invalid_root = (
+        *REGISTRY.root_members[:-1],
+        LiveHelpTarget(surface="analysis", canonical_id="compare"),
+    )
+
+    with pytest.raises(ValueError, match="root edges"):
+        _validate_topology_fixture(root_members=invalid_root)
+
+
 def test_registry_by_id_returns_same_object() -> None:
     for descriptor in REGISTRY.descriptors:
         assert REGISTRY.by_id(descriptor.id) is descriptor
 
 
 def test_registry_by_help_target_returns_same_object() -> None:
-    for descriptor in REGISTRY.descriptors:
+    for descriptor in REGISTRY.help_descriptors:
         resolved = REGISTRY.by_help_target(descriptor.help_target)
         assert resolved is descriptor
 
@@ -682,8 +986,6 @@ def test_operator_authority_policy_is_required_and_unknown_values_fail_closed() 
         public_entrypoint="session.invalid_authority()",
         help_target="invalid_authority",
         summary="test",
-        root_group="typed_analysis",
-        root_visibility="direct",
         authority_policy="unknown",  # type: ignore[arg-type]
     )
     with pytest.raises(ValueError, match=r"test\.invalid_authority:unknown"):
@@ -825,7 +1127,10 @@ def test_grouping_descriptors_are_not_invokable() -> None:
     ):
         desc = REGISTRY.by_help_target(topic)
         assert desc.callable_path is None, f"{topic} grouping must not be invokable"
-        assert desc.public_entrypoint == f'marivo.help("analysis.{topic}")'
+        if isinstance(desc, AnalysisNavigationTopic):
+            assert desc.public_entrypoint is None
+        else:
+            assert desc.public_entrypoint == f'marivo.help("analysis.{topic}")'
 
 
 def test_registry_rejects_type_variant_drift(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -36,18 +36,20 @@ structured 错误提供。智能体可以先检查物理元数据并起草依赖
 环境没有激活时，应使用该环境自己的 `marivo` 可执行文件。
 `marivo.help(...)` 是唯一公开的专项-帮助协调入口；限定后的 `datasource.*`、
 `semantic.*`、`analysis.*`、`ontology.*` 内容仍由各自原生 registry 拥有。`md` 和
-`ms` 只执行所属领域能力，不提供独立的 `.help()` 别名。选择 focused target 前，可以
-读取当前安装版本的 canonical discovery index：
+`ms` 只执行所属领域能力，不提供独立的 `.help()` 别名。先从概念根入口开始，再选择
+两个次级根入口之一：
 
 ```python
 import marivo
 
-marivo.help("targets")
+marivo.help()
+marivo.help("authoring")
+marivo.help("analysis")
 ```
 
-请使用清单中的完整限定名，不要依赖短名称自动消歧。已知或从 live result 获得的
-public type、error 和 member target 仍可查询 focused help；它们不会进入 discovery index，
-以保持有界的渐进披露。
+请沿所选次级根入口中的完整限定路径继续查询，不要依赖短名称自动消歧。已知或从
+live result 获得的 public type、error 和 member target 仍可查询 focused help；无需再
+提供单独的平铺清单。
 
 每个原生 surface 根页都会展示当前 Marivo 版本、Python 可执行文件和包路径，再通过 capability
 摘要引导下一次 focused 查询，而不会展开完整的 public type 或 error algebra。Ontology 构造器的

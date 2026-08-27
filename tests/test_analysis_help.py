@@ -14,6 +14,7 @@ import marivo.analysis as mv
 from marivo._help.model import MarivoHelpTargetError
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
+    AnalysisHelpDescriptor,
     ConstructorCapability,
     HelpExample,
     OperatorCapability,
@@ -144,13 +145,24 @@ def test_root_help_has_eight_deterministic_groups() -> None:
         assert group in text, f"missing root group: {group}"
 
 
-def test_root_help_contains_all_direct_capabilities() -> None:
+def _root_entry(descriptor: AnalysisHelpDescriptor) -> str:
+    canonical_id = descriptor.canonical_id
+    public_entrypoint = descriptor.public_entrypoint
+    entrypoint = public_entrypoint or f'marivo.help("analysis.{canonical_id}")'
+    return f"{entrypoint:<44} {REGISTRY.discovery_summary(descriptor)}"
+
+
+def test_root_help_contains_the_registry_owned_discovery_projection() -> None:
     text = _text()
-    direct = [d for d in REGISTRY.descriptors if d.root_visibility == "direct"]
-    assert len(direct) > 0
-    for desc in direct:
-        rendered = f"{desc.public_entrypoint:<44} {desc.root_summary or desc.summary}"
-        assert rendered in text, f"missing direct capability: {desc.help_target}"
+    discovery = tuple(
+        descriptor
+        for _group, descriptors in REGISTRY.discovery_groups()
+        for descriptor in descriptors
+    )
+
+    assert discovery
+    for descriptor in discovery:
+        assert _root_entry(descriptor) in text
 
 
 def test_root_help_entries_are_the_registry_discovery_groups() -> None:
@@ -163,7 +175,7 @@ def test_root_help_entries_are_the_registry_discovery_groups() -> None:
         line.strip() for line in capability_text.splitlines() if line.startswith("    ")
     )
     expected_entries = tuple(
-        f"{descriptor.public_entrypoint:<44} {descriptor.root_summary or descriptor.summary}".strip()
+        _root_entry(descriptor).strip()
         for _group, descriptors in REGISTRY.discovery_groups()
         for descriptor in descriptors
     )
@@ -294,14 +306,12 @@ def test_grouping_members_use_registered_prefix_without_renderer_branches(
     from marivo.analysis._capabilities.model import ReadCapability
     from marivo.analysis._capabilities.registry import _make_grouping_descriptor
 
-    grouping = _make_grouping_descriptor("example", "Example namespace.", "typed_analysis")
+    grouping = _make_grouping_descriptor("example", "Example namespace.")
     member = ReadCapability(
         id="example.inspect",
         public_entrypoint="example.inspect()",
         help_target="example.inspect",
         summary="Inspect an example.",
-        root_group="typed_analysis",
-        root_visibility="grouped",
         callable_path="example.inspect",
         receiver_family="Example",
     )
@@ -351,8 +361,9 @@ def test_root_only_summaries_do_not_narrow_focused_help() -> None:
     observe = _text("observe")
     descriptor = REGISTRY.by_id("observe")
 
-    assert descriptor.root_summary == "Materialize governed metric inputs into a typed MetricFrame."
-    assert descriptor.root_summary in root
+    root_summary = REGISTRY.discovery_summary(descriptor)
+    assert root_summary == "Materialize governed metric inputs into a typed MetricFrame."
+    assert root_summary in root
     assert descriptor.summary in observe
     assert descriptor.summary not in root
 

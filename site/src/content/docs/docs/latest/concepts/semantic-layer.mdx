@@ -45,20 +45,21 @@ environment's own `marivo` executable when it is not activated.
 `marivo.help(...)` is the sole public focused-help coordinator. Qualified
 `datasource.*`, `semantic.*`, `analysis.*`, and `ontology.*` content remains
 owned by its native registry; `md` and `ms` execute domain operations and
-intentionally have no `.help()` aliases. Read the installed version's canonical
-discovery index before selecting a focused target:
+intentionally have no `.help()` aliases. Start from the concept root and choose
+one of its two secondary roots:
 
 ```python
 import marivo
 
-marivo.help("targets")
+marivo.help()
+marivo.help("authoring")
+marivo.help("analysis")
 ```
 
-Use the fully qualified names it prints instead of depending on short-name
-disambiguation. Registered public type, error, and member targets remain
-available to focused help when already known or obtained from a live result;
-they are omitted from the discovery index to keep progressive disclosure
-bounded.
+Follow the fully qualified routes from the selected secondary root instead of
+depending on short-name disambiguation. Registered public type, error, and
+member targets remain available to focused help when already known or obtained
+from a live result; they do not need a separate flat inventory.
 
 Each native surface root reveals the active Marivo version, Python executable,
 and package path, then uses capability summaries to route the next focused lookup.
