@@ -72,9 +72,7 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "attribute",
         "discover",
         "correlate",
-        "hypothesis_test",
         "forecast",
-        "BaseFrame.quality_report",
         "MetricFrame.metric",
         "events.match",
         "events.funnel",
@@ -82,28 +80,20 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "lifecycle.replay",
         "select_subjects",
         "transform",
-        "session",
         "datasources",
         "artifacts",
-        "recovery",
         "boundary.to_pandas",
         "alignment",
-        "calendar",
         "runtime_metric",
         "Session.source_bindings",
     }
 
-    for constraint in ANALYSIS_CONSTRAINTS.values():
-        if constraint.help_target is not None:
-            assert constraint.help_target in canonical_targets, (
-                f"constraint {constraint.id} has non-canonical help_target "
-                f"{constraint.help_target!r}"
-            )
+    assert known_targets == canonical_targets
 
     # Every canonical target must resolve in the registry.
     for target in canonical_targets:
-        if target in {"datasources", "alignment", "calendar"}:
-            # These are legacy targets not in the new registry.
+        if target == "datasources":
+            # This cross-surface legacy target is tracked independently.
             continue
         try:
             REGISTRY.by_help_target(target)

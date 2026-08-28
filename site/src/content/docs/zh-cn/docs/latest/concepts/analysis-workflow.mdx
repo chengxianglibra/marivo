@@ -813,8 +813,10 @@ prior = mv.session.inspect(history.items[0].name) if history.items else None
 `frame_summaries()` 返回 `FrameSummaryPage`。`has_more` 为 true 时把不透明的
 `next_cursor` 传回同一个方法。分页采用普通 keyset 语义，不提供快照隔离。
 
-使用 `marivo.help("analysis.recovery")` 查看这些真实的会话成员。`recovery` 与 `artifacts`
-是帮助主题，并不是 `session.recovery` / `session.artifacts` 命名空间。
+使用 `marivo.help("analysis.runtime")` 选择当前有效的恢复帮助页；使用
+`marivo.help("analysis.runtime.artifacts")` 进行有界的产物发现和精确恢复，并使用
+`marivo.help("analysis.evidence")` 发现和读取持久化 Evidence。这些 Help target 是导航
+主题；可调用成员仍是上文展示的 Session API。
 
 ## 证据链与审计
 

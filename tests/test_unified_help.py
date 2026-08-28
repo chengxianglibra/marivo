@@ -59,6 +59,29 @@ _SURFACE_NAMES: tuple[HelpSurface, ...] = (
     "analysis",
     "ontology",
 )
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_SLICE3_ACTIVE_GUIDANCE = (
+    _REPO_ROOT / "marivo" / "skills" / "marivo-analysis" / "SKILL.md",
+    _REPO_ROOT
+    / "site"
+    / "src"
+    / "content"
+    / "docs"
+    / "docs"
+    / "latest"
+    / "concepts"
+    / "analysis-workflow.mdx",
+    _REPO_ROOT
+    / "site"
+    / "src"
+    / "content"
+    / "docs"
+    / "zh-cn"
+    / "docs"
+    / "latest"
+    / "concepts"
+    / "analysis-workflow.mdx",
+)
 
 
 def _text(target: PublicHelpTarget = None) -> str:
@@ -277,6 +300,79 @@ def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> Non
             assert route.owner == owner
 
 
+@pytest.mark.parametrize(
+    "target",
+    (
+        "analysis.evidence",
+        "analysis.evidence.browse",
+        "analysis.evidence.exact",
+        "analysis.runtime",
+        "analysis.runtime.sessions",
+        "analysis.runtime.artifacts",
+        "analysis.runtime.jobs",
+    ),
+)
+def test_slice3_qualified_navigation_targets_resolve(target: str) -> None:
+    route = route_help_target(target)
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "analysis"
+
+
+def test_slice3_active_guidance_uses_live_canonical_recovery_targets() -> None:
+    targets = (
+        "analysis.runtime",
+        "analysis.runtime.artifacts",
+        "analysis.evidence",
+    )
+
+    for path in _SLICE3_ACTIVE_GUIDANCE:
+        text = path.read_text()
+        assert 'marivo.help("analysis.recovery")' not in text
+        for target in targets:
+            assert f'marivo.help("{target}")' in text
+
+    for target in targets:
+        route = route_help_target(target)
+        assert isinstance(route, NativeHelpRoute)
+        assert route.owner == "analysis"
+        canonical_id = target.removeprefix("analysis.")
+        assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id(canonical_id)
+
+
+def test_slice3_bounded_target_projections_resolve_independently() -> None:
+    for owner in (
+        "evidence",
+        "evidence.browse",
+        "evidence.exact",
+        "runtime",
+        "runtime.sessions",
+        "runtime.artifacts",
+        "runtime.jobs",
+    ):
+        topic = ANALYSIS_REGISTRY.navigation_topic(owner)
+        projection = tuple(dict.fromkeys((*topic.members, *ANALYSIS_REGISTRY.cross_links(owner))))
+        budget = ANALYSIS_REGISTRY.render_budget(topic.render_class)
+        assert len(projection) <= budget.max_outgoing_routes
+        for target in projection:
+            assert target.canonical_id is not None
+            route = route_help_target(f"{target.surface}.{target.canonical_id}")
+            assert isinstance(route, NativeHelpRoute)
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "analysis.recovery",
+        "analysis.session",
+        "analysis.boundary",
+        "analysis.sampling",
+    ),
+)
+def test_slice3_removed_qualified_navigation_targets_do_not_resolve(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        route_help_target(target)
+
+
 def test_type_and_error_names_remain_exactly_resolvable() -> None:
     for owner in _SURFACE_NAMES:
         surface = _SURFACES[owner]
@@ -306,6 +402,9 @@ def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None
         "semantic.readiness",
         "analysis.transform.filter",
         "analysis.session.evidence.trace",
+        "analysis.session.get_frame",
+        "analysis.session.revalidate",
+        "analysis.boundary.to_pandas",
         "analysis.MetricFrame.as_time_series",
     ):
         assert isinstance(route_help_target(target), NativeHelpRoute)

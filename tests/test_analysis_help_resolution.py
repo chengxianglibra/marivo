@@ -98,16 +98,28 @@ def test_grouping_topic_transform() -> None:
     assert result.descriptor.id == "transform"
 
 
-def test_grouping_topic_recovery() -> None:
-    result = resolve_help_target("recovery")
+@pytest.mark.parametrize(
+    "target",
+    (
+        "evidence",
+        "evidence.browse",
+        "evidence.exact",
+        "runtime",
+        "runtime.sessions",
+        "runtime.artifacts",
+        "runtime.jobs",
+    ),
+)
+def test_slice3_navigation_targets_resolve(target: str) -> None:
+    result = resolve_help_target(target)
     assert result.kind == "descriptor"
-    assert result.descriptor.id == "recovery"
+    assert result.descriptor.id == target
 
 
-def test_grouping_topic_boundary() -> None:
-    result = resolve_help_target("boundary")
-    assert result.kind == "descriptor"
-    assert result.descriptor.id == "boundary"
+@pytest.mark.parametrize("target", ("recovery", "session", "boundary", "sampling"))
+def test_slice3_removed_navigation_targets_do_not_resolve(target: str) -> None:
+    with pytest.raises(HelpTargetError):
+        resolve_help_target(target)
 
 
 def test_nested_discover_target() -> None:

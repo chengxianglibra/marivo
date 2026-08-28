@@ -217,10 +217,12 @@ use focused help to inspect that capability's requirement. Never treat
 `artifact.contract()` as current revalidation: it describes only mechanical
 commit-time compatibility.
 
-When resuming work, start with `marivo.help("analysis.recovery")`. Read bounded
-session inspection, frame summaries, recent jobs, evidence digests, and findings
-before loading exact supporting artifacts. Historical conclusions and chat or
-script summaries are navigation aids, not current evidence.
+When resuming work, start with `marivo.help("analysis.runtime")`. Use
+`marivo.help("analysis.runtime.artifacts")` for bounded frame discovery and
+exact restoration, then use `marivo.help("analysis.evidence")` for persisted
+Evidence discovery and exact reads before loading supporting artifacts.
+Historical conclusions and chat or script summaries are navigation aids, not
+current evidence.
 
 Before combining two or more Findings, including Findings from the same
 artifact or analysis round, read
