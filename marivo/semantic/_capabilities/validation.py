@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 import inspect
-from typing import Literal
+import re
+from collections.abc import Callable
+from typing import Literal, cast
 
 from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
@@ -25,6 +27,33 @@ _ROOT_GROUP_LABELS = {
     "runtime_probes": "Runtime probes",
     "readiness": "Readiness",
     "diagnostics_boundaries": "Diagnostics and boundaries",
+}
+
+_RETURN_FAMILY_ALIASES = {
+    "Ref[DomainKind]": "Ref[domain]",
+    "Ref[DatasourceKind]": "Ref[datasource]",
+    "Ref[EntityKind]": "Ref[entity]",
+    "Ref[DimensionKind]": "Ref[dimension]",
+    "Ref[DimensionKindTag]": "Ref[dimension]",
+    "Ref[TimeDimensionKind]": "Ref[time_dimension]",
+    "Ref[MeasureKind]": "Ref[measure]",
+    "Ref[MetricKind]": "Ref[metric]",
+    "Ref[RelationshipKind]": "Ref[relationship]",
+    "Ref[EventKind]": "Ref[event]",
+    "Ref[StateModelKind]": "Ref[state_model]",
+    "Ref[PeriodCalendarKind]": "Ref[period_calendar]",
+    "Ref[TemporalSetKind]": "Ref[temporal_set]",
+    "Ref[WorkScheduleKind]": "Ref[work_schedule]",
+    "ir.BooleanValue": "IbisValue",
+    "ir.Value": "IbisValue",
+    "SnapshotVersioningIR": "ValiditySpec",
+    "ValidityVersioningIR": "ValiditySpec",
+    "SemiAdditive": "Additivity",
+    "DatetimeParse": "DateTimeSpec",
+    "TimestampParse": "TimestampSpec",
+    "StrptimeParse": "StrptimeSpec",
+    "HourPrefixParse": "HourPrefixSpec",
+    "Trailing": "TrailingSpec",
 }
 
 
@@ -87,6 +116,78 @@ def _validate_minimal_example_signature(
         raise AssertionError(
             f"minimal example for {public_entrypoint!r} does not match {signature}: {example}"
         ) from exc
+
+
+def _public_signature(callable_obj: object) -> inspect.Signature:
+    assert callable(callable_obj)
+    signature = inspect.signature(callable_obj)
+    parameters = tuple(signature.parameters.values())
+    if parameters and parameters[0].name in {"self", "cls"}:
+        return signature.replace(parameters=parameters[1:])
+    return signature
+
+
+def _validate_parameter_metadata(
+    descriptor: AuthoringCapability,
+    callable_obj: object,
+) -> None:
+    signature = _public_signature(callable_obj)
+    for requirement in descriptor.input_requirements:
+        for parameter_name in requirement.parameter_names:
+            assert parameter_name in signature.parameters, (
+                f"{descriptor.canonical_id} input fact names missing live parameter "
+                f"{parameter_name!r}"
+            )
+        if not requirement.parameter_names:
+            continue
+        parameters = tuple(signature.parameters[name] for name in requirement.parameter_names)
+        optional = all(parameter.default is not inspect.Parameter.empty for parameter in parameters)
+        if requirement.min_count == 0:
+            assert optional, (
+                f"{descriptor.canonical_id} marks required live parameters optional: "
+                f"{requirement.parameter_names!r}"
+            )
+        elif len(parameters) == 1:
+            assert not optional, (
+                f"{descriptor.canonical_id} marks optional live parameter required: "
+                f"{requirement.parameter_names!r}"
+            )
+
+
+def _annotation_output_family(
+    descriptor: AuthoringCapability,
+    callable_obj: object,
+) -> str | None:
+    annotation = inspect.signature(cast("Callable[..., object]", callable_obj)).return_annotation
+    if annotation is inspect.Signature.empty:
+        return None
+    text = (
+        annotation.strip() if isinstance(annotation, str) else inspect.formatannotation(annotation)
+    )
+    if descriptor.invocation_shape == "decorator":
+        ref_products = re.findall(r"Ref\[[A-Za-z_][A-Za-z0-9_]*\]", text)
+        assert len(ref_products) == 1, (
+            f"{descriptor.canonical_id} decorator return does not expose one Ref product: {text}"
+        )
+        text = ref_products[0]
+    if text.startswith("CatalogCollection["):
+        return "CatalogCollection"
+    if text.startswith("CatalogEntry["):
+        return "CatalogEntry"
+    return _RETURN_FAMILY_ALIASES.get(text, text)
+
+
+def _validate_output_metadata(
+    descriptor: AuthoringCapability,
+    callable_obj: object,
+) -> None:
+    if descriptor.output_family is None:
+        return
+    actual = _annotation_output_family(descriptor, callable_obj)
+    assert actual == descriptor.output_family, (
+        f"{descriptor.canonical_id} output family drift: "
+        f"registered={descriptor.output_family!r}, installed={actual!r}"
+    )
 
 
 def _focused_budget_text(canonical_id: str) -> str:
@@ -154,6 +255,8 @@ def validate_semantic_live_surface() -> None:
                 public_entrypoint=descriptor.public_entrypoint,
                 callable_obj=callable_obj,
             )
+            _validate_parameter_metadata(descriptor, callable_obj)
+            _validate_output_metadata(descriptor, callable_obj)
 
     source_authored_ids = {
         descriptor.canonical_id
@@ -164,15 +267,10 @@ def validate_semantic_live_surface() -> None:
         and "semantic_source" in descriptor.effects.mutations
     }
     assert set(REGISTRY._source_contracts) == source_authored_ids
-    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
-
     for source_contract in REGISTRY._source_contracts.values():
         assert source_contract.catalog_collection in CATALOG_COLLECTION_PROPERTIES
         assert source_contract.path_template.startswith("models/semantic/")
         assert source_contract.canonical_identity_template.startswith("<domain>")
-        for target in source_contract.prerequisite_targets:
-            owner_registry = REGISTRY if target.surface == "semantic" else DATASOURCE_REGISTRY
-            owner_registry.by_canonical_id(target.canonical_id or "")
 
     group_names: tuple[
         Literal[

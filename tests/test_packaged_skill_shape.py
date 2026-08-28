@@ -72,6 +72,21 @@ MILESTONE1_ACTIVE_DOCS = (
 )
 
 
+def test_temporal_semantics_is_registered_as_a_current_runtime_contract() -> None:
+    temporal_spec = REPO_ROOT / "docs" / "specs" / "temporal-semantics.md"
+    text = temporal_spec.read_text(encoding="utf-8")
+
+    assert "Status: implemented current contract." in text
+    assert "does not describe the current runtime" not in text
+    for relative_path in (
+        "docs/README.md",
+        "docs/specs/semantic/overview.md",
+        "docs/specs/analysis/python-analysis-design.md",
+    ):
+        current_text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        assert "proposed cross-layer" not in current_text
+
+
 def _active_references_to_deleted_semantic_paths(forbidden: str) -> list[str]:
     result = subprocess.run(
         ["git", "grep", "--name-only", forbidden],

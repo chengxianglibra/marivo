@@ -488,7 +488,7 @@ This overview is the entry point. The focused specs:
 - [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md) — the two
   timezone axes (read tz and report tz), time-column classification, window/bucket
   computation, and calendar alignment.
-- [`../temporal-semantics.md`](../temporal-semantics.md) — the proposed
+- [`../temporal-semantics.md`](../temporal-semantics.md) — the current
   cross-layer period-calendar authority, temporal sets, work schedules,
   calendar-bound grains, named-period scopes, and explicit comparison alignment
   policies.

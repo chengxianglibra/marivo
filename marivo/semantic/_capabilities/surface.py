@@ -55,6 +55,23 @@ def _cross_surface_owner(target: object) -> str | None:
 
 def _enrich(target: object) -> ResolvedLiveTarget[SemanticHelpDescriptor] | None:
     """Resolve concrete semantic runtime values before callable dispatch."""
+    from marivo.refs import ref as ref_factory
+    from marivo.semantic.source_health import source_check
+
+    namespace_target = None
+    if target is ref_factory:
+        namespace_target = "ref"
+    elif target is source_check:
+        namespace_target = "source_check"
+    if namespace_target is not None:
+        descriptor = REGISTRY.by_canonical_id(namespace_target)
+        return ResolvedLiveTarget(
+            kind="descriptor",
+            surface="semantic",
+            canonical_id=namespace_target,
+            descriptor=descriptor,
+        )
+
     error_type = type(target)
     if ERROR_TYPES.get(error_type.__name__) is error_type:
         repair = getattr(target, "repair", None)

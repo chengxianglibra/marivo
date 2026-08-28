@@ -470,6 +470,9 @@ def test_type_and_error_names_remain_exactly_resolvable() -> None:
                     AnalysisArtifactFamilyContract,
                 )
                 assert route.resolved.descriptor.type_name == type_name
+            elif owner == "semantic" and type_name == "ref":
+                assert route.resolved.kind == "descriptor"
+                assert route.resolved.descriptor is _REGISTRIES[owner].by_canonical_id("ref")
             else:
                 assert route.resolved.kind == "type_contract"
                 assert route.resolved.type_name == type_name

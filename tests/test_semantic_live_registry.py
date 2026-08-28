@@ -49,14 +49,19 @@ def _finalize_fixture(
     descriptors: tuple[AuthoringCapability, ...] | None = None,
     *,
     help_descriptors: tuple[SemanticHelpDescriptor, ...] | None = None,
+    object_contracts: tuple[SemanticObjectContract, ...] | None = None,
+    groups: Mapping[SemanticRootGroup, tuple[str, ...]] | None = None,
     render_budgets: Mapping[SemanticHelpRenderClass, SemanticHelpRenderBudget] | None = None,
 ) -> SemanticCapabilityRegistry:
     return _finalize_registry(
         REGISTRY.descriptors if descriptors is None else descriptors,
-        groups=REGISTRY._groups,
+        groups=REGISTRY._groups if groups is None else groups,
         source_contracts=REGISTRY._source_contracts,
         repair_contracts=REGISTRY._repair_contracts,
         help_descriptors=help_descriptors,
+        object_contracts=(
+            REGISTRY.object_contracts if object_contracts is None else object_contracts
+        ),
         render_budgets=(SEMANTIC_HELP_RENDER_BUDGETS if render_budgets is None else render_budgets),
     )
 
@@ -161,7 +166,7 @@ def test_native_descriptor_models_are_frozen_and_non_invokable() -> None:
             descriptor.summary = "changed"  # type: ignore[misc]
 
 
-def test_slice1_keeps_native_navigation_descriptors_inactive() -> None:
+def test_slice2_registers_object_contracts_without_activating_slice3_rendering() -> None:
     assert REGISTRY.help_descriptors == REGISTRY.descriptors
     assert not any(
         isinstance(
@@ -176,6 +181,283 @@ def test_slice1_keeps_native_navigation_descriptors_inactive() -> None:
         for descriptor in REGISTRY.help_descriptors
     )
     assert {"objects", "builders", "checks"}.isdisjoint(REGISTRY.canonical_ids())
+    assert len(REGISTRY.object_contracts) == 12
+
+
+REQUIRED_DECISION_IDS = MappingProxyType(
+    {
+        SemanticKind.DOMAIN: frozenset(
+            {
+                "business_boundary",
+                "accountable_owner",
+                "default_domain_behavior",
+                "definition_guardrails",
+            }
+        ),
+        SemanticKind.ENTITY: frozenset(
+            {
+                "recordset_meaning",
+                "authoritative_source",
+                "row_grain",
+                "identity_key",
+                "history_as_of_model",
+                "domain_ownership",
+            }
+        ),
+        SemanticKind.DIMENSION: frozenset(
+            {"owning_entity", "dimension_meaning", "code_null_semantics", "construction_mode"}
+        ),
+        SemanticKind.TIME_DIMENSION: frozenset(
+            {
+                "owning_entity",
+                "business_time_role",
+                "granularity",
+                "physical_time_encoding",
+                "default_axis",
+                "sampled_cadence",
+            }
+        ),
+        SemanticKind.MEASURE: frozenset(
+            {
+                "numeric_fact_grain",
+                "unit",
+                "dimensional_additivity",
+                "temporal_additivity",
+                "semi_additive_axis_fold",
+                "construction_mode",
+            }
+        ),
+        SemanticKind.METRIC: frozenset(
+            {
+                "population_value",
+                "construction_mode",
+                "aggregation_filter",
+                "denominator_failure",
+                "root_fanout",
+                "unit_additivity",
+                "temporal_behavior",
+                "provenance",
+                "guardrails",
+            }
+        ),
+        SemanticKind.RELATIONSHIP: frozenset(
+            {
+                "directed_meaning",
+                "endpoint_grains",
+                "join_key_equivalence",
+                "multiplicity_fanout",
+                "evidence_checks",
+            }
+        ),
+        SemanticKind.EVENT: frozenset(
+            {
+                "occurrence_predicate",
+                "occurrence_identity",
+                "occurrence_time",
+                "participant_roles",
+                "directed_paths",
+                "participant_cardinality",
+            }
+        ),
+        SemanticKind.STATE_MODEL: frozenset(
+            {
+                "subject_lifecycle",
+                "state_vocabulary",
+                "initial_terminal_meaning",
+                "inception_transitions",
+                "deterministic_transitions",
+                "excluded_replay_policies",
+            }
+        ),
+        SemanticKind.PERIOD_CALENDAR: frozenset(
+            {
+                "calendar_convention",
+                "civil_date_authority",
+                "boundary_timezone",
+                "finite_coverage",
+                "level_key_meaning",
+                "containment_expectations",
+                "correspondence_conventions",
+            }
+        ),
+        SemanticKind.TEMPORAL_SET: frozenset(
+            {
+                "occurrence_set_meaning",
+                "occurrence_identity",
+                "half_open_bounds",
+                "temporal_encoding",
+                "boundary_timezone",
+                "finite_coverage",
+                "category",
+                "overlap_gap_semantics",
+            }
+        ),
+        SemanticKind.WORK_SCHEDULE: frozenset(
+            {
+                "working_status_authority",
+                "date_boolean_meaning",
+                "boundary_timezone",
+                "finite_coverage",
+                "rule_precedence",
+            }
+        ),
+    }
+)
+
+
+def test_object_contracts_cover_closed_kinds_and_pinned_decisions() -> None:
+    assert set(REQUIRED_DECISION_IDS) == set(SemanticKind) - {SemanticKind.DATASOURCE}
+    assert {contract.semantic_kind for contract in REGISTRY.object_contracts} == set(
+        REQUIRED_DECISION_IDS
+    )
+    for contract in REGISTRY.object_contracts:
+        assert {decision.decision_id for decision in contract.decisions} == REQUIRED_DECISION_IDS[
+            contract.semantic_kind
+        ]
+
+
+def test_object_construction_modes_return_the_owning_ref_kind() -> None:
+    for contract in REGISTRY.object_contracts:
+        expected = f"Ref[{contract.semantic_kind.value}]"
+        assert (
+            REGISTRY.by_canonical_id(contract.ref_target.canonical_id or "").output_family
+            == expected
+        )
+        for mode in contract.construction_modes:
+            descriptor = REGISTRY.by_canonical_id(mode.target.canonical_id or "")
+            assert descriptor.output_family == expected
+        assert not {mode.target for mode in contract.construction_modes} & set(
+            contract.supporting_targets
+        )
+
+
+def test_state_model_replay_policy_is_the_only_unencoded_decision() -> None:
+    unsupported = {
+        (contract.semantic_kind, decision.decision_id)
+        for contract in REGISTRY.object_contracts
+        for decision in contract.decisions
+        if decision.encoding_status == "unsupported"
+    }
+    assert unsupported == {(SemanticKind.STATE_MODEL, "excluded_replay_policies")}
+
+
+def test_registry_rejects_missing_required_object_kind_eagerly() -> None:
+    with pytest.raises(ValueError, match="must cover every non-datasource kind"):
+        _finalize_fixture(object_contracts=REGISTRY.object_contracts[:-1])
+
+
+def test_registry_rejects_object_construction_output_drift_eagerly() -> None:
+    metric = REGISTRY.object_contract(SemanticKind.METRIC)
+    invalid_mode = replace(
+        metric.construction_modes[0],
+        target=_semantic_target("dimension_column"),
+    )
+    invalid = replace(metric, construction_modes=(invalid_mode, *metric.construction_modes[1:]))
+    contracts = tuple(
+        invalid if contract is metric else contract for contract in REGISTRY.object_contracts
+    )
+    with pytest.raises(ValueError, match="construction output-kind drift"):
+        _finalize_fixture(object_contracts=contracts)
+
+
+def test_registry_rejects_missing_object_decision_target_eagerly() -> None:
+    domain = REGISTRY.object_contract(SemanticKind.DOMAIN)
+    decision = replace(domain.decisions[0], next_targets=(_semantic_target("preview"),))
+    invalid = replace(domain, decisions=(decision, *domain.decisions[1:]))
+    contracts = tuple(
+        invalid if contract is domain else contract for contract in REGISTRY.object_contracts
+    )
+    with pytest.raises(ValueError, match="decision target escapes its owner"):
+        _finalize_fixture(object_contracts=contracts)
+
+
+def test_registry_rejects_object_catalog_mapping_drift_eagerly() -> None:
+    metric = REGISTRY.object_contract(SemanticKind.METRIC)
+    invalid = replace(metric, catalog_collection="dimensions")
+    contracts = tuple(
+        invalid if contract is metric else contract for contract in REGISTRY.object_contracts
+    )
+    with pytest.raises(ValueError, match="object catalog collection drift"):
+        _finalize_fixture(object_contracts=contracts)
+
+
+def test_registry_rejects_object_ref_kind_mapping_drift_eagerly() -> None:
+    metric = REGISTRY.object_contract(SemanticKind.METRIC)
+    invalid = replace(metric, ref_target=_semantic_target("ref.dimension"))
+    contracts = tuple(
+        invalid if contract is metric else contract for contract in REGISTRY.object_contracts
+    )
+    with pytest.raises(ValueError, match="object ref target drift"):
+        _finalize_fixture(object_contracts=contracts)
+
+
+def test_registry_rejects_unknown_group_membership_eagerly() -> None:
+    groups = dict(REGISTRY._groups)
+    groups["author_families"] = (*groups["author_families"], "synthetic.missing")
+    with pytest.raises(ValueError, match="root group contains an unknown capability"):
+        _finalize_fixture(groups=groups)
+
+
+def test_registry_rejects_multiple_discovery_owners_eagerly() -> None:
+    groups = dict(REGISTRY._groups)
+    groups["author_families"] = (*groups["author_families"], "load")
+    with pytest.raises(ValueError, match="multiple semantic discovery owners: load"):
+        _finalize_fixture(groups=groups)
+
+
+def test_registry_rejects_dead_cross_surface_object_relationship_eagerly() -> None:
+    entity = REGISTRY.object_contract(SemanticKind.ENTITY)
+    relationships = tuple(
+        replace(
+            relationship,
+            target=LiveHelpTarget(surface="datasource", canonical_id="synthetic.missing"),
+        )
+        if relationship.target.surface == "datasource"
+        else relationship
+        for relationship in entity.relationships
+    )
+    assert relationships != entity.relationships
+    invalid = replace(entity, relationships=relationships)
+    contracts = tuple(
+        invalid if contract is entity else contract for contract in REGISTRY.object_contracts
+    )
+    with pytest.raises(ValueError, match="unknown datasource object relationship: entity"):
+        _finalize_fixture(object_contracts=contracts)
+
+
+def test_registry_rejects_missing_ref_factory_leaf_eagerly() -> None:
+    descriptors = tuple(
+        descriptor
+        for descriptor in REGISTRY.descriptors
+        if descriptor.canonical_id != "ref.datasource"
+    )
+    with pytest.raises(ValueError, match="semantic ref factory target is not exact"):
+        _finalize_fixture(descriptors=descriptors)
+
+
+def test_signature_parameter_drift_is_detected_adversarially() -> None:
+    from marivo.introspection.live.reflect import import_registered_callable
+    from marivo.semantic._capabilities.validation import _validate_parameter_metadata
+
+    descriptor = REGISTRY.by_canonical_id("entity")
+    first = descriptor.input_requirements[0].model_copy(
+        update={"parameter_names": ("removed_parameter",)}
+    )
+    invalid = descriptor.model_copy(
+        update={"input_requirements": (first, *descriptor.input_requirements[1:])}
+    )
+    with pytest.raises(AssertionError, match="missing live parameter"):
+        _validate_parameter_metadata(invalid, import_registered_callable(descriptor.callable_path))
+
+
+def test_output_family_drift_is_detected_adversarially() -> None:
+    from marivo.introspection.live.reflect import import_registered_callable
+    from marivo.semantic._capabilities.validation import _validate_output_metadata
+
+    descriptor = REGISTRY.by_canonical_id("dimension_column")
+    invalid = descriptor.model_copy(update={"output_family": "Ref[metric]"})
+    with pytest.raises(AssertionError, match="output family drift"):
+        _validate_output_metadata(invalid, import_registered_callable(descriptor.callable_path))
 
 
 def test_every_active_descriptor_has_one_registry_owned_render_class() -> None:
@@ -283,6 +565,69 @@ def test_registry_covers_all_public_callables() -> None:
             )
 
 
+def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts() -> None:
+    import marivo.semantic as ms
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    resolved = resolve_live_target(ms.ref, SEMANTIC_LIVE_SURFACE)
+    assert resolved.descriptor is REGISTRY.by_canonical_id("ref")
+    expected = {f"ref.{kind.value}" for kind in SemanticKind}
+    public_methods = {
+        name
+        for name, value in vars(type(ms.ref)).items()
+        if not name.startswith("_") and callable(value)
+    }
+    assert public_methods == {kind.value for kind in SemanticKind}
+    parent = REGISTRY.by_canonical_id("ref")
+    assert {target.canonical_id for target in parent.see_also} == expected
+    for kind in SemanticKind:
+        method = getattr(ms.ref, kind.value)
+        descriptor = REGISTRY.by_canonical_id(f"ref.{kind.value}")
+        assert REGISTRY.by_callable(method) is descriptor
+        assert descriptor.output_family == f"Ref[{kind.value}]"
+
+
+def test_source_check_namespace_and_every_exact_method_share_registry_contracts() -> None:
+    import marivo.semantic as ms
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    expected_outputs = {
+        "not_null": "NotNullSourceCheck",
+        "allowed_values": "AllowedValuesSourceCheck",
+        "unique": "UniqueSourceCheck",
+        "freshness": "FreshnessSourceCheck",
+        "relationship_matches": "RelationshipMatchesSourceCheck",
+        "relationship_cardinality": "RelationshipCardinalitySourceCheck",
+    }
+    public_methods = {
+        name
+        for name, value in vars(type(ms.source_check)).items()
+        if not name.startswith("_") and callable(value)
+    }
+    assert public_methods == set(expected_outputs)
+    resolved = resolve_live_target(ms.source_check, SEMANTIC_LIVE_SURFACE)
+    assert resolved.descriptor is REGISTRY.by_canonical_id("source_check")
+    for method_name, output_family in expected_outputs.items():
+        method = getattr(ms.source_check, method_name)
+        descriptor = REGISTRY.by_canonical_id(f"source_check.{method_name}")
+        assert REGISTRY.by_callable(method) is descriptor
+        assert descriptor.output_family == output_family
+
+
+def test_every_bound_input_fact_names_live_parameters() -> None:
+    from marivo.introspection.live.reflect import import_registered_callable
+
+    for descriptor in REGISTRY.descriptors:
+        if descriptor.callable_path is None:
+            continue
+        signature = inspect.signature(import_registered_callable(descriptor.callable_path))
+        parameters = tuple(signature.parameters.values())
+        if parameters and parameters[0].name in {"self", "cls"}:
+            signature = signature.replace(parameters=parameters[1:])
+        for requirement in descriptor.input_requirements:
+            assert set(requirement.parameter_names) <= set(signature.parameters)
+
+
 def test_registry_covers_all_public_types() -> None:
     import marivo.semantic as ms
 
@@ -309,6 +654,10 @@ def test_source_contracts_cover_every_source_authored_ref_constructor() -> None:
     assert set(REGISTRY._source_contracts) == expected
     assert all(
         isinstance(contract, AuthoringSourceContract)
+        for contract in REGISTRY._source_contracts.values()
+    )
+    assert all(
+        not hasattr(contract, "prerequisite_targets")
         for contract in REGISTRY._source_contracts.values()
     )
 

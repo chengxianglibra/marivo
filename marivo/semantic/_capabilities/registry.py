@@ -27,6 +27,7 @@ from marivo.semantic._capabilities.catalog_members import (
 from marivo.semantic._capabilities.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
     AuthoringSourceContract,
+    ConstructionMode,
     SemanticBuilderTopic,
     SemanticCapabilityRegistry,
     SemanticCheckTopic,
@@ -35,6 +36,8 @@ from marivo.semantic._capabilities.model import (
     SemanticHelpRenderClass,
     SemanticNavigationTopic,
     SemanticObjectContract,
+    SemanticObjectDecision,
+    SemanticObjectRelationship,
     SemanticRepairContract,
     SemanticRootGroup,
     SemanticTypeContract,
@@ -69,6 +72,12 @@ INPUT_FAMILIES = frozenset(
         "SemanticKind",
         "AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
         "SourceCheck",
+        "NotNullSourceCheck",
+        "AllowedValuesSourceCheck",
+        "UniqueSourceCheck",
+        "FreshnessSourceCheck",
+        "RelationshipMatchesSourceCheck",
+        "RelationshipCardinalitySourceCheck",
         "Mapping[Ref[entity], JSON source parameter mapping]",
         "HelpTarget",
         "DomainName",
@@ -91,7 +100,7 @@ INPUT_FAMILIES = frozenset(
         "ParseVariant",
         "PositiveInt",
         "TimeFold",
-        "JoinKeySpec",
+        "JoinKey",
         "RelationshipEndpoint",
         "DemandSignal",
         "RelTol",
@@ -127,6 +136,10 @@ INPUT_FAMILIES = frozenset(
         "PeriodCorrespondence",
         "Grain",
         "Text",
+        "SourceScalarSequence",
+        "Duration",
+        "RelationshipSide",
+        "RelationshipCardinality",
     }
 )
 
@@ -139,6 +152,12 @@ OUTPUT_FAMILIES = frozenset(
         "PreviewResult",
         "ReadinessReport",
         "SourceCheck",
+        "NotNullSourceCheck",
+        "AllowedValuesSourceCheck",
+        "UniqueSourceCheck",
+        "FreshnessSourceCheck",
+        "RelationshipMatchesSourceCheck",
+        "RelationshipCardinalitySourceCheck",
         "SourceHealthReport",
         "RichnessReport",
         "ParityResult",
@@ -206,6 +225,20 @@ def _optional_input(role: AuthoringInputRole, family: str) -> AuthoringInputRequ
     return AuthoringInputRequirement(role=role, family=family, min_count=0)
 
 
+def _parameter_input(
+    role: AuthoringInputRole,
+    family: str,
+    *parameter_names: str,
+    optional: bool = False,
+) -> AuthoringInputRequirement:
+    return AuthoringInputRequirement(
+        role=role,
+        family=family,
+        parameter_names=parameter_names,
+        min_count=0 if optional else 1,
+    )
+
+
 def _effects(
     data_access: DataAccessEffect = "none",
     connection: ConnectionEffect = "none",
@@ -265,6 +298,7 @@ def _capability(
     repair_kinds: tuple[RepairKind, ...] = (),
     see_also: tuple[LiveHelpTarget, ...] = (),
     public_entrypoint: str | None = None,
+    invocation_shape: Literal["direct", "decorator"] = "direct",
 ) -> AuthoringCapability:
     return AuthoringCapability(
         canonical_id=canonical_id,
@@ -282,14 +316,11 @@ def _capability(
         minimal_example=example,
         see_also=see_also,
         repair_kinds=repair_kinds,
+        invocation_shape=invocation_shape,
     )
 
 
-def _authoring_source_contract(
-    kind: SemanticKind,
-    *,
-    prerequisite_targets: tuple[LiveHelpTarget, ...],
-) -> AuthoringSourceContract:
+def _authoring_source_contract(kind: SemanticKind) -> AuthoringSourceContract:
     member = next(member for member in CATALOG_MEMBER_CONTRACTS if member.kind is kind)
     placement_kind: Literal["domain_entrypoint", "domain_module"]
     if kind is SemanticKind.DOMAIN:
@@ -315,7 +346,6 @@ def _authoring_source_contract(
     return AuthoringSourceContract(
         placement_kind=placement_kind,
         path_template=path_template,
-        prerequisite_targets=prerequisite_targets,
         catalog_collection=member.property_name,
         canonical_identity_template=identity_template,
     )
@@ -324,65 +354,10 @@ def _authoring_source_contract(
 def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
     """Build closed placement/handoff facts for every source-authored object."""
 
-    datasource_authoring = LiveHelpTarget(surface="datasource", canonical_id="authoring")
-    by_kind = {
-        SemanticKind.DOMAIN: _authoring_source_contract(
-            SemanticKind.DOMAIN,
-            prerequisite_targets=(),
-        ),
-        SemanticKind.ENTITY: _authoring_source_contract(
-            SemanticKind.ENTITY,
-            prerequisite_targets=(_target("domain"), datasource_authoring),
-        ),
-        SemanticKind.DIMENSION: _authoring_source_contract(
-            SemanticKind.DIMENSION,
-            prerequisite_targets=(_target("entity"),),
-        ),
-        SemanticKind.TIME_DIMENSION: _authoring_source_contract(
-            SemanticKind.TIME_DIMENSION,
-            prerequisite_targets=(_target("entity"),),
-        ),
-        SemanticKind.MEASURE: _authoring_source_contract(
-            SemanticKind.MEASURE,
-            prerequisite_targets=(_target("entity"),),
-        ),
-        SemanticKind.METRIC: _authoring_source_contract(
-            SemanticKind.METRIC,
-            prerequisite_targets=(_target("entity"), _target("measure")),
-        ),
-        SemanticKind.RELATIONSHIP: _authoring_source_contract(
-            SemanticKind.RELATIONSHIP,
-            prerequisite_targets=(_target("entity"),),
-        ),
-        SemanticKind.EVENT: _authoring_source_contract(
-            SemanticKind.EVENT,
-            prerequisite_targets=(
-                _target("dimension"),
-                _target("time_dimension"),
-                _target("participant"),
-            ),
-        ),
-        SemanticKind.STATE_MODEL: _authoring_source_contract(
-            SemanticKind.STATE_MODEL,
-            prerequisite_targets=(
-                _target("entity"),
-                _target("event"),
-                _target("lifecycle_state"),
-                _target("transition"),
-            ),
-        ),
-        SemanticKind.PERIOD_CALENDAR: _authoring_source_contract(
-            SemanticKind.PERIOD_CALENDAR,
-            prerequisite_targets=(_target("time_dimension"), _target("dimension")),
-        ),
-        SemanticKind.TEMPORAL_SET: _authoring_source_contract(
-            SemanticKind.TEMPORAL_SET,
-            prerequisite_targets=(_target("dimension"), _target("time_dimension")),
-        ),
-        SemanticKind.WORK_SCHEDULE: _authoring_source_contract(
-            SemanticKind.WORK_SCHEDULE,
-            prerequisite_targets=(_target("dimension"), _target("time_dimension")),
-        ),
+    by_kind: dict[SemanticKind, AuthoringSourceContract] = {
+        kind: _authoring_source_contract(kind)
+        for kind in SemanticKind
+        if kind is not SemanticKind.DATASOURCE
     }
     ids_by_kind = {
         SemanticKind.DOMAIN: ("domain",),
@@ -412,6 +387,841 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
             for kind, canonical_ids in ids_by_kind.items()
             for canonical_id in canonical_ids
         }
+    )
+
+
+def _decision(
+    decision_id: str,
+    question: str,
+    determine_from: str,
+    basis: Literal["source_evidence", "business_authority", "source_and_business"],
+    *next_target_ids: str,
+    does_not_establish: str | None = None,
+    unsupported_reason: str | None = None,
+) -> SemanticObjectDecision:
+    """Build one bounded object decision without storing project observations."""
+
+    supported = unsupported_reason is None
+    return SemanticObjectDecision(
+        decision_id=decision_id,
+        question=question,
+        determine_from=determine_from,
+        basis=basis,
+        encoding_status="supported" if supported else "unsupported",
+        next_targets=tuple(_target(target_id) for target_id in next_target_ids),
+        does_not_establish=does_not_establish,
+        unsupported_reason=unsupported_reason,
+    )
+
+
+def _business_decision(
+    decision_id: str,
+    question: str,
+    *next_target_ids: str,
+) -> SemanticObjectDecision:
+    return _decision(
+        decision_id,
+        question,
+        "Use current business authority or an approved attributable project definition.",
+        "business_authority",
+        *next_target_ids,
+    )
+
+
+def _source_decision(
+    decision_id: str,
+    question: str,
+    *next_target_ids: str,
+) -> SemanticObjectDecision:
+    return _decision(
+        decision_id,
+        question,
+        "Use the current source contract and authoritative physical metadata.",
+        "source_evidence",
+        *next_target_ids,
+    )
+
+
+def _source_business_decision(
+    decision_id: str,
+    question: str,
+    *next_target_ids: str,
+) -> SemanticObjectDecision:
+    return _decision(
+        decision_id,
+        question,
+        (
+            "Use current source evidence to constrain legal encodings and current business "
+            "authority to settle reusable meaning."
+        ),
+        "source_and_business",
+        *next_target_ids,
+        does_not_establish=(
+            "Names, physical types, sample values, and observed distributions do not establish "
+            "reusable business meaning."
+        ),
+    )
+
+
+def _relationship(
+    relation: Literal["owned_by", "requires", "may_reference", "inferred_from", "consumed_by"],
+    target_id: str,
+    explanation: str,
+    *,
+    surface: Literal["semantic", "datasource", "analysis", "ontology"] = "semantic",
+) -> SemanticObjectRelationship:
+    return SemanticObjectRelationship(
+        relation=relation,
+        target=LiveHelpTarget(surface=surface, canonical_id=target_id),
+        explanation=explanation,
+    )
+
+
+def _mode(
+    intent: str,
+    role: Literal["default", "alternative", "escape_hatch"],
+    target_id: str,
+) -> ConstructionMode:
+    return ConstructionMode(intent=intent, role=role, target=_target(target_id))
+
+
+def _object_contract(
+    kind: SemanticKind,
+    summary: str,
+    *,
+    decisions: tuple[SemanticObjectDecision, ...],
+    construction_modes: tuple[ConstructionMode, ...],
+    relationships: tuple[SemanticObjectRelationship, ...],
+    supporting: tuple[str, ...],
+    checks: tuple[str, ...],
+) -> SemanticObjectContract:
+    source_contract = _authoring_source_contract(kind)
+    return SemanticObjectContract(
+        canonical_id=f"objects.{kind.value}",
+        summary=summary,
+        semantic_kind=kind,
+        ref_target=_target(f"ref.{kind.value}"),
+        catalog_collection=source_contract.catalog_collection,
+        placement_kind=source_contract.placement_kind,
+        decisions=decisions,
+        construction_modes=construction_modes,
+        relationships=relationships,
+        supporting_targets=tuple(_target(target_id) for target_id in supporting),
+        check_targets=tuple(_target(target_id) for target_id in checks),
+    )
+
+
+def _object_contracts() -> tuple[SemanticObjectContract, ...]:
+    """Build the complete Slice 2 semantic object graph in teaching order."""
+
+    return (
+        _object_contract(
+            SemanticKind.DOMAIN,
+            "Business namespace and accountability boundary.",
+            decisions=(
+                _business_decision(
+                    "business_boundary",
+                    "What business boundary does this Domain own?",
+                    "domain",
+                    "ai_context",
+                ),
+                _business_decision(
+                    "accountable_owner",
+                    "Who is accountable for this Domain's semantic correctness?",
+                    "domain",
+                ),
+                _business_decision(
+                    "default_domain_behavior",
+                    "May sibling declarations omit an explicit Domain ref?",
+                    "domain",
+                ),
+                _business_decision(
+                    "definition_guardrails",
+                    "Which reusable definition and guardrails apply to the Domain?",
+                    "ai_context",
+                ),
+            ),
+            construction_modes=(
+                _mode("Declare one governed business namespace.", "default", "domain"),
+            ),
+            relationships=(
+                _relationship(
+                    "consumed_by", "objects.entity", "Entities are authored inside one Domain."
+                ),
+            ),
+            supporting=("ai_context",),
+            checks=("load", "readiness"),
+        ),
+        _object_contract(
+            SemanticKind.ENTITY,
+            "Reusable business entity or fact-set identity backed by a source.",
+            decisions=(
+                _business_decision(
+                    "recordset_meaning",
+                    "What reusable record set does this Entity represent?",
+                    "entity",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "authoritative_source",
+                    "Which governed datasource and physical source are authoritative?",
+                    "entity",
+                ),
+                _business_decision(
+                    "row_grain", "What does one Entity row represent?", "ai_context"
+                ),
+                _source_business_decision(
+                    "identity_key", "Which fields form the stable row identity?", "entity"
+                ),
+                _source_business_decision(
+                    "history_as_of_model",
+                    "Is the Entity current, snapshot-versioned, or validity-versioned?",
+                    "entity",
+                    "snapshot",
+                    "validity",
+                ),
+                _business_decision("domain_ownership", "Which Domain owns this Entity?", "entity"),
+            ),
+            construction_modes=(_mode("Declare a datasource-backed Entity.", "default", "entity"),),
+            relationships=(
+                _relationship("owned_by", "objects.domain", "Every Entity belongs to one Domain."),
+                _relationship(
+                    "requires",
+                    "authoring",
+                    "An Entity requires a registered datasource and source descriptor.",
+                    surface="datasource",
+                ),
+                _relationship(
+                    "consumed_by", "objects.dimension", "Dimensions are owned by an Entity."
+                ),
+                _relationship(
+                    "consumed_by",
+                    "objects.time_dimension",
+                    "TimeDimensions are owned by an Entity.",
+                ),
+                _relationship("consumed_by", "objects.measure", "Measures are owned by an Entity."),
+            ),
+            supporting=("snapshot", "validity", "ai_context"),
+            checks=("load", "readiness", "preview", "source_health"),
+        ),
+        _object_contract(
+            SemanticKind.DIMENSION,
+            "Categorical field used for grouping, filtering, identity, or joins.",
+            decisions=(
+                _business_decision(
+                    "owning_entity",
+                    "Which Entity owns this Dimension?",
+                    "dimension_column",
+                    "dimension",
+                ),
+                _business_decision(
+                    "dimension_meaning",
+                    "What reusable categorical, identity, filter, or join meaning does it carry?",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "code_null_semantics",
+                    "What do physical codes and nulls mean?",
+                    "dimension_column",
+                    "dimension",
+                    "ai_context",
+                ),
+                _source_decision(
+                    "construction_mode",
+                    "Can a direct column preserve the meaning, or is a normalized expression required?",
+                    "dimension_column",
+                    "dimension",
+                ),
+            ),
+            construction_modes=(
+                _mode("Bind one physical column directly.", "default", "dimension_column"),
+                _mode("Use one restricted row-level Ibis expression.", "escape_hatch", "dimension"),
+            ),
+            relationships=(
+                _relationship(
+                    "owned_by", "objects.entity", "The Entity ref fixes field ownership."
+                ),
+                _relationship(
+                    "consumed_by", "objects.relationship", "Dimensions may form join keys."
+                ),
+                _relationship(
+                    "consumed_by", "objects.event", "Dimensions may identify Event occurrences."
+                ),
+            ),
+            supporting=("ai_context", "bind"),
+            checks=(
+                "load",
+                "readiness",
+                "preview",
+                "source_check.not_null",
+                "source_check.allowed_values",
+                "source_check.unique",
+                "source_health",
+            ),
+        ),
+        _object_contract(
+            SemanticKind.TIME_DIMENSION,
+            "Explicit business time axis with grain and parse semantics.",
+            decisions=(
+                _business_decision(
+                    "owning_entity",
+                    "Which Entity owns this time axis?",
+                    "time_dimension_column",
+                    "time_dimension",
+                ),
+                _business_decision(
+                    "business_time_role",
+                    "Which business time does this axis represent?",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "granularity",
+                    "What is the finest meaningful business grain?",
+                    "time_dimension_column",
+                    "time_dimension",
+                ),
+                _source_business_decision(
+                    "physical_time_encoding",
+                    "How are physical values encoded, parsed, and localized?",
+                    "time_dimension_column",
+                    "time_dimension",
+                    "datetime",
+                    "timestamp",
+                    "strptime",
+                    "hour_prefix",
+                ),
+                _business_decision(
+                    "default_axis",
+                    "Should this be the Entity's default analysis time axis?",
+                    "time_dimension_column",
+                    "time_dimension",
+                ),
+                _source_business_decision(
+                    "sampled_cadence",
+                    "Does the source represent a fixed-cadence sampled series?",
+                    "datetime",
+                    "timestamp",
+                ),
+            ),
+            construction_modes=(
+                _mode(
+                    "Bind one physical time column directly.", "default", "time_dimension_column"
+                ),
+                _mode(
+                    "Use one restricted row-level Ibis expression.",
+                    "escape_hatch",
+                    "time_dimension",
+                ),
+            ),
+            relationships=(
+                _relationship(
+                    "owned_by", "objects.entity", "The Entity ref fixes time-axis ownership."
+                ),
+            ),
+            supporting=("datetime", "timestamp", "strptime", "hour_prefix", "ai_context", "bind"),
+            checks=(
+                "load",
+                "readiness",
+                "preview",
+                "source_check.not_null",
+                "source_check.allowed_values",
+                "source_check.unique",
+                "source_check.freshness",
+                "source_health",
+            ),
+        ),
+        _object_contract(
+            SemanticKind.MEASURE,
+            "Row-level numeric fact owning unit and additivity.",
+            decisions=(
+                _business_decision(
+                    "numeric_fact_grain",
+                    "What row-level numeric fact and grain does this Measure represent?",
+                    "ai_context",
+                ),
+                _business_decision(
+                    "unit", "What physical unit does the value carry?", "measure_column", "measure"
+                ),
+                _business_decision(
+                    "dimensional_additivity",
+                    "How may values aggregate across business dimensions?",
+                    "measure_column",
+                    "measure",
+                    "semi_additive",
+                ),
+                _business_decision(
+                    "temporal_additivity",
+                    "How may values aggregate across time?",
+                    "measure_column",
+                    "measure",
+                    "semi_additive",
+                ),
+                _source_business_decision(
+                    "semi_additive_axis_fold",
+                    "If semi-additive, which status axis and fold are authoritative?",
+                    "semi_additive",
+                ),
+                _source_decision(
+                    "construction_mode",
+                    "Can a direct numeric column preserve the meaning, or is an expression required?",
+                    "measure_column",
+                    "measure",
+                ),
+            ),
+            construction_modes=(
+                _mode("Bind one physical numeric column directly.", "default", "measure_column"),
+                _mode("Use one restricted row-level Ibis expression.", "escape_hatch", "measure"),
+            ),
+            relationships=(
+                _relationship("owned_by", "objects.entity", "The Entity ref fixes fact ownership."),
+            ),
+            supporting=("semi_additive", "ai_context", "bind"),
+            checks=("load", "readiness", "preview", "source_check.not_null", "source_health"),
+        ),
+        _object_contract(
+            SemanticKind.METRIC,
+            "Analyzable business value built from governed semantic inputs.",
+            decisions=(
+                _business_decision(
+                    "population_value",
+                    "Which population and business value does this Metric define?",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "construction_mode",
+                    "Which aggregate, count, composition, cumulative, or expression mode matches the definition?",
+                    "aggregate",
+                    "count",
+                    "ratio",
+                    "weighted_mean",
+                    "linear",
+                    "cumulative",
+                    "metric",
+                ),
+                _business_decision(
+                    "aggregation_filter",
+                    "Which aggregation and governed population filter apply?",
+                    "aggregate",
+                    "count",
+                    "where",
+                ),
+                _business_decision(
+                    "denominator_failure",
+                    "What should happen when a denominator or required input is unavailable?",
+                    "ratio",
+                    "metric",
+                ),
+                _source_business_decision(
+                    "root_fanout",
+                    "Which root Entity and fanout policy preserve the intended population?",
+                    "metric",
+                ),
+                _business_decision(
+                    "unit_additivity",
+                    "Which unit and additivity semantics apply to the result?",
+                    "aggregate",
+                    "count",
+                    "ratio",
+                    "weighted_mean",
+                    "linear",
+                    "metric",
+                ),
+                _business_decision(
+                    "temporal_behavior",
+                    "Is the Metric ordinary, folded, cumulative, or trailing over time?",
+                    "aggregate",
+                    "cumulative",
+                    "grain_to_date",
+                    "trailing",
+                ),
+                _business_decision(
+                    "provenance",
+                    "Does governed SQL provenance require parity evidence?",
+                    "from_sql",
+                ),
+                _business_decision(
+                    "guardrails",
+                    "Which reusable exclusions and interpretation guardrails apply?",
+                    "ai_context",
+                ),
+            ),
+            construction_modes=(
+                _mode("Aggregate one Measure.", "default", "aggregate"),
+                _mode("Count Entity rows.", "default", "count"),
+                _mode("Divide two Metrics.", "alternative", "ratio"),
+                _mode("Compute a weighted mean from Measures.", "alternative", "weighted_mean"),
+                _mode("Add or subtract commensurable Metrics.", "alternative", "linear"),
+                _mode("Accumulate one Metric over governed time.", "alternative", "cumulative"),
+                _mode("Use one restricted Ibis expression body.", "escape_hatch", "metric"),
+            ),
+            relationships=(
+                _relationship(
+                    "requires", "objects.measure", "Aggregate Metrics consume one governed Measure."
+                ),
+                _relationship(
+                    "may_reference",
+                    "objects.entity",
+                    "Count and expression Metrics may name Entities.",
+                ),
+                _relationship(
+                    "may_reference", "objects.metric", "Derived Metrics compose other Metrics."
+                ),
+            ),
+            supporting=("where", "from_sql", "grain_to_date", "trailing", "ai_context", "bind"),
+            checks=("load", "readiness", "preview", "parity_check"),
+        ),
+        _object_contract(
+            SemanticKind.RELATIONSHIP,
+            "Executable directed join contract between Entities.",
+            decisions=(
+                _business_decision(
+                    "directed_meaning",
+                    "What directed business relationship connects the endpoints?",
+                    "relationship",
+                    "ai_context",
+                ),
+                _business_decision(
+                    "endpoint_grains",
+                    "What row grain does each endpoint Entity carry?",
+                    "relationship",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "join_key_equivalence",
+                    "Which field pairs encode the same business identity?",
+                    "relationship",
+                    "join_on",
+                ),
+                _source_business_decision(
+                    "multiplicity_fanout",
+                    "Which multiplicity and fanout implications are expected?",
+                    "relationship",
+                    "ai_context",
+                ),
+                _source_decision(
+                    "evidence_checks",
+                    "Which source checks are required to test those claims?",
+                    "source_check.relationship_matches",
+                    "source_check.relationship_cardinality",
+                    "source_health",
+                ),
+            ),
+            construction_modes=(
+                _mode("Declare one directed Entity join contract.", "default", "relationship"),
+            ),
+            relationships=(
+                _relationship(
+                    "requires", "objects.entity", "Both directed endpoints are exact Entity refs."
+                ),
+                _relationship(
+                    "consumed_by",
+                    "objects.event",
+                    "Participant paths traverse directed Relationships.",
+                ),
+            ),
+            supporting=("join_on", "ai_context"),
+            checks=(
+                "load",
+                "readiness",
+                "source_check.relationship_matches",
+                "source_check.relationship_cardinality",
+                "source_health",
+            ),
+        ),
+        _object_contract(
+            SemanticKind.EVENT,
+            "Reusable occurrence with identity, occurrence time, and participants.",
+            decisions=(
+                _business_decision(
+                    "occurrence_predicate",
+                    "Which business occurrence and row predicate define this Event?",
+                    "event",
+                    "all_rows",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "occurrence_identity",
+                    "Which Dimensions uniquely identify an occurrence?",
+                    "event",
+                ),
+                _business_decision(
+                    "occurrence_time",
+                    "Which TimeDimension is the business occurrence time?",
+                    "event",
+                ),
+                _business_decision(
+                    "participant_roles",
+                    "Which named business participants belong to each occurrence?",
+                    "event",
+                    "participant",
+                ),
+                _source_business_decision(
+                    "directed_paths",
+                    "Which directed Relationship paths reach each participant?",
+                    "participant",
+                ),
+                _business_decision(
+                    "participant_cardinality",
+                    "What cardinality does each participant role guarantee?",
+                    "participant",
+                ),
+            ),
+            construction_modes=(
+                _mode("Declare one filtered or explicit all-rows occurrence.", "default", "event"),
+            ),
+            relationships=(
+                _relationship(
+                    "inferred_from",
+                    "objects.entity",
+                    "The occurred_at field owner determines the source Entity.",
+                ),
+                _relationship(
+                    "may_reference",
+                    "objects.relationship",
+                    "Participant roles may traverse directed Relationship paths.",
+                ),
+                _relationship(
+                    "consumed_by",
+                    "objects.state_model",
+                    "Events may trigger StateModel transitions.",
+                ),
+            ),
+            supporting=("all_rows", "participant", "ai_context"),
+            checks=("load", "readiness", "preview"),
+        ),
+        _object_contract(
+            SemanticKind.STATE_MODEL,
+            "Closed normative lifecycle for one subject Entity.",
+            decisions=(
+                _business_decision(
+                    "subject_lifecycle",
+                    "Which subject Entity lifecycle is governed?",
+                    "state_model",
+                    "ai_context",
+                ),
+                _business_decision(
+                    "state_vocabulary",
+                    "Which closed business-state vocabulary applies?",
+                    "lifecycle_state",
+                    "state_model",
+                ),
+                _business_decision(
+                    "initial_terminal_meaning",
+                    "Which states are initial or terminal and what do they mean?",
+                    "lifecycle_state",
+                    "ai_context",
+                ),
+                _business_decision(
+                    "inception_transitions",
+                    "Which Event establishes lifecycle inception?",
+                    "inception",
+                    "state_model",
+                ),
+                _business_decision(
+                    "deterministic_transitions",
+                    "Which exact Event triggers each state transition?",
+                    "transition",
+                    "participant_role",
+                    "state_model",
+                ),
+                _decision(
+                    "excluded_replay_policies",
+                    "Which replay, seed, ordering, or violation policies are deliberately excluded?",
+                    "StateModel owns normative lifecycle meaning only; analysis owns replay policy.",
+                    "business_authority",
+                    unsupported_reason=(
+                        "The current StateModel object does not encode replay policy; use the exact "
+                        "analysis lifecycle contract when replaying a model."
+                    ),
+                ),
+            ),
+            construction_modes=(
+                _mode("Declare one finite normative lifecycle.", "default", "state_model"),
+            ),
+            relationships=(
+                _relationship(
+                    "owned_by", "objects.entity", "The subject ref fixes lifecycle ownership."
+                ),
+                _relationship(
+                    "requires",
+                    "objects.event",
+                    "Inceptions and transitions use exact Event triggers or participant handles.",
+                ),
+            ),
+            supporting=(
+                "lifecycle_state",
+                "inception",
+                "transition",
+                "model_state",
+                "participant_role",
+                "ai_context",
+            ),
+            checks=("load", "readiness"),
+        ),
+        _object_contract(
+            SemanticKind.PERIOD_CALENDAR,
+            "Governed finite business-period hierarchy.",
+            decisions=(
+                _business_decision(
+                    "calendar_convention",
+                    "Which fiscal, retail, or operational calendar convention is authoritative?",
+                    "period_calendar",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "civil_date_authority",
+                    "Which exhaustive civil-date spine is authoritative?",
+                    "period_calendar",
+                ),
+                _business_decision(
+                    "boundary_timezone",
+                    "Which timezone owns civil-day boundaries?",
+                    "period_calendar",
+                ),
+                _source_business_decision(
+                    "finite_coverage",
+                    "Which half-open civil-date coverage is complete?",
+                    "period_calendar",
+                ),
+                _source_business_decision(
+                    "level_key_meaning",
+                    "What does each period level and key mean?",
+                    "period_calendar",
+                    "ai_context",
+                ),
+                _source_decision(
+                    "containment_expectations",
+                    "Which level containment relationships should certification derive?",
+                    "period_calendar",
+                    "preview",
+                ),
+                _business_decision(
+                    "correspondence_conventions",
+                    "Which named same-level baseline correspondences are authorized?",
+                    "period_correspondence",
+                    "period_calendar",
+                ),
+            ),
+            construction_modes=(
+                _mode("Declare one finite governed calendar.", "default", "period_calendar"),
+            ),
+            relationships=(
+                _relationship(
+                    "requires", "objects.time_dimension", "The civil-date spine is a TimeDimension."
+                ),
+                _relationship(
+                    "requires",
+                    "objects.dimension",
+                    "Period levels and correspondence keys are Dimensions.",
+                ),
+            ),
+            supporting=("period_correspondence", "ai_context"),
+            checks=("load", "readiness", "preview", "source_health"),
+        ),
+        _object_contract(
+            SemanticKind.TEMPORAL_SET,
+            "Governed finite set of named temporal occurrences.",
+            decisions=(
+                _business_decision(
+                    "occurrence_set_meaning",
+                    "What named sparse or overlapping occurrences does this set govern?",
+                    "temporal_set",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "occurrence_identity",
+                    "Which Dimension uniquely identifies each occurrence?",
+                    "temporal_set",
+                ),
+                _source_business_decision(
+                    "half_open_bounds",
+                    "Which start and exclusive-end fields define each occurrence?",
+                    "temporal_set",
+                ),
+                _source_business_decision(
+                    "temporal_encoding",
+                    "Are bounds civil dates or timestamps with explicit semantics?",
+                    "temporal_set",
+                ),
+                _business_decision(
+                    "boundary_timezone",
+                    "Which timezone owns occurrence boundaries?",
+                    "temporal_set",
+                ),
+                _source_business_decision(
+                    "finite_coverage",
+                    "Which half-open civil-date coverage is complete?",
+                    "temporal_set",
+                ),
+                _business_decision(
+                    "category",
+                    "Does an optional category have reusable business meaning?",
+                    "temporal_set",
+                    "ai_context",
+                ),
+                _business_decision(
+                    "overlap_gap_semantics",
+                    "Are overlaps and gaps intentional for this occurrence set?",
+                    "ai_context",
+                ),
+            ),
+            construction_modes=(
+                _mode("Declare one finite occurrence set.", "default", "temporal_set"),
+            ),
+            relationships=(
+                _relationship(
+                    "requires",
+                    "objects.dimension",
+                    "Occurrence identity and optional category are Dimensions.",
+                ),
+                _relationship(
+                    "requires", "objects.time_dimension", "Occurrence bounds are TimeDimensions."
+                ),
+            ),
+            supporting=("ai_context",),
+            checks=("load", "readiness", "preview", "source_health"),
+        ),
+        _object_contract(
+            SemanticKind.WORK_SCHEDULE,
+            "Governed final daily working-status schedule.",
+            decisions=(
+                _business_decision(
+                    "working_status_authority",
+                    "Which business source owns final working status?",
+                    "work_schedule",
+                    "ai_context",
+                ),
+                _source_business_decision(
+                    "date_boolean_meaning",
+                    "Which civil-date and boolean fields encode final status?",
+                    "work_schedule",
+                ),
+                _business_decision(
+                    "boundary_timezone", "Which timezone owns workday boundaries?", "work_schedule"
+                ),
+                _source_business_decision(
+                    "finite_coverage", "Which finite date coverage is exhaustive?", "work_schedule"
+                ),
+                _business_decision(
+                    "rule_precedence",
+                    "Which business rule precedence has already been resolved by the source?",
+                    "ai_context",
+                ),
+            ),
+            construction_modes=(
+                _mode("Declare one final daily status schedule.", "default", "work_schedule"),
+            ),
+            relationships=(
+                _relationship(
+                    "requires", "objects.time_dimension", "The schedule date is a TimeDimension."
+                ),
+                _relationship(
+                    "requires", "objects.dimension", "Final working status is a Dimension."
+                ),
+            ),
+            supporting=("ai_context",),
+            checks=("load", "readiness", "preview", "source_health"),
+        ),
     )
 
 
@@ -615,11 +1425,157 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
             )
 
     exact_ids = {descriptor.canonical_id for descriptor in exact_descriptors}
+    discovery_owners: dict[str, str] = {}
     for group, members in registry._groups.items():
         if len(members) != len(set(members)):
             raise ValueError(f"duplicate semantic root group member: {group}")
         if not set(members) <= exact_ids:
             raise ValueError(f"semantic root group contains an unknown capability: {group}")
+        for member in members:
+            previous_owner = discovery_owners.setdefault(member, group)
+            if previous_owner != group:
+                raise ValueError(f"multiple semantic discovery owners: {member}")
+
+    object_contracts = registry.object_contracts
+    expected_object_kinds = set(SemanticKind) - {SemanticKind.DATASOURCE}
+    object_kinds = tuple(contract.semantic_kind for contract in object_contracts)
+    if len(object_kinds) != len(set(object_kinds)):
+        raise ValueError("duplicate semantic object-kind contract")
+    if set(object_kinds) != expected_object_kinds:
+        raise ValueError("semantic object-kind contracts must cover every non-datasource kind")
+
+    catalog_collection_by_kind = {
+        member.kind: member.property_name for member in CATALOG_MEMBER_CONTRACTS
+    }
+    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
+
+    for contract in object_contracts:
+        kind = contract.semantic_kind
+        expected_ref_family = f"Ref[{kind.value}]"
+        if contract.canonical_id != f"objects.{kind.value}":
+            raise ValueError(f"invalid semantic object-kind canonical id: {kind.value}")
+        if contract.catalog_collection != catalog_collection_by_kind[kind]:
+            raise ValueError(f"semantic object catalog collection drift: {kind.value}")
+        if contract.ref_target != _target(f"ref.{kind.value}"):
+            raise ValueError(f"semantic object ref target drift: {kind.value}")
+        ref_descriptor = registry.by_canonical_id(contract.ref_target.canonical_id or "")
+        if not isinstance(ref_descriptor, AuthoringCapability):
+            raise ValueError(f"semantic object ref target is not exact: {kind.value}")
+        if ref_descriptor.output_family != expected_ref_family:
+            raise ValueError(f"semantic object ref-kind output drift: {kind.value}")
+
+        construction_ids = tuple(
+            mode.target.canonical_id or "" for mode in contract.construction_modes
+        )
+        if not construction_ids:
+            raise ValueError(f"semantic object kind has no construction mode: {kind.value}")
+        if len(construction_ids) != len(set(construction_ids)):
+            raise ValueError(f"duplicate semantic object construction mode: {kind.value}")
+        for mode in contract.construction_modes:
+            descriptor = registry.by_canonical_id(mode.target.canonical_id or "")
+            if not isinstance(descriptor, AuthoringCapability):
+                raise ValueError(f"semantic construction target is not exact: {kind.value}")
+            if descriptor.output_family != expected_ref_family:
+                raise ValueError(f"semantic construction output-kind drift: {kind.value}")
+
+        supporting_ids = tuple(target.canonical_id or "" for target in contract.supporting_targets)
+        check_ids = tuple(target.canonical_id or "" for target in contract.check_targets)
+        if len(supporting_ids) != len(set(supporting_ids)):
+            raise ValueError(f"duplicate semantic supporting target: {kind.value}")
+        if len(check_ids) != len(set(check_ids)):
+            raise ValueError(f"duplicate semantic check target: {kind.value}")
+        for target in (*contract.supporting_targets, *contract.check_targets):
+            if target.surface != "semantic" or target.canonical_id not in exact_ids:
+                raise ValueError(f"unknown semantic object edge: {kind.value}")
+
+        decision_ids = tuple(decision.decision_id for decision in contract.decisions)
+        if not decision_ids or any(not decision_id.strip() for decision_id in decision_ids):
+            raise ValueError(f"semantic object decisions must be named: {kind.value}")
+        if len(decision_ids) != len(set(decision_ids)):
+            raise ValueError(f"duplicate semantic object decision id: {kind.value}")
+        allowed_next_ids = {*construction_ids, *supporting_ids, *check_ids}
+        for decision in contract.decisions:
+            if not decision.question.strip() or not decision.determine_from.strip():
+                raise ValueError(f"semantic object decision guidance is incomplete: {kind.value}")
+            next_ids = tuple(target.canonical_id or "" for target in decision.next_targets)
+            if any(
+                target.surface != "semantic" or target_id not in allowed_next_ids
+                for target, target_id in zip(decision.next_targets, next_ids, strict=True)
+            ):
+                raise ValueError(f"semantic object decision target escapes its owner: {kind.value}")
+            if decision.encoding_status == "supported":
+                if not next_ids or decision.unsupported_reason is not None:
+                    raise ValueError(f"invalid supported semantic object decision: {kind.value}")
+            elif next_ids or not decision.unsupported_reason:
+                raise ValueError(f"invalid unsupported semantic object decision: {kind.value}")
+
+        for relationship in contract.relationships:
+            target_id = relationship.target.canonical_id
+            if not relationship.explanation.strip() or target_id is None:
+                raise ValueError(f"semantic object relationship is incomplete: {kind.value}")
+            registered_relationship_ids = {
+                *canonical_ids,
+                *(object_contract.canonical_id for object_contract in object_contracts),
+            }
+            if relationship.target.surface == "semantic":
+                if target_id not in registered_relationship_ids:
+                    raise ValueError(f"unknown semantic object relationship: {kind.value}")
+            elif relationship.target.surface == "datasource":
+                try:
+                    DATASOURCE_REGISTRY.by_canonical_id(target_id)
+                except KeyError as exc:
+                    raise ValueError(
+                        f"unknown datasource object relationship: {kind.value}"
+                    ) from exc
+            else:
+                raise ValueError(f"unsupported object relationship surface: {kind.value}")
+
+    ref_method_ids = tuple(f"ref.{kind.value}" for kind in SemanticKind)
+    ref_parent = registry.by_canonical_id("ref")
+    if not isinstance(ref_parent, AuthoringCapability):
+        raise ValueError("semantic ref factory contract must be exact")
+    if tuple(target.canonical_id for target in ref_parent.see_also) != ref_method_ids or any(
+        target.surface != "semantic" for target in ref_parent.see_also
+    ):
+        raise ValueError("semantic ref factory membership drift")
+    for target_id in ref_method_ids:
+        try:
+            descriptor = registry.by_canonical_id(target_id)
+        except KeyError as exc:
+            raise ValueError("semantic ref factory target is not exact") from exc
+        if (
+            not isinstance(descriptor, AuthoringCapability)
+            or descriptor.kind != "method"
+            or descriptor.callable_path is None
+        ):
+            raise ValueError("semantic ref factory target is not exact")
+
+    source_check_method_ids = (
+        "source_check.not_null",
+        "source_check.allowed_values",
+        "source_check.unique",
+        "source_check.freshness",
+        "source_check.relationship_matches",
+        "source_check.relationship_cardinality",
+    )
+    source_check_parent = registry.by_canonical_id("source_check")
+    if not isinstance(source_check_parent, AuthoringCapability):
+        raise ValueError("semantic source-check factory contract must be exact")
+    if tuple(target.canonical_id for target in source_check_parent.see_also) != (
+        source_check_method_ids
+    ) or any(target.surface != "semantic" for target in source_check_parent.see_also):
+        raise ValueError("semantic source-check factory membership drift")
+    for target_id in source_check_method_ids:
+        try:
+            descriptor = registry.by_canonical_id(target_id)
+        except KeyError as exc:
+            raise ValueError("semantic source-check factory target is not exact") from exc
+        if (
+            not isinstance(descriptor, AuthoringCapability)
+            or descriptor.kind != "method"
+            or descriptor.callable_path is None
+        ):
+            raise ValueError("semantic source-check factory target is not exact")
 
 
 def _finalize_registry(
@@ -629,6 +1585,7 @@ def _finalize_registry(
     source_contracts: Mapping[str, AuthoringSourceContract],
     repair_contracts: Mapping[str, SemanticRepairContract],
     help_descriptors: tuple[SemanticHelpDescriptor, ...] | None = None,
+    object_contracts: tuple[SemanticObjectContract, ...] = (),
     render_budgets: Mapping[
         SemanticHelpRenderClass,
         SemanticHelpRenderBudget,
@@ -654,6 +1611,7 @@ def _finalize_registry(
         ),
         _source_contracts=MappingProxyType(dict(source_contracts)),
         _repair_contracts=MappingProxyType(dict(repair_contracts)),
+        _object_contracts=object_contracts,
         _render_classes=MappingProxyType(
             {
                 descriptor.canonical_id: _render_class_for_descriptor(descriptor)
@@ -664,6 +1622,258 @@ def _finalize_registry(
     )
     _validate_registry(registry)
     return registry
+
+
+def _ref_factory_capabilities() -> tuple[AuthoringCapability, ...]:
+    """Build the closed public ``ms.ref`` factory contract and exact leaves."""
+
+    kinds = tuple(SemanticKind)
+    parent = _capability(
+        "ref",
+        None,
+        "Create one immutable exact-kind semantic identity for a known path.",
+        kind="boundary",
+        output="Ref",
+        effects=_NONE,
+        see_also=tuple(_target(f"ref.{kind.value}") for kind in kinds),
+    )
+    leaves = tuple(
+        _capability(
+            f"ref.{kind.value}",
+            f"marivo.refs._RefFactory.{kind.value}",
+            f"Create an exact {kind.value} ref from its kind-relative canonical path.",
+            kind="method",
+            output=f"Ref[{kind.value}]",
+            inputs=(_parameter_input("subject", "Text", "path"),),
+            effects=_NONE,
+            constraints=("ref_shape",),
+            example=f"ms.ref.{kind.value}({_ref_example_path(kind)!r})",
+            public_entrypoint=f"ms.ref.{kind.value}",
+        )
+        for kind in kinds
+    )
+    return (parent, *leaves)
+
+
+def _ref_example_path(kind: SemanticKind) -> str:
+    if kind in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}:
+        return "sales" if kind is SemanticKind.DOMAIN else "warehouse"
+    if kind in {
+        SemanticKind.DIMENSION,
+        SemanticKind.TIME_DIMENSION,
+        SemanticKind.MEASURE,
+    }:
+        return f"sales.orders.{kind.value}"
+    return f"sales.{kind.value}"
+
+
+def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
+    """Build exact leaves for every public ``ms.source_check`` method."""
+
+    return (
+        _capability(
+            "source_check.not_null",
+            "marivo.semantic.source_health.SourceCheckNamespace.not_null",
+            "Require one field to contain no null values.",
+            kind="method",
+            output="NotNullSourceCheck",
+            inputs=(
+                _parameter_input("subject", "Ref[dimension | time_dimension | measure]", "field"),
+            ),
+            effects=_NONE,
+            example="ms.source_check.not_null(ms.ref.dimension('sales.orders.region'))",
+            public_entrypoint="ms.source_check.not_null",
+        ),
+        _capability(
+            "source_check.allowed_values",
+            "marivo.semantic.source_health.SourceCheckNamespace.allowed_values",
+            "Require one categorical or temporal field to use only the declared values.",
+            kind="method",
+            output="AllowedValuesSourceCheck",
+            inputs=(
+                _parameter_input("subject", "Ref[dimension | time_dimension]", "field"),
+                _parameter_input("dependency", "SourceScalarSequence", "values"),
+            ),
+            effects=_NONE,
+            example=(
+                "ms.source_check.allowed_values("
+                "ms.ref.dimension('sales.orders.region'), values=('US', 'EU'))"
+            ),
+            public_entrypoint="ms.source_check.allowed_values",
+        ),
+        _capability(
+            "source_check.unique",
+            "marivo.semantic.source_health.SourceCheckNamespace.unique",
+            "Require a non-empty same-Entity field tuple to be unique.",
+            kind="method",
+            output="UniqueSourceCheck",
+            inputs=(
+                _parameter_input(
+                    "subject",
+                    "Ref[dimension | time_dimension | measure]",
+                    "fields",
+                ),
+            ),
+            effects=_NONE,
+            example=("ms.source_check.unique(fields=(ms.ref.dimension('sales.orders.order_id'),))"),
+            public_entrypoint="ms.source_check.unique",
+        ),
+        _capability(
+            "source_check.freshness",
+            "marivo.semantic.source_health.SourceCheckNamespace.freshness",
+            "Require one time dimension's maximum value to be within a declared age.",
+            kind="method",
+            output="FreshnessSourceCheck",
+            inputs=(
+                _parameter_input("subject", "Ref[time_dimension]", "field"),
+                _parameter_input("dependency", "Duration", "max_age"),
+            ),
+            effects=_NONE,
+            example=(
+                "from datetime import timedelta\n"
+                "ms.source_check.freshness("
+                "ms.ref.time_dimension('sales.orders.created_at'), max_age=timedelta(days=1))"
+            ),
+            public_entrypoint="ms.source_check.freshness",
+        ),
+        _capability(
+            "source_check.relationship_matches",
+            "marivo.semantic.source_health.SourceCheckNamespace.relationship_matches",
+            "Require declared relationship keys to match on the selected side.",
+            kind="method",
+            output="RelationshipMatchesSourceCheck",
+            inputs=(
+                _parameter_input("subject", "Ref[relationship]", "relationship"),
+                _parameter_input("dependency", "RelationshipSide", "side"),
+            ),
+            effects=_NONE,
+            example=(
+                "ms.source_check.relationship_matches("
+                "ms.ref.relationship('sales.orders_to_customers'), side='both')"
+            ),
+            public_entrypoint="ms.source_check.relationship_matches",
+        ),
+        _capability(
+            "source_check.relationship_cardinality",
+            "marivo.semantic.source_health.SourceCheckNamespace.relationship_cardinality",
+            "Require current relationship multiplicity to match one exact expectation.",
+            kind="method",
+            output="RelationshipCardinalitySourceCheck",
+            inputs=(
+                _parameter_input("subject", "Ref[relationship]", "relationship"),
+                _parameter_input("dependency", "RelationshipCardinality", "expected"),
+            ),
+            effects=_NONE,
+            example=(
+                "ms.source_check.relationship_cardinality("
+                "ms.ref.relationship('sales.orders_to_customers'), "
+                "expected='many_to_one')"
+            ),
+            public_entrypoint="ms.source_check.relationship_cardinality",
+        ),
+    )
+
+
+_PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = MappingProxyType(
+    {
+        "domain": (("name",), ("owner",)),
+        "entity": (("name",), ("datasource",), ("source",)),
+        "dimension": (("name",), ("entity",)),
+        "dimension_column": (("name",), ("entity",), ("column",)),
+        "time_dimension": (("name",), ("entity",), ("granularity",)),
+        "time_dimension_column": (("name",), ("entity",), ("column",), ("granularity",)),
+        "period_correspondence": (("level",), ("baseline_key",)),
+        "period_calendar": (("name",), ("date",), ("levels",), ("correspondences",)),
+        "temporal_set": (("name",), ("occurrence_id",), ("start",), ("end",), ("category",)),
+        "work_schedule": (("name",), ("date",), ("is_working",)),
+        "calendar_grain": (("calendar",), ("level",)),
+        "measure": (("name",), ("entity",), ("additivity",)),
+        "measure_column": (("name",), ("entity",), ("column",), ("additivity",)),
+        "aggregate": (("name",), ("measure",), ("agg",), ("fold",), ("filter",)),
+        "count": (("name",), ("entity",), ("filter",)),
+        "where": ((),),
+        "cumulative": (("name",), ("base",), ("anchor",)),
+        "ratio": (("name",), ("numerator",), ("denominator",)),
+        "weighted_mean": (("name",), ("value",), ("weight",)),
+        "linear": (("name",), ("add",)),
+        "relationship": (("name",), ("from_entity",), ("to_entity",), ("keys",)),
+        "event": (("name",), ("identity",), ("occurred_at",), ("participants",)),
+        "participant": (("name",), ("path",)),
+        "participant_role": (("event",), ("name",)),
+        "lifecycle_state": (("name",),),
+        "inception": (("on",),),
+        "transition": (("from_state",), ("on",), ("to_state",)),
+        "state_model": (("name",), ("subject",), ("states",), ("transitions",), ("transitions",)),
+        "model_state": (("model",), ("name",)),
+        "join_on": (("from_key", "to_key"),),
+        "from_sql": (("sql",), ("dialect",)),
+        "bind": (("field",), ("entity_alias",)),
+        "metric": (("name",), ("entities",), ("additivity",)),
+        "snapshot": (("partition_field",),),
+        "validity": (("valid_from", "valid_to"),),
+        "grain_to_date": (("grain",),),
+        "trailing": (("count",),),
+        "preview": ((), ("ref",), ("scope",), ("source_bindings",)),
+        "preview_many": ((), ("refs",), ("scope",), ("source_bindings",)),
+        "source_health": ((), ("refs",), ("checks",), ("scope",)),
+        "readiness": ((), ("refs",)),
+        "richness": (("demand",),),
+        "parity_check": (("name",), ("rel_tol",), ("abs_tol",), ("force",)),
+        "SemanticCatalog.items": ((), ("kind",)),
+        "SemanticCatalog.require": ((), ("ref",)),
+        "CatalogCollection.get": ((), ("key",)),
+    }
+)
+
+_OPTIONAL_PARAMETER_REQUIREMENTS = frozenset(
+    {
+        ("dimension", 0),
+        ("time_dimension", 0),
+        ("measure", 0),
+        ("cumulative", 2),
+        ("event", 0),
+        ("participant", 1),
+        ("metric", 0),
+        ("readiness", 1),
+        ("parity_check", 1),
+        ("parity_check", 2),
+        ("parity_check", 3),
+    }
+)
+
+
+def _attach_parameter_names(
+    descriptors: tuple[AuthoringCapability, ...],
+) -> tuple[AuthoringCapability, ...]:
+    """Attach explicit live-parameter ownership to existing semantic input facts."""
+
+    attached: list[AuthoringCapability] = []
+    for descriptor in descriptors:
+        parameter_names = _PARAMETER_NAMES_BY_CAPABILITY.get(descriptor.canonical_id)
+        if parameter_names is None:
+            attached.append(descriptor)
+            continue
+        if len(parameter_names) != len(descriptor.input_requirements):
+            raise ValueError(
+                f"semantic parameter-name metadata length drift: {descriptor.canonical_id}"
+            )
+        requirements = tuple(
+            requirement.model_copy(
+                update={
+                    "parameter_names": names,
+                    "min_count": (
+                        0
+                        if (descriptor.canonical_id, index) in _OPTIONAL_PARAMETER_REQUIREMENTS
+                        else requirement.min_count
+                    ),
+                }
+            )
+            for index, (requirement, names) in enumerate(
+                zip(descriptor.input_requirements, parameter_names, strict=True)
+            )
+        )
+        attached.append(descriptor.model_copy(update={"input_requirements": requirements}))
+    return tuple(attached)
 
 
 def _build_registry() -> SemanticCapabilityRegistry:
@@ -689,6 +1899,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_NONE,
             see_also=(_target("load"), _target("readiness"), _target("preview")),
         ),
+        *_ref_factory_capabilities(),
         # ------------------------------------------------------------------
         # author_families
         # ------------------------------------------------------------------
@@ -731,6 +1942,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
             example="ms.dimension(name='region', entity=orders)",
+            invocation_shape="decorator",
         ),
         _capability(
             "dimension_column",
@@ -764,6 +1976,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_granularity_parse_compatible",
             ),
             example="ms.time_dimension(name='log_date', entity=orders, granularity='day')",
+            invocation_shape="decorator",
         ),
         _capability(
             "time_dimension_column",
@@ -895,6 +2108,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
             example="ms.measure(name='amount', entity=orders, additivity='additive')",
+            invocation_shape="decorator",
         ),
         _capability(
             "measure_column",
@@ -1037,6 +2251,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ("mapping_key", "RelationshipName"),
                 ("subject", "RelationshipEndpoint"),
                 ("dependency", "RelationshipEndpoint"),
+                ("dependency", "JoinKey"),
             ),
             effects=_AUTHOR,
             constraints=(
@@ -1048,6 +2263,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "ms.relationship(name='orders_to_customers', from_entity=orders, "
                 "to_entity=customers, keys=[ms.join_on(order_customer_id, customer_id)])"
             ),
+            see_also=(_target("join_on"),),
         ),
         _capability(
             "event",
@@ -1079,6 +2295,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _target("participant_role"),
                 _target("all_rows"),
             ),
+            invocation_shape="decorator",
         ),
         _capability(
             "participant",
@@ -1268,6 +2485,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "metric_additivity_required",
             ),
             example="ms.metric(name='revenue', entities=[orders], additivity='additive')",
+            invocation_shape="decorator",
         ),
         _capability(
             "ai_context",
@@ -1456,7 +2674,19 @@ def _build_registry() -> SemanticCapabilityRegistry:
             kind="boundary",
             output="SourceCheck",
             effects=_NONE,
+            see_also=tuple(
+                _target(f"source_check.{method}")
+                for method in (
+                    "not_null",
+                    "allowed_values",
+                    "unique",
+                    "freshness",
+                    "relationship_matches",
+                    "relationship_cardinality",
+                )
+            ),
         ),
+        *_source_check_factory_capabilities(),
         _capability(
             "source_health",
             "marivo.semantic.catalog.SemanticCatalog.source_health",
@@ -1582,10 +2812,12 @@ def _build_registry() -> SemanticCapabilityRegistry:
             public_entrypoint="collection.get",
         ),
     )
+    descriptor_rows = _attach_parameter_names(descriptor_rows)
     groups: Mapping[SemanticRootGroup, tuple[str, ...]] = MappingProxyType(
         {
             "browse_load": ("load", "authoring"),
             "author_families": (
+                "ref",
                 "domain",
                 "entity",
                 "dimension",
@@ -1641,6 +2873,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         groups=groups,
         source_contracts=_source_contracts(),
         repair_contracts=_repair_contracts(),
+        object_contracts=_object_contracts(),
     )
 
 
@@ -1721,6 +2954,14 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             public_properties=properties,
             public_methods=methods,
             consumers=tuple(_target(value) for value in consumers),
+        )
+
+    def factory_methods(canonical_id: str) -> tuple[str, ...]:
+        descriptor = REGISTRY.by_canonical_id(canonical_id)
+        if not isinstance(descriptor, AuthoringCapability):
+            raise TypeError(f"semantic factory contract is not exact: {canonical_id}")
+        return tuple(
+            (target.canonical_id or "").rsplit(".", 1)[-1] for target in descriptor.see_also
         )
 
     add(
@@ -2032,14 +3273,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SourceCheckNamespace,
         "SourceCheckNamespace",
         ("source_check",),
-        methods=(
-            "not_null",
-            "allowed_values",
-            "unique",
-            "freshness",
-            "relationship_matches",
-            "relationship_cardinality",
-        ),
+        methods=factory_methods("source_check"),
     )
     add(
         RichnessReport,
@@ -2102,21 +3336,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         type(ref_factory),
         "ref",
         (),
-        methods=(
-            "domain",
-            "datasource",
-            "entity",
-            "dimension",
-            "time_dimension",
-            "measure",
-            "metric",
-            "relationship",
-            "event",
-            "state_model",
-            "period_calendar",
-            "temporal_set",
-            "work_schedule",
-        ),
+        methods=factory_methods("ref"),
     )
     add(
         PeriodCalendarKind,

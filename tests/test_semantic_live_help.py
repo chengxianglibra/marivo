@@ -13,6 +13,7 @@ import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo.refs import SemanticKind
 from marivo.semantic.errors import SemanticLoadError
 from tests.shared_fixtures import rendered_help
 
@@ -94,6 +95,75 @@ def test_semantic_live_surface_resolves_registered_callable() -> None:
 
     resolved = resolve_live_target("authoring", SEMANTIC_LIVE_SURFACE)
     assert resolved.surface == "semantic"
+
+
+def test_exact_ref_factory_leaf_reflects_bound_public_signature() -> None:
+    text = _text("ref.metric")
+
+    assert "Entrypoint: ms.ref.metric" in text
+    assert "Signature: (path: 'str') -> 'Ref[MetricKind]'" in text
+    assert "self" not in text
+    assert "Output family: Ref[metric]" in text
+
+
+def test_exact_source_check_leaf_reflects_closed_variant() -> None:
+    text = _text("source_check.freshness")
+
+    assert "Entrypoint: ms.source_check.freshness" in text
+    assert "max_age: 'timedelta'" in text
+    assert "Output family: FreshnessSourceCheck" in text
+    assert "catalog.source_health" not in text
+
+
+def test_relationship_routes_required_keys_to_join_key_builder() -> None:
+    text = _text("relationship")
+
+    assert "dependency: JoinKey (parameters: keys)" in text
+    assert "See also: join_on" in text
+
+
+def test_factory_pages_route_to_every_exact_leaf_without_expanding_signatures() -> None:
+    ref_text = _text("ref")
+    source_check_text = _text("source_check")
+
+    for kind in SemanticKind:
+        assert f'marivo.help("semantic.ref.{kind.value}")' in ref_text
+    for method in (
+        "not_null",
+        "allowed_values",
+        "unique",
+        "freshness",
+        "relationship_matches",
+        "relationship_cardinality",
+    ):
+        assert f'marivo.help("semantic.source_check.{method}")' in source_check_text
+    assert "Signature:" not in ref_text
+    assert "Signature:" not in source_check_text
+
+
+@pytest.mark.parametrize(
+    ("parent_id", "retained_target", "excluded_target"),
+    (
+        ("ref", "ref.metric", "ref.dimension"),
+        ("source_check", "source_check.freshness", "source_check.not_null"),
+    ),
+)
+def test_factory_page_routes_follow_descriptor_membership(
+    parent_id: str,
+    retained_target: str,
+    excluded_target: str,
+) -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._capabilities.render import _render_descriptor
+
+    parent = REGISTRY.by_canonical_id(parent_id)
+    narrowed = parent.model_copy(
+        update={"see_also": (LiveHelpTarget(surface="semantic", canonical_id=retained_target),)}
+    )
+    text = _render_descriptor(narrowed)
+
+    assert f'marivo.help("semantic.{retained_target}")' in text
+    assert f'marivo.help("semantic.{excluded_target}")' not in text
 
 
 def test_semantic_live_surface_rejects_cross_surface_target() -> None:
