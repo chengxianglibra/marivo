@@ -1136,6 +1136,39 @@ def test_period_calendar_period_help_teaches_exact_scope_navigation() -> None:
     assert "calendar.period(level, key)" not in _text("catalog")
 
 
+@pytest.mark.parametrize(
+    ("target", "entrypoint", "owner"),
+    (
+        ("calendar.grain", "calendar.grain(level)", "inputs.scope"),
+        ("calendar.period_on", "calendar.period_on(level, value)", "inputs.scope"),
+        (
+            "calendar.periods",
+            "calendar.periods(level, limit=20, cursor=None)",
+            "catalog.temporal",
+        ),
+        ("temporal_set.occurrence", "temporal_set.occurrence(key)", "inputs.scope"),
+        (
+            "temporal_set.occurrences",
+            "temporal_set.occurrences(limit=20, cursor=None)",
+            "catalog.temporal",
+        ),
+    ),
+)
+def test_temporal_catalog_member_help_is_exact_and_discoverable(
+    target: str,
+    entrypoint: str,
+    owner: str,
+) -> None:
+    text = _text(target)
+
+    assert f"Entrypoint: {entrypoint}" in text
+    assert "Signature:" in text
+    assert "Example:" in text
+    assert "Result kind: immutable_metadata" in text
+    assert "Read bound: bounded" in text
+    assert entrypoint in _text(owner)
+
+
 def test_compare_help_explains_cumulative_component_compatibility() -> None:
     text = _text("compare")
 
@@ -1684,7 +1717,8 @@ def test_catalog_object_help_renders_briefing(semantic_project_factory) -> None:
     assert revenue_obj is not None
     text = _text(revenue_obj)
     assert "revenue" in text
-    assert "unit: CNY" in text
+    assert "entry.details().show()" in text
+    assert "unit: CNY" not in text
 
 
 def test_event_and_state_model_briefings_expose_typed_analysis_handoffs(

@@ -16,8 +16,11 @@ This skill owns decision order, evidence and business-authority boundaries,
 coherent checkpoint choice, validation routing, and handoff. Mechanical
 contracts stay in the installed environment:
 
-- `marivo.help("authoring")` and focused help own constructors, parameters,
-  effects, constraints, and examples;
+- `marivo.help("authoring")` selects the owning surface;
+- `marivo.help("semantic.authoring")`, `marivo.help("semantic.objects")`,
+  `marivo.help("semantic.builders")`, and `marivo.help("semantic.checks")`
+  own progressive semantic routing, while exact focused help owns constructors,
+  parameters, effects, constraints, and examples;
 - `.show()` and structured errors own result detail and repair;
 - project Python evaluated by `ms.load()` is the semantic source of truth.
 
@@ -49,7 +52,8 @@ business choices that could change their meaning. Those roots define success.
 
 Use the host-selected interpreter. When environment identity matters, run
 `<selected-python> -m marivo doctor` once, then route through
-`<selected-python> -m marivo help` and `marivo.help("authoring")`.
+`<selected-python> -m marivo help`, `marivo.help("authoring")`, and
+`marivo.help("semantic.authoring")`.
 
 ```python
 import marivo.datasource as md
@@ -81,21 +85,16 @@ evidence when source, schema, and scope identity still answer the same question.
 
 ### 4. Model in dependency order
 
-Turn the required meaning and established facts into explicit decisions:
+Use `marivo.help("semantic.objects")` to select the object kind, then follow its
+object page for the stable decision checklist, legal construction modes, and
+evidence limitations. Use `marivo.help("semantic.builders")` when a constructor
+needs a nested value or typed handle, and `marivo.help("semantic.checks")` when
+the unresolved question is what a particular inspection or check proves.
 
-1. **Domain and entity:** accountable boundary, authoritative source, what one
-   row represents, and the key at that grain.
-2. **Dimensions, time dimensions, and measures:** reusable row-level roles,
-   explicit business time, and the owning measure's unit and additivity.
-3. **Relationships:** justified participating fields, direction, cardinality,
-   and grain consequences. Never hide a guessed join in a metric.
-4. **Metrics and compositions:** aggregation, filters, denominator or failure
-   policy, unit, time behavior, guardrails, and relevant provenance.
-
-Build derived objects only from governed dependencies. Add Events or StateModels
-only when reusable occurrence or lifecycle meaning is required. Names,
-timestamp-like columns, key candidates, samples, and familiar formulas are
-evidence to evaluate, not semantic authority.
+Author dependencies before their consumers and build derived objects only from
+governed dependencies. Never hide a guessed join or reusable business choice in
+a downstream calculation. Names, timestamp-like columns, key candidates,
+samples, and familiar formulas are evidence to evaluate, not semantic authority.
 
 ### 5. Settle reusable business meaning
 

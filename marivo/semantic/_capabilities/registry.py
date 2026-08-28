@@ -1471,7 +1471,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
         SemanticRepairContract(
             error_kind="missing_domain",
             kind="reauthor",
-            help_target=_target("domain"),
+            help_target=_target("objects.domain"),
             action=(
                 "Declare the domain with an accountable owner in its _domain.py, "
                 "or pass an existing typed domain ref."
@@ -1528,7 +1528,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
         SemanticRepairContract(
             error_kind="domain_file_missing",
             kind="reauthor",
-            help_target=_target("domain"),
+            help_target=_target("objects.domain"),
             action=(
                 "Create the required domain entrypoint and supply its accountable owner "
                 "before loading again."
@@ -1712,7 +1712,6 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
 
     known_semantic_type_targets = {"SemanticCatalog", "CatalogEntry"}
     from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
-    from marivo.ontology._capabilities.registry import REGISTRY as ONTOLOGY_REGISTRY
 
     def validate_target(target: LiveHelpTarget, *, owner: str) -> None:
         target_id = target.canonical_id
@@ -1726,7 +1725,10 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
             if target.surface == "datasource":
                 DATASOURCE_REGISTRY.by_canonical_id(target_id)
             elif target.surface == "ontology":
-                ONTOLOGY_REGISTRY.by_canonical_id(target_id)
+                # Unified route tests validate cross-surface existence. Importing the
+                # ontology registry here would create ontology -> semantic -> ontology
+                # during an ontology-first cold start.
+                return
             else:
                 raise ValueError(f"unsupported semantic Help route surface: {target.surface}")
         except KeyError as exc:
@@ -1737,6 +1739,23 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
             raise ValueError(f"semantic root section is incomplete: {section.section_id}")
         for target in section.members:
             validate_target(target, owner=f"root.{section.section_id}")
+
+    for error_kind, repair_contract in registry._repair_contracts.items():
+        if error_kind != repair_contract.error_kind or not error_kind.strip():
+            raise ValueError("semantic repair contract key drift")
+        target = repair_contract.help_target
+        target_id = target.canonical_id
+        if target_id is None:
+            raise ValueError(f"semantic repair target lacks a canonical id: {error_kind}")
+        if target.surface != "semantic":
+            continue
+        validate_target(target, owner=f"repair.{error_kind}")
+        descriptor = registry.by_canonical_id(target_id)
+        if not (
+            target_id == "authoring"
+            or isinstance(descriptor, (AuthoringCapability, SemanticObjectContract))
+        ):
+            raise ValueError(f"semantic repair target is over-broad: {error_kind}")
 
     object_contracts = registry.object_contracts
     object_index_entries = tuple(
@@ -3200,6 +3219,7 @@ REGISTRY = _build_registry()
 
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
+    from marivo.preview import PreviewResult
     from marivo.refs import PeriodCalendarKind, Ref, SemanticKind, WorkScheduleKind
     from marivo.refs import ref as ref_factory
     from marivo.semantic._authoring_metrics import GrainToDate
@@ -3260,18 +3280,23 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     def add(
         cls: type,
         name: str,
-        producers: tuple[str, ...],
+        producers: tuple[str | LiveHelpTarget, ...],
         *,
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
-        consumers: tuple[str, ...] = (),
+        consumers: tuple[str | LiveHelpTarget, ...] = (),
     ) -> None:
+        def targets(values: tuple[str | LiveHelpTarget, ...]) -> tuple[LiveHelpTarget, ...]:
+            return tuple(
+                value if isinstance(value, LiveHelpTarget) else _target(value) for value in values
+            )
+
         contracts[cls] = SemanticTypeContract(
             name=name,
-            producers=tuple(_target(value) for value in producers),
+            producers=targets(producers),
             public_properties=properties,
             public_methods=methods,
-            consumers=tuple(_target(value) for value in consumers),
+            consumers=targets(consumers),
         )
 
     def factory_methods(canonical_id: str) -> tuple[str, ...]:
@@ -3470,7 +3495,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         CalendarPeriodPage,
         "CalendarPeriodPage",
-        (),
+        (LiveHelpTarget(surface="analysis", canonical_id="calendar.periods"),),
         properties=("items", "next_cursor"),
         methods=show_render,
     )
@@ -3518,7 +3543,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         TemporalOccurrencePage,
         "TemporalOccurrencePage",
-        (),
+        (LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),),
         properties=("items", "next_cursor"),
         methods=show_render,
     )
@@ -3560,6 +3585,27 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     )
     # Result types
     add(
+        PreviewResult,
+        "PreviewResult",
+        ("preview",),
+        properties=(
+            "kind",
+            "ref",
+            "columns",
+            "types",
+            "rows",
+            "requested_limit",
+            "returned_row_count",
+            "is_truncated",
+            "status",
+            "coverage",
+            "warnings",
+            "timezones",
+            "sample_policy",
+        ),
+        methods=show_render,
+    )
+    add(
         PreviewBatchResult,
         "PreviewBatchResult",
         ("preview_many",),
@@ -3570,21 +3616,50 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ReadinessReport,
         "ReadinessReport",
         ("readiness",),
-        properties=("analysis_ready_inputs",),
-        methods=("show", "render"),
+        properties=(
+            "scope",
+            "status",
+            "analysis_ready_inputs",
+            "blockers",
+            "warnings",
+            "input_summary",
+            "checked_at",
+            "catalog_definition_fingerprint",
+        ),
+        methods=("show", "render", "to_dict"),
     )
     add(
         SourceHealthReport,
         "SourceHealthReport",
         ("source_health",),
-        properties=("status", "checks", "affected_refs"),
+        properties=(
+            "status",
+            "checks",
+            "checked_at",
+            "catalog_definition_fingerprint",
+            "affected_refs",
+        ),
         methods=("show", "render", "to_dict"),
     )
     add(
         SourceHealthCheckResult,
         "SourceHealthCheckResult",
         ("source_health",),
-        properties=("kind", "status", "affected_refs", "user_data_queried", "scopes"),
+        properties=(
+            "kind",
+            "status",
+            "datasource",
+            "source",
+            "target_refs",
+            "affected_refs",
+            "checked_at",
+            "observed_schema_fingerprint",
+            "observed_capability_fingerprint",
+            "observed",
+            "repair",
+            "user_data_queried",
+            "scopes",
+        ),
         methods=("show", "render", "to_dict"),
     )
     add(
@@ -3597,22 +3672,36 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         RichnessReport,
         "RichnessReport",
         ("richness",),
-        methods=show_render,
+        properties=("gaps", "checked_at"),
+        methods=("show", "render", "to_dict"),
     )
     add(
         ParityResult,
         "ParityResult",
         ("parity_check",),
+        properties=("ok", "expected", "actual", "rel_tol", "abs_tol", "error"),
     )
     add(
         ReadinessInputSummary,
         "ReadinessInputSummary",
         (),
+        properties=("datasources", "refs", "tables"),
+        methods=("to_dict",),
     )
     add(
         ReadinessIssue,
         "ReadinessIssue",
         (),
+        properties=(
+            "kind",
+            "severity",
+            "refs",
+            "message",
+            "repair",
+            "details",
+            "catalog_definition_fingerprint",
+        ),
+        methods=("to_dict",),
     )
     # Identity types
     add(

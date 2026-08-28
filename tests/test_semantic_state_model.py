@@ -418,7 +418,9 @@ def test_seedless_model_loads_but_is_not_replay_ready(
     assert catalog.require(model.ref) is model
     readiness = catalog.readiness(refs=(model,))
     assert model.ref not in readiness.analysis_ready_inputs
-    assert any(issue.kind == "state_model_seed_missing" for issue in readiness.blockers)
+    issue = next(issue for issue in readiness.blockers if issue.kind == "state_model_seed_missing")
+    assert issue.repair is not None
+    assert issue.repair.help_target.canonical_id == "inception"
 
 
 def test_invalid_state_names_fail_eagerly() -> None:

@@ -47,6 +47,16 @@ marivo.help("authoring")
 marivo.help("analysis")
 ```
 
+选择语义编写后，继续渐进收窄下一步问题：
+
+```python
+marivo.help("semantic.authoring")  # 工作流决策中心
+marivo.help("semantic.objects")    # 对象含义与构造模式
+marivo.help("semantic.builders")   # 嵌套值与类型化句柄
+marivo.help("semantic.checks")     # 每项检查或校验证明什么
+marivo.help(entry_or_error)         # 当前身份或 structured repair
+```
+
 请沿所选次级根入口中的完整限定路径继续查询，不要依赖短名称自动消歧。已知或从
 live result 获得的 public type、error 和 member target 仍可查询 focused help；无需再
 提供单独的平铺清单。
@@ -171,7 +181,10 @@ week_scope.contract().show()  # 精确边界和认证快照身份
 保留的 `day` 层级由认证覆盖范围推导，不会持久化成每天一条记录。
 `calendar.periods(level, limit=..., cursor=...)` 返回有界的精确范围；覆盖缺失、定义过期或
 证据损坏都会以结构化语义错误失败即停止。
-精确查找语法由 `marivo.help("analysis.calendar.period")` 提供有界说明。
+根据已选成员操作进入精确 Help：`analysis.calendar.grain`、
+`analysis.calendar.period`、`analysis.calendar.period_on` 或
+`analysis.calendar.periods`。若操作抛出结构化错误，`marivo.help(error)` 会指向该精确
+成员；需要重建认证快照时则指向 `semantic.preview`。
 
 ## 命名时间发生项
 
@@ -207,6 +220,9 @@ calendar day 粒度）；Marivo 不会静默地用发生项时区重解释裸 bu
 导航不会再次读取数据源。TemporalSet 不推断 recurrence，也不会按名称猜测跨年的发生项
 是否对应。两个精确发生项范围选出的 day-粒度 frame 可以使用
 `mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` 按本地日进度比较。
+精确查找使用 `marivo.help("analysis.temporal_set.occurrence")`，有界筛选分页使用
+`marivo.help("analysis.temporal_set.occurrences")`；快照错误通过
+`marivo.help(error)` 路由到 `semantic.preview`。
 
 ## 工作日计划
 
@@ -259,13 +275,10 @@ md.duckdb(
 )
 ```
 
-每个辅助函数（`md.duckdb`、`md.sqlite`、`md.mysql`、`md.postgres`、`md.trino`、`md.clickhouse`）都共享以下参数：
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 全局 lowercase snake_case 数据源名称。供 `ms.ref.datasource(name)` 使用。 |
-| `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
-| `extra` | `dict` | 否 | `None` | 类型化辅助函数未建模的、罕见的 JSON 安全 ibis 关键字参数。 |
+每个数据源辅助函数声明一个全局 lowercase snake_case 身份和后端专属连接事实。
+先用 `marivo.help("datasource.authoring")` 选择后端家族，再进入其精确 focused leaf
+查询当前参数、默认值、凭据引用和副作用。语义代码只消费最终的
+`ms.ref.datasource(name)` 身份。
 
 各后端特有的参数：
 
@@ -358,13 +371,9 @@ md.duckdb(
 
 `ms.domain(...)` 打开一个命名空间。每个 `_domain.py` 调用一次。它返回一个
 `Ref[domain]`，也可以作为 `domain=` 传入，用来覆盖同级文件中对象的活动领域。
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 领域命名空间，例如 `"sales"`。对象成为 `<name>.<object>`。 |
-| `owner` | `str` | 是 | — | 负责人姓名，负责该领域的语义正确性与质量，例如 `"Mina Zhang"`。 |
-| `default` | `bool` | 否 | `True` | 为 `True` 时，本文件中的 decorators 在未传 `domain=` 时解析到该领域。 |
-| `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
+编写前先确定业务边界、责任人、默认领域行为和定义 guardrail。使用
+`marivo.help("semantic.objects.domain")` 判断这些事项，再用
+`marivo.help("semantic.domain")` 查询精确 callable 契约。
 
 ```python
 import marivo.semantic as ms
@@ -376,16 +385,9 @@ ms.domain(name="sales", owner="Mina Zhang")
 
 实体表示一个物理源（一张表或一个文件）及其主键。维度、度量和指标
 都依附在实体上。
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 实体名称。成为 `<domain>.<name>`。 |
-| `datasource` | `Ref[datasource]` | 是 | — | `ms.ref.datasource("warehouse")`。 |
-| `source` | 来源构建器 | 是 | — | 数据源-owned `md.table(...)`、`md.parquet(...)`、`md.csv(...)` 或 `md.json(...)`。 |
-| `primary_key` | `list[str]` | 否 | `None` | 构成主键的稳定输出列别名。 |
-| `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | 快照或 SCD2 有效性版本控制（见下）。 |
-| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
-| `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
+它的可复用记录集含义、权威来源、行粒度、身份、历史模型和领域归属必须一致。
+使用 `marivo.help("semantic.objects.entity")` 查看这份清单，再用
+`marivo.help("semantic.entity")` 查询已安装版本的签名。
 
 ```python
 warehouse = ms.ref.datasource("warehouse")
@@ -439,14 +441,9 @@ events = ms.entity(
 维度是用于分组或过滤的分类属性。直接实体输出列使用 `ms.dimension_column(...)`；需要表达式
 （例如 `table.region.upper()`）时，使用 `@ms.dimension` 装饰器，其请求体返回一个针对
 实体表的 ibis 表达式。
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 维度名称。成为 `<domain>.<entity>.<name>`。 |
-| `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
-| `column` | `str` | 是 | — | 实体表上的稳定输出列别名。 |
-| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
-| `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
+使用 `marivo.help("semantic.objects.dimension")` 确定所属 Entity、可复用分类含义、
+编码/null 语义和构造模式。该页面会路由到直接列默认方式或表达式 escape hatch，
+无需在此复制任一签名。
 
 ```python
 region = ms.dimension_column(
@@ -461,17 +458,9 @@ region = ms.dimension_column(
 
 时间维度是携带粒度和解析元数据的特殊维度。**只有时间维度才能作为
 `session.observe` 的时间轴。**
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 维度名称。 |
-| `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
-| `column` | `str` | 是 | — | 实体表上的稳定输出列别名。 |
-| `granularity` | 粒度字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
-| `parse` | 解析变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断解析变体。 |
-| `is_default` | `bool` | 否 | `False` | 当实体有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
-| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
-| `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
+使用 `marivo.help("semantic.objects.time_dimension")` 确定业务时间角色、粒度、物理编码、
+默认时间轴和采样节奏。使用 `marivo.help("semantic.builders.temporal_parsing")` 选择嵌套
+解析值，再打开精确 callable leaf 查询当前签名。
 
 ##### 解析变体
 
@@ -529,16 +518,8 @@ event_ts = ms.time_dimension_column(
 度量是你打算聚合的行级数量事实（例如金额或数量）。直接实体输出列使用
 `ms.measure_column(...)`；需要基于一个或多个列的表达式时使用 `@ms.measure`。度量
 携带可加性和可选的单位。
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 度量名称。成为 `<domain>.<entity>.<name>`。 |
-| `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
-| `column` | `str` | 是 | — | 实体表上的稳定输出列别名。 |
-| `additivity` | 可加性值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
-| `unit` | `str` | 否 | `None` | UCUM 单位令牌：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
-| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
-| `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
+使用 `marivo.help("semantic.objects.measure")` 确定数量事实的粒度、单位、维度可加性、
+时间可加性和构造模式。数值 dtype 或熟悉的历史聚合方式不能确立这些业务判断。
 
 ```python
 amount = ms.measure_column(
@@ -575,16 +556,9 @@ amount = ms.measure_column(
 
 聚合一个度量，无需函数体。聚合方式决定空间可加性；半可加度量则独立提供
 status-time 轴和默认 fold，显式 `fold` 会覆盖这个时间 fold。
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 指标名称。 |
-| `measure` | `Ref[measure]` | 是 | — | 要聚合的度量。 |
-| `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"min"`、`"max"` 等。 |
-| `fold` | 折叠 | 否 | `None` | 半可加度量的时间-折叠覆盖。 |
-| `filter` | `WhereFilter` | 否 | `None` | 由 `ms.where(dimension=value, ...)` 构建的 AND 过滤；标量表示等值，非空元组/list 表示成员过滤。 |
-| `unit` | `str` | 否 | 继承 | 覆盖从度量推导的单位。 |
-| `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
+使用 `marivo.help("semantic.objects.metric")` 在 aggregate、count、ratio、weighted mean、
+linear、cumulative 和表达式构造之间选择。选定 aggregate 后，
+`marivo.help("semantic.aggregate")` 负责其精确输入、默认值、约束和 repair 路由。
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
@@ -673,14 +647,9 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 基础必须是使用 `sum`、`count`、`count_distinct` 或加权组件累计的 tier-1
 `ms.aggregate(...)`、`ms.count(...)` 或 `ms.weighted_mean(...)` 指标。
 `anchor` 参数选择累计形态。
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 语义指标名称。 |
-| `base` | `Ref[metric]` | 是 | — | 使用 `sum`、`count` 或 `count_distinct` 的 tier-1 简单聚合指标。 |
-| `over` | `Ref[time_dimension] \| None` | 否 | `None` | 累计时间轴。除非基础根实体只有一个时间维度，否则需显式传入。 |
-| `anchor` | `GrainToDate \| Trailing \| None` | 否 | `None` | 累计锚点。`None` = 全部历史累计；`ms.grain_to_date(...)` = MTD/QTD/YTD 重置；`ms.trailing(...)` = 滚动 N。 |
-| `unit` / `domain` / `ai_context` | — | 否 | — | 同其他指标。 |
+Metric 对象页会识别 cumulative 构造；随后由
+`marivo.help("semantic.cumulative")` 负责精确的 base/axis/anchor 契约，
+`marivo.help("semantic.builders.governed_temporal")` 负责路由 anchor builders。
 
 ```python
 user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity="non_additive")
@@ -1069,17 +1038,9 @@ ai_context=ms.ai_context(
 
 当指标无法用 `ms.aggregate(...)`、`ms.count(...)` 或派生指标构建器表达时，
 才使用这个 escape hatch。请求体返回一个 ibis 聚合；`additivity` 由你显式声明。
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 否 | 函数名 | 指标名称。 |
-| `entities` | `list[Ref[entity]]` | 是 | — | 请求体读取的实体。 |
-| `additivity` | 可加性值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
-| `root_entity` | `Ref[entity]` | 否 | 单个实体 | 当 `entities` 多于一个时必填。 |
-| `fanout_policy` | `"block" \| "aggregate_then_join"` | 否 | `"block"` | 如何处理跨实体连接的 fan-out。 |
-| `unit` | `str` | 否 | `None` | UCUM 单位令牌。 |
-| `provenance` | `SqlProvenance` | 否 | `None` | 用于一致性校验的 `ms.from_sql(sql=..., dialect=...)`。 |
-| `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
+这是 `marivo.help("semantic.objects.metric")` 明示的 escape hatch。选中后，
+`marivo.help("semantic.metric")` 是已安装签名、fanout 约束、provenance 输入和
+structured repair 的唯一来源。
 
 ```python
 @ms.metric(
@@ -1128,14 +1089,9 @@ on_hand_units = ms.measure_column(
 
 关系声明两个实体如何连接，使指标和维度能够跨越这两个实体。
 键使用维度引用，而不是原始列名。
-
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 关系名称。 |
-| `from_entity` | `Ref[entity]` | 是 | — | 源实体。 |
-| `to_entity` | `Ref[entity]` | 是 | — | 目标实体。 |
-| `keys` | `list[JoinKey]` | 是 | — | 一个或多个 `ms.join_on(from_key, to_key)` 配对。 |
-| `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
+使用 `marivo.help("semantic.objects.relationship")` 确定有向含义、端点粒度、键等价性、
+多重性和证据检查。精确构造器 leaf 会把 `keys` 输入路由到
+`marivo.help("semantic.join_on")`。
 
 ```python
 ms.relationship(
@@ -1152,6 +1108,9 @@ ms.relationship(
 才获取一个显式有界快照。查阅
 `marivo.help("datasource.authoring")` 了解数据源检查与范围，查阅
 `marivo.help("semantic.authoring")` 了解依赖一致的切片编写，查阅
+`marivo.help("semantic.objects")` 了解对象自身的判断，查阅
+`marivo.help("semantic.builders")` 了解支持性输入，查阅
+`marivo.help("semantic.checks")` 了解证据边界，并查阅
 `marivo.help("semantic.ai_context")` 了解共享的 `ms.ai_context(...)` 契约：
 
 ```python

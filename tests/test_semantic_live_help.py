@@ -15,7 +15,7 @@ from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.refs import SemanticKind
-from marivo.semantic.errors import SemanticLoadError
+from marivo.semantic.errors import SemanticLoadError, SemanticRuntimeError
 from tests.shared_fixtures import rendered_help
 
 _HELP_CALL_RE = re.compile(
@@ -35,6 +35,18 @@ def _rendered_routes(text: str) -> tuple[LiveHelpTarget, ...]:
             for surface, canonical_id in _HELP_CALL_RE.findall(text)
         )
     )
+
+
+def _example_ref_path(kind: SemanticKind) -> str:
+    if kind in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}:
+        return "example"
+    if kind in {
+        SemanticKind.DIMENSION,
+        SemanticKind.TIME_DIMENSION,
+        SemanticKind.MEASURE,
+    }:
+        return f"example.subject.{kind.value}"
+    return f"example.{kind.value}"
 
 
 def test_root_help_reveals_current_environment() -> None:
@@ -502,6 +514,122 @@ def test_help_resolves_error_type_target() -> None:
     assert "SemanticLoadError" in text
 
 
+@pytest.mark.parametrize(
+    ("raiser_name", "ref", "operation", "surface", "canonical_id"),
+    (
+        (
+            "_raise_period_lookup",
+            ms.ref.period_calendar("sales.fiscal"),
+            "grain",
+            "analysis",
+            "calendar.grain",
+        ),
+        (
+            "_raise_period_lookup",
+            ms.ref.period_calendar("sales.fiscal"),
+            "period",
+            "analysis",
+            "calendar.period",
+        ),
+        (
+            "_raise_period_lookup",
+            ms.ref.period_calendar("sales.fiscal"),
+            "period_on",
+            "analysis",
+            "calendar.period_on",
+        ),
+        (
+            "_raise_period_lookup",
+            ms.ref.period_calendar("sales.fiscal"),
+            "periods",
+            "analysis",
+            "calendar.periods",
+        ),
+        (
+            "_raise_period_lookup",
+            ms.ref.period_calendar("sales.fiscal"),
+            "snapshot",
+            "semantic",
+            "preview",
+        ),
+        (
+            "_raise_temporal_set_lookup",
+            ms.ref.temporal_set("sales.campaigns"),
+            "occurrence",
+            "analysis",
+            "temporal_set.occurrence",
+        ),
+        (
+            "_raise_temporal_set_lookup",
+            ms.ref.temporal_set("sales.campaigns"),
+            "occurrences",
+            "analysis",
+            "temporal_set.occurrences",
+        ),
+        (
+            "_raise_temporal_set_lookup",
+            ms.ref.temporal_set("sales.campaigns"),
+            "snapshot",
+            "semantic",
+            "preview",
+        ),
+        (
+            "_raise_work_schedule_lookup",
+            ms.ref.work_schedule("sales.schedule"),
+            "snapshot",
+            "semantic",
+            "preview",
+        ),
+    ),
+)
+def test_temporal_catalog_error_instances_route_to_the_exact_next_help(
+    raiser_name: str,
+    ref: object,
+    operation: str,
+    surface: str,
+    canonical_id: str,
+) -> None:
+    import marivo.semantic.catalog as catalog_module
+
+    raiser = getattr(catalog_module, raiser_name)
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        raiser(ref, operation, "probe", details={})
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.help_target == LiveHelpTarget(
+        surface=surface,
+        canonical_id=canonical_id,
+    )
+    assert f'Next help: marivo.help("{surface}.{canonical_id}")' in _text(error)
+
+
+def test_temporal_catalog_lookup_rejects_an_unregistered_operation() -> None:
+    from marivo.semantic.catalog import _raise_period_lookup
+
+    with pytest.raises(RuntimeError, match="unsupported period-calendar lookup operation"):
+        _raise_period_lookup(
+            ms.ref.period_calendar("sales.fiscal"),
+            "synthetic",
+            "probe",
+            details={},
+        )
+
+
+def test_preview_result_type_string_and_instance_share_one_static_contract() -> None:
+    from marivo.preview import PreviewResult
+
+    instance = object.__new__(PreviewResult)
+    by_type = _text(PreviewResult)
+    by_string = _text("PreviewResult")
+    by_instance = _text(instance)
+
+    assert by_type == by_string == by_instance
+    assert "Producers: preview" in by_type
+    assert "Public fields: kind, ref, columns, types, rows" in by_type
+    assert "Public consumption: show, render" in by_type
+
+
 def test_help_rejects_unknown_string() -> None:
     with pytest.raises(MarivoHelpTargetError) as exc_info:
         _text("nonexistent_target")
@@ -539,10 +667,72 @@ def test_ref_help_resolves_to_object_near_reference_briefing() -> None:
     text = _text(ref)
     assert "metric: sales.revenue" in text
     assert "entry = catalog.require(ref)" in text
-    assert "entry.details().show()" in text
-    assert "catalog.readiness(refs=[entry]).show()" in text
+    assert "entry.details().show()" not in text
+    assert "catalog.readiness" not in text
     assert "observe" not in text
     assert "preview" not in text
+
+
+def test_every_ref_kind_remains_identity_only_and_bounded() -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    budget = REGISTRY.render_budget("current_briefing")
+    for kind in SemanticKind:
+        path = _example_ref_path(kind)
+        ref = getattr(ms.ref, kind.value)(path)
+        text = _text(ref)
+        assert f"{kind.value}: {path}" in text
+        assert "entry = catalog.require(ref)" in text
+        assert 'marivo.help("semantic.Ref")' in text
+        assert "catalog.readiness" not in text
+        assert "Analysis handoff" not in text
+        assert "Scoped preview" not in text
+        assert len(text.splitlines()) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+        assert len(_rendered_routes(text)) <= budget.max_outgoing_routes
+
+
+def test_every_catalog_entry_kind_uses_object_contract_runtime_routes_without_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import marivo.semantic.catalog as catalog_module
+    from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    def fail(*args: object, **kwargs: object) -> object:
+        raise AssertionError("entry help must not load or query")
+
+    monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", fail)
+    monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
+    budget = REGISTRY.render_budget("current_briefing")
+
+    for member in CATALOG_MEMBER_CONTRACTS:
+        entry_type = getattr(catalog_module, member.entry_type_name)
+        ref = getattr(ms.ref, member.kind.value)(_example_ref_path(member.kind))
+        entry = entry_type(ref=ref, _details=object(), _catalog=object())
+        text = _text(entry)
+        assert f"Object: {member.entry_type_name}" in text
+        assert "entry.show()" in text
+        assert "entry.details().show()" in text
+        assert "catalog.readiness(refs=[entry]).show()" in text
+
+        try:
+            object_contract = REGISTRY.object_contract(member.kind)
+        except KeyError:
+            expected_runtime_targets: set[str] = set()
+        else:
+            expected_runtime_targets = {
+                target.canonical_id
+                for target in object_contract.check_targets
+                if target.canonical_id in {"preview", "source_health"}
+            }
+        for target in ("preview", "source_health"):
+            invocation = f'marivo.help("semantic.{target}")'
+            assert (invocation in text) is (target in expected_runtime_targets)
+
+        assert len(text.splitlines()) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+        assert len(_rendered_routes(text)) <= budget.max_outgoing_routes
 
 
 def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
@@ -550,6 +740,7 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.semantic._capabilities.render import render_help_target
     from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 
     catalog = ms.load()
@@ -565,9 +756,22 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     assert resolved.kind == "reference_briefing"
     assert resolved.reference_id == "sales.revenue"
     text = _text(entry)
+    native_text = render_help_target(resolved, original_target=entry)
+    for fact in (
+        "metric: sales.revenue",
+        "Object: MetricEntry",
+        "entry.details().show()",
+        'marivo.help("semantic.preview")',
+        "Readiness is not inferred here",
+    ):
+        assert fact in native_text
+        assert fact in text
+    assert "Analysis handoff" not in native_text
     assert "Object: MetricEntry" in text
     assert "metric: sales.revenue" in text
-    assert "Details:" in text
+    assert "Object-near inspection:" in text
+    assert 'marivo.help("semantic.preview")' in text
+    assert 'marivo.help("semantic.source_health")' not in text
     assert "Analysis handoff (kind-level" in text
     assert "session.observe(...) -> MetricFrame" in text
     assert 'marivo.help("analysis.observe")' in text
@@ -600,7 +804,7 @@ def test_error_help_kind_depends_on_concrete_repair_target() -> None:
         ),
     )
     without_repair = SemanticLoadError(
-        kind="invalid_project",
+        kind="synthetic_unregistered_error",
         message="semantic project is invalid",
     )
 
@@ -609,10 +813,9 @@ def test_error_help_kind_depends_on_concrete_repair_target() -> None:
     error_class = resolve_live_target(SemanticLoadError, SEMANTIC_LIVE_SURFACE)
 
     assert briefing.kind == "error_briefing"
-    assert contract.kind == "error_briefing"
+    assert contract.kind == "error_contract"
     assert error_class.kind == "error_contract"
-    assert contract != error_class
-    assert 'marivo.help("semantic.authoring")' in _text(without_repair)
+    assert contract == error_class
     text = _text(with_repair)
     assert "Kind: retry" in text
     assert "Expected: one loaded domain" in text

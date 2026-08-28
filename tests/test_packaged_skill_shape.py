@@ -8,6 +8,27 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ANALYSIS_SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-analysis"
 SEMANTIC_SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
+LATEST_SEMANTIC_DOCS = (
+    REPO_ROOT
+    / "site"
+    / "src"
+    / "content"
+    / "docs"
+    / "docs"
+    / "latest"
+    / "concepts"
+    / "semantic-layer.mdx",
+    REPO_ROOT
+    / "site"
+    / "src"
+    / "content"
+    / "docs"
+    / "zh-cn"
+    / "docs"
+    / "latest"
+    / "concepts"
+    / "semantic-layer.mdx",
+)
 MILESTONE1_ACTIVE_DOCS = (
     REPO_ROOT / "docs" / "specs" / "analysis" / "operators-and-frames.md",
     REPO_ROOT / "docs" / "specs" / "semantic" / "datasource-layer.md",
@@ -170,11 +191,47 @@ def test_semantic_skill_package_layout() -> None:
 def test_semantic_skill_routes_coherent_slice_authoring() -> None:
     text = (SEMANTIC_SKILL_DIR / "SKILL.md").read_text()
 
+    for target in (
+        "semantic.authoring",
+        "semantic.objects",
+        "semantic.builders",
+        "semantic.checks",
+    ):
+        assert f'marivo.help("{target}")' in text
     assert "one dependency-coherent semantic slice" in text
     assert "one `ms.load()`" in text
     assert "`catalog.require(ref)`" in text
     assert "one-object checkpoint loop" in text
     assert "separate verification checkpoint" in text
+    assert "| Object kind |" not in text
+    assert "| Parameter |" not in text
+
+
+def test_latest_semantic_docs_share_progressive_routes_without_leaf_parameter_tables() -> None:
+    english, chinese = (path.read_text() for path in LATEST_SEMANTIC_DOCS)
+
+    for text in (english, chinese):
+        for target in (
+            "semantic.authoring",
+            "semantic.objects",
+            "semantic.builders",
+            "semantic.checks",
+        ):
+            assert f'marivo.help("{target}")' in text
+        assert "marivo.help(entry_or_error)" in text
+        for target in (
+            "analysis.calendar.grain",
+            "analysis.calendar.period",
+            "analysis.calendar.period_on",
+            "analysis.calendar.periods",
+            "analysis.temporal_set.occurrence",
+            "analysis.temporal_set.occurrences",
+        ):
+            assert target in text
+        assert "marivo.help(error)" in text
+
+    assert "| Parameter | Type | Required | Default | Meaning |" not in english
+    assert "| 参数 | 类型 | 必填 | 默认 | 含义 |" not in chinese
 
 
 def test_semantic_skill_teaches_governed_terminal_raw_sql() -> None:

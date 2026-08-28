@@ -460,7 +460,7 @@ def _raise(
         }
         repair_value = repair(
             kind="reauthor",
-            canonical_id="participant" if participant_error else "event",
+            canonical_id="participant" if participant_error else "objects.event",
             action=hint
             or (
                 "Reauthor the participant declaration."
