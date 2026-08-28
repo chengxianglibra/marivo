@@ -2,7 +2,7 @@
 
 Shared coding, testing, and documentation guidance for agents working in this
 repository. Keep this file focused on stable rules that should be loaded for
-every coding task.
+every coding task. Do not modify this file without explicit user approval.
 
 ## Core Rules
 
@@ -46,14 +46,12 @@ aliases are not available at the top level.
 
 Rules for this surface:
 
-- Python-track expressions return ibis expressions only. Do not introduce raw
-  SQL strings as executable expression bodies. SQL text only belongs in
-  provenance metadata such as `provenance=ms.from_sql(sql=..., dialect=...)`.
+- Python-track expressions return ibis expressions only. SQL text belongs only
+  in provenance value objects such as
+  `provenance=ms.from_sql(sql=..., dialect=...)`, never in executable expression
+  bodies.
 - Decorator function bodies stay restricted by
   `marivo/semantic/validator.py`.
-- Expression-bearing semantic decorators keep SQL provenance in value objects
-  such as `provenance=ms.from_sql(sql=..., dialect=...)`; SQL text is metadata
-  only, never an executable expression body.
 - New exceptions subclass `SemanticError` or `AnalysisError`, carry structured
   fields, and render through the shared template style. New datasource
   exceptions subclass `DatasourceError`, parallel to the `SemanticError` and
@@ -74,10 +72,6 @@ Rules for this surface:
   `marivo.help("datasource.<target>")` for datasource symbols,
   `marivo.help("semantic.<target>")` for semantic symbols, and
   `marivo.help("analysis.<target>")` for analysis symbols.
-  `md.describe(name)` remains a datasource-domain read for one
-  registered datasource; it is not a generic symbol-introspection API and
-  this cutover adds no `ms.describe(...)` or cross-surface
-  `describe(symbol)` alias.
 - Public API functions must not accept or return `Any` or other ambiguous types;
   every parameter and return annotation must be a concrete, specific type.
 
@@ -89,8 +83,15 @@ These rules govern every public surface change:
 - Errors teach: every typed error states what was expected, what was
   received, and the concrete next step. Suggestions are built from real
   state (e.g. catalog contents), never hardcoded. No silent fallback.
-- One path per capability: each task has exactly one public entry point.
-  Nothing described as "internal — use X instead" may appear in `__all__`.
+- Keep guidance with its natural owner: live Help owns static API and navigation
+  facts; result `show()` / `contract()` methods own current state and
+  mechanically valid continuations; structured errors own concrete repair;
+  packaged skills own workflow boundaries and judgment without duplicating
+  those contracts.
+- One canonical path per capability: discovery and guidance point to exactly one
+  public entry point. Compatibility paths exist only when the owning contract
+  explicitly requires them. Nothing described as "internal — use X instead"
+  may appear in `__all__`.
 - `__repr__` is the floor: every public result type has a bounded,
   single-line repr carrying kind and identity, pointing to `.show()` for
   detail. Default dataclass reprs are not acceptable on public result types.
@@ -115,92 +116,23 @@ These rules govern every public surface change:
 - Prefer one entry shape with closed, kind-dispatched variants over
   optional-field mega-classes: precise types fail loudly, optional-field
   unions fail silently.
-
-## Authoring Guidance Layering
-
-`marivo.help("semantic.<target>")` owns the static semantic-authoring contract
-— constructor, required/optional parameters, types, defaults, omit rules, and
-cross-parameter constraints — as the single source agents consult before
-authoring. `marivo.help("datasource.<target>")` owns datasource contracts;
-`md.inspect(...)`, optional explicitly scoped `inspection.sample(...)`, and
-governed bounded `md.raw_sql(...)` own runtime datasource evidence. Snapshots
-retain generic rows, profiles, source evidence, and cache identity; they do not
-project semantic candidates or own semantic judgments. The
-`marivo-semantic` skill owns workflow and routing only:
-
-```text
-load current catalogs -> inspect -> optional bounded sample and/or governed raw SQL -> author one coherent semantic slice -> one ms.load() -> catalog.require(...) -> scoped readiness -> targeted runtime or source-health probes -> first typed analysis use
-```
-
-It must not duplicate parameter tables from either help surface. There is no
-public prepare stage, automatic authoring planner, per-object verify checkpoint,
-or shared public authoring lifecycle graph. The agent owns evidence-based
-drafting and technical handling, including uncommon physical formats. Before
-the first typed analysis use, genuinely unresolved reusable business meaning
-must have current authority from the user, an approved project definition, or
-attributable non-conflicting documentation or provenance. Already-authorized
-meaning proceeds without redundant confirmation.
-
-Semantic preview reads the current datasource through an explicit
-`AuthoringScope` (or an exact entity-ref scope mapping for multi-entity roots).
-Ordinary preview is not a persisted checkpoint and does not affect readiness.
-Readiness is derived from the current semantic project and requested closure,
-plus any dedicated certified temporal artifacts, and hands analysis only
-`analysis_ready_inputs`.
-
-Source and data drift have a separate explicit owner:
-`catalog.source_health(refs, checks=[...], scope=...)`. Connectivity and schema
-identity are checked without a user-data scope; null, enum, uniqueness,
-freshness, relationship, and cardinality checks exist only when constructed via
-`ms.source_check` and then require an exact positive row/timeout scope. Source
-health is ephemeral, does not mutate source or semantic state, and never changes
-readiness.
-
-Ownership split: the public `marivo.help(...)` coordinator routes to the native
-datasource and semantic registries that own static contracts, operations,
-effects, and input facts. Those registries are not public APIs; the
-`marivo-semantic` skill owns workflow and routing only; the runtime has no
-canonical link to packaged skill files, so skill content is never read or
-executed by the library.
-
-## Analysis Guidance Layering
-
-Environment-verified live surfaces own capabilities and runtime guidance.
-`python -m marivo help` verifies the selected environment and hands off to
-`marivo.help("analysis.<target>")`, which owns the static analysis contract —
-signatures, artifact families, constraints, return types, errors, and runnable
-examples. Frames and results own dynamic guidance — `show()` describes current
-state and only state-dependent continuation hints, while `contract()` describes
-the complete set of mechanically valid next actions. Human-readable operation
-labels use registry-owned public entry points such as `session.compare(...)`;
-structured errors own repair guidance. The `marivo-analysis` skill owns hard
-boundaries, handoffs, evidence continuity, and closeout obligations. The agent
-owns planning and judgment.
-
-The skill is a one-file boundary kernel. It does not duplicate the help
-contract, frame/result guidance, or error repair guidance. It does not
-prescribe an ordered operator sequence or a report template. Intentional
-teaching order is documented in the live help surface and the active specs,
-not in the skill.
+- Treat a change to any public export, callable or type contract, Help target,
+  result/error guidance, or dynamic continuation as one disclosure-contract
+  change. Keep the affected implementation/API, native Help registry and
+  budgets, dynamic guidance, independent drift/reachability/budget tests,
+  examples, skills, CLI, and current English/Chinese docs aligned. Preserve one
+  owner per fact, bounded progressive routes, and independently resolvable
+  targets. Do not add renderer shadow inventories or unowned compatibility
+  aliases; compatibility and migration belong to the owning contract.
 
 ## Tests
 
 - Use shared fixtures in `tests/conftest.py` and `tests/shared_fixtures.py`
   for repeated Python-track setup.
-- Keep tests aligned to the current contract, not legacy compatibility shapes.
+- Keep tests aligned to the current owning contract; do not preserve legacy
+  compatibility shapes unless explicitly required.
 - Run the narrowest useful test first, then broaden to `make test` when the
   change touches shared behavior.
-
-## Repository Entrypoints
-
-Prefer these repository entrypoints:
-
-```bash
-make test
-make typecheck
-make lint
-make format
-```
 
 ## Documentation Routing
 
@@ -212,10 +144,9 @@ When working on a task, read the right docs first:
 | Datasource declarations, discovery | `docs/specs/semantic/datasource-layer.md` |
 | Python semantic object model | `docs/specs/semantic/semantic-object-model.md` |
 | Semantic authoring workflow | `docs/specs/semantic/authoring-workflow.md` |
-| Semantic loading, validation, runtime | `docs/specs/semantic/loading-validation-introspection.md` |
-| Semantic-to-analysis handoff contract | `docs/specs/semantic/loading-validation-introspection.md` |
+| Semantic loading, validation, runtime, and analysis handoff | `docs/specs/semantic/loading-validation-introspection.md` |
 | Python analysis design | `docs/specs/analysis/python-analysis-design.md` |
-| Agent usage examples | `marivo/skills/marivo-semantic/` |
+| Agent workflow and boundaries | `marivo/skills/marivo-semantic/SKILL.md` or `marivo/skills/marivo-analysis/SKILL.md` |
 
 ## Documentation Updates
 
