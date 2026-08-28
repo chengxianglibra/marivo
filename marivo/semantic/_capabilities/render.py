@@ -14,7 +14,7 @@ from marivo.semantic._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.semantic.constraints import iter_constraints
 
 if TYPE_CHECKING:
-    from marivo.semantic._capabilities.model import SemanticTypeContract
+    from marivo.semantic._capabilities.model import SemanticHelpDescriptor, SemanticTypeContract
 
 _GROUPS = (
     ("browse_load", "Browse and load"),
@@ -257,7 +257,7 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
         )
     consumers = [
         other.canonical_id
-        for other in (REGISTRY.by_canonical_id(value) for value in REGISTRY.canonical_ids())
+        for other in REGISTRY.descriptors
         if descriptor.output_family is not None
         and any(
             requirement.family == descriptor.output_family
@@ -447,12 +447,16 @@ def _render_reference(reference_id: str, original: object) -> str:
 
 
 def render_help_target(
-    resolved: ResolvedLiveTarget[AuthoringCapability],
+    resolved: ResolvedLiveTarget[SemanticHelpDescriptor],
     *,
     original_target: object | None = None,
 ) -> str:
     """Render a resolved semantic target without invoking runtime operations."""
     if resolved.kind == "descriptor" and resolved.descriptor is not None:
+        if not isinstance(resolved.descriptor, AuthoringCapability):
+            raise RuntimeError(
+                f"unsupported semantic Help descriptor: {type(resolved.descriptor).__name__}"
+            )
         return _with_python_imports(_render_descriptor(resolved.descriptor))
     if resolved.kind == "type_contract" and resolved.type_name is not None:
         return _with_python_imports(_render_type(resolved.type_name, original_target))

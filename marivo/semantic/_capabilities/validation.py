@@ -6,6 +6,7 @@ import ast
 import inspect
 from typing import Literal
 
+from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
@@ -29,6 +30,16 @@ _ROOT_GROUP_LABELS = {
 
 def _target_text(target: LiveHelpTarget) -> str:
     return f"{target.surface}.{target.canonical_id}"
+
+
+def _is_registered_semantic_target(target: LiveHelpTarget) -> bool:
+    if target.surface != "semantic" or target.canonical_id is None:
+        return False
+    try:
+        REGISTRY.by_canonical_id(target.canonical_id)
+    except KeyError:
+        return False
+    return True
 
 
 def _call_name(node: ast.expr) -> str | None:
@@ -80,6 +91,7 @@ def _validate_minimal_example_signature(
 
 def _focused_budget_text(canonical_id: str) -> str:
     descriptor = REGISTRY.by_canonical_id(canonical_id)
+    assert isinstance(descriptor, AuthoringCapability)
     requirements = ", ".join(
         f"{requirement.role}:{requirement.family}:{','.join(requirement.exact_keys)}"
         for requirement in descriptor.input_requirements
@@ -115,13 +127,14 @@ def validate_semantic_live_surface() -> None:
     assert len(callable_ids) == len(set(callable_ids))
 
     callable_paths = tuple(
-        REGISTRY.by_canonical_id(canonical_id).callable_path for canonical_id in callable_ids
+        descriptor.callable_path
+        for descriptor in REGISTRY.descriptors
+        if descriptor.callable_path is not None
     )
     assert len(callable_paths) == len(set(callable_paths))
 
     registered_constraints = {str(constraint_id) for constraint_id in CONSTRAINTS}
-    for canonical_id in canonical_ids:
-        descriptor = REGISTRY.by_canonical_id(canonical_id)
+    for descriptor in REGISTRY.descriptors:
         assert descriptor.surface == "semantic"
         assert descriptor.effects is not None
         assert descriptor.output_family is None or descriptor.output_family in OUTPUT_FAMILIES
@@ -144,7 +157,7 @@ def validate_semantic_live_surface() -> None:
 
     source_authored_ids = {
         descriptor.canonical_id
-        for descriptor in REGISTRY._descriptors
+        for descriptor in REGISTRY.descriptors
         if descriptor.output_family is not None
         and descriptor.output_family.startswith("Ref[")
         and descriptor.effects is not None
@@ -189,7 +202,7 @@ def validate_semantic_live_surface() -> None:
         )
         assert all(not method_name.startswith("_") for method_name in contract.public_methods)
         assert all(
-            REGISTRY.by_canonical_id(target.canonical_id or "").surface == target.surface
+            _is_registered_semantic_target(target)
             for target in (*contract.producers, *contract.consumers)
         )
     root_text = "\n".join(
@@ -214,7 +227,7 @@ def validate_semantic_live_surface() -> None:
     )
     assert root_text.count("\n") + 1 <= SURFACE_LIMITS.root_help_max_lines
     assert len(root_text) <= SURFACE_LIMITS.root_help_max_codepoints
-    for canonical_id in canonical_ids:
+    for canonical_id in tuple(descriptor.canonical_id for descriptor in REGISTRY.descriptors):
         focused_text = _focused_budget_text(canonical_id)
         assert focused_text.count("\n") + 1 <= SURFACE_LIMITS.focused_help_max_lines
         assert len(focused_text) <= SURFACE_LIMITS.focused_help_max_codepoints

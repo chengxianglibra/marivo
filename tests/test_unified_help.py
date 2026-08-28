@@ -18,6 +18,8 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._help import render as help_render
 from marivo._help.model import (
+    GLOBAL_HELP_RENDER_BUDGETS,
+    GlobalHelpRenderBudget,
     MarivoHelpSurfaceError,
     MarivoHelpTargetError,
     NativeHelpRoute,
@@ -178,6 +180,30 @@ def test_root_help_introduces_marivo_and_routes_to_two_secondary_roots() -> None
     assert "Domain modules expose no public .help alias" in text
 
 
+def test_global_help_topics_use_coordinator_owned_render_budgets() -> None:
+    expected = {
+        "root": (32, 3_000, 10, 0),
+        "decision_hub": (40, 4_000, 8, 0),
+    }
+    assert {
+        render_class: (
+            budget.max_lines,
+            budget.max_codepoints,
+            budget.max_outgoing_routes,
+            budget.max_examples_or_snippets,
+        )
+        for render_class, budget in GLOBAL_HELP_RENDER_BUDGETS.items()
+    } == expected
+    with pytest.raises(TypeError):
+        GLOBAL_HELP_RENDER_BUDGETS["root"] = GlobalHelpRenderBudget(1, 1, 1, 0)  # type: ignore[index]
+
+    for target, render_class in ((None, "root"), ("authoring", "decision_hub")):
+        text = _text(target)
+        budget = GLOBAL_HELP_RENDER_BUDGETS[render_class]  # type: ignore[index]
+        assert len(text.splitlines()) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+
+
 def test_root_help_advertises_only_the_two_resolvable_secondary_roots() -> None:
     text = _text()
     advertised = tuple(
@@ -278,6 +304,15 @@ def test_global_authoring_composition_topic_wins_over_native_duplicates() -> Non
     text = _text("authoring")
     assert "datasource.authoring" in text
     assert "semantic.authoring" in text
+
+
+@pytest.mark.parametrize(
+    "target",
+    ("semantic.objects", "semantic.builders", "semantic.checks"),
+)
+def test_semantic_slice1_navigation_targets_are_not_publicly_active(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        route_help_target(target)
 
 
 def test_global_authoring_routes_exploration_and_exact_project_catalog_reads() -> None:

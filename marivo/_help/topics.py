@@ -2,21 +2,31 @@
 
 from __future__ import annotations
 
-from marivo.introspection.live.model import SURFACE_LIMITS
+from marivo._help.model import GLOBAL_HELP_RENDER_BUDGETS, GlobalHelpRenderClass
 from marivo.introspection.live.render import enforce_budget
 
 
-def _bounded(text: str, *, root: bool = False) -> str:
+def _bounded(
+    text: str,
+    *,
+    render_class: GlobalHelpRenderClass,
+    outgoing_routes: tuple[str, ...],
+    examples_or_snippets: int = 0,
+) -> str:
+    budget = GLOBAL_HELP_RENDER_BUDGETS[render_class]
+    if len(outgoing_routes) > budget.max_outgoing_routes:
+        raise RuntimeError(
+            f"render budget exceeded: {len(outgoing_routes)} routes > {budget.max_outgoing_routes}"
+        )
+    if examples_or_snippets > budget.max_examples_or_snippets:
+        raise RuntimeError(
+            f"render budget exceeded: {examples_or_snippets} examples/snippets > "
+            f"{budget.max_examples_or_snippets}"
+        )
     return enforce_budget(
         text,
-        max_lines=(
-            SURFACE_LIMITS.root_help_max_lines if root else SURFACE_LIMITS.focused_help_max_lines
-        ),
-        max_codepoints=(
-            SURFACE_LIMITS.root_help_max_codepoints
-            if root
-            else SURFACE_LIMITS.focused_help_max_codepoints
-        ),
+        max_lines=budget.max_lines,
+        max_codepoints=budget.max_codepoints,
     )
 
 
@@ -44,7 +54,8 @@ def render_root() -> str:
                 "  Domain modules expose no public .help alias; use marivo.help(...).",
             )
         ),
-        root=True,
+        render_class="root",
+        outgoing_routes=("authoring", "analysis"),
     )
 
 
@@ -77,5 +88,14 @@ def render_authoring() -> str:
                 '    marivo.help("semantic")',
                 '    marivo.help("ontology")',
             )
-        )
+        ),
+        render_class="decision_hub",
+        outgoing_routes=(
+            "datasource.authoring",
+            "semantic.authoring",
+            "ontology.authoring",
+            "datasource",
+            "semantic",
+            "ontology",
+        ),
     )

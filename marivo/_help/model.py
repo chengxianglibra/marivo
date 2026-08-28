@@ -2,14 +2,38 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal, TypeAlias
 
 from marivo.introspection.live.model import HelpSurface, ResolvableHelpDescriptor
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 
 GlobalTopic = Literal["root", "authoring"]
+GlobalHelpRenderClass = Literal["root", "decision_hub"]
 HelpOutcome = Literal["success", "unknown", "ambiguous"]
+
+
+@dataclass(frozen=True)
+class GlobalHelpRenderBudget:
+    """Closed structural budget for one global Help coordinator page."""
+
+    max_lines: int
+    max_codepoints: int
+    max_outgoing_routes: int
+    max_examples_or_snippets: int
+
+
+GLOBAL_HELP_RENDER_BUDGETS: Mapping[
+    GlobalHelpRenderClass,
+    GlobalHelpRenderBudget,
+] = MappingProxyType(
+    {
+        "root": GlobalHelpRenderBudget(32, 3_000, 10, 0),
+        "decision_hub": GlobalHelpRenderBudget(40, 4_000, 8, 0),
+    }
+)
 
 
 @dataclass(frozen=True)
