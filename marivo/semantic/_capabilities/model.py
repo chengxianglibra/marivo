@@ -13,11 +13,9 @@ from marivo.introspection.live.reflect import callable_identity
 from marivo.refs import SemanticKind
 
 SemanticRootGroup = Literal[
-    "browse_load",
-    "author_families",
-    "runtime_probes",
-    "readiness",
-    "diagnostics_boundaries",
+    "start",
+    "discover_authoring",
+    "current_catalog",
 ]
 AuthoringPlacementKind = Literal["domain_entrypoint", "domain_module"]
 SemanticHelpRenderClass = Literal[
@@ -39,6 +37,15 @@ class SemanticHelpRenderBudget:
     max_examples_or_snippets: int
 
 
+@dataclass(frozen=True)
+class SemanticRootSection:
+    """One registry-owned section of the compact semantic root."""
+
+    section_id: SemanticRootGroup
+    label: str
+    members: tuple[LiveHelpTarget, ...]
+
+
 SEMANTIC_HELP_RENDER_BUDGETS: Mapping[
     SemanticHelpRenderClass,
     SemanticHelpRenderBudget,
@@ -54,12 +61,46 @@ SEMANTIC_HELP_RENDER_BUDGETS: Mapping[
 
 
 @dataclass(frozen=True)
+class SemanticNavigationRoute:
+    """One labelled registry-owned route on a semantic navigation page."""
+
+    label: str
+    target: LiveHelpTarget
+    summary: str | None = None
+    owns_discovery: bool = True
+
+
+@dataclass(frozen=True)
+class SemanticObjectIndexEntry:
+    """One object contract embedded directly in the object-kind index."""
+
+    contract: SemanticObjectContract
+
+    @property
+    def label(self) -> str:
+        return self.contract.semantic_kind.value
+
+    @property
+    def summary(self) -> str:
+        return self.contract.summary
+
+    @property
+    def target(self) -> LiveHelpTarget:
+        return LiveHelpTarget(surface="semantic", canonical_id=self.contract.canonical_id)
+
+    @property
+    def owns_discovery(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True)
 class SemanticNavigationTopic:
     """One non-invokable semantic decision or navigation page."""
 
     canonical_id: str
     summary: str
-    members: tuple[LiveHelpTarget, ...]
+    members: tuple[SemanticNavigationRoute | SemanticObjectIndexEntry, ...]
+    member_heading: str = "Choose by need"
     public_entrypoint: None = field(default=None, init=False)
     callable_path: None = field(default=None, init=False)
 
@@ -207,7 +248,7 @@ class SemanticCapabilityRegistry:
     surface: Literal["semantic"]
     _help_descriptors: tuple[SemanticHelpDescriptor, ...]
     _descriptors: tuple[AuthoringCapability, ...]
-    _groups: Mapping[SemanticRootGroup, tuple[str, ...]]
+    _root_sections: tuple[SemanticRootSection, ...]
     _by_id: Mapping[str, SemanticHelpDescriptor]
     _by_callable_path: Mapping[str, AuthoringCapability]
     _source_contracts: Mapping[str, AuthoringSourceContract]
@@ -250,7 +291,7 @@ class SemanticCapabilityRegistry:
         return tuple(
             descriptor.canonical_id
             for descriptor in self._help_descriptors
-            if isinstance(descriptor, AuthoringCapability) and descriptor.kind != "method"
+            if not isinstance(descriptor, AuthoringCapability) or descriptor.kind != "method"
         )
 
     def callable_ids(self) -> tuple[str, ...]:
@@ -260,20 +301,41 @@ class SemanticCapabilityRegistry:
             if descriptor.callable_path is not None
         )
 
+    @property
+    def root_sections(self) -> tuple[SemanticRootSection, ...]:
+        """Return compact semantic-root sections in teaching order."""
+
+        return self._root_sections
+
     def by_canonical_id(self, canonical_id: str) -> SemanticHelpDescriptor:
         return self._by_id[canonical_id]
 
     def by_callable(self, obj: object) -> AuthoringCapability:
         return self._by_callable_path[callable_identity(obj)]
 
-    def group(self, group: SemanticRootGroup) -> tuple[AuthoringCapability, ...]:
-        members: list[AuthoringCapability] = []
-        for canonical_id in self._groups[group]:
-            descriptor = self._by_id[canonical_id]
-            if not isinstance(descriptor, AuthoringCapability):
-                raise TypeError(f"semantic root group member is not a capability: {canonical_id}")
-            members.append(descriptor)
-        return tuple(members)
+    def routes(self, canonical_id: str) -> tuple[LiveHelpTarget, ...]:
+        """Return all registry-owned outgoing routes for one static descriptor."""
+
+        descriptor = self._by_id[canonical_id]
+        routes: tuple[LiveHelpTarget, ...]
+        if isinstance(descriptor, SemanticNavigationTopic):
+            routes = tuple(member.target for member in descriptor.members)
+        elif isinstance(descriptor, SemanticBuilderTopic):
+            routes = descriptor.members
+        elif isinstance(descriptor, SemanticCheckTopic):
+            routes = tuple(target for route in descriptor.routes for target in route.targets)
+        elif isinstance(descriptor, SemanticObjectContract):
+            routes = (
+                descriptor.ref_target,
+                *(mode.target for mode in descriptor.construction_modes),
+                *(relationship.target for relationship in descriptor.relationships),
+                *descriptor.supporting_targets,
+                *descriptor.check_targets,
+                *(target for decision in descriptor.decisions for target in decision.next_targets),
+            )
+        else:
+            routes = descriptor.see_also
+        return tuple(dict.fromkeys(routes))
 
     def source_contract(self, canonical_id: str) -> AuthoringSourceContract | None:
         """Return source placement and handoff facts for one object constructor."""

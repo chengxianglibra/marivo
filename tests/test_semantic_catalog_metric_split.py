@@ -112,8 +112,8 @@ def test_simple_metric_details_render_includes_additivity(semantic_project_facto
 def test_help_topics_reflect_split():
     from tests.shared_fixtures import rendered_help
 
-    # The help index text must mention metric-related capabilities
-    index = rendered_help(owner="semantic")
+    # The Metric object page owns intent-based constructor discovery.
+    index = rendered_help("objects.metric", owner="semantic")
     assert "metric" in index
     assert "ratio" in index
     assert "linear" in index

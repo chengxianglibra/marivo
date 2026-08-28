@@ -4,7 +4,13 @@
 def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
     from tests.shared_fixtures import rendered_help
 
-    semantic_text = rendered_help(owner="semantic")
+    semantic_text = "\n".join(
+        (
+            rendered_help(owner="semantic"),
+            rendered_help("objects", owner="semantic"),
+            rendered_help("checks", owner="semantic"),
+        )
+    )
     datasource_text = rendered_help(owner="datasource")
 
     for name in ("domain", "entity", "metric", "readiness"):

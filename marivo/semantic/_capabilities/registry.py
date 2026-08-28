@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Literal, get_args
@@ -30,16 +31,20 @@ from marivo.semantic._capabilities.model import (
     ConstructionMode,
     SemanticBuilderTopic,
     SemanticCapabilityRegistry,
+    SemanticCheckRoute,
     SemanticCheckTopic,
     SemanticHelpDescriptor,
     SemanticHelpRenderBudget,
     SemanticHelpRenderClass,
+    SemanticNavigationRoute,
     SemanticNavigationTopic,
     SemanticObjectContract,
     SemanticObjectDecision,
+    SemanticObjectIndexEntry,
     SemanticObjectRelationship,
     SemanticRepairContract,
     SemanticRootGroup,
+    SemanticRootSection,
     SemanticTypeContract,
 )
 
@@ -213,6 +218,21 @@ TYPE_CONTRACTS: Mapping[type, SemanticTypeContract] = {}
 
 def _target(canonical_id: str) -> LiveHelpTarget:
     return LiveHelpTarget(surface="semantic", canonical_id=canonical_id)
+
+
+def _navigation_route(
+    label: str,
+    target: LiveHelpTarget,
+    *,
+    summary: str | None = None,
+    owns_discovery: bool = True,
+) -> SemanticNavigationRoute:
+    return SemanticNavigationRoute(
+        label=label,
+        target=target,
+        summary=summary,
+        owns_discovery=owns_discovery,
+    )
 
 
 def _inputs(
@@ -1225,6 +1245,210 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
     )
 
 
+def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
+    """Build supporting-builder families in need-directed teaching order."""
+
+    rows = (
+        (
+            "builders.entity_history",
+            "Entity history",
+            "Describe snapshot or validity-versioned Entity history.",
+            ("snapshot", "validity"),
+        ),
+        (
+            "builders.temporal_parsing",
+            "Temporal parsing",
+            "Parse physical date, datetime, timestamp, or hour-prefix values.",
+            ("datetime", "timestamp", "strptime", "hour_prefix"),
+        ),
+        (
+            "builders.field_metric_support",
+            "Field and Metric support",
+            "Build Field and Metric parameters, provenance, anchors, and expressions.",
+            ("where", "semi_additive", "bind", "from_sql", "grain_to_date", "trailing"),
+        ),
+        (
+            "builders.relationship_event",
+            "Relationship and Event support",
+            "Build join keys, participants, participant handles, and all-row predicates.",
+            ("join_on", "participant", "participant_role", "all_rows"),
+        ),
+        (
+            "builders.state_model",
+            "StateModel support",
+            "Build local lifecycle states, triggers, transitions, and typed state handles.",
+            ("lifecycle_state", "inception", "transition", "model_state"),
+        ),
+        (
+            "builders.governed_temporal",
+            "Governed temporal support",
+            "Build period correspondences and governed calendar grains.",
+            ("period_correspondence", "calendar_grain"),
+        ),
+    )
+    return tuple(
+        SemanticBuilderTopic(
+            canonical_id=canonical_id,
+            label=label,
+            summary=summary,
+            members=tuple(_target(member) for member in members),
+        )
+        for canonical_id, label, summary, members in rows
+    )
+
+
+def _check_topic() -> SemanticCheckTopic:
+    """Build proof/non-proof routing for semantic inspection and checks."""
+
+    def route(
+        question: str,
+        targets: tuple[LiveHelpTarget, ...],
+        proves: str,
+        does_not_prove: str,
+    ) -> SemanticCheckRoute:
+        return SemanticCheckRoute(
+            question=question,
+            targets=targets,
+            proves=proves,
+            does_not_prove=does_not_prove,
+        )
+
+    def datasource(canonical_id: str) -> LiveHelpTarget:
+        return LiveHelpTarget(surface="datasource", canonical_id=canonical_id)
+
+    return SemanticCheckTopic(
+        canonical_id="checks",
+        summary="Choose inspection, readiness, preview, health, parity, or richness by proof need.",
+        routes=(
+            route(
+                "What physical source, schema, columns, and types exist?",
+                (datasource("inspect"),),
+                "Current authoritative physical metadata to the backend's supported extent.",
+                "Reusable business meaning.",
+            ),
+            route(
+                "Do I need bounded sampled rows or source-specific SQL evidence?",
+                (datasource("authoring"),),
+                "Explicitly scoped or governed physical observations.",
+                "Semantic validity or typed-analysis authority.",
+            ),
+            route(
+                "Do project sources execute, resolve refs, and compile as one project?",
+                (_target("load"),),
+                "Static project assembly and structural validation.",
+                "Current external health or operation-shaped executability.",
+            ),
+            route(
+                "Is this exact requested dependency closure statically ready for analysis?",
+                (_target("readiness"),),
+                "Governed semantic closure and analysis_ready_inputs.",
+                "Successful execution of every future analysis shape.",
+            ),
+            route(
+                "What does this entry produce under one explicit authoring scope?",
+                (_target("preview"), _target("preview_many")),
+                "A bounded current runtime observation for the exact requested scope.",
+                "Persistent certification or readiness mutation.",
+            ),
+            route(
+                "How do I declare an exact source expectation?",
+                (_target("source_check"),),
+                "The expectation is explicit, typed, and closed.",
+                "That the current source satisfies it.",
+            ),
+            route(
+                "Does the current source still satisfy explicit schema or data expectations?",
+                (_target("source_health"),),
+                "Ephemeral current source evidence for declared checks.",
+                "Business approval or readiness mutation.",
+            ),
+            route(
+                "Does a Metric agree with its governed SQL provenance?",
+                (_target("parity_check"),),
+                "The exact parity result for the declared comparison.",
+                "General correctness outside that comparison.",
+            ),
+            route(
+                "Is the semantic project rich enough for current demand?",
+                (_target("richness"),),
+                "Demand-ranked advisory gaps.",
+                "A readiness blocker or execution failure.",
+            ),
+        ),
+    )
+
+
+def _navigation_descriptors(
+    object_contracts: tuple[SemanticObjectContract, ...],
+    builder_topics: tuple[SemanticBuilderTopic, ...],
+) -> tuple[SemanticHelpDescriptor, ...]:
+    """Build the active Slice 3 navigation topology."""
+
+    objects = SemanticNavigationTopic(
+        canonical_id="objects",
+        summary="Browse semantic object kinds, relationships, decisions, and construction modes.",
+        members=tuple(SemanticObjectIndexEntry(contract) for contract in object_contracts),
+        member_heading="Object kinds",
+    )
+    builders = SemanticNavigationTopic(
+        canonical_id="builders",
+        summary="Choose a supporting builder by the parameter or typed-handle problem it solves.",
+        members=(
+            _navigation_route("exact typed semantic identity", _target("ref")),
+            _navigation_route("shared authoring rationale", _target("ai_context")),
+            *(
+                _navigation_route(topic.label, _target(topic.canonical_id), summary=topic.summary)
+                for topic in builder_topics
+            ),
+        ),
+    )
+    checks = _check_topic()
+    authoring = SemanticNavigationTopic(
+        canonical_id="authoring",
+        summary="Choose semantic objects, supporting builders, checks, or current catalog access.",
+        members=(
+            _navigation_route("object meaning and construction", _target("objects")),
+            _navigation_route("supporting parameter or handle", _target("builders")),
+            _navigation_route("inspection or proof need", _target("checks")),
+            _navigation_route("load current project", _target("load"), owns_discovery=False),
+            _navigation_route(
+                "current catalog contract",
+                _target("SemanticCatalog"),
+                owns_discovery=False,
+            ),
+            _navigation_route(
+                "optional non-executable context",
+                LiveHelpTarget(surface="ontology", canonical_id="authoring"),
+                owns_discovery=False,
+            ),
+        ),
+        member_heading="Route by current question",
+    )
+    return (authoring, objects, builders, checks, *builder_topics, *object_contracts)
+
+
+def _root_sections() -> tuple[SemanticRootSection, ...]:
+    """Build compact semantic root sections without renderer-owned membership."""
+
+    return (
+        SemanticRootSection(
+            section_id="start",
+            label="Start",
+            members=(_target("authoring"), _target("load")),
+        ),
+        SemanticRootSection(
+            section_id="discover_authoring",
+            label="Discover authoring contracts",
+            members=(_target("objects"), _target("builders"), _target("checks")),
+        ),
+        SemanticRootSection(
+            section_id="current_catalog",
+            label="Current catalog",
+            members=(_target("SemanticCatalog"), _target("CatalogEntry")),
+        ),
+    )
+
+
 def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
     """Build exact repair routes for deterministic authoring/layout failures."""
 
@@ -1352,11 +1576,38 @@ _SEMANTIC_NAVIGATION_DESCRIPTOR_TYPES = (
 def _render_class_for_descriptor(
     descriptor: SemanticHelpDescriptor,
 ) -> SemanticHelpRenderClass:
-    """Return the Slice 1 registry-owned render class for one descriptor."""
+    """Return the registry-owned render class for one active descriptor."""
 
     if isinstance(descriptor, AuthoringCapability):
-        return "decision_hub" if descriptor.canonical_id == "authoring" else "exact_contract"
+        if descriptor.canonical_id in {"ref", "source_check"}:
+            return "navigation"
+        return "exact_contract"
+    if isinstance(descriptor, SemanticNavigationTopic) and descriptor.canonical_id == "authoring":
+        return "decision_hub"
     return "navigation"
+
+
+def _target_key(target: LiveHelpTarget) -> tuple[str, str | None]:
+    return target.surface, target.canonical_id
+
+
+def _discovery_members(descriptor: SemanticHelpDescriptor) -> tuple[LiveHelpTarget, ...]:
+    """Return ownership edges, excluding object and hub cross-links."""
+
+    if isinstance(descriptor, SemanticNavigationTopic):
+        return tuple(member.target for member in descriptor.members if member.owns_discovery)
+    if isinstance(descriptor, SemanticBuilderTopic):
+        return descriptor.members
+    if isinstance(descriptor, SemanticCheckTopic):
+        return tuple(target for route in descriptor.routes for target in route.targets)
+    if isinstance(descriptor, SemanticObjectContract):
+        return tuple(mode.target for mode in descriptor.construction_modes)
+    if isinstance(descriptor, AuthoringCapability) and descriptor.canonical_id in {
+        "ref",
+        "source_check",
+    }:
+        return descriptor.see_also
+    return ()
 
 
 def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
@@ -1423,20 +1674,83 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
             raise ValueError(
                 f"semantic navigation descriptor must not be invokable: {descriptor.canonical_id}"
             )
+        if isinstance(descriptor, SemanticNavigationTopic):
+            if not descriptor.member_heading.strip() or not descriptor.members:
+                raise ValueError(
+                    f"semantic navigation descriptor is incomplete: {descriptor.canonical_id}"
+                )
+            object_entries = tuple(
+                member
+                for member in descriptor.members
+                if isinstance(member, SemanticObjectIndexEntry)
+            )
+            if object_entries and len(object_entries) != len(descriptor.members):
+                raise ValueError(
+                    f"semantic object-index members must not be mixed: {descriptor.canonical_id}"
+                )
+            for member in descriptor.members:
+                if not member.label.strip() or (
+                    member.summary is not None and not member.summary.strip()
+                ):
+                    raise ValueError(
+                        f"semantic navigation member is incomplete: {descriptor.canonical_id}"
+                    )
 
     exact_ids = {descriptor.canonical_id for descriptor in exact_descriptors}
-    discovery_owners: dict[str, str] = {}
-    for group, members in registry._groups.items():
-        if len(members) != len(set(members)):
-            raise ValueError(f"duplicate semantic root group member: {group}")
-        if not set(members) <= exact_ids:
-            raise ValueError(f"semantic root group contains an unknown capability: {group}")
-        for member in members:
-            previous_owner = discovery_owners.setdefault(member, group)
-            if previous_owner != group:
-                raise ValueError(f"multiple semantic discovery owners: {member}")
+    expected_root_sections: tuple[SemanticRootGroup, ...] = (
+        "start",
+        "discover_authoring",
+        "current_catalog",
+    )
+    if tuple(section.section_id for section in registry.root_sections) != expected_root_sections:
+        raise ValueError("semantic root sections must use the reviewed compact topology")
+    root_routes = tuple(target for section in registry.root_sections for target in section.members)
+    if len(root_routes) != len(set(root_routes)):
+        raise ValueError("duplicate semantic root route")
+    if len(root_routes) > registry.render_budget("root").max_outgoing_routes:
+        raise ValueError("semantic root exceeds its route budget")
+
+    known_semantic_type_targets = {"SemanticCatalog", "CatalogEntry"}
+    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
+    from marivo.ontology._capabilities.registry import REGISTRY as ONTOLOGY_REGISTRY
+
+    def validate_target(target: LiveHelpTarget, *, owner: str) -> None:
+        target_id = target.canonical_id
+        if target_id is None:
+            raise ValueError(f"semantic Help route lacks a canonical id: {owner}")
+        if target.surface == "semantic":
+            if target_id not in set(canonical_ids) | known_semantic_type_targets:
+                raise ValueError(f"unknown semantic Help route: {owner} -> {target_id}")
+            return
+        try:
+            if target.surface == "datasource":
+                DATASOURCE_REGISTRY.by_canonical_id(target_id)
+            elif target.surface == "ontology":
+                ONTOLOGY_REGISTRY.by_canonical_id(target_id)
+            else:
+                raise ValueError(f"unsupported semantic Help route surface: {target.surface}")
+        except KeyError as exc:
+            raise ValueError(f"unknown external semantic Help route: {owner}") from exc
+
+    for section in registry.root_sections:
+        if not section.label.strip() or not section.members:
+            raise ValueError(f"semantic root section is incomplete: {section.section_id}")
+        for target in section.members:
+            validate_target(target, owner=f"root.{section.section_id}")
 
     object_contracts = registry.object_contracts
+    object_index_entries = tuple(
+        member
+        for descriptor in help_descriptors
+        if isinstance(descriptor, SemanticNavigationTopic)
+        for member in descriptor.members
+        if isinstance(member, SemanticObjectIndexEntry)
+    )
+    if len(object_index_entries) != len(object_contracts) or any(
+        entry.contract is not contract
+        for entry, contract in zip(object_index_entries, object_contracts, strict=True)
+    ):
+        raise ValueError("semantic object index must embed the registered object contracts")
     expected_object_kinds = set(SemanticKind) - {SemanticKind.DATASOURCE}
     object_kinds = tuple(contract.semantic_kind for contract in object_contracts)
     if len(object_kinds) != len(set(object_kinds)):
@@ -1447,8 +1761,6 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
     catalog_collection_by_kind = {
         member.kind: member.property_name for member in CATALOG_MEMBER_CONTRACTS
     }
-    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
-
     for contract in object_contracts:
         kind = contract.semantic_kind
         expected_ref_family = f"Ref[{kind.value}]"
@@ -1577,11 +1889,75 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         ):
             raise ValueError("semantic source-check factory target is not exact")
 
+    discovery_owners: dict[tuple[str, str | None], str] = {}
+    for descriptor in help_descriptors:
+        routes = registry.routes(descriptor.canonical_id)
+        budget = registry.render_budget(registry.render_class(descriptor.canonical_id))
+        if len(routes) > budget.max_outgoing_routes:
+            raise ValueError(
+                f"semantic Help descriptor exceeds route budget: {descriptor.canonical_id}"
+            )
+        for target in routes:
+            validate_target(target, owner=descriptor.canonical_id)
+
+        discovery_members = _discovery_members(descriptor)
+        if len(discovery_members) != len(set(discovery_members)):
+            raise ValueError(f"duplicate semantic discovery member: {descriptor.canonical_id}")
+        for discovery_target in discovery_members:
+            key = _target_key(discovery_target)
+            previous_owner = discovery_owners.setdefault(key, descriptor.canonical_id)
+            if previous_owner != descriptor.canonical_id:
+                raise ValueError(f"multiple semantic discovery owners: {discovery_target.display}")
+
+    required_discovery_ids = (
+        {descriptor.canonical_id for descriptor in exact_descriptors if descriptor.kind != "method"}
+        | set(ref_method_ids)
+        | set(source_check_method_ids)
+    )
+    owned_semantic_ids = {
+        target_id
+        for (surface, target_id) in discovery_owners
+        if surface == "semantic" and target_id is not None
+    }
+    missing_owners = sorted(required_discovery_ids - owned_semantic_ids)
+    if missing_owners:
+        raise ValueError("semantic discovery owner missing: " + ", ".join(missing_owners))
+
+    required_graph_ids = required_discovery_ids | {
+        descriptor.canonical_id
+        for descriptor in help_descriptors
+        if not isinstance(descriptor, AuthoringCapability)
+    }
+    distances = {"authoring": 0}
+    pending = deque(("authoring",))
+    while pending:
+        current = pending.popleft()
+        for target in registry.routes(current):
+            target_id = target.canonical_id
+            if (
+                target.surface != "semantic"
+                or target_id is None
+                or target_id not in registry._by_id
+                or target_id in distances
+            ):
+                continue
+            distances[target_id] = distances[current] + 1
+            pending.append(target_id)
+
+    unreachable = sorted(required_graph_ids - set(distances))
+    if unreachable:
+        raise ValueError("semantic Help graph is unreachable: " + ", ".join(unreachable))
+    too_deep = sorted(
+        canonical_id for canonical_id in required_graph_ids if distances[canonical_id] > 3
+    )
+    if too_deep:
+        raise ValueError("semantic Help graph exceeds four global edges: " + ", ".join(too_deep))
+
 
 def _finalize_registry(
     descriptors: tuple[AuthoringCapability, ...],
     *,
-    groups: Mapping[SemanticRootGroup, tuple[str, ...]],
+    root_sections: tuple[SemanticRootSection, ...],
     source_contracts: Mapping[str, AuthoringSourceContract],
     repair_contracts: Mapping[str, SemanticRepairContract],
     help_descriptors: tuple[SemanticHelpDescriptor, ...] | None = None,
@@ -1598,7 +1974,7 @@ def _finalize_registry(
         surface="semantic",
         _help_descriptors=active_help_descriptors,
         _descriptors=descriptors,
-        _groups=MappingProxyType(dict(groups)),
+        _root_sections=root_sections,
         _by_id=MappingProxyType(
             {descriptor.canonical_id: descriptor for descriptor in active_help_descriptors}
         ),
@@ -1890,18 +2266,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_LOCAL,
             example="catalog = ms.load()\ncatalog.show()",
         ),
-        _capability(
-            "authoring",
-            None,
-            "Explore current sources, author a coherent semantic slice, load once, and run scoped readiness.",
-            kind="boundary",
-            output=None,
-            effects=_NONE,
-            see_also=(_target("load"), _target("readiness"), _target("preview")),
-        ),
         *_ref_factory_capabilities(),
         # ------------------------------------------------------------------
-        # author_families
+        # semantic constructors and supporting builders
         # ------------------------------------------------------------------
         _capability(
             "domain",
@@ -2590,7 +2957,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example="ms.trailing(count=7, unit='day')",
         ),
         # ------------------------------------------------------------------
-        # runtime_probes
+        # scoped runtime observations and health
         # ------------------------------------------------------------------
         _capability(
             "preview",
@@ -2813,67 +3180,18 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
     )
     descriptor_rows = _attach_parameter_names(descriptor_rows)
-    groups: Mapping[SemanticRootGroup, tuple[str, ...]] = MappingProxyType(
-        {
-            "browse_load": ("load", "authoring"),
-            "author_families": (
-                "ref",
-                "domain",
-                "entity",
-                "dimension",
-                "dimension_column",
-                "time_dimension",
-                "time_dimension_column",
-                "period_correspondence",
-                "period_calendar",
-                "temporal_set",
-                "work_schedule",
-                "calendar_grain",
-                "measure",
-                "measure_column",
-                "aggregate",
-                "count",
-                "where",
-                "cumulative",
-                "ratio",
-                "weighted_mean",
-                "linear",
-                "relationship",
-                "event",
-                "participant",
-                "participant_role",
-                "all_rows",
-                "lifecycle_state",
-                "inception",
-                "transition",
-                "state_model",
-                "model_state",
-                "join_on",
-                "from_sql",
-                "bind",
-                "metric",
-                "ai_context",
-                "snapshot",
-                "validity",
-                "semi_additive",
-                "datetime",
-                "timestamp",
-                "strptime",
-                "hour_prefix",
-                "grain_to_date",
-                "trailing",
-            ),
-            "runtime_probes": ("preview", "preview_many", "source_check", "source_health"),
-            "readiness": ("readiness",),
-            "diagnostics_boundaries": ("richness", "parity_check"),
-        }
-    )
+    object_contracts = _object_contracts()
+    builder_topics = _builder_topics()
     return _finalize_registry(
         descriptor_rows,
-        groups=groups,
+        root_sections=_root_sections(),
         source_contracts=_source_contracts(),
         repair_contracts=_repair_contracts(),
-        object_contracts=_object_contracts(),
+        help_descriptors=(
+            *descriptor_rows,
+            *_navigation_descriptors(object_contracts, builder_topics),
+        ),
+        object_contracts=object_contracts,
     )
 
 

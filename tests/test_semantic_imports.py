@@ -313,10 +313,10 @@ def test_semantic_native_root_is_compact_directory() -> None:
 
     text = rendered_help(owner="semantic")
     assert "marivo.semantic" in text
-    assert "entity" in text
-    assert "metric" in text
-    assert "Capabilities:" in text
-    assert "marivo.help(" in text
+    for target in ("authoring", "objects", "builders", "checks"):
+        assert f'marivo.help("semantic.{target}")' in text
+    assert "semantic.entity" not in text
+    assert "semantic.metric" not in text
 
 
 def test_constraint_example_paths_exist() -> None:
@@ -849,10 +849,13 @@ def test_help_metric_mentions_body() -> None:
 def test_help_text_documents_column_helpers() -> None:
     from tests.shared_fixtures import rendered_help
 
-    text = rendered_help(owner="semantic")
-    assert "dimension_column" in text
-    assert "measure_column" in text
-    assert "time_dimension_column" in text
+    for kind, constructor in (
+        ("dimension", "dimension_column"),
+        ("measure", "measure_column"),
+        ("time_dimension", "time_dimension_column"),
+    ):
+        text = rendered_help(f"objects.{kind}", owner="semantic")
+        assert f'marivo.help("semantic.{constructor}")' in text
 
 
 def test_help_text_measure_mentions_additivity() -> None:

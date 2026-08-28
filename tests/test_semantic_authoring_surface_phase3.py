@@ -190,7 +190,10 @@ def test_phase3_public_help_routes_measure_details_and_current_metric_shape() ->
 
     index = rendered_help(owner="semantic")
     assert "MeasureDetails" not in index
-    assert "measure" in index
+    assert 'marivo.help("semantic.objects")' in index
+
+    objects = rendered_help("objects", owner="semantic")
+    assert 'marivo.help("semantic.objects.measure")' in objects
 
     measure_details = rendered_help(ms.MeasureDetails, owner="semantic")
     assert "MeasureDetails" in measure_details

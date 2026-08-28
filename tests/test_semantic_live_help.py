@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -17,9 +18,23 @@ from marivo.refs import SemanticKind
 from marivo.semantic.errors import SemanticLoadError
 from tests.shared_fixtures import rendered_help
 
+_HELP_CALL_RE = re.compile(
+    r'marivo\.help\("(analysis|datasource|semantic|ontology)\.'
+    r'([A-Za-z_][A-Za-z0-9_.]*)"\)'
+)
+
 
 def _text(target: object | None = None) -> str:
     return rendered_help(target, owner="semantic")
+
+
+def _rendered_routes(text: str) -> tuple[LiveHelpTarget, ...]:
+    return tuple(
+        dict.fromkeys(
+            LiveHelpTarget(surface=surface, canonical_id=canonical_id)
+            for surface, canonical_id in _HELP_CALL_RE.findall(text)
+        )
+    )
 
 
 def test_root_help_reveals_current_environment() -> None:
@@ -35,27 +50,34 @@ def test_root_help_within_line_budget() -> None:
     assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
 
 
-def test_root_help_contains_every_public_authoring_primitive() -> None:
+def test_root_help_is_a_compact_family_index() -> None:
     text = _text()
-    assert "where" in text
-    assert "work_schedule" in text
+    for target in (
+        "semantic.authoring",
+        "semantic.load",
+        "semantic.objects",
+        "semantic.builders",
+        "semantic.checks",
+        "semantic.SemanticCatalog",
+        "semantic.CatalogEntry",
+    ):
+        assert f'marivo.help("{target}")' in text
+    assert "semantic.where" not in text
+    assert "semantic.work_schedule" not in text
 
 
-def test_root_help_explains_capabilities_without_expanding_leaf_algebra() -> None:
-    from marivo.semantic._capabilities.registry import REGISTRY
-
+def test_root_help_uses_registry_owned_sections_without_expanding_leaves() -> None:
     text = _text()
-
-    for canonical_id in REGISTRY.discovery_ids():
-        assert REGISTRY.by_canonical_id(canonical_id).summary in text
-    assert "Consumed types:" not in text
-    assert "Errors:" not in text
+    for section in ("Start", "Discover authoring contracts", "Current catalog"):
+        assert section in text
+    assert "Signature:" not in text
+    assert "Example:" not in text
 
 
 def test_help_text_none_returns_root() -> None:
     text = _text()
     assert "marivo.semantic" in text
-    assert "Capabilities:" in text
+    assert "Discover authoring contracts:" in text
 
 
 def test_empty_string_is_not_a_hidden_root_alias() -> None:
@@ -67,26 +89,224 @@ def test_help_resolves_authoring_topic() -> None:
     text = _text("authoring")
     assert "authoring" in text
     for target in (
-        "datasource.authoring",
-        "semantic.domain",
-        "semantic.entity",
-        "semantic.dimension_column",
-        "semantic.time_dimension_column",
-        "semantic.measure_column",
-        "semantic.where",
-        "semantic.count",
-        "semantic.aggregate",
-        "semantic.readiness",
+        "semantic.objects",
+        "semantic.builders",
+        "semantic.checks",
+        "semantic.load",
+        "semantic.SemanticCatalog",
+        "ontology.authoring",
     ):
         assert f'marivo.help("{target}")' in text
+    assert "Signature:" not in text
+
+
+def test_object_index_routes_to_every_closed_semantic_kind() -> None:
+    text = _text("objects")
+    assert "Relationship overview:" in text
+    for kind in set(SemanticKind) - {SemanticKind.DATASOURCE}:
+        assert f'marivo.help("semantic.objects.{kind.value}")' in text
+    assert "Signature:" not in text
+    assert "Example:" not in text
+
+
+def test_every_object_page_renders_registered_decisions_once_without_leaf_expansion() -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    for contract in REGISTRY.object_contracts:
+        text = _text(contract.canonical_id)
+        assert f"output: Ref[{contract.semantic_kind.value}]" in text
+        assert f"catalog.{contract.catalog_collection}" in text
+        assert "Construction modes:" in text
+        assert "Signature:" not in text
+        assert "Example:" not in text
+        for decision in contract.decisions:
+            assert text.count(decision.question) == 1
+            assert decision.determine_from in text
+            if decision.does_not_establish is not None:
+                assert decision.does_not_establish in text
+            if decision.encoding_status == "unsupported":
+                assert decision.unsupported_reason in text
+
+
+def test_metric_page_fits_shared_navigation_budget_with_all_structural_routes() -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    text = _text("objects.metric")
+    routes = _rendered_routes(text)
+    budget = REGISTRY.render_budget("navigation")
+
+    assert len(routes) == len(REGISTRY.routes("objects.metric")) == 21
+    assert len(routes) <= budget.max_outgoing_routes == 24
+    assert "default: Count Entity rows." in text
+    assert "escape_hatch: Use one restricted Ibis expression body." in text
+
+
+def test_builder_and_check_navigation_route_by_need_without_signatures() -> None:
+    builders = _text("builders")
+    family = _text("builders.field_metric_support")
+    checks = _text("checks")
+
+    for target in (
+        "semantic.ref",
+        "semantic.ai_context",
+        "semantic.builders.entity_history",
+        "semantic.builders.temporal_parsing",
+        "semantic.builders.field_metric_support",
+        "semantic.builders.relationship_event",
+        "semantic.builders.state_model",
+        "semantic.builders.governed_temporal",
+    ):
+        assert f'marivo.help("{target}")' in builders
+    for target in ("where", "semi_additive", "bind", "from_sql", "grain_to_date", "trailing"):
+        assert f'marivo.help("semantic.{target}")' in family
+    assert "Proves:" in checks
+    assert "Does not prove:" in checks
+    assert "load success != readiness != preview success != source health" in checks
+    assert "Signature:" not in builders + family + checks
+
+
+def test_every_rendered_descriptor_route_matches_registry_topology_and_resolves() -> None:
+    from marivo._help.route import NativeHelpRoute, route_help_target
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    for descriptor in REGISTRY.help_descriptors:
+        rendered = _rendered_routes(_text(descriptor.canonical_id))
+        registered = REGISTRY.routes(descriptor.canonical_id)
+        assert len(rendered) == len(registered)
+        assert set(rendered) == set(registered)
+        for target in rendered:
+            qualified = f"{target.surface}.{target.canonical_id}"
+            assert isinstance(route_help_target(qualified), NativeHelpRoute)
+
+
+def test_rendered_root_routes_match_registry_sections_and_resolve() -> None:
+    from marivo._help.route import NativeHelpRoute, route_help_target
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    registered = tuple(target for section in REGISTRY.root_sections for target in section.members)
+    rendered = _rendered_routes(_text())
+
+    assert rendered == registered
+    for target in rendered:
+        qualified = f"{target.surface}.{target.canonical_id}"
+        assert isinstance(route_help_target(qualified), NativeHelpRoute)
+
+
+def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges() -> None:
+    from collections import deque
+
+    from marivo._authoring.model import AuthoringCapability
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    required = {
+        descriptor.canonical_id
+        for descriptor in REGISTRY.descriptors
+        if descriptor.kind != "method"
+    }
+    required.update(
+        descriptor.canonical_id
+        for descriptor in REGISTRY.help_descriptors
+        if not isinstance(descriptor, AuthoringCapability)
+    )
+    required.update(
+        descriptor.canonical_id
+        for descriptor in REGISTRY.descriptors
+        if descriptor.kind == "method"
+        and descriptor.canonical_id.startswith(("ref.", "source_check."))
+    )
+
+    distances: dict[str, int] = {"global.authoring": 0}
+    queue = deque(("global.authoring",))
+    while queue:
+        node = queue.popleft()
+        if node == "global.authoring":
+            targets = (LiveHelpTarget(surface="semantic", canonical_id="authoring"),)
+        elif node.startswith("semantic."):
+            canonical_id = node.removeprefix("semantic.")
+            if canonical_id not in REGISTRY.canonical_ids():
+                continue
+            targets = REGISTRY.routes(canonical_id)
+        else:
+            continue
+        for target in targets:
+            if target.canonical_id is None:
+                continue
+            child = f"{target.surface}.{target.canonical_id}"
+            if child in distances:
+                continue
+            distances[child] = distances[node] + 1
+            queue.append(child)
+
+    assert None not in required
+    for canonical_id in required:
+        qualified = f"semantic.{canonical_id}"
+        assert qualified in distances
+        assert distances[qualified] <= 4
 
 
 def test_render_root_help_is_bounded_and_has_fingerprint() -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
     from marivo.semantic._capabilities.render import render_root_help
 
     text = render_root_help()
+    budget = REGISTRY.render_budget("root")
     assert "marivo.semantic" in text
-    assert text.count("\n") + 1 <= SURFACE_LIMITS.root_help_max_lines
+    assert len(text.splitlines()) <= budget.max_lines
+    assert len(text) <= budget.max_codepoints
+    assert len(_rendered_routes(text)) <= budget.max_outgoing_routes
+    assert text.count("  Example:") <= budget.max_examples_or_snippets == 0
+
+
+def test_every_static_semantic_page_obeys_its_four_dimensional_budget() -> None:
+    from marivo._authoring.model import AuthoringCapability
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    for descriptor in REGISTRY.help_descriptors:
+        text = _text(descriptor.canonical_id)
+        budget = REGISTRY.render_budget(REGISTRY.render_class(descriptor.canonical_id))
+        assert len(text.splitlines()) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+        assert len(_rendered_routes(text)) <= budget.max_outgoing_routes
+        expected_examples = int(
+            isinstance(descriptor, AuthoringCapability) and descriptor.minimal_example is not None
+        )
+        assert text.count("  Example:") == expected_examples
+        assert expected_examples <= budget.max_examples_or_snippets
+
+
+def test_semantic_budget_overflow_fails_for_every_dimension() -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.semantic._capabilities.render import enforce_semantic_help_budget
+
+    budget = REGISTRY.render_budget("navigation")
+    with pytest.raises(RuntimeError, match="render budget exceeded"):
+        enforce_semantic_help_budget(
+            "\n".join("line" for _ in range(budget.max_lines + 1)),
+            render_class="navigation",
+            examples_or_snippets=0,
+        )
+    with pytest.raises(RuntimeError, match="render budget exceeded"):
+        enforce_semantic_help_budget(
+            "x" * (budget.max_codepoints + 1),
+            render_class="navigation",
+            examples_or_snippets=0,
+        )
+    routes = "\n".join(
+        f'marivo.help("semantic.synthetic_{index}")'
+        for index in range(budget.max_outgoing_routes + 1)
+    )
+    with pytest.raises(RuntimeError, match="outgoing-route budget"):
+        enforce_semantic_help_budget(
+            routes,
+            render_class="navigation",
+            examples_or_snippets=0,
+        )
+    with pytest.raises(RuntimeError, match="example/snippet budget"):
+        enforce_semantic_help_budget(
+            "bounded",
+            render_class="navigation",
+            examples_or_snippets=1,
+        )
 
 
 def test_semantic_live_surface_resolves_registered_callable() -> None:
@@ -119,7 +339,7 @@ def test_relationship_routes_required_keys_to_join_key_builder() -> None:
     text = _text("relationship")
 
     assert "dependency: JoinKey (parameters: keys)" in text
-    assert "See also: join_on" in text
+    assert 'See also: marivo.help("semantic.join_on")' in text
 
 
 def test_factory_pages_route_to_every_exact_leaf_without_expanding_signatures() -> None:
@@ -249,15 +469,14 @@ def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> No
     focused = _text(ms.Ref)
 
     assert "CatalogEntry" in root
-    assert "entry.ref" in root
-    assert "pass a current CatalogEntry directly" in root
-    assert "ms.ref.<kind>(path)" in root
+    assert 'marivo.help("semantic.CatalogEntry")' in root
+    assert 'marivo.help("semantic.ref")' not in root
     assert "entry = catalog.metrics.get('sales.revenue')" in focused
     assert "metric_ref = entry.ref" in focused
     assert "catalog.require(ref) resolves the exact ref" in focused
     assert "marivo.help(ref) reports identity only" in focused
     assert "ms.bind(field_ref, entity_alias)" in focused
-    assert "bind" in root
+    assert "semantic.bind" not in root
 
     entry_help = _text(ms.CatalogEntry)
     assert "marivo.help(entry) combines current details" in entry_help
@@ -287,6 +506,15 @@ def test_help_rejects_unknown_string() -> None:
     with pytest.raises(MarivoHelpTargetError) as exc_info:
         _text("nonexistent_target")
     assert exc_info.value.outcome == "unknown"
+
+
+@pytest.mark.parametrize(
+    "target",
+    ("lifecycle", "ontology", "verify", "decisions", "objects.metric.population_value"),
+)
+def test_progressive_semantic_help_adds_no_alias_or_decision_target(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        _text(target)
 
 
 def test_help_rejects_private_object() -> None:
@@ -345,6 +573,12 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     assert 'marivo.help("analysis.observe")' in text
     assert "result.contract().show()" in text
     assert "Readiness is not inferred here" in text
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    budget = REGISTRY.render_budget("current_briefing")
+    assert len(text.splitlines()) <= budget.max_lines
+    assert len(text) <= budget.max_codepoints
+    assert len(_rendered_routes(text)) <= budget.max_outgoing_routes
 
 
 def test_error_help_kind_depends_on_concrete_repair_target() -> None:
@@ -387,6 +621,12 @@ def test_error_help_kind_depends_on_concrete_repair_target() -> None:
     assert 'Next help: marivo.help("analysis.observe")' in text
     assert 'marivo.help("analysis.observe")' in text
     assert "Candidates: observe" in text
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    budget = REGISTRY.render_budget("current_briefing")
+    assert len(text.splitlines()) <= budget.max_lines
+    assert len(text) <= budget.max_codepoints
+    assert len(_rendered_routes(text)) <= budget.max_outgoing_routes
 
 
 def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) -> None:

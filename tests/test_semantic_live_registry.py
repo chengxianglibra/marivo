@@ -25,11 +25,13 @@ from marivo.semantic._capabilities.model import (
     SemanticHelpDescriptor,
     SemanticHelpRenderBudget,
     SemanticHelpRenderClass,
+    SemanticNavigationRoute,
     SemanticNavigationTopic,
     SemanticObjectContract,
     SemanticObjectDecision,
+    SemanticObjectIndexEntry,
     SemanticObjectRelationship,
-    SemanticRootGroup,
+    SemanticRootSection,
     SemanticTypeContract,
 )
 from marivo.semantic._capabilities.registry import (
@@ -50,18 +52,36 @@ def _finalize_fixture(
     *,
     help_descriptors: tuple[SemanticHelpDescriptor, ...] | None = None,
     object_contracts: tuple[SemanticObjectContract, ...] | None = None,
-    groups: Mapping[SemanticRootGroup, tuple[str, ...]] | None = None,
+    root_sections: tuple[SemanticRootSection, ...] | None = None,
     render_budgets: Mapping[SemanticHelpRenderClass, SemanticHelpRenderBudget] | None = None,
 ) -> SemanticCapabilityRegistry:
+    active_descriptors = REGISTRY.descriptors if descriptors is None else descriptors
+    active_objects = REGISTRY.object_contracts if object_contracts is None else object_contracts
+    if help_descriptors is None:
+        navigation_rows: list[SemanticHelpDescriptor] = []
+        for descriptor in REGISTRY.help_descriptors:
+            if isinstance(descriptor, (AuthoringCapability, SemanticObjectContract)):
+                continue
+            if (
+                isinstance(descriptor, SemanticNavigationTopic)
+                and descriptor.canonical_id == "objects"
+            ):
+                descriptor = replace(
+                    descriptor,
+                    members=tuple(
+                        SemanticObjectIndexEntry(contract) for contract in active_objects
+                    ),
+                )
+            navigation_rows.append(descriptor)
+        navigation = tuple(navigation_rows)
+        help_descriptors = (*active_descriptors, *navigation, *active_objects)
     return _finalize_registry(
-        REGISTRY.descriptors if descriptors is None else descriptors,
-        groups=REGISTRY._groups if groups is None else groups,
+        active_descriptors,
+        root_sections=(REGISTRY.root_sections if root_sections is None else root_sections),
         source_contracts=REGISTRY._source_contracts,
         repair_contracts=REGISTRY._repair_contracts,
         help_descriptors=help_descriptors,
-        object_contracts=(
-            REGISTRY.object_contracts if object_contracts is None else object_contracts
-        ),
+        object_contracts=active_objects,
         render_budgets=(SEMANTIC_HELP_RENDER_BUDGETS if render_budgets is None else render_budgets),
     )
 
@@ -139,7 +159,11 @@ def test_native_descriptor_models_are_frozen_and_non_invokable() -> None:
         explanation="The loader consumes the declaration.",
     )
     descriptors: tuple[SemanticHelpDescriptor, ...] = (
-        SemanticNavigationTopic("objects", "Browse object kinds.", (target,)),
+        SemanticNavigationTopic(
+            "objects",
+            "Browse object kinds.",
+            (SemanticNavigationRoute("load", target),),
+        ),
         SemanticBuilderTopic("builders.values", "Values", "Build values.", (target,)),
         SemanticCheckTopic("checks", "Choose a check.", (route,)),
         SemanticObjectContract(
@@ -166,21 +190,17 @@ def test_native_descriptor_models_are_frozen_and_non_invokable() -> None:
             descriptor.summary = "changed"  # type: ignore[misc]
 
 
-def test_slice2_registers_object_contracts_without_activating_slice3_rendering() -> None:
-    assert REGISTRY.help_descriptors == REGISTRY.descriptors
-    assert not any(
-        isinstance(
-            descriptor,
-            (
-                SemanticNavigationTopic,
-                SemanticBuilderTopic,
-                SemanticCheckTopic,
-                SemanticObjectContract,
-            ),
-        )
-        for descriptor in REGISTRY.help_descriptors
-    )
-    assert {"objects", "builders", "checks"}.isdisjoint(REGISTRY.canonical_ids())
+def test_slice3_activates_native_navigation_and_object_descriptors() -> None:
+    assert REGISTRY.help_descriptors != REGISTRY.descriptors
+    assert {
+        "authoring",
+        "objects",
+        "builders",
+        "checks",
+        *(contract.canonical_id for contract in REGISTRY.object_contracts),
+    } <= set(REGISTRY.canonical_ids())
+    assert len(REGISTRY.object_contracts) == 12
+    assert all(contract in REGISTRY.help_descriptors for contract in REGISTRY.object_contracts)
     assert len(REGISTRY.object_contracts) == 12
 
 
@@ -391,18 +411,75 @@ def test_registry_rejects_object_ref_kind_mapping_drift_eagerly() -> None:
         _finalize_fixture(object_contracts=contracts)
 
 
-def test_registry_rejects_unknown_group_membership_eagerly() -> None:
-    groups = dict(REGISTRY._groups)
-    groups["author_families"] = (*groups["author_families"], "synthetic.missing")
-    with pytest.raises(ValueError, match="root group contains an unknown capability"):
-        _finalize_fixture(groups=groups)
+def test_registry_rejects_unknown_root_route_eagerly() -> None:
+    start = REGISTRY.root_sections[0]
+    invalid = replace(
+        start,
+        members=(*start.members, _semantic_target("synthetic.missing")),
+    )
+    with pytest.raises(ValueError, match="unknown semantic Help route"):
+        _finalize_fixture(root_sections=(invalid, *REGISTRY.root_sections[1:]))
 
 
 def test_registry_rejects_multiple_discovery_owners_eagerly() -> None:
-    groups = dict(REGISTRY._groups)
-    groups["author_families"] = (*groups["author_families"], "load")
+    builders = REGISTRY.by_canonical_id("builders")
+    assert isinstance(builders, SemanticNavigationTopic)
+    invalid = replace(
+        builders,
+        members=(*builders.members, SemanticNavigationRoute("load", _semantic_target("load"))),
+    )
+    help_descriptors = tuple(
+        invalid if descriptor is builders else descriptor
+        for descriptor in REGISTRY.help_descriptors
+    )
     with pytest.raises(ValueError, match="multiple semantic discovery owners: load"):
-        _finalize_fixture(groups=groups)
+        _finalize_fixture(help_descriptors=help_descriptors)
+
+
+def test_navigation_labels_remain_bound_to_targets_when_teaching_order_changes() -> None:
+    from marivo.semantic._capabilities.render import _render_navigation_topic
+
+    authoring = REGISTRY.by_canonical_id("authoring")
+    assert isinstance(authoring, SemanticNavigationTopic)
+    reordered = replace(
+        authoring,
+        members=(authoring.members[1], authoring.members[0], *authoring.members[2:]),
+    )
+    help_descriptors = tuple(
+        reordered if descriptor is authoring else descriptor
+        for descriptor in REGISTRY.help_descriptors
+    )
+
+    _finalize_fixture(help_descriptors=help_descriptors)
+    text = _render_navigation_topic(reordered, render_class="decision_hub")
+
+    assert 'supporting parameter or handle: marivo.help("semantic.builders")' in text
+    assert 'object meaning and construction: marivo.help("semantic.objects")' in text
+
+
+def test_registry_rejects_public_constructor_without_discovery_owner() -> None:
+    dimension = REGISTRY.object_contract(SemanticKind.DIMENSION)
+    trimmed = replace(
+        dimension,
+        construction_modes=tuple(
+            mode for mode in dimension.construction_modes if mode.target.canonical_id != "dimension"
+        ),
+        decisions=tuple(
+            replace(
+                decision,
+                next_targets=tuple(
+                    target for target in decision.next_targets if target.canonical_id != "dimension"
+                ),
+            )
+            for decision in dimension.decisions
+        ),
+    )
+    contracts = tuple(
+        trimmed if contract is dimension else contract for contract in REGISTRY.object_contracts
+    )
+
+    with pytest.raises(ValueError, match="semantic discovery owner missing: dimension"):
+        _finalize_fixture(object_contracts=contracts)
 
 
 def test_registry_rejects_dead_cross_surface_object_relationship_eagerly() -> None:
@@ -463,10 +540,26 @@ def test_output_family_drift_is_detected_adversarially() -> None:
 def test_every_active_descriptor_has_one_registry_owned_render_class() -> None:
     assert set(REGISTRY._render_classes) == set(REGISTRY.canonical_ids())
     assert REGISTRY.render_class("authoring") == "decision_hub"
+    navigation_ids = {
+        descriptor.canonical_id
+        for descriptor in REGISTRY.help_descriptors
+        if isinstance(
+            descriptor,
+            (
+                SemanticNavigationTopic,
+                SemanticBuilderTopic,
+                SemanticCheckTopic,
+                SemanticObjectContract,
+            ),
+        )
+        and descriptor.canonical_id != "authoring"
+    } | {"ref", "source_check"}
+    assert all(
+        REGISTRY.render_class(canonical_id) == "navigation" for canonical_id in navigation_ids
+    )
     assert all(
         REGISTRY.render_class(canonical_id) == "exact_contract"
-        for canonical_id in REGISTRY.canonical_ids()
-        if canonical_id != "authoring"
+        for canonical_id in set(REGISTRY.canonical_ids()) - navigation_ids - {"authoring"}
     )
 
 
@@ -521,25 +614,24 @@ def test_registry_rejects_invokable_navigation_before_rendering(field_name: str)
     topic = SemanticNavigationTopic(
         canonical_id="synthetic.navigation",
         summary="Synthetic navigation.",
-        members=(_semantic_target("load"),),
+        members=(SemanticNavigationRoute("load", _semantic_target("load")),),
     )
     object.__setattr__(topic, field_name, "marivo.semantic.load")
     with pytest.raises(ValueError, match="navigation descriptor must not be invokable"):
         _finalize_fixture(help_descriptors=(*REGISTRY.help_descriptors, topic))
 
 
-def test_registry_group_members_are_registered() -> None:
-    groups: tuple[SemanticRootGroup, ...] = (
-        "browse_load",
-        "author_families",
-        "runtime_probes",
-        "readiness",
-        "diagnostics_boundaries",
+def test_registry_root_sections_are_registered_and_ordered() -> None:
+    assert tuple(section.section_id for section in REGISTRY.root_sections) == (
+        "start",
+        "discover_authoring",
+        "current_catalog",
     )
-    for group in groups:
-        members = REGISTRY.group(group)
-        for member in members:
-            assert member.surface == "semantic"
+    assert tuple(section.label for section in REGISTRY.root_sections) == (
+        "Start",
+        "Discover authoring contracts",
+        "Current catalog",
+    )
 
 
 def test_type_contract_type_is_dataclass() -> None:
