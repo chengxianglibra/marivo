@@ -36,10 +36,15 @@ Core Domain, Entity, field, Metric, and Relationship meanings remain owned by
 [`docs/specs/semantic/semantic-object-model.md`](../../specs/semantic/semantic-object-model.md).
 Event and StateModel meaning remains owned by
 [`2026-07-13-event-semantic-and-analysis-design.md`](2026-07-13-event-semantic-and-analysis-design.md),
-and the target PeriodCalendar, TemporalSet, and WorkSchedule meanings are owned
-by the proposed
-[`docs/specs/temporal-semantics.md`](../../specs/temporal-semantics.md). The
-current authoring process remains owned by
+and the target PeriodCalendar, TemporalSet, and WorkSchedule meanings are
+specified by
+[`docs/specs/temporal-semantics.md`](../../specs/temporal-semantics.md). That
+specification explicitly describes a proposed target rather than the current
+runtime, so it is not a current live-help authority until its contract has been
+reconciled with the installed implementation and its status has been changed
+accordingly. Registering those three object-kind pages has that reconciliation
+as a hard prerequisite; live help must not publish target-only temporal claims
+ahead of the runtime. The current authoring process remains owned by
 [`docs/specs/semantic/authoring-workflow.md`](../../specs/semantic/authoring-workflow.md).
 
 ## Summary
@@ -287,7 +292,7 @@ The initial hard ceilings are:
 |---|---|---:|---:|---:|---:|
 | Root | Global and native surface roots | 32 | 3,000 | 10 | 0 |
 | Decision hub | `authoring` and `semantic.authoring` | 40 | 4,000 | 8 | 0 |
-| Navigation | Object, builder, check, and ref-factory indexes; object-kind pages | 64 | 6,000 | 16 | 0 |
+| Navigation | Object, builder, check, and ref-factory indexes; object-kind pages | 64 | 6,000 | 24 | 0 |
 | Exact contract | Callable and public-type leaves | 72 | 7,000 | 8 | 1 |
 | Current briefing | Concrete object, result, and error help | 64 | 6,000 | 6 | 1 |
 
@@ -312,8 +317,18 @@ reachability.
 These ceilings are calibrated against the installed design-time surface, not
 chosen from the previous maximums: the current semantic root is 71 lines and
 6,483 codepoints and must be split, while the longest current semantic callable
-leaf is 44 lines and fewer than 2,000 codepoints. Budget increases require new
-observed evidence and a design review; adding content is not sufficient reason.
+leaf is 44 lines and fewer than 2,000 codepoints. The navigation route ceiling
+also accounts for the explicit Metric inventory in this design: its seven
+construction targets, six supporting targets, and typed-ref route already use
+fourteen distinct routes before required object relationships and applicable
+checks are added. A ceiling of twenty-four provides bounded headroom without
+introducing a Metric-specific exception. Before rollout, a fully populated
+registry must render every navigation descriptor, including Metric, inside this
+same ceiling;
+failure changes the page topology or this reviewed class budget, never an
+individual-target override or silent truncation. Further budget increases
+require new observed evidence and a design review; adding content is not
+sufficient reason.
 
 The global `marivo.help()` page advertises only the authoring and analysis
 secondary roots. There is no flat cross-surface target inventory; semantic
@@ -436,8 +451,9 @@ refs; it is not added to this object index.
 
 The object-kind set is derived from the closed runtime `SemanticKind` set minus
 `datasource`. Adding a semantic kind therefore requires its object page,
-normative owner, decision scope, construction routes, and checks in the same
-change; it cannot appear as a callable-only object with no business guidance.
+current normative owner, pinned required decision ids, construction routes, and
+checks in the same change; it cannot appear as a callable-only object with no
+business guidance.
 
 The object index renders this bounded relationship graph before routing to one
 kind:
@@ -533,24 +549,29 @@ or guarantee exists.
 
 The initial material-decision scope is:
 
-| Object kind | Decisions its object-kind page must cover |
-|---|---|
-| Domain | Business boundary, accountable owner, default-domain behavior, and reusable definition or guardrails |
-| Entity | Reusable recordset meaning, authoritative source, row grain, identity/key, history and as-of model, and domain ownership |
-| Dimension | Owning Entity, reusable categorical/identity/filter/join meaning, relevant code and null semantics, and direct-column versus normalized-expression construction |
-| TimeDimension | Owning Entity, business-time role, granularity, physical encoding and parse/timezone meaning, default-axis choice, and sampled cadence when applicable |
-| Measure | Row-level numeric meaning and grain, physical unit, dimensional and temporal additivity, semi-additive status axis/fold, and direct-column versus expression construction |
-| Metric | Reusable population and value definition, base versus derived construction, aggregation/filter, denominator or failure policy, root/fanout, unit/additivity, temporal behavior, provenance, and guardrails |
-| Relationship | Directed business meaning, endpoint grains, join-key equivalence, expected multiplicity and fanout implications, and the checks needed when those claims require source evidence |
-| Event | Business occurrence and row predicate, occurrence identity, business occurrence time, participant roles, directed paths, and participant cardinality |
-| StateModel | Subject lifecycle, closed state vocabulary, initial and terminal meaning, inception and transition triggers, deterministic transitions, and deliberately excluded replay policies |
-| PeriodCalendar | Business calendar convention, civil-date authority, boundary timezone, finite coverage, level/key meaning, derived containment expectations, and named correspondence conventions |
-| TemporalSet | Meaning as sparse or overlapping named occurrences, occurrence identity, half-open bounds, date-versus-timestamp encoding, boundary timezone, finite coverage, category, and intentional overlap/gap semantics |
-| WorkSchedule | Final working-status authority, civil-date and boolean meaning, boundary timezone, finite exhaustive coverage, and business-owned rule precedence already resolved by the source |
+| Object kind | Required decision ids | Decisions its object-kind page must cover |
+|---|---|---|
+| Domain | `business_boundary`, `accountable_owner`, `default_domain_behavior`, `definition_guardrails` | Business boundary, accountable owner, default-domain behavior, and reusable definition or guardrails |
+| Entity | `recordset_meaning`, `authoritative_source`, `row_grain`, `identity_key`, `history_as_of_model`, `domain_ownership` | Reusable recordset meaning, authoritative source, row grain, identity/key, history and as-of model, and domain ownership |
+| Dimension | `owning_entity`, `dimension_meaning`, `code_null_semantics`, `construction_mode` | Owning Entity, reusable categorical/identity/filter/join meaning, relevant code and null semantics, and direct-column versus normalized-expression construction |
+| TimeDimension | `owning_entity`, `business_time_role`, `granularity`, `physical_time_encoding`, `default_axis`, `sampled_cadence` | Owning Entity, business-time role, granularity, physical encoding and parse/timezone meaning, default-axis choice, and sampled cadence when applicable |
+| Measure | `numeric_fact_grain`, `unit`, `dimensional_additivity`, `temporal_additivity`, `semi_additive_axis_fold`, `construction_mode` | Row-level numeric meaning and grain, physical unit, dimensional and temporal additivity, semi-additive status axis/fold, and direct-column versus expression construction |
+| Metric | `population_value`, `construction_mode`, `aggregation_filter`, `denominator_failure`, `root_fanout`, `unit_additivity`, `temporal_behavior`, `provenance`, `guardrails` | Reusable population and value definition, base versus derived construction, aggregation/filter, denominator or failure policy, root/fanout, unit/additivity, temporal behavior, provenance, and guardrails |
+| Relationship | `directed_meaning`, `endpoint_grains`, `join_key_equivalence`, `multiplicity_fanout`, `evidence_checks` | Directed business meaning, endpoint grains, join-key equivalence, expected multiplicity and fanout implications, and the checks needed when those claims require source evidence |
+| Event | `occurrence_predicate`, `occurrence_identity`, `occurrence_time`, `participant_roles`, `directed_paths`, `participant_cardinality` | Business occurrence and row predicate, occurrence identity, business occurrence time, participant roles, directed paths, and participant cardinality |
+| StateModel | `subject_lifecycle`, `state_vocabulary`, `initial_terminal_meaning`, `inception_transitions`, `deterministic_transitions`, `excluded_replay_policies` | Subject lifecycle, closed state vocabulary, initial and terminal meaning, inception and transition triggers, deterministic transitions, and deliberately excluded replay policies |
+| PeriodCalendar | `calendar_convention`, `civil_date_authority`, `boundary_timezone`, `finite_coverage`, `level_key_meaning`, `containment_expectations`, `correspondence_conventions` | Business calendar convention, civil-date authority, boundary timezone, finite coverage, level/key meaning, derived containment expectations, and named correspondence conventions |
+| TemporalSet | `occurrence_set_meaning`, `occurrence_identity`, `half_open_bounds`, `temporal_encoding`, `boundary_timezone`, `finite_coverage`, `category`, `overlap_gap_semantics` | Meaning as sparse or overlapping named occurrences, occurrence identity, half-open bounds, date-versus-timestamp encoding, boundary timezone, finite coverage, category, and intentional overlap/gap semantics |
+| WorkSchedule | `working_status_authority`, `date_boolean_meaning`, `boundary_timezone`, `finite_coverage`, `rule_precedence` | Final working-status authority, civil-date and boolean meaning, boundary timezone, finite exhaustive coverage, and business-owned rule precedence already resolved by the source |
 
-This table is the minimum review scope, not help text to render verbatim. Each
-object page remains bounded and includes only the decisions applicable to that
-kind.
+This table is the minimum review scope, not help text to render verbatim. The
+required-id column is the source for an independent contract-test fixture:
+tests pin the exact set for every object kind and compare it with the registry's
+decision ids, rather than inferring coverage from question prose, row counts,
+or rendered snapshots. Each object page remains bounded and includes only the
+decisions applicable to that kind. Changing the required set requires an
+intentional update to this design and the owning normative object contract
+before the test fixture changes.
 
 For example:
 
@@ -698,7 +719,7 @@ establish:
 
 | Question | Exact route | What it proves | What it does not prove |
 |---|---|---|---|
-| What physical source, schema, columns, and types exist? | `datasource.authoring`, `datasource.inspect` | Current authoritative physical metadata to the backend's supported extent | Reusable business meaning |
+| What physical source, schema, columns, and types exist? | `datasource.inspect` | Current authoritative physical metadata to the backend's supported extent | Reusable business meaning |
 | Do I need bounded sampled rows or source-specific SQL evidence? | `datasource.authoring` | Explicitly scoped or governed physical observations | Semantic validity or typed-analysis authority |
 | Do project sources execute, resolve refs, and compile as one project? | `semantic.load` | Static project assembly and structural validation | Current external health or operation-shaped executability |
 | Is this exact requested dependency closure statically ready for analysis? | `semantic.readiness` | Governed semantic closure and `analysis_ready_inputs` | Successful execution of every future analysis shape |
@@ -837,6 +858,8 @@ record:
 SemanticHelpDescriptor = (
     AuthoringCapability
     | SemanticNavigationTopic
+    | SemanticBuilderTopic
+    | SemanticCheckTopic
     | SemanticObjectContract
 )
 ```
@@ -864,15 +887,15 @@ class SemanticNavigationTopic:
     public_entrypoint: None = None
 ```
 
-The initial navigation topics are:
+The initial plain navigation topics are:
 
 - `authoring`;
 - `objects`;
-- `builders`;
-- `checks`.
+- `builders`.
 
-Nested object-kind contracts and `builders.<family>` topics are separate
-descriptors rather than renderer special cases.
+`semantic.checks` uses `SemanticCheckTopic`; nested object-kind contracts and
+`builders.<family>` topics use their own native descriptor variants. None is a
+renderer special case or an out-of-band registry lookup.
 
 ### Object-kind contracts
 
@@ -899,6 +922,7 @@ class SemanticObjectRelationship:
 
 @dataclass(frozen=True)
 class SemanticObjectDecision:
+    decision_id: str
     question: str
     determine_from: str
     basis: Literal[
@@ -906,8 +930,10 @@ class SemanticObjectDecision:
         "business_authority",
         "source_and_business",
     ]
+    encoding_status: Literal["supported", "unsupported"]
     next_targets: tuple[LiveHelpTarget, ...]
     does_not_establish: str | None = None
+    unsupported_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -926,20 +952,28 @@ class SemanticObjectContract:
     public_entrypoint: None = None
 ```
 
-`decisions` is rendered only on the owning object-kind page. It records the
-material question, the stable facts or authority that can settle it, and the
-common ambiguous signal that must not be promoted into a conclusion when one
-is material. It does not invent a non-proof warning merely to fill the field,
-and it does not store a selected answer, confidence score, project observation,
-callable signature, or code example. Construction, supporting, and check
-targets remain the only routes from the page to exact Marivo encoding. This is
-private registry metadata, not a new public API or help target.
+`decisions` is rendered only on the owning object-kind page. `decision_id` is a
+stable private key scoped by `semantic_kind`; it is used for coverage tests and
+is not rendered as agent guidance or exposed as a help target. Each row records
+the material question, the stable facts or authority that can settle it, and
+the common ambiguous signal that must not be promoted into a conclusion when
+one is material. It does not invent a non-proof warning merely to fill the
+field, and it does not store a selected answer, confidence score, project
+observation, callable signature, or code example. Construction, supporting,
+and check targets remain the only routes from the page to exact Marivo
+encoding. This is private registry metadata, not a new public API.
 
 `next_targets` links the settled decision to existing exact constructors,
 supporting builders, checks, or context builders. These are cross-links, not a
 new discovery group. They must be a subset of the owning object contract's
 construction, supporting, and check targets, and the renderer deduplicates them
 before enforcing the existing navigation-page route budget.
+
+`encoding_status="supported"` requires at least one `next_target` and forbids
+`unsupported_reason`. `encoding_status="unsupported"` requires an empty
+`next_targets` tuple and a concise non-empty `unsupported_reason`. This keeps an
+unencoded business decision distinguishable from a missing registry edge
+without inventing an API.
 
 `relationships` contains typed object edges plus stable explanations for facts
 that cannot be represented as repeated inputs, for example:
@@ -954,15 +988,17 @@ constructor parameters.
 
 ### Builder and check routing facts
 
-Builder categories and check questions also remain typed semantic-owned data:
+Builder categories and check questions also remain typed semantic-owned
+descriptors:
 
 ```python
 @dataclass(frozen=True)
-class SemanticBuilderGroup:
-    id: str
+class SemanticBuilderTopic:
+    canonical_id: str
     label: str
     summary: str
     members: tuple[LiveHelpTarget, ...]
+    public_entrypoint: None = None
 
 
 @dataclass(frozen=True)
@@ -971,11 +1007,23 @@ class SemanticCheckRoute:
     targets: tuple[LiveHelpTarget, ...]
     proves: str
     does_not_prove: str
+
+
+@dataclass(frozen=True)
+class SemanticCheckTopic:
+    canonical_id: str
+    summary: str
+    routes: tuple[SemanticCheckRoute, ...]
+    public_entrypoint: None = None
 ```
 
-`SemanticNavigationTopic` points at registry-owned builder groups or check
-routes through the native registry. The renderer does not reconstruct these
-categories from canonical-id prefixes or callable return types.
+The `semantic.builders` navigation topic points at independently resolvable
+`SemanticBuilderTopic` descriptors. The `semantic.checks` target resolves
+directly to one `SemanticCheckTopic`, whose routes carry their question and
+proof boundaries. The renderer receives either native descriptor from the
+neutral resolver and renders only its fields; it neither performs a second
+registry lookup nor reconstructs categories from canonical-id prefixes or
+callable return types.
 
 ### Placement and dependencies are separate
 
@@ -1007,12 +1055,14 @@ The registry owns:
 - object-kind order;
 - builder-family labels, order, and members;
 - check-question labels, order, targets, proof, and non-proof summaries;
-- object decision questions, determination guidance, determination bases,
-  non-proof boundaries, and existing next-target cross-links;
+- object decision ids, questions, determination guidance, determination bases,
+  encoding statuses, non-proof boundaries, unsupported reasons, and existing
+  next-target cross-links;
 - object construction modes and relationship edges.
 
-The renderer contains no canonical-id membership tuples. It iterates immutable
-registry views and applies only presentation and budget logic.
+The renderer contains no canonical-id membership tuples. It iterates the
+immutable native descriptor returned by the resolver and applies only
+presentation and budget logic.
 
 Every exact target has one discovery owner. Cross-links are directed edges, not
 additional group memberships.
@@ -1062,8 +1112,8 @@ split explicitly:
 | Return annotation and decorator product | Live callable plus explicit construction-mode contract | Reflected and checked against the registry output family |
 | Intent, effects, cross-parameter constraints, placement, repairs | Exact semantic capability descriptor | Rendered from the descriptor |
 | Object meaning, construction modes, relationships, catalog collection | `SemanticObjectContract` | Rendered from the object-kind descriptor |
-| Material object decisions, determination criteria, and evidence limitations | `SemanticObjectContract.decisions` grounded in the owning normative object contract | Rendered only on the owning object-kind page; never converted into a project-specific answer |
-| Root membership, teaching order, builder groups, and check routes | Semantic registry | Renderer only iterates registry views |
+| Material object decisions, determination criteria, and evidence limitations | `SemanticObjectContract.decisions` grounded in the owning current normative object contract, with required ids independently pinned by contract tests | Rendered only on the owning object-kind page; never converted into a project-specific answer |
+| Root membership, teaching order, builder groups, and check routes | Semantic registry | Resolver returns the owning native descriptor; renderer only iterates its fields |
 | Semantic render classes, assignments, and budget values | Semantic registry | Semantic renderer selects and enforces the descriptor or briefing class |
 | Global root and authoring-hub budget values | Global help coordinator | Global renderer selects and enforces its owning page class |
 | Hard line, codepoint, route, and example enforcement | Neutral live-help primitive | Receives explicit selected limits without learning page semantics |
@@ -1268,20 +1318,26 @@ signatures, builder inventories, check matrices, or error catalogs.
 - Object-kind membership equals the closed runtime `SemanticKind` set minus
   `datasource`; no current or newly exported semantic kind can bypass decision
   coverage.
-- Every object-kind contract names its material decisions, and every decision
-  has a non-empty question, determination rule, and closed determination basis.
-  Guidance that relies on physical evidence also names the material signal that
-  evidence does not establish; other decisions do not invent filler warnings.
-- Every object kind in the object index covers the complete minimum decision
-  scope assigned to it in this design and agrees with its owning normative
-  object contract. Illustrative examples elsewhere in this document do not
-  narrow this invariant.
+- Every object-kind contract names its material decisions. Decision ids are
+  non-empty and unique within the kind; every decision has a non-empty question,
+  determination rule, and closed determination basis. Guidance that relies on
+  physical evidence also names the material signal that evidence does not
+  establish; other decisions do not invent filler warnings.
+- For every object kind, the registry's decision-id set equals the independently
+  pinned required-id set in the minimum decision-scope table and agrees with its
+  owning current normative object contract. Illustrative examples elsewhere in
+  this document do not narrow this invariant.
 - Every decision next target resolves canonically and belongs to the owning
-  object's construction, supporting, or check targets. An empty next-target set
-  is legal only when the guidance states accurately that the current object
-  model cannot encode the decision.
+  object's construction, supporting, or check targets. A supported decision has
+  at least one next target and no unsupported reason. An unsupported decision
+  has no next target and a non-empty reason stating accurately why the current
+  object model cannot encode it.
 - Decision guidance creates no additional target family and stores no selected
   answer, confidence, current project observation, signature, or example.
+- Every `SemanticBuilderTopic` and `SemanticCheckTopic` satisfies the common
+  descriptor protocol and is present directly in the closed semantic descriptor
+  union. The renderer obtains its complete routing payload from the resolved
+  descriptor without a second registry lookup.
 - Every builder and check target has exactly one discovery owner.
 - Navigation groups contain only registered canonical targets.
 - Every registered navigation member resolves independently through the public
@@ -1322,6 +1378,9 @@ assert that rendered reachability matches registry reachability.
 - Root and navigation pages contain no expanded signatures or parameter tables.
 - Object-kind pages render their bounded decision guidance inside the existing
   navigation page; no per-decision page or recursive expansion is introduced.
+- The fully populated Metric registry fixture counts all distinct structural
+  routes before rendering and remains within the shared twenty-four-route
+  Navigation ceiling.
 - Parent pages contain no recursively rendered child section; exact leaves do
   not repeat parent inventories.
 - Callable leaves contain a live reflected signature, exact output, effects,
@@ -1345,10 +1404,14 @@ assert that rendered reachability matches registry reachability.
 - Compare every rendered signature with the installed callable signature.
 - Prove that object construction modes, builder members, check routes, and root
   groups reference registered canonical targets only.
-- Compare every object kind's rendered decision inventory with its owning
-  normative object contract. For each kind with a plausible weak signal, add an
-  adversarial assertion that the signal is presented only as evidence or a
-  non-proof boundary, never as sufficient reusable business authority.
+- Compare every object kind's registry decision ids with the independently
+  pinned required-id set and its owning current normative object contract, then
+  assert that the rendered questions and determination guidance cover every
+  registered decision exactly once. Remove one required registry decision
+  adversarially and assert that the coverage check fails before rendering. For
+  each kind with a plausible weak signal, add an adversarial assertion that the
+  signal is presented only as evidence or a non-proof boundary, never as
+  sufficient reusable business authority.
 - Change one fixture signature, export, output annotation, group membership,
   and catalog/ref-kind mapping adversarially and assert that the corresponding
   drift check fails for the intended reason.
@@ -1391,9 +1454,9 @@ assert that rendered reachability matches registry reachability.
 
 ### Slice 1: Native navigation models
 
-- Add `SemanticNavigationTopic`, `ConstructionMode`,
-  `SemanticObjectDecision`, and `SemanticObjectContract` to the semantic-owned
-  capability model.
+- Add `SemanticNavigationTopic`, `SemanticBuilderTopic`, `SemanticCheckTopic`,
+  `SemanticCheckRoute`, `ConstructionMode`, `SemanticObjectDecision`, and
+  `SemanticObjectContract` to the semantic-owned capability model.
 - Adapt the semantic registry to a closed native descriptor union.
 - Add five semantic render classes and one semantic-owned budget record per
   class; assign every semantic descriptor to the appropriate class.
@@ -1404,11 +1467,15 @@ assert that rendered reachability matches registry reachability.
 
 ### Slice 2: Object graph and constructor relationships
 
+- Before registering PeriodCalendar, TemporalSet, or WorkSchedule help, reconcile
+  the proposed temporal-semantics contract with the installed runtime and mark
+  that contract current; target-only temporal meaning never enters live help.
 - Register every object-kind page and construction mode.
 - Register each object's material decisions, determination rules, determination
-  basis, non-proof boundary, and exact next-target cross-links on that same
-  object-kind contract. Cover every object kind in the minimum decision-scope
-  table before rendering any kind as complete.
+  basis, encoding status, non-proof boundary, unsupported reason when applicable,
+  and exact next-target cross-links on that same object-kind contract. Pin and
+  cover every required decision id in the minimum decision-scope table before
+  rendering any kind as complete.
 - Require every construction mode to return the owning object's exact ref kind;
   keep nested parameter and local-value builders in supporting-target edges.
 - Register exact callable descriptors for every `ms.ref.<kind>` and
@@ -1449,8 +1516,9 @@ assert that rendered reachability matches registry reachability.
   material semantic choices must be settled, which evidence or authority can
   settle them, and which common signals do not establish them.
 - This decision coverage applies uniformly to every object kind in
-  `semantic.objects` and agrees with each kind's current normative object
-  contract.
+  `semantic.objects`, exactly matches its pinned required decision ids, and
+  agrees with an owning normative object contract that describes the installed
+  runtime. A target-only proposal cannot satisfy that authority requirement.
 - Every material decision routes to its existing constructor, supporting
   builder, check, or context contract when Marivo can encode it; unsupported
   meaning is stated explicitly rather than represented by an invented API.
@@ -1474,12 +1542,16 @@ assert that rendered reachability matches registry reachability.
   with the installed runtime.
 - No help call recursively expands another target or exceeds its render-class
   context budget; overflow never silently removes required information.
+- The fully populated Metric object page, including decisions, typed-ref route,
+  construction modes, relationships, supporting builders, consumers, and
+  applicable checks, fits the shared Navigation budget without a target-specific
+  override.
 - Context budgeting remains one hard budget per rendered help type; no
   cumulative journey budget, tokenizer-specific counter, decision-help render
   class, or second enforcement mechanism is introduced.
 - A public export, signature, default, return type, object/ref kind, catalog
-  collection, or registry edge change cannot leave stale help while the
-  contract tests remain green.
+  collection, required decision id, or registry edge change cannot leave stale
+  help while the contract tests remain green.
 - Every advertised target is canonical, independently resolvable, bounded, and
   reachable from global authoring in at most four edges.
 - Registry and rendered reachability are tested independently.
