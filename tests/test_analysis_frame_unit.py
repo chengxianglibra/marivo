@@ -17,6 +17,7 @@ from marivo.analysis.frames.metric import (
     _temporal_authority_line,
 )
 from marivo.analysis.lineage import Lineage
+from marivo.introspection.live.model import LiveHelpTarget
 from tests.shared_fixtures import (
     make_test_metric_meta_contract,
     make_test_multi_metric_contract,
@@ -104,7 +105,10 @@ def test_frame_contract_embeds_schema() -> None:
     assert metric.semantic_path == "sales.revenue"
     assert metric.output_column == "revenue"
     assert metric.acquisition == 'session.catalog.metrics.get("sales.revenue")'
-    assert metric.help_target == "analysis.catalog.metrics"
+    assert metric.help_target == LiveHelpTarget(
+        surface="analysis",
+        canonical_id="catalog.metrics",
+    )
     rendered = frame.render(max_output_bytes=None)
     assert "output_columns:" not in rendered
     assert "semantic inputs:" not in rendered

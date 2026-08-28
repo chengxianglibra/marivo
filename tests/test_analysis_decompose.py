@@ -20,6 +20,7 @@ from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents.decompose import decompose
 from marivo.analysis.lineage import Lineage, LineageStep
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
@@ -277,7 +278,9 @@ def test_delta_contract_describes_multi_axis_attribution_mode():
     mode_requirement = next(
         item for item in affordance.input_requirements if item.parameter == "mode"
     )
-    assert mode_requirement.help_targets == ("analysis.AttributionMode",)
+    assert mode_requirement.help_targets == (
+        LiveHelpTarget(surface="analysis", canonical_id="AttributionMode"),
+    )
     admission = contract.attribute_admission
     assert admission is not None
     assert admission.status == "supported"

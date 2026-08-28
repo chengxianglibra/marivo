@@ -293,6 +293,12 @@ class ReadCapability(CapabilityBase):
     read_bound:
         ``"bounded"`` for normal reads, ``"terminal"`` for exits that cross
         the typed-flow boundary.
+    artifact_output_by_shape:
+        Exact receiver-state shape to output-family projection for dynamic
+        Artifact continuations whose return type is a closed union.
+    exposes_artifact_affordance:
+        Whether this bounded receiver read participates in the static Artifact
+        consumer algebra and may appear in a dynamic contract.
     """
 
     kind: Literal["read"] = "read"
@@ -303,6 +309,8 @@ class ReadCapability(CapabilityBase):
     read_bound: Literal["bounded", "terminal"] = "bounded"
     produced_input_family: InputFamily | None = None
     output_type: str = ""
+    artifact_output_by_shape: Mapping[str, str] = field(default_factory=dict)
+    exposes_artifact_affordance: bool = False
 
 
 @dataclass(frozen=True)

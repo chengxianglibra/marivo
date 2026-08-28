@@ -645,7 +645,7 @@ def test_funnel_delta_does_not_pretend_metric_delta_semantics(
     no cumulative alignment, and no metric display identity. The removed
     compatibility projections let generic readers silently treat those as
     absent Metric facets; the continuation contract is instead a closed
-    ``SemanticKindMismatchError`` so the funnel shape exposes only its own
+    registry-owned ``SemanticKindMismatchError`` so the funnel shape exposes only its own
     fields.
     """
     current, baseline = two_scope_funnel_frames(funnel_session)
@@ -671,7 +671,8 @@ def test_funnel_delta_does_not_pretend_metric_delta_semantics(
     # component graph (the old projection returned None for component_ref).
     with pytest.raises(SemanticKindMismatchError) as excinfo:
         delta.components()
-    assert "funnel" in excinfo.value.message
+    assert excinfo.value.received == "funnel"
+    assert excinfo.value.location == "DeltaFrame.components.receiver.semantic_shape"
 
 
 def test_metric_delta_retains_metric_semantics(funnel_session: Any) -> None:
@@ -701,7 +702,8 @@ def test_funnel_delta_transform_fails_closed(funnel_session: Any) -> None:
     delta = funnel_session.compare(current, baseline)
     with pytest.raises(SemanticKindMismatchError) as excinfo:
         delta.transform.filter(predicate=lambda df: df["step_key"] == "cart")
-    assert "funnel" in excinfo.value.message
+    assert excinfo.value.received == "funnel"
+    assert excinfo.value.location == "transform.filter.receiver.semantic_shape"
 
 
 def test_funnel_delta_contract_hides_metric_only_affordances(
@@ -722,10 +724,6 @@ def test_funnel_delta_contract_hides_metric_only_affordances(
     assert advertised == {
         "attribute",
         "BaseFrame.quality_report",
-        "discover.driver_axes",
-        "discover.interesting_slices",
-        "discover.interesting_windows",
-        "discover.period_shifts",
     }
 
 
@@ -738,12 +736,9 @@ def test_funnel_delta_discover_rejects_objective_with_expected_kind(
     delta = funnel_session.compare(current, baseline)
     with pytest.raises(SemanticKindMismatchError) as excinfo:
         funnel_session.discover.period_shifts(delta)
-    # The dedicated funnel guard's message, not the generic
-    # _check_objective_compatibility fallback.
-    assert "DeltaFrame[funnel]" in excinfo.value.message
-    assert excinfo.value._context["semantic_kind"] == "funnel"
-    assert excinfo.value._context["objective"] == "period_shifts"
-    assert excinfo.value._context["expected_kind"] == "panel|time_series"
+    assert excinfo.value.received == "funnel"
+    assert excinfo.value.expected == "panel | time_series"
+    assert excinfo.value.location == "discover.period_shifts.source.semantic_shape"
 
 
 def test_cold_recovery_restores_funnel_variants(

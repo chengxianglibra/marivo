@@ -28,11 +28,13 @@ from marivo.analysis.errors import (
     ArtifactAuthorityUnknownError,
     ArtifactStaleError,
     EventCoverageUnknownError,
+    ForecastShapeUnsupportedError,
     FunnelAttributionUnsupportedError,
     InvalidEventMatchingPolicyError,
     InvalidSubjectAxisError,
     ModelStateMismatchError,
     PatternStepMismatchError,
+    SemanticKindMismatchError,
     SubjectSetMismatchError,
 )
 from marivo.introspection.live.model import LiveHelpTarget
@@ -859,6 +861,70 @@ def validate_capability_inputs(
                         help_target=LiveHelpTarget(
                             surface="analysis",
                             canonical_id=descriptor.help_target,
+                        ),
+                    ),
+                )
+            if predicate == "semantic_shape" and capability_id.startswith("discover."):
+                raise SemanticKindMismatchError(
+                    message=(
+                        f"{capability_id} does not accept semantic_kind {admission.received!r}."
+                    ),
+                    expected=admission.expected,
+                    received=admission.received,
+                    location=f"{capability_id}.{param_name}.{predicate}",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action=(
+                            "Inspect the artifact contract and pass an artifact whose "
+                            "semantic shape satisfies this discover objective."
+                        ),
+                        help_target=LiveHelpTarget(
+                            surface="analysis", canonical_id=descriptor.help_target
+                        ),
+                    ),
+                )
+            if predicate == "semantic_shape" and capability_id == "forecast":
+                raise ForecastShapeUnsupportedError(
+                    message="forecast requires MetricFrame time_series or panel input",
+                    expected=admission.expected,
+                    received=admission.received,
+                    location=f"{capability_id}.{param_name}.{predicate}",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action=(
+                            "Inspect the artifact contract and pass a MetricFrame with "
+                            "time_series or panel semantic shape."
+                        ),
+                        help_target=LiveHelpTarget(
+                            surface="analysis", canonical_id=descriptor.help_target
+                        ),
+                    ),
+                )
+            if predicate == "semantic_shape" and (
+                capability_id == "DeltaFrame.components" or capability_id.startswith("transform.")
+            ):
+                message = (
+                    "DeltaFrame[funnel] has no component frame; the funnel shape "
+                    "does not project a Metric Delta component graph"
+                    if capability_id == "DeltaFrame.components"
+                    else (
+                        "transform requires a metric DeltaFrame; DeltaFrame[funnel] "
+                        "has no transformable metric contract"
+                    )
+                )
+                raise SemanticKindMismatchError(
+                    message=message,
+                    expected=admission.expected,
+                    received=admission.received,
+                    location=f"{capability_id}.{param_name}.{predicate}",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action=(
+                            "Inspect the artifact contract and use a MetricFrame or "
+                            "metric DeltaFrame admitted by this capability."
+                        ),
+                        help_target=LiveHelpTarget(
+                            surface="analysis", canonical_id=descriptor.help_target
                         ),
                     ),
                 )
