@@ -1,0 +1,90 @@
+---
+slug: docs/v0.5/release-notes/0.5.0
+title: Marivo 0.5.0
+description: Release notes for Marivo 0.5.0.
+---
+
+Marivo 0.5.0 introduces a progressive, registry-owned contract surface for
+agent-facing authoring and analysis. It makes the next valid action discoverable
+through bounded Help, moves Frame quality enforcement to artifact commit, and
+removes the independent `assess_quality` analysis operator.
+
+## Highlights
+
+- `marivo.help()` now routes from global roots into progressive semantic
+  authoring and analysis journeys. Registry-owned pages expose exact object,
+  builder, check, method, input, Artifact, Runtime, and recovery contracts
+  without expanding an unbounded public inventory.
+- Semantic authoring Help registers the object graph and its decisions,
+  relationships, exact refs, source checks, and builder routes. It validates the
+  registry eagerly and keeps each contract with its owning surface.
+- Analysis Help exposes six bounded discovery hubs and the exact terminal
+  boundary. Dynamic Artifact and result guidance is derived from runtime
+  capability contracts, so focused routes retain actionable inputs, continuations,
+  and structured repairs.
+- Frame quality checks now run before an Artifact is published. Integrity-bound,
+  parent-owned quality reports persist structured blocking failures, and
+  Lifecycle revalidation covers dependent artifacts after relevant changes.
+- Trino datasource authoring and runtime now require an explicit `user_env`,
+  preventing connection identity from falling through to an Ibis default.
+
+## Changed
+
+- Analysis and semantic capability registries are the source of truth for
+  dynamic Help, typed cross-links, render budgets, and validation. Packaged
+  `marivo-analysis` and `marivo-semantic` skills and the bilingual documentation
+  now follow the same progressive topology.
+- Artifact continuations, shape admission, grouping, and typed recovery are
+  disclosed from the live registry, while specialized runtime errors remain
+  available at their exact identities.
+- Quality evidence is attached to the owning Frame/Artifact lifecycle instead
+  of creating a separate quality-intent lineage. Callers should use
+  `BaseFrame.quality_report()` and the artifact commit contract for quality
+  state.
+
+## Fixed
+
+- Structured repairs now route to the owning semantic or analysis Help page,
+  including missing fields, invalid object declarations, and dynamic result
+  continuations.
+- Help no longer relies on legacy inventories, duplicate navigation topics, or
+  short-name disambiguation for the progressive authoring and analysis paths.
+- Registry drift, route-budget overflow, incomplete cross-links, and unreachable
+  terminal contracts are rejected by import-time and adversarial regression
+  checks.
+
+## Documentation
+
+- Updated the English and Chinese semantic-layer, analysis-workflow, evidence,
+  API, agent-guide, and packaged-skill guidance for the new ownership model.
+- Added design and implementation documentation for progressive semantic
+  authoring and analysis live Help, quality recovery, and revalidation.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.5.0 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.5/installation/)
+- [Quick Start](/docs/v0.5/quick-start/)
+- [Semantic Layer](/docs/v0.5/concepts/semantic-layer/)
+- [Readiness](/docs/v0.5/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.5/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.5/concepts/evidence/)

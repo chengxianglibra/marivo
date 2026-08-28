@@ -1,0 +1,1606 @@
+---
+slug: docs/v0.5/concepts/semantic-layer
+title: Semantic Layer
+description: Python declarations that give agents trusted names, definitions, fields, and guardrails.
+---
+
+## A metric is a business contract
+
+A metric is not merely a column or query result. It is a versioned agreement about
+the business number an agent is allowed to analyze: what it means, what it excludes,
+how it is calculated, and where it may be used. Marivo checks technical legality;
+current user input, an approved project definition, or attributable non-conflicting
+documentation can establish its business meaning. Ask an accountable owner only
+when a reusable choice remains unresolved before first typed analysis use.
+
+## Where the semantic layer comes from
+
+Use a semantic layer already maintained by your team, or build one for a new project.
+
+### Clone an existing project
+
+When `models/` contains semantic objects, reuse them. Install dependencies,
+configure local environment variables, and ask the agent to check whether the
+objects fit the current question. If there is no gap, start analysis without
+regenerating objects. Run scoped readiness when the cloned model changed or a
+workflow requests technical certification.
+
+### Start a new project
+
+Give the agent the datasource, business goal, and decided rules. The agent uses
+`marivo-semantic` to inspect evidence and draft objects. It asks only when a
+reusable business choice is not already settled by a current authority.
+Technical validation does not create business authority.
+
+`marivo-semantic` supplies the stable ordering and ownership boundaries. Current
+constructor placement, signatures, prerequisites, loaded-object lookup, and
+error recovery come from `marivo.help(...)`, result cards, and structured
+errors. The agent may inspect physical metadata and draft a coherent slice
+before ownership or business-caliber questions are settled. Those questions
+become mandatory before first typed analysis use only when the answer changes
+reusable meaning and no current authority already settles it.
+
+`marivo doctor` confirms the active interpreter, installed package version,
+package path, and project state before handing off to Python. Use the
+environment's own `marivo` executable when it is not activated.
+`marivo.help(...)` is the sole public focused-help coordinator. Qualified
+`datasource.*`, `semantic.*`, `analysis.*`, and `ontology.*` content remains
+owned by its native registry; `md` and `ms` execute domain operations and
+intentionally have no `.help()` aliases. Start from the concept root and choose
+one of its two secondary roots:
+
+```python
+import marivo
+
+marivo.help()
+marivo.help("authoring")
+marivo.help("analysis")
+```
+
+After choosing semantic authoring, narrow the next question progressively:
+
+```python
+marivo.help("semantic.authoring")  # workflow decision hub
+marivo.help("semantic.objects")    # object meaning and construction modes
+marivo.help("semantic.builders")   # nested values and typed handles
+marivo.help("semantic.checks")     # what each inspection or check proves
+marivo.help(entry_or_error)         # current identity or structured repair
+```
+
+Follow the fully qualified routes from the selected secondary root instead of
+depending on short-name disambiguation. Registered public type, error, and
+member targets remain available to focused help when already known or obtained
+from a live result; they do not need a separate flat inventory.
+
+Each native surface root reveals the active Marivo version, Python executable,
+and package path, then uses capability summaries to route the next focused lookup.
+It does not expand the complete public type or error algebra. In particular,
+ontology constructor help owns the exact entrypoint, signature, output, constraints,
+and declaration example; focused ontology type and error help owns public consumption
+and structured repair details.
+
+Datasource authoring errors display a stable code and stage. When bounded
+acquisition fails during execution, retry that exact acquisition at most once
+only when the caller's remaining data-access budget permits it. Caller-provided
+read-count, row, and timeout limits take precedence. If the same structured code
+and backend name recur, stop and report the backend blocker instead of resampling
+or bypassing Marivo.
+
+## Maintain and share the semantic layer with Git
+
+Semantic objects are Python source files under `models/` and belong in version control:
+
+- team members clone the project to reuse the same definitions;
+- use a branch and pull request for definition changes, showing owner, `ai_context`, `guardrails`, and affected metrics;
+- review business meaning and its current authority, not only whether Python runs;
+- commit datasource `*_env` references, never credential values;
+- do not commit `.marivo/` runtime state, local caches, or generated secrets;
+- after a semantic change, ask the agent to check configuration and scoped readiness.
+
+Git makes declarations reviewable and shareable. It does not grant business
+approval or prove current data is ready.
+
+## Work with the agent on business meaning
+
+The agent can inspect datasource evidence, draft semantic objects, validate
+them, and explain unresolved choices. You remain responsible for deciding
+whether a metric represents the business outcome you intend to analyze.
+
+When asking the agent to create or revise a metric, share the rules that matter
+to the business: important inclusions or exclusions, the relevant event time,
+the unit, and known limits on how the metric may be used. You do not need to
+translate those rules into Marivo fields or Python.
+
+For example:
+
+> Add a completed-order revenue metric for this project. Exclude cancelled and
+> fully refunded orders, use the order completion time, and ask me about any
+> business rule that cannot be established from the project.
+
+The agent uses `marivo-semantic` to inspect evidence and handle the authoring
+workflow. Review the proposed definition in business terms: does it measure the
+right outcome, and are the important boundaries visible? Correct the meaning
+before approving it. Passing validation or readiness does not approve the
+business definition on your behalf.
+
+## When the agent should pause
+
+The agent should ask for input when available evidence cannot settle a business
+choice or when two plausible definitions would produce materially different
+results. Technical declaration details, previews, and readiness checks do not
+need separate user instructions.
+
+## How Marivo represents the contract
+
+```text
+Datasource → Domain → Entity → dimensions / time dimension / measures → metric
+```
+
+Python declarations are the contract. Decorator bodies return ibis expressions,
+not raw SQL strings. SQL is metadata only, through
+`provenance=ms.from_sql(sql=..., dialect=...)`, for example when checking
+parity with an established query.
+
+This small representation has one `orders` entity, a `region` dimension, an
+`order_date` time dimension, an `amount` measure, and a `revenue`
+aggregate metric. Its concise declarations illustrate the object graph; production
+objects also need the authority-backed `ai_context` described below:
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+sales = ms.domain(name="sales", owner="Mina Zhang")
+warehouse = ms.ref.datasource("warehouse")
+orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["order_id"])
+region = ms.dimension_column(name="region", entity=orders, column="region")
+order_date = ms.time_dimension_column(name="order_date", entity=orders, column="order_date", granularity="day", is_default=True)
+amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity="additive", unit="CNY")
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+```
+
+After current authority establishes the meaning and the project loads, routine
+analysis reads the metric and observes it:
+
+```python
+revenue_entry = catalog.metrics.get("sales.revenue")
+revenue_entry.details().show()
+frame = session.observe(
+    revenue_entry,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("month"),
+)
+```
+
+If the metric was just authored or changed, finish the scoped authoring closeout
+described below before this routine analysis sequence.
+
+## Certified period calendars
+
+Use a `PeriodCalendar` when business periods cannot be derived safely from a
+Gregorian grain (for example, a fiscal or 4-4-5 calendar). Declare the civil-date
+spine and named levels with `ms.period_calendar(...)`, then call
+`catalog.preview(calendar_ref, scope=...)` with an exhaustive explicit scope.
+Certification reads the required current-source columns within the scope's
+`max_rows + 1` boundary and publishes an immutable artifact; catalog navigation
+does not query the source again.
+
+```python
+calendar_ref = ms.period_calendar(
+    name="fiscal",
+    date=ms.ref.time_dimension("sales.calendar.calendar_date"),
+    boundary_timezone="UTC",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
+)
+catalog.require(calendar_ref)
+catalog.preview(
+    calendar_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+
+calendar = catalog.period_calendars.get("sales.fiscal")
+grain = calendar.grain("week")
+week_scope = calendar.period("week", "FY2026-W01")
+assert week_scope.kind == "calendar_period"
+week_scope.contract().show()  # exact bounds and certified snapshot identity
+```
+
+The reserved `day` level is derived from the certified coverage and is not
+persisted as one record per day. `calendar.periods(level, limit=..., cursor=...)`
+returns bounded exact scopes for declared levels; missing coverage, stale
+definitions, and malformed evidence fail closed with structured semantic errors.
+Use focused Help for the selected member operation:
+`analysis.calendar.grain`, `analysis.calendar.period`,
+`analysis.calendar.period_on`, or `analysis.calendar.periods`. If the operation
+raises a structured error, `marivo.help(error)` routes either to that exact
+member or to `semantic.preview` when the certified snapshot must be rebuilt.
+
+## Named temporal occurrences
+
+Use a `TemporalSet` for named windows such as holidays, campaigns, launches, or
+incidents whose intervals may overlap or leave gaps. Declare explicit start and
+exclusive end fields with `ms.temporal_set(...)`, then certify the current
+source through one exhaustive explicit scope:
+
+```python
+campaigns_ref = ms.temporal_set(
+    name="campaigns",
+    occurrence_id=ms.ref.dimension("sales.campaigns.campaign_id"),
+    start=ms.ref.time_dimension("sales.campaigns.starts_at"),
+    end=ms.ref.time_dimension("sales.campaigns.ends_at"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    category=ms.ref.dimension("sales.campaigns.category"),
+)
+catalog.preview(
+    campaigns_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+
+campaigns = catalog.temporal_sets.get("sales.campaigns")
+launch = campaigns.occurrence("spring-2026")
+frame = session.observe(
+    revenue,
+    time_scope=launch,
+    grain=mv.grain("day"),
+)
+```
+
+`mv.grain("day")` is always bounded in the session report timezone. When the
+occurrence uses another boundary timezone, configure the session with the same
+`report_timezone` (or use a certified calendar day grain); Marivo never silently
+reinterprets a bare built-in day grain from the occurrence timezone.
+
+`occurrence(key)` returns an exact, snapshot-bound `TimeScope`; catalog paging is
+bounded and filters half-open interval overlap without reading the datasource
+again. Temporal sets do not infer recurrence or match similarly named occurrences
+across years. Compare two exact occurrence-selected day-grain frames with
+`mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` when
+relative local-day progress is the intended business axis.
+Use `marivo.help("analysis.temporal_set.occurrence")` for exact lookup and
+`marivo.help("analysis.temporal_set.occurrences")` for bounded filtered paging;
+snapshot errors route through `marivo.help(error)` to `semantic.preview`.
+
+## Working-day schedules
+
+Use a `WorkSchedule` when the business source already owns the final working
+status for every civil date. It is independent of named holiday or campaign
+windows: certification requires one exhaustive boolean row per date in finite
+coverage, and no recurrence or holiday rule is inferred at runtime.
+
+```python
+schedule_ref = ms.work_schedule(
+    name="cn_sales_schedule",
+    date=ms.ref.time_dimension("sales.calendar.date"),
+    is_working=ms.ref.dimension("sales.calendar.is_working"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+)
+catalog.preview(
+    schedule_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
+```
+
+Pass that catalog entry to
+`mv.working_day_progress(schedule=schedule, unmatched="fail" | "drop")` to
+pair zero-based working-day ordinals across two day-grain time-series or panel
+frames. The exact schedule snapshot is retained in the comparison contract;
+missing, duplicate, sub-day, or uncovered dates fail closed.
+
+## Build the model
+
+### 1. Connect a datasource
+
+Datasources are declared in `models/datasources/*.py` with a typed helper per
+backend. The helper returns a typed spec and auto-declares it while the datasource
+loader runs. Semantic files refer to it through the exact
+`ms.ref.datasource("warehouse")` factory.
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+import marivo.semantic as ms
+import marivo.analysis as mv
+
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
+)
+```
+
+Every datasource helper declares one global lowercase snake_case identity and
+backend-specific connection facts. Use `marivo.help("datasource.authoring")` to
+choose the backend family, then its exact focused leaf for the live parameters,
+defaults, credential references, and effects. Semantic code consumes only the
+resulting `ms.ref.datasource(name)` identity.
+
+Backend-specific parameters:
+
+| Helper | Required | Optional |
+| --- | --- | --- |
+| `md.duckdb` | — | `path` (default `":memory:"`), `read_only` (default `False`), scoped HTTP auth fields |
+| `md.sqlite` | — | `path` (default `":memory:"`), `read_only` (default `False`), `type_map` |
+| `md.mysql` | `host`, `database` | `port` (3306), `autocommit`, `user_env`, `password_env` |
+| `md.postgres` | `host`, `database` | `port` (5432), `schema`, `autocommit`, `user_env`, `password_env` |
+| `md.trino` | `host`, `catalog`, `user_env` | `port` (8080), `schema`, `source`, `timezone`, `http_scheme`, `client_tags`, `session_properties`, `auth_env` |
+| `md.clickhouse` | `host` | `port` (9000 / 9440 secure), `database`, `secure`, `settings`, `user_env`, `password_env` |
+
+When a returned spec is already in hand, `spec.show()` prints only its declared
+state, ref, core connection target, credential field names, and the count of
+other configuration. It does not expand settings, `extra`, AI context, env-var
+names, or resolved secrets. Use `spec.fields` / `spec.env_refs` for exact values.
+
+ClickHouse datasources disable clickhouse-connect's autogenerated session id by
+default so cached analysis backends can run repeated or concurrent queries
+without sharing a server session lock. If a datasource needs ClickHouse session
+state such as temporary tables, opt in explicitly with
+`extra={"autogenerate_session_id": True}`. Keep server/query settings in
+`settings={...}`; client keyword arguments belong in `extra={...}`.
+Marivo's bounded read-only paths enforce the ClickHouse server setting
+`readonly=1`; they preserve other declared settings and never retry through a
+write-enabled connection.
+
+SQLite datasources use `md.table(...)` for tables and views. `read_only=True`
+enables SQLite's connection-level query-only mode, and `type_map={...}` can map
+declared SQLite type names to Ibis type strings when affinity inference is not
+enough. Parquet, CSV, and JSON descriptors remain DuckDB-only. SQLite does not
+support median or percentile metrics, or string `strptime` expressions in the current Ibis
+backend; Marivo reports these as structured unsupported-operation errors. Use a
+supported aggregation and a native temporal column instead.
+
+:::caution[Credentials are references, never literals]
+Sensitive fields are authored as `*_env` references that name an environment
+variable — `user_env="TRINO_USER"`, `password_env="MYSQL_PASSWORD"`. Putting a
+secret literal in a datasource field raises an error. Marivo resolves `*_env`
+values through `os.environ` → `~/.marivo/secrets.toml` and attempts to cache
+resolved secrets there after a validated `md.test(...)` round-trip or the first
+successful analysis execution in a session. Cache write failures emit a sanitized
+warning but do not fail the successful connection test or analysis execution, and
+Marivo does not fall back to project-local secret storage. Only explicitly declared
+references are resolved: ambient `MARIVO_<DATASOURCE>_<FIELD>` variables are ignored,
+and omitted connection fields are left to the selected Ibis backend.
+Trino is the exception for connection identity: `user_env` is required so the
+username never falls through to an Ibis default. `auth_env` remains optional.
+:::
+
+```python
+# models/datasources/lake.py
+import marivo.datasource as md
+
+md.trino(
+    name="lake",
+    host="trino.example.internal",
+    catalog="hive",
+    user_env="TRINO_USER",
+    auth_env="TRINO_AUTH",
+)
+```
+
+For a protected DuckDB HTTP JSON source, authentication stays on the datasource,
+not in `md.json(...)`. The project stores only the environment variable name and
+the narrow URL prefix allowed to receive the credential:
+
+```python
+md.duckdb(
+    name="hawkeye",
+    http_scope="http://hawkeye.example/report/api/",
+    http_bearer_token_env="HAWKEYE_TOKEN",
+)
+```
+
+Custom-header authentication maps header names to secret environment variables.
+The map may contain one header or a machine-authentication pair:
+
+```python
+md.duckdb(
+    name="change_focus",
+    http_scope="http://change-focus.example/api/v2/change/list",
+    http_headers_env={
+        "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "x-signature": "CHANGE_FOCUS_SIGNATURE",
+    },
+)
+```
+
+Bearer and custom-header modes are mutually exclusive. Marivo resolves each
+value when connecting and creates a temporary DuckDB HTTP secret restricted to
+`http_scope`; POST execution reuses those scoped headers from connection memory.
+
+### 2. Declare a domain and entity
+
+#### Domain
+
+`ms.domain(...)` opens a namespace. Call it once per `_domain.py`. It returns a
+`Ref[domain]` you can pass as `domain=` to override the active domain for an object
+declared in a sibling file.
+Settle the business boundary, accountable owner, default-domain behavior, and
+definition guardrails before authoring. Use
+`marivo.help("semantic.objects.domain")` for those decisions and
+`marivo.help("semantic.domain")` for the exact callable contract.
+
+```python
+import marivo.semantic as ms
+
+ms.domain(name="sales", owner="Mina Zhang")
+```
+
+#### Entity
+
+An entity is one physical source (a table or file) plus its primary key. It is the
+anchor that dimensions, measures, and metrics attach to.
+Its reusable recordset meaning, authoritative source, row grain, identity,
+history model, and domain ownership must agree. Use
+`marivo.help("semantic.objects.entity")` for that checklist and
+`marivo.help("semantic.entity")` for the installed signature.
+
+```python
+warehouse = ms.ref.datasource("warehouse")
+
+orders = ms.entity(
+    name="orders",
+    datasource=warehouse,
+    source=md.table("orders"),
+    primary_key=["order_id"],
+    ai_context=ms.ai_context(business_definition="One row per order."),
+)
+```
+
+##### Source builders
+
+| Builder | Required | Optional | Use for |
+| --- | --- | --- | --- |
+| `md.table(name)` | `name` | `database`, `columns` | A catalog-backed table or typed projection in the datasource (use `database="schema"` for Trino/MySQL). |
+| `md.parquet(path)` | `path` | `hive_partitioning` | Self-describing Parquet files through DuckDB. |
+| `md.csv(path, schema=...)` | `path`, typed `schema` | `header`, `delimiter` | CSV file source through DuckDB. |
+| `md.json(path, schema=...)` | `path`, typed `schema` | `format`, `records_path`, `field_paths`, `query_params`, `method`, `body` | JSON file, glob, GET URL, or parameterized-body POST URL; `records_path` selects a wrapped record array and `field_paths` maps stable output aliases to nested values. |
+
+`md.table(...)` supports two closed modes. Omit `columns=` to use catalog-backed
+discovery. Supply `columns={alias: md.source_column(...)}` to declare a typed
+projection with stable entity output aliases:
+
+```python
+events = ms.entity(
+    name="events",
+    datasource=warehouse,
+    source=md.table(
+        "raw.events",
+        columns={
+            "event_time": md.source_column("event.timestamp", data_type="timestamp"),
+            "score": md.source_column("generated.score", data_type="float64"),
+        },
+    ),
+    primary_key=["event_time"],
+)
+```
+
+The declared type is an assertion, not a cast, and the mapping is the complete
+projection allowlist. For a projected source, semantic `primary_key` and direct
+field `column=` values must name these stable aliases. Inspection can report a
+declared-only warning when catalog metadata cannot confirm a binding. In that
+case, choose an explicit bounded sample, acquire one snapshot, run scoped
+preview, and then use zero-query readiness. Static loading and validation prove
+declaration coherence; preview is the runtime authority. The source is recorded
+as `TABLE_PROJECTION`, while its aliases remain bindings inside one physical
+table rather than becoming separate sources.
+
+### 3. Add fields
+
+#### Dimension
+
+A dimension is a categorical attribute you group or filter by. For direct
+entity output columns, use `ms.dimension_column(...)`; for expressions (e.g.
+`table.region.upper()`), use the `@ms.dimension` decorator whose body returns a
+single ibis expression over the entity table.
+Use `marivo.help("semantic.objects.dimension")` to settle the owning Entity,
+reusable categorical meaning, code/null semantics, and construction mode. The
+page routes to the direct-column default or expression escape hatch without
+copying either signature here.
+
+```python
+region = ms.dimension_column(
+    name="region",
+    entity=orders,
+    column="region",
+    ai_context=ms.ai_context(business_definition="Sales reporting region."),
+)
+```
+
+#### Time dimension
+
+A time dimension is a special dimension that carries grain and parsing metadata.
+**Only time dimensions can serve as the time axis for `session.observe`.**
+Use `marivo.help("semantic.objects.time_dimension")` to settle the business-time
+role, granularity, physical encoding, default-axis choice, and sampled cadence.
+Use `marivo.help("semantic.builders.temporal_parsing")` to choose the nested
+parse value, then open the exact callable leaf for its live signature.
+
+##### Parse variants
+
+The `parse=` value declares the physical encoding of the column. When omitted,
+the parse variant is inferred from the column's ibis dtype at analysis time
+(native `date`, `datetime`, and `timestamp` columns do not need an explicit parse).
+For string or integer columns, provide `ms.strptime(format)` or
+`ms.hour_prefix(prefix)`. The variant must be compatible with `granularity`
+(e.g. an hour grain needs a time-bearing format).
+
+| Builder | Source column is… | Key parameters |
+| --- | --- | --- |
+| *(omit `parse`)* | a native temporal column | — |
+| `ms.datetime()` | a native `datetime` | `timezone` (IANA), `sample_interval` |
+| `ms.timestamp()` | a native `timestamp` | `timezone` (IANA), `sample_interval` |
+| `ms.strptime(format)` | a string/integer to parse | `timezone`, `sample_interval` |
+| `ms.hour_prefix(prefix)` | an hour-only partition | `sample_interval` — `prefix` is the day-grain `Ref[time_dimension]` that supplies the date |
+
+For a native naive `datetime` or `timestamp`, declare its source timezone (for
+example, `ms.datetime(timezone="Asia/Shanghai")`). An explicit
+`ms.datetime()` or `ms.timestamp()` without `timezone=` makes readiness return
+the `undeclared_naive_time_axis` blocker: runtime would otherwise fall back to
+the datasource read timezone, while analysis windows use the report timezone
+and may shift at day or hour boundaries. When `parse` is omitted, current-source
+preview emits a `time_parse_risk` warning if it observes a timezone-naive
+timestamp. Readiness never infers this risk from preview history. Native `date`
+and timezone-aware timestamps do not receive a speculative timezone repair.
+`sample_interval` like `(5, "minute")` marks a
+periodically-sampled axis used by semi-additive folds.
+
+For time-series and panel frames, `bucket_start` is always a report-timezone
+bucket label emitted as a timezone-naive timestamp or date. For example, with
+`report_timezone="Asia/Shanghai"`, the first hourly bucket for a Shanghai
+business day is shown as `2026-06-20 00:00:00`, not the equivalent UTC instant.
+
+```python
+# Day partition stored as the string "20260131"
+log_date = ms.time_dimension_column(
+    name="log_date",
+    entity=orders,
+    column="dt",
+    granularity="day",
+    parse=ms.strptime("%Y%m%d"),
+    is_default=True,
+)
+
+# Native UTC timestamp, usable for sub-day buckets
+event_ts = ms.time_dimension_column(
+    name="event_ts",
+    entity=orders,
+    column="event_ts",
+    granularity="minute",
+    parse=ms.timestamp(timezone="UTC"),
+)
+```
+
+#### Measure
+
+A measure is a row-level quantitative fact you intend to aggregate (e.g. an
+amount or quantity). For direct entity output columns, use `ms.measure_column(...)`;
+for expressions over one or more columns, use `@ms.measure`. Measures carry
+additivity and an optional unit.
+Use `marivo.help("semantic.objects.measure")` to settle the numeric fact's
+grain, unit, dimensional and temporal additivity, and construction mode. A
+numeric dtype or familiar historical aggregation does not establish those
+business choices.
+
+```python
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
+)
+```
+
+### 4. Define metrics
+
+
+A metric is not just a query result. It is the analysis-ready business number an
+agent may observe: its definition and calculation are declared in version
+control; its entity, dimensions, time behavior, unit, and additivity describe
+how it can be analyzed; `ai_context` states the business meaning and guardrails;
+and readiness can certify new or changed definitions before they are declared
+complete.
+
+#### Choose the metric for the job
+
+| Need | Use | Example |
+| --- | --- | --- |
+| Sum or other direct aggregation of a row-level value | `ms.aggregate` | revenue from `amount` |
+| Count entities or rows | `ms.count` | completed orders |
+| Compute a weighted mean from row-level measures | `ms.weighted_mean` | request-weighted latency |
+| Combine metrics | `ms.ratio`, `ms.linear` | conversion rate |
+| Accumulate a time series | `ms.cumulative` | year-to-date revenue |
+| Require a custom Ibis expression | `@ms.metric` | a calculation not covered above |
+
+Choose the builder that matches the task. Use `@ms.metric` only when the
+existing builders cannot express the calculation.
+
+#### Simple metric from a measure — `ms.aggregate`
+
+Aggregates a measure without a body. The aggregation determines spatial
+additivity; independently, a semi-additive measure contributes its status-time
+axis and default fold. An explicit `fold` overrides that temporal fold.
+Use `marivo.help("semantic.objects.metric")` to choose among aggregate, count,
+ratio, weighted mean, linear, cumulative, and expression construction. After
+choosing aggregate, `marivo.help("semantic.aggregate")` owns its exact inputs,
+defaults, constraints, and repair routes.
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
+```
+
+`agg="median"` and `agg=("percentile", q)` follow backend support. On Trino,
+both compile to `APPROX_PERCENTILE`, with median using `q=0.5`.
+
+Spatial additivity and temporal folding are independent. In particular,
+`agg="mean"` remains `non_additive`, but on a semi-additive measure it executes
+the spatial mean at each sample point and then applies the inherited or explicit
+time fold. Trino sampled percentile folds use approximate
+`APPROX_PERCENTILE`; DuckDB sampled percentile folds remain exact. Supplying
+`fold=` for a measure that is not semi-additive is rejected.
+
+#### Count metrics — `ms.count`
+
+Use `ms.count` instead of declaring a redundant measure just to count entity
+rows. The helper accepts refs only and infers the metric domain from the entity
+ref. Pass `filter=ms.where(...)` to count a subset (e.g. failures) without a
+hand-written metric body.
+
+```python
+order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
+failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
+```
+
+`ms.where(**conditions)` builds AND-joined equality
+(`dimension=value`) or membership (`dimension=(value1, value2)`) filters. Keys are local
+semantic dimensions declared on the metric's target entity, not arbitrary
+physical columns. Scalar values are `str` / `int` / `float` / `bool`; non-empty
+tuple/list values are normalized to membership. Multiple conditions are
+AND-joined. Load rejects missing filter dimensions, and preview/analysis checks
+literal compatibility against the resolved Ibis type before query submission.
+If a valid authored literal cannot be compared with the physical dtype, both
+paths raise `filter_value_runtime_incompatible` with
+`query_executed=False` and `declaration_preserved=True`. Marivo preserves the
+business literal and asks the user or business owner to confirm any code/label
+mapping; it never rewrites the rule from physical types or sampled values.
+Project loading and query-free `semantic_static` readiness can continue
+while runtime evidence remains unavailable.
+
+```python
+terminal_count = ms.count(
+    name="terminal_count",
+    entity=queries,
+    filter=ms.where(type=(2, 4)),
+)
+```
+
+#### Weighted means — `ms.weighted_mean`
+
+`ms.weighted_mean` accepts two measures from the same entity and owns both the
+row-level multiplication and aggregation:
+
+```python
+avg_latency = ms.weighted_mean(
+    name="avg_latency",
+    value=latency,
+    weight=request_count,
+)
+```
+
+It computes `SUM(value * weight) / NULLIF(SUM(weight), 0)` over rows where both
+inputs are non-null. `weight` must be additive. The result inherits the value
+measure's unit and persists exact `numerator` / `weight` components for
+`weighted_mix` attribution. It also accepts `filter`, `unit`, `domain`, and
+`ai_context`.
+
+#### Derived metrics — `ms.ratio` / `ms.linear`
+
+Body-free metrics composed from other metrics. The computation comes entirely from
+the components.
+
+| Builder | Required | Computes |
+| --- | --- | --- |
+| `ms.ratio(name, numerator, denominator)` | both refs | `numerator / denominator` (e.g. average order value, rates) |
+| `ms.linear(name, add, subtract)` | `add` (≥2 terms total) | sum of `add` minus `subtract` (e.g. `net = gross - refunds`) |
+
+Each also accepts `unit`, `domain`, and `ai_context`.
+
+```python
+net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
+aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
+```
+
+At observe time, division evaluates under a fixed `zero_division="null"` policy:
+a bucket whose denominator (for `ms.ratio`) or paired weight sum (for `ms.weighted_mean`)
+is present but zero yields a null value — never `+/-inf` — and the affected row
+count is recorded on the observed frame as `meta.zero_denominator_rows` and
+`quality_summary.zero_denominator_rows`.
+
+#### Cumulative metrics — `ms.cumulative`
+
+Use `ms.cumulative(...)` when the business question is "how much accumulated up to bucket t".
+The base must be a tier-1 `ms.aggregate(...)`, `ms.count(...)`, or
+`ms.weighted_mean(...)` metric using `sum`, `count`, `count_distinct`, or
+weighted-mean component accumulation. The `anchor` parameter selects the accumulation shape.
+The Metric object page identifies cumulative construction; then
+`marivo.help("semantic.cumulative")` owns the exact base/axis/anchor contract,
+and `marivo.help("semantic.builders.governed_temporal")` routes anchor builders.
+
+```python
+user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity="non_additive")
+active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
+cumulative_active_users = ms.cumulative(
+    name="cumulative_active_users",
+    base=active_users,
+    over=event_time,
+)
+```
+
+For `count_distinct` base metrics, the cumulative value uses first-seen semantics: each
+distinct entity is counted at the earliest bucket in which it appears, so the running total
+is monotonically non-decreasing. Cumulative metrics may serve as ratio components — compose
+cumulative numerator and denominator with `ms.ratio(...)` for cumulative rates.
+
+##### Accumulation anchors
+
+`anchor=None` (default) is the all-history running total: the observe window clips
+displayed rows but does not reset the running value. Two value-object constructors open
+the additional anchor kinds.
+
+`ms.grain_to_date(grain=...)` resets the running total at each reset-grain boundary
+(MTD / QTD / YTD / WTD). Within a reset period the value accumulates; at the boundary it
+drops to the period's first-bucket flow. Built-in `grain` values are `week`, `month`,
+`quarter`, and `year`; a certified custom calendar uses the typed `TemporalGrain` returned
+by `ms.calendar_grain(...)`.
+
+```python
+mtd_revenue = ms.cumulative(
+    name="mtd_revenue",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(grain=mv.grain("month")),
+)
+```
+
+For a fiscal or other certified calendar, carry the calendar authority in the grain value
+instead of repeating its level as an independent analysis option:
+
+```python
+fiscal_mtd = ms.cumulative(
+    name="fiscal_mtd",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(
+        grain=ms.calendar_grain(
+            calendar=ms.ref.period_calendar("sales.fiscal"),
+            level="fiscal_month",
+        )
+    ),
+)
+
+fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+frame = session.observe(
+    fiscal_mtd,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
+    grain=fiscal_week,
+)
+```
+
+The calendar snapshot owns fiscal membership and its boundary timezone; changing the
+session report timezone changes presentation only.
+
+`ms.trailing(count=..., unit=...)` is a fixed-size rolling window: the value at each
+bucket is the base aggregation over the span ending at that bucket's end boundary. Empty
+windows are true zero, not carried forward. Partial windows (the span reaches before the
+data start) show the actual partial accumulation and are marked `partial` in coverage.
+`unit` accepts only fixed-size units (`second`, `minute`, `hour`, `day`, `week`);
+calendar-variable units (`month`, `quarter`, `year`) are rejected with a teaching error.
+A trailing `day` is exactly 86,400 seconds and a trailing `week` is exactly 604,800
+seconds. They are not report-timezone civil periods, so DST transitions do not resize
+the rolling span.
+
+```python
+rolling7_active = ms.cumulative(
+    name="rolling7_active",
+    base=active_users,
+    over=event_time,
+    anchor=ms.trailing(count=7, unit="day"),
+)
+```
+
+Two cross-anchor rules govern query-time grain choices:
+
+- **Grain-compatibility rule** (`grain_to_date`): every display bucket must lie entirely
+  within one reset period. A `week` query grain under a `month` / `quarter` / `year`
+  reset is illegal (week buckets straddle month boundaries); `day` and `hour` are legal.
+- **Integer-multiple rule** (`trailing`): the window span must be an integer multiple of
+  the query grain (`W_buckets = span / grain`). Trailing requires a time grain.
+
+Derived metrics may compose cumulative components. Compare is supported only when every
+outer component is cumulative and all components use the same anchor. This includes
+`all_history`, whose result is an observed level difference with exact evaluation cutoffs,
+not asserted interval flow; source revision is unverified. Mixed anchors and
+cumulative/non-cumulative mixes are rejected. After `compare`, `attribute` accepts the
+current cumulative delta: business dimensions explain endpoint level changes, while the
+exact cumulative `over` axis explains base flow for direct `sum`/`count` structures.
+Mixed time/business axes, cumulative `count_distinct`, and component time bridges fail
+closed. `decompose` and `forecast` remain unsupported on cumulative frames.
+
+## Use and check the model
+
+### Read a metric before an agent uses it
+
+~~~python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create(
+    name="revenue-investigation",
+    question="Why did Q4 revenue drop?",
+)
+catalog = session.catalog
+revenue_entry = catalog.metrics.get("sales.revenue")
+region_entry = catalog.dimensions.get("sales.orders.region")
+
+revenue_entry.details().show()
+current = session.observe(
+    revenue_entry,
+    grain=mv.grain("month"),
+    dimensions=[region_entry],
+)
+~~~
+
+`details().show()` exposes the human-authored definition, guardrails, composition,
+effective entities, candidate dimensions/time dimensions, and measure lineage.
+For a derived metric, it also renders an `expression_tree` table that expands every
+component occurrence through its intermediate metric refs to named measure or
+entity inputs. Ratio roles, linear signs, cumulative policies, aggregate filters
+and folds, and weighted-mean inputs stay visible in that one output. An Ibis
+function-body metric is shown as an `expression_body` leaf when no named base
+measure exists. The tree is display-only; it does not add an `expression_tree`
+attribute to the details object.
+Candidate axes come from the metric's effective entities; `session.observe(...)`
+still validates cross-entity relationships and fanout. `.show()` prints the same
+bounded card that `.render()` returns. Use current live help, structured errors,
+and typed repairs for mechanical continuation. If the object is missing or disputed,
+return to semantic authoring. Otherwise the observation becomes the first artifact
+in the session's evidence-backed investigation. Newly authored or changed objects
+complete scoped readiness as part of their authoring closeout.
+
+### Discover and hand off objects through live help
+
+The `marivo-analysis` skill routes the investigation and semantic boundary. It
+does not duplicate the semantic object API. Use live help for the current
+collection, entry, and consuming-operator contracts:
+
+```python
+import marivo
+
+marivo.help("analysis.catalog")
+marivo.help("analysis.catalog.metrics")
+
+catalog = session.catalog
+catalog.show()
+collection = catalog.metrics
+collection.show()                              # bounded list when identity is unknown
+entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
+entry.show()
+entry.details().show()
+marivo.help(entry)                             # current details and analysis handoff
+current = session.observe(entry, grain=mv.grain("month"))
+```
+
+Use `marivo.help("semantic.CatalogCollection")` for lookup grammar,
+`marivo.help("semantic.CatalogEntry")` for detail and continuation behavior,
+and `marivo.help("semantic.Ref")` for exact identity and membership rules.
+When an exact `Ref` is already available, follow the consuming operator's
+focused help instead of browsing unrelated collections.
+
+### Load the model and certify changes
+
+Once declarations are in place, load the catalog and inspect it:
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()                       # SemanticCatalog
+catalog.show()                            # non-empty collections plus one empty summary
+catalog.domains.show()                    # top-level domains
+catalog.metrics.show()                    # just metrics across all domains
+
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+revenue = orders.metrics.get("metric:sales.revenue")  # key copied from .show()
+region = orders.dimensions.get("region")  # one dimension object
+```
+
+Each typed collection accepts a local name, an exact full path, a displayed
+same-kind typed key such as `metric:sales.revenue`, or a same-kind ref within
+that collection's current scope. Scoped collections never return an
+out-of-scope object through any of these forms. Use the strict ref-only
+`catalog.require(ref)` when identity comes from configuration, persistence, or
+logs. Entry cards show the exact kind, full path, `.ref`, and bounded current
+axes; omitted members point to `details().show()`.
+
+`ms.load()` and `session.catalog` create separate immutable snapshots over the
+same semantic project. Their browse protocol is identical, and unchanged project
+state yields the same definition fingerprint, but entries remain owned by the
+catalog instance that returned them. Analysis therefore reacquires an entry from
+the current `session.catalog` instead of passing an Entry returned by `ms.load()`.
+
+The global collections are `domains`, `datasources`, `entities`, `dimensions`,
+`time_dimensions`, `measures`, `metrics`, `relationships`, `events`,
+`state_models`, `period_calendars`, `temporal_sets`, and `work_schedules`.
+`repr(catalog)` points to the same bounded, zero-query catalog card that
+`catalog.show()` prints. The card lists only non-empty collections as
+`catalog.<collection>.show()` calls and compresses empty collections into one
+summary. Collection help exposes the exact `.items`, `.refs`, `.get(...)`,
+`.render()`, and `.show()` surface; lookup
+remains exact and does not use fuzzy search.
+
+After authoring or changing an object, run **readiness** over the selected
+definition. Preview is an independent current-source runtime probe:
+
+```python
+catalog.require(revenue.ref)
+catalog.preview(
+    revenue,
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+).show()
+report = catalog.readiness(refs=[revenue, region])
+if report.status == "blocked":
+    report.show()                         # blockers, with the next step for each
+```
+
+These runtime calls accept the current entry or its exact ref and normalize to
+the ref immediately. Ordinary preview creates no authoring checkpoint and does
+not affect readiness.
+
+The preview `limit` controls how many result rows are displayed. Metric previews
+use a separate safety bound: they aggregate at most 10,000 scoped input rows.
+Their result card shows `sample_policy=pre_aggregate_limit(limit=10000)` and an
+`approximate_preview` warning, so even exhaustive scope coverage must
+not be read as proof that the displayed metric value is exact.
+
+:::note[Readiness is explicit certification]
+A project can `load()` successfully while readiness is still blocked because
+loading and certification answer different questions. Analysis APIs load,
+resolve, plan, and runtime-check their inputs without invoking readiness
+automatically. Repair a blocked report before declaring the semantic change
+complete; routine analysis of unchanged objects does not rerun readiness before
+every call. Ordinary preview history is not a readiness input; dedicated
+certified temporal artifacts remain blockers when missing, stale, or invalid.
+:::
+
+Source drift has its own explicit report and never changes readiness:
+
+```python
+catalog.source_health([revenue]).show()  # connection plus schema/capability identity
+catalog.source_health(
+    [revenue],
+    checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+).show()
+```
+
+Only checks declared through `ms.source_check` read user data, and each requires
+and discloses an exact bounded scope. Marivo does not infer data expectations
+from discovery samples.
+
+Two additional diagnostics support authoring:
+
+- `ms.richness()` — advisory coverage/depth report; never blocks.
+- `ms.parity_check("sales.revenue")` — runs the metric against its
+  `provenance` SQL and compares results. Requires `provenance=ms.from_sql(...)`.
+
+For how readiness decides what is "ready," see [Readiness](/docs/v0.5/concepts/readiness/).
+For how analysis records what it concludes, see [Evidence](/docs/v0.5/concepts/evidence/).
+Analysis sessions load and validate metric inputs at runtime. Use scoped
+readiness to certify semantic changes, then continue to the
+[Analysis Workflow](/docs/v0.5/concepts/analysis-workflow/).
+
+## Advanced modeling
+
+### Semantic contract reference
+
+
+You work through two namespaces:
+
+```python
+import marivo.datasource as md   # connections and physical sources
+import marivo.semantic as ms     # meaning (ms.entity, ms.metric, ...)
+```
+
+#### How names work
+
+Every object lives under a **domain** and is addressed by a qualified ref:
+
+- Domain-level objects: `<domain>.<object>` — e.g. `sales.revenue`, `sales.orders`.
+- Entity-scoped objects (dimensions and measures): `<domain>.<entity>.<field>` —
+  e.g. `sales.orders.region`.
+
+A project is a folder of declaration files. Datasources are declared once under
+`models/datasources/`; semantics live under `models/semantic/<domain>/`, with a
+`_domain.py` per domain:
+
+```text
+your-project/
+  marivo.toml
+  models/
+    datasources/
+      warehouse.py          # md.duckdb(name="warehouse", ...)
+    semantic/
+      sales/
+        _domain.py          # ms.domain(name="sales", owner="Mina Zhang") + entities, metrics, ...
+```
+
+For multi-repository semantic layers, keep each business-domain package in the
+same authored `models/` layout and reference those roots from the central
+analysis project:
+
+```toml
+[semantic]
+layer_paths = ["../finance-domain/models"]
+```
+
+Marivo loads the central project's `models/` first, then each configured external
+`models/` root. All loaded datasources, domains, and semantic objects share one
+catalog, so names must stay globally unique. `marivo doctor`, `catalog.preview`,
+`catalog.require`, and analysis sessions resolve datasource-backed semantic
+objects against the same configured roots.
+
+#### Semantic refs
+
+Every semantic object is identified by one sealed, immutable `ms.Ref` value.
+The runtime class is always exactly `Ref`; the generic kind (`Ref[metric]`,
+`Ref[dimension]`, and so on) gives static type checkers the role. Create refs
+only through an exact factory such as `ms.ref.metric("sales.revenue")` or from
+an authoring declaration that returns the same value type.
+
+All refs expose these read-only attributes:
+
+| Attribute | Type | Meaning |
+| --- | --- | --- |
+| `.path` | `str` | Kind-relative qualified path, for example `"sales.revenue"`. |
+| `.kind` | `SemanticKind` | Object kind — one of the eight values below. |
+| `.key` | `str` | Canonical runtime key, for example `"metric:sales.revenue"`. |
+| `.name` | `str` | Final local-name segment. |
+
+`str(ref)` returns `.key`; equality and hashing use `(kind, path)`. `Ref(...)`
+cannot be called directly and `Ref` cannot be subclassed. Public boundaries
+documented as requiring refs do not accept strings or catalog entries as
+substitutes; typed catalog collections separately accept displayed keys for
+lookup.
+
+| Kind | Factory | Typical authoring producer | Expression binding? |
+| --- | --- | --- | --- |
+| `domain` | `ms.ref.domain(path)` | `ms.domain(...)` | No |
+| `datasource` | `ms.ref.datasource(path)` | datasource declaration `.ref` | No |
+| `entity` | `ms.ref.entity(path)` | `ms.entity(...)` | No |
+| `dimension` | `ms.ref.dimension(path)` | `ms.dimension_column(...)`, `@ms.dimension` | `ms.bind(ref, entity_alias)` inside a bound expression body |
+| `time_dimension` | `ms.ref.time_dimension(path)` | `ms.time_dimension_column(...)`, `@ms.time_dimension` | `ms.bind(ref, entity_alias)` inside a bound expression body |
+| `measure` | `ms.ref.measure(path)` | `ms.measure_column(...)`, `@ms.measure` | `ms.bind(ref, entity_alias)` inside a bound expression body |
+| `metric` | `ms.ref.metric(path)` | `ms.aggregate(...)`, `@ms.metric`, `ms.ratio(...)`, … | No |
+| `relationship` | `ms.ref.relationship(path)` | `ms.relationship(...)` | No |
+
+Ref values are never callable. Inside an expression body, bind a field ref to
+the declared entity alias explicitly, for example `ms.bind(amount, orders)`.
+The loader records that binding against the compiled catalog. Binding outside
+that body, with the wrong alias, or binding a non-field ref fails with a
+teaching error.
+
+An authoring ref can be passed directly to analysis. When starting from a
+literal identity, require catalog membership once and then pass the current
+entry directly:
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+frame = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+)
+
+revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
+frame = session.observe(
+    revenue_entry,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+)
+```
+
+`catalog.require(ref)` is the exact global lookup. Catalog collections provide
+browsing plus local-name, full-path, and displayed typed-key lookup. Frozen
+analysis consumers accept a current catalog entry or its exact ref; authoring
+and persisted/configuration boundaries remain ref-based. Persisted payloads encode refs as the versioned
+`{schema, kind, path}` record; raw identity strings are not a public interchange
+format.
+
+#### `ai_context`: the human-to-agent contract
+
+Every semantic object and datasource accepts an optional `ai_context` parameter,
+constructed with `ms.ai_context(...)`. This is where business meaning and
+guardrails live — the context an agent reads before it uses the object. All
+parameters are optional, but unknown keyword arguments are rejected by Python
+at call time.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `business_definition` | `str` | No | `None` | What the object means in business terms, in a sentence or two. |
+| `guardrails` | `list[str]` | No | `[]` | Rules an agent must respect: required filters, exclusions, scope limits. |
+
+```python
+ai_context=ms.ai_context(
+    business_definition="Gross order amount before refunds.",
+    guardrails=["Validate refund exclusions before using as net revenue."],
+)
+```
+
+### Versioning (optional)
+
+For entities whose rows change over time, declare how to read the current state:
+
+- `ms.snapshot(partition_field, grain="day", timezone=None, format=None)` — daily
+  partitioned snapshots; `partition_field` must be a `Ref[dimension]` or `Ref[time_dimension]`.
+- `ms.validity(valid_from, valid_to, interval, open_end, timezone=None)` — SCD2
+  validity intervals; `valid_from` and `valid_to` must be `Ref[dimension]` or `Ref[time_dimension]` values. `interval` is `"closed_open"` (`[from, to)`) or
+  `"closed_closed"`; `open_end` lists the sentinel values that mean "still current"
+  (e.g. `(None,)` for SQL `NULL`, or `("9999-12-31",)`).
+
+### Custom Ibis metric — `@ms.metric`
+
+Use this escape hatch when the metric cannot be expressed as `ms.aggregate(...)`,
+`ms.count(...)`, or a derived metric builder. The body returns one ibis
+aggregation, and you declare `additivity` directly.
+This is the explicit escape hatch advertised by
+`marivo.help("semantic.objects.metric")`. Once selected,
+`marivo.help("semantic.metric")` is the sole source for its installed signature,
+fanout constraints, provenance input, and structured repairs.
+
+```python
+@ms.metric(
+    entities=[orders],
+    additivity="additive",
+    name="revenue",
+    provenance=ms.from_sql(
+        sql="SELECT SUM(amount) AS revenue FROM orders",
+        dialect="duckdb",
+    ),
+    ai_context=ms.ai_context(business_definition="Gross order amount before refunds."),
+)
+def revenue(table):
+    return table.amount.sum()
+```
+
+### Correctness rules for analysis
+
+Additivity and time behavior determine whether a number remains meaningful when
+an agent changes the analysis grain or segments it. SQL provenance does not
+execute a metric; it gives `ms.parity_check(...)` a reference query for checking
+that the declared semantics match an established implementation.
+
+- `ms.semi_additive(over, fold)` — for snapshot/status facts that are additive
+  across most axes but folded over a time axis. `over` is the status time
+  dimension ref returned by `@ms.time_dimension(...)`; `fold` is `"last"`,
+  `"first"`, `"mean"`, `"max"`, or `("percentile", 0.95)`.
+- `ms.from_sql(sql, dialect)` — attaches SQL as **provenance only**, enabling
+  `ms.parity_check(...)`. It is never executed as the metric body.
+
+```python
+snapshot_date = ms.time_dimension_column(
+    name="snapshot_date",
+    entity=inventory_daily,
+    column="snapshot_date",
+    granularity="day",
+)
+
+on_hand_units = ms.measure_column(
+    name="on_hand_units",
+    entity=inventory_daily,
+    column="on_hand_units",
+    additivity=ms.semi_additive(over=snapshot_date, fold="last"),
+)
+```
+
+### Relationship
+
+Declares how two entities join, so metrics and dimensions can reach across them.
+Keys are dimension refs, not raw column names.
+Use `marivo.help("semantic.objects.relationship")` to settle directed meaning,
+endpoint grains, key equivalence, multiplicity, and evidence checks. The exact
+constructor leaf routes the `keys` input to `marivo.help("semantic.join_on")`.
+
+```python
+ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
+)
+```
+
+### Inspect, choose optional evidence, then author
+
+For datasource-backed authoring, inspect authoritative metadata first. Acquire
+an explicit bounded snapshot only when generic profiles or retained rows answer
+the current question.
+Consult `marivo.help("datasource.authoring")` for datasource inspection and
+scope, `marivo.help("semantic.authoring")` for coherent-slice authoring,
+`marivo.help("semantic.objects")` for object-owned decisions,
+`marivo.help("semantic.builders")` for supporting inputs,
+`marivo.help("semantic.checks")` for proof boundaries, and
+`marivo.help("semantic.ai_context")` for the shared `ms.ai_context(...)`
+contract:
+
+```python
+warehouse = ms.ref.datasource("warehouse")
+orders = md.table("orders")
+
+inspection = md.inspect(warehouse, orders)
+inspection.show()
+inspection.partitions(limit=1, order="asc").show()  # ascending edge
+inspection.partitions(limit=100, order="desc").show()  # descending edge
+scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
+scope.show()  # scope kind, guards, and a bounded predicate preview
+snapshot = inspection.sample(
+    scope=scope,
+    columns=("order_id", "region", "created_at", "amount"),
+    persist_values=True,
+)
+snapshot.show()
+snapshot.contract().show()
+profiles = {profile.name: profile for profile in snapshot.profiles}
+profiles["order_id"].sample_distinct_count
+snapshot.retained_values[0]["order_id"]
+```
+
+`retained_values` is a tuple of rows keyed by the selected column names. It is
+available only when `persist_values=True`; otherwise the snapshot contract marks
+value evidence as unavailable and no follow-up query is issued.
+
+For a date or timestamp window, reuse the same bounded scope type:
+
+```python
+scope = md.time_range(
+    "created_at",
+    start="2026-07-10T00:00:00+00:00",
+    end="2026-07-11T00:00:00+00:00",
+    max_rows=1000,
+    timeout_seconds=30,
+)
+```
+
+The predicate is half-open (`[start, end)`). Bounds must use the same date or
+datetime kind and the same timezone awareness; aware datetimes are canonicalized
+to UTC. A projected source must expose the range column. Unlike equality
+partition scopes, time ranges can bound a transformed temporal partition.
+Scope cards keep the predicate bounded and point to `.values` when a partition
+mapping is omitted; unpruned scope is labeled as a broad read.
+
+Inspection is metadata-only and reports schema, physical extent, partition state,
+and enforceable capabilities before sampling. Scope requires positive row and
+timeout guards plus explicit columns. `LIMIT` does not guarantee bytes scanned.
+For a ClickHouse `Distributed` source, local `system.parts` observations are
+shown only as `scope=local_node_only` notes; source-wide rows and bytes remain
+`unknown`, and Marivo does not issue a cluster-wide fanout query.
+
+ClickHouse inspection also lists safe adapter-only physical columns under
+`projectable_columns`. The table is bounded and each row includes a copyable
+`md.source_column(...)` declaration using the exact physical name and normalized
+type. Columns whose active parts disagree on type, or whose backend type cannot
+be parsed, are warned about and omitted. This does not enumerate dynamic MapV2
+keys: an unmaterialized key must be materialized upstream, exposed through a
+database view, or used only through terminal `md.raw_sql(...)`.
+
+Choose evidence according to the question: inspection only, optional explicitly
+scoped sampling, and/or `md.raw_sql(...)` for bounded source-specific metadata,
+distributions, joins, or conditional scratch work. Raw SQL is a normal governed
+exploration option with read-only, positive row and timeout guards. Its terminal
+result may inform semantic Python but cannot enter typed analysis.
+
+`md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
+table or view inside that datasource. `md.parquet(...)` and `md.csv(...)` are
+DuckDB file source descriptors; `md.json(...)` is a DuckDB-backed JSON file or
+HTTP API source descriptor. All are used with the datasource ref and are not
+datasource declarations.
+
+```python
+events = md.json("data/events/*.json", schema={"event_id": "string"}, format="newline_delimited")
+api_events = md.json(
+    "https://api.example.com/events",
+    schema={"event_id": "string", "occurred_at": "timestamp"},
+    records_path="$.result.items",
+    query_params={
+        "query": "sum(pending_containers) by (cluster)",
+        "start": md.source_param("start"),
+        "end": md.source_param("end"),
+        "step": "60s",
+    },
+)
+gpu_servers = md.json(
+    "https://root.example/api/v1/graphql",
+    schema={
+        "name": "string",
+        "bs": "string",
+        "gpuAbstract": "string",
+        "status": "string",
+    },
+    method="POST",
+    body={"query": "{ queryServers { name bs gpuAbstract status } }"},
+    records_path="$.data.queryServers",
+    query_params={"policy-domain": "gpus"},
+)
+orders_parquet = md.parquet("data/orders/*.parquet")
+orders_csv = md.csv("data/orders/*.csv", schema={"order_id": "string"})
+
+md.inspect(warehouse, events).show()
+```
+
+`records_path` supports a deliberately small JSONPath subset: `$` followed by
+object members, for example `$.data` or `$.result.items`. It does not support
+filters, wildcards, recursive descent, or array indexes. A present empty array
+materializes as zero rows. For each selected record, declared schema fields are
+projected in schema order: missing fields become typed `NULL` values and
+additional object fields are ignored. Present values must be convertible to
+their declared types. A missing path or non-array value fails at execution so
+an authentication or response-envelope error is not mistaken for empty data.
+
+`schema` maps stable output aliases to Ibis type names such as `int64`,
+`string`, `float64`, and `timestamp`. SQL or DuckDB names such as `BIGINT` are
+rejected at JSON declaration rather than at execution. To select a nested JSON
+value, map the output alias through `field_paths`: `a.b` reads a nested object
+member, `a[0].b` reads a fixed array index, and `a[].b` traverses an array of
+objects, materializing one row per element. Traversed sibling fields must share
+one array prefix and are projected from the same element, so their values stay
+correlated. Independent traversal roots and multiple traversals within one path
+fail at declaration rather than producing a Cartesian product. A record whose
+traversed array is missing, empty, or `null` produces no rows. Nested paths
+require `records_path`; literal top-level schema names remain supported,
+including names with punctuation or spaces.
+
+For the minimal POST API case, set `method="POST"` and provide one JSON object
+through `body=`. A `md.source_param(...)` may occupy any complete JSON value,
+including a value inside an object or array, and its bound runtime value may be
+a scalar or a list of scalars. The request is issued only when the resulting
+table is executed. POST requires an HTTP(S) URL and `format="auto"`;
+automatic pagination, retry, and incremental ingestion remain outside this
+contract. Datasource-owned bearer or custom headers are applied only within
+`http_scope`, so credentials remain outside the source descriptor.
+
+```python
+changes = md.json(
+    "http://change-focus.example/api/v2/change/list",
+    schema={
+        "change_id": "int64",
+        "title": "string",
+        "app_id": "int64",
+        "app_name": "string",
+    },
+    field_paths={
+        "app_id": "specificsource[].appid",
+        "app_name": "specificsource[].name",
+    },
+    method="POST",
+    body={
+        "platform_id": 1,
+        "source_type": 2,
+        "specific_source": [md.source_param("app_id")],
+        "env_id": [1],
+        "page_num": md.source_param("page_num"),
+        "page_size": 100,
+    },
+    records_path="$.data.change_infos",
+)
+```
+
+`query_params` keeps fixed request parameters in the source descriptor. A query
+parameter value may be a single scalar or a list of scalars; a list URL-encodes
+as repeated keys, for example `specificsource=app-1&specificsource=app-2`.
+`md.source_param(name)` declares a required non-secret runtime value occupying
+one complete query parameter value — a scalar or a list of scalars — and may
+itself appear inside a list of fixed values. Marivo URL-encodes values and does
+not support substring templates. Bind exact values around analysis rather than
+adding an API-specific argument to `observe`:
+
+```python
+with session.source_bindings({
+    ms.ref.entity("monitoring.api_events"): {
+        "start": "now-3600",
+        "end": "now",
+    },
+}):
+    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+```
+
+The binding is nested, execution-local, and keyed by the owning Session runtime;
+another Session in the same task cannot consume it. Missing or extra parameters
+fail before the source is read, and the non-secret values participate in snapshot
+and analysis identity. For datasource authoring evidence, pass the same mapping
+as `inspection.sample(..., source_params={...})`.
+
+Snapshots retain generic bounded rows, profiles, source evidence, coverage, and
+cache identity. Values are memory-only by default. Another process can recover
+snapshot identity, profiles, and coverage but not retained values. Use
+`persist_values=True` on the original sample only when later processes need
+retained values or row certification and bounded plaintext project-local caching
+is acceptable. Uncommon
+formats, keys, timezone, aggregation, unit, additivity, relationship cardinality,
+and business meaning remain agent-owned.
+
+Evidence cards derive null rates from the bounded row and null counts. If a
+dimension or values sample contains `NULL`, explain its business meaning through
+`null_semantics` in `ai_context.guardrails`: whether `NULL` means an
+inapplicable event branch, an unknown value, or something else. Marivo neither
+labels a high null rate as a quality failure nor filters nulls automatically.
+
+Inspection cards include the exact source descriptor and real schema names and
+types. Partition cards report the requested ascending/descending physical-value
+edge, value source, completeness, truncation, bounded values, and a scope
+template. String or numeric ordering is not automatically chronological. The
+default descending edge reuses captured metadata; another limit or order
+performs one bounded metadata-only query. Its status is `complete` for an
+exhaustive edge, `truncated` when the requested bound cuts off additional edge
+values, and `incomplete` only for unavailable or invalid partition metadata.
+The snapshot card reports its scope, selected columns, coverage, and value/cache
+state. It does not project semantic candidates or authorize business meaning.
+
+Use `md.test(ref).show()` as the connection-test stop point. A failed
+`DatasourceTestResult` exposes a structured `.failure` and focused `.repair`.
+The connect handshake and the `SELECT 1` round-trip are bounded by a 30-second
+Marivo-side wall-clock deadline, overridable with a keyword-only
+`timeout_seconds`; exceeding it fails closed with a `connection_timeout` or
+`connection_roundtrip_timeout` failure code rather than blocking indefinitely,
+even when the backend's own query timeout is not enforceable. A thread-affine
+SQLite datasource is the exception — it opens a local file or in-memory database
+synchronously, so `md.connect` opens it inline on the caller's thread and the
+deadline does not apply. Snapshot
+connection, source-resolution, timeout, and execution failures likewise remain
+structured and state whether a query was executed; backend messages are bounded
+and sanitized.
+
+Business meaning is settled at first typed analysis use from the user's current
+request, an approved project definition, or attributable non-conflicting
+documentation or provenance. If none settles the earliest material choice, ask
+one evidence-grounded question and stop before analysis. Do not ask for redundant
+confirmation when current authority already establishes the meaning.
+
+Focused constructor help describes each call as a declaration fragment inside
+its reported loader path. After loading, use the generated catalog handoff:
+`catalog = ms.load()`, `entry = catalog.<collection>.get(...)`,
+and `entry.show()`.
+
+Author the smallest dependency-coherent slice, call `ms.load()` once as the
+project-level static validation event, and resolve every authored root through
+`catalog.require(ref)`. Run scoped readiness over the exact requested roots.
+Use preview only for a concrete runtime risk or a current readiness repair.
+
+When several current-source probes are useful, call
+`catalog.preview_many(refs, scope=scope_or_mapping)`. The exact entity-ref scope
+mapping is validated completely before connection; the batch does not create
+readiness evidence or act as a batch-authoring shortcut.
+
+## Event and Lifecycle modeling
+
+Most projects need the metric path above. Add Event and StateModel objects only
+when the question depends on ordered occurrences, funnels, elapsed time, or
+replayed business state.
+
+### Model reusable events
+
+An Event gives one business occurrence a reusable identity, occurrence time,
+and named participant roles. The source Entity is inferred from
+`owner(occurred_at)`, so Event authoring does not repeat an `entity` argument.
+Every Event uses the single `@ms.event(...)` decorator form.
+
+For an Entity where each row is one order creation, the Event has no additional
+row filter and explicitly returns `ms.all_rows()`:
+
+```python
+order_id = ms.dimension_column(
+    name="order_id",
+    entity=orders,
+    column="order_id",
+)
+
+@ms.event(
+    name="order_created",
+    identity=(order_id,),
+    occurred_at=order_date,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order creation occurrence."
+    ),
+)
+def order_created(order_rows):
+    return ms.all_rows()
+```
+
+For a filtered Event on a shared event-log Entity, return the restricted
+boolean expression instead, for example
+`ms.bind(event_type, event_rows) == "payment_succeeded"`. Do not use a
+body-free constructor, bare `True`, or a separate filtered-Event API.
+
+`ms.participant_role(event=order_created, name="order")` resolves the typed
+role used by Event analysis. Omitting `path` means the Event source Entity
+itself is the participant; a non-empty path follows declared Relationships to
+another Entity. A role used as the analysis subject must have
+`cardinality="one"`. Its endpoint Entity's declared primary key is the subject
+identity, so callers do not provide that identity again.
+
+### Model a normative lifecycle
+
+A StateModel declares the allowed states and Event-driven transitions for one
+subject Entity. It describes business meaning only. Replay windows, seeds,
+completeness assumptions, cohorts, and observed violations belong to analysis,
+not to the StateModel.
+
+For example, assume the order source also exposes a paid timestamp and status:
+
+```python
+paid_at = ms.time_dimension_column(
+    name="paid_at",
+    entity=orders,
+    column="paid_at",
+    granularity="second",
+)
+order_status = ms.dimension_column(
+    name="order_status",
+    entity=orders,
+    column="status",
+)
+
+@ms.event(
+    name="order_paid",
+    identity=(order_id,),
+    occurred_at=paid_at,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order entered the paid state."
+    ),
+)
+def order_paid(order_rows):
+    return ms.bind(order_status, order_rows) == "paid"
+
+created = ms.lifecycle_state(name="created", initial=True)
+paid = ms.lifecycle_state(name="paid", terminal=True)
+
+order_lifecycle = ms.state_model(
+    name="order_lifecycle",
+    subject=orders,
+    states=(created, paid),
+    transitions=(
+        ms.inception(on=order_created),
+        ms.transition(
+            from_state=created,
+            on=order_paid,
+            to_state=paid,
+        ),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="Normative commercial order lifecycle."
+    ),
+)
+```
+
+State names are local immutable authoring values. Exactly one state is initial;
+terminal states cannot have outgoing transitions. An Event trigger is inferred
+only when exactly one `cardinality="one"` participant ends at the StateModel
+subject. If several roles qualify, pass the exact
+`ms.participant_role(...)` handle instead of repeating Event and role fields.
+
+After loading, use `ms.model_state(model=order_lifecycle, name="paid")` to
+construct the typed state identity accepted by analysis. A StateModel may be
+valid without an inception for future projection-based seeding, but it is not
+ready for replay from inception. Use `marivo.help("semantic.state_model")` for
+the current constructor contract. Use `catalog.require(...)` for exact current
+membership, scoped readiness for static preflight, and preview only for a
+concrete runtime risk.

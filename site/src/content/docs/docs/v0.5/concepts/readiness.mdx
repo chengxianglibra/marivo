@@ -1,0 +1,147 @@
+---
+slug: docs/v0.5/concepts/readiness
+title: Readiness
+description: Snapshot-independent technical certification for semantic inputs.
+---
+
+## What readiness checks
+
+`catalog.readiness(refs=[...])` is Marivo's explicit, zero-query certification
+for selected current catalog entries, exact refs, and closed runtime metric
+expressions. It checks the current semantic project and each requested
+dependency closure. Analysis APIs do not invoke it automatically.
+
+Readiness does not read discovery snapshots or ordinary preview history. The
+same definition therefore produces the same status, issues, and ready inputs
+whether snapshots or historical preview files are missing, fresh, or stale.
+Dedicated period-calendar, temporal-set, and work-schedule artifacts are the
+exception: roots that depend on them remain blocked until their current
+certified artifact is available.
+
+Business descriptions and guardrails are advisory richness concerns. Inspect
+them with `ms.richness()`; they do not block readiness.
+
+## Preview is independent
+
+Preview reads the current datasource through an explicit bounded scope:
+
+```python
+import marivo.datasource as md
+
+preview = catalog.preview(
+    catalog.metrics.get("sales.revenue"),
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+)
+```
+
+For a multi-entity ref, pass a complete mapping keyed by exact
+`Ref[entity]` values. `source_bindings=` uses the same exact entity-ref mapping
+shape for parameterized JSON sources. Marivo validates scope keys, datasource
+compatibility, positive row and timeout guards, and the complete batch before
+opening a connection.
+
+Ordinary preview returns only the current execution result. It creates no
+authoring checkpoint and cannot change readiness. A native timezone-naive
+timestamp without an explicit parse contract is reported directly by preview as
+a `time_parse_risk` warning.
+
+Previewing a period calendar, temporal set, or work schedule is also its
+certification path. Marivo reads every required column up to the scope's
+`max_rows + 1` boundary and publishes the immutable artifact only when that
+scope is exhaustive and the rows satisfy the declaration. `limit` controls only
+the displayed result rows, not certification input.
+
+## Source health is separate
+
+Use `catalog.source_health(...)` when the current question is whether a source
+or declared data expectation has drifted. It never runs implicitly during load,
+preview, readiness, or analysis, and it stores no checkpoint or history.
+
+```python
+from datetime import timedelta
+
+health = catalog.source_health([revenue])  # connectivity and metadata only
+
+health = catalog.source_health(
+    [revenue],
+    checks=[
+        ms.source_check.not_null(ms.ref.measure("sales.orders.amount")),
+        ms.source_check.freshness(
+            ms.ref.time_dimension("sales.orders.created_at"),
+            max_age=timedelta(hours=24),
+        ),
+    ],
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+)
+```
+
+With no declared checks, source health performs only a connection roundtrip and
+authoritative schema/capability inspection; omit `scope`, and no user data is
+queried. Null, enum, uniqueness, freshness, relationship-match, and cardinality
+expectations exist only when explicitly built through `ms.source_check`. Those
+checks require a positive bounded scope. Every result reports `current`,
+`failed`, `unavailable`, or `unknown`, the affected current semantic refs, a
+typed repair, and whether user data was queried under which exact scope.
+
+Running source health cannot change `ReadinessReport.status`, issues, or
+`analysis_ready_inputs`.
+
+## The report
+
+`catalog.readiness(refs=[...])` returns a frozen `ReadinessReport`:
+
+| Field | Meaning |
+| --- | --- |
+| `scope` | Always `"semantic_static"`; operation-specific execution checks remain with the consuming API. |
+| `status` | `"ready"`, `"ready_with_warnings"`, or `"blocked"`. |
+| `analysis_ready_inputs` | Ordered requested refs or runtime expressions whose full dependency closures contain no blocker. |
+| `blockers` | Issues that prevent the affected requested roots from being handed to analysis. |
+| `warnings` | Non-blocking warnings and advisories. |
+| `input_summary` | Datasources, refs, and tables considered by the check. |
+| `checked_at` | ISO-8601 check timestamp. |
+| `catalog_definition_fingerprint` | Exact compiled semantic project identity. |
+
+`analysis_ready_inputs` is the only semantic-to-analysis handoff field. There
+is no refs-only projection, preview-required list, validation token, or hidden
+transfer object.
+
+Each issue carries a typed `repair` with the action and owning live-help target.
+Follow that repair, rerun readiness, then pass the ready inputs to the ordinary
+analysis API.
+
+## Important blockers
+
+Readiness continues to fail closed for structural graph problems, unknown refs,
+unfederated cross-datasource dependencies, invalid temporal semantics, state
+models without a replay seed, and unobservable snapshot folds.
+
+Dedicated temporal artifact blockers use artifact terminology:
+
+- `period_calendar_artifact_missing`, `_stale`, or `_invalid`
+- `temporal_set_artifact_missing`, `_stale`, or `_invalid`
+- `work_schedule_artifact_missing`, `_stale`, or `_invalid`
+
+Their repair points to `catalog.preview(..., scope=...)` with an exhaustive
+bounded scope. Failed or truncated certification does not publish a replacement
+artifact.
+
+## Continue to analysis
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+revenue = catalog.metrics.get("sales.revenue")
+report = catalog.readiness(refs=[revenue])
+
+if report.status == "blocked":
+    report.show()
+    raise SystemExit
+
+ready_inputs = report.analysis_ready_inputs
+```
+
+A non-blocked report certifies the selected semantic closures; it is not a
+guarantee that every future query or operation-specific artifact shape will
+succeed. Runtime execution, data quality, and analysis-specific contracts remain
+owned by the consuming operation.

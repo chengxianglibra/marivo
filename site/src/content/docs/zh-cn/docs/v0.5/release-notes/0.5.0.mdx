@@ -1,0 +1,78 @@
+---
+slug: zh-cn/docs/v0.5/release-notes/0.5.0
+title: Marivo 0.5.0
+description: Marivo 0.5.0 发布说明。
+---
+
+Marivo 0.5.0 引入了面向 agent 的、由 registry 负责的渐进式契约界面，覆盖语义编写和分析流程。
+本版本通过有界 Help 让下一步合法操作可被发现，将 Frame 质量校验移到 Artifact 提交阶段，
+并移除了独立的 `assess_quality` 分析操作。
+
+## 重点
+
+- `marivo.help()` 现在会从全局根路由进入渐进式 semantic authoring 和 analysis 流程。由
+  registry 负责的页面会分别展示 object、builder、check、method、input、Artifact、Runtime
+  和 recovery 的精确契约，同时避免展开无界的公共对象清单。
+- Semantic authoring Help 注册对象图及其决策、关系、精确 ref、source check 和 builder 路由，
+  在构造时校验 registry，并让每个契约归属于原生负责的 surface。
+- Analysis Help 暴露六个有界的 discovery hub 以及精确的 terminal boundary。动态 Artifact 和
+  result guidance 从运行时 capability contract 推导，因此聚焦路由能够保留可执行的输入、续读
+  和结构化修复建议。
+- Frame 质量校验现在会在 Artifact 发布前执行。带完整性约束、由父对象负责的质量报告会持久化
+  结构化阻塞失败；Lifecycle revalidation 会在相关变更后覆盖依赖的 Artifact。
+- Trino datasource 编写和运行时现在都要求显式提供 `user_env`，避免连接身份回落到 Ibis 默认值。
+
+## 变更
+
+- Analysis 和 semantic capability registry 现在是动态 Help、类型化交叉链接、渲染预算和校验的
+  事实来源。打包的 `marivo-analysis`、`marivo-semantic` skill 以及中英文文档都遵循同一渐进式拓扑。
+- Artifact continuation、shape admission、grouping 和 typed recovery 都从 live registry 披露，
+  同时保留专用 runtime error 的精确身份。
+- 质量 evidence 归属于 Frame/Artifact 生命周期，不再建立独立的 quality-intent lineage。调用方应
+  使用 `BaseFrame.quality_report()` 和 Artifact 提交契约获取质量状态。
+
+## 修复
+
+- 结构化修复建议现在会路由到负责它的 semantic 或 analysis Help 页面，包括缺失字段、无效对象声明
+  和动态结果续读。
+- 渐进式 authoring 和 analysis 路径不再依赖旧 inventory、重复导航主题或短名称消歧。
+- registry 漂移、路由预算溢出、不完整交叉链接和不可达 terminal contract 会被导入时校验及对抗式回归
+  检查拒绝。
+
+## 文档
+
+- 更新中英文 semantic-layer、analysis-workflow、evidence、API、agent-guide 及打包 skill 指引，
+  对齐新的 ownership model。
+- 增加 progressive semantic authoring 和 analysis live Help、质量恢复及 revalidation 的设计与
+  实现文档。
+
+## 安装
+
+国内网络建议运行：
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+也可以使用标准安装器：
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+手动安装：
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.5.0 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/v0.5/installation/)
+- [快速开始](/zh-cn/docs/v0.5/quick-start/)
+- [语义层](/zh-cn/docs/v0.5/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/v0.5/concepts/readiness/)
+- [分析流程](/zh-cn/docs/v0.5/concepts/analysis-workflow/)
+- [Evidence](/zh-cn/docs/v0.5/concepts/evidence/)

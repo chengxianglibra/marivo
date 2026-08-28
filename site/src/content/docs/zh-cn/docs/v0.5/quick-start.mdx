@@ -1,0 +1,136 @@
+---
+slug: zh-cn/docs/v0.5/quick-start
+title: 快速开始
+description: 复用已有语义层项目，或让智能体为新项目起草第一版语义层。
+---
+
+## 先确认项目状态
+
+如果团队已经维护了包含 `marivo.toml` 和 `models/` 的项目，直接克隆并复用其中的语义层。
+只有从空项目开始，或者现有定义确实存在缺口时，才需要进入语义层编写流程。
+
+## 已有语义层项目
+
+1. 克隆项目并安装项目依赖；
+2. 在本地配置数据源使用的环境变量；
+3. 让智能体检查项目配置，以及现有语义对象是否适用于当前分析；
+4. 目录能加载且没有语义缺口时，直接进入[第一次分析](/zh-cn/docs/latest/first-analysis/)。
+
+> 使用项目现有的 Marivo 语义层，检查它是否已经能够支持已完成订单收入分析。
+> 告诉我缺少的配置、语义对象或需要重新确认的业务口径；如果没有阻塞项，不要重建已有定义。
+
+只有缺少必要对象、业务负责人要求修改口径，或者已编写的变更需要重新认证时，
+才使用 `marivo-semantic`。
+
+## 新项目
+
+完成[安装](/zh-cn/docs/v0.5/installation/)，然后告诉智能体数据源、业务目标和已经确定的规则：
+
+> 使用 `marivo-semantic`，为这个项目建立能够分析已完成订单收入的语义层。
+> 把当前请求和项目中可归因且不冲突的文档作为权威。只有某个可复用业务选择仍未解决时，
+> 才问我一个问题并在开始分析前停止。
+
+## 需要确定的业务定义
+
+通过当前请求、已批准的项目定义、可归因且不冲突的文档，或一个专项回答，确定收入包含和
+排除什么、取消和退款如何处理、时间轴、币种和可加性、允许的拆分维度、限制和负责人。
+数据模式与样本只能帮助智能体起草和提问，不能自行确定业务含义。
+
+## 智能体写入项目的内容
+
+下面的 Python 声明是智能体生成并由团队维护的项目文件，不是要求你逐行输入的教程。
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+import marivo.semantic as ms
+
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for approved sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
+)
+```
+
+```python
+# models/semantic/sales/_domain.py
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(
+    name="sales",
+    owner="Mina Zhang",
+    ai_context=ms.ai_context(
+        business_definition="Completed-order sales analysis domain.",
+        guardrails=["Use only the authority-backed completed-order population."],
+    ),
+)
+
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+    ai_context=ms.ai_context(
+        business_definition="One row per completed sales order.",
+        guardrails=["Cancelled orders are excluded; refunds remain reflected in amount."],
+    ),
+)
+
+region = ms.dimension_column(
+    name="region",
+    entity=orders,
+    column="region",
+    ai_context=ms.ai_context(
+        business_definition="Sales region assigned to the completed order.",
+        guardrails=["Do not treat missing region as a real region."],
+    ),
+)
+
+order_date = ms.time_dimension_column(
+    name="order_date",
+    entity=orders,
+    column="order_date",
+    granularity="day",
+    is_default=True,
+    ai_context=ms.ai_context(
+        business_definition="Approved reporting date for completed-order revenue.",
+        guardrails=["Use this as the default time axis for this revenue metric."],
+    ),
+)
+
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
+    ai_context=ms.ai_context(
+        business_definition="Completed-order amount in CNY, net of cancellations and refunds.",
+        guardrails=["Do not use for gross bookings or pre-refund revenue."],
+    ),
+)
+
+revenue = ms.aggregate(
+    name="revenue",
+    measure=amount,
+    agg="sum",
+    ai_context=ms.ai_context(
+        business_definition="Total completed-order revenue in CNY.",
+        guardrails=["For this example, break down only by sales region."],
+    ),
+)
+```
+
+## 继续之前检查什么
+
+- 指标的定义、范围、排除规则、时间轴、单位和拆分维度符合业务需要；
+- `ai_context` 中的业务定义和 `guardrails` 清楚表达了限制；
+- 当前权威已经确定定义中的每个可复用业务选择；
+- 智能体报告新模型的限定范围的编写认证没有阻塞项。
+
+就绪检查用于认证刚刚完成编写的模型，不会自行产生业务权威，也不需要在每次分析前
+重跑。没有未解决的可复用选择后，继续[让智能体完成第一次分析](/zh-cn/docs/latest/first-analysis/)。
