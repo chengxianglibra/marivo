@@ -275,7 +275,7 @@ md.duckdb(
 | `md.sqlite` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`）、`type_map` |
 | `md.mysql` | `host`、`database` | `port`（3306）、`autocommit`、`user_env`、`password_env` |
 | `md.postgres` | `host`、`database` | `port`（5432）、`schema`、`autocommit`、`user_env`、`password_env` |
-| `md.trino` | `host`、`catalog` | `port`（8080）、`schema`、`source`、`timezone`、`http_scheme`、`client_tags`、`session_properties`、`user_env`、`auth_env` |
+| `md.trino` | `host`、`catalog`、`user_env` | `port`（8080）、`schema`、`source`、`timezone`、`http_scheme`、`client_tags`、`session_properties`、`auth_env` |
 | `md.clickhouse` | `host` | `port`（9000 / 9440 secure）、`database`、`secure`、`settings`、`user_env`、`password_env` |
 
 已经拿到返回的 spec 时，`spec.show()` 只打印声明状态、引用、核心连接目标、凭据
@@ -306,6 +306,8 @@ SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 会
 失败；Marivo 也不会回退到项目目录存储密钥。Marivo 只解析显式声明的引用：不会扫描环境中的
 `MARIVO_<DATASOURCE>_<FIELD>` 变量；连接字段省略后，由所选 Ibis 后端决定其默认值
 或必填规则。
+Trino 的连接身份是例外：`user_env` 必填，避免用户名回退到 Ibis 默认值；
+`auth_env` 仍然可选。
 :::
 
 ```python

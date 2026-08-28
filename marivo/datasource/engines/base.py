@@ -172,7 +172,13 @@ def quote_identifier(value: str, profile: EngineProfile) -> str:
     return f"{quote}{escaped}{quote}"
 
 
-def require_field(name: str, kwargs: Mapping[str, object], key: str) -> object:
+def require_field(
+    name: str,
+    kwargs: Mapping[str, object],
+    key: str,
+    *,
+    help_target: str,
+) -> object:
     from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 
     if key not in kwargs:
@@ -183,7 +189,7 @@ def require_field(name: str, kwargs: Mapping[str, object], key: str) -> object:
             location=f"datasource {name!r}",
             repair=repair(
                 kind="reauthor",
-                canonical_id="duckdb",
+                canonical_id=help_target,
                 action="Provide the required datasource field.",
             ),
         )

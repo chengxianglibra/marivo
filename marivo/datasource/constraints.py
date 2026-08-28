@@ -83,7 +83,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         SUPPORTED_BACKEND_TYPES,
         "Datasource backend is selected by the convenience function.",
         "Agents should choose the backend function directly instead of passing backend_type as a string.",
-        "Use md.trino(name='warehouse', host='...', catalog='...') or md.duckdb(name='warehouse').",
+        (
+            "Use md.trino(name='warehouse', host='...', catalog='...', "
+            "user_env='TRINO_USER') or md.duckdb(name='warehouse')."
+        ),
     ),
     ConstraintId.DATASOURCE_FIELD_JSONABLE: _constraint(
         ConstraintId.DATASOURCE_FIELD_JSONABLE,
@@ -102,7 +105,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Datasource secrets resolve only from explicit *_env references; ambient MARIVO_* names are ignored.",
         "Datasource files are project metadata; plaintext credentials in them can leak into git and agent context.",
         'Use *_env fields such as password_env="ENV_VAR_NAME"; each named variable resolves from the environment and then ~/.marivo/secrets.toml.',
-        example='md.trino(name="warehouse", host="trino.example", catalog="hive", auth_env="TRINO_AUTH")',
+        example=(
+            'md.trino(name="warehouse", host="trino.example", catalog="hive", '
+            'user_env="TRINO_USER", auth_env="TRINO_AUTH")'
+        ),
     ),
     ConstraintId.DATASOURCE_LOADER_CONTEXT: _constraint(
         ConstraintId.DATASOURCE_LOADER_CONTEXT,

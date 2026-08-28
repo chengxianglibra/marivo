@@ -94,6 +94,28 @@ def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
     assert result.datasources[0].name == "warehouse"
 
 
+def test_load_datasources_rejects_required_trino_user_env_none(tmp_path: Path) -> None:
+    from marivo.datasource.errors import DatasourceFieldInvalidError
+    from marivo.datasource.loader import load_datasources
+
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.trino(name='warehouse', host='trino.example', catalog='hive', user_env=None)\n",
+        encoding="utf-8",
+    )
+
+    result = load_datasources(datasource_dir)
+
+    assert result.datasources == ()
+    assert len(result.errors) == 1
+    error = result.errors[0]
+    assert isinstance(error, DatasourceFieldInvalidError)
+    assert error.location.endswith("field 'user_env'")
+    assert error.repair.help_target.canonical_id == "trino"
+
+
 def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
     import marivo.datasource as md
 
@@ -101,13 +123,14 @@ def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
         name="warehouse",
         host="trino.example",
         catalog="hive",
+        user_env="TRINO_USER",
         auth_env="TRINO_AUTH",
     )
 
     assert spec.name == "warehouse"
     assert spec.backend_type == "trino"
     assert spec.fields == {"host": "trino.example", "catalog": "hive"}
-    assert spec.env_refs == {"auth": "TRINO_AUTH"}
+    assert spec.env_refs == {"user": "TRINO_USER", "auth": "TRINO_AUTH"}
 
 
 def test_datasource_ref_uses_kind_qualified_identity() -> None:

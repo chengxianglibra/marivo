@@ -110,6 +110,10 @@ used everywhere downstream.
 | `md.postgres(...)` | `PostgresSpec` | `postgres` | `host` + `database` required; optional `schema`. |
 | `md.clickhouse(...)` | `ClickHouseSpec` | `clickhouse` | Session-id autogeneration defaults off for analysis stability. |
 
+Trino requires an explicit `user_env` declaration so connection identity never
+falls through to a backend-library default. `auth_env` remains optional for
+Trino deployments that do not require an authentication token or password.
+
 `DatasourceSpec` is the closed union of these six types. Concrete engine
 connection builders live in `marivo/datasource/engines/` and are internal — the
 public surface is the spec constructors and `Ref[datasource]`.

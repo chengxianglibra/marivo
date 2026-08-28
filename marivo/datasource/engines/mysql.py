@@ -29,8 +29,8 @@ from marivo.datasource.strptime import python_to_mysql_strptime
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     import ibis
 
-    host = require_field(name, kwargs, "host")
-    database = require_field(name, kwargs, "database")
+    host = require_field(name, kwargs, "host", help_target="mysql")
+    database = require_field(name, kwargs, "database", help_target="mysql")
     connect_kwargs: dict[str, Any] = dict(kwargs)
     connect_kwargs["host"] = host
     connect_kwargs["database"] = database
