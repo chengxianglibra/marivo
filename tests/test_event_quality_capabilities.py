@@ -597,8 +597,10 @@ def test_phase_two_event_capabilities_are_discoverable(tmp_path, monkeypatch) ->
     rendered = rendered_help("events.match", owner="analysis")
     assert "session.events.match" in rendered
     assert "EventFrame" in rendered
-    assert 'mv.every_start(completion_assignment="exclusive")' in rendered
-    assert 'mv.every_start(completion_assignment="shared")' in rendered
+    assert 'marivo.help("analysis.every_start")' in rendered
+    matching_help = rendered_help("every_start", owner="analysis")
+    assert "completion_assignment: Literal['exclusive', 'shared']" in matching_help
+    assert 'mv.every_start(completion_assignment="exclusive")' in matching_help
     quality_help = rendered_help("QualityReport", owner="analysis")
     assert "QualityReport[event_journey]" in quality_help
     assert "QualityReport[event_funnel]" in quality_help

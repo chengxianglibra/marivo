@@ -24,7 +24,6 @@ from pydantic import BaseModel
 from marivo.analysis._capabilities.model import (
     ANALYSIS_HELP_RENDER_BUDGETS,
     ARTIFACT_FAMILIES,
-    ROOT_GROUP_ORDER,
     AnalysisArtifactFamilyContract,
     AnalysisHelpDescriptor,
     AnalysisHelpRenderBudget,
@@ -47,7 +46,6 @@ from marivo.analysis._capabilities.model import (
     ParameterHelpContract,
     ReadCapability,
     RecoveryCapability,
-    RootGroup,
     SameAsInputFamily,
 )
 from marivo.analysis._contract_budget import ARTIFACT_CONTRACT_RENDER_BUDGET
@@ -75,60 +73,6 @@ _ARTIFACT_EVIDENCE_TARGETS: tuple[LiveHelpTarget, ...] = tuple(
 )
 
 
-_CURRENT_DISCOVERY_TARGETS: Mapping[RootGroup, tuple[str, ...]] = MappingProxyType(
-    {
-        "semantic_inputs": ("catalog",),
-        "policies_builders": (
-            "grain",
-            "funnel_loss_rate",
-            "step",
-            "sequence",
-            "first_per_subject",
-            "every_start",
-            "declared_complete_through",
-            "window_bucket",
-            "time_scope",
-            "alignment",
-            "SamplingPolicy",
-            "runtime_metric",
-        ),
-        "artifact_production": ("observe", "events.match", "lifecycle.replay"),
-        "typed_analysis": (
-            "events.funnel",
-            "lifecycle.distribution",
-            "lifecycle.transitions",
-            "lifecycle.dwell",
-            "lifecycle.violations",
-            "events.time_to_event",
-            "select_subjects",
-            "compare",
-            "attribute",
-            "correlate",
-            "hypothesis_test",
-            "forecast",
-            "discover",
-        ),
-        "family_operations": ("transform",),
-        "artifact_inspection": ("artifacts",),
-        "recovery": ("session.get_or_create", "runtime"),
-        "boundaries": ("boundary.to_pandas",),
-    }
-)
-
-_CURRENT_ROOT_SUMMARIES: Mapping[str, str] = MappingProxyType(
-    {
-        "time_scope": "Construct a half-open [start, end) analysis window.",
-        "observe": "Materialize governed metric inputs into a typed MetricFrame.",
-        "events.time_to_event": "Project persisted journeys into elapsed-time rows.",
-        "compare": "Compare compatible metric or funnel artifacts into a DeltaFrame.",
-        "attribute": ("Attribute a DeltaFrame over explicit axes with reconciled contributions."),
-        "forecast": "Forecast a time-series or panel MetricFrame.",
-        "artifacts": "Inspect bounded state, valid continuations, and terminal exits.",
-    }
-)
-
-_CURRENT_FOCUSED_NAVIGATION_SUMMARIES: Mapping[str, str] = MappingProxyType({})
-
 _ROOT_HELP_MEMBERS: tuple[LiveHelpTarget, ...] = (
     _analysis_target("entry"),
     _analysis_target("methods"),
@@ -141,7 +85,7 @@ _ROOT_HELP_MEMBERS: tuple[LiveHelpTarget, ...] = (
 
 
 def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
-    """Build the inactive Slice 1 topology used by later rendering slices."""
+    """Build the final progressive analysis-root topology."""
 
     return (
         AnalysisNavigationTopic(
@@ -168,6 +112,7 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
                 _analysis_target("discover"),
                 _analysis_target("methods.relationship_testing"),
                 _analysis_target("forecast"),
+                _analysis_target("BaseFrame.quality_report"),
                 _analysis_target("events"),
                 _analysis_target("lifecycle"),
                 _analysis_target("select_subjects"),
@@ -864,10 +809,18 @@ def _slice3_discovery_memberships(
 
 
 def _slice3_cross_links() -> Mapping[str, tuple[LiveHelpTarget, ...]]:
-    """Return explicit proof-boundary and recovery links for Slice 3."""
+    """Return explicit decision, proof-boundary, and recovery links."""
 
     return MappingProxyType(
         {
+            "entry": (
+                _analysis_target("observe"),
+                _analysis_target("events.match"),
+                _analysis_target("lifecycle.replay"),
+                _analysis_target("catalog"),
+                _analysis_target("catalog.readiness"),
+                _semantic_target("authoring"),
+            ),
             "evidence": (
                 _analysis_target("BaseFrame.show"),
                 _analysis_target("BaseFrame.quality_report"),
@@ -1318,7 +1271,7 @@ class CapabilityRegistry:
         return self._render_budgets[render_class]
 
     def navigation_topic(self, canonical_id: str) -> AnalysisNavigationTopic:
-        """Return one native navigation topic, including inactive Slice 1 hubs."""
+        """Return one native navigation topic."""
 
         return self._navigation_topics[canonical_id]
 
@@ -1393,38 +1346,16 @@ class CapabilityRegistry:
             raise KeyError(target.display)
         return owner
 
-    def discovery_groups(
-        self,
-    ) -> tuple[tuple[RootGroup, tuple[AnalysisHelpDescriptor, ...]], ...]:
-        """Return the current public root projection from registry-owned facts."""
-
-        return tuple(
-            (
-                group,
-                tuple(self.by_help_target(target) for target in _CURRENT_DISCOVERY_TARGETS[group]),
-            )
-            for group in ROOT_GROUP_ORDER
-        )
-
-    def discovery_summary(self, descriptor: AnalysisHelpDescriptor) -> str:
-        """Return current root-only summary text without storing it on capabilities."""
-
-        return _CURRENT_ROOT_SUMMARIES.get(descriptor.canonical_id, descriptor.summary)
-
     def focused_summary(self, descriptor: AnalysisHelpDescriptor) -> str:
-        """Return current focused text while the public cutover remains inactive."""
+        """Return the descriptor-owned focused summary."""
 
-        return _CURRENT_FOCUSED_NAVIGATION_SUMMARIES.get(
-            descriptor.canonical_id,
-            descriptor.summary,
-        )
+        return descriptor.summary
 
     def discovery_ids(self) -> tuple[str, ...]:
-        """Return direct capabilities and one drill-down topic per grouped family."""
+        """Return the bounded public analysis-root discovery targets."""
+
         return tuple(
-            descriptor.help_target
-            for _group, descriptors in self.discovery_groups()
-            for descriptor in descriptors
+            target.canonical_id for target in self._root_members if target.canonical_id is not None
         )
 
     @property
@@ -1753,7 +1684,6 @@ def _build_registry() -> CapabilityRegistry:
 
     descriptors: list[AnalysisHelpDescriptor] = []
     root_navigation_topics = _root_navigation_topics()
-    root_navigation_by_id = {topic.canonical_id: topic for topic in root_navigation_topics}
     slice2_navigation_topics = _slice2_navigation_topics()
     slice3_navigation_topics = _slice3_navigation_topics()
     slice2_method_families = _slice2_method_families()
@@ -1808,30 +1738,6 @@ def _build_registry() -> CapabilityRegistry:
                 ),
             },
             output_contract=_output("MetricFrame"),
-            additional_examples=(
-                HelpExample(
-                    label="Direct Ref segmented time series",
-                    code=(
-                        "import marivo.analysis as mv\n"
-                        "frame = session.observe(\n"
-                        '    ms.ref.metric("sales.revenue"),\n'
-                        '    time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),\n'
-                        '    grain=mv.grain("day"),\n'
-                        '    dimensions=[ms.ref.dimension("sales.orders.region")],\n'
-                        ")"
-                    ),
-                ),
-                HelpExample(
-                    label="Metric scoped by a typed SubjectSet",
-                    code=(
-                        "scoped_metric = session.observe(\n"
-                        '    ms.ref.metric("commerce.event_count"),\n'
-                        "    cohort=subjects,\n"
-                        ")"
-                    ),
-                    requires=("subjects",),
-                ),
-            ),
         )
     )
 
@@ -1865,61 +1771,6 @@ def _build_registry() -> CapabilityRegistry:
                 ),
             },
             output_contract=_output("EventFrame", shapes=("journey",)),
-            additional_examples=(
-                HelpExample(
-                    label="Repeated attempts with exclusive completion assignment",
-                    code=(
-                        "exclusive_attempts = session.events.match(\n"
-                        "    pattern=mv.sequence(\n"
-                        '        mv.step(participant=cart_user, key="cart"),\n'
-                        '        mv.step(participant=payment_buyer, key="payment"),\n'
-                        "    ),\n"
-                        "    cohort_window=mv.time_scope(\n"
-                        '        start="2026-07-01T00:00:00Z",\n'
-                        '        end="2026-07-08T00:00:00Z",\n'
-                        "    ),\n"
-                        '    completion_through="2026-07-15T00:00:00Z",\n'
-                        '    matching=mv.every_start(completion_assignment="exclusive"),\n'
-                        ")"
-                    ),
-                    requires=("cart_user", "payment_buyer"),
-                ),
-                HelpExample(
-                    label="Repeated attempts with shared completion assignment",
-                    code=(
-                        "shared_attempts = session.events.match(\n"
-                        "    pattern=mv.sequence(\n"
-                        '        mv.step(participant=cart_user, key="cart"),\n'
-                        '        mv.step(participant=payment_buyer, key="payment"),\n'
-                        "    ),\n"
-                        "    cohort_window=mv.time_scope(\n"
-                        '        start="2026-07-01T00:00:00Z",\n'
-                        '        end="2026-07-08T00:00:00Z",\n'
-                        "    ),\n"
-                        '    completion_through="2026-07-15T00:00:00Z",\n'
-                        '    matching=mv.every_start(completion_assignment="shared"),\n'
-                        ")"
-                    ),
-                    requires=("cart_user", "payment_buyer"),
-                ),
-                HelpExample(
-                    label="Journey matching scoped by a typed SubjectSet",
-                    code=(
-                        "scoped_journeys = session.events.match(\n"
-                        "    pattern=pattern,\n"
-                        "    cohort=subjects,\n"
-                        "    cohort_window=mv.time_scope(\n"
-                        '        start="2026-07-01T00:00:00Z",\n'
-                        '        end="2026-07-02T00:00:00Z",\n'
-                        "    ),\n"
-                        '    completion_through="2026-07-02T00:00:00Z",\n'
-                        "    matching=mv.first_per_subject(),\n"
-                        "    completeness=completeness,\n"
-                        ")"
-                    ),
-                    requires=("completeness", "pattern", "subjects"),
-                ),
-            ),
         )
     )
 
@@ -1985,36 +1836,6 @@ def _build_registry() -> CapabilityRegistry:
                 ),
             },
             output_contract=_output("LifecycleFrame", shapes=("history",)),
-            additional_examples=(
-                HelpExample(
-                    label="Replay from the first modeled inception",
-                    code=(
-                        "history = session.lifecycle.replay(\n"
-                        '    ms.ref.state_model("commerce.order_lifecycle"),\n'
-                        "    window=mv.time_scope(\n"
-                        '        start="2026-07-01T00:00:00Z",\n'
-                        '        end="2026-08-01T00:00:00Z",\n'
-                        "    ),\n"
-                        "    seed=mv.from_inception(),\n"
-                        ")"
-                    ),
-                ),
-                HelpExample(
-                    label="Replay scoped by a ready SubjectSet",
-                    code=(
-                        "scoped_history = session.lifecycle.replay(\n"
-                        '    ms.ref.state_model("commerce.order_lifecycle"),\n'
-                        "    window=mv.time_scope(\n"
-                        '        start="2026-08-01T00:00:00Z",\n'
-                        '        end="2026-09-01T00:00:00Z",\n'
-                        "    ),\n"
-                        "    seed=mv.from_inception(),\n"
-                        "    cohort=subjects,\n"
-                        ")"
-                    ),
-                    requires=("subjects",),
-                ),
-            ),
         )
     )
 
@@ -2071,23 +1892,6 @@ def _build_registry() -> CapabilityRegistry:
                 output_contract=_output(
                     "LifecycleFrame",
                     shapes=(capability_id.rsplit(".", 1)[-1],),
-                ),
-                additional_examples=(
-                    (
-                        HelpExample(
-                            label="Distribution at explicit instants with governed axes",
-                            code=(
-                                "distribution = session.lifecycle.distribution(\n"
-                                "    history,\n"
-                                '    at=("2026-07-08T00:00:00Z",),\n'
-                                '    axes=[ms.ref.dimension("commerce.orders.region")],\n'
-                                ")"
-                            ),
-                            requires=("history",),
-                        ),
-                    )
-                    if capability_id == "lifecycle.distribution"
-                    else ()
                 ),
             )
         )
@@ -2210,60 +2014,6 @@ def _build_registry() -> CapabilityRegistry:
                 "DeltaFrame",
                 shapes=("scalar", "time_series", "segmented", "panel", "funnel"),
             ),
-            additional_examples=(
-                HelpExample(
-                    label="Compare compatible all-history cumulative levels",
-                    code=(
-                        "current = session.observe(\n"
-                        "    cumulative_metric,\n"
-                        '    time_scope=mv.time_scope(start="2026-07-01", end="2026-07-08"),\n'
-                        '    grain=mv.grain("day"),\n'
-                        ")\n"
-                        "baseline = session.observe(\n"
-                        "    cumulative_metric,\n"
-                        '    time_scope=mv.time_scope(start="2026-06-01", end="2026-06-08"),\n'
-                        '    grain=mv.grain("day"),\n'
-                        ")\n"
-                        "delta = session.compare(current, baseline)\n"
-                        "delta.show()\n"
-                        "delta.contract().show()\n"
-                        "endpoints = delta.to_pandas()[[\n"
-                        '    "current_evaluation_end",\n'
-                        '    "baseline_evaluation_end",\n'
-                        "]]"
-                    ),
-                    requires=("cumulative_metric",),
-                ),
-                HelpExample(
-                    label="Compare month-to-date by day-of-week position",
-                    code=(
-                        "alignment = mv.day_of_week(\n"
-                        '    within=mv.grain("month"),\n'
-                        ")\n"
-                        "delta = session.compare(current_mtd, baseline_mtd, alignment=alignment)\n"
-                        "print(delta.meta.cumulative_alignment.pairs)"
-                    ),
-                    requires=("baseline_mtd", "current_mtd"),
-                ),
-                HelpExample(
-                    label="Inspect a structured cumulative incompatibility",
-                    code=(
-                        "from marivo.analysis.errors import AnalysisError\n"
-                        "try:\n"
-                        "    session.compare(current, incompatible_baseline)\n"
-                        "except AnalysisError as exc:\n"
-                        "    print(exc.expected)\n"
-                        "    print(exc.received)\n"
-                        "    print(exc.repair.action if exc.repair else None)"
-                    ),
-                    requires=("current", "incompatible_baseline"),
-                ),
-                HelpExample(
-                    label="Compare two exact funnel scopes",
-                    code="delta = session.compare(current_funnel, baseline_funnel)",
-                    requires=("baseline_funnel", "current_funnel"),
-                ),
-            ),
         )
     )
 
@@ -2314,39 +2064,6 @@ def _build_registry() -> CapabilityRegistry:
                 ),
             },
             output_contract=_output("AttributionFrame"),
-            additional_examples=(
-                HelpExample(
-                    label="Canonical scalar-delta attribution",
-                    code=(
-                        "current = session.observe(metric, time_scope=current_window)\n"
-                        "baseline = session.observe(metric, time_scope=baseline_window)\n"
-                        "delta = session.compare(current, baseline)\n"
-                        "drivers = session.attribute(delta, axes=[region])"
-                    ),
-                    requires=(
-                        "baseline_window",
-                        "current_window",
-                        "metric",
-                        "region",
-                    ),
-                ),
-                HelpExample(
-                    label="Keep named Top-K players and group the remainder",
-                    code="drivers = session.attribute(delta, axes=[region], top_k=5)",
-                    requires=("delta", "region"),
-                ),
-                HelpExample(
-                    label="Attribute one funnel loss rate",
-                    code=(
-                        "drivers = session.attribute(\n"
-                        "    delta,\n"
-                        "    axes=[channel],\n"
-                        "    target=mv.funnel_loss_rate(step=payment_step),\n"
-                        ")"
-                    ),
-                    requires=("channel", "delta", "payment_step"),
-                ),
-            ),
         )
     )
 
@@ -2371,21 +2088,6 @@ def _build_registry() -> CapabilityRegistry:
                 "alignment": frozenset({"AlignmentPolicy"}),
             },
             output_contract=_output("AssociationResult"),
-            additional_examples=(
-                HelpExample(
-                    label="Common-key cross-sectional frames from exact Refs",
-                    code=(
-                        'region = ms.ref.dimension("sales.orders.region")\n'
-                        "a = session.observe(\n"
-                        '    ms.ref.metric("sales.revenue"), dimensions=[region]\n'
-                        ")\n"
-                        "b = session.observe(\n"
-                        '    ms.ref.metric("sales.order_count"), dimensions=[region]\n'
-                        ")\n"
-                        "result = session.correlate(a, b)"
-                    ),
-                ),
-            ),
         )
     )
 
@@ -3621,10 +3323,7 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
-    descriptors.extend(
-        root_navigation_by_id[target]
-        for target in ("methods", "inputs", "artifacts", "evidence", "runtime")
-    )
+    descriptors.extend(root_navigation_topics)
     descriptors.extend(slice2_navigation_topics)
     descriptors.extend(slice3_navigation_topics)
     descriptors.extend(slice2_method_families)

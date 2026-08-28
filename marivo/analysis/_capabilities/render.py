@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.model import (
@@ -155,6 +156,7 @@ def _with_python_imports(
         "\n".join(
             (
                 lines[0],
+                f"  Marivo: {environment_fingerprint().marivo_version}",
                 "  Python imports:",
                 *(f"    {statement}" for statement in imports),
                 "",
@@ -246,72 +248,42 @@ def _constraints_for_descriptor(desc: CapabilityDescriptor) -> tuple[Constraint,
 # Root help renderer
 # ---------------------------------------------------------------------------
 
-_GROUP_LABELS: dict[str, str] = {
-    "semantic_inputs": "Semantic inputs",
-    "policies_builders": "Policies and builders",
-    "artifact_production": "Artifact production",
-    "typed_analysis": "Typed analysis",
-    "family_operations": "Family operations",
-    "artifact_inspection": "Artifact inspection",
-    "recovery": "Recovery",
-    "boundaries": "Boundaries",
+_ROOT_ROUTE_LABELS: dict[str, str] = {
+    "entry": "Governed entry",
+    "methods": "Installed computation families",
+    "inputs": "Construct inputs and policies",
+    "artifacts": "Understand Artifact families and reads",
+    "evidence": "Read and validate Evidence",
+    "runtime": "Resume persisted work",
+    "boundary.to_pandas": "Inspect typed-flow exits",
 }
 
 
 def render_root_help() -> str:
-    """Render the root help page with fingerprint and first-observation guidance.
+    """Render the final bounded progressive analysis root."""
 
-    ``root_visibility="direct"`` descriptors appear as individual entries.
-    ``root_visibility="grouped"`` descriptors collapse to their grouping
-    topic (e.g. ``discover``, ``transform``) so the root stays bounded.
-    """
-    lines: list[str] = []
-
-    # Fingerprint (exact paths shown: root help uses reveal=True).
     fp = environment_fingerprint()
-    lines.extend(render_fingerprint(fp, reveal=True).split("\n"))
-    lines.extend(
-        (
-            "",
-            "Python imports:",
-            f"  {_MARIVO_IMPORT}",
-            f"  {_ANALYSIS_IMPORT}",
-            "",
-            "First observation:",
-            '  session = mv.session.get_or_create("<stable-session-name>", question="<business question>")',
-            '  metric = session.catalog.metrics.get("<full semantic path or typed key>")',
-            "  marivo.help(metric)",
-            "  readiness = session.catalog.readiness(refs=[metric])",
-            '  if readiness.status == "blocked":',
-            "      readiness.show()",
-            "      raise SystemExit",
-            "  frame = session.observe(metric)",
-            "  frame.show()",
-            "",
-            "Focused contract:",
-            '  marivo.help("analysis.observe")',
-            "",
+    lines = [
+        "marivo.analysis",
+        *render_fingerprint(fp, reveal=True).split("\n"),
+        "",
+        "Marivo computes typed facts; the agent chooses methods and interpretation.",
+    ]
+    for target in REGISTRY.root_members:
+        if target.canonical_id is None:
+            raise RuntimeError("analysis root target requires a canonical id")
+        lines.extend(
+            (
+                "",
+                f"{_ROOT_ROUTE_LABELS[target.canonical_id]}:",
+                f'  marivo.help("analysis.{target.canonical_id}")',
+            )
         )
-    )
-
-    # Capability groups
-    lines.append("Capabilities:")
-    for group, descriptors in REGISTRY.discovery_groups():
-        label = _GROUP_LABELS.get(group, group.replace("_", " ").title())
-        lines.append(f"  {label} [{group}]:")
-        for desc in descriptors:
-            entrypoint = desc.public_entrypoint or (f'marivo.help("analysis.{desc.canonical_id}")')
-            lines.append(f"    {entrypoint:<44} {REGISTRY.discovery_summary(desc)}")
-        lines.append("")
-
-    # Drill-down instruction
-    lines.append('Call marivo.help("analysis.<target>") for detail on any capability.')
-
-    text = "\n".join(lines)
-    return enforce_budget(
-        text,
-        max_lines=SURFACE_LIMITS.root_help_max_lines,
-        max_codepoints=SURFACE_LIMITS.root_help_max_codepoints,
+    return _enforce_analysis_render_budget(
+        "\n".join(lines),
+        render_class="root",
+        outgoing_routes=REGISTRY.root_members,
+        examples_or_snippets=0,
     )
 
 
@@ -411,7 +383,25 @@ def _producer_targets_for_input(
                             and matching.isdisjoint(producer.output_contract.matching_kinds)
                         ):
                             continue
-            targets.append(target)
+            routed = target
+            if (
+                desc.help_target in {"observe", "BaseFrame.quality_report"}
+                and target.surface == "analysis"
+                and target.canonical_id is not None
+            ):
+                owner = (
+                    REGISTRY.discovery_owner(family)
+                    if family in ARTIFACT_FAMILIES
+                    else REGISTRY.discovery_owner(target.canonical_id)
+                )
+                if (
+                    owner is not None
+                    and owner.canonical_id is not None
+                    and owner.canonical_id
+                    not in {"entry", "methods", "inputs", "artifacts", "evidence", "runtime"}
+                ):
+                    routed = owner
+            targets.append(routed)
     return tuple(dict.fromkeys(targets))
 
 
@@ -522,7 +512,7 @@ def _assigned_result_name(code: str, *, public_entrypoint: str) -> str | None:
 
 
 def _related_targets(desc: CapabilityDescriptor) -> list[str]:
-    """Return bounded explicit parameter links and discovery siblings."""
+    """Return only bounded registry-owned cross-links."""
     related: list[str] = []
     seen: set[str] = set()
 
@@ -534,12 +524,6 @@ def _related_targets(desc: CapabilityDescriptor) -> list[str]:
     for target in REGISTRY.cross_links(desc.help_target):
         if target.surface == "analysis" and target.canonical_id is not None:
             _add(target.canonical_id)
-    owner = REGISTRY.discovery_owner(desc.help_target)
-    if owner is not None and owner.canonical_id is not None:
-        for sibling in REGISTRY.discovery_members(owner.canonical_id):
-            if sibling.surface == "analysis" and sibling.canonical_id is not None:
-                _add(sibling.canonical_id)
-
     return related[:5]
 
 
@@ -675,9 +659,26 @@ def _render_navigation_help(desc: AnalysisNavigationTopic) -> str:
         desc.canonical_id,
         f'  Entrypoint: marivo.help("analysis.{desc.canonical_id}")',
         f"  {REGISTRY.focused_summary(desc)}",
-        "",
-        "  Members:",
     ]
+    if desc.canonical_id == "entry":
+        lines.extend(
+            (
+                "",
+                "  Governed input routing:",
+                '    Metric entry/ref or closed runtime metric expression -> marivo.help("analysis.observe")',
+                '    Event refs plus EventPattern -> marivo.help("analysis.events.match")',
+                '    StateModel entry/ref plus explicit inception seed -> marivo.help("analysis.lifecycle.replay")',
+                '    Current typed semantic catalog -> marivo.help("analysis.catalog")',
+                '    Exact requested closure -> marivo.help("analysis.catalog.readiness")',
+                '    Missing or blocked reusable meaning -> marivo.help("semantic.authoring")',
+                "",
+                "  Boundaries:",
+                "    catalog selection != readiness",
+                "    readiness != current source health",
+                "    entry execution != analytical conclusion",
+            )
+        )
+    lines.extend(("", "  Members:"))
     for member in _grouping_members(desc):
         entrypoint = member.public_entrypoint or (f'marivo.help("analysis.{member.canonical_id}")')
         member_return_type: str | None = None
@@ -1535,24 +1536,35 @@ def _cumulative_composition_briefing(composition: object) -> list[str]:
 
 def _descriptor_render_budget(
     descriptor: AnalysisHelpDescriptor,
-) -> tuple[AnalysisHelpRenderClass, tuple[LiveHelpTarget, ...], int] | None:
+) -> tuple[AnalysisHelpRenderClass, int]:
     """Return the active progressive render contract for one descriptor."""
 
     if isinstance(descriptor, AnalysisNavigationTopic):
-        return (
-            descriptor.render_class,
-            (*descriptor.members, *REGISTRY.cross_links(descriptor.canonical_id)),
-            0,
-        )
+        return descriptor.render_class, 0
     if isinstance(descriptor, AnalysisMethodFamily):
-        return (
-            "navigation",
-            (*descriptor.members, *REGISTRY.cross_links(descriptor.canonical_id)),
-            0,
-        )
+        return "navigation", 0
     if isinstance(descriptor, AnalysisArtifactFamilyContract):
-        return "public_type", REGISTRY.cross_links(descriptor.canonical_id), 0
-    return None
+        return "public_type", 0
+    callable_obj = _resolve_callable(descriptor)
+    doc_example = bool(
+        callable_obj is not None
+        and _extract_example(inspect.getdoc(callable_obj) or "") is not None
+    )
+    return "exact_callable", int(doc_example) + len(descriptor.additional_examples)
+
+
+_HELP_CALL_RE = re.compile(r'marivo\.help\("(analysis|datasource|semantic|ontology)\.([^"\n]+)"\)')
+
+
+def _rendered_help_targets(text: str) -> tuple[LiveHelpTarget, ...]:
+    """Return unique canonical routes actually advertised by one page."""
+
+    return tuple(
+        dict.fromkeys(
+            LiveHelpTarget(surface=surface, canonical_id=canonical_id)
+            for surface, canonical_id in _HELP_CALL_RE.findall(text)
+        )
+    )
 
 
 def render_help_target(
@@ -1577,39 +1589,44 @@ def render_help_target(
     """
     if resolved.kind == "descriptor" and resolved.descriptor is not None:
         rendered = _render_descriptor_help(resolved.descriptor)
-        budget = _descriptor_render_budget(resolved.descriptor)
-        if budget is None:
-            return _with_python_imports(rendered)
-        render_class, routes, examples = budget
+        render_class, examples = _descriptor_render_budget(resolved.descriptor)
         return _with_python_imports(
             rendered,
             render_class=render_class,
-            outgoing_routes=routes,
+            outgoing_routes=_rendered_help_targets(rendered),
             examples_or_snippets=examples,
         )
 
     if resolved.kind == "type_contract" and resolved.type_name is not None:
         rendered = _render_type_help(resolved.type_name)
-        if resolved.type_name not in ARTIFACT_FAMILIES:
-            return _with_python_imports(rendered)
-        contract = REGISTRY.artifact_contract(resolved.type_name)
         return _with_python_imports(
             rendered,
             render_class="public_type",
-            outgoing_routes=REGISTRY.cross_links(contract.canonical_id),
+            outgoing_routes=_rendered_help_targets(rendered),
             examples_or_snippets=0,
         )
 
     if resolved.kind == "error_contract" and resolved.error_name is not None:
-        return _with_python_imports(_render_error_contract(resolved.error_name))
+        rendered = _render_error_contract(resolved.error_name)
+        return _with_python_imports(
+            rendered,
+            render_class="public_type",
+            outgoing_routes=_rendered_help_targets(rendered),
+            examples_or_snippets=0,
+        )
 
     if resolved.kind == "error_briefing" and resolved.error_name is not None:
+        rendered = _render_error_briefing(
+            resolved.error_name,
+            resolved.error_kind,
+            resolved.original,
+        )
+        repair = getattr(resolved.original, "repair", None)
         return _with_python_imports(
-            _render_error_briefing(
-                resolved.error_name,
-                resolved.error_kind,
-                resolved.original,
-            )
+            rendered,
+            render_class="current_briefing",
+            outgoing_routes=_rendered_help_targets(rendered),
+            examples_or_snippets=int(getattr(repair, "snippet", None) is not None),
         )
 
     if resolved.kind == "reference_briefing" and resolved.reference_id is not None:

@@ -13,7 +13,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
-from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import (
     AmbiguousEventOrderError,
     EventCoverageUnknownError,
@@ -296,17 +295,16 @@ def test_every_start_terminal_assignment_policy(
 
 
 @pytest.mark.parametrize(
-    ("example_index", "result_name", "expected_statuses"),
+    ("completion_assignment", "expected_statuses"),
     (
-        (0, "exclusive_attempts", ["complete", "coverage_censored"]),
-        (1, "shared_attempts", ["complete", "complete"]),
+        ("exclusive", ["complete", "coverage_censored"]),
+        ("shared", ["complete", "complete"]),
     ),
 )
-def test_registered_repeated_attempt_help_examples_execute(
+def test_repeated_attempt_completion_assignments_execute(
     tmp_path: Any,
     monkeypatch: Any,
-    example_index: int,
-    result_name: str,
+    completion_assignment: str,
     expected_statuses: list[str],
 ) -> None:
     session = _event_session(
@@ -327,17 +325,18 @@ def test_registered_repeated_attempt_help_examples_execute(
         event=ms.ref.event("commerce.payment_succeeded"),
         name="buyer",
     )
-    example = REGISTRY.by_id("events.match").additional_examples[example_index]
-    namespace = {
-        "cart_user": cart_user,
-        "mv": mv,
-        "payment_buyer": payment_buyer,
-        "session": session,
-    }
-
-    exec(compile(example.code, "<events-match-help-example>", "exec"), namespace)
-
-    frame = cast("mv.EventFrame", namespace[result_name])
+    frame = session.events.match(
+        pattern=mv.sequence(
+            mv.step(participant=cart_user, key="cart"),
+            mv.step(participant=payment_buyer, key="payment"),
+        ),
+        cohort_window=mv.time_scope(
+            start="2026-07-01T00:00:00Z",
+            end="2026-07-08T00:00:00Z",
+        ),
+        completion_through="2026-07-15T00:00:00Z",
+        matching=mv.every_start(completion_assignment=completion_assignment),
+    )
     statuses = sorted(frame.to_pandas().groupby("journey_id")["completion_status"].first().tolist())
     assert statuses == expected_statuses
 
@@ -943,30 +942,6 @@ def test_subject_set_scopes_event_match_and_metric_observe_before_reduction(
     assert observed.to_pandas()["event_count"].tolist() == [1]
     assert observed.meta.cohort == subjects.meta.cohort_binding()
     assert "u2" not in str(observed.meta.model_dump(mode="json"))
-
-    namespace = {
-        "completeness": completeness,
-        "mv": mv,
-        "ms": ms,
-        "pattern": pattern,
-        "session": session,
-        "subjects": subjects,
-    }
-    match_example = REGISTRY.by_id("events.match").additional_examples[2]
-    exec(
-        compile(match_example.code, "<events-match-cohort-example>", "exec"),
-        namespace,
-    )
-    example_journeys = cast("mv.EventFrame", namespace["scoped_journeys"])
-    assert set(example_journeys.to_pandas()["subject_identity"]) == {("u2",)}
-
-    observe_example = REGISTRY.by_id("observe").additional_examples[1]
-    exec(
-        compile(observe_example.code, "<observe-cohort-example>", "exec"),
-        namespace,
-    )
-    example_metric = cast("mv.MetricFrame", namespace["scoped_metric"])
-    assert example_metric.to_pandas()["event_count"].tolist() == [1]
 
 
 @pytest.mark.parametrize(

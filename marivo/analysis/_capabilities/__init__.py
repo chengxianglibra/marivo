@@ -10,7 +10,6 @@ from __future__ import annotations
 from marivo.analysis._capabilities.model import (
     ANALYSIS_HELP_RENDER_BUDGETS,
     ARTIFACT_FAMILIES,
-    ROOT_GROUP_ORDER,
     AnalysisArtifactFamilyContract,
     AnalysisHelpDescriptor,
     AnalysisHelpRenderBudget,
@@ -32,14 +31,12 @@ from marivo.analysis._capabilities.model import (
     OutputFamily,
     ReadCapability,
     RecoveryCapability,
-    RootGroup,
     SameAsInputFamily,
 )
 
 __all__ = [
     "ANALYSIS_HELP_RENDER_BUDGETS",
     "ARTIFACT_FAMILIES",
-    "ROOT_GROUP_ORDER",
     "AnalysisArtifactFamilyContract",
     "AnalysisHelpDescriptor",
     "AnalysisHelpRenderBudget",
@@ -61,6 +58,5 @@ __all__ = [
     "OutputFamily",
     "ReadCapability",
     "RecoveryCapability",
-    "RootGroup",
     "SameAsInputFamily",
 ]

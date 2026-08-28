@@ -118,7 +118,7 @@ def window_bucket(
         A frozen ``AlignmentPolicy`` tagged ``window_bucket``.
 
     Example:
-        ``session.compare(current, baseline, alignment=mv.window_bucket())``.
+        >>> alignment = mv.window_bucket()
 
     Constraints:
         This helper accepts no calendar or period authority.
@@ -155,7 +155,7 @@ def day_of_week(
         A frozen ``AlignmentPolicy`` tagged ``day_of_week``.
 
     Example:
-        ``session.compare(current, baseline, alignment=mv.day_of_week())``.
+        >>> alignment = mv.day_of_week()
 
     Constraints:
         Inputs must be one row per local day in exactly one containing period.
@@ -187,7 +187,7 @@ def period_progress(*, unmatched: UnmatchedMode = "fail") -> AlignmentPolicy:
         A frozen ``AlignmentPolicy`` tagged ``period_progress``.
 
     Example:
-        ``session.compare(current, baseline, alignment=mv.period_progress())``.
+        >>> alignment = mv.period_progress()
 
     Constraints:
         Each side must resolve to exactly one target period under the same authority.
@@ -217,7 +217,7 @@ def period_correspondence(
         A frozen ``AlignmentPolicy`` tagged ``period_correspondence``.
 
     Example:
-        ``session.compare(current, baseline, alignment=mv.period_correspondence(correspondence='prior_year_shifted'))``.
+        >>> alignment = mv.period_correspondence(correspondence="prior_year_shifted")
 
     Constraints:
         Both frames must be complete at the exact correspondence level.
@@ -258,7 +258,7 @@ def occurrence_progress(
         A frozen ``AlignmentPolicy`` tagged ``occurrence_progress``.
 
     Example:
-        ``session.compare(current, baseline, alignment=mv.occurrence_progress())``.
+        >>> alignment = mv.occurrence_progress()
 
     Constraints:
         Both frames must be day-grain time-series or panel frames selected by
@@ -298,7 +298,7 @@ def working_day_progress(
         A frozen ``AlignmentPolicy`` tagged ``working_day_progress``.
 
     Example:
-        ``session.compare(current, baseline, alignment=mv.working_day_progress(schedule=schedule))``.
+        >>> alignment = mv.working_day_progress(schedule=schedule)
 
     Constraints:
         Both inputs must be day-grain time-series or panel frames with one

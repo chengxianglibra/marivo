@@ -14,43 +14,20 @@ agent owns planning, analytical judgment, and synthesis.
 
 Trust the verified installed Marivo environment:
 
-- `marivo.help("analysis")` owns the current capability map;
-- `marivo.help("analysis.<target>")` owns exact signatures, constraints, return
-  types, errors, and runnable examples;
+- `marivo.help("analysis")` owns the environment fingerprint, responsibility
+  boundary, and progressive entry map;
+- `analysis.entry`, `analysis.methods`, `analysis.inputs`, `analysis.artifacts`,
+  `analysis.evidence`, and `analysis.runtime` are the six discovery hubs;
+- focused `marivo.help("analysis.<target>")` owns exact signatures,
+  constraints, return types, errors, and its one minimal example when needed;
 - governed semantic objects own reusable business meaning;
 - `.show()` owns bounded current artifact state;
 - `.contract()` owns mechanically valid next actions;
+- `marivo.help("analysis.boundary.to_pandas")` owns the exact terminal exit;
 - structured errors own repair guidance.
 
 Do not reconstruct those contracts from this skill, remembered syntax, or
 private implementation details.
-
-## Capability routing map
-
-Use this map to choose a capability family, then read its focused live help.
-It is a conceptual route, not an exhaustive API inventory.
-
-| Question or task | Capability | What it establishes |
-| --- | --- | --- |
-| What is the governed metric value? | `session.observe(...)` | Materializes governed metrics or a closed runtime metric expression into a typed `MetricFrame`. |
-| Which rows, slices, windows, rankings, or rollups matter? | `frame.transform.*(...)` | Reshapes a `MetricFrame` or `DeltaFrame` without leaving its typed family. |
-| How did two compatible periods or artifacts differ? | `session.compare(...)` | Aligns them into a typed `DeltaFrame`. |
-| What contributed to a measured change? | `session.attribute(...)` | Reconciles a `DeltaFrame` over explicit governed axes. |
-| Where should the investigation look next? | `session.discover.*(...)` | Produces bounded candidates for anomalies, shifts, drivers, slices, windows, peers, or semantic hypotheses. |
-| Are two observed metrics associated? | `session.correlate(...)` | Measures statistical association without making a causal claim. |
-| Does an explicit paired hypothesis hold? | `session.hypothesis_test(...)` | Tests prepared compatible metric artifacts under a typed sampling contract. |
-| What may happen in future buckets? | `session.forecast(...)` | Projects a time-series or panel `MetricFrame`. |
-| Is a published artifact trustworthy enough to use? | `frame.quality_report()` | Reads the fixed construction-time checks already committed with the artifact. |
-| What happened across an Event journey? | `session.events.match/funnel/time_to_event(...)` | Matches typed journeys, reduces funnels, or measures elapsed time. |
-| What happened in a governed StateModel? | `session.lifecycle.replay/distribution/transitions/dwell/violations(...)` | Replays canonical state history and applies lifecycle reducers. |
-| Which exact subjects should continue into another typed branch? | `session.select_subjects(...)` | Materializes a closed `SubjectSet` from Event loss or Lifecycle state. |
-
-Use `marivo.help("analysis.transform")`, `marivo.help("analysis.discover")`,
-`marivo.help("analysis.events")`, or `marivo.help("analysis.lifecycle")` to see
-the installed members of a family. Supporting builders such as time scopes,
-grains, alignments, sampling policies, Event patterns, and runtime metric
-expressions are also discovered through `marivo.help("analysis")` and their
-focused targets.
 
 ## Marivo analysis method
 
@@ -85,23 +62,21 @@ inputs together and inspect readiness only for the required closure. Do not
 repeat readiness when a current semantic handoff already supplies
 `analysis_ready_inputs` for the same project and scope.
 
-If the required capability is not known, read `marivo.help("analysis")`. Before
-the first use of a selected capability, read its focused help. Avoid broad
-catalog browsing when an exact typed ref or full semantic identity is already
-available.
+If the required capability is not known, read `marivo.help("analysis")`, then
+route through `analysis.inputs` for input construction or `analysis.entry` for
+the first typed artifact. Before the first use of a selected capability, read
+its focused help. Avoid broad catalog browsing when an exact typed ref or full
+semantic identity is already available.
 
 ### 3. Build the minimum typed evidence chain
 
-Enter typed analysis through the public family that matches the question:
-
-- governed metric facts start with `observe`;
-- Event journeys start with `events.match`;
-- StateModel history starts with `lifecycle.replay`.
-
-Run the first bounded typed artifact early. Inspect `.show()` when current state
-contributes evidence. Use `.contract()` when the next mechanically valid action
-is unknown. Choose subsequent operators from the question and the artifact in
-hand rather than following a fixed operator recipe.
+Read `marivo.help("analysis.entry")` and choose the installed entry that matches
+the governed input and question. Run the first bounded typed artifact early.
+Inspect `.show()` when current state contributes evidence. Use `.contract()`
+when the next mechanically valid action is unknown. Route method selection
+through `marivo.help("analysis.methods")`, then read the chosen focused Help.
+Choose subsequent operators from the question and the artifact in hand rather
+than following a fixed operator recipe.
 
 Before treating a required calculation as custom, classify its analytical
 intent against the current capability map. Stay in typed flow whenever Marivo
@@ -172,12 +147,14 @@ it must become reusable organizational truth.
 Do not query business rows through Ibis, DuckDB, pandas readers, backend
 connections, private datasource handles, or ad hoc SQL to bypass Marivo.
 
-Use `frame.to_pandas()` only after a bounded typed artifact establishes the
-semantic inputs, scope, and evidence chain, and only when the capability check
-above establishes that the intended analysis method is outside Marivo's
-governed typed surface. Keep that calculation in the same rerunnable step script
-as the conversion. Do not export and reload artifact rows, and never feed a
-terminal result back into typed analysis.
+Before any terminal conversion, read
+`marivo.help("analysis.boundary.to_pandas")`. Use `frame.to_pandas()` only after
+a bounded typed artifact establishes the semantic inputs, scope, and evidence
+chain, and only when the capability check above establishes that the intended
+analysis method is outside Marivo's governed typed surface. Keep that
+calculation in the same rerunnable step script as the conversion. Do not export
+and reload artifact rows, and never feed a terminal result back into typed
+analysis.
 
 ### Evidence continuity and recovery
 

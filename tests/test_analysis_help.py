@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import inspect
 import re
-import textwrap
 
 import pytest
 
@@ -13,9 +13,7 @@ import marivo
 import marivo.analysis as mv
 from marivo._help.model import MarivoHelpTargetError
 from marivo.analysis._capabilities.model import (
-    ROOT_GROUP_ORDER,
     AnalysisArtifactFamilyContract,
-    AnalysisHelpDescriptor,
     AnalysisMethodFamily,
     AnalysisNavigationTopic,
     ConstructorCapability,
@@ -23,6 +21,13 @@ from marivo.analysis._capabilities.model import (
     OperatorCapability,
 )
 from marivo.analysis._capabilities.registry import REGISTRY, _validate_additional_examples
+from marivo.analysis._capabilities.render import (
+    _descriptor_render_budget,
+    _extract_example,
+    _rendered_help_targets,
+    _resolve_callable,
+)
+from marivo.analysis._capabilities.surface import ERROR_TYPES, TYPE_REGISTRY
 from marivo.analysis.constraints import CONSTRAINTS, ConstraintId
 from marivo.analysis.errors import (
     AnalysisError,
@@ -34,7 +39,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.session.core import Session
-from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import rendered_help
@@ -64,11 +69,11 @@ def _text(target: object = None, **kwargs: object) -> str:
 def test_root_help_has_three_line_fingerprint() -> None:
     text = _text()
     lines = text.splitlines()
-    assert len(lines) >= 3
-    assert lines[0].startswith("Marivo: ")
-    assert marivo.__version__ in lines[0]
-    assert lines[1].startswith("Python: ")
-    assert lines[2].startswith("Package: ")
+    assert lines[0] == "marivo.analysis"
+    assert lines[1].startswith("Marivo: ")
+    assert marivo.__version__ in lines[1]
+    assert lines[2].startswith("Python: ")
+    assert lines[3].startswith("Package: ")
 
 
 def test_root_help_fingerprint_uses_resolved_paths() -> None:
@@ -76,40 +81,22 @@ def test_root_help_fingerprint_uses_resolved_paths() -> None:
 
     text = _text()
     lines = text.splitlines()
-    assert str(Path(marivo.__file__).resolve()) in lines[2]
+    assert str(Path(marivo.__file__).resolve()) in lines[3]
 
 
-def test_root_help_documents_cold_start_imports() -> None:
-    """Root help must import both the coordinator and analysis namespace."""
+def test_root_help_contains_no_runnable_workflow_or_inventory() -> None:
     text = _text()
-    assert "Python imports:" in text
-    assert "import marivo" in text
-    assert "import marivo.analysis as mv" in text
-    # The import hint precedes the capability index.
-    assert text.index("import marivo.analysis as mv") < text.index("Capabilities:")
-
-
-def test_root_help_teaches_one_guarded_first_observation() -> None:
-    text = _text()
-    example = text.split("First observation:\n", 1)[1].split("\n\nFocused contract:", 1)[0]
-    compile(textwrap.dedent(example), "<analysis-root-help>", "exec")
-
-    steps = (
-        'session = mv.session.get_or_create("<stable-session-name>", question="<business question>")',
-        'metric = session.catalog.metrics.get("<full semantic path or typed key>")',
-        "marivo.help(metric)",
-        "readiness = session.catalog.readiness(refs=[metric])",
-        'if readiness.status == "blocked":',
-        "readiness.show()",
-        "raise SystemExit",
-        "frame = session.observe(metric)",
-        "frame.show()",
-    )
-    positions = [example.index(step) for step in steps]
-    assert positions == sorted(positions)
-    assert 'marivo.help("analysis.observe")' in text
-    assert "dir(" not in text
-    assert "help(session" not in text
+    for forbidden in (
+        "Python imports:",
+        "First observation:",
+        "Signature:",
+        "Example:",
+        "session.observe",
+        "mv.grain",
+        "MetricFrame",
+        "session.get_or_create",
+    ):
+        assert forbidden not in text
 
 
 def test_focused_help_documents_mv_namespace_import() -> None:
@@ -117,6 +104,7 @@ def test_focused_help_documents_mv_namespace_import() -> None:
     text = _text("observe")
     assert "Python imports:" in text
     assert "import marivo.analysis as mv" in text
+    assert f"Marivo: {marivo.__version__}" in text
     # The import hint follows the target name on the first line.
     assert text.splitlines()[0] == "observe"
 
@@ -137,66 +125,32 @@ def test_source_bindings_has_focused_help_and_session_type_member() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Root groups and canonical targets
+# Progressive root and canonical targets
 # ---------------------------------------------------------------------------
 
 
-def test_root_help_has_eight_deterministic_groups() -> None:
+def test_root_help_renders_only_the_registry_owned_routes() -> None:
     text = _text()
-    for group in ROOT_GROUP_ORDER:
-        # Each group must appear as a section header in the rendered output.
-        assert group in text, f"missing root group: {group}"
+    rendered_targets = tuple(re.findall(r'marivo\.help\("analysis\.([^"\n]+)"\)', text))
+    expected = tuple(
+        target.canonical_id for target in REGISTRY.root_members if target.canonical_id is not None
+    )
+    assert rendered_targets == expected == REGISTRY.discovery_ids()
 
 
-def _root_entry(descriptor: AnalysisHelpDescriptor) -> str:
-    canonical_id = descriptor.canonical_id
-    public_entrypoint = descriptor.public_entrypoint
-    entrypoint = public_entrypoint or f'marivo.help("analysis.{canonical_id}")'
-    return f"{entrypoint:<44} {REGISTRY.discovery_summary(descriptor)}"
-
-
-def test_root_help_contains_the_registry_owned_discovery_projection() -> None:
+def test_root_help_routes_to_six_hubs_and_exact_boundary() -> None:
     text = _text()
-    discovery = tuple(
-        descriptor
-        for _group, descriptors in REGISTRY.discovery_groups()
-        for descriptor in descriptors
-    )
-
-    assert discovery
-    for descriptor in discovery:
-        assert _root_entry(descriptor) in text
-
-
-def test_root_help_entries_are_the_registry_discovery_groups() -> None:
-    root = _text()
-    capability_text = root.split("Capabilities:\n", 1)[1].split(
-        '\nCall marivo.help("analysis.<target>")',
-        1,
-    )[0]
-    rendered_entries = tuple(
-        line.strip() for line in capability_text.splitlines() if line.startswith("    ")
-    )
-    expected_entries = tuple(
-        _root_entry(descriptor).strip()
-        for _group, descriptors in REGISTRY.discovery_groups()
-        for descriptor in descriptors
-    )
-
-    assert rendered_entries == expected_entries
-    assert REGISTRY.discovery_ids() == tuple(
-        descriptor.help_target
-        for _group, descriptors in REGISTRY.discovery_groups()
-        for descriptor in descriptors
-    )
-
-
-def test_root_help_exposes_policy_family_topics() -> None:
-    text = _text()
-
-    assert 'marivo.help("analysis.alignment")' in text
-    assert "mv.SamplingPolicy(...)" in text
-    assert 'marivo.help("analysis.sampling")' not in text
+    for label in (
+        "Governed entry",
+        "Installed computation families",
+        "Construct inputs and policies",
+        "Understand Artifact families and reads",
+        "Read and validate Evidence",
+        "Resume persisted work",
+        "Inspect typed-flow exits",
+    ):
+        assert label in text
+    assert 'marivo.help("analysis.boundary.to_pandas")' in text
 
 
 def test_root_help_never_advertises_grouping_topics_as_session_members() -> None:
@@ -213,13 +167,13 @@ def test_root_help_never_advertises_grouping_topics_as_session_members() -> None
     assert 'marivo.help("analysis.artifacts")' in text
 
 
-def test_root_recovery_keeps_only_acquisition_and_runtime_drill_down() -> None:
+def test_root_recovery_routes_only_to_runtime_hub() -> None:
     root = _text()
     runtime_sessions = _text("runtime.sessions")
 
-    assert "mv.session.get_or_create(...)" in root
     assert 'marivo.help("analysis.runtime")' in root
     for entrypoint in (
+        "mv.session.get_or_create(...)",
         "mv.session.current()",
         "mv.session.resume(session_id)",
         "mv.session.recent()",
@@ -259,6 +213,36 @@ def test_focused_grouping_help_lists_real_members() -> None:
         "artifacts.reading",
     ):
         assert f'analysis.{target}")' in artifacts
+
+
+def test_entry_help_routes_governed_inputs_and_states_execution_boundaries() -> None:
+    text = _text("entry")
+    expected_cross_links = (
+        LiveHelpTarget(surface="analysis", canonical_id="observe"),
+        LiveHelpTarget(surface="analysis", canonical_id="events.match"),
+        LiveHelpTarget(surface="analysis", canonical_id="lifecycle.replay"),
+        LiveHelpTarget(surface="analysis", canonical_id="catalog"),
+        LiveHelpTarget(surface="analysis", canonical_id="catalog.readiness"),
+        LiveHelpTarget(surface="semantic", canonical_id="authoring"),
+    )
+
+    assert REGISTRY.cross_links("entry") == expected_cross_links
+    advertised_members = tuple(
+        target
+        for target in _rendered_help_targets(text)
+        if target != LiveHelpTarget(surface="analysis", canonical_id="entry")
+    )
+    assert advertised_members == REGISTRY.navigation_topic("entry").members
+    for target in expected_cross_links:
+        assert target.display in text
+        rendered_help(target.canonical_id, owner=target.surface)
+    assert 'marivo.help("analysis.entry.event_observations")' in text
+    for boundary in (
+        "catalog selection != readiness",
+        "readiness != current source health",
+        "entry execution != analytical conclusion",
+    ):
+        assert boundary in text
 
 
 def test_slice3_evidence_help_preserves_proof_boundaries() -> None:
@@ -356,10 +340,7 @@ def test_sampling_policy_is_routed_directly_without_a_singleton_topic() -> None:
 def test_working_day_progress_help_exposes_schedule_example_and_constraints() -> None:
     text = _text("working_day_progress")
     assert "schedule: Ref[WorkScheduleKind] | WorkScheduleEntry" in text
-    assert (
-        "session.compare(current, baseline, alignment=mv.working_day_progress(schedule=schedule))"
-        in text
-    )
+    assert "alignment = mv.working_day_progress(schedule=schedule)" in text
     assert "Constraints:" in text
     assert "alignment_policy_shape" in text
 
@@ -375,11 +356,9 @@ def test_grouping_members_use_only_explicit_registry_membership() -> None:
 
 
 def test_artifact_help_teaches_progressive_reads_without_planning_analysis() -> None:
-    root = _text()
     artifacts = _text("artifacts")
     reading = _text("artifacts.reading")
 
-    assert "Inspect bounded state, valid continuations, and terminal exits." in root
     assert "static Artifact family contracts" in artifacts
     assert "repr -> show/render -> contract -> exact Evidence or rows -> terminal exit" in reading
     assert reading.index("BaseFrame.show") < reading.index("BaseFrame.contract")
@@ -538,19 +517,16 @@ def test_type_algebra_remains_registered_but_is_not_rendered_in_root_help() -> N
 
 def test_root_help_contains_terminal_boundary_row() -> None:
     text = _text()
-    assert "frame.to_pandas()" in text
-    assert "pandas DataFrame" in text
-    assert "Terminal exit" in text
+    assert 'marivo.help("analysis.boundary.to_pandas")' in text
+    assert "frame.to_pandas()" not in text
+    assert "pandas DataFrame" not in text
 
 
-def test_root_only_summaries_do_not_narrow_focused_help() -> None:
+def test_root_does_not_repeat_focused_summaries() -> None:
     root = _text()
     observe = _text("observe")
     descriptor = REGISTRY.by_id("observe")
 
-    root_summary = REGISTRY.discovery_summary(descriptor)
-    assert root_summary == "Materialize governed metric inputs into a typed MetricFrame."
-    assert root_summary in root
     assert descriptor.summary in observe
     assert descriptor.summary not in root
 
@@ -583,30 +559,28 @@ def test_root_help_has_no_default_operator_label() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SURFACE_LIMITS enforcement
+# Analysis-owned render-budget enforcement
 # ---------------------------------------------------------------------------
 
 
 def test_root_help_within_line_budget() -> None:
     text = _text()
-    assert len(text.splitlines()) <= 80
-    assert len(text.splitlines()) <= SURFACE_LIMITS.root_help_max_lines
+    assert len(text.splitlines()) <= REGISTRY.render_budget("root").max_lines
 
 
 def test_root_help_within_codepoint_budget() -> None:
     text = _text()
-    assert len(text) <= 6_000
-    assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
+    assert len(text) <= REGISTRY.render_budget("root").max_codepoints
 
 
 def test_focused_help_within_line_budget() -> None:
     text = _text("observe")
-    assert len(text.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
+    assert len(text.splitlines()) <= REGISTRY.render_budget("exact_callable").max_lines
 
 
 def test_focused_help_within_codepoint_budget() -> None:
     text = _text("observe")
-    assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
+    assert len(text) <= REGISTRY.render_budget("exact_callable").max_codepoints
 
 
 # ---------------------------------------------------------------------------
@@ -896,10 +870,10 @@ def test_phase2_event_help_aliases_resolve_to_one_descriptor(
 
 def test_phase2_event_focused_help_has_exact_examples_and_axis_kind() -> None:
     observe = _text("observe")
-    assert "cohort=subjects" in observe
+    assert "cohort: SubjectSet" in observe
 
     match = _text("events.match")
-    assert "cohort=subjects" in match
+    assert "cohort: SubjectSet" in match
 
     funnel = _text("events.funnel")
     assert "session.events.funnel(" in funnel
@@ -963,16 +937,27 @@ def test_observe_example_documents_multi_dimension_slice_by_usage() -> None:
     assert 'slice_by={country: "US", channel: "online"}' in example_section
 
 
-def test_focused_help_adds_only_the_two_registered_call_forms() -> None:
+def test_focused_help_routes_supported_semantic_input_forms_without_extra_examples() -> None:
     observe_text = _text("observe")
     correlate_text = _text("correlate")
     assert "import marivo.semantic as ms" in observe_text
-    assert "import marivo.semantic as ms" in correlate_text
-    assert "Direct Ref segmented time series:" in observe_text
-    assert 'ms.ref.metric("sales.revenue")' in observe_text
-    assert 'ms.ref.dimension("sales.orders.region")' in observe_text
-    assert "Common-key cross-sectional frames from exact Refs:" in correlate_text
-    assert 'ms.ref.metric("sales.order_count")' in correlate_text
+    assert "MetricEntry | Ref[metric]" in observe_text
+    assert 'marivo.help("semantic.CatalogEntry")' in observe_text
+    assert 'marivo.help("semantic.Ref")' in observe_text
+    assert "Direct Ref segmented time series:" not in observe_text
+    assert "Common-key cross-sectional frames from exact Refs:" not in correlate_text
+
+
+def test_observe_and_quality_inputs_route_through_family_owners() -> None:
+    observe = _text("observe")
+    quality = _text("BaseFrame.quality_report")
+
+    assert 'cohort: acquire via marivo.help("analysis.artifacts.event_lifecycle")' in observe
+    assert 'marivo.help("analysis.select_subjects")' not in observe
+    assert 'marivo.help("analysis.artifacts.metric_change")' in quality
+    assert 'marivo.help("analysis.artifacts.event_lifecycle")' in quality
+    for producer in ("observe", "compare", "attribute", "events", "lifecycle", "transform"):
+        assert f'marivo.help("analysis.{producer}")' not in quality
 
 
 def test_metric_projection_primary_example_uses_full_metric_id() -> None:
@@ -1053,17 +1038,7 @@ def test_attribute_help_explains_additivity_boundary() -> None:
     assert "do not manually split numerator and denominator" in text
     assert "Graph-owned count_distinct and supported quantiles" in text
     assert "approved distribution-aware attribution basis" in text
-    assert "current = session.observe(metric, time_scope=current_window)" in text
-    assert "baseline = session.observe(metric, time_scope=baseline_window)" in text
-    assert "delta = session.compare(current, baseline)" in text
     assert "status time axis" in text
-    assert "numerator" in text
-    assert "denominator" in text
-    assert "attribution_reconciliation" in text
-    assert "share_of_total_delta" in text
-    assert "positive- and negative-pool shares" in text
-    assert "new and churned" in text
-    assert "one-sided" in text
     assert "independently computed total delta" in text
 
 
@@ -1169,13 +1144,9 @@ def test_compare_help_explains_cumulative_component_compatibility() -> None:
     assert "trailing" in text
     assert "grain_to_date" in text
     assert "all_history" in text
-    assert "current_evaluation_end" in text
-    assert "baseline_evaluation_end" in text
+    assert "exact evaluation_end coordinates" in text
     assert "delta.show()" in text
     assert "delta.contract().show()" in text
-    assert "exc.expected" in text
-    assert "exc.received" in text
-    assert "exc.repair.action" in text
     assert "Requires from prerequisites or the preceding example: AnalysisError" not in text
 
 
@@ -2084,26 +2055,109 @@ def test_help_with_target_returns_none() -> None:
 
 
 def test_root_help_does_not_silently_exceed_budget() -> None:
-    """Root help must stay within SURFACE_LIMITS; overflow is a build failure."""
+    """Root help must stay within its analysis-owned budget."""
     text = _text()
     lines = text.replace("\r\n", "\n").splitlines()
-    assert len(lines) <= 80
-    assert len(text) <= 6_000
-    assert len(lines) <= SURFACE_LIMITS.root_help_max_lines
-    assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
+    budget = REGISTRY.render_budget("root")
+    assert len(lines) <= budget.max_lines
+    assert len(text) <= budget.max_codepoints
 
 
-def test_focused_help_does_not_silently_exceed_budget() -> None:
-    """Focused help must stay within SURFACE_LIMITS; overflow is a build failure."""
-    for target in ("observe", "compare", "forecast", "Session", "MetricFrame"):
-        text = _text(target)
+def test_every_registered_descriptor_obeys_its_four_dimensional_budget() -> None:
+    for descriptor in REGISTRY.descriptors:
+        text = _text(descriptor.help_target)
+        render_class, example_count = _descriptor_render_budget(descriptor)
         lines = text.replace("\r\n", "\n").splitlines()
-        assert len(lines) <= SURFACE_LIMITS.focused_help_max_lines, (
-            f"{target}: {len(lines)} lines > {SURFACE_LIMITS.focused_help_max_lines}"
+        budget = REGISTRY.render_budget(render_class)
+        assert len(lines) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+        advertised = _rendered_help_targets(text)
+        assert len(advertised) <= budget.max_outgoing_routes
+        for target in advertised:
+            assert target.canonical_id is not None
+            rendered_help(target.canonical_id, owner=target.surface)
+        assert example_count <= budget.max_examples_or_snippets
+
+
+def test_every_public_type_and_error_contract_obeys_its_budget() -> None:
+    budget = REGISTRY.render_budget("public_type")
+    targets = tuple(dict.fromkeys((*TYPE_REGISTRY.values(), *ERROR_TYPES)))
+
+    for target in targets:
+        text = _text(target)
+        assert len(text.splitlines()) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+        assert len(_rendered_help_targets(text)) <= budget.max_outgoing_routes
+        assert "  Example:" not in text
+
+
+def test_default_error_instances_obey_current_briefing_budget() -> None:
+    budget = REGISTRY.render_budget("current_briefing")
+
+    for error_type in dict.fromkeys(ERROR_TYPES.values()):
+        if "message" not in inspect.signature(error_type).parameters:
+            continue
+        text = _text(error_type(message="budget audit"))
+        assert len(text.splitlines()) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+        assert len(_rendered_help_targets(text)) <= budget.max_outgoing_routes
+        assert text.count("    snippet:") <= budget.max_examples_or_snippets
+
+
+def test_every_exact_callable_docstring_example_parses_and_binds_live_signature() -> None:
+    def clean(example: str) -> str:
+        lines: list[str] = []
+        for line in example.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith(">>> "):
+                lines.append(stripped[4:])
+            elif stripped.startswith(">>>"):
+                lines.append(stripped[3:].lstrip())
+            elif stripped.startswith("... "):
+                lines.append(stripped[4:])
+            elif stripped.startswith("..."):
+                lines.append(stripped[3:].lstrip())
+            else:
+                lines.append(line)
+        return "\n".join(lines)
+
+    def call_name(node: ast.expr) -> str | None:
+        parts: list[str] = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if not isinstance(node, ast.Name):
+            return None
+        parts.append(node.id)
+        return ".".join(reversed(parts))
+
+    for descriptor in REGISTRY.descriptors:
+        callable_obj = _resolve_callable(descriptor)
+        if callable_obj is None:
+            continue
+        example = _extract_example(inspect.getdoc(callable_obj) or "")
+        if example is None:
+            continue
+        tree = ast.parse(clean(example))
+        callable_name = getattr(callable_obj, "__name__", None)
+        owned_calls = tuple(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and (name := call_name(node.func)) is not None
+            and name.rsplit(".", 1)[-1] == callable_name
         )
-        assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints, (
-            f"{target}: {len(text)} chars > {SURFACE_LIMITS.focused_help_max_codepoints}"
-        )
+        assert owned_calls, descriptor.help_target
+        signature = inspect.signature(callable_obj)
+        receiver_bound = next(iter(signature.parameters), None) in {"self", "cls"}
+        for call in owned_calls:
+            assert not any(isinstance(argument, ast.Starred) for argument in call.args)
+            assert all(keyword.arg is not None for keyword in call.keywords)
+            positional = [object() for _ in call.args]
+            if receiver_bound:
+                positional.insert(0, object())
+            keywords = {keyword.arg: object() for keyword in call.keywords if keyword.arg}
+            signature.bind(*positional, **keywords)
 
 
 @pytest.mark.parametrize("target", ["observe", "compare", "forecast", "Session", "MetricFrame"])

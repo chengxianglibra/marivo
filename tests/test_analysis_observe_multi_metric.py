@@ -123,17 +123,13 @@ def test_public_session_observe_rejects_empty_metrics_sequence(sales_session):
     assert exc_info.value._context["argument"] == "metrics"
 
 
-def test_registered_direct_ref_segmented_example_executes(sales_session):
-    from marivo.analysis._capabilities.registry import REGISTRY
-
-    example = next(
-        item
-        for item in REGISTRY.by_id("observe").additional_examples
-        if item.label == "Direct Ref segmented time series"
+def test_direct_ref_segmented_observe_executes(sales_session):
+    frame = sales_session.observe(
+        ms.ref.metric("sales.revenue"),
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
+        dimensions=[ms.ref.dimension("sales.orders.region")],
     )
-    namespace = {"session": sales_session, "ms": ms}
-    exec(compile(example.code, "<observe-help-example>", "exec"), namespace)
-    frame = namespace["frame"]
     assert frame.meta.semantic_kind == "panel"
     assert frame.meta.metric_id == "sales.revenue"
 

@@ -93,6 +93,25 @@ def test_analysis_skill_package_layout() -> None:
     assert sorted(path.name for path in ANALYSIS_SKILL_DIR.iterdir()) == ["SKILL.md"]
 
 
+def test_analysis_skill_routes_through_progressive_help_topology() -> None:
+    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+
+    for target in (
+        "analysis.entry",
+        "analysis.methods",
+        "analysis.inputs",
+        "analysis.artifacts",
+        "analysis.evidence",
+        "analysis.runtime",
+        "analysis.boundary.to_pandas",
+    ):
+        assert target in text
+    assert "## Capability routing map" not in text
+    assert "| Question or task | Capability |" not in text
+    assert "session.events.match/funnel/time_to_event" not in text
+    assert "session.lifecycle.replay/distribution" not in text
+
+
 def test_analysis_skill_gates_cross_finding_synthesis_on_compatibility() -> None:
     text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
     normalized = " ".join(text.split())

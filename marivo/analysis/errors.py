@@ -406,7 +406,9 @@ class SemanticKindMismatchError(AnalysisError):
                         f"as_{expected_semantic_shape}() requires a "
                         f"{expected_semantic_shape} frame."
                     ),
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id="artifacts.reading"
+                    ),
                     snippet=(
                         f'if frame.semantic_shape == "{expected_semantic_shape}":\n'
                         f"    typed = frame.as_{expected_semantic_shape}()"
@@ -1008,7 +1010,7 @@ class FrameReadError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="Use frame.show() for bounded inspection or frame.to_pandas() for terminal custom analysis.",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts.reading"),
                 snippet="frame.show()",
             ),
         )
@@ -1029,7 +1031,7 @@ class FrameCacheCorruptedError(AnalysisError):
             repair=AnalysisRepair(
                 kind="environment",
                 action=f"Persisted frame data is unreadable: {cause}. Delete the corrupted artifact directory to force re-computation.",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="recovery"),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.artifacts"),
                 snippet=f"# rm -rf .marivo/analysis/sessions/*/frames/{ref}/",
             ),
         )
@@ -1056,7 +1058,7 @@ class NoBackendFactoryError(AnalysisError):
                         "Session has no backend factory configured; data-materializing "
                         "analysis intents need a datasource, backends={...}, or backend_factory=..."
                     ),
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="datasources"),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.sessions"),
                     snippet=(
                         "import marivo.analysis as mv\n"
                         "\n"
@@ -1089,7 +1091,7 @@ class NoBackendFactoryError(AnalysisError):
                     f"datasource={datasource!r} resolved to None "
                     "or a non-ibis object; the analysis runtime needs a live ibis backend."
                 ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="datasources"),
+                help_target=LiveHelpTarget(surface="datasource", canonical_id="register"),
                 snippet=(
                     "import marivo.analysis as mv\n"
                     "import marivo.datasource as md\n"
@@ -1184,7 +1186,7 @@ class SessionTimezoneConflict(SessionStateError):  # noqa: N818
                     "Use the persisted report timezone, create a new session, "
                     "or delete and recreate this session to re-bucket under a new report timezone."
                 ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="session"),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.sessions"),
             ),
         )
 
@@ -1620,7 +1622,7 @@ class ComponentFrameUnavailableError(AnalysisError):
                         f"{producer}() to regenerate the frame and its component "
                         "sidecar together."
                     ),
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id=producer),
                     snippet=regeneration_snippet,
                 ),
             )
@@ -1636,7 +1638,7 @@ class ComponentFrameUnavailableError(AnalysisError):
                         f"disk. Re-run {producer}() to regenerate the frame "
                         "and its component sidecar."
                     ),
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id=producer),
                     snippet=regeneration_snippet,
                 ),
             )
@@ -1652,7 +1654,7 @@ class ComponentFrameUnavailableError(AnalysisError):
                         "component sidecar was persisted — an incomplete write. "
                         f"Re-run {producer}() to regenerate the frame and its sidecar."
                     ),
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id=producer),
                 ),
             )
         action = (
@@ -1668,7 +1670,7 @@ class ComponentFrameUnavailableError(AnalysisError):
             repair=AnalysisRepair(
                 kind="inspect",
                 action=action,
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id=producer),
                 snippet=regeneration_snippet,
             ),
         )

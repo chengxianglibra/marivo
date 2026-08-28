@@ -995,8 +995,8 @@ class BaseFrame(RenderableResult):
             affordances, and boundary_ports.
 
         Example:
-            >>> frame.contract().artifact_schema.columns
-            [ArtifactColumn(name='bucket_start', ...)]
+            >>> contract = frame.contract()
+            >>> contract.artifact_schema.columns
 
         Constraints:
             Does not materialize a data copy.

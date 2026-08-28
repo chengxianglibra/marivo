@@ -117,10 +117,8 @@ def test_correlate_common_key_alignment():
     assert df.iloc[0]["correlation"] == pytest.approx(1.0)
 
 
-def test_registered_cross_sectional_ref_example_executes(tmp_path):
+def test_cross_sectional_exact_refs_execute(tmp_path):
     import ibis
-
-    from marivo.analysis._capabilities.registry import REGISTRY
 
     bootstrap_multi_metric_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
@@ -130,10 +128,10 @@ def test_registered_cross_sectional_ref_example_executes(tmp_path):
         name="help_example",
         backends={"warehouse": lambda: con},
     )
-    example = REGISTRY.by_id("correlate").additional_examples[0]
-    namespace = {"session": session, "ms": ms}
-    exec(compile(example.code, "<correlate-help-example>", "exec"), namespace)
-    result = namespace["result"]
+    region = ms.ref.dimension("sales.orders.region")
+    a = session.observe(ms.ref.metric("sales.revenue"), dimensions=[region])
+    b = session.observe(ms.ref.metric("sales.order_count"), dimensions=[region])
+    result = session.correlate(a, b)
     assert isinstance(result, AssociationResult)
     assert result.meta.semantic_kinds == ["segmented", "segmented"]
 

@@ -127,18 +127,16 @@ The target progressive-disclosure topology for those layers is specified in
   `python -m marivo help` verifies the selected environment and hands off to
   Python. `marivo.help()` is a short concept page that routes only to
   `marivo.help("authoring")` and `marivo.help("analysis")`; authoring routes to
-  the datasource, semantic, and optional ontology trees. The analysis root
-  includes one guarded first-observation
-  path: acquire the session, select and inspect a current metric entry with
-  `marivo.help(entry)`, inspect scoped readiness, then call `session.observe(...)`
-  and read the resulting frame. It does not render the registry's complete type
-  algebra. Registered
-  namespace topics such as `analysis.events` and `analysis.lifecycle` list
-  their real capability members. Focused
-  `marivo.help("analysis.<target>")` (for example `analysis.observe`,
-  `analysis.compare`, or `analysis.recover`) owns signatures, artifact
-  families, constraints, return types, errors, and runnable examples. Frames
-  and results own dynamic guidance:
+  the datasource, semantic, and optional ontology trees. The analysis root is a
+  compact progressive index: it exposes the environment fingerprint,
+  responsibility boundary, six registered hubs (`analysis.entry`,
+  `analysis.methods`, `analysis.inputs`, `analysis.artifacts`,
+  `analysis.evidence`, and `analysis.runtime`), and the exact terminal leaf
+  `analysis.boundary.to_pandas`. It does not render an observation recipe or
+  the registry's complete type algebra. Each hub lists only its registered
+  members. Focused `marivo.help("analysis.<target>")` owns the live signature,
+  exact inputs and outputs, constraints and effects, and at most one minimal
+  example. Frames and results own dynamic guidance:
   `show()` describes an artifact's current state and only state-dependent
   continuation hints; `contract()` describes the complete mechanically valid
   next actions from where it is now. Readable operation labels use registry-owned
