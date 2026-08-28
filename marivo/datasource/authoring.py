@@ -280,6 +280,8 @@ class _SpecBase(RenderableResult):
         for dataclass_field in fields(self):
             if dataclass_field.name in _META_FIELDS:
                 continue
+            if dataclass_field.name.endswith("_env"):
+                continue
             value = getattr(self, dataclass_field.name)
             if value is None:
                 continue
@@ -294,7 +296,7 @@ class _SpecBase(RenderableResult):
                     location=f"models/datasources/ entry {self.name!r} field {dataclass_field.name!r}",
                     repair=repair(
                         kind="reauthor",
-                        canonical_id="duckdb",
+                        canonical_id=self.backend_type,
                         action="Provide a non-empty required datasource field.",
                     ),
                 )
@@ -314,8 +316,6 @@ class _SpecBase(RenderableResult):
                     env_refs[f"http_header:{header_name}"] = env_var
                 continue
             if key.endswith("_env"):
-                if value is None:
-                    continue
                 stem = key[: -len("_env")]
                 if not isinstance(value, str) or not value:
                     raise DatasourceFieldInvalidError(
@@ -325,7 +325,7 @@ class _SpecBase(RenderableResult):
                         location=f"models/datasources/ entry {self.name!r} field {key!r}",
                         repair=repair(
                             kind="reauthor",
-                            canonical_id="duckdb",
+                            canonical_id=self.backend_type,
                             action="Reference a non-empty environment variable name.",
                         ),
                     )
@@ -346,7 +346,7 @@ class _SpecBase(RenderableResult):
                         location=f"models/datasources/ entry {self.name!r} field {key!r}",
                         repair=repair(
                             kind="environment",
-                            canonical_id="duckdb",
+                            canonical_id=self.backend_type,
                             action="Use the matching *_env datasource field.",
                             snippet=f'{key}_env="<ENV_VAR>"',
                         ),
@@ -475,6 +475,9 @@ class TrinoSpec(_SpecBase):
     catalog: str = field(
         metadata=_description("Trino catalog; mapped to ibis database at connect time.")
     )
+    user_env: str = field(
+        metadata=_description("Required environment variable for the Trino user.")
+    )
     port: int | None = field(
         default=None, metadata=_description("Trino port; ibis default is 8080.")
     )
@@ -491,9 +494,6 @@ class TrinoSpec(_SpecBase):
     )
     session_properties: dict[str, JsonValue] | None = field(
         default=None, metadata=_description("Optional Trino session properties.")
-    )
-    user_env: str | None = field(
-        default=None, metadata=_description("Environment variable for Trino user.")
     )
     auth_env: str | None = field(
         default=None,
@@ -815,6 +815,7 @@ def trino(
     *,
     host: str,
     catalog: str,
+    user_env: str,
     port: int | None = None,
     schema: str | None = None,
     source: str | None = None,
@@ -822,7 +823,6 @@ def trino(
     http_scheme: str | None = None,
     client_tags: tuple[str, ...] | None = None,
     session_properties: dict[str, JsonValue] | None = None,
-    user_env: str | None = None,
     auth_env: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
@@ -833,6 +833,7 @@ def trino(
         name: Global datasource name; letters, digits, underscores, and hyphens only.
         host: Trino coordinator host.
         catalog: Trino catalog; mapped to ibis database at connect time.
+        user_env: Required explicit environment variable for the Trino user.
         port: Trino port; ibis default is 8080.
         schema: Optional default schema.
         source: Optional client application/source tag.
@@ -840,8 +841,6 @@ def trino(
         http_scheme: Set to 'https' for TLS.
         client_tags: Optional Trino client tags.
         session_properties: Optional Trino session properties.
-        user_env: Optional explicit environment variable for the Trino user.
-            When omitted, Marivo passes no user and Ibis applies its default.
         auth_env: Optional explicit environment variable for a Trino auth token
             or password. When omitted, Marivo passes no auth value.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
@@ -875,6 +874,7 @@ def trino(
         name=name,
         host=host,
         catalog=catalog,
+        user_env=user_env,
         port=port,
         schema=schema,
         source=source,
@@ -882,7 +882,6 @@ def trino(
         http_scheme=http_scheme,
         client_tags=client_tags,
         session_properties=session_properties,
-        user_env=user_env,
         auth_env=auth_env,
         ai_context=ai_context,
         extra=extra,

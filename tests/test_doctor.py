@@ -356,7 +356,8 @@ def test_default_doctor_loads_datasources_without_connecting(tmp_path: Path) -> 
     ds_dir.mkdir(parents=True)
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "md.trino(name='warehouse', host='trino.example', catalog='hive', auth_env='TRINO_AUTH')\n",
+        "md.trino(name='warehouse', host='trino.example', catalog='hive', "
+        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
         encoding="utf-8",
     )
 
@@ -380,7 +381,8 @@ def test_default_doctor_ignores_unreferenced_ambient_secrets(
     ds_dir.mkdir(parents=True)
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "md.trino(name='warehouse', host='trino.example', catalog='hive')\n",
+        "md.trino(name='warehouse', host='trino.example', catalog='hive', "
+        "user_env='TRINO_USER')\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("MARIVO_WAREHOUSE_USER", "ambient-user")
@@ -414,7 +416,8 @@ def test_default_doctor_does_not_write_secret_cache(
     ds_dir.mkdir(parents=True)
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "md.trino(name='warehouse', host='trino.example', catalog='hive', auth_env='TRINO_AUTH')\n",
+        "md.trino(name='warehouse', host='trino.example', catalog='hive', "
+        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(Path, "home", lambda: home)
@@ -472,7 +475,8 @@ def test_scoped_doctor_ignores_unrelated_broken_datasource_files(tmp_path: Path)
     ds_dir.mkdir(parents=True)
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "md.trino(name='warehouse', host='trino.example', catalog='hive', auth_env='TRINO_AUTH')\n",
+        "md.trino(name='warehouse', host='trino.example', catalog='hive', "
+        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
         encoding="utf-8",
     )
     ds_dir.joinpath("broken.py").write_text("this is not valid python(\n", encoding="utf-8")
@@ -490,12 +494,14 @@ def test_scoped_doctor_detects_duplicate_datasource_names(tmp_path: Path) -> Non
     ds_dir.mkdir(parents=True)
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "md.trino(name='warehouse', host='trino.example', catalog='hive', auth_env='TRINO_AUTH')\n",
+        "md.trino(name='warehouse', host='trino.example', catalog='hive', "
+        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
         encoding="utf-8",
     )
     ds_dir.joinpath("warehouse_copy.py").write_text(
         "import marivo.datasource as md\n"
-        "md.trino(name='warehouse', host='trino-backup.example', catalog='hive', auth_env='TRINO_AUTH')\n",
+        "md.trino(name='warehouse', host='trino-backup.example', catalog='hive', "
+        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
         encoding="utf-8",
     )
 
@@ -512,12 +518,14 @@ def test_secret_check_ids_are_unique_when_env_var_is_reused(tmp_path: Path) -> N
     ds_dir.mkdir(parents=True)
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "md.trino(name='warehouse', host='trino.example', catalog='hive', auth_env='TRINO_AUTH')\n",
+        "md.trino(name='warehouse', host='trino.example', catalog='hive', "
+        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
         encoding="utf-8",
     )
     ds_dir.joinpath("analytics.py").write_text(
         "import marivo.datasource as md\n"
-        "md.trino(name='analytics', host='trino.example', catalog='hive', auth_env='TRINO_AUTH')\n",
+        "md.trino(name='analytics', host='trino.example', catalog='hive', "
+        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
         encoding="utf-8",
     )
 

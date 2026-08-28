@@ -204,7 +204,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],
-            example='md.trino(name="warehouse", host="trino.example", catalog="hive", auth_env="TRINO_AUTH")',
+            example=(
+                'md.trino(name="warehouse", host="trino.example", catalog="hive", '
+                'user_env="TRINO_USER", auth_env="TRINO_AUTH")'
+            ),
         ),
         _capability(
             "mysql",

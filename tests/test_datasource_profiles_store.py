@@ -109,6 +109,7 @@ def test_save_rejects_plaintext_sensitive_field() -> None:
                 name="wh",
                 host="h",
                 catalog="c",
+                user_env="TRINO_USER",
                 extra={"password": "literal-secret"},
             )
         )
@@ -123,6 +124,7 @@ def test_save_rejects_plaintext_user() -> None:
                 name="wh",
                 host="h",
                 catalog="c",
+                user_env="TRINO_USER",
                 extra={"user": "analytics"},
             )
         )
@@ -136,6 +138,7 @@ def test_save_rejects_plaintext_auth() -> None:
                 name="wh",
                 host="h",
                 catalog="c",
+                user_env="TRINO_USER",
                 extra={"auth": "literal-token"},
             )
         )
@@ -150,6 +153,7 @@ def test_save_allows_json_object_fields() -> None:
             backend_type="trino",
             host="h",
             catalog="c",
+            user_env="TRINO_USER",
             session_properties={"query_max_run_time": "5m"},
         )
     )
@@ -165,6 +169,7 @@ def test_save_rejects_non_json_object_value() -> None:
                 name="wh",
                 host="h",
                 catalog="c",
+                user_env="TRINO_USER",
                 extra={"nested": object()},
             )
         )
@@ -172,7 +177,15 @@ def test_save_rejects_non_json_object_value() -> None:
 
 def test_save_rejects_env_ref_non_string() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        datasource_store.save_one(TrinoSpec(name="wh", host="h", catalog="c", auth_env=""))
+        datasource_store.save_one(
+            TrinoSpec(
+                name="wh",
+                host="h",
+                catalog="c",
+                user_env="TRINO_USER",
+                auth_env="",
+            )
+        )
     assert exc_info.value.location.endswith("field 'auth_env'")
 
 

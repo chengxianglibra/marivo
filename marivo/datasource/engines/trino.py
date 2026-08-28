@@ -42,12 +42,14 @@ from marivo.datasource.strptime import python_to_mysql_strptime
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     import ibis
 
-    host = require_field(name, kwargs, "host")
-    catalog = require_field(name, kwargs, "catalog")
+    host = require_field(name, kwargs, "host", help_target="trino")
+    catalog = require_field(name, kwargs, "catalog", help_target="trino")
+    user = require_field(name, kwargs, "user", help_target="trino")
     connect_kwargs: dict[str, Any] = dict(kwargs)
     connect_kwargs.pop("catalog", None)
     connect_kwargs["host"] = host
     connect_kwargs["database"] = catalog
+    connect_kwargs["user"] = user
     if "client_tags" in kwargs:
         tags: Any = kwargs["client_tags"]
         if isinstance(tags, str):

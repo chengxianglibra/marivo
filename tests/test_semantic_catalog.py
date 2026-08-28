@@ -1214,7 +1214,8 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
                 "md.trino(\n"
-                "    name='warehouse', host='h', catalog='c', auth_env='TRINO_AUTH')\n"
+                "    name='warehouse', host='h', catalog='c', user_env='TRINO_USER', "
+                "auth_env='TRINO_AUTH')\n"
             ),
         }
     )
@@ -1223,9 +1224,10 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
     details = catalog.require(ms.ref.datasource("warehouse")).details()
     assert isinstance(details, DatasourceDetails)
     assert details.fields == {"host": "h", "catalog": "c"}
-    assert details.env_refs == {"auth": "TRINO_AUTH"}
+    assert details.env_refs == {"user": "TRINO_USER", "auth": "TRINO_AUTH"}
     rendered = details.render()
     assert "TRINO_AUTH" in rendered
+    assert "TRINO_USER" in rendered
     assert "plaintext-secret" not in rendered
     assert "auth: TRINO_AUTH" in rendered
 

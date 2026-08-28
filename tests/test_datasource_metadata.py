@@ -638,6 +638,7 @@ def test_inspect_table_trino_adapter_uses_information_schema(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -708,6 +709,7 @@ def test_inspect_table_trino_splits_dotted_database_for_metadata_sql(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
         )
     )
     backend = _FakeBackend(
@@ -772,6 +774,7 @@ def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
         )
     )
     backend = _FakeBackend(
@@ -827,6 +830,7 @@ def test_inspect_table_trino_populates_physical_profile_from_show_stats(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -881,6 +885,7 @@ def test_inspect_table_trino_stats_failure_is_warning_only(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -926,6 +931,7 @@ def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailab
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -975,6 +981,7 @@ def test_inspect_table_trino_detects_view_definition(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -1026,6 +1033,7 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -1072,6 +1080,7 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -1120,6 +1129,7 @@ def test_inspect_table_trino_hive_partitioned_by_from_show_create(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -1174,6 +1184,7 @@ def test_inspect_table_trino_iceberg_partitioning_from_show_create(
             backend_type="trino",
             host="trino.example",
             catalog="iceberg",
+            user_env="TRINO_USER",
             schema="analytics",
         )
     )
@@ -1222,7 +1233,15 @@ def test_inspect_table_trino_without_schema_returns_schema_only(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(_spec("trino_wh", backend_type="trino", host="trino.example", catalog="hive"))
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            user_env="TRINO_USER",
+        )
+    )
     backend = _FakeBackend({"order_id": "int64"}, {})
 
     import marivo.datasource.metadata as metadata_mod
@@ -2118,7 +2137,15 @@ def test_inspect_table_clickhouse_system_tables_fallback(
 def test_inspect_table_trino_short_name_is_not_rejected(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    md.register(_spec("wh", backend_type="trino", host="h", catalog="c"))
+    md.register(
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="h",
+            catalog="c",
+            user_env="TRINO_USER",
+        )
+    )
     backend = _FakeBackend({"order_id": "int64"}, {})
 
     import marivo.datasource.metadata as metadata_mod

@@ -215,14 +215,26 @@ def test_duckdb_http_auth_disconnects_when_secret_configuration_fails(
 
 
 def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("TRINO_AUTH", "shhh")
     datasource = datasource_store.save_one(
-        _spec("wh", backend_type="trino", host="h", catalog="c", auth_env="TRINO_AUTH")
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="h",
+            catalog="c",
+            user_env="TRINO_USER",
+            auth_env="TRINO_AUTH",
+        )
     )
     effective = datasource_backends._effective_kwargs(datasource)
+    assert effective.kwargs["user"] == "reader"
     assert effective.kwargs["auth"] == "shhh"
     assert "auth_env" not in effective.kwargs
-    assert [secret.name for secret in effective.env_sourced_secrets] == ["TRINO_AUTH"]
+    assert [secret.name for secret in effective.env_sourced_secrets] == [
+        "TRINO_USER",
+        "TRINO_AUTH",
+    ]
 
 
 def test_env_ref_resolution_uses_cache_when_env_is_unset(
@@ -232,7 +244,10 @@ def test_env_ref_resolution_uses_cache_when_env_is_unset(
 
     class _CacheProvider:
         def get(self, name: str) -> str | None:
-            return "cached-secret" if name == "TRINO_AUTH" else None
+            return {
+                "TRINO_USER": "cached-user",
+                "TRINO_AUTH": "cached-secret",
+            }.get(name)
 
     monkeypatch.setattr(
         datasource_secrets,
@@ -240,22 +255,38 @@ def test_env_ref_resolution_uses_cache_when_env_is_unset(
         lambda: (_CacheProvider(),),
     )
     datasource = datasource_store.save_one(
-        _spec("wh", backend_type="trino", host="h", catalog="c", auth_env="TRINO_AUTH")
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="h",
+            catalog="c",
+            user_env="TRINO_USER",
+            auth_env="TRINO_AUTH",
+        )
     )
 
     effective = datasource_backends._effective_kwargs(datasource)
 
+    assert effective.kwargs["user"] == "cached-user"
     assert effective.kwargs["auth"] == "cached-secret"
     assert effective.env_sourced_secrets == ()
 
 
 def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.delenv("TRINO_AUTH", raising=False)
     monkeypatch.setattr(
         datasource_secrets, "default_chain", lambda: (datasource_secrets.EnvProvider(),)
     )
     datasource = datasource_store.save_one(
-        _spec("wh", backend_type="trino", host="h", catalog="c", auth_env="TRINO_AUTH")
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="h",
+            catalog="c",
+            user_env="TRINO_USER",
+            auth_env="TRINO_AUTH",
+        )
     )
     with pytest.raises(DatasourceEnvVarMissingError) as exc_info:
         datasource_backends._effective_kwargs(datasource)
@@ -283,6 +314,21 @@ def test_trino_required_field_missing(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_backends.build_backend(datasource)
     assert exc_info.value.expected == "required datasource field 'catalog'"
+    assert exc_info.value.repair.help_target.canonical_id == "trino"
+
+
+def test_trino_resolved_user_missing_fails_before_ibis_connect(project_root: Path) -> None:
+    datasource = _raw_ir(
+        "wh",
+        backend_type="trino",
+        fields={"host": "h", "catalog": "c"},
+    )
+
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
+        datasource_backends.build_backend(datasource)
+
+    assert exc_info.value.expected == "required datasource field 'user'"
+    assert exc_info.value.repair.help_target.canonical_id == "trino"
 
 
 def test_trino_session_properties_pass_through(
@@ -300,6 +346,7 @@ def test_trino_session_properties_pass_through(
         trino = _FakeTrino()
 
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("MARIVO_WH_USER", "ambient-user")
     monkeypatch.setenv("MARIVO_WH_AUTH", "ambient-auth")
     datasource = datasource_store.save_one(
@@ -308,6 +355,7 @@ def test_trino_session_properties_pass_through(
             backend_type="trino",
             host="h",
             catalog="c",
+            user_env="TRINO_USER",
             session_properties={"query_max_run_time": "5m"},
         )
     )
@@ -315,7 +363,7 @@ def test_trino_session_properties_pass_through(
     datasource_backends.build_backend(datasource)
 
     assert captured["session_properties"] == {"query_max_run_time": "5m"}
-    assert "user" not in captured
+    assert captured["user"] == "reader"
     assert "auth" not in captured
 
 
@@ -519,19 +567,26 @@ def test_clickhouse_optional_fields_pass_through(
 def test_effective_kwargs_ignores_unreferenced_ambient_secrets(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("TRINO_USER", "explicit-user")
     monkeypatch.setenv("MARIVO_WAREHOUSE_USER", "ambient-user")
     monkeypatch.setenv("MARIVO_WAREHOUSE_AUTH", "ambient-auth")
     datasource = datasource_store.save_one(
-        _spec("warehouse", backend_type="trino", host="h", catalog="c")
+        _spec(
+            "warehouse",
+            backend_type="trino",
+            host="h",
+            catalog="c",
+            user_env="TRINO_USER",
+        )
     )
 
     effective = datasource_backends._effective_kwargs(datasource)
 
-    assert "user" not in effective.kwargs
+    assert effective.kwargs["user"] == "explicit-user"
     assert "auth" not in effective.kwargs
     assert effective.kwargs["host"] == "h"
     assert effective.kwargs["catalog"] == "c"
-    assert effective.env_sourced_secrets == ()
+    assert [secret.name for secret in effective.env_sourced_secrets] == ["TRINO_USER"]
 
 
 def test_effective_kwargs_resolves_only_explicit_env_refs(

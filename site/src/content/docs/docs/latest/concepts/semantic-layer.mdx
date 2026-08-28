@@ -314,7 +314,7 @@ Backend-specific parameters:
 | `md.sqlite` | — | `path` (default `":memory:"`), `read_only` (default `False`), `type_map` |
 | `md.mysql` | `host`, `database` | `port` (3306), `autocommit`, `user_env`, `password_env` |
 | `md.postgres` | `host`, `database` | `port` (5432), `schema`, `autocommit`, `user_env`, `password_env` |
-| `md.trino` | `host`, `catalog` | `port` (8080), `schema`, `source`, `timezone`, `http_scheme`, `client_tags`, `session_properties`, `user_env`, `auth_env` |
+| `md.trino` | `host`, `catalog`, `user_env` | `port` (8080), `schema`, `source`, `timezone`, `http_scheme`, `client_tags`, `session_properties`, `auth_env` |
 | `md.clickhouse` | `host` | `port` (9000 / 9440 secure), `database`, `secure`, `settings`, `user_env`, `password_env` |
 
 When a returned spec is already in hand, `spec.show()` prints only its declared
@@ -351,6 +351,8 @@ warning but do not fail the successful connection test or analysis execution, an
 Marivo does not fall back to project-local secret storage. Only explicitly declared
 references are resolved: ambient `MARIVO_<DATASOURCE>_<FIELD>` variables are ignored,
 and omitted connection fields are left to the selected Ibis backend.
+Trino is the exception for connection identity: `user_env` is required so the
+username never falls through to an Ibis default. `auth_env` remains optional.
 :::
 
 ```python

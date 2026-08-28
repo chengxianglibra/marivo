@@ -324,7 +324,7 @@ def test_authoring_specs_resolve_to_profiles() -> None:
     specs = (
         DuckDBSpec(name="duck"),
         SQLiteSpec(name="lite"),
-        TrinoSpec(name="tri", host="h", catalog="c"),
+        TrinoSpec(name="tri", host="h", catalog="c", user_env="TRINO_USER"),
         MySQLSpec(name="my", host="h", database="d"),
         PostgresSpec(name="pg", host="h", database="d"),
         ClickHouseSpec(name="ch", host="h"),

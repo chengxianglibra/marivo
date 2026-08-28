@@ -724,7 +724,8 @@ def test_trino_quantile_aggregates_use_approx_quantile(semantic_project_factory)
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                "md.trino(name='warehouse', host='trino.example', catalog='hive')\n"
+                "md.trino(name='warehouse', host='trino.example', catalog='hive', "
+                "user_env='TRINO_USER')\n"
             ),
             "sales/_domain.py": _DOMAIN_PY,
             "sales/latency.py": (

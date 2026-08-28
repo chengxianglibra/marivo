@@ -52,9 +52,12 @@ def _request(
     limit: int,
     order: Literal["asc", "desc"] = "desc",
 ) -> PartitionProbeRequest:
-    ir = TrinoSpec(name="trino_olap", host="trino.example", catalog="hive").to_ir(
-        location=DatasourceSourceLocation(file="<test>", line=1)
-    )
+    ir = TrinoSpec(
+        name="trino_olap",
+        host="trino.example",
+        catalog="hive",
+        user_env="TRINO_USER",
+    ).to_ir(location=DatasourceSourceLocation(file="<test>", line=1))
     return PartitionProbeRequest(
         backend=backend,  # type: ignore[arg-type]
         datasource_ir=ir,

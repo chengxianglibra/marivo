@@ -196,6 +196,48 @@ def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:
     assert ir.env_refs == {"user": "TRINO_USER", "auth": "TRINO_AUTH"}
 
 
+def test_trino_user_env_is_required_by_spec_and_helper() -> None:
+    assert inspect.signature(TrinoSpec).parameters["user_env"].default is inspect.Parameter.empty
+    assert inspect.signature(md.trino).parameters["user_env"].default is inspect.Parameter.empty
+
+    with pytest.raises(TypeError, match="user_env"):
+        TrinoSpec(  # type: ignore[call-arg]
+            name="warehouse",
+            host="trino.example",
+            catalog="hive",
+        )
+
+    with pytest.raises(TypeError, match="user_env"):
+        md.trino(  # type: ignore[call-arg]
+            name="warehouse",
+            host="trino.example",
+            catalog="hive",
+        )
+
+    for invalid_user_env in ("", None):
+        with pytest.raises(DatasourceFieldInvalidError) as exc_info:
+            TrinoSpec(
+                name="warehouse",
+                host="trino.example",
+                catalog="hive",
+                user_env=invalid_user_env,  # type: ignore[arg-type]
+            )
+
+        assert exc_info.value.expected == "a non-empty environment variable name"
+        assert exc_info.value.location.endswith("field 'user_env'")
+        assert exc_info.value.repair.help_target.canonical_id == "trino"
+
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
+        md.trino(
+            name="warehouse",
+            host="trino.example",
+            catalog="hive",
+            user_env=None,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.repair.help_target.canonical_id == "trino"
+
+
 def test_mysql_postgres_and_clickhouse_required_shapes() -> None:
     assert _ir(MySQLSpec(name="mysql_wh", host="mysql.example", database="mart")).fields == {
         "host": "mysql.example",
@@ -222,13 +264,14 @@ def test_unknown_field_raises_native_type_error() -> None:
             name="warehouse",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             prot=8080,
         )
 
 
 def test_empty_required_string_raises_teaching_error() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        TrinoSpec(name="warehouse", host="", catalog="hive")
+        TrinoSpec(name="warehouse", host="", catalog="hive", user_env="TRINO_USER")
 
     assert exc_info.value.location == "models/datasources/ entry 'warehouse' field 'host'"
     assert "non-empty string" in str(exc_info.value)
@@ -254,6 +297,7 @@ def test_extra_rejects_plaintext_sensitive_stems() -> None:
             name="warehouse",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             extra={"password": "literal-secret"},
         )
 
@@ -267,6 +311,7 @@ def test_extra_rejects_non_json_values() -> None:
             name="warehouse",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             extra={"custom_option": object()},
         )
 
@@ -437,12 +482,14 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TRINO_USER", "warehouse-user")
     monkeypatch.setenv("TRINO_AUTH", "super-secret-token")
     md.register(
         TrinoSpec(
             name="warehouse",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             auth_env="TRINO_AUTH",
             ai_context=ms.ai_context(
                 business_definition="Curated warehouse tables.",
@@ -458,7 +505,7 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     assert "warehouse:" in rendered
     assert "backend_type=trino" in rendered
     assert "fields=catalog: hive, host: trino.example" in rendered
-    assert "env_refs=auth_env=TRINO_AUTH" in rendered
+    assert "env_refs=auth_env=TRINO_AUTH, user_env=TRINO_USER" in rendered
     assert "business_definition: Curated warehouse tables." in rendered
     assert "guardrails: Use partition filters." in rendered
     assert ".connect(name)" in rendered
@@ -494,6 +541,7 @@ def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:
                 name="warehouse",
                 host="trino.example",
                 catalog="hive",
+                user_env="TRINO_USER",
                 port=8443,
                 schema="sales",
                 http_scheme="https",

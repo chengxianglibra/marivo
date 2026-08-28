@@ -72,19 +72,28 @@ def test_describe_redacts_secrets(project_root: Path) -> None:
             host="trino.example",
             port=8080,
             catalog="hive",
+            user_env="TRINO_USER",
             auth_env="TRINO_AUTH",
         )
     )
     desc = md.describe("wh")
     assert desc.literal_fields == {"host": "trino.example", "port": 8080, "catalog": "hive"}
-    assert desc.env_refs == {"auth": "TRINO_AUTH"}
+    assert desc.env_refs == {"user": "TRINO_USER", "auth": "TRINO_AUTH"}
 
 
 def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(_spec("wh", backend_type="trino", host="trino.example", catalog="hive"))
+    md.register(
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            user_env="TRINO_USER",
+        )
+    )
 
     class _FakeBackend:
         disconnected = False
@@ -220,9 +229,11 @@ def test_datasource_test_success_persists_env_sourced_secret(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             auth_env="TRINO_AUTH",
         )
     )
+    monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("TRINO_AUTH", "validated-secret")
     persisted: list[tuple[str, str]] = []
 
@@ -243,6 +254,7 @@ def test_datasource_test_success_persists_env_sourced_secret(
     class _FakeTrino:
         @staticmethod
         def connect(**kwargs: object) -> object:
+            assert kwargs["user"] == "reader"
             assert kwargs["auth"] == "validated-secret"
             return _FakeBackend()
 
@@ -255,7 +267,10 @@ def test_datasource_test_success_persists_env_sourced_secret(
 
     assert result.ok is True
     assert result.failure is None
-    assert persisted == [("TRINO_AUTH", "validated-secret")]
+    assert persisted == [
+        ("TRINO_USER", "reader"),
+        ("TRINO_AUTH", "validated-secret"),
+    ]
 
 
 def test_datasource_test_failure_does_not_persist_env_sourced_secret(
@@ -267,9 +282,11 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
+            user_env="TRINO_USER",
             auth_env="TRINO_AUTH",
         )
     )
+    monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("TRINO_AUTH", "bad-secret")
     persisted: list[tuple[str, str]] = []
 

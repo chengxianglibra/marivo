@@ -1224,7 +1224,8 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                'md.trino(name="warehouse", host="h", catalog="c")\n'
+                'md.trino(name="warehouse", host="h", catalog="c", '
+                'user_env="TRINO_USER")\n'
             ),
             "sales/_domain.py": (
                 'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="sales", owner="Mina Zhang", default=True)\n'
@@ -1292,7 +1293,8 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                'md.trino(name="warehouse", host="h", catalog="c")\n'
+                'md.trino(name="warehouse", host="h", catalog="c", '
+                'user_env="TRINO_USER")\n'
             ),
             "sales/_domain.py": (
                 'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="sales", owner="Mina Zhang", default=True)\n'
