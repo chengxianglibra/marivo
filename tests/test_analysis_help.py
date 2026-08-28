@@ -208,15 +208,17 @@ def test_root_help_never_advertises_grouping_topics_as_session_members() -> None
         "session.boundary",
     ):
         assert fake_entrypoint not in text
-    assert 'marivo.help("analysis.recovery")' in text
+    assert 'marivo.help("analysis.recovery")' not in text
+    assert 'marivo.help("analysis.runtime")' in text
     assert 'marivo.help("analysis.artifacts")' in text
 
 
-def test_root_recovery_keeps_only_acquisition_and_grouped_drill_down() -> None:
+def test_root_recovery_keeps_only_acquisition_and_runtime_drill_down() -> None:
     root = _text()
-    recovery = _text("recovery")
+    runtime_sessions = _text("runtime.sessions")
 
     assert "mv.session.get_or_create(...)" in root
+    assert 'marivo.help("analysis.runtime")' in root
     for entrypoint in (
         "mv.session.current()",
         "mv.session.resume(session_id)",
@@ -225,7 +227,7 @@ def test_root_recovery_keeps_only_acquisition_and_grouped_drill_down() -> None:
         "mv.session.delete(name)",
     ):
         assert entrypoint not in root
-        assert entrypoint in recovery
+        assert entrypoint in runtime_sessions
 
 
 def test_session_resume_focused_help_uses_exact_id_contract() -> None:
@@ -240,13 +242,12 @@ def test_session_resume_focused_help_uses_exact_id_contract() -> None:
 
 
 def test_focused_grouping_help_lists_real_members() -> None:
-    recovery = _text("recovery")
-    assert 'Entrypoint: marivo.help("analysis.recovery")' in recovery
-    assert "Members:" in recovery
-    assert "session.get_frame(ref)" in recovery
-    assert "session.recent_jobs(limit=5)" in recovery
-    assert "mv.session.recent()" in recovery
-    assert "mv.session.inspect(name)" in recovery
+    runtime = _text("runtime")
+    assert 'Entrypoint: marivo.help("analysis.runtime")' in runtime
+    for target in ("runtime.sessions", "runtime.artifacts", "runtime.jobs"):
+        assert f'analysis.{target}")' in runtime
+    assert "Session" in runtime
+    assert "evidence" in runtime
 
     artifacts = _text("artifacts")
     assert 'Entrypoint: marivo.help("analysis.artifacts")' in artifacts
@@ -258,6 +259,62 @@ def test_focused_grouping_help_lists_real_members() -> None:
         "artifacts.reading",
     ):
         assert f'analysis.{target}")' in artifacts
+
+
+def test_slice3_evidence_help_preserves_proof_boundaries() -> None:
+    evidence = _text("evidence")
+    browse = _text("evidence.browse")
+    exact = _text("evidence.exact")
+
+    for boundary in ("quality", "compatibility", "revalidation", "source freshness"):
+        assert boundary in evidence
+    for target in (
+        "evidence.browse",
+        "evidence.exact",
+        "session.evidence.compatibility",
+        "session.revalidate",
+        "BaseFrame.show",
+        "BaseFrame.quality_report",
+    ):
+        assert target in evidence
+    assert "healthy empty page" in browse
+    assert "unavailable Evidence store" in browse
+    assert "session.evidence.digests" in browse
+    assert "session.evidence.findings" in browse
+    for target in (
+        "session.evidence.digest",
+        "session.evidence.finding",
+        "session.evidence.trace",
+    ):
+        assert target in exact
+
+
+def test_slice3_runtime_help_routes_exact_persisted_identities() -> None:
+    runtime = _text("runtime")
+    sessions = _text("runtime.sessions")
+    artifacts = _text("runtime.artifacts")
+    jobs = _text("runtime.jobs")
+
+    for identity in ("Session name or id", "Artifact ref", "job id", "Evidence id"):
+        assert identity in runtime
+    for entrypoint in (
+        "mv.session.get_or_create(...)",
+        "mv.session.current()",
+        "mv.session.recent()",
+        "mv.session.inspect(name)",
+        "mv.session.resume(session_id)",
+        "mv.session.delete(name)",
+    ):
+        assert entrypoint in sessions
+    assert "session.frame_summaries()" in artifacts
+    assert "session.get_frame(ref)" in artifacts
+    assert "session.revalidate" in artifacts
+    for entrypoint in (
+        "session.jobs()",
+        "session.recent_jobs(limit=5)",
+        "session.job(job_id)",
+    ):
+        assert entrypoint in jobs
 
 
 def test_event_and_lifecycle_grouping_help_lists_real_members() -> None:
@@ -458,6 +515,17 @@ def test_singleton_method_and_input_contracts_have_no_family_aliases() -> None:
         with pytest.raises(MarivoHelpTargetError):
             _text(removed_topic)
         assert _text(direct_target)
+
+
+def test_slice3_removed_navigation_topics_have_no_alias_fallback() -> None:
+    for removed_topic in ("recovery", "session", "boundary", "sampling"):
+        with pytest.raises(MarivoHelpTargetError):
+            _text(removed_topic)
+
+    boundary = _text("boundary.to_pandas")
+    assert "frame.to_pandas()" in boundary
+    assert "defensive pandas DataFrame copy" in boundary
+    assert "lineage, meta, session_ownership, evidence" in boundary
 
 
 def test_type_algebra_remains_registered_but_is_not_rendered_in_root_help() -> None:

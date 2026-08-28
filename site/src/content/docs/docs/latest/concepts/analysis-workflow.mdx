@@ -952,9 +952,11 @@ prior = mv.session.inspect(history.items[0].name) if history.items else None
 `next_cursor` when `has_more` is true. Pages use ordinary keyset semantics, not
 snapshot isolation.
 
-Use `marivo.help("analysis.recovery")` to list these real Session members. `recovery` and
-`artifacts` are help topics, not `session.recovery` / `session.artifacts`
-namespaces.
+Use `marivo.help("analysis.runtime")` to choose the live recovery page. Read
+`marivo.help("analysis.runtime.artifacts")` for bounded frame discovery and exact
+restoration, and `marivo.help("analysis.evidence")` for persisted Evidence
+discovery and reads. These Help targets are navigation topics; the callable
+members remain the Session APIs shown above.
 
 ## Evidence and audit
 

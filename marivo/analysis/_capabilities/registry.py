@@ -109,7 +109,7 @@ _CURRENT_DISCOVERY_TARGETS: Mapping[RootGroup, tuple[str, ...]] = MappingProxyTy
         ),
         "family_operations": ("transform",),
         "artifact_inspection": ("artifacts",),
-        "recovery": ("session.get_or_create", "recovery"),
+        "recovery": ("session.get_or_create", "runtime"),
         "boundaries": ("boundary.to_pandas",),
     }
 )
@@ -203,7 +203,10 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
         ),
         AnalysisNavigationTopic(
             canonical_id="evidence",
-            summary="Route by the Evidence identity or proof boundary being checked.",
+            summary=(
+                "Route by the Evidence identity or proof boundary being checked; "
+                "quality, compatibility, revalidation, and source freshness remain distinct."
+            ),
             render_class="decision_hub",
             members=(
                 _analysis_target("BaseFrame.show"),
@@ -216,7 +219,10 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
         ),
         AnalysisNavigationTopic(
             canonical_id="runtime",
-            summary="Route to persisted Session, Artifact, job, and Evidence reads.",
+            summary=(
+                "Route persisted identities by Session name or id, Artifact ref, job id, "
+                "and exact Evidence id."
+            ),
             render_class="decision_hub",
             members=(
                 _analysis_target("runtime.sessions"),
@@ -407,6 +413,73 @@ def _slice2_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
             members=(
                 _analysis_target("BaseFrame.show"),
                 _analysis_target("BaseFrame.contract"),
+            ),
+        ),
+    )
+
+
+def _slice3_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
+    """Build explicit multi-member Evidence and runtime navigation."""
+
+    return (
+        AnalysisNavigationTopic(
+            canonical_id="evidence.browse",
+            summary=(
+                "Browse bounded persisted digest or Finding pages; a healthy empty page "
+                "is distinct from an unavailable Evidence store."
+            ),
+            render_class="navigation",
+            members=(
+                _analysis_target("session.evidence.digests"),
+                _analysis_target("session.evidence.findings"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="evidence.exact",
+            summary="Read one exact persisted digest, Finding, or derivation trace by identity.",
+            render_class="navigation",
+            members=(
+                _analysis_target("session.evidence.digest"),
+                _analysis_target("session.evidence.finding"),
+                _analysis_target("session.evidence.trace"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="runtime.sessions",
+            summary=(
+                "Create or locate Sessions by stable name and inspect or resume them by "
+                "immutable session id."
+            ),
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "session.get_or_create",
+                    "session.current",
+                    "session.recent",
+                    "session.inspect",
+                    "session.resume",
+                    "session.delete",
+                )
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="runtime.artifacts",
+            summary="Find persisted Artifact summaries and recover one exact Artifact by ref.",
+            render_class="navigation",
+            members=(
+                _analysis_target("session.frame_summaries"),
+                _analysis_target("session.get_frame"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="runtime.jobs",
+            summary="Inspect bounded job summaries or one exact persisted job by job id.",
+            render_class="navigation",
+            members=(
+                _analysis_target("session.jobs"),
+                _analysis_target("session.recent_jobs"),
+                _analysis_target("session.job"),
             ),
         ),
     )
@@ -688,7 +761,7 @@ def _slice2_artifact_contracts() -> tuple[AnalysisArtifactFamilyContract, ...]:
     )
 
 
-def _slice2_discovery_memberships(
+def _slice3_discovery_memberships(
     navigation_topics: tuple[AnalysisNavigationTopic, ...],
     method_families: tuple[AnalysisMethodFamily, ...],
     artifact_contracts: tuple[AnalysisArtifactFamilyContract, ...],
@@ -740,30 +813,24 @@ def _slice2_discovery_memberships(
                 "artifacts.reading",
             )
         ),
-        "Session": (_analysis_target("Session.render"), _analysis_target("Session.show")),
-        "recovery": tuple(
+        "evidence": tuple(
             _analysis_target(target)
             for target in (
-                "session.get_or_create",
-                "session.current",
-                "session.resume",
-                "session.recent",
-                "session.inspect",
-                "session.delete",
-                "session.jobs",
-                "session.recent_jobs",
-                "session.job",
-                "session.frame_summaries",
-                "session.get_frame",
-                "session.revalidate",
+                "evidence.browse",
+                "evidence.exact",
                 "session.evidence.compatibility",
-                "session.evidence.digests",
-                "session.evidence.findings",
-                "session.evidence.finding",
-                "session.evidence.digest",
-                "session.evidence.trace",
+                "session.revalidate",
             )
         ),
+        "runtime": tuple(
+            _analysis_target(target)
+            for target in (
+                "runtime.sessions",
+                "runtime.artifacts",
+                "runtime.jobs",
+            )
+        ),
+        "Session": (_analysis_target("Session.render"), _analysis_target("Session.show")),
         "analysis": _ROOT_HELP_MEMBERS,
     }
     for owner_id in (
@@ -780,6 +847,11 @@ def _slice2_discovery_memberships(
         "artifacts.discovery_inference",
         "artifacts.quality_projection",
         "artifacts.reading",
+        "evidence.browse",
+        "evidence.exact",
+        "runtime.sessions",
+        "runtime.artifacts",
+        "runtime.jobs",
     ):
         memberships[owner_id] = navigation_by_id[owner_id].members
     for owner_id, family in family_by_id.items():
@@ -788,6 +860,24 @@ def _slice2_discovery_memberships(
         if contract.specialized_member_targets:
             memberships[owner_id] = contract.specialized_member_targets
     return MappingProxyType(memberships)
+
+
+def _slice3_cross_links() -> Mapping[str, tuple[LiveHelpTarget, ...]]:
+    """Return explicit proof-boundary and recovery links for Slice 3."""
+
+    return MappingProxyType(
+        {
+            "evidence": (
+                _analysis_target("BaseFrame.show"),
+                _analysis_target("BaseFrame.quality_report"),
+            ),
+            "runtime": (
+                _analysis_target("Session"),
+                _analysis_target("evidence"),
+            ),
+            "runtime.artifacts": (_analysis_target("session.revalidate"),),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1114,26 +1204,6 @@ class TypeAlgebraRow:
             else self.output_contract
         )
         return f"{sources_text} -> {self.help_target} -> {output}{suffix}"
-
-
-# ---------------------------------------------------------------------------
-# Grouping descriptors (queryable but not invokable)
-# ---------------------------------------------------------------------------
-
-
-def _make_grouping_descriptor(
-    topic: str,
-    summary: str,
-) -> ConstructorCapability:
-    """Create a non-invokable grouping descriptor for a collapsed topic."""
-    return ConstructorCapability(
-        id=topic,
-        public_entrypoint=f'marivo.help("analysis.{topic}")',
-        help_target=topic,
-        summary=summary,
-        callable_path=None,
-        output_type="",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1670,6 +1740,7 @@ def _build_registry() -> CapabilityRegistry:
     root_navigation_topics = _root_navigation_topics()
     root_navigation_by_id = {topic.canonical_id: topic for topic in root_navigation_topics}
     slice2_navigation_topics = _slice2_navigation_topics()
+    slice3_navigation_topics = _slice3_navigation_topics()
     slice2_method_families = _slice2_method_families()
     slice2_artifact_contracts = _slice2_artifact_contracts()
 
@@ -3466,33 +3537,12 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
-    # -- Grouping descriptors (non-invokable) -----------------------------
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "session",
-            "Analysis session lifecycle and persistence helpers.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "recovery",
-            "Cross-script session, frame, and job recovery helpers.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "boundary",
-            "Typed-flow boundary crossings.",
-        )
-    )
-
     descriptors.extend(
-        root_navigation_by_id[target] for target in ("methods", "inputs", "artifacts")
+        root_navigation_by_id[target]
+        for target in ("methods", "inputs", "artifacts", "evidence", "runtime")
     )
     descriptors.extend(slice2_navigation_topics)
+    descriptors.extend(slice3_navigation_topics)
     descriptors.extend(slice2_method_families)
     descriptors.extend(slice2_artifact_contracts)
 
@@ -3500,14 +3550,23 @@ def _build_registry() -> CapabilityRegistry:
 
     return _finalize_registry(
         tuple(descriptors),
-        navigation_topics=(*root_navigation_topics, *slice2_navigation_topics),
+        navigation_topics=(
+            *root_navigation_topics,
+            *slice2_navigation_topics,
+            *slice3_navigation_topics,
+        ),
         method_families=slice2_method_families,
         artifact_contracts=slice2_artifact_contracts,
-        discovery_memberships=_slice2_discovery_memberships(
-            (*root_navigation_topics, *slice2_navigation_topics),
+        discovery_memberships=_slice3_discovery_memberships(
+            (
+                *root_navigation_topics,
+                *slice2_navigation_topics,
+                *slice3_navigation_topics,
+            ),
             slice2_method_families,
             slice2_artifact_contracts,
         ),
+        explicit_cross_links=_slice3_cross_links(),
         root_members=_ROOT_HELP_MEMBERS,
     )
 
@@ -3537,6 +3596,7 @@ def _finalize_registry(
     method_families: tuple[AnalysisMethodFamily, ...] = (),
     artifact_contracts: tuple[AnalysisArtifactFamilyContract, ...] = (),
     discovery_memberships: Mapping[str, tuple[LiveHelpTarget, ...]] = MappingProxyType({}),
+    explicit_cross_links: Mapping[str, tuple[LiveHelpTarget, ...]] = MappingProxyType({}),
     root_members: tuple[LiveHelpTarget, ...] = (),
     render_budgets: Mapping[
         AnalysisHelpRenderClass,
@@ -3628,6 +3688,7 @@ def _finalize_registry(
     cross_links = _derive_cross_links(
         help_descriptors=help_descriptors,
         method_families=method_families,
+        explicit_cross_links=explicit_cross_links,
         discovery_owners=discovery_owners,
         producer_edges=artifact_producer_edges,
         consumer_edges=artifact_consumer_edges,
@@ -3821,6 +3882,7 @@ def _derive_cross_links(
     *,
     help_descriptors: tuple[AnalysisHelpDescriptor, ...],
     method_families: tuple[AnalysisMethodFamily, ...],
+    explicit_cross_links: Mapping[str, tuple[LiveHelpTarget, ...]],
     discovery_owners: Mapping[str, LiveHelpTarget],
     producer_edges: Mapping[ArtifactFamily, tuple[ArtifactProducerEdge, ...]],
     consumer_edges: Mapping[ArtifactFamily, tuple[ArtifactConsumerEdge, ...]],
@@ -3845,6 +3907,8 @@ def _derive_cross_links(
             )
     for family in method_families:
         add(family.canonical_id, (*family.input_routes, *family.output_routes))
+    for owner_id, targets in explicit_cross_links.items():
+        add(owner_id, targets)
 
     add(
         "artifacts.reading",
@@ -4117,7 +4181,7 @@ def _validate_discovery_memberships(
     memberships: Mapping[str, tuple[LiveHelpTarget, ...]],
     known_analysis_targets: set[str],
 ) -> None:
-    """Require one explicit owner for every ordinary Slice 2 target."""
+    """Require one explicit owner for every ordinary progressive-help target."""
 
     owners = _invert_discovery_memberships(memberships)
     valid_owners = known_analysis_targets | set(PUBLIC_OBJECT_CONTRACTS) | {"analysis"}

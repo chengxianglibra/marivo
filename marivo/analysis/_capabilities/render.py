@@ -1537,7 +1537,7 @@ def _cumulative_composition_briefing(composition: object) -> list[str]:
 def _descriptor_render_budget(
     descriptor: AnalysisHelpDescriptor,
 ) -> tuple[AnalysisHelpRenderClass, tuple[LiveHelpTarget, ...], int] | None:
-    """Return the active Slice 2 render contract for one descriptor."""
+    """Return the active progressive render contract for one descriptor."""
 
     if isinstance(descriptor, AnalysisNavigationTopic):
         return (

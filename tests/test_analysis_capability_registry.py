@@ -135,13 +135,10 @@ def test_native_root_topology_has_six_hubs_and_one_exact_terminal_edge() -> None
     assert REGISTRY.by_id("boundary.to_pandas") is REGISTRY.by_callable(BaseFrame.to_pandas)
 
 
-def test_slice2_focused_topology_is_active_without_switching_the_root() -> None:
+def test_slice3_focused_topology_is_active_without_switching_the_root() -> None:
     assert "entry" not in REGISTRY.canonical_ids()
-    assert "methods" in REGISTRY.canonical_ids()
-    assert "inputs" in REGISTRY.canonical_ids()
-    assert "evidence" not in REGISTRY.canonical_ids()
-    assert "runtime" not in REGISTRY.canonical_ids()
-    assert "artifacts" in REGISTRY.canonical_ids()
+    for target in ("methods", "inputs", "artifacts", "evidence", "runtime"):
+        assert target in REGISTRY.canonical_ids()
 
 
 def test_runtime_registry_iteration_contains_exact_capabilities_only() -> None:
@@ -304,6 +301,13 @@ def test_slice2_discovery_owners_are_explicit_and_unique() -> None:
         "SamplingPolicy": "inputs",
         "MetricFrame": "artifacts.metric_change",
         "MetricFrame.coverage": "MetricFrame",
+        "session.evidence.compatibility": "evidence",
+        "session.revalidate": "evidence",
+        "session.evidence.digests": "evidence.browse",
+        "session.evidence.trace": "evidence.exact",
+        "session.get_or_create": "runtime.sessions",
+        "session.get_frame": "runtime.artifacts",
+        "session.job": "runtime.jobs",
         "boundary.to_pandas": "analysis",
     }
     for target, owner in expected.items():
@@ -338,6 +342,73 @@ def test_slice2_family_membership_is_exact_and_ordered() -> None:
     assert tuple(
         target.canonical_id for target in REGISTRY.discovery_members("artifacts.reading")
     ) == ("BaseFrame.show", "BaseFrame.contract")
+
+
+def test_slice3_evidence_and_runtime_membership_is_exact_and_ordered() -> None:
+    expected = {
+        "evidence": (
+            "evidence.browse",
+            "evidence.exact",
+            "session.evidence.compatibility",
+            "session.revalidate",
+        ),
+        "evidence.browse": (
+            "session.evidence.digests",
+            "session.evidence.findings",
+        ),
+        "evidence.exact": (
+            "session.evidence.digest",
+            "session.evidence.finding",
+            "session.evidence.trace",
+        ),
+        "runtime": ("runtime.sessions", "runtime.artifacts", "runtime.jobs"),
+        "runtime.sessions": (
+            "session.get_or_create",
+            "session.current",
+            "session.recent",
+            "session.inspect",
+            "session.resume",
+            "session.delete",
+        ),
+        "runtime.artifacts": ("session.frame_summaries", "session.get_frame"),
+        "runtime.jobs": ("session.jobs", "session.recent_jobs", "session.job"),
+    }
+    for owner, members in expected.items():
+        assert tuple(target.canonical_id for target in REGISTRY.discovery_members(owner)) == members
+
+
+def test_slice3_cross_links_are_explicit_immutable_and_budgeted() -> None:
+    assert tuple(target.canonical_id for target in REGISTRY.cross_links("evidence")) == (
+        "BaseFrame.show",
+        "BaseFrame.quality_report",
+    )
+    assert tuple(target.canonical_id for target in REGISTRY.cross_links("runtime")) == (
+        "Session",
+        "evidence",
+    )
+    assert tuple(target.canonical_id for target in REGISTRY.cross_links("runtime.artifacts")) == (
+        "session.revalidate",
+    )
+
+    for owner in (
+        "evidence",
+        "evidence.browse",
+        "evidence.exact",
+        "runtime",
+        "runtime.sessions",
+        "runtime.artifacts",
+        "runtime.jobs",
+    ):
+        descriptor = REGISTRY.by_help_target(owner)
+        routes = {
+            (target.surface, target.canonical_id)
+            for target in (*descriptor.members, *REGISTRY.cross_links(owner))
+        }
+        budget = REGISTRY.render_budget(descriptor.render_class)
+        assert len(routes) <= budget.max_outgoing_routes
+
+    with pytest.raises(TypeError):
+        REGISTRY.cross_link_index["evidence"] = ()  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
@@ -1455,41 +1526,52 @@ def test_help_and_help_text_registered() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_grouping_descriptors_exist() -> None:
+def test_native_navigation_descriptors_exist() -> None:
     for topic in (
-        "session",
         "catalog",
         "discover",
         "transform",
         "events",
         "lifecycle",
-        "recovery",
-        "boundary",
         "artifacts",
+        "evidence",
+        "evidence.browse",
+        "evidence.exact",
+        "runtime",
+        "runtime.sessions",
+        "runtime.artifacts",
+        "runtime.jobs",
     ):
         desc = REGISTRY.by_help_target(topic)
-        assert desc is not None, f"missing grouping descriptor for {topic}"
+        assert desc is not None, f"missing navigation descriptor for {topic}"
 
 
-def test_grouping_descriptors_are_not_invokable() -> None:
-    """Grouping descriptors must not have a callable_path."""
+def test_native_navigation_descriptors_are_not_invokable() -> None:
     for topic in (
-        "session",
         "catalog",
         "discover",
         "transform",
         "events",
         "lifecycle",
-        "recovery",
-        "boundary",
         "artifacts",
+        "evidence",
+        "evidence.browse",
+        "evidence.exact",
+        "runtime",
+        "runtime.sessions",
+        "runtime.artifacts",
+        "runtime.jobs",
     ):
         desc = REGISTRY.by_help_target(topic)
-        assert desc.callable_path is None, f"{topic} grouping must not be invokable"
-        if isinstance(desc, (AnalysisNavigationTopic, AnalysisMethodFamily)):
-            assert desc.public_entrypoint is None
-        else:
-            assert desc.public_entrypoint == f'marivo.help("analysis.{topic}")'
+        assert desc.callable_path is None, f"{topic} navigation must not be invokable"
+        assert isinstance(desc, (AnalysisNavigationTopic, AnalysisMethodFamily))
+        assert desc.public_entrypoint is None
+
+
+def test_slice3_removed_navigation_topics_have_no_descriptors() -> None:
+    for topic in ("session", "recovery", "boundary", "sampling"):
+        with pytest.raises(KeyError):
+            REGISTRY.by_help_target(topic)
 
 
 def test_registry_rejects_type_variant_drift(monkeypatch: pytest.MonkeyPatch) -> None:
