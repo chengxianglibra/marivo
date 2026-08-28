@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from marivo.introspection.live.model import SURFACE_LIMITS
-from marivo.introspection.live.render import enforce_budget
-
 
 def _bounded(text: str) -> str:
-    return enforce_budget(
+    from marivo.semantic._capabilities.render import enforce_semantic_help_budget
+
+    return enforce_semantic_help_budget(
         text,
-        max_lines=SURFACE_LIMITS.focused_help_max_lines,
-        max_codepoints=SURFACE_LIMITS.focused_help_max_codepoints,
+        render_class="current_briefing",
+        examples_or_snippets=0,
     )
 
 

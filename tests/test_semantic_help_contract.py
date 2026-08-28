@@ -27,10 +27,12 @@ def _text(target: object | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_root_help_contains_surface_label_and_capabilities_section() -> None:
+def test_root_help_contains_surface_label_and_progressive_sections() -> None:
     text = _text()
     assert "marivo.semantic" in text
-    assert "Capabilities:" in text
+    assert "Start:" in text
+    assert "Discover authoring contracts:" in text
+    assert "Current catalog:" in text
     assert _SEMANTIC_IMPORT in text
     assert _DATASOURCE_IMPORT not in text
 
@@ -176,8 +178,8 @@ def test_source_health_help_discloses_conditional_data_access_and_independence()
     checks = _text("source_check")
     checks_by_object = _text(ms.source_check)
 
-    assert "Runtime probes" in root
-    assert "Verify and preview" not in root
+    assert 'marivo.help("semantic.checks")' in root
+    assert "source_health" not in root
     assert "live_metadata_or_scoped_data_read" in health
     assert "scope_required_for_declared_data_checks" in health
     assert "without changing readiness" in health
@@ -267,17 +269,17 @@ def test_help_lists_authoring_topic() -> None:
 def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     text = _text("authoring")
     assert "authoring" in text
-    assert "Coherent-slice checkpoint" in text
     assert "dependency-coherent slice" in text
     assert "readiness" in text
     assert "Preview only when" in text
-    assert "first typed analysis use" in text
-    assert "not already settled by a current authority" in text
+    assert "never settles unresolved business meaning" in text
     assert "semantic.ready" not in text
     assert "verify" not in text
     assert "models/datasources/<datasource>.py" in text
     assert "models/semantic/<domain>/_domain.py" in text
     assert "entry = catalog.require(ms.ref.<kind>('<canonical identity>'))" in text
+    for target in ("objects", "builders", "checks"):
+        assert f'marivo.help("semantic.{target}")' in text
     assert _DATASOURCE_IMPORT not in text
     assert _SEMANTIC_IMPORT in text
 

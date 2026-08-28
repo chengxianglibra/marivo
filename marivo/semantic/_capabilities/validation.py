@@ -6,28 +6,19 @@ import ast
 import inspect
 import re
 from collections.abc import Callable
-from typing import Literal, cast
+from typing import cast
 
 from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.registry import (
-    ERROR_TYPES,
     INPUT_FAMILIES,
     OUTPUT_FAMILIES,
     REGISTRY,
     TYPE_CONTRACTS,
 )
 from marivo.semantic.constraints import CONSTRAINTS
-
-_ROOT_GROUP_LABELS = {
-    "browse_load": "Browse and load",
-    "author_families": "Author by object family",
-    "runtime_probes": "Runtime probes",
-    "readiness": "Readiness",
-    "diagnostics_boundaries": "Diagnostics and boundaries",
-}
 
 _RETURN_FAMILY_ALIASES = {
     "Ref[DomainKind]": "Ref[domain]",
@@ -272,27 +263,17 @@ def validate_semantic_live_surface() -> None:
         assert source_contract.path_template.startswith("models/semantic/")
         assert source_contract.canonical_identity_template.startswith("<domain>")
 
-    group_names: tuple[
-        Literal[
-            "browse_load",
-            "author_families",
-            "runtime_probes",
-            "readiness",
-            "diagnostics_boundaries",
-        ],
-        ...,
-    ] = (
-        "browse_load",
-        "author_families",
-        "runtime_probes",
-        "readiness",
-        "diagnostics_boundaries",
-    )
-    group_members = tuple(member for group in group_names for member in REGISTRY.group(group))
-    group_ids = tuple(member.canonical_id for member in group_members)
-    assert len(group_ids) == len(set(group_ids))
-    assert set(group_ids) <= set(canonical_ids)
-    assert set(REGISTRY.discovery_ids()) <= set(group_ids)
+    root_routes = tuple(target for section in REGISTRY.root_sections for target in section.members)
+    assert len(root_routes) == len(set(root_routes))
+    assert len(root_routes) <= REGISTRY.render_budget("root").max_outgoing_routes
+    assert set(REGISTRY.discovery_ids()) <= set(canonical_ids)
+    for help_descriptor in REGISTRY.help_descriptors:
+        assert (
+            len(REGISTRY.routes(help_descriptor.canonical_id))
+            <= REGISTRY.render_budget(
+                REGISTRY.render_class(help_descriptor.canonical_id)
+            ).max_outgoing_routes
+        )
 
     for contract in TYPE_CONTRACTS.values():
         assert all(
@@ -303,28 +284,6 @@ def validate_semantic_live_surface() -> None:
             _is_registered_semantic_target(target)
             for target in (*contract.producers, *contract.consumers)
         )
-    root_text = "\n".join(
-        (
-            *(
-                "\n".join(
-                    (
-                        _ROOT_GROUP_LABELS[group],
-                        *(
-                            f"{descriptor.canonical_id}: {descriptor.summary}"
-                            for descriptor in REGISTRY.group(group)
-                        ),
-                    )
-                )
-                for group in group_names
-            ),
-            "Consumed types and errors: "
-            + ", ".join(
-                (*tuple(contract.name for contract in TYPE_CONTRACTS.values()), *ERROR_TYPES)
-            ),
-        )
-    )
-    assert root_text.count("\n") + 1 <= SURFACE_LIMITS.root_help_max_lines
-    assert len(root_text) <= SURFACE_LIMITS.root_help_max_codepoints
     for canonical_id in tuple(descriptor.canonical_id for descriptor in REGISTRY.descriptors):
         focused_text = _focused_budget_text(canonical_id)
         assert focused_text.count("\n") + 1 <= SURFACE_LIMITS.focused_help_max_lines

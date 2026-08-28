@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from typing import TYPE_CHECKING
 
 from marivo._authoring.model import AuthoringCapability
@@ -10,19 +11,22 @@ from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.introspection.live.render import enforce_budget, render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
+from marivo.semantic._capabilities.model import (
+    SemanticBuilderTopic,
+    SemanticCheckTopic,
+    SemanticNavigationTopic,
+    SemanticObjectContract,
+    SemanticObjectIndexEntry,
+)
 from marivo.semantic._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.semantic.constraints import iter_constraints
 
 if TYPE_CHECKING:
-    from marivo.semantic._capabilities.model import SemanticHelpDescriptor, SemanticTypeContract
-
-_GROUPS = (
-    ("browse_load", "Browse and load"),
-    ("author_families", "Author by object family"),
-    ("runtime_probes", "Runtime probes"),
-    ("readiness", "Readiness"),
-    ("diagnostics_boundaries", "Diagnostics and boundaries"),
-)
+    from marivo.semantic._capabilities.model import (
+        SemanticHelpDescriptor,
+        SemanticHelpRenderClass,
+        SemanticTypeContract,
+    )
 
 _DATASOURCE_IMPORT = "import marivo.datasource as md"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
@@ -45,28 +49,85 @@ def _bounded(text: str, *, root: bool = False) -> str:
     )
 
 
+_HELP_CALL_RE = re.compile(
+    r'marivo\.help\("(analysis|datasource|semantic|ontology)\.'
+    r'([A-Za-z_][A-Za-z0-9_.]*)"\)'
+)
+
+
+def _rendered_help_targets(text: str) -> tuple[LiveHelpTarget, ...]:
+    """Return unique canonical routes actually advertised by one page."""
+
+    return tuple(
+        dict.fromkeys(
+            LiveHelpTarget(surface=surface, canonical_id=canonical_id)
+            for surface, canonical_id in _HELP_CALL_RE.findall(text)
+        )
+    )
+
+
+def enforce_semantic_help_budget(
+    text: str,
+    *,
+    render_class: SemanticHelpRenderClass,
+    examples_or_snippets: int,
+) -> str:
+    """Enforce every dimension of one semantic-owned render budget."""
+
+    budget = REGISTRY.render_budget(render_class)
+    routes = _rendered_help_targets(text)
+    if len(routes) > budget.max_outgoing_routes:
+        raise RuntimeError(
+            "semantic help exceeds its registered outgoing-route budget: "
+            f"{len(routes)} > {budget.max_outgoing_routes}"
+        )
+    if examples_or_snippets > budget.max_examples_or_snippets:
+        raise RuntimeError(
+            "semantic help exceeds its registered example/snippet budget: "
+            f"{examples_or_snippets} > {budget.max_examples_or_snippets}"
+        )
+    return enforce_budget(
+        text,
+        max_lines=budget.max_lines,
+        max_codepoints=budget.max_codepoints,
+    )
+
+
 def _target_text(target: LiveHelpTarget) -> str:
     return target.canonical_id or target.surface
 
 
-def _with_python_imports(text: str) -> str:
+def _with_python_imports(
+    text: str,
+    *,
+    render_class: SemanticHelpRenderClass,
+    examples_or_snippets: int,
+) -> str:
     """Make a focused semantic help page executable from a cold start."""
+    from marivo.introspection.live.model import EnvironmentFingerprint
+
     imports = [_MARIVO_IMPORT, _SEMANTIC_IMPORT]
     if "md." in text:
         imports.insert(0, _DATASOURCE_IMPORT)
     if "mv." in text:
         imports.insert(0, _ANALYSIS_IMPORT)
     lines = text.splitlines()
-    return _bounded(
+    rendered = _bounded(
         "\n".join(
             (
                 lines[0],
+                f"  Marivo: {EnvironmentFingerprint.current().marivo_version}",
                 "  Python imports:",
                 *(f"    {statement}" for statement in imports),
                 "",
                 *lines[1:],
             )
         )
+    )
+    return enforce_semantic_help_budget(
+        rendered,
+        render_class=render_class,
+        examples_or_snippets=examples_or_snippets,
     )
 
 
@@ -80,7 +141,7 @@ def _constraints(descriptor: AuthoringCapability) -> tuple[str, ...]:
 
 
 def render_root_help() -> str:
-    """Render the semantic root index with its exact environment fingerprint."""
+    """Render the compact semantic root from registry-owned sections."""
     from marivo.introspection.live.model import EnvironmentFingerprint
 
     lines = [
@@ -89,75 +150,170 @@ def render_root_help() -> str:
         "",
         "Python imports:",
         f"  {_SEMANTIC_IMPORT}",
-        "",
-        "Capabilities:",
     ]
-    for group, label in _GROUPS:
-        descriptors = REGISTRY.group(group)  # type: ignore[arg-type]
-        if not descriptors:
-            continue
-        lines.append(f"  {label}:")
-        for descriptor in descriptors:
-            lines.append(f"    {descriptor.canonical_id:<34} {descriptor.summary}")
+    routes: list[LiveHelpTarget] = []
+    for section in REGISTRY.root_sections:
+        lines.extend(("", f"{section.label}:"))
+        for target in section.members:
+            target_id = target.canonical_id
+            if target_id is None:
+                raise RuntimeError("semantic root route requires a canonical id")
+            routes.append(target)
+            lines.append(f'  {target_id:<18} marivo.help("{target.surface}.{target_id}")')
     lines.extend(
         (
             "",
-            "Identity handoff: pass a current CatalogEntry directly to preview, "
-            "source health, readiness, or qualifying analysis APIs; use entry.ref or "
-            "ms.ref.<kind>(path) for persisted, configured, or already-known identity.",
-            "",
-            'Call marivo.help("semantic.<target>") for a capability, public type, result, or semantic error.',
+            'Call marivo.help("semantic.<target>") for one exact contract.',
         )
     )
-    return _bounded("\n".join(lines), root=True)
-
-
-def _render_authoring(descriptor: AuthoringCapability) -> str:
-    route_groups = (
-        ("domain", ("domain",)),
-        ("entity", ("entity",)),
-        (
-            "direct fields",
-            ("dimension_column", "time_dimension_column", "measure_column"),
-        ),
-        ("aggregate metrics", ("where", "count", "aggregate")),
-        ("load and scoped readiness", ("load", "readiness")),
-        ("targeted runtime probes", ("preview", "source_health")),
+    rendered = "\n".join(lines)
+    if tuple(dict.fromkeys(routes)) != tuple(routes):
+        raise RuntimeError("semantic root contains duplicate routes")
+    if _rendered_help_targets(rendered) != tuple(routes):
+        raise RuntimeError("semantic root rendered routes drift from its registry sections")
+    return enforce_semantic_help_budget(
+        rendered,
+        render_class="root",
+        examples_or_snippets=0,
     )
+
+
+def _route_list(targets: tuple[LiveHelpTarget, ...]) -> str:
+    return ", ".join(_help_invocation(target) for target in targets)
+
+
+def _render_navigation_topic(
+    descriptor: SemanticNavigationTopic,
+    *,
+    render_class: SemanticHelpRenderClass,
+) -> str:
+    """Render one registry-owned semantic decision or navigation page."""
+
+    lines = [descriptor.canonical_id, f"  {descriptor.summary}"]
+    if render_class == "decision_hub":
+        lines.extend(
+            (
+                "",
+                "  Source layout:",
+                "    models/datasources/<datasource>.py",
+                "    models/semantic/<domain>/_domain.py",
+                "    models/semantic/<domain>/<module>.py",
+                "",
+                "  Author one dependency-coherent slice, then load once:",
+                "    catalog = ms.load()",
+                "    entry = catalog.require(ms.ref.<kind>('<canonical identity>'))",
+                "    catalog.readiness(refs=[entry]).show()",
+            )
+        )
+
+    object_entries = tuple(
+        member for member in descriptor.members if isinstance(member, SemanticObjectIndexEntry)
+    )
+    if object_entries:
+        lines.extend(("", "  Relationship overview:"))
+        object_targets = {entry.target for entry in object_entries}
+        for entry in object_entries:
+            contract = entry.contract
+            relationships = tuple(
+                f"{relationship.relation} {relationship.target.display}"
+                for relationship in contract.relationships
+                if relationship.target in object_targets
+            )
+            if relationships:
+                lines.append(f"    {contract.semantic_kind.value}: " + "; ".join(relationships))
+
+    lines.extend(("", f"  {descriptor.member_heading}:"))
+    for member in descriptor.members:
+        summary = f": {member.summary} ->" if member.summary is not None else ":"
+        lines.append(f"    {member.label}{summary} {_help_invocation(member.target)}")
+    if render_class == "decision_hub":
+        lines.extend(
+            (
+                "",
+                "  Help never settles unresolved business meaning from physical evidence.",
+                "  Preview only when it answers a concrete runtime risk.",
+            )
+        )
+    return _bounded("\n".join(lines))
+
+
+def _render_builder_topic(descriptor: SemanticBuilderTopic) -> str:
     lines = [
-        "authoring",
-        f"  {descriptor.summary}",
+        descriptor.canonical_id,
+        f"  {descriptor.label}: {descriptor.summary}",
         "",
-        "  Source layout:",
-        "    models/datasources/<datasource>.py",
-        "    models/semantic/<domain>/_domain.py",
-        "    models/semantic/<domain>/<module>.py",
-        "",
-        "  Coherent-slice checkpoint:",
-        "    catalog = ms.load()",
-        "    entry = catalog.require(ms.ref.<kind>('<canonical identity>'))",
-        "    report = catalog.readiness(refs=[entry])",
-        "",
-        "  Minimal focused-help routing:",
-        '    datasource -> marivo.help("datasource.authoring")',
+        "  Exact builders:",
+        *(f"    {_help_invocation(target)}" for target in descriptor.members),
     ]
-    for label, canonical_ids in route_groups:
-        targets = tuple(
-            REGISTRY.by_canonical_id(canonical_id).canonical_id for canonical_id in canonical_ids
-        )
-        lines.append(
-            f"    {label} -> "
-            + ", ".join(f'marivo.help("semantic.{target}")' for target in targets)
+    return _bounded("\n".join(lines))
+
+
+def _render_check_topic(descriptor: SemanticCheckTopic) -> str:
+    lines = [descriptor.canonical_id, f"  {descriptor.summary}", "", "  Proof routing:"]
+    for route in descriptor.routes:
+        lines.extend(
+            (
+                f"    Question: {route.question}",
+                f"      Route: {_route_list(route.targets)}",
+                f"      Proves: {route.proves}",
+                f"      Does not prove: {route.does_not_prove}",
+            )
         )
     lines.extend(
         (
             "",
-            "  Author one dependency-coherent slice before loading; ms.load() owns project-level static validation.",
-            "  Preview only when it answers a concrete runtime risk.",
-            "  Before first typed analysis use, stop only for unresolved business meaning not already settled by a current authority.",
-            '  Continue datasource authoring with marivo.help("datasource.authoring").',
+            "  load success != readiness != preview success != source health",
+            "  source health != operation-shaped analysis execution",
         )
     )
+    return _bounded("\n".join(lines))
+
+
+def _render_object_contract(descriptor: SemanticObjectContract) -> str:
+    lines = [
+        descriptor.canonical_id,
+        f"  Meaning: {descriptor.summary}",
+        "",
+        "  Identity:",
+        f"    output: Ref[{descriptor.semantic_kind.value}]",
+        f"    forward/cross-file: {_help_invocation(descriptor.ref_target)}",
+        f"    placement: {descriptor.placement_kind}",
+        f"    catalog: catalog.{descriptor.catalog_collection}",
+        "",
+        "  Decide before authoring:",
+    ]
+    for decision in descriptor.decisions:
+        lines.append(f"    - {decision.question}")
+        guidance = f"basis={decision.basis}; determine from: {decision.determine_from}"
+        if decision.does_not_establish is not None:
+            guidance += f" Does not establish: {decision.does_not_establish}"
+        if decision.encoding_status == "supported":
+            guidance += f" Encode with: {_route_list(decision.next_targets)}"
+        else:
+            guidance += f" Unsupported: {decision.unsupported_reason}"
+        lines.append(f"      {guidance}")
+
+    lines.extend(("", "  Construction modes:"))
+    lines.extend(
+        f"    {mode.role}: {mode.intent} -> {_help_invocation(mode.target)}"
+        for mode in descriptor.construction_modes
+    )
+    if descriptor.relationships:
+        lines.extend(("", "  Relationships:"))
+        lines.extend(
+            f"    {relationship.relation}: {_help_invocation(relationship.target)}; "
+            f"{relationship.explanation}"
+            for relationship in descriptor.relationships
+        )
+    if descriptor.supporting_targets:
+        lines.extend(
+            (
+                "",
+                f"  Supporting builders: {_route_list(descriptor.supporting_targets)}",
+            )
+        )
+    if descriptor.check_targets:
+        lines.extend(("", f"  Applicable checks: {_route_list(descriptor.check_targets)}"))
     return _bounded("\n".join(lines))
 
 
@@ -179,8 +335,6 @@ def _render_boundary(descriptor: AuthoringCapability) -> str:
 
 
 def _render_descriptor(descriptor: AuthoringCapability) -> str:
-    if descriptor.canonical_id == "authoring":
-        return _render_authoring(descriptor)
     if descriptor.canonical_id == "ref":
         return _render_factory_descriptor(descriptor, "ref")
     if descriptor.canonical_id == "source_check":
@@ -272,9 +426,7 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if consumers:
         lines.append("  Consumers: " + ", ".join(consumers))
     if descriptor.see_also:
-        lines.append(
-            "  See also: " + ", ".join(_target_text(target) for target in descriptor.see_also)
-        )
+        lines.append("  See also: " + _route_list(descriptor.see_also))
     return _bounded("\n".join(lines))
 
 
@@ -464,21 +616,59 @@ def render_help_target(
 ) -> str:
     """Render a resolved semantic target without invoking runtime operations."""
     if resolved.kind == "descriptor" and resolved.descriptor is not None:
-        if not isinstance(resolved.descriptor, AuthoringCapability):
-            raise RuntimeError(
-                f"unsupported semantic Help descriptor: {type(resolved.descriptor).__name__}"
+        descriptor = resolved.descriptor
+        if isinstance(descriptor, AuthoringCapability):
+            rendered = _render_descriptor(descriptor)
+            examples = int(descriptor.minimal_example is not None)
+        elif isinstance(descriptor, SemanticNavigationTopic):
+            rendered = _render_navigation_topic(
+                descriptor,
+                render_class=REGISTRY.render_class(descriptor.canonical_id),
             )
-        return _with_python_imports(_render_descriptor(resolved.descriptor))
+            examples = 0
+        elif isinstance(descriptor, SemanticBuilderTopic):
+            rendered = _render_builder_topic(descriptor)
+            examples = 0
+        elif isinstance(descriptor, SemanticCheckTopic):
+            rendered = _render_check_topic(descriptor)
+            examples = 0
+        elif isinstance(descriptor, SemanticObjectContract):
+            rendered = _render_object_contract(descriptor)
+            examples = 0
+        else:
+            raise RuntimeError(f"unsupported semantic Help descriptor: {type(descriptor).__name__}")
+        return _with_python_imports(
+            rendered,
+            render_class=REGISTRY.render_class(descriptor.canonical_id),
+            examples_or_snippets=examples,
+        )
     if resolved.kind == "type_contract" and resolved.type_name is not None:
-        return _with_python_imports(_render_type(resolved.type_name, original_target))
+        return _with_python_imports(
+            _render_type(resolved.type_name, original_target),
+            render_class="exact_contract",
+            examples_or_snippets=0,
+        )
     if resolved.kind == "reference_briefing" and resolved.reference_id is not None:
         if resolved.original is None:
             raise RuntimeError("reference_briefing requires original target")
-        return _with_python_imports(_render_reference(resolved.reference_id, resolved.original))
+        return _with_python_imports(
+            _render_reference(resolved.reference_id, resolved.original),
+            render_class="current_briefing",
+            examples_or_snippets=0,
+        )
     if resolved.kind == "error_contract" and resolved.error_name is not None:
-        return _with_python_imports(_render_error_contract(resolved.error_name))
+        return _with_python_imports(
+            _render_error_contract(resolved.error_name),
+            render_class="exact_contract",
+            examples_or_snippets=0,
+        )
     if resolved.kind == "error_briefing" and resolved.error_name is not None:
         if resolved.original is None:
             raise RuntimeError("error_briefing requires original target")
-        return _with_python_imports(_render_error_briefing(resolved.error_name, resolved.original))
+        repair = getattr(resolved.original, "repair", None)
+        return _with_python_imports(
+            _render_error_briefing(resolved.error_name, resolved.original),
+            render_class="current_briefing",
+            examples_or_snippets=int(getattr(repair, "snippet", None) is not None),
+        )
     raise RuntimeError(f"unsupported semantic help resolution: {resolved.kind}")

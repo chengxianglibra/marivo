@@ -310,21 +310,22 @@ def test_global_authoring_composition_topic_wins_over_native_duplicates() -> Non
     "target",
     ("semantic.objects", "semantic.builders", "semantic.checks"),
 )
-def test_semantic_slice1_navigation_targets_are_not_publicly_active(target: str) -> None:
-    with pytest.raises(MarivoHelpTargetError):
-        route_help_target(target)
+def test_semantic_slice3_navigation_targets_are_publicly_active(target: str) -> None:
+    route = route_help_target(target)
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "semantic"
 
 
-def test_global_authoring_routes_exploration_and_exact_project_catalog_reads() -> None:
+def test_global_authoring_routes_to_surface_owned_decision_hubs() -> None:
     text = _text("authoring")
 
-    assert "Inspect authoritative metadata before asking for physical facts" in text
-    assert "optional bounded sampling" in text
-    assert "governed raw SQL" in text
-    assert "datasource_catalog = md.load()" in text
-    assert "semantic_catalog = ms.load()" in text
-    assert "Full public capability maps:" in text
+    assert "Physical source definitions and evidence" in text
+    assert "Executable reusable business semantics" in text
+    assert "Optional non-executable contextual relations" in text
+    assert "marivo.help(result_or_error)" in text
+    assert "does not establish" in text
     for owner in ("datasource", "semantic", "ontology"):
+        assert f'marivo.help("{owner}.authoring")' in text
         assert f'marivo.help("{owner}")' in text
 
 
