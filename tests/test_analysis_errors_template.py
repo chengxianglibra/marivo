@@ -283,7 +283,7 @@ def test_no_backend_factory_renders_repair_snippet() -> None:
     assert "datasource='tiny_orders' resolved to None or a non-ibis object" in rendered
     assert "md.register" in rendered
     assert "@ms.datasource" not in rendered
-    assert "Help: marivo.help('analysis.datasources')" in rendered
+    assert "Help: marivo.help('datasource.register')" in rendered
 
 
 def test_no_backend_factory_without_context_uses_session_backend_template() -> None:
@@ -307,4 +307,4 @@ def test_no_backend_factory_without_context_uses_session_backend_template() -> N
     assert "backend_factory=" in rendered
     assert "repair_choice" in rendered
     compile(err.repair.snippet or "", "<no-backend-factory-repair>", "exec")
-    assert "Help: marivo.help('analysis.datasources')" in rendered
+    assert "Help: marivo.help('analysis.runtime.sessions')" in rendered

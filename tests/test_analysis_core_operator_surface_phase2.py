@@ -49,7 +49,17 @@ def test_top_level_analysis_no_longer_exports_scratch_or_promotion_types() -> No
 
 
 def test_help_default_operator_surface_is_phase2_core() -> None:
-    text = rendered_help(owner="analysis")
+    root = rendered_help(owner="analysis")
+    text = "\n".join(
+        (
+            rendered_help("methods", owner="analysis"),
+            rendered_help("methods.change", owner="analysis"),
+            rendered_help("methods.relationship_testing", owner="analysis"),
+        )
+    )
+
+    for hub in ("entry", "methods", "inputs", "artifacts", "evidence", "runtime"):
+        assert f'marivo.help("analysis.{hub}")' in root
 
     for expected in (
         "observe",
@@ -61,6 +71,8 @@ def test_help_default_operator_surface_is_phase2_core() -> None:
         "forecast",
     ):
         assert expected in text
+
+    assert "observe" not in root
 
     for removed in (
         "measure",
@@ -78,6 +90,7 @@ def test_help_default_operator_surface_is_phase2_core() -> None:
         "from_pandas",
         "explore_ibis",
     ):
+        assert removed not in root
         assert removed not in text
 
 

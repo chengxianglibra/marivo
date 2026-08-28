@@ -264,7 +264,7 @@ def classify_input_family(value: object) -> str:
                 "Pass a typed Marivo artifact, semantic catalog object/ref, "
                 "alignment policy, sampling policy, or time scope."
             ),
-            help_target=LiveHelpTarget(surface="analysis", canonical_id="help"),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="inputs"),
         ),
     )
 

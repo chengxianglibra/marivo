@@ -1003,7 +1003,9 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                         "that includes removed field(s). Re-run observe() to "
                         "regenerate the frame under the current contract."
                     ),
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id="runtime.artifacts"
+                    ),
                 ),
             ) from exc
         raise FrameMetaInvalidError(
@@ -1016,7 +1018,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     "validation. Inspect the persisted artifact; if it is stale, "
                     "re-run the producing intent to regenerate it."
                 ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.artifacts"),
             ),
             context={
                 "ref": ref,
@@ -1210,7 +1212,9 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                         "hash. Re-run the producing intent to regenerate the "
                         "frame."
                     ),
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id="runtime.artifacts"
+                    ),
                 ),
                 context={
                     "ref": ref,

@@ -14,12 +14,15 @@ from marivo.analysis.errors import (
     AttributionResolutionError,
     AttributionShapeUnavailableError,
     BackendError,
+    ComponentFrameUnavailableError,
     CrossBackendMetricError,
     CrossSessionFrameError,
     DimensionFieldNotFoundError,
     DuplicateSessionNameError,
+    FrameCacheCorruptedError,
     FrameMetaInvalidError,
     FrameMutationError,
+    FrameReadError,
     FrameRefNotFound,
     HelpTargetError,
     MetricNotFoundError,
@@ -27,6 +30,7 @@ from marivo.analysis.errors import (
     NoBackendFactoryError,
     SemanticKindMismatchError,
     SessionStateError,
+    SessionTimezoneConflict,
     SliceAmbiguousError,
     SliceEmptyResultError,
     SliceInvalidError,
@@ -116,6 +120,81 @@ def test_analysis_repair_defaults() -> None:
     )
     assert repair.snippet is None
     assert repair.candidates == ()
+
+
+@pytest.mark.parametrize(
+    ("error", "surface", "canonical_id"),
+    (
+        (FrameReadError(message="unbounded read"), "analysis", "artifacts.reading"),
+        (
+            FrameCacheCorruptedError(
+                message="cache corrupted",
+                context={"ref": "frame_a", "cause": "missing parquet"},
+            ),
+            "analysis",
+            "runtime.artifacts",
+        ),
+        (
+            NoBackendFactoryError(message="missing backend", context={"session_id": "s1"}),
+            "analysis",
+            "runtime.sessions",
+        ),
+        (
+            NoBackendFactoryError(
+                message="missing backend",
+                context={"datasource": "warehouse"},
+            ),
+            "datasource",
+            "register",
+        ),
+        (
+            SessionTimezoneConflict(
+                message="timezone conflict",
+                context={"persisted_report_tz": "UTC", "requested_report_tz": "Asia/Shanghai"},
+            ),
+            "analysis",
+            "runtime.sessions",
+        ),
+        (
+            SemanticKindMismatchError(
+                message="wrong semantic shape",
+                context={
+                    "frame_kind": "MetricFrame",
+                    "got_semantic_shape": "scalar",
+                    "expected_semantic_shape": "time_series",
+                },
+            ),
+            "analysis",
+            "artifacts.reading",
+        ),
+        (
+            ComponentFrameUnavailableError(
+                message="missing component sidecar",
+                context={"parent_kind": "metric_frame", "component_ref": "component_a"},
+            ),
+            "analysis",
+            "observe",
+        ),
+        (
+            ComponentFrameUnavailableError(
+                message="missing component sidecar",
+                context={"parent_kind": "delta_frame", "component_ref": "component_a"},
+            ),
+            "analysis",
+            "compare",
+        ),
+    ),
+)
+def test_progressive_repair_targets_are_exact(
+    error: AnalysisError,
+    surface: str,
+    canonical_id: str,
+) -> None:
+    assert error.repair is not None
+    assert error.repair.help_target == LiveHelpTarget(
+        surface=surface,  # type: ignore[arg-type]
+        canonical_id=canonical_id,
+    )
 
 
 @pytest.mark.parametrize(

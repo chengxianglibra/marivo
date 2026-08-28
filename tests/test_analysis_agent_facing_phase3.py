@@ -1,9 +1,4 @@
-"""Phase 3 analysis help contract tests.
-
-The old ``workflow`` help topic has been replaced by the capability-registry
-renderer.  The root help now teaches the default surface directly; see
-``tests/test_analysis_help.py`` for the current invariants.
-"""
+"""Progressive analysis Help contract tests."""
 
 from __future__ import annotations
 
@@ -20,11 +15,20 @@ CORE_OPERATORS = (
 )
 
 
-def test_root_help_teaches_core_operators() -> None:
-    text = rendered_help(owner="analysis")
+def test_methods_hub_reaches_core_operators_without_root_inventory() -> None:
+    root = rendered_help(owner="analysis")
+    text = "\n".join(
+        (
+            rendered_help("methods", owner="analysis"),
+            rendered_help("methods.change", owner="analysis"),
+            rendered_help("methods.relationship_testing", owner="analysis"),
+        )
+    )
 
     for operator in CORE_OPERATORS:
         assert operator in text, operator
+        assert operator not in root
 
-    assert "recommend" not in text.lower()
+    assert 'marivo.help("analysis.methods")' in root
+    assert "recommend" not in root.lower()
     assert "decompose" not in text

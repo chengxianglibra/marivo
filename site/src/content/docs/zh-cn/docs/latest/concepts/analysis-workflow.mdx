@@ -65,14 +65,12 @@ import marivo.semantic as ms
 Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。doctor 报告中的版本号、Python
 可执行路径、包路径和项目状态构成环境指纹。进入分析时只需验证一次该指纹。此后优先使用手中
 已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的组合操作前读取 `.contract()`。
-可以用 `marivo.help("analysis")` 打开分析索引；其中包含
-一条从获取 session、`marivo.help(metric)` 检查当前指标、限定范围的 readiness 门禁，
-到 `session.observe(...)` 和 `frame.show()` 的首次观测路径。用
-`marivo.help("analysis.events")` 或 `marivo.help("analysis.lifecycle")` 浏览已注册
-命名空间的真实成员；支持策略家族分别通过 `marivo.help("analysis.alignment")` 和
-`marivo.help("analysis.sampling")` 发现。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询
-`marivo.help("analysis.observe")`、`marivo.help("analysis.compare")`、
-`marivo.help("analysis.MetricFrame")` 等专项主题。
+可以用 `marivo.help("analysis")` 打开紧凑分析索引，然后通过六个 hub 之一继续：
+`analysis.entry`、`analysis.methods`、`analysis.inputs`、`analysis.artifacts`、
+`analysis.evidence` 或 `analysis.runtime`。根页面还公开精确的终端 leaf
+`analysis.boundary.to_pandas`；离开类型化分析前先阅读它。只有当对象契约不足，或第一次
+使用不熟悉的能力时，才查询 `marivo.help("analysis.observe")`、
+`marivo.help("analysis.compare")`、`marivo.help("analysis.MetricFrame")` 等专项主题。
 失败后按照结构化修复指引继续。每个专项帮助主题都自包含一次正确的最小调用：
 `Prerequisites` 路由带 family 的输入，`Parameter construction` 则把每个非 family
 的构造值或闭合取值路由到精确的下一步 `marivo.help(...)` target；但它不是每次 API

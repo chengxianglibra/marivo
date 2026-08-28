@@ -18,23 +18,12 @@ from typing import Literal
 from marivo.introspection.live.model import LiveHelpTarget
 
 # ---------------------------------------------------------------------------
-# Closed vocabulary: capability kinds, legacy root groups, and families
+# Closed vocabulary: capability kinds and families
 # ---------------------------------------------------------------------------
 
 CapabilityKind = Literal["operator", "constructor", "read", "recovery", "boundary"]
 
 AuthorityPolicy = Literal["semantic_current", "materialized_only"]
-
-RootGroup = Literal[
-    "semantic_inputs",
-    "policies_builders",
-    "artifact_production",
-    "typed_analysis",
-    "family_operations",
-    "artifact_inspection",
-    "recovery",
-    "boundaries",
-]
 
 ArtifactFamily = Literal[
     "MetricFrame",
@@ -513,19 +502,8 @@ AnalysisHelpDescriptor = (
 
 
 # ---------------------------------------------------------------------------
-# Teaching-order and family vocabulary constants
+# Family vocabulary constants
 # ---------------------------------------------------------------------------
-
-ROOT_GROUP_ORDER: tuple[RootGroup, ...] = (
-    "semantic_inputs",
-    "policies_builders",
-    "artifact_production",
-    "typed_analysis",
-    "family_operations",
-    "artifact_inspection",
-    "recovery",
-    "boundaries",
-)
 
 ARTIFACT_FAMILIES: tuple[ArtifactFamily, ...] = (
     "MetricFrame",

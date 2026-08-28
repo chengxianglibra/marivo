@@ -80,8 +80,11 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "lifecycle.replay",
         "select_subjects",
         "transform",
-        "datasources",
-        "artifacts",
+        "catalog.readiness",
+        "artifacts.reading",
+        "artifacts.quality_projection",
+        "runtime.artifacts",
+        "runtime.sessions",
         "boundary.to_pandas",
         "alignment",
         "runtime_metric",
@@ -92,9 +95,6 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
 
     # Every canonical target must resolve in the registry.
     for target in canonical_targets:
-        if target == "datasources":
-            # This cross-surface legacy target is tracked independently.
-            continue
         try:
             REGISTRY.by_help_target(target)
         except KeyError:

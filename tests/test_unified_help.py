@@ -32,6 +32,7 @@ from marivo.analysis._capabilities.model import (
 )
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
+from marivo.analysis.constraints import iter_constraints
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
@@ -339,6 +340,23 @@ def test_slice3_active_guidance_uses_live_canonical_recovery_targets() -> None:
         assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id(canonical_id)
 
 
+def test_slice5_active_guidance_uses_the_same_progressive_topology_in_both_locales() -> None:
+    targets = (
+        "analysis.entry",
+        "analysis.methods",
+        "analysis.inputs",
+        "analysis.artifacts",
+        "analysis.evidence",
+        "analysis.runtime",
+        "analysis.boundary.to_pandas",
+    )
+
+    for path in _SLICE3_ACTIVE_GUIDANCE:
+        text = path.read_text()
+        for target in targets:
+            assert target in text
+
+
 def test_slice3_bounded_target_projections_resolve_independently() -> None:
     for owner in (
         "evidence",
@@ -360,17 +378,48 @@ def test_slice3_bounded_target_projections_resolve_independently() -> None:
 
 
 @pytest.mark.parametrize(
-    "target",
+    ("target", "replacement"),
     (
-        "analysis.recovery",
-        "analysis.session",
-        "analysis.boundary",
-        "analysis.sampling",
+        ("analysis.recovery", "analysis.runtime.artifacts"),
+        ("analysis.session", "analysis.runtime.sessions"),
+        ("analysis.boundary", "analysis.boundary.to_pandas"),
+        ("analysis.sampling", "analysis.SamplingPolicy"),
     ),
 )
-def test_slice3_removed_qualified_navigation_targets_do_not_resolve(target: str) -> None:
-    with pytest.raises(MarivoHelpTargetError):
+def test_slice3_removed_qualified_navigation_targets_do_not_resolve(
+    target: str,
+    replacement: str,
+) -> None:
+    with pytest.raises(MarivoHelpTargetError) as captured:
         route_help_target(target)
+    assert replacement in captured.value.candidates
+
+
+def test_every_analysis_constraint_help_target_resolves() -> None:
+    forbidden = {"help", "datasources", "recovery", "session", "boundary", "sampling"}
+
+    for constraint in iter_constraints():
+        target = constraint.help_target
+        if target is None:
+            continue
+        assert target not in forbidden
+        route = route_help_target(f"analysis.{target}")
+        assert isinstance(route, NativeHelpRoute)
+        assert route.owner == "analysis"
+
+
+def test_default_analysis_error_repairs_resolve_on_their_declared_surface() -> None:
+    for error_type in dict.fromkeys(ANALYSIS_LIVE_SURFACE.error_types.values()):
+        if "message" not in inspect.signature(error_type).parameters:
+            continue
+        error = error_type(message="repair resolution audit")
+        if error.repair is None:
+            continue
+        target = error.repair.help_target
+        qualified = target.surface
+        if target.canonical_id is not None:
+            qualified = f"{qualified}.{target.canonical_id}"
+        route_help_target(qualified)
 
 
 def test_type_and_error_names_remain_exactly_resolvable() -> None:

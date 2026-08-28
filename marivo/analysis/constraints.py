@@ -117,6 +117,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Verify refs are ready with session.catalog.readiness(refs=[metric]) before observe; analysis APIs do not invoke readiness automatically.",
         "Readiness surfaces authoring and evidence blockers up-front as an explicit decision; analysis does not perform this verification on your behalf.",
         "Run session.catalog.readiness(refs=[metric]) and inspect report.show(); observe only ready refs.",
+        help_target="catalog.readiness",
     ),
     ConstraintId.WINDOW_ABSOLUTE_PARSEABLE: _constraint(
         ConstraintId.WINDOW_ABSOLUTE_PARSEABLE,
@@ -444,7 +445,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Frame read helpers enforce bounded inspection arguments.",
         "Help and show APIs should stay small enough for agents and terminals.",
         "Use frame.show() for bounded inspection, or frame.to_pandas() for terminal custom analysis.",
-        help_target="artifacts",
+        help_target="artifacts.reading",
     ),
     ConstraintId.FRAME_META_INVALID: _constraint(
         ConstraintId.FRAME_META_INVALID,
@@ -462,7 +463,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Frame metadata must match the current analysis-artifact schema.",
         "Persisted metadata records schema, semantic shape, and identity; stale or corrupt metadata cannot produce a typed frame.",
         "Read the Location line on this error against the current schema; when the Location names a frame ref, inspect the artifact's meta.json on disk. Then re-run the producing intent or delete the stale artifact so it is regenerated.",
-        help_target="artifacts",
+        help_target="runtime.artifacts",
     ),
     ConstraintId.BACKEND_FACTORY_CONFIGURED: _constraint(
         ConstraintId.BACKEND_FACTORY_CONFIGURED,
@@ -472,7 +473,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Materializing analysis intents need a configured ibis backend factory.",
         "Observe and related intents need a live backend to compile and execute semantic metrics.",
         "Register the real project datasource and resume the same session by id, or resume it with an explicit backend override.",
-        help_target="datasources",
+        help_target="runtime.sessions",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_CONFIGURED: _constraint(
@@ -483,7 +484,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Named datasources must exist before analysis runtime lookup.",
         "Datasource-backed sessions resolve semantic source refs through persisted datasource metadata.",
         "Register the datasource with md.register(...) before creating or attaching the session.",
-        help_target="datasources",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_ENV_AVAILABLE: _constraint(
@@ -494,7 +494,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Datasource secret environment variables must be available at runtime.",
         "The datasource contract stores secret references, not plaintext credentials.",
         "Export the referenced environment variable or validate it with md.test(...), which attempts to cache it.",
-        help_target="datasources",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_BACKEND_SUPPORTED: _constraint(
@@ -505,7 +504,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Datasource backend_type must have a registered backend adapter.",
         "The analysis runtime can only create ibis connections for supported datasource backend types.",
         "Use a supported backend_type or add an adapter before relying on datasource auto-loading.",
-        help_target="datasources",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.SOURCE_BINDINGS_EXACT: _constraint(
@@ -527,7 +525,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Observed MetricFrames require a persisted recursive component graph.",
         "Every graph root retains evaluator, child-role, quality, coverage, presentation, and governed-leaf lineage state.",
         "Re-run session.observe(...) when component_ref is absent or its ComponentFrame cannot be loaded.",
-        help_target="artifacts",
+        help_target="artifacts.quality_projection",
     ),
     ConstraintId.ATTRIBUTION_ADDITIVITY_COMPATIBLE: _constraint(
         ConstraintId.ATTRIBUTION_ADDITIVITY_COMPATIBLE,

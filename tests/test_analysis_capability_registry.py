@@ -20,7 +20,6 @@ import pytest
 from marivo.analysis._capabilities import (
     ANALYSIS_HELP_RENDER_BUDGETS,
     ARTIFACT_FAMILIES,
-    ROOT_GROUP_ORDER,
     AnalysisArtifactFamilyContract,
     AnalysisHelpDescriptor,
     AnalysisHelpRenderBudget,
@@ -37,7 +36,6 @@ from marivo.analysis._capabilities import (
     OperatorCapability,
     ReadCapability,
     RecoveryCapability,
-    RootGroup,
     SameAsInputFamily,
 )
 from marivo.analysis._capabilities.model import ArtifactConsumerEdge, HelpExample
@@ -46,40 +44,18 @@ from marivo.analysis._contract_budget import ARTIFACT_CONTRACT_RENDER_BUDGET
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget, SurfaceLimits
 
 # ---------------------------------------------------------------------------
-# Root groups
+# Progressive root
 # ---------------------------------------------------------------------------
 
-EXPECTED_ROOT_GROUPS = (
-    "semantic_inputs",
-    "policies_builders",
-    "artifact_production",
-    "typed_analysis",
-    "family_operations",
-    "artifact_inspection",
-    "recovery",
-    "boundaries",
+EXPECTED_ROOT_TARGETS = (
+    "entry",
+    "methods",
+    "inputs",
+    "artifacts",
+    "evidence",
+    "runtime",
+    "boundary.to_pandas",
 )
-
-
-def test_root_group_order_has_eight_groups() -> None:
-    assert len(ROOT_GROUP_ORDER) == 8
-
-
-def test_root_group_order_matches_expected_teaching_order() -> None:
-    assert ROOT_GROUP_ORDER == EXPECTED_ROOT_GROUPS
-
-
-def test_policy_families_have_explicit_discovery_topics() -> None:
-    discovery_ids = REGISTRY.discovery_ids()
-
-    assert "alignment" in discovery_ids
-    assert "SamplingPolicy" in discovery_ids
-    assert "day_of_week" not in discovery_ids
-    assert "sampling" not in discovery_ids
-
-
-def test_root_group_order_has_no_duplicates() -> None:
-    assert len(set(ROOT_GROUP_ORDER)) == len(ROOT_GROUP_ORDER)
 
 
 def test_exact_capabilities_do_not_own_root_placement() -> None:
@@ -88,26 +64,14 @@ def test_exact_capabilities_do_not_own_root_placement() -> None:
     assert "root_group" not in field_names
     assert "root_visibility" not in field_names
     assert "root_summary" not in field_names
-    assert tuple(group for group, _members in REGISTRY.discovery_groups()) == ROOT_GROUP_ORDER
 
 
-def test_root_group_order_matches_render_labels() -> None:
-    """The renderer's group labels and the teaching order must stay in sync.
-    A label key that is not in ``ROOT_GROUP_ORDER`` (or vice versa) would either
-    render a header with no members or leave a group untitled; both point at a
-    group-removal edit that forgot one of the two sources."""
-    from marivo.analysis._capabilities.render import _GROUP_LABELS
+def test_root_discovery_projection_is_the_final_bounded_topology() -> None:
+    from marivo.analysis._capabilities.render import _ROOT_ROUTE_LABELS
 
-    assert set(ROOT_GROUP_ORDER) == set(_GROUP_LABELS)
-
-
-def test_root_group_literal_matches_order() -> None:
-    """The ``RootGroup`` literal must equal the teaching order exactly. A stale
-    member left in the literal (the historical ``session_state`` drift) has no
-    runtime consumer to trip over, so narrowing the literal was previously
-    caught only by mypy — but widening it (keeping a removed group) passes
-    every gate unless this contract pins the two sets equal."""
-    assert set(get_args(RootGroup)) == set(ROOT_GROUP_ORDER)
+    assert REGISTRY.discovery_ids() == EXPECTED_ROOT_TARGETS
+    assert tuple(target.canonical_id for target in REGISTRY.root_members) == EXPECTED_ROOT_TARGETS
+    assert tuple(_ROOT_ROUTE_LABELS) == EXPECTED_ROOT_TARGETS
 
 
 def test_native_root_topology_has_six_hubs_and_one_exact_terminal_edge() -> None:
@@ -121,25 +85,20 @@ def test_native_root_topology_has_six_hubs_and_one_exact_terminal_edge() -> None
         "evidence",
         "runtime",
     )
-    assert tuple(target.canonical_id for target in REGISTRY.root_members) == (
-        "entry",
-        "methods",
-        "inputs",
-        "artifacts",
-        "evidence",
-        "runtime",
-        "boundary.to_pandas",
-    )
+    assert tuple(target.canonical_id for target in REGISTRY.root_members) == EXPECTED_ROOT_TARGETS
     assert all(topic.render_class == "decision_hub" for topic in REGISTRY.navigation_topics[:6])
     assert all(topic.public_entrypoint is None for topic in REGISTRY.navigation_topics)
     assert all(topic.callable_path is None for topic in REGISTRY.navigation_topics)
     assert REGISTRY.by_id("boundary.to_pandas") is REGISTRY.by_callable(BaseFrame.to_pandas)
 
 
-def test_slice3_focused_topology_is_active_without_switching_the_root() -> None:
-    assert "entry" not in REGISTRY.canonical_ids()
-    for target in ("methods", "inputs", "artifacts", "evidence", "runtime"):
+def test_final_progressive_topology_is_active() -> None:
+    for target in ("entry", "methods", "inputs", "artifacts", "evidence", "runtime"):
         assert target in REGISTRY.canonical_ids()
+    methods = REGISTRY.navigation_topic("methods")
+    assert tuple(target.canonical_id for target in methods.members)[5] == (
+        "BaseFrame.quality_report"
+    )
 
 
 def test_runtime_registry_iteration_contains_exact_capabilities_only() -> None:
@@ -609,22 +568,10 @@ def test_registry_additional_examples_are_owned_by_bounded_capabilities_only() -
         if descriptor.additional_examples
     }
     assert tuple(owners) == (
-        "observe",
-        "events.match",
-        "lifecycle.replay",
-        "lifecycle.distribution",
-        "compare",
-        "attribute",
-        "correlate",
         "MetricFrame.coverage",
         "AttributionFrame.at_resolution",
     )
-    assert len(owners["observe"]) == 2
-    assert len(owners["events.match"]) == 3
-    assert len(owners["lifecycle.replay"]) == 2
-    assert len(owners["lifecycle.distribution"]) == 1
     assert len(owners["AttributionFrame.at_resolution"]) == 1
-    assert len(owners["correlate"]) == 1
     assert len(owners["MetricFrame.coverage"]) == 1
 
 
@@ -793,7 +740,6 @@ _KERNEL_TYPE_NAMES = [
     "AnalysisHelpRenderClass",
     "EpistemicKind",
     "ANALYSIS_HELP_RENDER_BUDGETS",
-    "ROOT_GROUP_ORDER",
     "ARTIFACT_FAMILIES",
 ]
 
