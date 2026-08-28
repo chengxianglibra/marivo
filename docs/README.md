@@ -19,7 +19,7 @@ The maintained documentation describes the Python-native Marivo library only.
   in the same directory — operators and frames, session state and runtime, the
   evidence access surface, and timezone and calendar alignment.
 - [`specs/temporal-semantics.md`](specs/temporal-semantics.md) -
-  proposed cross-layer contract for built-in and fiscal periods, certified
+  current cross-layer contract for built-in and fiscal periods, certified
   calendar authority, named scopes, event intervals, work schedules, and
   alignment policy.
 

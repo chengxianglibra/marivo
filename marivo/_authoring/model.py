@@ -63,6 +63,7 @@ class AuthoringInputRequirement(BaseModel):
     family: str
     subject_refs: tuple[str, ...] = ()
     exact_keys: tuple[str, ...] = ()
+    parameter_names: tuple[str, ...] = ()
     min_count: int = 1
     max_count: int | None = 1
 
@@ -101,6 +102,7 @@ AuthoringCapabilityKind = Literal[
     "boundary",
     "recovery",
 ]
+AuthoringInvocationShape = Literal["direct", "decorator"]
 
 
 class AuthoringCapability(BaseModel):
@@ -122,6 +124,7 @@ class AuthoringCapability(BaseModel):
     minimal_example: str | None = None
     see_also: tuple[LiveHelpTarget, ...] = ()
     repair_kinds: tuple[RepairKind, ...] = ()
+    invocation_shape: AuthoringInvocationShape = "direct"
 
     @property
     def live_target(self) -> LiveHelpTarget:

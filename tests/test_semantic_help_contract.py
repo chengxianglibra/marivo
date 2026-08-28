@@ -80,8 +80,9 @@ def test_help_text_entity_contains_signature_and_example() -> None:
     assert "Example:" in text
     assert "Declaration fragment; execute only when ms.load()" in text
     assert "Source path: models/semantic/<domain>/<module>.py" in text
-    assert 'marivo.help("semantic.domain")' in text
-    assert 'marivo.help("datasource.authoring")' in text
+    assert "dependency: Ref[datasource] (parameters: datasource)" in text
+    assert "dependency: TableName (parameters: source)" in text
+    assert "Prerequisite help:" not in text
     assert "entry = catalog.entities.get('<domain>.<entity>')" in text
     assert "entry.show()" in text
     assert "catalog.readiness(refs=[entry]).show()" in text
@@ -182,10 +183,10 @@ def test_source_health_help_discloses_conditional_data_access_and_independence()
     assert "without changing readiness" in health
     assert "Declaration fragment" not in health
     assert "not_null" in checks
-    assert "allowed_values(field_ref, values=(...))" in checks
-    assert "freshness(time_dimension_ref, max_age=timedelta(...))" in checks
+    assert 'marivo.help("semantic.source_check.allowed_values")' in checks
+    assert 'marivo.help("semantic.source_check.freshness")' in checks
     assert "relationship_cardinality" in checks
-    assert checks_by_object == checks.replace("source_check", "SourceCheckNamespace", 1)
+    assert checks_by_object == checks
 
 
 def test_time_dimension_column_help_inlines_parse_selection() -> None:

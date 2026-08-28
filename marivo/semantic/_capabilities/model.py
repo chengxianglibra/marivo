@@ -173,7 +173,6 @@ class AuthoringSourceContract:
 
     placement_kind: AuthoringPlacementKind
     path_template: str
-    prerequisite_targets: tuple[LiveHelpTarget, ...]
     catalog_collection: str
     canonical_identity_template: str
 
@@ -213,6 +212,7 @@ class SemanticCapabilityRegistry:
     _by_callable_path: Mapping[str, AuthoringCapability]
     _source_contracts: Mapping[str, AuthoringSourceContract]
     _repair_contracts: Mapping[str, SemanticRepairContract]
+    _object_contracts: tuple[SemanticObjectContract, ...]
     _render_classes: Mapping[str, SemanticHelpRenderClass]
     _render_budgets: Mapping[SemanticHelpRenderClass, SemanticHelpRenderBudget]
 
@@ -227,6 +227,20 @@ class SemanticCapabilityRegistry:
         """Return exact semantic capability descriptors only."""
 
         return self._descriptors
+
+    @property
+    def object_contracts(self) -> tuple[SemanticObjectContract, ...]:
+        """Return registered Slice 2 object-kind contracts in teaching order."""
+
+        return self._object_contracts
+
+    def object_contract(self, kind: SemanticKind) -> SemanticObjectContract:
+        """Return the exact registered contract for one semantic kind."""
+
+        for contract in self._object_contracts:
+            if contract.semantic_kind is kind:
+                return contract
+        raise KeyError(kind)
 
     def canonical_ids(self) -> tuple[str, ...]:
         return tuple(descriptor.canonical_id for descriptor in self._help_descriptors)

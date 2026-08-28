@@ -1,8 +1,8 @@
 # Unified Temporal Semantics
 
-Status: proposed clean-slate design. This document defines the only target
-cross-layer contract; it does not describe the current runtime. Fiscal cumulative
-reset from
+Status: implemented current contract. Reconciled with the installed runtime on
+2026-08-28. This document defines the current cross-layer temporal contract.
+Fiscal cumulative reset from
 [issue #50](https://git.bilibili.co/ace-lab/marivo/-/issues/50) is one motivating
 case, not the scope boundary. The contract covers only temporal capabilities that
 answer recurring business questions across civil, fiscal, retail, operational,
@@ -19,9 +19,9 @@ continues to own read and presentation timezone behavior.
 
 ## Decision
 
-Marivo will not represent every time-related business concept with one generic
+Marivo does not represent every time-related business concept with one generic
 `Calendar`, nor add one alignment enum for every fiscal or campaign convention.
-It will use six deliberately separate concepts:
+It uses six deliberately separate concepts:
 
 1. **`PeriodCalendar`** is governed semantic data that partitions civil dates
    into ordered non-overlapping period levels. Gregorian months, a
@@ -108,9 +108,9 @@ authorities without merging their meanings.
 
 ## Capability scope by business value
 
-The target is broader than fiscal cumulative reset, but it is not a general time
+The contract is broader than fiscal cumulative reset, but it is not a general time
 framework. A capability belongs in this design only when it answers a recurring
-business question and cannot be expressed safely by the target `TimeScope`,
+business question and cannot be expressed safely by the current `TimeScope`,
 `Grain`, or typed alignment policy.
 
 | Capability | Recurring business question | Decision |
@@ -408,7 +408,7 @@ starts from the typed catalog collections.
 
 ### Complete public API inventory
 
-This is the exhaustive target public surface. A symbol not listed here is
+This is the exhaustive current public surface. A symbol not listed here is
 internal or an output-schema name only.
 
 | Owner | Target public symbol | Contract |
@@ -1670,7 +1670,7 @@ An activity season may be modeled as a period-calendar level only if the busines
 definition intentionally makes it exhaustive, gap-free, non-overlapping, and
 ordered over the declared coverage. Otherwise it is a temporal set.
 
-The target authoring contract is deliberately parallel to `PeriodCalendar` but
+The current authoring contract is deliberately parallel to `PeriodCalendar` but
 does not expose levels or roll-up:
 
 ```python
@@ -1737,7 +1737,7 @@ Sub-day, duplicate-day, and coarser frames fail admission. `unmatched="fail"` or
 nearest-date fallback. Cross-year occurrence choice remains explicit in the two
 scopes, so Marivo does not guess that similarly named campaigns are equivalent.
 
-`WorkSchedule` certifies final daily working status. Its target contract is:
+`WorkSchedule` certifies final daily working status. Its current contract is:
 
 ```python
 ms.work_schedule(
@@ -2136,7 +2136,7 @@ manufacture future boundaries. Forecast artifact metadata carries the same
 `SemanticPeriodBindingV1`, the exact forecast period keys, and `horizon_unit`
 equal to the level name.
 
-## Implementation plan by business capability
+## Implemented delivery slices
 
 ### Slice 1: governed period authority
 
@@ -2194,7 +2194,7 @@ not create new domain-specific clock semantics.
 
 The slices are internal sequencing only. None defines an independently releasable
 public contract. Exports, help, persistence, artifacts, examples, and tests all
-activate against the complete target surface in one atomic breaking release.
+activated against the complete current surface in one atomic breaking release.
 
 ## Verification matrix
 
@@ -2358,8 +2358,8 @@ keeps the common agent path small.
 
 ## Acceptance criteria
 
-This design is complete when all of the following hold in the delivered public
-contract:
+The current delivered public contract satisfies the following acceptance
+criteria:
 
 - a natural-month analysis still needs only one explicit `TimeScope` and one
   built-in `Grain`, with no calendar discovery or authoring;

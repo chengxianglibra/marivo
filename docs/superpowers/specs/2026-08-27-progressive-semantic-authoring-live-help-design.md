@@ -39,12 +39,10 @@ Event and StateModel meaning remains owned by
 and the target PeriodCalendar, TemporalSet, and WorkSchedule meanings are
 specified by
 [`docs/specs/temporal-semantics.md`](../../specs/temporal-semantics.md). That
-specification explicitly describes a proposed target rather than the current
-runtime, so it is not a current live-help authority until its contract has been
-reconciled with the installed implementation and its status has been changed
-accordingly. Registering those three object-kind pages has that reconciliation
-as a hard prerequisite; live help must not publish target-only temporal claims
-ahead of the runtime. The current authoring process remains owned by
+specification was reconciled with the installed implementation and marked as a
+current runtime contract before the three temporal object-kind contracts were
+registered in Slice 2. Live help therefore publishes only installed temporal
+claims. The current authoring process remains owned by
 [`docs/specs/semantic/authoring-workflow.md`](../../specs/semantic/authoring-workflow.md).
 
 ## Summary
@@ -1468,7 +1466,7 @@ assert that rendered reachability matches registry reachability.
 ### Slice 2: Object graph and constructor relationships
 
 - Before registering PeriodCalendar, TemporalSet, or WorkSchedule help, reconcile
-  the proposed temporal-semantics contract with the installed runtime and mark
+  the temporal-semantics contract with the installed runtime and mark
   that contract current; target-only temporal meaning never enters live help.
 - Register every object-kind page and construction mode.
 - Register each object's material decisions, determination rules, determination

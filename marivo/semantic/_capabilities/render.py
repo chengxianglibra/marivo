@@ -181,9 +181,10 @@ def _render_boundary(descriptor: AuthoringCapability) -> str:
 def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.canonical_id == "authoring":
         return _render_authoring(descriptor)
+    if descriptor.canonical_id == "ref":
+        return _render_factory_descriptor(descriptor, "ref")
     if descriptor.canonical_id == "source_check":
-        type_lines = _render_type("SourceCheckNamespace", None).splitlines()
-        return _bounded("\n".join((descriptor.canonical_id, *type_lines[1:])))
+        return _render_factory_descriptor(descriptor, "SourceCheckNamespace")
     if descriptor.kind == "boundary":
         return _render_boundary(descriptor)
 
@@ -193,7 +194,11 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.callable_path is not None:
         callable_obj = import_callable(descriptor.callable_path)
         assert callable(callable_obj)
-        signature = str(inspect.signature(callable_obj)).replace(
+        installed = inspect.signature(callable_obj)
+        parameters = tuple(installed.parameters.values())
+        if descriptor.kind == "method" and parameters and parameters[0].name in {"self", "cls"}:
+            installed = installed.replace(parameters=parameters[1:])
+        signature = str(installed).replace(
             "_SemanticInput",
             "SemanticInput",
         )
@@ -201,9 +206,14 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.input_requirements:
         lines.append("  Input families:")
         for requirement in descriptor.input_requirements:
-            detail = f" ({', '.join(requirement.exact_keys)})" if requirement.exact_keys else ""
+            details: list[str] = []
+            if requirement.parameter_names:
+                details.append("parameters: " + ", ".join(requirement.parameter_names))
+            if requirement.exact_keys:
+                details.append("keys: " + ", ".join(requirement.exact_keys))
+            detail = f" ({'; '.join(details)})" if details else ""
             optional = " optional" if requirement.min_count == 0 else ""
-            lines.append(f"    {requirement.role}: {requirement.family}{detail}{optional}")
+            lines.append(f"    {requirement.role}: {requirement.family}{optional}{detail}")
     lines.append(f"  Output family: {descriptor.output_family or 'None'}")
     if descriptor.preconditions:
         lines.append(f"  Preconditions: {', '.join(descriptor.preconditions)}")
@@ -226,11 +236,6 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
                 f"  Source path: {source_contract.path_template}",
             )
         )
-        if source_contract.prerequisite_targets:
-            lines.append("  Prerequisite help:")
-            lines.extend(
-                f"    {_help_invocation(target)}" for target in source_contract.prerequisite_targets
-            )
     if descriptor.minimal_example is not None:
         lines.append("  Example:")
         if source_contract is not None:
@@ -270,6 +275,21 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
         lines.append(
             "  See also: " + ", ".join(_target_text(target) for target in descriptor.see_also)
         )
+    return _bounded("\n".join(lines))
+
+
+def _render_factory_descriptor(descriptor: AuthoringCapability, type_name: str) -> str:
+    """Render one factory namespace from its registry-owned ordered membership."""
+
+    type_lines = tuple(
+        line
+        for line in _render_type(type_name, None).splitlines()[1:]
+        if not line.startswith("  Public consumption:")
+    )
+    lines = [descriptor.canonical_id, *type_lines]
+    if descriptor.see_also:
+        lines.append("  Exact factory help:")
+        lines.extend(f"    {_help_invocation(target)}" for target in descriptor.see_also)
     return _bounded("\n".join(lines))
 
 
@@ -316,18 +336,9 @@ def _render_type(type_name: str, original: object | None) -> str:
             "one immutable Ref[kind]."
         )
     if type_name == "SourceCheckNamespace":
-        lines.extend(
-            (
-                "  Closed constructors:",
-                "    ms.source_check.not_null(field_ref)",
-                "    ms.source_check.allowed_values(field_ref, values=(...))",
-                "    ms.source_check.unique(fields=(...))",
-                "    ms.source_check.freshness(time_dimension_ref, max_age=timedelta(...))",
-                "    ms.source_check.relationship_matches(relationship_ref, side='from'|'both')",
-                "    ms.source_check.relationship_cardinality(relationship_ref, expected='one_to_one'|'many_to_one'|'one_to_many'|'many_to_many')",
-                "  Data boundary: pass these values only to catalog.source_health(..., "
-                "checks=[...], scope=<explicit bounded scope>); no expectation is inferred.",
-            )
+        lines.append(
+            "  Data boundary: pass these values only to catalog.source_health(..., "
+            "checks=[...], scope=<explicit bounded scope>); no expectation is inferred."
         )
     if type_name == "CatalogEntry":
         lines.append(
