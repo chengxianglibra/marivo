@@ -3,16 +3,6 @@
 from __future__ import annotations
 
 
-def _bounded(text: str) -> str:
-    from marivo.semantic._capabilities.render import enforce_semantic_help_budget
-
-    return enforce_semantic_help_budget(
-        text,
-        render_class="current_briefing",
-        examples_or_snippets=0,
-    )
-
-
 def is_semantic_object(target: object) -> bool:
     """Return whether target is an exact Ref or registered CatalogEntry."""
     from marivo.refs import Ref
@@ -70,57 +60,15 @@ def _analysis_handoff_lines(kind: str) -> tuple[str, ...]:
 def render_semantic_object(target: object) -> str:
     """Render identity or loaded catalog facts without loading or querying."""
     from marivo.refs import Ref
+    from marivo.semantic._capabilities.render import render_reference_briefing
     from marivo.semantic.catalog import CatalogEntry
 
     if type(target) is Ref:
-        ref = target
-        return _bounded(
-            "\n".join(
-                (
-                    f"{ref.kind.value}: {ref.path}",
-                    "  Object: Ref",
-                    "  Authority: typed identity only; project membership and readiness are unknown.",
-                    "",
-                    "  Inspect in an explicitly loaded project:",
-                    "    import marivo.semantic as ms",
-                    "    catalog = ms.load()",
-                    "    entry = catalog.require(ref)",
-                    "    entry.details().show()",
-                    "    catalog.readiness(refs=[entry]).show()",
-                    "",
-                    '  Capability help: marivo.help("semantic.Ref")',
-                )
-            )
-        )
+        return render_reference_briefing(target)
     if not isinstance(target, CatalogEntry):
         raise RuntimeError(f"unsupported semantic object: {type(target).__name__}")
 
-    ref = target.ref
-    details_text = target.details().render()
-    lines = [
-        f"{ref.kind.value}: {ref.path}",
-        f"  Object: {type(target).__name__}",
-        "  Authority: current compiled catalog entry.",
-        "",
-        "  Details:",
-        *(f"    {line}" for line in details_text.splitlines()),
-    ]
-    handoff_lines = _analysis_handoff_lines(ref.kind.value)
-    if handoff_lines:
-        lines.extend(
-            (
-                "",
-                "  Analysis handoff (kind-level; readiness and companion inputs still apply):",
-                *(f"    {line}" for line in handoff_lines),
-                "  After an analysis operator returns an artifact:",
-                "    result.contract().show()",
-            )
-        )
-    lines.extend(
-        (
-            "",
-            "  Readiness is not inferred here; use catalog.readiness(refs=[entry]).",
-            "  No datasource connectivity or inspection evidence was queried.",
-        )
+    return render_reference_briefing(
+        target,
+        analysis_handoff=_analysis_handoff_lines(target.ref.kind.value),
     )
-    return _bounded("\n".join(lines))

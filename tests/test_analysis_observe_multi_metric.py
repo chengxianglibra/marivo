@@ -675,3 +675,86 @@ def test_multi_metric_conflicting_status_time_axes_fail_closed(sales_session, mo
     assert error.repair is not None
     assert error.repair.action
     assert "time_dimension" in error.repair.action
+
+
+def test_conflicting_fold_repairs_distinguish_runtime_and_authored_metrics(
+    monkeypatch,
+) -> None:
+    """The same graph defect must route to its actual authoring owner."""
+    import importlib
+    from types import SimpleNamespace
+
+    observe_module = importlib.import_module("marivo.analysis.intents.observe")
+    revenue = make_ref("sales.revenue", SemanticKind.METRIC)
+    inventory = make_ref("sales.inventory", SemanticKind.METRIC)
+
+    class FakeDetails:
+        def __init__(self, planned):
+            self.planned = planned
+
+    planned = {
+        revenue.path: SimpleNamespace(
+            semantic_id=revenue.path,
+            time_fold="last",
+            status_time_dimension="sales.orders.status_at",
+            metric_type="simple",
+            composition=None,
+        ),
+        inventory.path: SimpleNamespace(
+            semantic_id=inventory.path,
+            time_fold="last",
+            status_time_dimension="sales.inventory.snapshot_at",
+            metric_type="simple",
+            composition=None,
+        ),
+    }
+    root = SimpleNamespace(
+        semantic_id="sales.authored_conflict",
+        time_fold=None,
+        status_time_dimension=None,
+        metric_type="derived",
+        composition=SimpleNamespace(
+            components={"revenue": revenue.path, "inventory": inventory.path}
+        ),
+    )
+    catalog = SimpleNamespace(_require_index=lambda: SimpleNamespace(registry=SimpleNamespace()))
+
+    monkeypatch.setattr(observe_module, "SimpleMetricDetails", FakeDetails)
+    monkeypatch.setattr(observe_module, "DerivedMetricDetails", FakeDetails)
+    monkeypatch.setattr(
+        observe_module,
+        "normalize_metric_ref_input",
+        lambda _catalog, value, *, argument: value,
+    )
+    monkeypatch.setattr(
+        observe_module,
+        "_normalize_metric_boundary",
+        lambda _catalog, value: value.path,
+    )
+    monkeypatch.setattr(
+        observe_module,
+        "_catalog_object",
+        lambda _catalog, semantic_id, _kind: SimpleNamespace(
+            details=lambda: FakeDetails(planned[semantic_id])
+        ),
+    )
+    monkeypatch.setattr(observe_module, "_planned_metric", lambda details: details.planned)
+
+    runtime = mv.runtime_metric.linear(
+        add=[revenue, inventory],
+        subtract=[],
+        label="runtime conflict",
+    )
+    with pytest.raises(SemanticKindMismatchError) as runtime_error:
+        observe_module._preferred_status_time_dimension_for_metric(catalog, runtime)
+    assert runtime_error.value.repair.help_target.surface == "analysis"
+    assert runtime_error.value.repair.help_target.canonical_id == "runtime_metric"
+
+    with pytest.raises(SemanticKindMismatchError) as authored_error:
+        observe_module._preferred_status_time_dimension_for_metric(
+            catalog,
+            make_ref("sales.authored_conflict", SemanticKind.METRIC),
+            metric_ir=root,
+        )
+    assert authored_error.value.repair.help_target.surface == "semantic"
+    assert authored_error.value.repair.help_target.canonical_id == "objects.metric"

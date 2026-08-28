@@ -93,8 +93,98 @@ def enforce_semantic_help_budget(
     )
 
 
+def _runtime_check_lines(kind: str) -> tuple[str, ...]:
+    """Return only the owning object contract's applicable runtime checks."""
+    from marivo.refs import SemanticKind
+
+    try:
+        contract = REGISTRY.object_contract(SemanticKind(kind))
+    except (KeyError, ValueError):
+        return ()
+
+    labels = {
+        "preview": "Scoped preview",
+        "source_health": "Current source health",
+    }
+    return tuple(
+        f'{labels[target_id]}: marivo.help("semantic.{target_id}")'
+        for target in contract.check_targets
+        if (target_id := target.canonical_id) in labels
+    )
+
+
+def render_reference_briefing(
+    target: object,
+    *,
+    analysis_handoff: tuple[str, ...] = (),
+) -> str:
+    """Render shared no-I/O Ref or CatalogEntry facts under one budget."""
+    from marivo.refs import Ref
+    from marivo.semantic.catalog import CatalogEntry
+
+    if type(target) is Ref:
+        ref = target
+        lines = [
+            f"{ref.kind.value}: {ref.path}",
+            "  Object: Ref",
+            "  Authority: typed identity only; project membership and readiness are unknown.",
+            "",
+            "  Resolve membership in the caller's loaded catalog:",
+            "    entry = catalog.require(ref)",
+            "",
+            '  Capability help: marivo.help("semantic.Ref")',
+        ]
+    elif isinstance(target, CatalogEntry):
+        ref = target.ref
+        lines = [
+            f"{ref.kind.value}: {ref.path}",
+            f"  Object: {type(target).__name__}",
+            "  Authority: current compiled catalog entry.",
+            "",
+            "  Object-near inspection:",
+            "    entry.ref",
+            "    entry.show()",
+            "    entry.details().show()",
+            "    catalog.readiness(refs=[entry]).show()",
+        ]
+        runtime_checks = _runtime_check_lines(ref.kind.value)
+        if runtime_checks:
+            lines.extend(
+                ("", "  Applicable runtime checks:", *(f"    {line}" for line in runtime_checks))
+            )
+        if analysis_handoff:
+            lines.extend(
+                (
+                    "",
+                    "  Analysis handoff (kind-level; readiness and companion inputs still apply):",
+                    *(f"    {line}" for line in analysis_handoff),
+                    "  After an analysis operator returns an artifact:",
+                    "    result.contract().show()",
+                )
+            )
+        lines.extend(
+            (
+                "",
+                "  Readiness is not inferred here; use catalog.readiness(refs=[entry]).",
+                "  No datasource connectivity or inspection evidence was queried.",
+            )
+        )
+    else:
+        raise RuntimeError(f"unsupported semantic object: {type(target).__name__}")
+
+    return enforce_semantic_help_budget(
+        "\n".join(lines),
+        render_class="current_briefing",
+        examples_or_snippets=0,
+    )
+
+
 def _target_text(target: LiveHelpTarget) -> str:
-    return target.canonical_id or target.surface
+    if target.canonical_id is None:
+        return target.surface
+    if target.surface != "semantic":
+        return f"{target.surface}.{target.canonical_id}"
+    return target.canonical_id
 
 
 def _with_python_imports(
@@ -567,48 +657,6 @@ def _render_error_briefing(error_name: str, original: object) -> str:
     return _bounded("\n".join(lines))
 
 
-def _render_reference(reference_id: str, original: object) -> str:
-    """Render an object-near semantic identity without loading or querying."""
-    from marivo.refs import Ref
-    from marivo.semantic.catalog import CatalogEntry
-
-    inspection_calls: tuple[str, ...]
-    if isinstance(original, CatalogEntry):
-        ref = original.ref
-        object_name = type(original).__name__
-        inspection_calls = (
-            "entry.ref",
-            "entry.show()",
-            "entry.details().show()",
-            "catalog.readiness(refs=[entry]).show()",
-        )
-    elif type(original) is Ref:
-        ref = original
-        object_name = "Ref"
-        inspection_calls = (
-            "ref.kind",
-            "ref.path",
-            "entry = catalog.require(ref)",
-            "entry.show()",
-            "entry.details().show()",
-            "catalog.readiness(refs=[entry]).show()",
-        )
-    else:
-        raise RuntimeError(f"expected exact Ref or CatalogEntry, got {type(original).__name__}")
-    if ref.path != reference_id:
-        raise RuntimeError("reference briefing identity mismatch")
-
-    lines = [
-        f"{ref.kind.value}: {ref.path}",
-        f"  Object: {object_name}",
-        f"  Kind: {ref.kind.value}",
-        f"  Path: {ref.path}",
-        "  Object-near inspection:",
-        *(f"    {call}" for call in inspection_calls),
-    ]
-    return _bounded("\n".join(lines))
-
-
 def render_help_target(
     resolved: ResolvedLiveTarget[SemanticHelpDescriptor],
     *,
@@ -651,11 +699,7 @@ def render_help_target(
     if resolved.kind == "reference_briefing" and resolved.reference_id is not None:
         if resolved.original is None:
             raise RuntimeError("reference_briefing requires original target")
-        return _with_python_imports(
-            _render_reference(resolved.reference_id, resolved.original),
-            render_class="current_briefing",
-            examples_or_snippets=0,
-        )
+        return render_reference_briefing(resolved.original)
     if resolved.kind == "error_contract" and resolved.error_name is not None:
         return _with_python_imports(
             _render_error_contract(resolved.error_name),

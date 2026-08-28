@@ -164,7 +164,7 @@ def test_outside_loader_context_has_project_layout_repair() -> None:
         (
             {"sales/models.py": "import marivo.semantic as ms\n"},
             "domain_file_missing",
-            "domain",
+            "objects.domain",
             "models/semantic/<domain>/_domain.py",
         ),
         (

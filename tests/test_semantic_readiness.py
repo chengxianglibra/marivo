@@ -199,6 +199,8 @@ def test_runtime_expression_with_unobservable_inherited_fold_is_blocked(
     assert len(report.blockers) == 1
     issue = report.blockers[0]
     assert issue.kind == "snapshot_fold_unobservable"
+    assert issue.repair is not None
+    assert issue.repair.help_target.canonical_id == "objects.metric"
     assert issue.details == {
         "time_fold": "percentile",
         "status_time_dimension": "sales.snapshots.snapshot_date",
@@ -342,7 +344,9 @@ def test_cross_datasource_metric_remains_blocked(semantic_project_factory, tmp_p
     report = project.readiness(refs=("sales.net_revenue",))
     assert report.status == "blocked"
     assert report.analysis_ready_inputs == ()
-    assert "cross_datasource_unfederated" in {issue.kind for issue in report.blockers}
+    issue = next(issue for issue in report.blockers if issue.kind == "cross_datasource_unfederated")
+    assert issue.repair is not None
+    assert issue.repair.help_target.canonical_id == "objects.metric"
 
 
 def test_issue_vocabulary_has_artifacts_and_no_removed_history_or_richness_names() -> None:

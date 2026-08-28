@@ -296,7 +296,10 @@ def test_slice2_family_membership_is_exact_and_ordered() -> None:
         "grain",
         "time_scope",
         "AbsoluteWindow",
+        "calendar.grain",
         "calendar.period",
+        "calendar.period_on",
+        "temporal_set.occurrence",
         "Session.source_bindings",
     )
     assert tuple(
@@ -1255,13 +1258,71 @@ def test_by_callable_resolves_semantic_catalog_properties() -> None:
     assert descriptor.id == "catalog.dimensions"
 
 
-def test_by_callable_resolves_period_calendar_period_navigation() -> None:
-    from marivo.semantic.catalog import PeriodCalendarEntry
+@pytest.mark.parametrize(
+    ("entry_type_name", "method_name", "descriptor_id", "help_target", "output_type"),
+    (
+        (
+            "PeriodCalendarEntry",
+            "grain",
+            "catalog.period_calendars.grain",
+            "calendar.grain",
+            "Grain",
+        ),
+        (
+            "PeriodCalendarEntry",
+            "period",
+            "catalog.period_calendars.period",
+            "calendar.period",
+            "TimeScope",
+        ),
+        (
+            "PeriodCalendarEntry",
+            "period_on",
+            "catalog.period_calendars.period_on",
+            "calendar.period_on",
+            "TimeScope",
+        ),
+        (
+            "PeriodCalendarEntry",
+            "periods",
+            "catalog.period_calendars.periods",
+            "calendar.periods",
+            "CalendarPeriodPage",
+        ),
+        (
+            "TemporalSetEntry",
+            "occurrence",
+            "catalog.temporal_sets.occurrence",
+            "temporal_set.occurrence",
+            "TimeScope",
+        ),
+        (
+            "TemporalSetEntry",
+            "occurrences",
+            "catalog.temporal_sets.occurrences",
+            "temporal_set.occurrences",
+            "TemporalOccurrencePage",
+        ),
+    ),
+)
+def test_by_callable_resolves_temporal_catalog_navigation(
+    entry_type_name: str,
+    method_name: str,
+    descriptor_id: str,
+    help_target: str,
+    output_type: str,
+) -> None:
+    import marivo.semantic.catalog as catalog_module
 
-    descriptor = REGISTRY.by_callable(PeriodCalendarEntry.period)
-    assert descriptor.id == "catalog.period_calendars.period"
-    assert descriptor.help_target == "calendar.period"
-    assert descriptor.produced_input_family == "TimeScopeInput"
+    entry_type = getattr(catalog_module, entry_type_name)
+    descriptor = REGISTRY.by_callable(getattr(entry_type, method_name))
+
+    assert descriptor.id == descriptor_id
+    assert descriptor.help_target == help_target
+    assert descriptor.output_type == output_type
+    assert descriptor.produced_input_family == (
+        "TimeScopeInput" if output_type == "TimeScope" else None
+    )
 
 
 # ---------------------------------------------------------------------------

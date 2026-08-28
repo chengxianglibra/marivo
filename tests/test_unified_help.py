@@ -545,6 +545,32 @@ def test_period_calendar_period_navigation_resolves_through_public_help() -> Non
     assert _text(PeriodCalendarEntry.period) == _text("analysis.calendar.period")
 
 
+@pytest.mark.parametrize(
+    ("entry_type_name", "method_name", "target"),
+    (
+        ("PeriodCalendarEntry", "grain", "calendar.grain"),
+        ("PeriodCalendarEntry", "period_on", "calendar.period_on"),
+        ("PeriodCalendarEntry", "periods", "calendar.periods"),
+        ("TemporalSetEntry", "occurrence", "temporal_set.occurrence"),
+        ("TemporalSetEntry", "occurrences", "temporal_set.occurrences"),
+    ),
+)
+def test_temporal_catalog_member_navigation_resolves_through_public_help(
+    entry_type_name: str,
+    method_name: str,
+    target: str,
+) -> None:
+    import marivo.semantic.catalog as catalog_module
+
+    method = getattr(getattr(catalog_module, entry_type_name), method_name)
+    route = route_help_target(f"analysis.{target}")
+
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "analysis"
+    assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id(target)
+    assert _text(method) == _text(f"analysis.{target}")
+
+
 def test_bound_method_renders_the_same_descriptor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -601,7 +627,10 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
 
     text = _text(entry)
     assert "metric: sales.revenue" in text
-    assert "Details:" in text
+    assert "Object-near inspection:" in text
+    assert "entry.show()" in text
+    assert "entry.details().show()" in text
+    assert 'marivo.help("semantic.preview")' in text
     assert "Analysis handoff (kind-level" in text
     assert "session.observe(...) -> MetricFrame" in text
     assert 'marivo.help("analysis.observe")' in text

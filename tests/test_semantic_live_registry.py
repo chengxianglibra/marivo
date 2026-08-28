@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+import subprocess
+import sys
 from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, replace
 from types import MappingProxyType
@@ -31,10 +33,12 @@ from marivo.semantic._capabilities.model import (
     SemanticObjectDecision,
     SemanticObjectIndexEntry,
     SemanticObjectRelationship,
+    SemanticRepairContract,
     SemanticRootSection,
     SemanticTypeContract,
 )
 from marivo.semantic._capabilities.registry import (
+    ERROR_TYPES,
     REGISTRY,
     TYPE_CONTRACTS,
     _finalize_registry,
@@ -53,6 +57,7 @@ def _finalize_fixture(
     help_descriptors: tuple[SemanticHelpDescriptor, ...] | None = None,
     object_contracts: tuple[SemanticObjectContract, ...] | None = None,
     root_sections: tuple[SemanticRootSection, ...] | None = None,
+    repair_contracts: Mapping[str, SemanticRepairContract] | None = None,
     render_budgets: Mapping[SemanticHelpRenderClass, SemanticHelpRenderBudget] | None = None,
 ) -> SemanticCapabilityRegistry:
     active_descriptors = REGISTRY.descriptors if descriptors is None else descriptors
@@ -79,7 +84,9 @@ def _finalize_fixture(
         active_descriptors,
         root_sections=(REGISTRY.root_sections if root_sections is None else root_sections),
         source_contracts=REGISTRY._source_contracts,
-        repair_contracts=REGISTRY._repair_contracts,
+        repair_contracts=(
+            REGISTRY._repair_contracts if repair_contracts is None else repair_contracts
+        ),
         help_descriptors=help_descriptors,
         object_contracts=active_objects,
         render_budgets=(SEMANTIC_HELP_RENDER_BUDGETS if render_budgets is None else render_budgets),
@@ -646,6 +653,56 @@ def test_validate_semantic_live_surface_passes() -> None:
     validate_semantic_live_surface()
 
 
+def test_ontology_cold_import_does_not_reenter_semantic_registry() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", "import marivo.ontology"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import route_help_target
+    from marivo.semantic.errors import ErrorKind
+
+    expected = {
+        "outside_loader_context": "semantic.authoring",
+        "missing_domain": "semantic.objects.domain",
+        "invalid_filter": "semantic.where",
+        "filter_value_runtime_incompatible": "semantic.where",
+        "invalid_project": "semantic.authoring",
+        "domain_file_missing": "semantic.objects.domain",
+        "domain_file_mismatch": "semantic.domain",
+        "organization_error": "semantic.authoring",
+    }
+    actual = {
+        error_kind: (f"{contract.help_target.surface}.{contract.help_target.canonical_id}")
+        for error_kind, contract in REGISTRY._repair_contracts.items()
+    }
+
+    assert actual == expected
+    assert set(REGISTRY._repair_contracts) <= {kind.value for kind in ErrorKind}
+    for target in actual.values():
+        assert isinstance(route_help_target(target), NativeHelpRoute)
+
+
+def test_registry_rejects_unknown_or_over_broad_repair_targets() -> None:
+    missing_domain = REGISTRY._repair_contracts["missing_domain"]
+
+    for target, message in (
+        (_semantic_target("synthetic.missing"), "unknown semantic Help route"),
+        (_semantic_target("objects"), "semantic repair target is over-broad"),
+    ):
+        repair_contract = replace(missing_domain, help_target=target)
+        repairs = dict(REGISTRY._repair_contracts)
+        repairs[repair_contract.error_kind] = repair_contract
+        with pytest.raises(ValueError, match=message):
+            _finalize_fixture(repair_contracts=repairs)
+
+
 def test_registry_covers_all_public_callables() -> None:
     import marivo.semantic as ms
 
@@ -663,6 +720,7 @@ def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts()
 
     resolved = resolve_live_target(ms.ref, SEMANTIC_LIVE_SURFACE)
     assert resolved.descriptor is REGISTRY.by_canonical_id("ref")
+    assert resolve_live_target("ref", SEMANTIC_LIVE_SURFACE).descriptor is resolved.descriptor
     expected = {f"ref.{kind.value}" for kind in SemanticKind}
     public_methods = {
         name
@@ -676,6 +734,10 @@ def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts()
         method = getattr(ms.ref, kind.value)
         descriptor = REGISTRY.by_canonical_id(f"ref.{kind.value}")
         assert REGISTRY.by_callable(method) is descriptor
+        assert resolve_live_target(method, SEMANTIC_LIVE_SURFACE).descriptor is descriptor
+        assert (
+            resolve_live_target(f"ref.{kind.value}", SEMANTIC_LIVE_SURFACE).descriptor is descriptor
+        )
         assert descriptor.output_family == f"Ref[{kind.value}]"
 
 
@@ -699,10 +761,18 @@ def test_source_check_namespace_and_every_exact_method_share_registry_contracts(
     assert public_methods == set(expected_outputs)
     resolved = resolve_live_target(ms.source_check, SEMANTIC_LIVE_SURFACE)
     assert resolved.descriptor is REGISTRY.by_canonical_id("source_check")
+    assert (
+        resolve_live_target("source_check", SEMANTIC_LIVE_SURFACE).descriptor is resolved.descriptor
+    )
     for method_name, output_family in expected_outputs.items():
         method = getattr(ms.source_check, method_name)
         descriptor = REGISTRY.by_canonical_id(f"source_check.{method_name}")
         assert REGISTRY.by_callable(method) is descriptor
+        assert resolve_live_target(method, SEMANTIC_LIVE_SURFACE).descriptor is descriptor
+        assert (
+            resolve_live_target(f"source_check.{method_name}", SEMANTIC_LIVE_SURFACE).descriptor
+            is descriptor
+        )
         assert descriptor.output_family == output_family
 
 
@@ -727,6 +797,88 @@ def test_registry_covers_all_public_types() -> None:
         exported = getattr(ms, name)
         if isinstance(exported, type):
             assert exported in TYPE_CONTRACTS, f"{name} ({exported}) is not in TYPE_CONTRACTS"
+
+
+def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
+    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.preview import PreviewResult
+
+    for type_obj, contract in TYPE_CONTRACTS.items():
+        if contract.name == "ref":
+            continue
+        by_type = resolve_live_target(type_obj, SEMANTIC_LIVE_SURFACE)
+        by_name = resolve_live_target(contract.name, SEMANTIC_LIVE_SURFACE)
+        assert by_type.kind == by_name.kind == "type_contract"
+        assert by_type.type_name == by_name.type_name == contract.name
+
+    assert PreviewResult in TYPE_CONTRACTS
+    assert TYPE_CONTRACTS[PreviewResult].producers == (_semantic_target("preview"),)
+
+    for error_name, error_type in ERROR_TYPES.items():
+        by_type = resolve_live_target(error_type, SEMANTIC_LIVE_SURFACE)
+        by_name = resolve_live_target(error_name, SEMANTIC_LIVE_SURFACE)
+        repair_free_instance = error_type.__new__(error_type)
+        by_instance = resolve_live_target(repair_free_instance, SEMANTIC_LIVE_SURFACE)
+        assert by_type.kind == by_name.kind == by_instance.kind == "error_contract"
+        assert by_type.error_name == by_name.error_name == by_instance.error_name == error_name
+
+
+def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
+    import marivo
+    import marivo.semantic as ms
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import route_help_target
+    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.preview import PreviewResult
+    from marivo.semantic.catalog import CalendarPeriodPage, TemporalOccurrencePage
+    from marivo.semantic.dtos import PreviewBatchResult
+    from marivo.semantic.parity import ParityResult
+    from marivo.semantic.readiness import ReadinessReport
+    from marivo.semantic.richness import RichnessReport
+    from marivo.semantic.source_health import SourceHealthCheckResult, SourceHealthReport
+
+    result_types = (
+        PreviewResult,
+        PreviewBatchResult,
+        ReadinessReport,
+        SourceHealthReport,
+        SourceHealthCheckResult,
+        RichnessReport,
+        ParityResult,
+        CalendarPeriodPage,
+        TemporalOccurrencePage,
+    )
+    assert TYPE_CONTRACTS[CalendarPeriodPage].producers == (
+        LiveHelpTarget(surface="analysis", canonical_id="calendar.periods"),
+    )
+    assert TYPE_CONTRACTS[TemporalOccurrencePage].producers == (
+        LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),
+    )
+    for result_type in (CalendarPeriodPage, TemporalOccurrencePage):
+        for producer in TYPE_CONTRACTS[result_type].producers:
+            route = route_help_target(f"{producer.surface}.{producer.canonical_id}")
+            assert isinstance(route, NativeHelpRoute)
+            assert route.owner == producer.surface
+    assert not hasattr(marivo, "PreviewResult")
+    assert not hasattr(ms, "PreviewResult")
+    for result_type in result_types:
+        contract = TYPE_CONTRACTS[result_type]
+        declared_members = {
+            name for base in result_type.__mro__ for name in getattr(base, "__annotations__", {})
+        }
+        declared_members.update(
+            name for name, value in vars(result_type).items() if isinstance(value, property)
+        )
+        assert set(contract.public_properties) <= declared_members
+        assert all(hasattr(result_type, method) for method in contract.public_methods)
+        instance = object.__new__(result_type)
+        resolutions = (
+            resolve_live_target(result_type, SEMANTIC_LIVE_SURFACE),
+            resolve_live_target(contract.name, SEMANTIC_LIVE_SURFACE),
+            resolve_live_target(instance, SEMANTIC_LIVE_SURFACE),
+        )
+        assert all(resolution.kind == "type_contract" for resolution in resolutions)
+        assert {resolution.type_name for resolution in resolutions} == {contract.name}
 
 
 def test_registry_includes_authoring_topic() -> None:

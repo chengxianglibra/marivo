@@ -273,6 +273,28 @@ def test_event_identity_owner_is_inferred_from_occurred_at(
     assert ErrorKind.INVALID_EVENT_SOURCE in kinds
 
 
+def test_event_object_meaning_errors_route_to_the_event_object_page(
+    semantic_project_factory,
+) -> None:
+    source = _objects().replace(
+        "identity=(event_id,),",
+        "identity=(buyer_id,),",
+    )
+    project = semantic_project_factory(
+        {
+            "commerce/_domain.py": textwrap.dedent(_DOMAIN),
+            "commerce/objects.py": textwrap.dedent(source),
+        },
+        load=False,
+    )
+
+    result = project.load()
+
+    error = next(error for error in result.errors if error.kind == ErrorKind.INVALID_EVENT_SOURCE)
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == "objects.event"
+
+
 @pytest.mark.parametrize(
     ("replacement", "expected_kind"),
     [

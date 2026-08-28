@@ -56,6 +56,16 @@ marivo.help("authoring")
 marivo.help("analysis")
 ```
 
+After choosing semantic authoring, narrow the next question progressively:
+
+```python
+marivo.help("semantic.authoring")  # workflow decision hub
+marivo.help("semantic.objects")    # object meaning and construction modes
+marivo.help("semantic.builders")   # nested values and typed handles
+marivo.help("semantic.checks")     # what each inspection or check proves
+marivo.help(entry_or_error)         # current identity or structured repair
+```
+
 Follow the fully qualified routes from the selected secondary root instead of
 depending on short-name disambiguation. Registered public type, error, and
 member targets remain available to focused help when already known or obtained
@@ -199,7 +209,11 @@ The reserved `day` level is derived from the certified coverage and is not
 persisted as one record per day. `calendar.periods(level, limit=..., cursor=...)`
 returns bounded exact scopes for declared levels; missing coverage, stale
 definitions, and malformed evidence fail closed with structured semantic errors.
-Use `marivo.help("analysis.calendar.period")` for the bounded exact lookup syntax.
+Use focused Help for the selected member operation:
+`analysis.calendar.grain`, `analysis.calendar.period`,
+`analysis.calendar.period_on`, or `analysis.calendar.periods`. If the operation
+raises a structured error, `marivo.help(error)` routes either to that exact
+member or to `semantic.preview` when the certified snapshot must be rebuilt.
 
 ## Named temporal occurrences
 
@@ -243,6 +257,9 @@ again. Temporal sets do not infer recurrence or match similarly named occurrence
 across years. Compare two exact occurrence-selected day-grain frames with
 `mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` when
 relative local-day progress is the intended business axis.
+Use `marivo.help("analysis.temporal_set.occurrence")` for exact lookup and
+`marivo.help("analysis.temporal_set.occurrences")` for bounded filtered paging;
+snapshot errors route through `marivo.help(error)` to `semantic.preview`.
 
 ## Working-day schedules
 
@@ -297,14 +314,11 @@ md.duckdb(
 )
 ```
 
-Every helper (`md.duckdb`, `md.sqlite`, `md.mysql`, `md.postgres`, `md.trino`, `md.clickhouse`)
-shares these parameters:
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Global lowercase snake_case datasource name. Used by `ms.ref.datasource(name)`. |
-| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
-| `extra` | `dict` | No | `None` | Rare JSON-safe ibis keyword arguments the typed helper does not model. |
+Every datasource helper declares one global lowercase snake_case identity and
+backend-specific connection facts. Use `marivo.help("datasource.authoring")` to
+choose the backend family, then its exact focused leaf for the live parameters,
+defaults, credential references, and effects. Semantic code consumes only the
+resulting `ms.ref.datasource(name)` identity.
 
 Backend-specific parameters:
 
@@ -405,13 +419,10 @@ value when connecting and creates a temporary DuckDB HTTP secret restricted to
 `ms.domain(...)` opens a namespace. Call it once per `_domain.py`. It returns a
 `Ref[domain]` you can pass as `domain=` to override the active domain for an object
 declared in a sibling file.
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Domain namespace, e.g. `"sales"`. Objects become `<name>.<object>`. |
-| `owner` | `str` | Yes | — | Human owner accountable for semantic correctness and quality, e.g. `"Mina Zhang"`. |
-| `default` | `bool` | No | `True` | When `True`, decorators in this file resolve to this domain unless `domain=` is passed. |
-| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+Settle the business boundary, accountable owner, default-domain behavior, and
+definition guardrails before authoring. Use
+`marivo.help("semantic.objects.domain")` for those decisions and
+`marivo.help("semantic.domain")` for the exact callable contract.
 
 ```python
 import marivo.semantic as ms
@@ -423,16 +434,10 @@ ms.domain(name="sales", owner="Mina Zhang")
 
 An entity is one physical source (a table or file) plus its primary key. It is the
 anchor that dimensions, measures, and metrics attach to.
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Entity name. Becomes `<domain>.<name>`. |
-| `datasource` | `Ref[datasource]` | Yes | — | `ms.ref.datasource("warehouse")`. |
-| `source` | source builder | Yes | — | Datasource-owned `md.table(...)`, `md.parquet(...)`, `md.csv(...)`, or `md.json(...)`. |
-| `primary_key` | `list[str]` | No | `None` | Stable output column aliases forming the primary key. |
-| `versioning` | `ms.snapshot \| ms.validity` | No | `None` | Snapshot or SCD2 validity versioning (see below). |
-| `domain` | `Ref[domain]` | No | file default | Override the active domain. |
-| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+Its reusable recordset meaning, authoritative source, row grain, identity,
+history model, and domain ownership must agree. Use
+`marivo.help("semantic.objects.entity")` for that checklist and
+`marivo.help("semantic.entity")` for the installed signature.
 
 ```python
 warehouse = ms.ref.datasource("warehouse")
@@ -492,14 +497,10 @@ A dimension is a categorical attribute you group or filter by. For direct
 entity output columns, use `ms.dimension_column(...)`; for expressions (e.g.
 `table.region.upper()`), use the `@ms.dimension` decorator whose body returns a
 single ibis expression over the entity table.
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Dimension name. Becomes `<domain>.<entity>.<name>`. |
-| `entity` | `Ref[entity]` | Yes | — | The owning entity. |
-| `column` | `str` | Yes | — | Stable output column alias on the entity table. |
-| `domain` | `Ref[domain]` | No | file default | Override the active domain. |
-| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+Use `marivo.help("semantic.objects.dimension")` to settle the owning Entity,
+reusable categorical meaning, code/null semantics, and construction mode. The
+page routes to the direct-column default or expression escape hatch without
+copying either signature here.
 
 ```python
 region = ms.dimension_column(
@@ -514,17 +515,10 @@ region = ms.dimension_column(
 
 A time dimension is a special dimension that carries grain and parsing metadata.
 **Only time dimensions can serve as the time axis for `session.observe`.**
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Dimension name. |
-| `entity` | `Ref[entity]` | Yes | — | The owning entity. |
-| `column` | `str` | Yes | — | Stable output column alias on the entity table. |
-| `granularity` | grain literal | Yes | — | `year`, `quarter`, `month`, `week`, `day`, `hour`, `minute`, or `second` — the finest grain at which queries are meaningful. |
-| `parse` | parse variant | No | `None` | How the source column becomes a time value (see below). Omit for native temporal columns — the parse variant is inferred at analysis time. |
-| `is_default` | `bool` | No | `False` | Marks the default time axis when the entity has several. `observe` uses it when `time_dimension=` is omitted. |
-| `domain` | `Ref[domain]` | No | file default | Override the active domain. |
-| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+Use `marivo.help("semantic.objects.time_dimension")` to settle the business-time
+role, granularity, physical encoding, default-axis choice, and sampled cadence.
+Use `marivo.help("semantic.builders.temporal_parsing")` to choose the nested
+parse value, then open the exact callable leaf for its live signature.
 
 ##### Parse variants
 
@@ -587,16 +581,10 @@ A measure is a row-level quantitative fact you intend to aggregate (e.g. an
 amount or quantity). For direct entity output columns, use `ms.measure_column(...)`;
 for expressions over one or more columns, use `@ms.measure`. Measures carry
 additivity and an optional unit.
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Measure name. Becomes `<domain>.<entity>.<name>`. |
-| `entity` | `Ref[entity]` | Yes | — | The owning entity. |
-| `column` | `str` | Yes | — | Stable output column alias on the entity table. |
-| `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
-| `unit` | `str` | No | `None` | UCUM unit token: `"USD"`, `"CNY"`, `"%"`, `"ms"`, `"{order}"`. |
-| `domain` | `Ref[domain]` | No | file default | Override the active domain. |
-| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+Use `marivo.help("semantic.objects.measure")` to settle the numeric fact's
+grain, unit, dimensional and temporal additivity, and construction mode. A
+numeric dtype or familiar historical aggregation does not establish those
+business choices.
 
 ```python
 amount = ms.measure_column(
@@ -637,16 +625,10 @@ existing builders cannot express the calculation.
 Aggregates a measure without a body. The aggregation determines spatial
 additivity; independently, a semi-additive measure contributes its status-time
 axis and default fold. An explicit `fold` overrides that temporal fold.
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Metric name. |
-| `measure` | `Ref[measure]` | Yes | — | The measure to aggregate. |
-| `agg` | aggregation | Yes | — | `"sum"`, `"mean"`, `"min"`, `"max"`, … |
-| `fold` | fold | No | `None` | Time-fold override for semi-additive measures. |
-| `filter` | `WhereFilter` | No | `None` | AND filter from `ms.where(dimension=value, ...)`; scalars mean equality and non-empty tuple/list values mean membership. |
-| `unit` | `str` | No | inherited | Override the unit derived from the measure. |
-| `domain` / `ai_context` | — | No | — | As elsewhere. |
+Use `marivo.help("semantic.objects.metric")` to choose among aggregate, count,
+ratio, weighted mean, linear, cumulative, and expression construction. After
+choosing aggregate, `marivo.help("semantic.aggregate")` owns its exact inputs,
+defaults, constraints, and repair routes.
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
@@ -746,14 +728,9 @@ Use `ms.cumulative(...)` when the business question is "how much accumulated up 
 The base must be a tier-1 `ms.aggregate(...)`, `ms.count(...)`, or
 `ms.weighted_mean(...)` metric using `sum`, `count`, `count_distinct`, or
 weighted-mean component accumulation. The `anchor` parameter selects the accumulation shape.
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Semantic metric name. |
-| `base` | `Ref[metric]` | Yes | — | Tier-1 simple aggregate metric using `sum`, `count`, or `count_distinct`. |
-| `over` | `Ref[time_dimension] \| None` | No | `None` | Time axis to accumulate over. Pass explicitly unless the base root entity has exactly one time dimension. |
-| `anchor` | `GrainToDate \| Trailing \| None` | No | `None` | Accumulation anchor. `None` = all-history running total; `ms.grain_to_date(...)` = MTD/QTD/YTD resets; `ms.trailing(...)` = rolling N. |
-| `unit` / `domain` / `ai_context` | — | No | — | Same as other metrics. |
+The Metric object page identifies cumulative construction; then
+`marivo.help("semantic.cumulative")` owns the exact base/axis/anchor contract,
+and `marivo.help("semantic.builders.governed_temporal")` routes anchor builders.
 
 ```python
 user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity="non_additive")
@@ -1179,17 +1156,10 @@ For entities whose rows change over time, declare how to read the current state:
 Use this escape hatch when the metric cannot be expressed as `ms.aggregate(...)`,
 `ms.count(...)`, or a derived metric builder. The body returns one ibis
 aggregation, and you declare `additivity` directly.
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | No | function name | Metric name. |
-| `entities` | `list[Ref[entity]]` | Yes | — | Entities the body reads. |
-| `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
-| `root_entity` | `Ref[entity]` | No | the single entity | Required when `entities` has more than one. |
-| `fanout_policy` | `"block" \| "aggregate_then_join"` | No | `"block"` | How to handle join fan-out across entities. |
-| `unit` | `str` | No | `None` | UCUM unit token. |
-| `provenance` | `SqlProvenance` | No | `None` | `ms.from_sql(sql=..., dialect=...)` for parity checking. |
-| `domain` / `ai_context` | — | No | — | As elsewhere. |
+This is the explicit escape hatch advertised by
+`marivo.help("semantic.objects.metric")`. Once selected,
+`marivo.help("semantic.metric")` is the sole source for its installed signature,
+fanout constraints, provenance input, and structured repairs.
 
 ```python
 @ms.metric(
@@ -1240,14 +1210,9 @@ on_hand_units = ms.measure_column(
 
 Declares how two entities join, so metrics and dimensions can reach across them.
 Keys are dimension refs, not raw column names.
-
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Relationship name. |
-| `from_entity` | `Ref[entity]` | Yes | — | Source entity. |
-| `to_entity` | `Ref[entity]` | Yes | — | Target entity. |
-| `keys` | `list[JoinKey]` | Yes | — | One or more `ms.join_on(from_key, to_key)` pairs. |
-| `domain` / `ai_context` | — | No | — | As elsewhere. |
+Use `marivo.help("semantic.objects.relationship")` to settle directed meaning,
+endpoint grains, key equivalence, multiplicity, and evidence checks. The exact
+constructor leaf routes the `keys` input to `marivo.help("semantic.join_on")`.
 
 ```python
 ms.relationship(
@@ -1265,8 +1230,11 @@ an explicit bounded snapshot only when generic profiles or retained rows answer
 the current question.
 Consult `marivo.help("datasource.authoring")` for datasource inspection and
 scope, `marivo.help("semantic.authoring")` for coherent-slice authoring,
-and `marivo.help("semantic.ai_context")` for the shared
-`ms.ai_context(...)` contract:
+`marivo.help("semantic.objects")` for object-owned decisions,
+`marivo.help("semantic.builders")` for supporting inputs,
+`marivo.help("semantic.checks")` for proof boundaries, and
+`marivo.help("semantic.ai_context")` for the shared `ms.ai_context(...)`
+contract:
 
 ```python
 warehouse = ms.ref.datasource("warehouse")

@@ -1894,7 +1894,12 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         )
 
     def grain(self, level: str, /) -> Grain:
-        """Return the common semantic Grain for one declared calendar level."""
+        """Return the common semantic Grain for one declared calendar level.
+
+        Example:
+            >>> calendar = catalog.period_calendars.get("sales.fiscal")
+            >>> fiscal_week = calendar.grain("fiscal_week")
+        """
         details = self.details()
         if level not in {item.name for item in details.levels}:
             _raise_period_lookup(
@@ -1940,7 +1945,13 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             )
 
     def period_on(self, level: str, value: date, /) -> TimeScope:
-        """Return the exact certified scope containing one civil date."""
+        """Return the exact certified scope containing one civil date.
+
+        Example:
+            >>> from datetime import date
+            >>> calendar = catalog.period_calendars.get("sales.fiscal")
+            >>> scope = calendar.period_on("fiscal_week", date(2026, 1, 15))
+        """
         try:
             snapshot = self._snapshot()
             period = TemporalResolver(snapshot).period_on(level, value)
@@ -1961,7 +1972,13 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         limit: int = 20,
         cursor: str | None = None,
     ) -> CalendarPeriodPage:
-        """Return a bounded ordinal page of certified periods for one level."""
+        """Return a bounded ordinal page of certified periods for one level.
+
+        Example:
+            >>> calendar = catalog.period_calendars.get("sales.fiscal")
+            >>> page = calendar.periods("fiscal_week", limit=20)
+            >>> page.show()
+        """
         if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
             _raise_period_lookup(
                 self.ref,
@@ -2111,7 +2128,12 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         )
 
     def occurrence(self, key: str | int | float | bool, /) -> TimeScope:
-        """Return the exact certified scope for one named occurrence."""
+        """Return the exact certified scope for one named occurrence.
+
+        Example:
+            >>> temporal_set = catalog.temporal_sets.get("sales.campaigns")
+            >>> scope = temporal_set.occurrence("spring_launch")
+        """
         try:
             return self._snapshot().occurrence_scope(key)
         except (KeyError, TypeError, ValueError):
@@ -2131,7 +2153,13 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         limit: int = 20,
         cursor: str | None = None,
     ) -> TemporalOccurrencePage:
-        """Return deterministic, bounded certified occurrence scopes."""
+        """Return deterministic, bounded certified occurrence scopes.
+
+        Example:
+            >>> temporal_set = catalog.temporal_sets.get("sales.campaigns")
+            >>> page = temporal_set.occurrences(category="promotion", limit=20)
+            >>> page.show()
+        """
         if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
             _raise_temporal_set_lookup(
                 self.ref,
@@ -2386,31 +2414,65 @@ def _raise_period_lookup(
     details: Mapping[str, object],
 ) -> NoReturn:
     """Raise one structured, bounded-retry catalog error for temporal lookup."""
+    from marivo._authoring.model import AuthoringRepair
+    from marivo.introspection.live.model import LiveHelpTarget
+
+    routes = {
+        "grain": (
+            LiveHelpTarget(surface="analysis", canonical_id="calendar.grain"),
+            (
+                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details() for "
+                "the exact declared levels, then retry calendar.grain(level) with one of them."
+            ),
+        ),
+        "period": (
+            LiveHelpTarget(surface="analysis", canonical_id="calendar.period"),
+            (
+                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details(), enumerate "
+                "the level with calendar.periods(level), then retry calendar.period(level, key) "
+                "with one exact certified key."
+            ),
+        ),
+        "period_on": (
+            LiveHelpTarget(surface="analysis", canonical_id="calendar.period_on"),
+            (
+                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details() for "
+                "declared levels and certified coverage, then retry calendar.period_on(level, "
+                "value) with one covered civil date."
+            ),
+        ),
+        "periods": (
+            LiveHelpTarget(surface="analysis", canonical_id="calendar.periods"),
+            (
+                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details(), then retry "
+                "calendar.periods(level, limit=..., cursor=...) with a declared level, a limit in "
+                "[1, 100], and either no cursor or the cursor returned by the current snapshot."
+            ),
+        ),
+        "snapshot": (
+            LiveHelpTarget(surface="semantic", canonical_id="preview"),
+            (
+                f"Certify the current period-calendar snapshot with catalog.preview("
+                f"catalog.period_calendars.get({calendar_ref.key!r}), scope=...), then retry. "
+                "If certification is blocked, inspect scoped catalog.readiness(...)."
+            ),
+        ),
+    }
+    route = routes.get(operation)
+    if route is None:
+        raise RuntimeError(f"unsupported period-calendar lookup operation: {operation}")
+    help_target, action = route
     _raise(
         ErrorKind.NOT_FOUND,
         message,
         cls=SemanticRuntimeError,
         refs=(calendar_ref.key,),
         details={"operation": operation, **dict(details)},
-        hint=(
-            f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details() for "
-            "coverage, declared levels, and snapshot status. When the snapshot is current, "
-            f"catalog.period_calendars.get({calendar_ref.key!r}).periods(level) enumerates "
-            "the exact certified periods and keys. Otherwise run "
-            f"catalog.readiness(refs=[catalog.period_calendars.get({calendar_ref.key!r}).ref]) "
-            "and follow its repair."
-        ),
-        repair_value=repair(
+        hint=action,
+        repair_value=AuthoringRepair(
             kind="retry",
-            canonical_id="period_calendar",
-            action=(
-                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details(). If its "
-                "snapshot is current, enumerate the requested level with "
-                f"catalog.period_calendars.get({calendar_ref.key!r}).periods(level) and retry "
-                "with an exact returned key. Otherwise run "
-                f"catalog.readiness(refs=[catalog.period_calendars.get({calendar_ref.key!r}).ref]) "
-                "and follow its repair."
-            ),
+            help_target=help_target,
+            action=action,
         ),
     )
 
@@ -2448,19 +2510,49 @@ def _raise_temporal_set_lookup(
     details: Mapping[str, object],
 ) -> NoReturn:
     """Raise one structured, bounded-retry temporal-set catalog error."""
+    from marivo._authoring.model import AuthoringRepair
+    from marivo.introspection.live.model import LiveHelpTarget
+
+    routes = {
+        "occurrence": (
+            LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrence"),
+            (
+                "Browse the current certified keys with temporal_set.occurrences(...), then retry "
+                "temporal_set.occurrence(key) with one exact returned key."
+            ),
+        ),
+        "occurrences": (
+            LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),
+            (
+                "Inspect the temporal-set details, then retry temporal_set.occurrences(...) with "
+                "valid bounds, a non-empty category or None, a limit in [1, 100], and either no "
+                "cursor or the cursor returned for the same current snapshot and filters."
+            ),
+        ),
+        "snapshot": (
+            LiveHelpTarget(surface="semantic", canonical_id="preview"),
+            (
+                f"Certify the current temporal-set snapshot with catalog.preview("
+                f"catalog.temporal_sets.get({temporal_set_ref.key!r}), scope=...), then retry. "
+                "If certification is blocked, inspect scoped catalog.readiness(...)."
+            ),
+        ),
+    }
+    route = routes.get(operation)
+    if route is None:
+        raise RuntimeError(f"unsupported temporal-set lookup operation: {operation}")
+    help_target, action = route
     _raise(
         ErrorKind.NOT_FOUND,
         message,
         cls=SemanticRuntimeError,
         refs=(temporal_set_ref.key,),
         details={"operation": operation, **dict(details)},
-        repair_value=repair(
+        hint=action,
+        repair_value=AuthoringRepair(
             kind="retry",
-            canonical_id="temporal_set",
-            action=(
-                "Inspect the temporal-set card for a certified occurrence key/filter and "
-                "retry using the exact current snapshot."
-            ),
+            help_target=help_target,
+            action=action,
         ),
     )
 
@@ -2473,19 +2565,27 @@ def _raise_work_schedule_lookup(
     details: Mapping[str, object],
 ) -> NoReturn:
     """Raise one structured, bounded-retry work-schedule catalog error."""
+    from marivo._authoring.model import AuthoringRepair
+    from marivo.introspection.live.model import LiveHelpTarget
+
+    if operation != "snapshot":
+        raise RuntimeError(f"unsupported work-schedule lookup operation: {operation}")
+    action = (
+        f"Certify the current work-schedule snapshot with catalog.preview("
+        f"catalog.work_schedules.get({work_schedule_ref.key!r}), scope=...), then retry. "
+        "If certification is blocked, inspect scoped catalog.readiness(...)."
+    )
     _raise(
         ErrorKind.NOT_FOUND,
         message,
         cls=SemanticRuntimeError,
         refs=(work_schedule_ref.key,),
         details={"operation": operation, **dict(details)},
-        repair_value=repair(
+        hint=action,
+        repair_value=AuthoringRepair(
             kind="retry",
-            canonical_id="work_schedule",
-            action=(
-                "Inspect the work-schedule card and retry after certifying the exact current "
-                "daily status snapshot."
-            ),
+            help_target=LiveHelpTarget(surface="semantic", canonical_id="preview"),
+            action=action,
         ),
     )
 
@@ -5319,14 +5419,20 @@ class SemanticCatalog(RenderableResult):
             root_keys: tuple[str, ...],
             exc: ValueError | TypeError,
         ) -> ReadinessIssue:
+            from marivo._authoring.model import AuthoringRepair
+            from marivo.introspection.live.model import LiveHelpTarget
+
             return ReadinessIssue(
                 kind="metric_graph_invalid",
                 severity="blocker",
                 refs=root_keys,
                 message=f"Runtime metric input cannot lower to the bounded metric graph: {exc}",
-                repair=repair(
+                repair=AuthoringRepair(
                     kind="reauthor",
-                    canonical_id="readiness",
+                    help_target=LiveHelpTarget(
+                        surface="analysis",
+                        canonical_id="runtime_metric",
+                    ),
                     action=(
                         "Repair the governed leaf refs or rebuild the closed expression with "
                         "mv.runtime_metric.* within the registered graph constraints."

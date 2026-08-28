@@ -633,7 +633,7 @@ def _temporal_contract_unobservable_issue(
         ),
         repair(
             kind="reauthor",
-            canonical_id="metric",
+            canonical_id="objects.metric",
             action=(
                 "Declare sample_interval=(1, 'hour') (or another minute/hour interval) "
                 "on the status time dimension via parse=ms.timestamp(...), or bind "
@@ -813,7 +813,7 @@ def build_readiness_report(
                         f"{path} cannot lower to the bounded metric expression graph: {exc}",
                         repair(
                             kind="reauthor",
-                            canonical_id="metric",
+                            canonical_id="objects.metric",
                             action=(
                                 "Reduce the metric's recursive composition to depth at most 10 "
                                 "and 256 pre-CSE occurrences, or repair the dependency reported "
@@ -1038,7 +1038,7 @@ def build_readiness_report(
                     f"{path} has no inception trigger and is not ready for Phase 3 replay.",
                     repair(
                         kind="reauthor",
-                        canonical_id="state_model",
+                        canonical_id="inception",
                         action="Add at least one ms.inception(on=...) trigger before replay.",
                     ),
                 )
@@ -1056,7 +1056,7 @@ def build_readiness_report(
                     f"Semantic object {path} spans multiple datasources without federation support.",
                     repair(
                         kind="reauthor",
-                        canonical_id="metric",
+                        canonical_id="objects.metric",
                         action="Move integration upstream, enable a federated backend, or split the metric.",
                     ),
                 )

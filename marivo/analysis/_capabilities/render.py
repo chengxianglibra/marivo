@@ -353,6 +353,9 @@ def _producer_targets_for_input(
     accepted = desc.accepted_inputs.get(parameter, frozenset())
     targets: list[LiveHelpTarget] = []
     for family in sorted(accepted):
+        if family == "TimeScopeInput":
+            targets.append(LiveHelpTarget(surface="analysis", canonical_id="inputs.scope"))
+            continue
         for target in REGISTRY.producer_targets(family):
             if target.surface == "analysis":
                 canonical_id = target.canonical_id

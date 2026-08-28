@@ -2101,14 +2101,15 @@ def _preferred_status_time_dimension_for_metric(
         assert isinstance(details, (SimpleMetricDetails, DerivedMetricDetails))
         return catalog_axes(_planned_metric(details), active=frozenset())
 
-    if isinstance(
+    is_runtime_metric = isinstance(
         metric_input,
         RuntimeAggregateExpr
         | RuntimeSliceExpr
         | RuntimeRatioExpr
         | RuntimeWeightedMeanExpr
         | RuntimeLinearExpr,
-    ):
+    )
+    if is_runtime_metric:
         axes = runtime_axes(metric_input)
     elif metric_ir is not None:
         axes = catalog_axes(metric_ir, active=frozenset())
@@ -2126,7 +2127,11 @@ def _preferred_status_time_dimension_for_metric(
                     "Align the folded component metrics to one governed status-time axis, "
                     "reload the catalog, then re-observe."
                 ),
-                help_target=LiveHelpTarget(surface="semantic", canonical_id="metric"),
+                help_target=(
+                    LiveHelpTarget(surface="analysis", canonical_id="runtime_metric")
+                    if is_runtime_metric
+                    else LiveHelpTarget(surface="semantic", canonical_id="objects.metric")
+                ),
             ),
             context={"conflicting_status_time_dimensions": sorted(axes)},
         )

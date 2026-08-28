@@ -2295,6 +2295,10 @@ def test_catalog_readiness_keeps_unrelated_ref_ready_when_runtime_leaf_is_missin
     assert report.analysis_ready_inputs == (revenue,)
     assert report.analysis_ready_inputs == (revenue,)
     assert {issue.kind for issue in report.blockers} >= {"unknown_ref", "metric_graph_invalid"}
+    graph_issue = next(issue for issue in report.blockers if issue.kind == "metric_graph_invalid")
+    assert graph_issue.repair is not None
+    assert graph_issue.repair.help_target.surface == "analysis"
+    assert graph_issue.repair.help_target.canonical_id == "runtime_metric"
 
 
 def test_catalog_readiness_blocks_invalid_runtime_weighted_mean(

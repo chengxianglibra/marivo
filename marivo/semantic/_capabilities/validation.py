@@ -280,8 +280,10 @@ def validate_semantic_live_surface() -> None:
             not property_name.startswith("_") for property_name in contract.public_properties
         )
         assert all(not method_name.startswith("_") for method_name in contract.public_methods)
+        # Cross-surface producer edges are resolved by unified-help tests so this
+        # semantic-owned validator does not reverse the semantic -> analysis boundary.
         assert all(
-            _is_registered_semantic_target(target)
+            target.surface != "semantic" or _is_registered_semantic_target(target)
             for target in (*contract.producers, *contract.consumers)
         )
     for canonical_id in tuple(descriptor.canonical_id for descriptor in REGISTRY.descriptors):
