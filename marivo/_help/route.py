@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringCapability
     from marivo.analysis._capabilities.model import CapabilityDescriptor
     from marivo.ontology._capabilities.registry import OntologyDescriptor
+    from marivo.semantic._capabilities.model import SemanticHelpDescriptor
 
 
 def _native_surface(
@@ -228,7 +229,7 @@ def render_native_route(route: NativeHelpRoute) -> str:
         )
 
         return render_semantic_target(
-            cast("ResolvedLiveTarget[AuthoringCapability]", route.resolved),
+            cast("ResolvedLiveTarget[SemanticHelpDescriptor]", route.resolved),
             original_target=route.original_target,
         )
     if route.owner == "ontology":

@@ -6,7 +6,6 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import NoReturn
 
-from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.errors import build_help_target_error_payload
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.resolve import (
@@ -15,6 +14,7 @@ from marivo.introspection.live.resolve import (
     build_string_target_index,
     build_suggestion_index,
 )
+from marivo.semantic._capabilities.model import SemanticHelpDescriptor
 from marivo.semantic._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
 from marivo.semantic.errors import SemanticHelpTargetError
 
@@ -53,7 +53,7 @@ def _cross_surface_owner(target: object) -> str | None:
     return None
 
 
-def _enrich(target: object) -> ResolvedLiveTarget[AuthoringCapability] | None:
+def _enrich(target: object) -> ResolvedLiveTarget[SemanticHelpDescriptor] | None:
     """Resolve concrete semantic runtime values before callable dispatch."""
     error_type = type(target)
     if ERROR_TYPES.get(error_type.__name__) is error_type:
@@ -106,7 +106,7 @@ def _enrich(target: object) -> ResolvedLiveTarget[AuthoringCapability] | None:
     return None
 
 
-def _build_surface() -> LiveSurface[AuthoringCapability]:
+def _build_surface() -> LiveSurface[SemanticHelpDescriptor]:
     """Build the immutable semantic help surface from the private registry."""
     type_index = MappingProxyType(
         {type_obj: contract.name for type_obj, contract in TYPE_CONTRACTS.items()}

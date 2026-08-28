@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, get_args
 
 from marivo._authoring.model import (
     AuthoringCapability,
@@ -25,8 +25,16 @@ from marivo.semantic._capabilities.catalog_members import (
     CATALOG_MEMBER_CONTRACTS,
 )
 from marivo.semantic._capabilities.model import (
+    SEMANTIC_HELP_RENDER_BUDGETS,
     AuthoringSourceContract,
+    SemanticBuilderTopic,
     SemanticCapabilityRegistry,
+    SemanticCheckTopic,
+    SemanticHelpDescriptor,
+    SemanticHelpRenderBudget,
+    SemanticHelpRenderClass,
+    SemanticNavigationTopic,
+    SemanticObjectContract,
     SemanticRepairContract,
     SemanticRootGroup,
     SemanticTypeContract,
@@ -521,6 +529,141 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
         ),
     )
     return MappingProxyType({row.error_kind: row for row in rows})
+
+
+_SEMANTIC_NAVIGATION_DESCRIPTOR_TYPES = (
+    SemanticNavigationTopic,
+    SemanticBuilderTopic,
+    SemanticCheckTopic,
+    SemanticObjectContract,
+)
+
+
+def _render_class_for_descriptor(
+    descriptor: SemanticHelpDescriptor,
+) -> SemanticHelpRenderClass:
+    """Return the Slice 1 registry-owned render class for one descriptor."""
+
+    if isinstance(descriptor, AuthoringCapability):
+        return "decision_hub" if descriptor.canonical_id == "authoring" else "exact_contract"
+    return "navigation"
+
+
+def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
+    """Reject invalid closed registry state before the live surface is built."""
+
+    help_descriptors = registry.help_descriptors
+    canonical_ids = tuple(descriptor.canonical_id for descriptor in help_descriptors)
+    if len(canonical_ids) != len(set(canonical_ids)):
+        raise ValueError("duplicate semantic help canonical id")
+    if any(not canonical_id.strip() for canonical_id in canonical_ids):
+        raise ValueError("semantic help canonical ids must not be empty")
+    if any(not descriptor.summary.strip() for descriptor in help_descriptors):
+        raise ValueError("semantic help descriptor summaries must not be empty")
+
+    exact_descriptors = tuple(
+        descriptor for descriptor in help_descriptors if isinstance(descriptor, AuthoringCapability)
+    )
+    if exact_descriptors != registry.descriptors:
+        raise ValueError("semantic exact descriptor projection is inconsistent")
+    if tuple(registry._by_id) != canonical_ids:
+        raise ValueError("semantic help id index is inconsistent")
+    for descriptor in help_descriptors:
+        if registry._by_id.get(descriptor.canonical_id) is not descriptor:
+            raise ValueError("semantic help id index does not preserve descriptor identity")
+
+    callable_descriptors = tuple(
+        descriptor for descriptor in exact_descriptors if descriptor.callable_path is not None
+    )
+    callable_paths = tuple(descriptor.callable_path for descriptor in callable_descriptors)
+    if len(callable_paths) != len(set(callable_paths)):
+        raise ValueError("duplicate semantic callable path")
+    if set(registry._by_callable_path) != set(callable_paths):
+        raise ValueError("semantic callable index is inconsistent")
+    for descriptor in callable_descriptors:
+        callable_path = descriptor.callable_path
+        if callable_path is None or registry._by_callable_path.get(callable_path) is not descriptor:
+            raise ValueError("semantic callable index does not preserve descriptor identity")
+
+    expected_render_classes = set(get_args(SemanticHelpRenderClass))
+    if set(registry.render_budgets) != expected_render_classes:
+        raise ValueError("semantic Help budgets must cover every render class")
+    for render_class, budget in registry.render_budgets.items():
+        if (
+            budget.max_lines <= 0
+            or budget.max_codepoints <= 0
+            or budget.max_outgoing_routes <= 0
+            or budget.max_examples_or_snippets < 0
+        ):
+            raise ValueError(f"invalid semantic Help render budget: {render_class}")
+
+    if set(registry._render_classes) != set(canonical_ids):
+        raise ValueError("semantic render-class assignments must cover every descriptor")
+    for descriptor in help_descriptors:
+        render_class = registry._render_classes[descriptor.canonical_id]
+        if render_class not in expected_render_classes:
+            raise ValueError(f"unknown semantic Help render class: {render_class}")
+        if render_class != _render_class_for_descriptor(descriptor):
+            raise ValueError(
+                f"invalid semantic Help render class for {descriptor.canonical_id}: {render_class}"
+            )
+        if isinstance(descriptor, _SEMANTIC_NAVIGATION_DESCRIPTOR_TYPES) and (
+            descriptor.public_entrypoint is not None or descriptor.callable_path is not None
+        ):
+            raise ValueError(
+                f"semantic navigation descriptor must not be invokable: {descriptor.canonical_id}"
+            )
+
+    exact_ids = {descriptor.canonical_id for descriptor in exact_descriptors}
+    for group, members in registry._groups.items():
+        if len(members) != len(set(members)):
+            raise ValueError(f"duplicate semantic root group member: {group}")
+        if not set(members) <= exact_ids:
+            raise ValueError(f"semantic root group contains an unknown capability: {group}")
+
+
+def _finalize_registry(
+    descriptors: tuple[AuthoringCapability, ...],
+    *,
+    groups: Mapping[SemanticRootGroup, tuple[str, ...]],
+    source_contracts: Mapping[str, AuthoringSourceContract],
+    repair_contracts: Mapping[str, SemanticRepairContract],
+    help_descriptors: tuple[SemanticHelpDescriptor, ...] | None = None,
+    render_budgets: Mapping[
+        SemanticHelpRenderClass,
+        SemanticHelpRenderBudget,
+    ] = SEMANTIC_HELP_RENDER_BUDGETS,
+) -> SemanticCapabilityRegistry:
+    """Build immutable indexes and eagerly validate the semantic Help registry."""
+
+    active_help_descriptors = descriptors if help_descriptors is None else help_descriptors
+    registry = SemanticCapabilityRegistry(
+        surface="semantic",
+        _help_descriptors=active_help_descriptors,
+        _descriptors=descriptors,
+        _groups=MappingProxyType(dict(groups)),
+        _by_id=MappingProxyType(
+            {descriptor.canonical_id: descriptor for descriptor in active_help_descriptors}
+        ),
+        _by_callable_path=MappingProxyType(
+            {
+                descriptor.callable_path: descriptor
+                for descriptor in descriptors
+                if descriptor.callable_path is not None
+            }
+        ),
+        _source_contracts=MappingProxyType(dict(source_contracts)),
+        _repair_contracts=MappingProxyType(dict(repair_contracts)),
+        _render_classes=MappingProxyType(
+            {
+                descriptor.canonical_id: _render_class_for_descriptor(descriptor)
+                for descriptor in active_help_descriptors
+            }
+        ),
+        _render_budgets=MappingProxyType(dict(render_budgets)),
+    )
+    _validate_registry(registry)
+    return registry
 
 
 def _build_registry() -> SemanticCapabilityRegistry:
@@ -1493,16 +1636,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "diagnostics_boundaries": ("richness", "parity_check"),
         }
     )
-    return SemanticCapabilityRegistry(
-        surface="semantic",
-        _descriptors=descriptor_rows,
-        _groups=groups,
-        _by_id=MappingProxyType({row.canonical_id: row for row in descriptor_rows}),
-        _by_callable_path=MappingProxyType(
-            {row.callable_path: row for row in descriptor_rows if row.callable_path is not None}
-        ),
-        _source_contracts=_source_contracts(),
-        _repair_contracts=_repair_contracts(),
+    return _finalize_registry(
+        descriptor_rows,
+        groups=groups,
+        source_contracts=_source_contracts(),
+        repair_contracts=_repair_contracts(),
     )
 
 
