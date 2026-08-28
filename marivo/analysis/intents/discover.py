@@ -93,15 +93,6 @@ _OBJECTIVE_TO_SHAPE: dict[ScoredCandidateObjective, ScoredCandidateShape] = {
 
 _VALID_OBJECTIVES = set(_OBJECTIVE_TO_SHAPE.keys())
 
-_OBJECTIVE_SEMANTIC_KINDS: dict[ScoredCandidateObjective, set[str]] = {
-    "point_anomalies": {"time_series", "panel"},
-    "period_shifts": {"time_series", "panel"},
-    "driver_axes": {"scalar", "time_series", "segmented", "panel"},
-    "interesting_slices": {"time_series", "segmented", "panel"},
-    "interesting_windows": {"time_series", "panel"},
-    "cross_sectional_outliers": {"segmented", "panel"},
-}
-
 _OBJECTIVE_REQUIRED_KWARGS: dict[ScoredCandidateObjective, tuple[str, ...]] = {
     "point_anomalies": (),
     "period_shifts": (),
@@ -285,6 +276,7 @@ def _discover_dispatch(
         "metric_frame" if isinstance(source, MetricFrame) else "delta_frame"
     )
     if isinstance(source.meta, FunnelDeltaFrameMeta):
+        allowed_semantic_kinds = _objective_semantic_kinds(discover_objective)
         raise SemanticKindMismatchError(
             message=(
                 f"discover objective {discover_objective!r} does not accept DeltaFrame[funnel]"
@@ -292,7 +284,7 @@ def _discover_dispatch(
             context={
                 "objective": discover_objective,
                 "semantic_kind": source.meta.semantic_kind,
-                "expected_kind": "|".join(sorted(_OBJECTIVE_SEMANTIC_KINDS[discover_objective])),
+                "expected_kind": "|".join(sorted(allowed_semantic_kinds)),
             },
         )
     _check_objective_compatibility(discover_objective, source.meta.semantic_kind)
@@ -589,7 +581,7 @@ def _check_objective_compatibility(
     objective: ScoredCandidateObjective,
     semantic_kind: str,
 ) -> None:
-    allowed = _OBJECTIVE_SEMANTIC_KINDS[objective]
+    allowed = _objective_semantic_kinds(objective)
     if semantic_kind not in allowed:
         raise SemanticKindMismatchError(
             message=(
@@ -601,6 +593,16 @@ def _check_objective_compatibility(
                 "expected_kind": "|".join(sorted(allowed)),
             },
         )
+
+
+def _objective_semantic_kinds(objective: ScoredCandidateObjective) -> frozenset[str]:
+    from marivo.analysis._capabilities.model import OperatorCapability
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    descriptor = REGISTRY.by_id(f"discover.{objective}")
+    assert isinstance(descriptor, OperatorCapability)
+    admission = descriptor.artifact_admission["source"]
+    return frozenset(shape for shapes in admission.semantic_shapes.values() for shape in shapes)
 
 
 def _discover_value_repair(df: pd.DataFrame) -> AnalysisRepair:

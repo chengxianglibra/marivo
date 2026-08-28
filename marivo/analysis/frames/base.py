@@ -15,6 +15,7 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from marivo._temporal import ComparisonTemporalContractV1, FrameTemporalContractV1
+from marivo.analysis._contract_budget import ARTIFACT_CONTRACT_RENDER_BUDGET
 from marivo.analysis.attribution_contract import (
     AttributeAdmissionV1,
     CumulativeAttributionCapabilityV1,
@@ -33,8 +34,9 @@ from marivo.analysis.evidence.types import (
     QualitySummary,
 )
 from marivo.analysis.lineage import Lineage
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult, result_repr
+from marivo.render import Card, RenderableResult, result_repr
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
 if TYPE_CHECKING:
@@ -181,7 +183,13 @@ class ArtifactSemanticInput(BaseModel):
     semantic_path: str
     output_column: str | None = None
     acquisition: str
-    help_target: str
+    help_target: LiveHelpTarget
+
+    @model_validator(mode="after")
+    def _validate_help_target(self) -> ArtifactSemanticInput:
+        if self.help_target.canonical_id is None:
+            raise ValueError("semantic input help_target must be exact")
+        return self
 
 
 class ArtifactPrecondition(BaseModel):
@@ -229,7 +237,7 @@ class ArtifactInputRequirement(BaseModel):
     derivable_from_current_artifact: bool = False
     accepted_semantic_shapes: tuple[str, ...] = ()
     acquisition: str | None = None
-    help_targets: tuple[str, ...] = ()
+    help_targets: tuple[LiveHelpTarget, ...] = ()
 
     @model_validator(mode="after")
     def _validate_requirement_route(self) -> ArtifactInputRequirement:
@@ -239,6 +247,8 @@ class ArtifactInputRequirement(BaseModel):
             raise ValueError("acquisition and help_targets must be supplied together")
         if self.derivable_from_current_artifact and not self.acquisition:
             raise ValueError("artifact-derived inputs need acquisition guidance")
+        if any(target.canonical_id is None for target in self.help_targets):
+            raise ValueError("input requirement help_targets must be exact")
         return self
 
 
@@ -258,11 +268,17 @@ class ArtifactAffordance(BaseModel):
 
     capability_id: str
     public_entrypoint: str
-    help_target: str
+    help_target: LiveHelpTarget
     input_requirements: tuple[ArtifactInputRequirement, ...] = ()
     preconditions: tuple[ArtifactPrecondition, ...] = ()
     expected_output_family: str | None = None
     call_options: tuple[ArtifactCallOption, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_help_target(self) -> ArtifactAffordance:
+        if self.help_target.canonical_id is None:
+            raise ValueError("affordance help_target must be exact")
+        return self
 
 
 class ArtifactBoundaryPort(BaseModel):
@@ -273,9 +289,16 @@ class ArtifactBoundaryPort(BaseModel):
     kind: Literal["terminal_exit"]
     capability_id: Literal["boundary.to_pandas"]
     public_entrypoint: str
-    help_target: Literal["boundary.to_pandas"]
+    help_target: LiveHelpTarget
     preserves: tuple[str, ...]
     does_not_preserve: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _validate_help_target(self) -> ArtifactBoundaryPort:
+        expected = LiveHelpTarget(surface="analysis", canonical_id="boundary.to_pandas")
+        if self.help_target != expected:
+            raise ValueError("boundary port must target analysis.boundary.to_pandas")
+        return self
 
 
 class ArtifactContract(BaseModel):
@@ -303,6 +326,16 @@ class ArtifactContract(BaseModel):
     ) = None
     temporal_contract: FrameTemporalContractV1 | ComparisonTemporalContractV1 | None = None
 
+    @model_validator(mode="after")
+    def _validate_affordance_budget(self) -> ArtifactContract:
+        if len(self.affordances) > ARTIFACT_CONTRACT_RENDER_BUDGET.max_affordances:
+            raise ValueError(
+                "ArtifactContract exceeds the complete affordance budget: "
+                f"{len(self.affordances)} > "
+                f"{ARTIFACT_CONTRACT_RENDER_BUDGET.max_affordances}"
+            )
+        return self
+
     @computed_field  # type: ignore[prop-decorator]  # Pydantic wraps this property.
     @property
     def output_columns(self) -> tuple[str, ...]:
@@ -314,12 +347,21 @@ class ArtifactContract(BaseModel):
             f"ArtifactContract kind={self.kind} ref={self.ref} affordances={len(self.affordances)}"
         )
 
-    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        """Render the bounded mechanical contract without reading artifact rows."""
-        return _artifact_contract_card(self).render(max_output_bytes=max_output_bytes)
+    def render(self, *, max_output_bytes: int | None = None) -> str:
+        """Render the complete bounded contract without dropping continuations."""
+        rendered = _artifact_contract_card(self).render(max_output_bytes=None)
+        _enforce_artifact_contract_budget(self, rendered)
+        if max_output_bytes is not None and len(rendered.encode("utf-8")) > max_output_bytes:
+            required = len(rendered.encode("utf-8"))
+            raise ValueError(
+                "max_output_bytes is too small for the complete ArtifactContract; "
+                f"required={required}, received={max_output_bytes}; "
+                "ArtifactContract rendering never truncates affordances or repairs"
+            )
+        return rendered
 
-    def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        """Print the bounded mechanical contract."""
+    def show(self, *, max_output_bytes: int | None = None) -> None:
+        """Print the complete bounded mechanical contract."""
         print(self.render(max_output_bytes=max_output_bytes))
 
     def __repr__(self) -> str:
@@ -327,6 +369,22 @@ class ArtifactContract(BaseModel):
 
     def __str__(self) -> str:
         return self.render()
+
+
+def _enforce_artifact_contract_budget(contract: ArtifactContract, rendered: str) -> None:
+    """Fail explicitly when a complete contract exceeds its native limits."""
+
+    budget = ARTIFACT_CONTRACT_RENDER_BUDGET
+    violations: list[str] = []
+    line_count = len(rendered.splitlines())
+    if line_count > budget.max_lines:
+        violations.append(f"lines={line_count}>{budget.max_lines}")
+    if len(rendered) > budget.max_codepoints:
+        violations.append(f"codepoints={len(rendered)}>{budget.max_codepoints}")
+    if len(contract.affordances) > budget.max_affordances:
+        violations.append(f"affordances={len(contract.affordances)}>{budget.max_affordances}")
+    if violations:
+        raise RuntimeError("ArtifactContract render budget exceeded: " + ", ".join(violations))
 
 
 class ArtifactState(BaseModel):
@@ -448,7 +506,10 @@ def _artifact_semantic_input(binding: _ArtifactSemanticBinding) -> ArtifactSeman
         semantic_path=binding.semantic_path,
         output_column=binding.output_column,
         acquisition=(f'session.catalog.{collection}.get("{binding.semantic_path}")'),
-        help_target=f"analysis.catalog.{collection}",
+        help_target=LiveHelpTarget(
+            surface="analysis",
+            canonical_id=f"catalog.{collection}",
+        ),
     )
 
 
@@ -488,35 +549,72 @@ def _capability_public_entrypoint(capability_id: str) -> str:
     return str(registry_module.REGISTRY.by_id(capability_id).public_entrypoint)
 
 
-def _analysis_help_call(help_target: str) -> str:
-    """Render one analysis help target as a directly callable public path."""
-    return f'marivo.help("analysis.{help_target}")'
+def _read_artifact_affordance(
+    capability_id: str,
+    *,
+    artifact_shape: str | None = None,
+) -> ArtifactAffordance:
+    """Build one receiver-owned continuation solely from its exact descriptor."""
+
+    registry_module = importlib.import_module("marivo.analysis._capabilities.registry")
+    model_module = importlib.import_module("marivo.analysis._capabilities.model")
+    descriptor = registry_module.REGISTRY.by_id(capability_id)
+    if not isinstance(descriptor, model_module.ReadCapability):
+        raise TypeError(f"{capability_id} is not a receiver-owned Read capability")
+    output_family = descriptor.output_type
+    if descriptor.artifact_output_by_shape:
+        if artifact_shape is None or artifact_shape not in descriptor.artifact_output_by_shape:
+            raise ValueError(f"{capability_id} has no output family for shape {artifact_shape!r}")
+        output_family = descriptor.artifact_output_by_shape[artifact_shape]
+    return ArtifactAffordance(
+        capability_id=descriptor.id,
+        public_entrypoint=descriptor.public_entrypoint,
+        help_target=LiveHelpTarget(
+            surface="analysis",
+            canonical_id=descriptor.help_target,
+        ),
+        input_requirements=(
+            ArtifactInputRequirement(
+                parameter="receiver",
+                accepted_families=(descriptor.receiver_family,),
+                bindable_from_current_artifact=True,
+            ),
+        ),
+        expected_output_family=output_family,
+    )
+
+
+def _help_call(target: LiveHelpTarget) -> str:
+    """Render one exact typed Help target as a directly callable public path."""
+
+    if target.canonical_id is None:
+        raise ValueError("help target must be exact")
+    return f'marivo.help("{target.surface}.{target.canonical_id}")'
 
 
 def _repair_help_call(repair: AnalysisRepair) -> str:
     """Render a structured repair help target as a public marivo.help call."""
-    target = repair.help_target
-    qualified = (
-        f"{target.surface}.{target.canonical_id}"
-        if target.canonical_id is not None
-        else str(target.surface)
+    return _help_call(repair.help_target)
+
+
+def _grouped_affordances(
+    affordances: tuple[ArtifactAffordance, ...],
+) -> tuple[tuple[LiveHelpTarget, tuple[ArtifactAffordance, ...]], ...]:
+    """Group readable affordances by registry ownership without mutating them."""
+
+    registry_module = importlib.import_module("marivo.analysis._capabilities.registry")
+    registry = registry_module.REGISTRY
+    grouped: dict[LiveHelpTarget, list[ArtifactAffordance]] = {}
+    for affordance in affordances:
+        owner = registry.continuation_group(affordance.help_target)
+        grouped.setdefault(owner, []).append(affordance)
+    return tuple(
+        (
+            owner,
+            tuple(sorted(items, key=lambda item: item.public_entrypoint)),
+        )
+        for owner, items in sorted(grouped.items(), key=lambda item: item[0].display)
     )
-    return f'marivo.help("{qualified}")'
-
-
-def _affordance_group(
-    affordance: ArtifactAffordance,
-) -> Literal["session", "discover", "frame", "transform", "candidates"]:
-    entrypoint = affordance.public_entrypoint
-    if entrypoint.startswith("session.discover."):
-        return "discover"
-    if entrypoint.startswith("session."):
-        return "session"
-    if entrypoint.startswith("frame.transform."):
-        return "transform"
-    if entrypoint.startswith("candidates."):
-        return "candidates"
-    return "frame"
 
 
 def _contract_receiver(contract: ArtifactContract) -> str:
@@ -560,7 +658,7 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
             (
                 f"{item.role}: {item.semantic_kind.value}:{item.semantic_path}"
                 + (f" output_column={item.output_column}" if item.output_column is not None else "")
-                + f"; acquire={item.acquisition}; help={_analysis_help_call(item.help_target.removeprefix('analysis.'))}"
+                + f"; acquire={item.acquisition}; help={_help_call(item.help_target)}"
                 for item in contract.semantic_inputs
             ),
         )
@@ -618,23 +716,19 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
         card.field("continuations", "none")
     else:
         card.field("continuations", "mechanical, unranked")
-        for group in ("session", "discover", "frame", "transform", "candidates"):
-            grouped = tuple(item for item in affordances if _affordance_group(item) == group)
-            if grouped:
-                card.listing(group, (_render_affordance(item) for item in grouped))
+        for owner, grouped in _grouped_affordances(affordances):
+            card.listing(owner.display, (_render_affordance(item) for item in grouped))
     precondition_lines = tuple(
         line
-        for affordance in affordances
-        for precondition in affordance.preconditions
-        if _visible_precondition(precondition)
-        for line in _render_precondition(affordance, precondition)
+        for entrypoints, precondition in _grouped_preconditions(affordances)
+        for line in _render_precondition(entrypoints, precondition)
     )
     if precondition_lines:
         card.listing("preconditions and repairs", precondition_lines)
     card.listing(
         "terminal exits",
         (
-            f"{port.public_entrypoint}; help={_analysis_help_call(port.help_target)}; "
+            f"{port.public_entrypoint}; help={_help_call(port.help_target)}; "
             f"preserves={', '.join(port.preserves)}; "
             f"does_not_preserve={', '.join(port.does_not_preserve)}"
             for port in contract.boundary_ports
@@ -654,15 +748,14 @@ def _render_affordance(affordance: ArtifactAffordance) -> str:
         if requirement.acquisition is not None:
             details.append(f"acquire={requirement.acquisition}")
             details.append(
-                "help="
-                + ",".join(f'marivo.help("{target}")' for target in requirement.help_targets)
+                "help=" + ",".join(_help_call(target) for target in requirement.help_targets)
             )
         families = ",".join(requirement.accepted_families) or "constructed"
         rendered_requirements.append(f"{requirement.parameter}={families} ({'; '.join(details)})")
     bindings = "; ".join(rendered_requirements)
     base = (
         f"{affordance.public_entrypoint} -> {affordance.expected_output_family or 'none'}; "
-        f"inputs={bindings or 'none'}; help={_analysis_help_call(affordance.help_target)}"
+        f"inputs={bindings or 'none'}; help={_help_call(affordance.help_target)}"
     )
     if not affordance.call_options:
         return base
@@ -671,11 +764,11 @@ def _render_affordance(affordance: ArtifactAffordance) -> str:
 
 
 def _render_precondition(
-    affordance: ArtifactAffordance,
+    entrypoints: tuple[str, ...],
     precondition: ArtifactPrecondition,
 ) -> tuple[str, ...]:
     reason = precondition.reason or "none"
-    label = f"{affordance.public_entrypoint} [{precondition.check}]"
+    label = f"{', '.join(entrypoints)} [{precondition.check}]"
     lines = [f"{label}: status={precondition.status}; reason={reason}"]
     repairs = (
         (precondition.repair,) if precondition.repair is not None else precondition.repair_options
@@ -688,6 +781,25 @@ def _render_precondition(
             f"action={repair.action}; help={_repair_help_call(repair)}; snippet={snippet}"
         )
     return tuple(lines)
+
+
+def _grouped_preconditions(
+    affordances: tuple[ArtifactAffordance, ...],
+) -> tuple[tuple[tuple[str, ...], ArtifactPrecondition], ...]:
+    """Project identical current-state gates once with every owning entrypoint."""
+
+    grouped: dict[str, tuple[list[str], ArtifactPrecondition]] = {}
+    order: list[str] = []
+    for affordance in affordances:
+        for precondition in affordance.preconditions:
+            if not _visible_precondition(precondition):
+                continue
+            key = precondition.model_dump_json()
+            if key not in grouped:
+                grouped[key] = ([], precondition)
+                order.append(key)
+            grouped[key][0].append(affordance.public_entrypoint)
+    return tuple((tuple(dict.fromkeys(grouped[key][0])), grouped[key][1]) for key in order)
 
 
 def _output_family_str(desc: Any) -> str:
@@ -712,7 +824,10 @@ def _build_boundary_ports(registry: Any) -> list[ArtifactBoundaryPort]:
             kind="terminal_exit",
             capability_id="boundary.to_pandas",
             public_entrypoint=desc.public_entrypoint,
-            help_target="boundary.to_pandas",
+            help_target=LiveHelpTarget(
+                surface="analysis",
+                canonical_id=desc.help_target,
+            ),
             preserves=desc.preserves,
             does_not_preserve=desc.does_not_preserve,
         )
@@ -872,7 +987,7 @@ class BaseFrame(RenderableResult):
         """Return the mechanical consumption contract for the artifact.
 
         Affordances are mechanical compatibility entries derived from the
-        capability registry's reverse edges (``constructor_consumers``),
+        capability registry's exact Artifact consumer edges,
         not recommendations.
 
         Returns:
@@ -890,15 +1005,25 @@ class BaseFrame(RenderableResult):
         model_module = importlib.import_module("marivo.analysis._capabilities.model")
         registry = registry_module.REGISTRY
         operator_cls = model_module.OperatorCapability
+        read_cls = model_module.ReadCapability
         validation_module = importlib.import_module("marivo.analysis._capabilities.validation")
 
         family = type(self).__name__
-        consumer_ids = registry.constructor_consumers.get(family, ())
+        consumer_targets = (
+            tuple(dict.fromkeys(edge.target for edge in registry.artifact_consumer_edges(family)))
+            if family in model_module.ARTIFACT_FAMILIES
+            else ()
+        )
         affordances: list[ArtifactAffordance] = []
-        for cap_id in consumer_ids:
-            if cap_id == "boundary.to_pandas":
+        for target in consumer_targets:
+            cap_id = target.canonical_id
+            if cap_id is None or cap_id == "boundary.to_pandas":
                 continue
             desc = registry.by_id(cap_id)
+            if isinstance(desc, read_cls):
+                # Receiver-owned reads have current-state-specific affordance
+                # construction in their concrete Artifact subclasses.
+                continue
             assert isinstance(desc, operator_cls)
             artifact_parameters = tuple(
                 parameter
@@ -950,12 +1075,7 @@ class BaseFrame(RenderableResult):
                             parameter_help.acquisition if parameter_help is not None else None
                         ),
                         help_targets=(
-                            tuple(
-                                f"{target.surface}.{target.canonical_id}"
-                                for target in parameter_help.help_targets
-                            )
-                            if parameter_help is not None
-                            else ()
+                            parameter_help.help_targets if parameter_help is not None else ()
                         ),
                     )
                 )
@@ -963,7 +1083,10 @@ class BaseFrame(RenderableResult):
             affordance = ArtifactAffordance(
                 capability_id=desc.id,
                 public_entrypoint=desc.public_entrypoint,
-                help_target=desc.help_target,
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id=desc.help_target,
+                ),
                 input_requirements=tuple(input_requirements),
                 expected_output_family=output_family,
             )

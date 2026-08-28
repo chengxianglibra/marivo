@@ -40,8 +40,9 @@ from marivo.analysis._capabilities import (
     RootGroup,
     SameAsInputFamily,
 )
-from marivo.analysis._capabilities.model import HelpExample
+from marivo.analysis._capabilities.model import ArtifactConsumerEdge, HelpExample
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis._contract_budget import ARTIFACT_CONTRACT_RENDER_BUDGET
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget, SurfaceLimits
 
 # ---------------------------------------------------------------------------
@@ -1463,8 +1464,94 @@ def test_candidate_set_select_is_read_not_operator() -> None:
     assert desc.kind == "read"
     assert desc.result_kind == "defensive_copy"
     assert desc.read_bound == "bounded"
+    assert desc.exposes_artifact_affordance is True
     assert desc.receiver_family == "CandidateSet"
+    assert desc.artifact_output_by_shape == {
+        "point_anomaly": "PointAnomalySelection",
+        "period_shift": "PeriodShiftSelection",
+        "driver_axis": "DriverAxisSelection",
+        "slice": "SliceSelection",
+        "window": "WindowSelection",
+        "cross_sectional_outlier": "CrossSectionalOutlierSelection",
+        "semantic_hypothesis": "OntologyMetricCandidate",
+    }
     assert not hasattr(desc, "output_family")
+
+
+def test_receiver_owned_affordance_reads_join_static_consumer_algebra() -> None:
+    expected = {
+        "CandidateSet": "CandidateSet.select",
+        "AttributionFrame": "AttributionFrame.at_resolution",
+    }
+    for family, capability_id in expected.items():
+        edges = REGISTRY.artifact_consumer_edges(family)  # type: ignore[arg-type]
+        edge = next(item for item in edges if item.target.canonical_id == capability_id)
+        descriptor = REGISTRY.by_id(capability_id)
+        assert isinstance(descriptor, ReadCapability)
+        assert descriptor.exposes_artifact_affordance
+        assert edge.parameter == "receiver"
+        assert REGISTRY.continuation_group(edge.target) == LiveHelpTarget(
+            surface="analysis",
+            canonical_id=family,
+        )
+
+
+def test_registry_rejects_invalid_receiver_owned_affordance_read() -> None:
+    from marivo.analysis._capabilities.registry import _validate_artifact_affordance_reads
+
+    candidate_select = REGISTRY.by_id("CandidateSet.select")
+    assert isinstance(candidate_select, ReadCapability)
+    drifted = replace(candidate_select, receiver_family="Session")
+
+    with pytest.raises(ValueError, match="receiver is not an Artifact family"):
+        _validate_artifact_affordance_reads((drifted,))
+
+    missing_output = replace(
+        candidate_select,
+        output_type="",
+        artifact_output_by_shape={},
+    )
+    with pytest.raises(ValueError, match="lacks an output family"):
+        _validate_artifact_affordance_reads((missing_output,))
+
+
+def test_registry_rejects_twenty_fifth_typed_artifact_continuation() -> None:
+    from marivo.analysis._capabilities.registry import _validate_artifact_continuation_budget
+
+    edges = tuple(
+        ArtifactConsumerEdge(
+            target=LiveHelpTarget(surface="analysis", canonical_id=f"test.target_{index}"),
+            parameter="receiver",
+        )
+        for index in range(ARTIFACT_CONTRACT_RENDER_BUDGET.max_affordances + 1)
+    )
+
+    with pytest.raises(ValueError, match=r"MetricFrame exposes 25 typed continuations > 24"):
+        _validate_artifact_continuation_budget({"MetricFrame": edges})  # type: ignore[arg-type]
+
+
+def test_shape_admission_is_complete_for_dynamic_continuations() -> None:
+    expected = {
+        "forecast": {"MetricFrame": frozenset({"time_series", "panel"})},
+        "discover.point_anomalies": {"MetricFrame": frozenset({"time_series", "panel"})},
+        "discover.period_shifts": {"DeltaFrame": frozenset({"time_series", "panel"})},
+        "transform.filter": {
+            "MetricFrame": frozenset({"scalar", "time_series", "segmented", "panel"}),
+            "DeltaFrame": frozenset({"scalar", "time_series", "segmented", "panel"}),
+        },
+        "DeltaFrame.components": {
+            "DeltaFrame": frozenset({"scalar", "time_series", "segmented", "panel"})
+        },
+    }
+    for capability_id, shapes in expected.items():
+        descriptor = REGISTRY.by_id(capability_id)
+        assert isinstance(descriptor, OperatorCapability)
+        parameter = (
+            "history"
+            if capability_id == "forecast"
+            else ("source" if capability_id.startswith("discover.") else "receiver")
+        )
+        assert descriptor.artifact_admission[parameter].semantic_shapes == shapes
 
 
 # ---------------------------------------------------------------------------

@@ -19,14 +19,13 @@ from marivo.analysis.candidate_lineage import (
 )
 from marivo.analysis.evidence.types import ArtifactIssue, JsonScalar
 from marivo.analysis.frames.base import (
-    ArtifactAffordance,
     ArtifactContract,
-    ArtifactInputRequirement,
     BaseFrame,
     BaseFrameMeta,
-    _capability_public_entrypoint,
+    _read_artifact_affordance,
 )
 from marivo.analysis.windows import AbsoluteWindow
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.ontology.types import SemanticEdgeRef
 from marivo.refs import DimensionKind, Ref, RefPayloadV1, SemanticKind
 from marivo.render import Card
@@ -261,17 +260,6 @@ CandidateSelection = Annotated[
 ]
 
 
-_SELECTION_OUTPUT_BY_SHAPE: dict[CandidateShape, str] = {
-    "point_anomaly": "PointAnomalySelection",
-    "period_shift": "PeriodShiftSelection",
-    "driver_axis": "DriverAxisSelection",
-    "slice": "SliceSelection",
-    "window": "WindowSelection",
-    "cross_sectional_outlier": "CrossSectionalOutlierSelection",
-    "semantic_hypothesis": "OntologyMetricCandidate",
-}
-
-
 @dataclass(repr=False)
 class CandidateSet(BaseFrame):
     """Call marivo.help(CandidateSet) for its public consumption contract."""
@@ -376,18 +364,9 @@ class CandidateSet(BaseFrame):
     def contract(self) -> ArtifactContract:
         """Return the artifact contract with live/historical exclusion repairs."""
         contract = super().contract()
-        select_affordance = ArtifactAffordance(
-            capability_id="CandidateSet.select",
-            public_entrypoint=_capability_public_entrypoint("CandidateSet.select"),
-            help_target="CandidateSet.select",
-            input_requirements=(
-                ArtifactInputRequirement(
-                    parameter="receiver",
-                    accepted_families=("CandidateSet",),
-                    bindable_from_current_artifact=True,
-                ),
-            ),
-            expected_output_family=_SELECTION_OUTPUT_BY_SHAPE[self.meta.shape],
+        select_affordance = _read_artifact_affordance(
+            "CandidateSet.select",
+            artifact_shape=self.meta.shape,
         )
         contract = contract.model_copy(
             update={"affordances": (*contract.affordances, select_affordance)}
@@ -396,7 +375,6 @@ class CandidateSet(BaseFrame):
             return contract
         from marivo.analysis.errors import AnalysisRepair
         from marivo.analysis.session._runtime import get_process_current
-        from marivo.introspection.live.model import LiveHelpTarget
         from marivo.refs import ref as ref_factory
 
         session = get_process_current()

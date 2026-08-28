@@ -10,7 +10,11 @@ import pytest
 from pydantic import ValidationError
 
 from marivo._compat import UTC
+from marivo.analysis._capabilities.model import OperatorCapability, ReadCapability
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
+from marivo.analysis._capabilities.validation import evaluate_artifact_admission
+from marivo.analysis._contract_budget import ARTIFACT_CONTRACT_RENDER_BUDGET
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
@@ -27,6 +31,7 @@ from marivo.analysis.frames.base import (
     ArtifactPrecondition,
     ArtifactSchema,
     ArtifactState,
+    _enforce_artifact_contract_budget,
 )
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
@@ -36,6 +41,7 @@ from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.lineage import Lineage
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.resolve import resolve_live_target
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import make_test_delta_contract, make_test_metric_meta_contract
@@ -101,15 +107,19 @@ def test_delta_affordances_expose_attribute_and_transform_parameter_help() -> No
     affordances = {item.capability_id: item for item in frame.contract().affordances}
 
     attribute = {item.parameter: item for item in affordances["attribute"].input_requirements}
-    assert attribute["mode"].help_targets == ("analysis.AttributionMode",)
+    assert attribute["mode"].help_targets == (
+        LiveHelpTarget(surface="analysis", canonical_id="AttributionMode"),
+    )
 
     rollup = {item.parameter: item for item in affordances["transform.rollup"].input_requirements}
     assert rollup["grain"].help_targets == (
-        "analysis.grain",
-        "semantic.calendar_grain",
+        LiveHelpTarget(surface="analysis", canonical_id="grain"),
+        LiveHelpTarget(surface="semantic", canonical_id="calendar_grain"),
     )
     rank = {item.parameter: item for item in affordances["transform.rank"].input_requirements}
-    assert rank["method"].help_targets == ("analysis.RankMethod",)
+    assert rank["method"].help_targets == (
+        LiveHelpTarget(surface="analysis", canonical_id="RankMethod"),
+    )
     assert "transform.normalize" not in affordances
 
 
@@ -336,6 +346,76 @@ def test_artifact_contract_has_boundary_ports() -> None:
     assert "boundary_ports" in fields
 
 
+def test_artifact_contract_help_targets_dump_as_typed_values() -> None:
+    contract = next(iter(_artifact_cases())).contract()
+    dumped = contract.model_dump(mode="json")
+
+    assert dumped["affordances"][0]["help_target"] == {
+        "surface": "analysis",
+        "canonical_id": contract.affordances[0].help_target.canonical_id,
+    }
+    assert dumped["boundary_ports"][0]["help_target"] == {
+        "surface": "analysis",
+        "canonical_id": "boundary.to_pandas",
+    }
+
+
+def test_artifact_contract_rejects_twenty_fifth_affordance() -> None:
+    affordance = ArtifactAffordance(
+        capability_id="compare",
+        public_entrypoint="session.compare(...)",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+        expected_output_family="DeltaFrame",
+    )
+
+    with pytest.raises(ValidationError, match="complete affordance budget"):
+        ArtifactContract(
+            kind="metric_frame",
+            ref="frame_over_budget",
+            is_canonical=True,
+            artifact_schema=ArtifactSchema(columns=[]),
+            affordances=(affordance,) * (ARTIFACT_CONTRACT_RENDER_BUDGET.max_affordances + 1),
+        )
+
+
+def test_artifact_contract_render_fails_instead_of_truncating_required_content() -> None:
+    contract = next(iter(_artifact_cases())).contract()
+
+    with pytest.raises(ValueError, match="never truncates affordances or repairs"):
+        contract.render(max_output_bytes=256)
+
+    oversized = contract.model_copy(
+        update={
+            "affordances": (
+                contract.affordances[0].model_copy(update={"public_entrypoint": "x" * 12_000}),
+            )
+        }
+    )
+    with pytest.raises(RuntimeError, match="codepoints"):
+        oversized.render()
+
+
+def test_artifact_contract_native_budget_accepts_exact_boundaries() -> None:
+    contract = next(iter(_artifact_cases())).contract()
+    affordance = contract.affordances[0]
+    at_affordance_limit = contract.model_copy(
+        update={"affordances": (affordance,) * ARTIFACT_CONTRACT_RENDER_BUDGET.max_affordances}
+    )
+    lines = ["x" * 99 for _ in range(ARTIFACT_CONTRACT_RENDER_BUDGET.max_lines)]
+    lines[0] += "x"
+    rendered = "\n".join(lines)
+
+    assert len(rendered) == ARTIFACT_CONTRACT_RENDER_BUDGET.max_codepoints
+    assert len(rendered.splitlines()) == ARTIFACT_CONTRACT_RENDER_BUDGET.max_lines
+    _enforce_artifact_contract_budget(at_affordance_limit, rendered)
+
+    with pytest.raises(RuntimeError, match="lines"):
+        _enforce_artifact_contract_budget(
+            contract,
+            "\n".join("x" for _ in range(ARTIFACT_CONTRACT_RENDER_BUDGET.max_lines + 1)),
+        )
+
+
 def test_artifact_contract_renders_structured_sections_in_contract_order() -> None:
     precondition = ArtifactPrecondition(
         check="single_metric",
@@ -374,7 +454,7 @@ def test_artifact_contract_renders_structured_sections_in_contract_order() -> No
             ArtifactAffordance(
                 capability_id="compare",
                 public_entrypoint="session.compare(...)",
-                help_target="compare",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 preconditions=(precondition,),
                 expected_output_family="DeltaFrame",
             ),
@@ -384,7 +464,10 @@ def test_artifact_contract_renders_structured_sections_in_contract_order() -> No
                 kind="terminal_exit",
                 capability_id="boundary.to_pandas",
                 public_entrypoint="frame.to_pandas()",
-                help_target="boundary.to_pandas",
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id="boundary.to_pandas",
+                ),
                 preserves=("rows",),
                 does_not_preserve=("typed lineage",),
             ),
@@ -399,7 +482,7 @@ def test_artifact_contract_renders_structured_sections_in_contract_order() -> No
         "output_columns:",
         "columns:",
         "continuations: mechanical, unranked",
-        "session:",
+        "methods.change:",
         "preconditions and repairs:",
         "terminal exits:",
     )
@@ -447,29 +530,110 @@ def test_every_artifact_has_one_terminal_boundary_port() -> None:
         assert isinstance(port, ArtifactBoundaryPort), f"{tag}: boundary port type"
         assert port.kind == "terminal_exit", f"{tag}: boundary port kind"
         assert port.capability_id == "boundary.to_pandas", f"{tag}: boundary capability_id"
-        assert port.help_target == "boundary.to_pandas", f"{tag}: boundary help_target"
+        assert port.help_target == LiveHelpTarget(
+            surface="analysis",
+            canonical_id="boundary.to_pandas",
+        ), f"{tag}: boundary help_target"
 
 
 def test_affordances_match_registry_edges() -> None:
-    """Every affordance is a registered operator consumer or receiver-owned read."""
+    """Static algebra, dynamic affordances, and admission share registry facts."""
     for artifact in _artifact_cases():
         tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"
         family = type(artifact).__name__
         contract = artifact.contract()
-        registered = set(REGISTRY.constructor_consumers.get(family, ()))
-        # boundary.to_pandas is in boundary_ports, not affordances.
-        affordance_ids = {a.capability_id for a in contract.affordances}
-        non_boundary = affordance_ids - {"boundary.to_pandas"}
-        for capability_id in non_boundary:
-            if capability_id in registered:
+        static_targets = {edge.target for edge in REGISTRY.artifact_consumer_edges(family)}
+        for affordance in contract.affordances:
+            assert affordance.help_target in static_targets, (
+                f"{tag}: {affordance.capability_id!r} is absent from static consumer algebra"
+            )
+            descriptor = REGISTRY.by_id(affordance.capability_id)
+            assert descriptor.help_target == affordance.help_target.canonical_id
+            assert descriptor.public_entrypoint == affordance.public_entrypoint
+            assert REGISTRY.continuation_group(affordance.help_target)
+            if isinstance(descriptor, ReadCapability):
+                assert descriptor.exposes_artifact_affordance
+                assert descriptor.receiver_family == family
+                receiver = affordance.input_requirements
+                assert len(receiver) == 1
+                assert receiver[0].parameter == "receiver"
+                assert receiver[0].accepted_families == (descriptor.receiver_family,)
+                expected_output = descriptor.output_type
+                if descriptor.artifact_output_by_shape:
+                    expected_output = descriptor.artifact_output_by_shape[artifact.meta.shape]
+                assert affordance.expected_output_family == expected_output
                 continue
-            descriptor = REGISTRY.by_id(capability_id)
-            assert descriptor.kind == "read", (
-                f"{tag}: affordance {capability_id!r} is not an operator consumer or read"
+            assert isinstance(descriptor, OperatorCapability)
+            artifact_parameters = tuple(
+                parameter
+                for parameter, families in descriptor.accepted_inputs.items()
+                if family in families
             )
-            assert descriptor.receiver_family == family, (
-                f"{tag}: read {capability_id!r} belongs to {descriptor.receiver_family!r}"
+            assert artifact_parameters
+            assert any(
+                evaluate_artifact_admission(descriptor.id, parameter, artifact).allowed
+                for parameter in artifact_parameters
             )
+            assert affordance.expected_output_family == descriptor.output_contract.render()
+
+
+def _assert_help_target_resolves(target: LiveHelpTarget) -> None:
+    assert target.canonical_id is not None
+    if target.surface == "analysis":
+        surface = ANALYSIS_LIVE_SURFACE
+    elif target.surface == "semantic":
+        from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+
+        surface = SEMANTIC_LIVE_SURFACE
+    else:
+        raise AssertionError(f"unexpected Artifact contract target surface: {target.surface}")
+    resolve_live_target(target.canonical_id, surface)
+
+
+def test_every_artifact_contract_link_resolves_independently() -> None:
+    for artifact in _artifact_cases():
+        contract = artifact.contract()
+        targets = [
+            *(item.help_target for item in contract.semantic_inputs),
+            *(item.help_target for item in contract.affordances),
+            *(
+                target
+                for affordance in contract.affordances
+                for requirement in affordance.input_requirements
+                for target in requirement.help_targets
+            ),
+            *(
+                repair.help_target
+                for affordance in contract.affordances
+                for precondition in affordance.preconditions
+                for repair in (
+                    (precondition.repair,)
+                    if precondition.repair is not None
+                    else precondition.repair_options
+                )
+            ),
+            *(port.help_target for port in contract.boundary_ports),
+        ]
+        for target in targets:
+            _assert_help_target_resolves(target)
+
+
+def test_readable_affordance_groups_are_registry_owned_and_entrypoint_sorted() -> None:
+    metric = next(artifact for artifact in _artifact_cases() if isinstance(artifact, MetricFrame))
+    contract = metric.contract()
+    structured_order = tuple(item.capability_id for item in contract.affordances)
+    rendered = contract.render()
+
+    grouped: dict[LiveHelpTarget, list[str]] = {}
+    for affordance in contract.affordances:
+        grouped.setdefault(REGISTRY.continuation_group(affordance.help_target), []).append(
+            affordance.public_entrypoint
+        )
+    for owner, entrypoints in grouped.items():
+        assert f"{owner.display}:" in rendered
+        positions = [rendered.index(entrypoint) for entrypoint in sorted(entrypoints)]
+        assert positions == sorted(positions)
+    assert tuple(item.capability_id for item in contract.affordances) == structured_order
 
 
 def test_every_affordance_output_family_is_non_null() -> None:
@@ -525,7 +689,7 @@ def test_unsafe_failed_precondition_without_repair_is_suppressed_from_render() -
     affordance = ArtifactAffordance.model_construct(
         capability_id="compare",
         public_entrypoint="session.compare(...)",
-        help_target="compare",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         input_requirements=(),
         preconditions=(precondition,),
         expected_output_family="delta_frame",
@@ -807,8 +971,8 @@ def test_candidate_contract_uses_candidate_receiver_group() -> None:
     rendered = candidate_set.contract().render(max_output_bytes=None)
 
     assert "receiver: candidates" in rendered
-    assert "candidates:\n- candidates.select(item_id=...)" in rendered
-    assert "frame:\n- candidates.select(item_id=...)" not in rendered
+    assert "CandidateSet:\n- candidates.select(item_id=...)" in rendered
+    assert "methods:\n- candidates.select(item_id=...)" not in rendered
 
 
 def test_delta_contract_keeps_additive_attribution_unblocked() -> None:

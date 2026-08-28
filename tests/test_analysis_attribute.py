@@ -1001,9 +1001,8 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
     contract_text = delta.contract().render()
     assert len(contract_text.encode("utf-8")) <= 8192
     assert "session.attribute(...) -> AttributionFrame" in contract_text
-    bounded_contract_text = delta.contract().render(max_output_bytes=1024)
-    assert len(bounded_contract_text.encode("utf-8")) <= 1024
-    assert "output truncated" in bounded_contract_text
+    with pytest.raises(ValueError, match="never truncates affordances or repairs"):
+        delta.contract().render(max_output_bytes=1024)
     assert [job.intent for job in session.jobs()].count("observe") == 4
     assert [job.intent for job in session.jobs()].count("compare") == 2
 

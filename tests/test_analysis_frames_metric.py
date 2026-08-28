@@ -206,6 +206,7 @@ def test_recovered_metric_frame_keeps_internal_value_and_public_metric_name(tmp_
         semantic_model="sales",
         session=session,
     )
+    warm_contract = frame.contract()
 
     recovered = session.get_frame(frame.ref)
 
@@ -216,6 +217,8 @@ def test_recovered_metric_frame_keeps_internal_value_and_public_metric_name(tmp_
     assert [
         column.name for column in recovered.contract().artifact_schema.columns
     ] == recovered.columns
+    assert recovered.contract().model_dump(mode="json") == warm_contract.model_dump(mode="json")
+    assert recovered.contract().render() == warm_contract.render()
 
 
 def test_make_metric_frame_rejects_read_only_session(tmp_path, monkeypatch):

@@ -1407,6 +1407,9 @@ def test_semantic_handoffs_choose_one_progressive_entry_path_per_kind() -> None:
         handoff = REGISTRY.semantic_handoff(kind.value)
         assert handoff is not None
         assert all(target.surface == "analysis" for target in handoff.handoff_targets)
+        for target in (*handoff.handoff_targets, *handoff.preparation_targets):
+            assert target.canonical_id is not None
+            assert rendered_help(target.canonical_id, owner=target.surface)
         actual[kind] = tuple(target.canonical_id for target in handoff.handoff_targets)
     assert actual == expected
     event_handoff = REGISTRY.semantic_handoff(SemanticKind.EVENT.value)
@@ -1416,6 +1419,24 @@ def test_semantic_handoffs_choose_one_progressive_entry_path_per_kind() -> None:
         "step",
         "sequence",
     )
+
+
+def test_evidence_and_recovery_links_resolve_independently() -> None:
+    owners = (
+        "evidence",
+        "evidence.browse",
+        "evidence.exact",
+        "runtime",
+        "runtime.sessions",
+        "runtime.artifacts",
+        "runtime.jobs",
+    )
+    for owner in owners:
+        targets = (*REGISTRY.discovery_members(owner), *REGISTRY.cross_links(owner))
+        assert targets
+        for target in targets:
+            assert target.canonical_id is not None
+            assert rendered_help(target.canonical_id, owner=target.surface)
 
 
 def test_constructor_descriptors_declare_direct_input_families() -> None:

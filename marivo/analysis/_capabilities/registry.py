@@ -50,6 +50,7 @@ from marivo.analysis._capabilities.model import (
     RootGroup,
     SameAsInputFamily,
 )
+from marivo.analysis._contract_budget import ARTIFACT_CONTRACT_RENDER_BUDGET
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import callable_identity, import_registered_callable
 from marivo.refs import SemanticKind
@@ -1379,6 +1380,19 @@ class CapabilityRegistry:
 
         return self._artifact_consumer_edges[family]
 
+    def continuation_group(self, target: LiveHelpTarget) -> LiveHelpTarget:
+        """Return the registry-owned discovery group for one exact continuation."""
+
+        if target.surface != "analysis" or target.canonical_id is None:
+            raise KeyError(target.display)
+        descriptor = self.by_help_target(target.canonical_id)
+        if not isinstance(descriptor, (OperatorCapability, ReadCapability)):
+            raise KeyError(target.display)
+        owner = self.discovery_owner(target.canonical_id)
+        if owner is None:
+            raise KeyError(target.display)
+        return owner
+
     def discovery_groups(
         self,
     ) -> tuple[tuple[RootGroup, tuple[AnalysisHelpDescriptor, ...]], ...]:
@@ -1656,6 +1670,7 @@ _MF_OR_DF: frozenset[InputFamily] = frozenset({"MetricFrame", "DeltaFrame"})
 _CS: frozenset[InputFamily] = frozenset({"CandidateSet"})
 _AF: frozenset[InputFamily] = frozenset({"AttributionFrame"})
 _FIELD_SEMANTIC: frozenset[InputFamily] = frozenset({"DimensionSemantic", "TimeDimensionSemantic"})
+_METRIC_ARTIFACT_SHAPES = frozenset({"scalar", "time_series", "segmented", "panel"})
 
 
 def _output(
@@ -2414,6 +2429,13 @@ def _build_registry() -> CapabilityRegistry:
             accepted_inputs={
                 "history": _MF,
             },
+            artifact_admission={
+                "history": ArtifactAdmissionRule(
+                    semantic_shapes={
+                        "MetricFrame": frozenset({"time_series", "panel"}),
+                    }
+                )
+            },
             output_contract=_output("ForecastFrame"),
         )
     )
@@ -2421,32 +2443,66 @@ def _build_registry() -> CapabilityRegistry:
     # -- Discover operators -----------------------------------------------
 
     _discover_specs: tuple[
-        tuple[str, str, frozenset[InputFamily], Mapping[str, frozenset[InputFamily]]], ...
+        tuple[
+            str,
+            str,
+            frozenset[InputFamily],
+            Mapping[str, frozenset[InputFamily]],
+            Mapping[ArtifactFamily, frozenset[str]],
+        ],
+        ...,
     ] = (
-        ("discover.point_anomalies", "Find time-series points with unusual values.", _MF, {}),
-        ("discover.period_shifts", "Find period-shift candidates from a DeltaFrame.", _DF, {}),
+        (
+            "discover.point_anomalies",
+            "Find time-series points with unusual values.",
+            _MF,
+            {},
+            {"MetricFrame": frozenset({"time_series", "panel"})},
+        ),
+        (
+            "discover.period_shifts",
+            "Find period-shift candidates from a DeltaFrame.",
+            _DF,
+            {},
+            {"DeltaFrame": frozenset({"time_series", "panel"})},
+        ),
         (
             "discover.driver_axes",
             "Find dimensions that explain a delta.",
             _DF,
             {"search_space": _FIELD_SEMANTIC},
+            {"DeltaFrame": _METRIC_ARTIFACT_SHAPES},
         ),
         (
             "discover.interesting_slices",
             "Find dimension slices with notable values.",
             _MF_OR_DF,
             {"search_space": _FIELD_SEMANTIC},
+            {
+                "MetricFrame": frozenset({"time_series", "segmented", "panel"}),
+                "DeltaFrame": frozenset({"time_series", "segmented", "panel"}),
+            },
         ),
-        ("discover.interesting_windows", "Find time windows with notable behavior.", _MF_OR_DF, {}),
+        (
+            "discover.interesting_windows",
+            "Find time windows with notable behavior.",
+            _MF_OR_DF,
+            {},
+            {
+                "MetricFrame": frozenset({"time_series", "panel"}),
+                "DeltaFrame": frozenset({"time_series", "panel"}),
+            },
+        ),
         (
             "discover.cross_sectional_outliers",
             "Find segments that are outliers compared to their peers.",
             _MF,
             {"peer_scope": _FIELD_SEMANTIC},
+            {"MetricFrame": frozenset({"segmented", "panel"})},
         ),
     )
 
-    for obj_id, summary, source_families, extra_inputs in _discover_specs:
+    for obj_id, summary, source_families, extra_inputs, source_shapes in _discover_specs:
         objective = obj_id.split(".", 1)[1]
         # Objectives that accept a MetricFrame source gate on single-metric
         # arity via require_single_metric; declare the precondition in help.
@@ -2480,6 +2536,9 @@ def _build_registry() -> CapabilityRegistry:
                     if obj_id == "discover.point_anomalies"
                     else {}
                 ),
+                artifact_admission={
+                    "source": ArtifactAdmissionRule(semantic_shapes=source_shapes),
+                },
                 output_contract=_output("CandidateSet"),
             )
         )
@@ -2578,6 +2637,14 @@ def _build_registry() -> CapabilityRegistry:
                 accepted_inputs={
                     "receiver": families,
                     **extra_inputs,
+                },
+                artifact_admission={
+                    "receiver": ArtifactAdmissionRule(
+                        semantic_shapes={
+                            "MetricFrame": _METRIC_ARTIFACT_SHAPES,
+                            "DeltaFrame": _METRIC_ARTIFACT_SHAPES,
+                        }
+                    )
                 },
                 parameter_help=(
                     {
@@ -2700,6 +2767,11 @@ def _build_registry() -> CapabilityRegistry:
             authority_policy="materialized_only",
             receiver="DeltaFrame",
             accepted_inputs={"receiver": _DF},
+            artifact_admission={
+                "receiver": ArtifactAdmissionRule(
+                    semantic_shapes={"DeltaFrame": _METRIC_ARTIFACT_SHAPES}
+                )
+            },
             output_contract=_output("ComponentFrame"),
         )
     )
@@ -2716,6 +2788,16 @@ def _build_registry() -> CapabilityRegistry:
             result_kind="defensive_copy",
             read_bound="bounded",
             produced_input_family="OntologyMetricCandidate",
+            artifact_output_by_shape={
+                "point_anomaly": "PointAnomalySelection",
+                "period_shift": "PeriodShiftSelection",
+                "driver_axis": "DriverAxisSelection",
+                "slice": "SliceSelection",
+                "window": "WindowSelection",
+                "cross_sectional_outlier": "CrossSectionalOutlierSelection",
+                "semantic_hypothesis": "OntologyMetricCandidate",
+            },
+            exposes_artifact_affordance=True,
         )
     )
     descriptors.append(
@@ -2729,6 +2811,8 @@ def _build_registry() -> CapabilityRegistry:
             receiver_family="AttributionFrame",
             result_kind="defensive_copy",
             read_bound="bounded",
+            output_type="AttributionFrame",
+            exposes_artifact_affordance=True,
             additional_examples=(
                 HelpExample(
                     label="Select one exact ordered semantic-ref prefix",
@@ -3647,6 +3731,7 @@ def _finalize_registry(
             raise ValueError(f"duplicate help_target: {desc.help_target}")
         by_help_target[desc.help_target] = desc
     _validate_parameter_help(descriptors)
+    _validate_artifact_affordance_reads(descriptors)
 
     # Build callable identity index keyed by callable_path (canonical string).
     # Reject duplicates: two descriptors with the same callable_path is an
@@ -3685,6 +3770,7 @@ def _finalize_registry(
         artifact_producer_edges,
         artifact_consumer_edges,
     ) = _derive_artifact_algebra(descriptors)
+    _validate_artifact_continuation_budget(artifact_consumer_edges)
     cross_links = _derive_cross_links(
         help_descriptors=help_descriptors,
         method_families=method_families,
@@ -3834,6 +3920,17 @@ def _derive_artifact_algebra(
                             ),
                         )
                     )
+        elif (
+            isinstance(descriptor, ReadCapability)
+            and descriptor.exposes_artifact_affordance
+            and descriptor.receiver_family in artifact_families
+        ):
+            consumer_edges[descriptor.receiver_family].append(
+                ArtifactConsumerEdge(
+                    target=target,
+                    parameter="receiver",
+                )
+            )
 
     frozen_producer_edges = {
         family: tuple(dict.fromkeys(producer_edges[family])) for family in ARTIFACT_FAMILIES
@@ -3856,6 +3953,46 @@ def _derive_artifact_algebra(
         frozen_producer_edges,
         frozen_consumer_edges,
     )
+
+
+def _validate_artifact_affordance_reads(
+    descriptors: tuple[CapabilityDescriptor, ...],
+) -> None:
+    """Reject receiver reads that cannot be exact Artifact continuations."""
+
+    artifact_families = frozenset(ARTIFACT_FAMILIES)
+    invalid: list[str] = []
+    for descriptor in descriptors:
+        if not isinstance(descriptor, ReadCapability) or not descriptor.exposes_artifact_affordance:
+            continue
+        if descriptor.receiver_family not in artifact_families:
+            invalid.append(f"{descriptor.id}: receiver is not an Artifact family")
+        if descriptor.callable_path is None:
+            invalid.append(f"{descriptor.id}: Artifact affordance lacks a callable")
+        if descriptor.read_bound != "bounded":
+            invalid.append(f"{descriptor.id}: Artifact affordance must be bounded")
+        if not descriptor.output_type and not descriptor.artifact_output_by_shape:
+            invalid.append(f"{descriptor.id}: Artifact affordance lacks an output family")
+    if invalid:
+        raise ValueError("invalid Artifact read affordances: " + ", ".join(sorted(invalid)))
+
+
+def _validate_artifact_continuation_budget(
+    consumer_edges: Mapping[ArtifactFamily, tuple[ArtifactConsumerEdge, ...]],
+) -> None:
+    """Reject a static typed-continuation surface that cannot render completely."""
+
+    for family, edges in consumer_edges.items():
+        typed_targets = {
+            edge.target
+            for edge in edges
+            if edge.target != LiveHelpTarget(surface="analysis", canonical_id="boundary.to_pandas")
+        }
+        if len(typed_targets) > ARTIFACT_CONTRACT_RENDER_BUDGET.max_affordances:
+            raise ValueError(
+                f"{family} exposes {len(typed_targets)} typed continuations > "
+                f"{ARTIFACT_CONTRACT_RENDER_BUDGET.max_affordances}"
+            )
 
 
 def _artifact_algebra_route(

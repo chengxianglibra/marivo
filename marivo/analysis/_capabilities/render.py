@@ -632,16 +632,14 @@ def _has_semantic_object_handoff(desc: OperatorCapability) -> bool:
 def _discover_strategy_lines(desc: OperatorCapability) -> list[str]:
     """Render the scored-objective strategy contract for one discover operator.
 
-    Strategy facts live in :mod:`marivo.analysis.intents.discover` as the single
-    source of truth; this renderer only reads them so focused help and the
-    latest site docs cannot drift into independent copies.
+    Strategy facts remain execution-owned while Artifact shape admission comes
+    from the exact capability descriptor used by static and dynamic algebra.
     """
     if not desc.help_target.startswith("discover."):
         return []
     objective = desc.help_target.split(".", 1)[1]
     from marivo.analysis.intents.discover import (
         _DEFAULT_STRATEGY,
-        _OBJECTIVE_SEMANTIC_KINDS,
         _OBJECTIVE_STRATEGY_APPLICABILITY,
         _OBJECTIVE_THRESHOLD,
         _STRATEGY_ALTERNATIVES,
@@ -651,7 +649,8 @@ def _discover_strategy_lines(desc: OperatorCapability) -> list[str]:
         return []
     default = _DEFAULT_STRATEGY[objective]
     alternatives = sorted(_STRATEGY_ALTERNATIVES.get(objective, set()))
-    kinds = sorted(_OBJECTIVE_SEMANTIC_KINDS[objective])
+    admission = desc.artifact_admission["source"]
+    kinds = sorted({shape for shapes in admission.semantic_shapes.values() for shape in shapes})
     threshold_info = _OBJECTIVE_THRESHOLD[objective]
 
     strategy = f"    default: {default}"

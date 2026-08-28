@@ -29,6 +29,7 @@ from marivo.analysis.frames.base import (
     BaseFrameMeta,
     _ArtifactSemanticBinding,
     _preview_cell,
+    _read_artifact_affordance,
     assert_attribution_shape,
 )
 from marivo.analysis.frames.event import CoverageBasis, SubjectAxisBinding
@@ -1734,7 +1735,9 @@ class AttributionFrame(BaseFrame):
             and hierarchy is not None
             and hierarchy.scope.kind == "complete"
         ):
-            from marivo.analysis.frames.base import ArtifactAffordance, ArtifactCallOption
+            from marivo.analysis.frames.base import (
+                ArtifactCallOption,
+            )
 
             prefixes = tuple(
                 tuple(binding.ref.path for binding in self.meta.axis_bindings[:level])
@@ -1761,12 +1764,8 @@ class AttributionFrame(BaseFrame):
                     ),
                     "affordances": (
                         *contract.affordances,
-                        ArtifactAffordance(
-                            capability_id="AttributionFrame.at_resolution",
-                            public_entrypoint="frame.at_resolution(axes=[...])",
-                            help_target="AttributionFrame.at_resolution",
-                            expected_output_family="AttributionFrame",
-                            call_options=options,
+                        _read_artifact_affordance("AttributionFrame.at_resolution").model_copy(
+                            update={"call_options": options}
                         ),
                     ),
                 }

@@ -31,6 +31,7 @@ from marivo.analysis.frames._quality import evaluate_frame_quality
 from marivo.analysis.frames._quality_checks import run_event_journey_checks
 from marivo.analysis.frames.event import EventFrame, EventFrameMeta, EventInputCoverage
 from marivo.analysis.lineage import Lineage
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
 from tests.shared_fixtures import rendered_help
 
@@ -552,7 +553,10 @@ def test_event_contract_filters_first_per_subject_only_continuations(
         assert requirement.bindable_from_current_artifact is False
         assert requirement.derivable_from_current_artifact is True
         assert "journeys.meta.pattern.steps" in (requirement.acquisition or "")
-        assert requirement.help_targets == ("analysis.PatternStep", "analysis.step")
+        assert requirement.help_targets == (
+            LiveHelpTarget(surface="analysis", canonical_id="PatternStep"),
+            LiveHelpTarget(surface="analysis", canonical_id="step"),
+        )
     assert requirements["journeys"].bindable_from_current_artifact is True
     assert requirements["journeys"].derivable_from_current_artifact is False
 

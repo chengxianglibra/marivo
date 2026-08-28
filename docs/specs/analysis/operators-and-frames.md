@@ -691,7 +691,8 @@ only — it never ranks, recommends, or narrates:
 - `affordances: ArtifactAffordance[]` — each a gate that mechanically exists:
   `capability_id` (the stable registry id such as `compare` or
   `discover.driver_axes`), `public_entrypoint` (the public API path),
-  `help_target` (the canonical `marivo.help("analysis.<target>")` target), role-preserving
+  `help_target` (one exact `LiveHelpTarget` resolving through
+  `marivo.help("analysis.<target>")`), role-preserving
   `inputs` (`parameter`, accepted artifact families, whether the current
   artifact can bind that parameter directly, whether a constructed value is
   derivable from retained current-artifact state, and any parameter
@@ -699,20 +700,27 @@ only — it never ranks, recommends, or narrates:
   (`(check, pass|fail, reason)`), and `expected_output_family`.
 - `boundary_ports: ArtifactBoundaryPort[]` — typed terminal-exit ports derived
   from the capability registry. Each port carries `capability_id`
-  (e.g. `boundary.to_pandas`), `public_entrypoint`, `help_target`,
+  (e.g. `boundary.to_pandas`), `public_entrypoint`, an exact typed
+  `help_target`,
   `preserves`, and `does_not_preserve`. The terminal exits are
   `frame.to_pandas()` and `md.raw_sql(...)`; results from either cannot
   re-enter typed analysis.
 
 `contract().show()` is the complete readable continuation surface. It groups
-affordances deterministically by public receiver (`session`, `discover`,
-`frame`, `transform`, then `candidates`) and leads with registry-owned public
-entry points and callable `marivo.help("analysis.<target>")` references. Preconditions and
-repairs use the same public entry point. Stable `capability_id` values remain in
-the structured contract and `model_dump()` but are omitted from readable
-labels. A contract with no continuations renders `continuations: none`; its
-readable terminal boundary is labelled `frame.to_pandas()` rather than the
-internal `boundary.to_pandas` id.
+affordances by their registry-owned discovery owner or method family, then by
+public entry point, without changing the flat structured `affordances` tuple.
+Every semantic-input, parameter-help, affordance, repair, and boundary link is
+an exact `LiveHelpTarget`. Stable `capability_id` values remain in the
+structured contract and `model_dump()` but are omitted from readable labels. A
+contract with no continuations renders `continuations: none`; its readable
+terminal boundary is labelled `frame.to_pandas()` rather than the internal
+`boundary.to_pandas` id.
+
+Artifact contracts have their own non-truncating render budget: at most 120
+lines, 12,000 codepoints, and 24 typed affordances. Rendering first constructs
+the complete contract and then validates those limits. A native-budget or
+caller-supplied byte overflow fails explicitly; it never removes an affordance,
+precondition, repair, or terminal port.
 
 Artifact `show()` cards do not repeat this matrix. They include only dynamic
 continuation facts tied to current state, such as cumulative-observation

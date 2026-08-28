@@ -108,11 +108,18 @@ def forecast(
         raise ForecastShapeUnsupportedError(
             message="forecast requires MetricFrame time_series or panel input"
         )
-    semantic_kind = history.meta.semantic_kind
-    if semantic_kind != "time_series" and semantic_kind != "panel":
+    from marivo.analysis._capabilities.validation import evaluate_artifact_admission
+
+    admission = evaluate_artifact_admission("forecast", "history", history)
+    if not admission.allowed:
         raise ForecastShapeUnsupportedError(
-            message="forecast requires MetricFrame time_series or panel input"
+            message="forecast requires MetricFrame time_series or panel input",
+            context={
+                "expected_kind": admission.expected,
+                "semantic_kind": admission.received,
+            },
         )
+    semantic_kind = cast("Literal['time_series', 'panel']", history.meta.semantic_kind)
     require_single_metric(history, intent="forecast")
     # forecast operates on arity-1 metric frames; multi-metric frames are gated
     # out upstream. Narrow metric_id for downstream ForecastFrameMeta / Subject.

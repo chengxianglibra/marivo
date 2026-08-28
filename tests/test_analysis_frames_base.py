@@ -32,6 +32,7 @@ from marivo.analysis.frames.base import (
 )
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
+from marivo.introspection.live.model import LiveHelpTarget
 from tests.shared_fixtures import (
     make_test_analysis_scope,
     make_test_metric_meta_contract,
@@ -275,18 +276,24 @@ def test_metric_transform_affordances_expose_parameter_help_routes() -> None:
     assert rollup["grain"].accepted_families == ()
     assert rollup["grain"].bindable_from_current_artifact is False
     assert rollup["grain"].help_targets == (
-        "analysis.grain",
-        "semantic.calendar_grain",
+        LiveHelpTarget(surface="analysis", canonical_id="grain"),
+        LiveHelpTarget(surface="semantic", canonical_id="calendar_grain"),
     )
 
     rank = {item.parameter: item for item in affordances["transform.rank"].input_requirements}
-    assert rank["method"].help_targets == ("analysis.RankMethod",)
+    assert rank["method"].help_targets == (
+        LiveHelpTarget(surface="analysis", canonical_id="RankMethod"),
+    )
 
     normalize = {
         item.parameter: item for item in affordances["transform.normalize"].input_requirements
     }
-    assert normalize["mode"].help_targets == ("analysis.NormalizeKind",)
-    assert normalize["baseline"].help_targets == ("analysis.NormalizeBaseline",)
+    assert normalize["mode"].help_targets == (
+        LiveHelpTarget(surface="analysis", canonical_id="NormalizeKind"),
+    )
+    assert normalize["baseline"].help_targets == (
+        LiveHelpTarget(surface="analysis", canonical_id="NormalizeBaseline"),
+    )
 
 
 def test_affordance_and_contract_models_are_closed_and_immutable():
@@ -298,7 +305,10 @@ def test_affordance_and_contract_models_are_closed_and_immutable():
     affordance = ArtifactAffordance(
         capability_id="BaseFrame.quality_report",
         public_entrypoint="frame.quality_report()",
-        help_target="BaseFrame.quality_report",
+        help_target=LiveHelpTarget(
+            surface="analysis",
+            canonical_id="BaseFrame.quality_report",
+        ),
         input_requirements=(requirement,),
         expected_output_family="QualityReport",
     )
