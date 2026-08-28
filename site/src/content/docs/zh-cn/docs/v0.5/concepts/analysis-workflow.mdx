@@ -1,0 +1,1135 @@
+---
+slug: zh-cn/docs/v0.5/concepts/analysis-workflow
+title: 分析流程
+description: 以指标为主线，使用会话、类型化算子、产物与证据组织可重复分析。
+---
+
+本页是[让智能体完成第一次分析](/zh-cn/docs/latest/first-analysis/)之后的深入参考。
+
+## 告诉智能体问题，不必安排分析步骤
+
+说明你想了解什么，并补充已经明确的指标、比较方式、范围或关注方向。智能体
+会选择合适的类型化算子，在分析会话中推进调查，并记录证据。
+
+例如：
+
+> 分析上季度已完成订单收入相比去年同期下降的原因。先关注地区差异，最后说明主要结论、
+> 支撑证据和限制。
+
+你不需要选择算子、要求智能体调用 `show()`，也不需要提前设计检查点。
+
+## 可能改变业务含义时再参与
+
+只要下一步仍在已经确认的指标和问题范围内，智能体就可以自行推进。需要更换指标、调整分析
+对象或比较方式，或者引入可能明显改变结论的业务假设时，智能体应该停下来确认。
+
+用业务语言确认或纠正这个选择即可。如果缺少语义定义，或者定义本身有误，智能体应该把
+受影响的类型化分支停下来。智能体可以使用显式披露临时推断口径的终端
+`md.raw_sql(...)` 继续，但不得在分析阶段修改语义层。可复用缺口会自动交给
+`marivo-semantic`；只有仍未确定的业务含义才需要你参与。
+
+## 查看最终交接
+
+分析结束后，重点看三件事：结论是否回答了问题，重要判断是否有清楚的证据，已经说明的限制
+是否影响结论用于当前决策。需要检查或集成运行时的读者，可以继续查看下面的技术参考。
+
+## 操作与分析产物参考
+
+每次 Marivo 分析都从受治理的语义输入开始，并按**写-运行-读**循环推进：
+智能体写出一个意图（一次操作调用及其参数），运行它，读取类型化结果，再决定
+下一步。大多数分析从 `session.observe(...)` 开始，再进入指标比较、归因、发现或质量检查。
+事件路径与基于重放的生命周期分析属于靠后的专项路径。
+
+运行时由以下部分组成：
+
+- **会话** 持有指导问题、语义目录，以及每一步的持久化结果。
+- **操作调用** 是一次确定性的分析步骤，通常使用 `observe`、`compare`、
+  `attribute` 或 `discover.<objective>`；需要专项路径时再使用 `events.match` 等
+  命名空间操作。调用参数*就是*分析规格。
+- **产物** 是操作的类型化结果。产物是步骤之间的边界：每个操作消费
+  特定产物家族，并产出另一个。
+
+```python
+import marivo
+import marivo.analysis as mv
+import marivo.semantic as ms
+```
+
+:::note[智能体发现]
+优先使用选定的项目解释器作为 CLI 入口。对于 macOS、Linux 或 WSL 上常规的项目本地安装，
+使用下面的命令验证环境：
+
+```bash
+.venv/bin/python -m marivo doctor
+```
+
+Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。doctor 报告中的版本号、Python
+可执行路径、包路径和项目状态构成环境指纹。进入分析时只需验证一次该指纹。此后优先使用手中
+已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的组合操作前读取 `.contract()`。
+可以用 `marivo.help("analysis")` 打开紧凑分析索引，然后通过六个 hub 之一继续：
+`analysis.entry`、`analysis.methods`、`analysis.inputs`、`analysis.artifacts`、
+`analysis.evidence` 或 `analysis.runtime`。根页面还公开精确的终端 leaf
+`analysis.boundary.to_pandas`；离开类型化分析前先阅读它。只有当对象契约不足，或第一次
+使用不熟悉的能力时，才查询 `marivo.help("analysis.observe")`、
+`marivo.help("analysis.compare")`、`marivo.help("analysis.MetricFrame")` 等专项主题。
+失败后按照结构化修复指引继续。每个专项帮助主题都自包含一次正确的最小调用：
+`Prerequisites` 路由带 family 的输入，`Parameter construction` 则把每个非 family
+的构造值或闭合取值路由到精确的下一步 `marivo.help(...)` target；但它不是每次 API
+调用的前置步骤。
+:::
+
+分析需要新建或刚修改的语义时，先完成最小依赖一致切片的编写收尾：加载当前目录 →
+`md.inspect(...)` → 可选的有界 sampling 和/或受治理的终端 `md.raw_sql(...)` →
+显式 Python 声明 → 一次 `ms.load()` → 对每个新建根执行 `catalog.require(ref)` →
+scoped readiness。只有具体运行时风险或当前 readiness repair 要求时才执行 preview。
+第一次类型化分析使用前，只在可复用业务含义确实未解决时停止；当前用户输入、已批准的
+项目定义、可归因且不冲突的文档已经构成权威，不需要重复确认。
+
+:::note[产物是不可变的]
+产物一旦产出便不再改变。用 `repr(artifact)` 获取廉价单行提示，再用
+`artifact.show()` 做有界读取，用 `artifact.contract()` 查看接口上可执行的下一步。
+只有需要可变本地副本时才调用 `artifact.to_pandas()`，且仅作为终端步骤。每个产物
+都携带血缘，并持久化在项目本地 `.marivo/` 下，因此后续脚本可以用引用恢复它，
+而不必重新查询数据源。`artifact.ref` 是规范的产物身份标识，
+没有 `id` 别名；每个 frame 都满足 `row_count == shape[0]`。
+:::
+
+## 打开会话
+
+```python
+session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.metrics.get("sales.revenue")
+region = catalog.dimensions.get("sales.orders.region")
+
+revenue.details().show()     # 读取定义、候选轴和 measure lineage
+region.details().show()
+```
+
+每个持续推进的分析工作区应使用一个稳定且可区分的会话名称。`get_or_create` 首次创建
+该名称，之后附着到同一个不可变 session id。显式传入的 `question` 会成为会话当前的
+引导问题；有意省略时则保留已保存的值。会话的精简 API 为 `get_or_create`、
+`resume(session_id)`、`current()`、`recent()`、`inspect(name)` 和 `delete(name)`。
+
+更新当前问题不会改写已有 artifact、job、evidence、lineage 或其中的
+`analysis_purpose`。如果工作需要独立的历史，而不只是更换当前问题，请使用新的稳定
+会话名称。
+
+`repr(session)` 会引导调用 `session.show()`；该方法打印包含问题、读写状态、报告时区、
+时间戳、已注册直接操作、命名空间以及目录/job/frame 检查入口的有界
+状态卡片。`session.render()` 返回同一文本，但不写 stdout。
+
+用 `catalog.domains.show()` 和限定范围的 navigation 发现条目，然后对本次分析会使用的每个
+指标、维度和时间维度调用 `.details().show()`。`details` 输出会展示已编写
+的 `ai_context`；指标详情还会展示组合、有效实体、候选轴和度量
+血缘。候选轴只用于静态发现，关系与扩散的有效性仍以 `observe` 为准。
+用 `catalog.require(...)` 确认精确当前成员，用专项帮助查看调用契约，用限定范围的 readiness
+做静态预检；`.render()` 返回的有界卡片
+与 `.show()` 打印的内容相同。如果所需对象缺失或定义存在争议，首次 `observe` 前先回到
+语义编写处理。
+
+:::note[什么时候运行就绪检查]
+新建或修改语义对象后，或者某个流程要求技术认证时，
+运行 `catalog.readiness(refs=[...])`。同一调用接受由当前目录条目、精确引用与
+封闭 `RuntimeMetricExpr` 根组成的有序混合列表，立即归一化条目，并通过
+`analysis_ready_inputs` 返回规范根。分析 API 不会自动调用它；日常分析也不需要在每次
+`observe` 前刷新编写快照。阻塞报告表示所选对象尚未完成这次认证；
+先修复它们，再声明语义变更已完成。
+:::
+
+:::note[稀疏快照指标]
+当半可加指标的状态轴没有 `sample_interval` 时，只有在根实体
+以该轴进行快照版本化，且去掉分区键后仍有业务实体身份，
+Marivo 才支持 `first`/`last`。在当前窗口或输出桶内，Marivo 先为每个业务
+实体选择首/末行，再执行指标原有聚合；不会把快照日期相加，也不会跨
+桶前向填充。其他无采样间隔的折叠会返回结构化规划错误。
+:::
+
+`MetricFrame.show()` 会展示这些持久化执行事实：观测窗口、粒度、轴、
+切片，聚合、可加性、重新聚合状态，以及折叠策略、状态轴、
+样本区间或快照身份键。采样折叠会显示预期槽位覆盖率；
+无采样的快照选择会明确说明预期-样本覆盖率不适用。恢复后的 frame
+使用同一份元数据展示这些事实，不会重新查询。
+
+## 一个意图如何被指定
+
+操作接受精确的当前条目/引用、封闭表达式和若干共享值对象。多数意图都会复用这些输入：
+
+| 值 | 形态 | 含义 |
+| --- | --- | --- |
+| 指标输入 | `catalog.metrics.get("sales.revenue")` | 精确当前 `MetricEntry` 或 `Ref[metric]`，也可传 observe 使用的封闭 `RuntimeMetricExpr`；拒绝过期/跨目录条目、通用引用与字符串。 |
+| 维度输入 | `catalog.dimensions.get("sales.orders.region")` | 精确当前维度/时间-维度条目或匹配的引用（见 [语义引用](/zh-cn/docs/v0.5/concepts/semantic-layer/#语义引用)）。用于 `dimensions`、`slice_by` 键与轴。 |
+| `time_scope` | `mv.time_scope(start="2026-10-01", end="2027-01-01")` | 半开时间区间 —— `start` 含、`end` 不含。 |
+| `grain` | `mv.grain("day")` 或 `ms.calendar_grain(...)` | 统一的时间桶值。存在 ⇒ 时间序列或面板。 |
+| `dimensions` | `[region, country]` | 分段轴。v1 中全部必须解析到指标所属实体。 |
+| `slice_by` | `{region: "US"}` 或 `{amount: {"op": ">", "value": 100}}` | 聚合前的行过滤（见下方运算符）。 |
+| `AlignmentPolicy` | `mv.window_bucket()` | `compare` / `correlate` 时两个窗口如何配对。 |
+
+必须按字面使用传入的 `time_scope.end`。Marivo 不包含该边界，智能体也不应为了
+把请求解释成闭区间而擅自把结束日期向后推进。例如，`end="2026-06-30"` 会排除
+6 月 30 日；只有当预期范围确实包含整个 6 月时，才使用 `end="2026-07-01"`。
+
+结果的 **语义类型** 由 `grain` 和 `dimensions` 决定：`scalar`（两者都没有）、
+`time_series`（仅粒度）、`segmented`（仅维度）或 `panel`（两者皆有）。
+
+### `slice_by` 谓词运算符
+
+键是目录维度；值为标量（`==`）、列表（`in`），或结构化的
+`{"op": ..., "value": ...}` 形式：
+
+| 形式 | 含义 |
+| --- | --- |
+| `"US"` | `==`（相等） |
+| `["US", "CA"]` | `in`（成员） |
+| `{"op": "!=", "value": "US"}` | 不等 |
+| `{"op": ">", "value": 100}`（`>=`、`<`、`<=` 同理） | 数值比较 |
+| `{"op": "between", "value": ["2026-07-01", "2026-09-30"]}` | 闭区间（恰好两个值） |
+
+## 核心操作
+
+### `observe` → `MetricFrame`
+
+任何分析都从这里开始：在某个时间范围和/或分段上物化一个指标。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `metric` | `MetricEntry | Ref[metric] | RuntimeMetricExpr`，或非空序列 | 是 | — | 精确当前指标条目/引用或封闭运行时表达式；拒绝过期/跨目录条目、通用引用与裸字符串。 |
+| `time_scope` | `TimeScope` | 否 | `None` | `mv.time_scope(...)` 返回的范围，或精确目录周期 lookup 返回的范围。 |
+| `grain` | `Grain` | 否 | `None` | `mv.grain(...)` 或 `ms.calendar_grain(...)` 返回的统一值。 |
+| `dimensions` | 条目/引用序列 | 否 | `None` | 精确当前维度/时间-维度条目或引用。 |
+| `slice_by` | 以条目/引用为键的 mapping | 否 | `None` | 全局聚合前行过滤。 |
+| `time_dimension` | 时间-维度条目/引用 | 否 | 实体默认 | 当实体声明多个时间轴时选择其一。 |
+| `expect_shape` | 形状 | 否 | `None` | 守卫；若预测形状不符，在访问后端前抛错。 |
+
+当前条目也可以直接用于 `Session.attribute(axes=...)`、发现的
+search-space/peer 轴，以及变换的 slice/rollup 轴。所有符合条件的调用都会在
+规划、持久化、证据或重放前把条目归一化为规范引用；
+`catalog.require(ref)` 仍是从配置、日志或持久化状态恢复身份时使用的严格仅引用
+路径。
+
+```python
+current = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
+    dimensions=[region],
+)
+```
+
+当时间请求没有候选时间维度、把普通维度当作时间轴、存在多个
+歧义候选、不同指标根解析出不同的隐式时间轴，或 encoding/粒度不兼容时，只要
+编译后的目录事实足够，Marivo 就会在后端执行前失败。结构化修复建议会
+暴露精确的当前候选项，不会猜测时间轴；只有替换项机械唯一时才提供 retry。
+
+传入序列即可在一个 frame 中观测多个相同-范围指标。时间根必须解析到同一个
+精确时间-维度引用；Marivo 会把同一数据源的指标合并为一次查询，并把
+兼容的跨数据源指标按该共享时间轴 outer-连接。用 `frame.metric(id)` 投影出
+arity-1 frame，对单个指标做 drill-down。
+
+单指标 `MetricFrame` 的所有公开读取路径都使用指标短名作为值列名，包括
+`show()`、`columns`、`contract()`、索引和 `to_pandas()`；经过变换后列名
+仍保持不变。若短名与轴列冲突，Marivo 会改用限定后的指标 id；若该名称仍
+被占用，则追加确定性的 `#N` 后缀。多指标 frame 仍保持每个指标一列，
+因此不同 arity 的 frame 可以直接 merge，无需单独 rename。用
+`frame.value_columns` 可读取准确的公开值列名。
+
+产物卡片只通过表头展示准确的公开列名，不再重复打印 `output_columns`
+或语义对象获取信息。机械契约通过 `contract.output_columns` 暴露完整有序
+元组，并直接从 `contract.artifact_schema.columns` 推导，因此不会发生漂移。对于指标、
+事件和生命周期产物，`contract.semantic_inputs` 会记录保留的语义角色
+与路径、绑定的输出列、精确的
+`session.catalog.<collection>.get("<path>")` 重新获取调用及对应专项目录
+帮助目标。需要这些完整机械信息时，使用 `artifact.contract().show()`。
+
+类型化变换的输入使用与所有 frame 读取路径相同的公开列名。先通过
+`value_column = frame.value_columns[0]` 获取指标值列，再调用
+`frame.transform.filter(predicate=lambda data: data[value_column] > 0)` 或
+`frame.transform.topk(by=value_column, limit=10)`。规范内部列名 `value` 仅是
+持久化细节，不是公开 transform 别名；它同时保留为不可用于 `rank_column`
+输出的名称。
+
+```python
+report = session.observe(
+    [revenue, catalog.metrics.get("sales.total_orders")],
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
+)
+revenue_only = report.metric("sales.revenue")
+```
+
+当下游能力要求单指标时，多指标 `frame.contract()` 会为每个 carried 根
+提供一条可执行的完整 ID `frame.metric(...)` 投影，但不会代替智能体选择。
+
+当目录没有需要的临时分析口径时，可构造封闭表达式，并且仍只通过
+`session.observe(...)` 物化：
+
+```python
+failed = mv.runtime_metric.aggregate(
+    failed_requests_measure,
+    agg="sum",
+    slice_by={state: "failed"},
+    label="Runtime failed requests",
+)
+weighted_latency = mv.runtime_metric.weighted_mean(
+    latency_measure,
+    request_count_measure,
+    label="Runtime weighted latency",
+)
+failure_rate = mv.runtime_metric.ratio(
+    failed,
+    requests,
+    zero_division="null",
+    label="Runtime failure rate",
+)
+gross_margin = mv.runtime_metric.linear(
+    add=[revenue],
+    subtract=[cogs, discounts, shipping, payment],
+    label="Gross margin",
+)
+gross_margin_rate = mv.runtime_metric.ratio(
+    gross_margin,
+    gmv,
+    label="Gross margin rate",
+)
+frame = session.observe(gross_margin_rate, time_scope=window, grain=mv.grain("day"))
+```
+
+运行时表达式可以递归包含运行时表达式与目录 `Ref[metric]`。
+`runtime_metric.slice(..., by=...)` 是分支-本地，`observe(..., slice_by=...)`
+是 global。目录/运行时根都会 lower 到同一规范图（最大深度 10，
+提交的 pre-CSE 发生项最多 256）以及一个模型/来源领域。label 只影响
+展示，不会变成值身份或目录权威来源。每个 `runtime_metric` 构造器都
+必须设置非空 `label`，包括嵌套表达式；当表达式作为已观测根物化时，
+该 label 成为稳定的公开值列 handle。下游操作根据持久化 frame 状态准入，不根据
+目录/运行时来源准入。
+
+`runtime_metric.aggregate` 与目录构建器使用同一时间契约：半可加度量提供
+status-time 轴和默认 fold，显式 `fold=` 会覆盖它。空间 `agg="mean"` 仍是
+non-additive，并先于时间 fold 执行；若度量不是半可加，fold 会携带修复提示被拒绝。
+在 Trino 上，sampled percentile fold 会编译为近似 `APPROX_PERCENTILE`。
+
+`runtime_metric.weighted_mean(value, weight)` 会自动完成行级乘权与成对聚合。
+两个度量必须属于同一实体和物理行粒度，权重必须为可加；无需预先
+定义 `SUM(value * weight)` 度量。
+
+`runtime_metric.linear(add=[...], subtract=[...])` 使用固定的 `+1` 与 `-1`
+系数，按顺序加减目录/运行时指标表达式。它要求总项数至少为 2，且所有
+已知单位必须可通约；不接受字面量、任意系数、单位覆盖、callback 或公式字符串。
+只有所有子项均为 additive 时，结果才是 additive；semi-additive 或混合子项
+会保守地得到 non-additive，因为运行时描述符没有证明共享的状态时间 fold 契约。
+
+每个已观测根与 mixed forest 都会持久化递归组件图。可通过
+`frame.components()` 检查 node 角色、evaluator 契约、质量、覆盖率引用
+与受治理的 leaf 血缘。linear node 即使嵌套在其他 operator 下，也会保留
+有序 child id 和带符号 coefficient；只有同时支持数值分解的根才会另外带有
+`component_ref`。
+
+对于 single、派生、累计和多指标 frame，观测时得到的可加性、
+聚合与状态-时间语义都会参与产物身份。升级后重新执行
+`observe` 时，不会复用缺少当前语义门的旧缓存 frame。
+
+### `compare` → `DeltaFrame`
+
+量化两个 `observe` 结果之间的变化（当前减 baseline）。两个 frame 必须共享语义
+类型与持久化 comparable 值语义；目录/运行时身份可以不同。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `current` | `MetricFrame` | 是 | — | 当前期 frame。 |
+| `baseline` | `MetricFrame` | 是 | — | 基线期 frame。 |
+| `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 桶/分段如何配对。 |
+
+```python
+baseline = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2025-10-01", end="2026-01-01"),
+    grain=mv.grain("month"),
+    dimensions=[region],
+)
+delta = session.compare(current, baseline)
+```
+
+`compare` 默认用 `window_bucket` 配对桶。传入 `alignment=` 时只能选择一个
+封闭辅助函数：`mv.window_bucket()`、`mv.day_of_week()`、`mv.period_progress()`、
+`mv.period_correspondence()`、`mv.occurrence_progress()` 或
+`mv.working_day_progress(schedule=...)`。后五者要求源框架携带完全匹配的已认证
+权威来源（前四者是周期或 TemporalSet 权威来源，`working_day_progress` 使用一个精确
+WorkSchedule 快照）；
+不再使用分析本地 holiday-calendar 参数。
+
+其中 `mv.occurrence_progress(anchor="start" | "end")` 只接受由精确
+`TemporalSet` 发生项范围选择的 day-粒度时间-series 或面板 frame，按发生项
+有效本地日从首日正向或从 exclusive end 反向配对，不会推断 recurrence 或名称对应关系。
+裸 built-in `day` 粒度仍使用各自会话的报告时区；要通过
+`occurrence_progress` admission，必须与发生项边界时区一致。
+
+`working_day_progress` 只接受 day-粒度时间-series 或面板 frame，排除认证快照中的非工作日，
+按从选定范围起算的零基工作日 ordinal 配对，并在对齐证据中记录排除和 unmatched
+ordinal。
+
+只有两侧源框架的可加性、聚合与状态-时间三项语义完全一致，
+且可加性已知时，差值才会携带这些语义。任一项缺失或不一致时，语义门保持
+未知，使后续归因失败即停止，而不是继承单侧语义。
+
+### `attribute` → `AttributionFrame`
+
+把差值的变动归因到显式轴上。这是“为什么变了？”分析的默认公共入口。
+组件-感知的比率和加权平均差值会使用混合归因。普通
+分段非线性 point estimate 仍不能直接按轴求和。对于图-owned 的
+`count_distinct`、`median` 与 `percentile(q)` 根，只有已持久化归因 basis
+明确 admission 时，才使用各自的 distribution-感知方法。
+
+`DeltaFrame` 会持久化归因门所需的语义；执行归因时，Marivo 不会回查一个可能已经
+变化的目录。若请求的轴尚未物化，Marivo 也会先校验原始差值，再重放
+observe 来补齐轴。`DeltaFrame.show()` 会直接显示归因是支持还是 blocked；
+`DeltaFrame.contract().attribute_admission` 是这一机械边界的唯一类型化来源。
+未知与普通不可加差值标记为失败；半可加差值
+要求轴排除状态时间维度；已持久化的比率/加权平均组件
+路径仍保持可用。
+
+| 已持久化的指标语义 | 轴归因 |
+| --- | --- |
+| `additive` | 支持 sum 与 hierarchy 归因。 |
+| `semi_additive` | 支持非时间轴；在其 `status_time_dimension` 上拒绝。 |
+| 组件-感知 `ratio` / `weighted_mean` | 支持比率/加权混合归因。 |
+| 基于度量的 Tier-1 `mean` | observe 时自动展开为 `sum(measure)` / `count_non_null(measure)`，并支持加权混合归因。 |
+| 图-owned `count_distinct` | 对可重现的标量键使用 distinct membership；distinct 原始键始终留在数据源。 |
+| 图-owned `median` / `percentile(q)` | 支持 DuckDB 精确值-frequency 或 Trino 原生 `approx_percentile` replacement；ClickHouse reservoir sampling 保持 blocked。 |
+| 其他 `non_additive` 指标 | 拒绝，包括 opaque/tier-2 mean、min、max、不受支持的分位数来源与不可加 linear 组合。 |
+| 缺少可加性元数据 | 拒绝；重新执行 `observe` 和 `compare` 后再归因。 |
+
+mean 展开使用度量的非空计数，而不是实体行数。对于被拒绝的指标，应按
+`DeltaFrame.contract().attribute_admission` 的修复建议处理：重新 observe 旧版产物，
+或补齐该 aggregate 明确要求的组件/distribution 证据。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `frame` | `DeltaFrame` | 是 | — | 要归因的差值。 |
+| `axes` | `list[dimension]` | 是 | — | 进行归因的分段轴或时间轴。 |
+| `mode` | `"joint" \| "hierarchy"` | 否 | 多轴默认为 `"joint"` | 只选择行布局；typed resolution evidence 判断 hierarchy prefix 可否 rollup，或是否逐层独立对账。单轴调用会忽略该参数。 |
+| `top_k` | 正整数 | 否 | `None` | 每个父节点保留 K 个实名成员，其余成员在归因计算前合并为受治理的 Other；名单按完整 current+baseline 区间固定。 |
+
+```python
+attribution = session.attribute(delta, axes=[region, platform])
+attribution.show()
+```
+
+标准单轴调用不传 `mode`：
+
+```python
+attribution = session.attribute(delta, axes=[region])
+```
+
+`joint` 的贡献行可直接求和并与总变化对齐。`hierarchy` 只表示行布局：
+可加/组件结果记录 `resolution_semantics="rollup"`、`rollup_safe=true`；
+distinct/quantile 结果则逐 prefix 独立计算和对账，并记录 `rollup_safe=false`。
+核对总变化时只选择一个层级求和。组件-感知的比率和加权平均
+在两种模式下都会保留 `value_effect`、`mix_effect` 与 `residual`。
+指标多轴调用默认采用 `mode="joint"`；需要有序 prefix 布局时显式指定
+`hierarchy`。单轴应省略 `mode`，即使传入也不会改变输出。多轴的有效
+默认值也可从
+`DeltaFrame.contract().attribute_admission.mode.multiple_axes_default` 读取。
+单轴输出会保留解析后的维度列名（例如 `cluster`），因此可以直接按该列与来源
+`DeltaFrame` 连接。带命名空间的 `attribution_level`、`attribution_axis`、
+`attribution_driver` 与 `attribution_path` 列仅用于多轴 hierarchy 输出；可加
+单轴归因的 `attribution_shape` 为 `"sum"`。
+保留的维度名不能与归因结果、值或面板桶列冲突；发生冲突时，Marivo
+会失败即停止并返回结构化语义-编写修复建议，而不会生成重复列或含义
+歧义的列。证据协议字段通过元数据显式映射，不会占用用户维度名。
+`attribution.attribution_mode` 表示行布局，而 `attribution.attribution_shape` / `meta.method`
+表示归因数学，因此两种布局都可能显示 `method="weighted_mix"`。可调用
+`marivo.help("analysis.AttributionMode")` 查看这一专项契约。
+
+去重计数 membership 在数据源内完成 `(key, partition)` 去重，并按
+`1 / membership_degree` 分配；原始键不进入 frame、job、血缘、证据、
+遥测、日志或错误。分位数会独立重放无业务维度的 endpoint，而不是汇总
+segmented point estimate。DuckDB 对值-frequency 使用精确 Shapley（不超过 8 个
+分区）或 128 次确定性 permutation（9–64 个）。Trino 对中间 replacement coalition
+通过 `UNION ALL` 合并 current 已选行与 baseline 未选行，再执行原生
+`approx_percentile`；full/empty coalition 复用独立 observe 的端点。
+任一中间 coalition 为空、分区超过 64、frequency 行超过 250,000，或无法复现
+独立 endpoint 时，本次调用结构化阻塞且不持久化归因产物。
+
+不可加指标使用 `mode="hierarchy"` 时，每个有序轴 prefix 都是独立重算、
+排名和对账的 game，完整结果不能跨层级求和。消费前用精确语义-引用 prefix
+选择 immutable、无查询 view：
+
+```python
+regional = attribution.at_resolution(axes=[region])
+regional.to_pandas()  # 每个 comparison bucket 只求和一次
+```
+
+使用 `top_k=K` 时，Marivo 按指标的自然 exposure 在完整 current+baseline
+区间选出实名成员，并把同一名单固定应用到所有 comparison bucket。Other 是拥有
+贡献、rank（分位数方法还包含 standard error）的真实玩家；轴单元格保持 null，
+`attribution_other_mask` 按 axis 顺序记录 Other bit，因此真实 null 与真实字符串
+`"Other"` 都不会发生碰撞。
+
+贡献 share 会显式说明分母：
+
+- `share_of_total_delta` 保留符号；当某个驱动因素抵消整体净变化时，它可以超过 100%；
+- `share_of_positive_pool` 只为正贡献填值；
+- `share_of_negative_pool` 只为负贡献填值，并返回正的池内占比。
+
+Marivo 不会把任一符号池直接命名为“改善”或“恶化”，因为当前持久化指标契约
+不包含指标好坏方向；只有明确业务方向后，智能体才能加上这层解释。new/churned 分段
+会保留精确的单边组件贡献。`AttributionFrame.show()` 会显示对账行，包括
+总计差值、贡献合计、one-sided 贡献合计、未归因合计和 residual；若任一
+最深层分区无法在数值容差内对齐，归因会直接失败，不会输出表面合计为 100% 的结果。
+
+### `correlate` → `AssociationResult`
+
+在对齐后的桶上度量两个指标之间的关联。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `a`、`b` | `MetricFrame` | 是 | — | 要关联的两个 frame。 |
+| `measure_a`、`measure_b` | `str` | 否 | frame 度量 | 各 frame 的 `value_columns` 返回的公开值列名。 |
+| `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 桶配对。 |
+| `method` | `"pearson"`、`"spearman"`、`"kendall"` | 否 | `"pearson"` | 相关性计算方法。 |
+| `lag_range` | `range` 或有符号整数序列 | 否 | 滞后期 0 | 要计算的滞后期；`k` 表示 `a[t]` 对 `b[t+k]`。正值表示 `a` 领先 `b`，负值表示 `b` 领先 `a`。 |
+
+非零滞后期要求输入为 `time_series` 或 `panel`。面板滞后期只在各维度序列内偏移，
+不会跨序列边界配对；空值会在偏移后按配对过滤，因此缺失桶不会压缩时间轴。
+每个滞后期至少需要两个重叠且非常量的配对。结果为每个滞后期生成一行，并将绝对
+相关性最强的滞后期记录为 `meta.best_lag`。
+
+省略 `measure_a` / `measure_b` 时使用各 frame 唯一的指标值；显式指定时，
+传入 `a.value_columns` 与 `b.value_columns` 返回的准确公开名称。
+
+### `forecast` → `ForecastFrame`
+
+将一个时间序列或面板向前投影。若 history 使用已认证的语义
+粒度，forecast 会保留精确的 `SemanticPeriodBindingV1`：预测周期按认证序数
+连续推进，未来键与 `[start, end)` 边界直接来自同一快照，不会用固定频率近似。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `history` | `MetricFrame`（time_series/面板） | 是 | — | 连续历史，无 NaN。 |
+| `horizon` | `int` | 是 | — | 要投影的周期数（≥ 1）；语义粒度按认证周期序数计数。 |
+| `model` | `"naive" \| "seasonal_naive" \| "drift"` | 否 | `"seasonal_naive"` | 预测策略。 |
+| `seasonality_period` | `int` | 否 | 按粒度 | 季节序数距离。内置默认值为 day=7、week=52、month=12、quarter=4；语义粒度使用 `seasonal_naive` 时必须显式提供。 |
+| `interval_level` | `float` | 否 | `0.95` | 预测区间的置信水平。 |
+| `measure_column` | `str` | 否 | frame 度量 | `history.value_columns` 返回的公开值列名。 |
+
+面板中每个序列必须覆盖相同且连续的训练周期。语义粒度若出现不完整或不匹配
+的周期、精确快照不可用、不支持的模型或未来覆盖率不足，forecast 会在写入
+产物前抛出 `ForecastShapeUnsupportedError`。它不会静默补零、猜测季节性，或按
+历史平均时长制造边界；内置面板的缺桶仍抛出 `ForecastInputQualityError`。
+
+```python
+history = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
+)
+projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
+```
+
+### 构建期质量自检 → `QualityReport`
+
+`MetricFrame`、`DeltaFrame`、`AttributionFrame`、`EventFrame` 与
+`LifecycleFrame` 会在发布前自动运行固定且确定性的质量检查。阻断级矛盾会抛出
+`ArtifactQualityError`；主 Artifact、质量 sidecar 与成功 job 都不会发布。
+
+已发布的 `ok` 与 `warning` 结果会把精简计数和覆盖事实写入
+`frame.quality_summary`。需要逐检查明细时调用 `frame.quality_report()` 读取已提交
+sidecar；该只读调用不会重新计算，也不会创建 job，报告没有独立 evidence digest
+或 lineage。sidecar 缺失、被修改或行数不符时会 fail closed。
+
+空结果、低样本量、高空值率、时间 bucket 缺失、coverage 未知与 censoring 仍是
+必须披露的 warning。多指标 Frame 按权威 measure binding 逐指标检查，并保留规范
+`metric_id`。Lifecycle reducer 在构建时验证 history 依赖；后续用
+`session.revalidate(reducer)` 区分依赖可用、缺失（`indeterminate`）或已变化
+（`stale`）。
+
+### `hypothesis_test` → `HypothesisTestResult`
+
+对一个指标在两期之间均值是否变化做配对检验。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `a`、`b` | `MetricFrame` | 是 | — | 当前期与基线期 frame。 |
+| `hypothesis` | `"mean_changed"` | 否 | `"mean_changed"` | 检验类型（v1）。 |
+| `value_a`、`value_b` | `str` | 否 | frame 度量 | 各 frame 的 `value_columns` 返回的公开值列名。 |
+| `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 检验的配对方式。 |
+| `sampling` | `SamplingPolicy` | 否 | 推断 | 配对/最小样本规则。 |
+| `alpha` | `float` | 否 | `0.05` | 显著性水平。 |
+
+## 发现 —— `session.discover.*` → `CandidateSet`
+
+发现操作在一个产物中搜索确定性候选行，并返回 `CandidateSet`。有分数的
+objectives 使用确定性 score order；本体 hypothesis 不打分，按确定性语义身份排序。
+两种顺序都不是 Marivo 的推荐。
+
+| 辅助函数 | 源形状 | 必填 | 策略（默认；备选） | 关键选项 |
+| --- | --- | --- | --- | --- |
+| `point_anomalies` | `MetricFrame` time_series/面板 | — | `zscore`；`seasonal_robust_zscore` | `value`、`threshold=3.0` |
+| `period_shifts` | `DeltaFrame` time_series/面板 | ≥ 7 个桶 | `delta_window_zscore` | `value`、`threshold=2.0` |
+| `driver_axes` | `DeltaFrame` | `search_space` | `concentration` | `value`、`limit` |
+| `interesting_slices` | `MetricFrame` 或 `DeltaFrame` | — | `slice_zscore` | `search_space`、`value`、`threshold=2.0`、`limit` |
+| `interesting_windows` | time_series/面板 frame | — | `global_zscore_runs` | `value`、`threshold=2.0` |
+| `cross_sectional_outliers` | `MetricFrame` segmented/面板 | — | `mad` | `peer_scope`、`value`、`threshold=3.0` |
+| `semantic_hypotheses` | 单一目录指标的 `MetricFrame` 或同指标 `DeltaFrame` | 就绪的可选本体 | 不打分 | `limit=50`（`1..200`） |
+
+每个有分数的 objective 各选一种策略；只有 `point_anomalies` 有公开的备选
+（`seasonal_robust_zscore`，适用于周周期明显、异常会污染全局 mean/std 的序列）。
+传入不支持的策略时，discovery 会以结构化 `SemanticKindMismatchError` 失败。
+
+三种异常形 objective 刻意区分：
+
+- `point_anomalies` 找的是序列相对自身基线的**单个点**偏离。
+- `period_shifts` 找的是单条 delta 序列内部的**局部 regime 变化**；整窗持续的同向
+  移动（任意方向）属于 `compare`，而不是 discovery。
+- `interesting_windows` 对比的是**整窗**逐值行为，而不是单点或单个 regime 边界。
+
+```python
+series = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
+)
+candidates = session.discover.point_anomalies(series, threshold=2.0)
+candidates.show()
+item_id = str(candidates.to_pandas().iloc[0]["item_id"])
+selection = candidates.select(item_id=item_id)
+print(selection.kind, selection.window, selection.keys)
+```
+
+`select(item_id=...)` 返回与候选形状对应的封闭、不可变选择 variant，
+不接受数字 rank。选择不会创建 job、产物、血缘步骤或证据记录。
+
+当源产物的 `contract()` 给出可选本体后续路径时，把它作为不打分的
+hypothesis 路径使用：
+
+```python
+hypotheses = session.discover.semantic_hypotheses(series, limit=50)
+hypotheses.show()  # edge 含义、guardrails、exclusions 和可复制的 item_id
+candidate = hypotheses.select(item_id="candidate_<full-sha256>")
+driver = session.observe(candidate, analysis_purpose="test a reviewed hypothesis")
+```
+
+选中的 `OntologyMetricCandidate` 继承源观测范围，任何范围 override 都会被拒绝。
+本体 edge 和候选不会生成证据项，也不构成因果证明。只有显式 observe 并运行合适的
+下游操作后，才会产生统计证据。
+
+其他 scored 发现选择不能传给 `session.observe`。它们表示源产物中已经计算出的
+行、周期、轴、slice、窗口或 peer，而不是仍需物化的新指标。
+
+## 变换参考 —— `frame.transform.*`
+
+变换在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFrame` →
+`DeltaFrame`）的前提下重塑 frame。每个变换是 frame 自身的方法——调用
+`frame.transform.<op>(...)`，而非会话级别的辅助函数。
+
+| 变换 | 关键参数 | 效果 |
+| --- | --- | --- |
+| `filter` | `predicate`（callable） | 保留谓词为真的行。 |
+| `slice` | `slice_by`（轴 → 值/列表/区间） | 保留匹配精确轴值的行。 |
+| `rollup` | `drop_axes` 和/或 `grain` | 删除轴并重新聚合，或将时间轴重新分桶到更粗的 `grain`。累计 frame 取每个周期的最后一个桶（`rollup_fold="last"`）。 |
+| `topk` | `by`、`limit` | 按某个度量取前 N 行。 |
+| `bottomk` | `by`、`limit` | 取后 N 行。 |
+| `rank` | `by`、`method`、`rank_column` | 按某个度量排序并加一列 rank。 |
+| `normalize` | `mode`、`baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score`（仅 MetricFrame）。 |
+| `window` | `window` | 限制到一个时间窗口。 |
+
+对于差值 frame，`bottomk(by="delta")` 返回最大下降项，因为它选择最负的差值值。
+
+## 累计 frame 注意事项
+
+累计 MetricFrame 存储累计值，其语义取决于累计锚点（`all_history`、`grain_to_date` 或 `trailing`）。
+
+- `show()`、`contract()` 和 `transform.window(...)` 在累计 frame 上正常工作。`contract()` 和
+  `show()` 会呈现锚点特定的注意事项，因此在你正在阅读的 frame 上即可看到允许的路径。
+- `correlate`、`discover` 和 `hypothesis_test` 允许使用。尾随 frame 是独立的
+  窗口聚合（不是累计值），因此这些意图会产生有意义的结果。单调趋势注意事项仅适用于
+  `all_history` 和 `grain_to_date` 锚点——解读结果时需留意。
+- `compare` 按锚点分派：
+  - `all_history`：当两个 frame 共享有效锚点，且业务坐标能够按精确 `evaluation_end` cutoff
+    配对时允许。结果是当前减 baseline 的观测层级差，不声明等价于区间流程；来源
+    revision 未验证。
+  - `trailing`：当两个 frame 的固定时长规范化后相同时允许；例如 `7 day` 与 `1 week`
+    可直接比较。
+  - `grain_to_date`：对单周期、边界锚定的窗口允许。窗口必须从重置边界开始，至多跨越一个
+    重置周期，且两个 frame 必须共享重置粒度和查询粒度。
+  - 两类可比期间都支持窗口序号对齐，以及星期位置、节假日位置、节假日优先再星期位置对齐。
+    `grain_to_date` 的日历策略 `period` 必须等于重置粒度。本版本不公开工作日位置比较模式。
+- 对派生指标，仅当所有外层组件都是累计，且完全共享同一个锚点（包括
+  `all_history`）时，才复用上述比较路径。混合锚点、累计与非累计混合、非法元数据，
+  以及当前/baseline 锚点不一致都会失败即停止。all-history 组件 sidecar 使用 parent
+  的精确配对业务坐标集合。
+- `attribute` 只接受由 `compare` 产生的当前累计 DeltaFrame。业务维度会重放相同的累计观测并
+  解释端点层级变化；只请求累计 `over` 轴时，直接 `sum`/`count` 结构使用可加基础-流程
+  bridge。共享同一锚点的比率与加权累计差值支持业务轴组件混合，但不支持
+  时间 bridge。时间与业务轴混合、累计 `count_distinct` 会失败即停止；请读取
+  `delta.contract().cumulative_attribution` 中的类型化 route 状态。
+- `decompose` 和 `forecast` 仍拒绝累计 frame。当类型化 route 支持时应对当前累计差值使用
+  `attribute`；其他分析则重新 observe 基础流量指标。
+- `transform.rollup(...)` 通过 `rollup_fold="last"` 重新聚合累计 frame：时间轴被重新分桶到目标
+  `grain`，每个周期贡献完整的最后一行（包括 `evaluation_end`）。既不可重新聚合、又未携带
+  `rollup_fold` 的 frame 会被拒绝——请在目标粒度重新 observe。
+
+每个直接或结构完整的派生累计行都携带系统保留、以 UTC 序列化的
+`evaluation_end` 坐标。对于 all-history 差值，请读取精确的 `current_evaluation_end` 和
+`baseline_evaluation_end` 列。单侧坐标会被删除并计入
+`delta.meta.alignment["cumulative_pairs"]`；已配对的 null 仍保持配对并产生 null 差值。
+
+尾随与粒度-to-日期差值通过 `delta.meta.cumulative_alignment` 暴露双方原始锚点、
+身份计算使用的规范锚点，以及已配对 null、当前单侧、baseline 单侧和回退的精确计数。
+最终差值只保留已配对坐标，面板 frame 也遵循同一规则。
+
+```python
+cum_frame = session.observe(
+    cumulative_active_users,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
+)
+cum_frame.contract().show()  # 显示锚点特定的注意事项
+windowed = cum_frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})
+# 将累计 frame rollup 到更粗的粒度（周期末语义）：
+monthly = cum_frame.transform.rollup(grain=mv.grain("month"))
+# 对于 attribute/forecast，请改为 observe base metric：
+base_frame = session.observe(active_users, ...)
+```
+
+## 终端自定义分析
+
+当受治理的度量或目录指标足以表达临时口径时，应先使用封闭的
+`mv.runtime_metric` 表达式。只有计算仍无法通过 `session.observe(...)` 表达时，
+才使用 `md.raw_sql(...)`——唯一的终端
+原始 SQL 执行路径。它强制 timeout、限制返回行数、只读执行。结果是一个
+`RawSqlResult`，无法回到类型化分析；调用 `RawSqlResult.to_pandas()` 获取终端
+pandas 导出。它的 ordered `columns`、`shape` 与 `row_count` 只描述有界返回行：
+`row_count == shape[0] == returned_row_count`。读取行数时还应同时检查
+`requested_limit` 和 `is_truncated`。它没有 `.contract()` 或类型化可用操作。
+
+任何语义缺口也可以无需事前审批使用该出口。智能体可以临时推断指标、维度、
+关系或过滤口径，但必须记录全部假设，并将原始-SQL-支持 claims 与规范
+产物证据分开。
+
+```python
+import marivo.datasource as md
+
+result = md.raw_sql(
+    ms.ref.datasource("warehouse"),
+    "SELECT region, SUM(amount) AS revenue FROM orders GROUP BY region",
+    reason="自定义收入拆分",
+)
+result.show()
+df = result.to_pandas()
+```
+
+需要从类型化 frame 做终端本地 pandas 工作时，使用 `artifact.to_pandas()`。
+`md.raw_sql(...)` 结果和 `to_pandas()` 导出都无法回到类型化分析。原始 SQL 不会修复缺失的
+业务语义；可复用缺口应交给 `marivo-semantic`，并在 readiness 后恢复类型化分析。
+当前 Marivo 操作接口不支持类型化 regression；回归任务仍是显式的终端 custom
+分析，不能提升回类型化链。
+
+## 读取与恢复产物
+
+智能体读取产物时按层下钻，以降低跨 loop 成本：
+
+```python
+repr(delta)          # 廉价单行提示
+delta.show()         # 有界当前状态读取
+delta.contract().show()     # 接口兼容性与类型化 issues
+delta.to_pandas()    # 终端导出，用于自定义本地分析
+```
+
+默认卡片受 50 行和 8 KiB 双重约束，以先达到者为准。省略行会准确报告
+`displayed`、`total`、`omitted`，并给出可复制的
+`session.get_frame('<ref>').to_pandas()` 恢复调用。向 `show()` 或 `render()`
+传入 `max_output_bytes=None` 可展示全部行。
+
+当操作产生证据时，`artifact.show()` 会在结果预览之前展示有界的类型化
+摘要。同一个值可以从 `artifact.evidence_digest` 读取；通过
+`artifact.evidence_status` 检查降级。每条展示的 finding 都携带其持久化的
+指标、Event、Lifecycle 或 SubjectSet 主体身份。省略的精确证据项通过
+`session.evidence.findings(artifact_ref='<ref>')` 读取，derivation 追踪使用
+`session.evidence`。
+
+`artifact.show()` 只补充依赖当前产物状态的续接提示，并使用
+`session.compare(...)`、`session.attribute(...)` 这样的公共调用；它不会在每个
+frame 中重复通用能力矩阵。`artifact.contract().show()` 是完整续接信息唯一的可读
+入口：按公共 receiver 分组，以可直接参考的公共入口为标签，并提供可调用的
+`marivo.help("analysis.<target>")` 帮助路径。
+
+用 `artifact.contract().affordances` 查看接口兼容性。每个可用操作携带
+`capability_id`（稳定的注册表 id）、`public_entrypoint`、`help_target`、
+保留参数角色的 `inputs`、`preconditions` 和 `expected_output_family`。每个输入
+记录准确参数名、接受的产物家族，以及当前产物能否绑定它。契约不排序、不推荐，
+也不决定下一步。可读标签隐藏 `capability_id`；稳定 id 仍保留在结构化 contract
+和 `model_dump()` 中。`artifact.contract().boundary_ports` 列出类型化的终端出口
+端口（例如结构化 id `boundary.to_pandas`），并附带 `preserves` 和
+`does_not_preserve` 保证；其可读标签是 `frame.to_pandas()`。
+
+### 结构化错误
+
+当操作失败时，它会抛出一个类型化的 `AnalysisError` 子类。每个错误都携带稳定的
+类型化字段——`expected`、`received`、`location` 和 `repair`——而不是一个通用的
+详情包。`repair` 字段是一个类型化的 `AnalysisRepair` 对象，包含 `kind`
+（`retry`、`inspect`、`user_choice`、`semantic_authoring`、`environment`）、
+`action`、`help_target`、可选的 `snippet` 和从实时状态生成的可选
+`candidates`。`user_choice` 表示仍有多个机械上合法的方案，需要业务判断选择其一。
+按照修复指引操作即可；它会指向失败能力的确切
+`marivo.help("analysis.<target>")` 目标。
+
+事件后续路径错误沿用同一契约：匹配策略和步骤选择使用
+`user_choice`；过期产物与未知覆盖率使用 `inspect`；不安全的
+关系路径或时间编写缺口使用 `semantic_authoring`。
+
+### 终端边界出口
+
+Marivo 维护一条类型化分析链。终端出口是 `frame.to_pandas()` 和 `md.raw_sql(...)`。
+`frame.to_pandas()` 返回防御性副本用于自定义本地分析；`md.raw_sql(...)` 返回
+`RawSqlResult`，其 `RawSqlResult.to_pandas()` 是自身的终端 pandas 出口。两者都不
+保留血缘或证据连续性。终端结果无法回到类型化分析。如果缺少业务语义，
+只能用终端原始 SQL 提供临时结果；可复用缺口应直接进入语义编写，并保留尚未解决的
+业务判断。
+
+### 语义交接
+
+类型化分析在符合条件的运行时边界接受精确当前目录条目或稳定的
+语义引用，并立即把两种形式归一化为引用，绝不猜测业务含义。如果缺少或有争议的
+指标、维度或时间维度，受影响的类型化分支会停止。智能体只可以在终端 `md.raw_sql(...)`
+分支临时推断口径，并必须披露数据源、目的、全部假设、有界结果，以及规范身份、
+血缘和证据 continuity 的缺失。它无需为 skill 切换请求批准，直接把最小可复用缺口交给
+`marivo-semantic`，再从返回的 `analysis_ready_inputs` 恢复受影响的分析分支。只有尚未确定的
+业务含义才需要用户参与。语义层拥有业务对象契约；分析层拥有基于这些对象的类型化计算。
+
+后续脚本需要前序结果时，读取持久化事实，而不是重跑上游查询：
+
+```python
+summaries = session.frame_summaries(limit=20)
+jobs = session.recent_jobs(limit=5)
+previous = session.get_frame(ref)
+
+# 仅在恢复任务、问题明显重复或同类错误再次出现时查看历史：
+history = mv.session.recent(limit=10)
+prior = mv.session.inspect(history.items[0].name) if history.items else None
+```
+
+`frame_summaries()` 返回 `FrameSummaryPage`。`has_more` 为 true 时把不透明的
+`next_cursor` 传回同一个方法。分页采用普通 keyset 语义，不提供快照隔离。
+
+使用 `marivo.help("analysis.runtime")` 选择当前有效的恢复帮助页；使用
+`marivo.help("analysis.runtime.artifacts")` 进行有界的产物发现和精确恢复，并使用
+`marivo.help("analysis.evidence")` 发现和读取持久化 Evidence。这些 Help target 是导航
+主题；可调用成员仍是上文展示的 Session API。
+
+## 证据链与审计
+
+每个已提交操作都会把确定性的类型化证据写入会话。Marivo 不生成跨产物
+判断，也不选择下一步操作。
+
+- `session.evidence.digests(...)` —— 有界、最新优先的摘要页面。
+- `session.evidence.findings(...)` —— 有界、最新优先的证据项页面。
+- `session.evidence.digest(ref)`、`.finding(id)`、`.trace(id)` —— 精确读取与证据项
+  derivation 审计。
+
+完整模型见 [证据链](/zh-cn/docs/v0.5/concepts/evidence/)。
+
+## 端到端
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.metrics.get("sales.revenue")
+region = catalog.dimensions.get("sales.orders.region")
+
+current = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
+    dimensions=[region],
+)
+baseline = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2025-10-01", end="2026-01-01"),
+    grain=mv.grain("month"),
+    dimensions=[region],
+)
+delta = session.compare(current, baseline)
+attribution = session.attribute(delta, axes=[region])
+attribution.show()
+```
+
+拿到 `delta` 后，可以继续分支：用 `session.discover.period_shifts(delta)` 找出变化发生在何时，
+或用 `session.forecast(current, horizon=3)` 向前投影。
+
+## 高级事件与生命周期分析
+
+大多数问题可以通过指标与前面的核心算子回答。只有分析依赖业务事件顺序、重复尝试匹配、
+漏斗推进、耗时或状态回放时，才使用事件与生命周期路径。
+
+### 匹配事件路径
+
+事件分析从类型化参与者角色和有序 EventPattern 开始。每个步骤
+使用稳定的 snake-case 键；角色已携带事件和主体实体，而主体实体
+的主键提供身份。
+
+```python
+cart_created = catalog.events.get("commerce.cart_created")
+checkout_started = catalog.events.get("commerce.checkout_started")
+payment_succeeded = catalog.events.get("commerce.payment_succeeded")
+
+cart_user = ms.participant_role(event=cart_created.ref, name="user")
+checkout_user = ms.participant_role(event=checkout_started.ref, name="user")
+payment_user = ms.participant_role(event=payment_succeeded.ref, name="user")
+
+cart_step = mv.step(participant=cart_user, key="cart")
+checkout_step = mv.step(participant=checkout_user, key="checkout")
+payment_step = mv.step(participant=payment_user, key="payment")
+
+pattern = mv.sequence(cart_step, checkout_step, payment_step)
+journeys = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.time_scope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+)
+```
+
+队列窗口是半开区间：只有 `[start, end)` 内的首步骤发生项能建立
+路径。`completion_through` 是包含端点的后续项 bound，并且不得早于 `end`。
+可选的就绪 `SubjectSet` 会进一步限制主体 membership；它不会替代或推导
+队列窗口。
+
+当每个首步骤发生项都应建立尝试时，必须显式选择 repeated-尝试
+策略。`exclusive` 最多把一个 completion 分配给一个打开尝试；`shared`
+允许一个 completion 关闭多个合格尝试：
+
+```python
+exclusive_attempts = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.time_scope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.every_start(completion_assignment="exclusive"),
+)
+shared_attempts = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.time_scope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.every_start(completion_assignment="shared"),
+)
+```
+
+`EventFrame[journey]` 是 dense long 表：每个 `journey × pattern step` 都有一行。
+后续步骤缺失时，该行仍然存在，其事件、时间和 elapsed 值为空。只有全部必需
+事件都已知完整覆盖到后续项 bound 时，缺失步骤才是 `incomplete`；否则为
+`coverage_censored`。
+
+在确定 replay 或 matching 窗口前，可以先检查精确的事件时间范围：
+
+```python
+lifecycle = session.catalog.state_models.get("commerce.order_lifecycle")
+bounds = session.events.occurrence_bounds(lifecycle)
+print(bounds.earliest_occurrence_at, bounds.latest_occurrence_at)
+```
+
+传入 StateModel 时，Marivo 会自动推导其 inception 和 transition 使用的去重
+Event，并且只聚合符合这些 Event 谓词的 occurrence。返回的
+`EventOccurrenceBounds` 不是 Datasource 全局最大时间，也不能证明数据完整
+覆盖到最新 occurrence。它只用于选择候选窗口；完整性仍需单独核实。没有
+Event trigger 的 StateModel 会返回 `event_refs=()`，两个时间边界均为 `None`。
+
+后端可以通过 `marivo_event_watermark(request)` 提供权威事件完整性。
+Marivo 不会从最大已观测事件时间、查询时间或 SLA 推导 watermark。调用方可以
+通过 `session.events.watermark(event, through=...)` 读取该权威 watermark，返回
+provider 的 `EventWatermarkReceipt`——没有 provider 或该事件无权威 watermark 时
+返回 `None`。没有权威覆盖率时，调用方可以携带精确且有界的显式假设：
+
+```python
+coverage = mv.declared_complete_through(
+    inputs=(cart_created, checkout_started, payment_succeeded),
+    through=followup_end,
+    rationale="Warehouse reconciliation completed through followup_end.",
+)
+journeys = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.time_scope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+    completeness=(coverage,),
+)
+```
+
+### 归约事件路径并组合类型化队列
+
+首个-per-主体路径在阶段二有三个后续路径。漏斗只归约已持久化的
+发生项 assignment，不重新查询事件。指定轴时，唯一允许的数据源工作是按
+首步骤发生项时刻执行受治理的主体-维度丰富化：
+
+```python
+funnel = session.events.funnel(
+    journeys,
+    axes=[acquisition_channel],
+    analysis_purpose="Measure checkout conversion by entry channel.",
+)
+
+elapsed = session.events.time_to_event(
+    journeys,
+    start_step=checkout_step,
+    end_step=payment_step,
+    analysis_purpose="Measure checkout-to-payment elapsed time.",
+)
+
+dropouts = session.select_subjects(
+    journeys,
+    selection=mv.dropped_before(step=payment_step),
+)
+```
+
+如果从恢复后的 journey 继续，而不是沿用原脚本变量，应从
+`journeys.meta.pattern.steps` 选择精确保留的步骤，不能重建步骤，也不能用裸 key
+或数字位置代替类型化值。`events.time_to_event` 的专项 Help 会给出这一保留值路径
+以及 `PatternStep`/`step` 合同。
+
+`EventFrame[funnel]` 保留可加 counts、censoring-感知 rates 和 grouped
+对账证据。`EventFrame[time_to_event]` 精确保留来源的开始/end
+assignment，绝不重新匹配另一个 completion。`SubjectSet` 只暴露受治理的
+`subject_identity` 元组；原始身份不会进入卡片、job、证据、structured
+错误或 consumer 元数据。
+
+只有就绪 SubjectSet 能限定 `observe` 或后续 `events.match`：
+
+```python
+dropout_revenue = session.observe(revenue, cohort=dropouts)
+return_journeys = session.events.match(
+    pattern=return_pattern,
+    cohort=dropouts,
+    cohort_window=mv.time_scope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+)
+```
+
+loss 仍为 `coverage_censored` 的主体会被排除，并计入 SubjectSet 元数据。
+该 SubjectSet 仍可读取和恢复，但用作队列时会抛出
+`event_coverage_unknown`。漏斗与 `dropped_before` 要求
+`first_per_subject`；事件耗时也接受 repeated-尝试路径，因为它为每个
+已分配尝试保留一行。
+
+已观测 watermark 优先于声明。产物及其质量/证据记录
+会保留每个输入的 `observed_watermark | declared_complete | unknown` basis，以及
+整体 `observed_watermark | declared_complete | mixed | unknown` basis。
+
+### 漏斗对比与 loss-rate 归因
+
+两个兼容的 `EventFrame[funnel]` 也使用同一个 `compare` 入口，但不接受
+`alignment=` 参数。Marivo 按持久化的精确 PatternStep 身份与完整轴元组
+对齐；仅单侧存在的元组会把可加 counts 补零，而缺失侧的 rate 保持 null。
+
+```python
+funnel_delta = session.compare(current_funnel, baseline_funnel)
+payment_loss = mv.funnel_loss_rate(step=payment_step)
+drivers = session.attribute(
+    funnel_delta,
+    axes=[acquisition_channel],
+    target=payment_loss,
+)
+```
+
+归因输入必须是未分组的漏斗差值。它在持久化路径 assignment 上按受治理的
+队列进入维度重新聚合，绝不会重新匹配事件。每个驱动因素输出可加的
+`loss` 与 `denominator_mix` 组件；两者之和会在 `1e-9` 内精确对账到目标
+loss-rate 差值。多轴时显式选择 `mode="joint"` 或 `mode="hierarchy"`。
+hierarchy 的 pool share 在每个可见层级内分别归一化；产物元数据保留用于
+对账的最深 joint 分区 pool。这些贡献只描述观测变化的算术分解，
+不代表因果关系。
+
+`DeltaFrame[funnel]` 是封闭产物家族：只暴露自身漏斗字段，绝不投影
+指标差值的 facet。指标专属后续路径（`components()`、`transform.*`）
+会以结构化错误失败即停止，而不是伪装出并不存在的组件图或指标
+契约。
+
+### 重放规范生命周期
+
+生命周期分析会把一个精确的当前 StateModel 应用于其已建模事件 stream。
+模型负责状态和合法转换；分析调用负责窗口、显式 seed、可选队列和
+完整性声明。首次使用前应读取
+`marivo.help("analysis.lifecycle.replay")`，不要复制缓存中的函数签名。
+
+```python
+order_model = catalog.state_models.get("sales.order_lifecycle")
+
+history = session.lifecycle.replay(
+    order_model,
+    window=mv.time_scope(start=start, end=end),
+    seed=mv.from_inception(),
+    analysis_purpose="Reconstruct governed order state history.",
+)
+```
+
+重放窗口是时区-感知半开区间。`mv.from_inception()` 是必需的显式选择：
+每个主体从第一个符合条件的已建模起始开始重放，计算
+`window.end` 之前的全部已建模发生项，但只输出与请求窗口重叠的区间。
+没有起始的 StateModel 可以为未来的投影 seed 加载，但不能使用这条
+重放路径。
+
+每个不同的触发事件最多查询一次。事件 predicate、参与者-角色
+解析、身份验证、deterministic ordering 与完整性都复用
+事件路径的同一套核心。完整性声明只能覆盖所选 StateModel
+实际消费的事件，且权威 provider watermark 优先。模型外事件既不会被查询，
+也不会被标记为违规。
+
+合法触发会改变状态。当前状态下不合法的已建模触发不改变状态，但会进入
+重放的私有违规追踪。同一时刻的跨事件发生项只有在顺序会改变最终
+状态或违规 outcome 时才会失败。
+
+`LifecycleFrame[history]` 保存有序且不重叠的状态区间。区间状态为
+`completed`、`right_censored` 或 `coverage_censored`。用 `history.show()`
+读取有界当前状态，用 `history.contract()` 查看机械合法的后续路径。
+
+### 归约生命周期 history 并选择状态队列
+
+生命周期 reducer 只消费已提交 history，不重新查询事件来源，也不重新重放
+StateModel：
+
+```python
+weekly_state = session.lifecycle.distribution(
+    history,
+    at=(week_1_end, week_2_end),
+    axes=[account_region],
+)
+transition_counts = session.lifecycle.transitions(history)
+dwell = session.lifecycle.dwell(history)
+violations = session.lifecycle.violations(history)
+```
+
+distribution 对每个请求 instant 和每个声明状态生成 dense 输出。受治理的主体
+轴在各 instant 上解析，分组计数必须与未分组状态 population 对账。transitions
+包含每个不同的已建模状态 pair，即使 count 为零。dwell 包含每个声明状态；
+duration statistic 只使用已完成且按窗口裁剪的区间，censored 区间
+则保留为显式计数。violations 是 committed 追踪的类型化 copy，不会被重命名为
+策略 breach、质量失败或 causal fact。
+
+通过精确的类型化模型-状态 handle 选择主体，不能传裸状态字符串：
+
+```python
+paid_state = ms.model_state(model=order_model.ref, name="paid")
+paid_at_end = session.select_subjects(
+    history,
+    selection=mv.in_state(paid_state, as_of=end),
+)
+```
+
+在该 instant 状态未知或覆盖率-censored 的主体会被排除，并保留在 censoring
+元数据中。结果 SubjectSet 始终可读，但只有就绪 set 才能限定后续
+`observe`、`events.match` 或 `lifecycle.replay`。当前精确 admission rules 以
+`marivo.help("analysis.in_state")` 和来源产物契约为准。
+
+## Frame 类型
+
+| Frame | 由谁产出 |
+| --- | --- |
+| `MetricFrame` | `observe` |
+| `DeltaFrame` | `compare` |
+| `AttributionFrame` | `attribute` |
+| `AssociationResult` | `correlate` |
+| `ForecastFrame` | `forecast` |
+| `QualityReport` | `frame.quality_report()`（只读的已提交 sidecar） |
+| `HypothesisTestResult` | `hypothesis_test` |
+| `CandidateSet` | `discover.*` |

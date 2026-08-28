@@ -1,0 +1,133 @@
+---
+slug: zh-cn/docs/v0.5/concepts/readiness
+title: 就绪检查
+description: 与快照无关的语义输入技术认证。
+---
+
+## 就绪检查判断什么
+
+`catalog.readiness(refs=[...])` 是面向当前目录条目、精确引用与封闭运行时指标
+表达式的显式零查询认证。它只检查当前语义项目和每个请求输入的依赖闭包。
+分析 API 不会自动调用它。
+
+就绪检查不读取 discovery snapshot，也不读取普通 preview 的历史记录。因此，同一
+定义在没有快照、快照新鲜或过期、以及存在或不存在历史 preview 文件时，除
+`checked_at` 外会得到相同状态、问题和 ready inputs。专用的 period calendar、
+temporal set 与 work schedule artifact 是唯一例外：依赖它们的根必须等到当前认证
+artifact 可用后才能放行。
+
+业务描述与 guardrail 属于建议性的 richness 问题。使用 `ms.richness()` 检查；它们
+不会阻塞 readiness。
+
+## Preview 与 readiness 相互独立
+
+Preview 通过显式有界 scope 直接读取当前数据源：
+
+```python
+import marivo.datasource as md
+
+preview = catalog.preview(
+    catalog.metrics.get("sales.revenue"),
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+)
+```
+
+多实体引用必须传入由精确 `Ref[entity]` 键控的完整 mapping。参数化 JSON source
+通过 `source_bindings=` 使用同样的精确实体引用 mapping 形状。Marivo 会在打开连接
+之前验证 scope 键、数据源兼容性、正数行数与超时 guard，以及完整 batch。
+
+普通 preview 只返回本次执行结果，不创建 authoring checkpoint，也不会改变
+readiness。原生 naive timestamp 如果没有显式 parse 契约，会由当前 preview 直接
+报告 `time_parse_risk` warning。
+
+Period calendar、temporal set 与 work schedule 的 preview 同时也是认证路径。
+Marivo 会在 scope 的 `max_rows + 1` 边界内读取全部必需列；只有 scope 完整且行值
+符合声明时才发布 immutable artifact。`limit` 只限制展示行，不限制认证读取。
+
+## Source health 独立于 readiness
+
+当问题是当前 source 或已声明的数据期望是否发生漂移时，使用
+`catalog.source_health(...)`。它不会在 load、preview、readiness 或分析中被隐式
+调用，也不保存 checkpoint 或历史。
+
+```python
+from datetime import timedelta
+
+health = catalog.source_health([revenue])  # 只检查连接与 metadata
+
+health = catalog.source_health(
+    [revenue],
+    checks=[
+        ms.source_check.not_null(ms.ref.measure("sales.orders.amount")),
+        ms.source_check.freshness(
+            ms.ref.time_dimension("sales.orders.created_at"),
+            max_age=timedelta(hours=24),
+        ),
+    ],
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+)
+```
+
+没有声明 check 时，source health 只执行连接 roundtrip 与权威 schema/capability
+inspection；此时省略 `scope`，且不会查询用户数据。Null、enum、uniqueness、
+freshness、relationship match 与 cardinality 期望只有通过 `ms.source_check`
+显式构造后才存在，并且必须提供正数行数与超时边界。每条结果都会报告
+`current`、`failed`、`unavailable` 或 `unknown`、受影响的当前语义引用、类型化
+repair，以及是否在什么精确 scope 下查询了用户数据。
+
+运行 source health 不会改变 `ReadinessReport.status`、issues 或
+`analysis_ready_inputs`。
+
+## 报告字段
+
+`catalog.readiness(refs=[...])` 返回冻结的 `ReadinessReport`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `scope` | 固定为 `"semantic_static"`；操作专属执行检查仍由消费 API 负责。 |
+| `status` | `"ready"`、`"ready_with_warnings"` 或 `"blocked"`。 |
+| `analysis_ready_inputs` | 按请求顺序保留完整依赖闭包中没有 blocker 的引用或运行时表达式。 |
+| `blockers` | 阻止受影响请求根进入分析的问题。 |
+| `warnings` | 不阻塞的 warning 与 advisory。 |
+| `input_summary` | 本次检查涉及的数据源、引用和表。 |
+| `checked_at` | ISO-8601 检查时间。 |
+| `catalog_definition_fingerprint` | 精确的当前编译语义项目身份。 |
+
+`analysis_ready_inputs` 是唯一的语义到分析交接字段。不再有仅引用投影、
+preview-required 列表、认证令牌或隐藏传递对象。
+
+每条 issue 都携带类型化 `repair`，其中包含具体动作和所属 live-help 目标。按 repair
+处理后重新运行 readiness，再把 ready inputs 传给普通分析 API。
+
+## 重要 blocker
+
+结构图问题、未知引用、未联邦的跨数据源依赖、无效时间语义、没有 replay seed 的
+state model，以及不可观测的 snapshot fold 仍然 fail closed。
+
+专用时间 artifact blocker 使用 artifact 术语：
+
+- `period_calendar_artifact_missing`、`_stale` 或 `_invalid`
+- `temporal_set_artifact_missing`、`_stale` 或 `_invalid`
+- `work_schedule_artifact_missing`、`_stale` 或 `_invalid`
+
+其 repair 会指向带完整显式 scope 的 `catalog.preview(..., scope=...)`。认证失败或
+scope 被截断时不会发布替代 artifact。
+
+## 继续进入分析
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+revenue = catalog.metrics.get("sales.revenue")
+report = catalog.readiness(refs=[revenue])
+
+if report.status == "blocked":
+    report.show()
+    raise SystemExit
+
+ready_inputs = report.analysis_ready_inputs
+```
+
+非阻塞报告只认证所选语义闭包，不保证所有未来查询或操作专属 artifact 形状都能
+成功。运行时执行、数据质量和分析专属契约仍由实际消费操作负责。
