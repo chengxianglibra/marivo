@@ -922,10 +922,12 @@ def sales_project_template(*, with_time: bool = True) -> Path:
     if cache.exists():
         return cache
 
-    (cache / "marivo.toml").write_text('[project]\nname = "test"\n')
-    semantic_dir = cache / "models" / "semantic" / "sales"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    building = Path(tempfile.mkdtemp(dir=cache.parent, prefix=f"{tag}.building."))
+    (building / "marivo.toml").write_text('[project]\nname = "test"\n')
+    semantic_dir = building / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = cache / "models" / "datasources"
+    datasource_dir = building / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
@@ -958,6 +960,14 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
+    try:
+        os.replace(building, cache)
+    except OSError:
+        if not cache.exists():
+            raise
+    finally:
+        if building.exists():
+            shutil.rmtree(building)
     return cache
 
 

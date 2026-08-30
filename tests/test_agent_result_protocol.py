@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import pytest
@@ -15,13 +15,33 @@ from marivo._temporal import TimeScopeContractV1
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
 from marivo.analysis.evidence.types import (
     ArtifactDigest,
+    DerivationRule,
     DigestReadContract,
+    MetricValueFindingValue,
     OmissionSummary,
     OperatorSemantics,
     RawFallback,
 )
 from marivo.analysis.frames.base import ArtifactContract, BaseFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.session._read_model import (
+    ArtifactEvidenceSummary,
+    ArtifactIssueCounts,
+    ArtifactSummary,
+    FailedRun,
+    IncompleteRun,
+    RunFailure,
+    RunPage,
+    SessionGraph,
+    SessionRuntimeRecap,
+    SucceededRun,
+)
+from marivo.analysis.session._read_model import (
+    Finding as CandidateFinding,
+)
+from marivo.analysis.session._read_model import (
+    FindingPage as CandidateFindingPage,
+)
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
 from marivo.datasource.errors import repair as datasource_repair
@@ -298,6 +318,128 @@ def test_terminal_type_byte_contract(builder: Callable[[], object]) -> None:
     assert "output truncated" not in full
     with pytest.raises(ValueError):
         obj.render(max_output_bytes=1)  # type: ignore[attr-defined]
+
+
+def test_private_slice2_candidate_results_satisfy_terminal_protocol() -> None:
+    started = datetime(2026, 8, 30, tzinfo=UTC)
+    common = {
+        "capability_id": "observe",
+        "analysis_purpose": None,
+        "input_artifact_refs": (),
+        "arguments": (),
+        "omitted_argument_names": (),
+        "started_at": started,
+    }
+    incomplete = IncompleteRun(run_id="run_incomplete", **common)
+    succeeded = SucceededRun(
+        run_id="run_succeeded",
+        **common,
+        output_artifact_ref="artifact_1",
+        output_mode="produced",
+        finished_at=started,
+    )
+    failed = FailedRun(
+        run_id="run_failed",
+        **common,
+        failed_at=started,
+        failure=RunFailure(
+            error_type="AnalysisError",
+            message="safe",
+            expected=None,
+            received=None,
+            location=None,
+            repair=None,
+        ),
+    )
+    artifact = ArtifactSummary(
+        ref="artifact_1",
+        family="MetricFrame",
+        semantic_shape="scalar",
+        created_at=started,
+        produced_by_run="run_succeeded",
+        analysis_purpose=None,
+        row_count=1,
+        content_hash="sha256:test",
+        materialization="materialized",
+        evidence=ArtifactEvidenceSummary(
+            status="complete",
+            digest_present=True,
+            digest_item_count=1,
+            omitted_item_count=0,
+            finding_count=1,
+        ),
+        quality=None,
+        issue_counts=ArtifactIssueCounts(warning=0, blocking=0),
+    )
+    finding = CandidateFinding(
+        finding_id="finding_1",
+        artifact_ref="artifact_1",
+        session_id="session_1",
+        finding_type="metric_value",
+        epistemic_kind="observed",
+        subject=make_test_subject(metric_id="sales.revenue", analysis_axis="scalar"),
+        canonical_item_key="value",
+        value=MetricValueFindingValue(value=1.0, unit="USD"),
+        derivation=DerivationRule(
+            rule_id="extract.metric_value",
+            rule_version="v1",
+            operator="observe",
+            source_fields=("value",),
+            source_finding_refs=(),
+        ),
+        source_artifact_ref="artifact_1",
+        source_fields=("value",),
+        source_refs=("sales.revenue",),
+        retained_digest_item_refs=("item_1",),
+        committed_at=started,
+    )
+    graph = SessionGraph(
+        session_id="session_1",
+        artifacts=(artifact,),
+        runs=(succeeded,),
+        edges=(),
+        root_run_ids=("run_succeeded",),
+        head_artifact_refs=("artifact_1",),
+        failed_run_ids=(),
+        incomplete_run_ids=(),
+        boundary_artifact_refs=(),
+        boundary_run_ids=(),
+        truncated=False,
+    )
+    recap = SessionRuntimeRecap(
+        session_id="session_1",
+        artifact_count=1,
+        head_artifact_count=1,
+        head_artifact_refs=("artifact_1",),
+        succeeded_run_count=1,
+        failed_run_count=1,
+        incomplete_run_count=1,
+        evidence_complete_count=1,
+        evidence_partial_count=0,
+        evidence_unavailable_count=0,
+        attention_run_ids=("run_failed", "run_incomplete"),
+        overall_graph_available=True,
+    )
+    candidates = (
+        incomplete,
+        succeeded,
+        failed,
+        RunPage(
+            items=(incomplete, succeeded, failed),
+            limit=3,
+            has_more=False,
+            next_cursor=None,
+        ),
+        artifact,
+        finding,
+        CandidateFindingPage(items=(finding,), limit=1, has_more=False, next_cursor=None),
+        graph,
+        recap,
+    )
+
+    for candidate in candidates:
+        assert_conforms(candidate)
+        assert candidate.render() == candidate.render()
 
 
 def test_preview_result_renders_shared_card_shape() -> None:

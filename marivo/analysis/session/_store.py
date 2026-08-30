@@ -31,6 +31,26 @@ from marivo.render import Card, RenderableResult
 _STORE_SCHEMA_VERSION = 1
 _RUN_PAYLOAD_SCHEMA = "marivo.analysis_run/v1"
 
+
+class _RuntimeSnapshotTooLargeError(RuntimeError):
+    def __init__(self, count: int) -> None:
+        super().__init__(f"runtime snapshot contains {count} records")
+        self.count = count
+
+
+@dataclass(frozen=True, slots=True)
+class _FocusedRuntimeRows:
+    runs: tuple[sqlite3.Row, ...]
+    inputs: tuple[sqlite3.Row, ...]
+    artifacts: tuple[sqlite3.Row, ...]
+    boundary_artifact_refs: tuple[str, ...]
+    boundary_run_ids: tuple[str, ...]
+    non_head_artifact_refs: tuple[str, ...]
+    missing_artifact_refs: tuple[str, ...]
+    missing_run_ids: tuple[str, ...]
+    truncated: bool
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -1040,6 +1060,39 @@ class SessionStore:
             self._validate_payload_schema(row, location=f"Run {row['run_id']!r}")
         return rows
 
+    def page_runs(
+        self,
+        session_id: str,
+        *,
+        status: str | None,
+        capability_id: str | None,
+        limit: int,
+        after: tuple[str, str] | None,
+    ) -> list[sqlite3.Row]:
+        """Return at most ``limit + 1`` newest exact-current Run rows."""
+        clauses = ["session_id = ?"]
+        params: list[object] = [session_id]
+        if status is not None:
+            clauses.append("lifecycle = ?")
+            params.append(status)
+        if capability_id is not None:
+            clauses.append("capability_id = ?")
+            params.append(capability_id)
+        if after is not None:
+            clauses.append("(started_at < ? OR (started_at = ? AND run_id < ?))")
+            params.extend((after[0], after[0], after[1]))
+        params.append(limit + 1)
+        with self._connect() as conn:
+            rows = self._fetchall(
+                conn,
+                f"SELECT * FROM runs WHERE {' AND '.join(clauses)} "
+                "ORDER BY started_at DESC, run_id DESC LIMIT ?",
+                tuple(params),
+            )
+        for row in rows:
+            self._validate_payload_schema(row, location=f"Run {row['run_id']!r}")
+        return rows
+
     def run_input_refs(self, session_id: str, run_id: str) -> tuple[str, ...]:
         with self._connect() as conn:
             rows = self._fetchall(
@@ -1051,11 +1104,25 @@ class SessionStore:
         return tuple(str(row["artifact_ref"]) for row in rows)
 
     def runtime_snapshot(
-        self, session_id: str
+        self,
+        session_id: str,
+        *,
+        max_records: int | None = None,
     ) -> tuple[list[sqlite3.Row], list[sqlite3.Row], list[sqlite3.Row]]:
         """Read Runs, inputs, and Artifacts from one SQLite snapshot."""
         with self._connect() as conn:
             conn.execute("BEGIN")
+            if max_records is not None:
+                count_row = self._fetchone(
+                    conn,
+                    "SELECT "
+                    "(SELECT COUNT(*) FROM runs WHERE session_id = ?) + "
+                    "(SELECT COUNT(*) FROM artifacts WHERE session_id = ?) AS record_count",
+                    (session_id, session_id),
+                )
+                record_count = int(count_row["record_count"]) if count_row is not None else 0
+                if record_count > max_records:
+                    raise _RuntimeSnapshotTooLargeError(record_count)
             runs = self._fetchall(
                 conn,
                 "SELECT * FROM runs WHERE session_id = ? ORDER BY started_at, run_id",
@@ -1074,6 +1141,238 @@ class SessionStore:
         for row in runs:
             self._validate_payload_schema(row, location=f"Run {row['run_id']!r}")
         return runs, inputs, artifacts
+
+    def focused_runtime_snapshot(
+        self,
+        session_id: str,
+        *,
+        artifact_ref: str,
+        direction: str,
+        max_nodes: int,
+    ) -> _FocusedRuntimeRows:
+        """Read one index-driven bounded Artifact traversal in a single snapshot."""
+        selected_runs: dict[str, sqlite3.Row] = {}
+        selected_artifacts: dict[str, sqlite3.Row] = {}
+        boundary_artifacts: set[str] = set()
+        boundary_runs: set[str] = set()
+        missing_artifacts: set[str] = set()
+        missing_runs: set[str] = set()
+        frontier: dict[tuple[str, str], set[str]] = {("artifact", artifact_ref): set()}
+        visited: set[tuple[str, str]] = set()
+        truncated = False
+
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+
+            def artifact_row(ref: str) -> sqlite3.Row | None:
+                return self._fetchone(
+                    conn,
+                    "SELECT * FROM artifacts WHERE session_id = ? AND artifact_id = ?",
+                    (session_id, ref),
+                )
+
+            def run_row(run_id: str) -> sqlite3.Row | None:
+                return self._fetchone(
+                    conn,
+                    "SELECT * FROM runs WHERE session_id = ? AND run_id = ?",
+                    (session_id, run_id),
+                )
+
+            row_cache: dict[tuple[str, str], sqlite3.Row | None] = {}
+
+            def runtime_row(kind: str, identity: str) -> sqlite3.Row | None:
+                key = (kind, identity)
+                if key not in row_cache:
+                    row_cache[key] = (
+                        artifact_row(identity) if kind == "artifact" else run_row(identity)
+                    )
+                row = row_cache[key]
+                if row is None:
+                    if kind == "artifact":
+                        missing_artifacts.add(identity)
+                    else:
+                        missing_runs.add(identity)
+                return row
+
+            def timestamp_key(kind: str, row: sqlite3.Row) -> str:
+                field = "created_at" if kind == "artifact" else "started_at"
+                raw = str(row[field])
+                try:
+                    parsed = datetime.fromisoformat(raw)
+                except ValueError:
+                    return raw
+                if parsed.tzinfo is None:
+                    return raw
+                return parsed.astimezone(UTC).isoformat()
+
+            while frontier:
+                next_frontier: dict[tuple[str, str], set[str]] = {}
+                ranked: list[tuple[str, str, str, sqlite3.Row, set[str]]] = []
+                for (kind, identity), owners in frontier.items():
+                    row = runtime_row(kind, identity)
+                    if row is not None:
+                        ranked.append((timestamp_key(kind, row), identity, kind, row, owners))
+                ranked.sort(key=lambda item: (item[0], item[1], item[2]))
+                for _timestamp, identity, kind, row, owners in ranked:
+                    key = (kind, identity)
+                    if key in visited:
+                        continue
+                    visited.add(key)
+                    if len(selected_runs) + len(selected_artifacts) >= max_nodes:
+                        truncated = True
+                        if kind == "artifact":
+                            boundary_runs.update(owners)
+                        else:
+                            boundary_artifacts.update(owners)
+                        continue
+                    if kind == "artifact":
+                        selected_artifacts[identity] = row
+                        if direction == "ancestors":
+                            producer = row["produced_by_job"]
+                            if producer is not None:
+                                next_frontier.setdefault(("run", str(producer)), set()).add(
+                                    identity
+                                )
+                        else:
+                            consumers = self._fetchall(
+                                conn,
+                                "SELECT DISTINCT run_id FROM run_inputs "
+                                "WHERE session_id = ? AND artifact_ref = ?",
+                                (session_id, identity),
+                            )
+                            for consumer in consumers:
+                                next_frontier.setdefault(
+                                    ("run", str(consumer["run_id"])), set()
+                                ).add(identity)
+                    else:
+                        self._validate_payload_schema(row, location=f"Run {identity!r}")
+                        selected_runs[identity] = row
+                        if direction == "ancestors":
+                            input_rows = self._fetchall(
+                                conn,
+                                "SELECT artifact_ref FROM run_inputs "
+                                "WHERE session_id = ? AND run_id = ? ORDER BY position",
+                                (session_id, identity),
+                            )
+                            for input_row in input_rows:
+                                next_frontier.setdefault(
+                                    ("artifact", str(input_row["artifact_ref"])), set()
+                                ).add(identity)
+                        elif row["lifecycle"] == "succeeded" and row["output_artifact_ref"]:
+                            next_frontier.setdefault(
+                                ("artifact", str(row["output_artifact_ref"])), set()
+                            ).add(identity)
+                frontier = {
+                    key: owners for key, owners in next_frontier.items() if key not in visited
+                }
+
+            run_ids = tuple(selected_runs)
+            if run_ids:
+                placeholders = ",".join("?" for _ in run_ids)
+                inputs = self._fetchall(
+                    conn,
+                    f"SELECT * FROM run_inputs WHERE session_id = ? "
+                    f"AND run_id IN ({placeholders}) ORDER BY run_id, position",
+                    (session_id, *run_ids),
+                )
+            else:
+                inputs = []
+            for input_row in inputs:
+                runtime_row("artifact", str(input_row["artifact_ref"]))
+            for run in selected_runs.values():
+                if run["lifecycle"] == "succeeded" and run["output_artifact_ref"] is not None:
+                    runtime_row("artifact", str(run["output_artifact_ref"]))
+            for artifact in selected_artifacts.values():
+                if artifact["produced_by_job"] is not None:
+                    runtime_row("run", str(artifact["produced_by_job"]))
+            non_heads: list[str] = []
+            for ref in selected_artifacts:
+                consumer_match = self._fetchone(
+                    conn,
+                    "SELECT 1 FROM run_inputs i JOIN runs r "
+                    "ON r.session_id = i.session_id AND r.run_id = i.run_id "
+                    "WHERE i.session_id = ? AND i.artifact_ref = ? "
+                    "AND r.lifecycle = 'succeeded' LIMIT 1",
+                    (session_id, ref),
+                )
+                if consumer_match is not None:
+                    non_heads.append(ref)
+
+        return _FocusedRuntimeRows(
+            runs=tuple(selected_runs.values()),
+            inputs=tuple(inputs),
+            artifacts=tuple(selected_artifacts.values()),
+            boundary_artifact_refs=tuple(sorted(boundary_artifacts)),
+            boundary_run_ids=tuple(sorted(boundary_runs)),
+            non_head_artifact_refs=tuple(sorted(non_heads)),
+            missing_artifact_refs=tuple(sorted(missing_artifacts)),
+            missing_run_ids=tuple(sorted(missing_runs)),
+            truncated=truncated,
+        )
+
+    def runtime_recap(self, session_id: str) -> dict[str, object]:
+        """Read exact Session runtime counts, heads, and attention in one transaction."""
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            count_row = self._fetchone(
+                conn,
+                "SELECT "
+                "(SELECT COUNT(*) FROM artifacts WHERE session_id = ? "
+                " AND kind NOT IN ('component_frame', 'coverage_frame')) AS artifact_count, "
+                "(SELECT COUNT(*) FROM artifacts a WHERE a.session_id = ? "
+                " AND a.kind NOT IN ('component_frame', 'coverage_frame') "
+                " AND NOT EXISTS ("
+                "  SELECT 1 FROM run_inputs i JOIN runs r "
+                "  ON r.session_id = i.session_id AND r.run_id = i.run_id "
+                "  WHERE i.session_id = a.session_id AND i.artifact_ref = a.artifact_id "
+                "  AND r.lifecycle = 'succeeded'"
+                " )) AS head_artifact_count, "
+                "(SELECT COUNT(*) FROM runs WHERE session_id = ? AND lifecycle = 'succeeded') "
+                " AS succeeded_count, "
+                "(SELECT COUNT(*) FROM runs WHERE session_id = ? AND lifecycle = 'failed') "
+                " AS failed_count, "
+                "(SELECT COUNT(*) FROM runs WHERE session_id = ? AND lifecycle = 'incomplete') "
+                " AS incomplete_count, "
+                "(SELECT COUNT(*) FROM artifacts WHERE session_id = ? "
+                " AND kind NOT IN ('component_frame', 'coverage_frame') "
+                " AND evidence_status = 'complete') AS evidence_complete_count, "
+                "(SELECT COUNT(*) FROM artifacts WHERE session_id = ? "
+                " AND kind NOT IN ('component_frame', 'coverage_frame') "
+                " AND evidence_status = 'partial') AS evidence_partial_count, "
+                "(SELECT COUNT(*) FROM artifacts WHERE session_id = ? "
+                " AND kind NOT IN ('component_frame', 'coverage_frame') "
+                " AND evidence_status = 'unavailable') AS evidence_unavailable_count, "
+                "(SELECT COUNT(*) FROM artifacts WHERE session_id = ?) + "
+                "(SELECT COUNT(*) FROM runs WHERE session_id = ?) AS graph_record_count",
+                (session_id,) * 10,
+            )
+            heads = self._fetchall(
+                conn,
+                "SELECT a.artifact_id FROM artifacts a "
+                "WHERE a.session_id = ? "
+                "AND a.kind NOT IN ('component_frame', 'coverage_frame') "
+                "AND NOT EXISTS ("
+                " SELECT 1 FROM run_inputs i JOIN runs r "
+                " ON r.session_id = i.session_id AND r.run_id = i.run_id "
+                " WHERE i.session_id = a.session_id AND i.artifact_ref = a.artifact_id "
+                " AND r.lifecycle = 'succeeded'"
+                ") ORDER BY a.created_at DESC, a.artifact_id DESC LIMIT 3",
+                (session_id,),
+            )
+            attention = self._fetchall(
+                conn,
+                "SELECT run_id FROM runs WHERE session_id = ? "
+                "AND lifecycle IN ('failed', 'incomplete') "
+                "ORDER BY started_at DESC, run_id DESC LIMIT 3",
+                (session_id,),
+            )
+        assert count_row is not None
+        count_values = dict(count_row)
+        return {
+            **{key: int(value) for key, value in count_values.items()},
+            "head_artifact_refs": tuple(str(row["artifact_id"]) for row in heads),
+            "attention_run_ids": tuple(str(row["run_id"]) for row in attention),
+        }
 
     # Private Slice-1 compatibility projection for the unreleased public cutover.
     def get_job(self, session_id: str, job_id: str) -> sqlite3.Row | None:
