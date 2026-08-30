@@ -186,6 +186,21 @@ def _rollback(
             continue
 
 
+def validate_funnel_compare_admission(
+    current: object,
+    baseline: object,
+    *,
+    alignment: AlignmentPolicy | None,
+    session: Session,
+) -> None:
+    """Validate a funnel pair completely before creating its canonical Run."""
+    ensure_session_can_execute(session)
+    current_frame, baseline_frame = _require_funnel_pair(current, baseline, session=session)
+    _reject_alignment(alignment)
+    _require_compatible(current_frame, baseline_frame)
+    _require_resolved_coverage(current_frame, baseline_frame)
+
+
 def compare_funnels(
     current: object,
     baseline: object,

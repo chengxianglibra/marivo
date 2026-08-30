@@ -345,6 +345,20 @@ def _rollback(
             continue
 
 
+def validate_funnel_attribute_admission(delta: DeltaFrame, *, session: Session) -> None:
+    """Validate funnel shape and same-Session ownership before Run admission."""
+    ensure_session_can_execute(session)
+    meta = _require_ungrouped_delta(delta)
+    if meta.session_id != session.id:
+        raise FunnelAttributionUnsupportedError(
+            message="funnel delta belongs to a different session",
+            expected="a same-session DeltaFrame[funnel]",
+            received=f"session_id={meta.session_id!r}",
+            location="session.attribute(frame)",
+            repair=_repair(action="Load or rebuild the delta in this session."),
+        )
+
+
 def attribute_funnel(
     delta: DeltaFrame,
     *,

@@ -1480,7 +1480,13 @@ def analysis_persistence_snapshot(session: Any) -> tuple[object, ...]:
     )
     return (
         tuple(sorted(row["artifact_id"] for row in session._store.list_artifacts(session.id))),
-        tuple(sorted(row["job_id"] for row in session._store.list_jobs(session.id))),
+        tuple(
+            sorted(
+                row["run_id"]
+                for row in session._store.list_runs(session.id)
+                if row["lifecycle"] == "succeeded"
+            )
+        ),
         tuple(sorted(path.name for path in session._layout.frames_dir.iterdir())),
         tuple(sorted(path.name for path in session._layout.jobs_dir.glob("*.json"))),
         evidence_ids,

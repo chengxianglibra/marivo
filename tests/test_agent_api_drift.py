@@ -377,7 +377,6 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "InState",
         "LifecycleFrame",
         "ForecastFrame",
-        "QualityReport",
         "window_bucket",
         "day_of_week",
         "period_progress",

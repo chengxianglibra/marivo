@@ -1280,7 +1280,7 @@ def _state_section(root: Path) -> DoctorSection:
                 row[0]
                 for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
             }
-        expected = {"sessions", "runtime_state", "artifacts", "jobs"}
+        expected = {"sessions", "runtime_state", "artifacts", "runs", "run_inputs"}
         missing = sorted(expected - names)
         if missing:
             checks.append(

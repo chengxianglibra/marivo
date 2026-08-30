@@ -388,7 +388,7 @@ def _producer_targets_for_input(
                             continue
             routed = target
             if (
-                desc.help_target in {"observe", "BaseFrame.quality_report"}
+                desc.help_target == "observe"
                 and target.surface == "analysis"
                 and target.canonical_id is not None
             ):
@@ -1138,17 +1138,6 @@ def _render_artifact_type_help(contract: AnalysisArtifactFamilyContract) -> str:
             )
         )
 
-    if type_name == "QualityReport":
-        lines.extend(
-            (
-                "",
-                "  Quality verdict:",
-                "    report.overall_status is the quality verdict; report.state is ArtifactState materialization metadata.",
-                "    Blocking correctness issues stop use; warnings remain advisory and",
-                "    must be disclosed when analysis continues.",
-            )
-        )
-
     artifact_links = REGISTRY.cross_links(contract.canonical_id)
     reading_links = (
         REGISTRY.cross_links("artifacts.reading")
@@ -1357,17 +1346,6 @@ def _render_type_help(type_name: str) -> str:
         lines.append("  Consumed by:")
         for c in sorted(consumers)[:5]:
             lines.append(f"    {c}")
-        lines.append("")
-
-    if type_name == "QualityReport":
-        lines.append(
-            "  Quality verdict: report.overall_status; report.state is "
-            "ArtifactState materialization metadata."
-        )
-        lines.append(
-            "  Stop only for blocking correctness issues; warnings are advisory "
-            "and must be disclosed when analysis continues."
-        )
         lines.append("")
 
     lines.append(f'  Call marivo.help("analysis.{type_name}") for updates.')

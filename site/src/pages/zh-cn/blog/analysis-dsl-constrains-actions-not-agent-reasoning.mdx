@@ -111,7 +111,7 @@ Agent 想观察收入，就把 `revenue` 交给 `observe`；想量化两个范�
 **纠错成本**。输入类别、结果形式或使用条件不符合要求时，Marivo 会明确指出问题和修复方向，Agent
 面对的是一个局部、明确的问题，而不是从一条数据库错误里猜测是哪层含义出了偏差。
 
-但 DSL 不应该为了降低成本，把分析变成一套固定流程。`compare` 之后可以做归因、候选发现、质量检查，
+但 DSL 不应该为了降低成本，把分析变成一套固定流程。`compare` 之后可以做归因、候选发现、查看质量信息，
 也可以直接停止；当前结果还能接哪些动作，由结果自身的说明给出，哪个动作对当前问题有意义，仍由
 Agent 判断。**可执行不等于值得执行，候选也不等于结论。**
 
@@ -221,13 +221,14 @@ candidates.show()
 
 这个调用只缩小调查范围。最终选择哪个候选继续分析，以及它是否具有业务意义，仍由 Agent 判断。
 
-### 做统计判断、预测和质量检查
+### 做统计判断和预测，并查看质量信息
 
 `correlate` 计算两个 `MetricFrame` 的统计关联，`hypothesis_test` 按明确方法做统计检验，`forecast` 从历史
-frame 产生未来区间，`assess_quality` 对受支持的结果运行固定质量检查。这些动作分别返回
-`AssociationResult`、`HypothesisTestResult`、`ForecastFrame` 和 `QualityReport`，不会被压成一种
-通用“分析结果”。每种结果都保留自己的含义：关联不是因果，预测不是观察值，统计显著也不等于
-业务重要。这样可以避免 Agent 在解释时把一个结果说成它没有证明的事情。
+frame 产生未来区间。这些动作分别返回 `AssociationResult`、`HypothesisTestResult` 和 `ForecastFrame`，
+不会被压成一种通用“分析结果”。质量检查会在 frame 构造时完成，并通过 `frame.quality_summary` 与
+`frame.contract().issues` 持续公开；它不是单独的分析动作或结果类型。每种结果都保留自己的含义：
+关联不是因果，预测不是观察值，统计显著也不等于业务重要。这样可以避免 Agent 在解释时把一个结果
+说成它没有证明的事情。
 
 下面把几种动作放在一起看。`order_count_frame` 与 `current` 使用相同的时间范围、粒度和地区维度：
 
@@ -243,16 +244,17 @@ order_count_frame = session.observe(
 association = session.correlate(current, order_count_frame)
 test = session.hypothesis_test(current, baseline)
 projection = session.forecast(current, horizon=3, model="drift")
-quality = session.assess_quality(current)
+quality = current.quality_summary
+quality_issues = current.contract().issues
 
 association.show()
 test.show()
 projection.show()
-quality.show()
+current.show()
 ```
 
-四个结果回答的是不同问题：收入与订单量是否一起变化、当前与基线的差异是否通过统计检验、未来三个
-周期可能怎样变化，以及当前数据是否存在已知质量问题。它们不能互相替代。
+这些结果和质量披露回答的是不同问题：收入与订单量是否一起变化、当前与基线的差异是否通过统计检验、
+未来三个周期可能怎样变化，以及当前数据是否存在已知质量问题。它们不能互相替代。
 
 ### 处理事件路径与生命周期
 

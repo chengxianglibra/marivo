@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from itertools import pairwise
 from math import sqrt
-from numbers import Integral
+from numbers import Integral, Real
 from time import monotonic
 from typing import Any, Literal, cast
 
@@ -89,6 +89,66 @@ class _ForecastPlan:
     sort_column: str
     temporal_contract: FrameTemporalContractV1
     resolver: TemporalResolver | None = None
+
+
+def validate_forecast_admission(
+    history: MetricFrame,
+    *,
+    horizon: int,
+    model: str,
+    seasonality_period: int | None,
+    interval_level: float,
+    session: Session,
+) -> None:
+    """Validate non-executing forecast policy and ownership before Run admission."""
+    ensure_session_can_execute(session)
+    if getattr(getattr(history, "meta", None), "kind", None) != "metric_frame":
+        raise ForecastShapeUnsupportedError(
+            message="forecast requires MetricFrame time_series or panel input"
+        )
+    from marivo.analysis._capabilities.validation import evaluate_artifact_admission
+
+    admission = evaluate_artifact_admission("forecast", "history", history)
+    if not admission.allowed:
+        raise ForecastShapeUnsupportedError(
+            message="forecast requires MetricFrame time_series or panel input",
+            context={
+                "expected_kind": admission.expected,
+                "semantic_kind": admission.received,
+            },
+        )
+    require_single_metric(history, intent="forecast")
+    ensure_frame_in_session(history, session=session, label="forecast history")
+    cumulative_gate = cumulative_issue(history, intent="forecast")
+    if cumulative_gate is not None:
+        raise cumulative_gate
+    if isinstance(horizon, bool) or not isinstance(horizon, Integral) or horizon < 1:
+        raise ForecastPolicyError(message="horizon must be >= 1", context={"horizon": horizon})
+    if (
+        isinstance(interval_level, bool)
+        or not isinstance(interval_level, Real)
+        or not np.isfinite(float(interval_level))
+        or not 0 < float(interval_level) < 1
+    ):
+        raise ForecastPolicyError(
+            message="interval_level must be in (0, 1)",
+            context={"interval_level": interval_level},
+        )
+    if model not in _FORECAST_MODELS:
+        raise ForecastShapeUnsupportedError(
+            message=f"forecast does not support model {model!r}",
+            context={
+                "case": "unsupported_model",
+                "model": model,
+                "supported_models": sorted(_FORECAST_MODELS),
+            },
+        )
+    if seasonality_period is not None and (
+        isinstance(seasonality_period, bool)
+        or not isinstance(seasonality_period, Integral)
+        or seasonality_period <= 1
+    ):
+        raise ForecastPolicyError(message="seasonality_period must be > 1")
 
 
 def forecast(

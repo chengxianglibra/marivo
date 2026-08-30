@@ -102,8 +102,8 @@ either family-preserving reshaping or controlled escape.
    each with a fixed output family: `compare -> DeltaFrame`,
    `attribute -> AttributionFrame`, `discover.<objective> -> CandidateSet`,
    `correlate -> AssociationResult`, `hypothesis_test -> HypothesisTestResult`,
-   `forecast -> ForecastFrame`. Supported Frames attach a construction-quality
-   sidecar read through `frame.quality_report()`.
+   `forecast -> ForecastFrame`. Supported Frames attach construction-quality
+   metadata through `frame.quality_summary` and typed issues.
 4. **Composite** — stable multi-step entry points admitted only when they carry a
    cross-step constraint an agent would miss; each fixes one output family. No
    composite is on the current default surface (`attribute` is a core operator).
@@ -183,7 +183,7 @@ Which operator to reach for follows the artifact in hand: observe a metric first
 `compare` two observed frames for a change; `attribute` a delta over explicit axes;
 `discover.<objective>` when the axis/window/slice worth examining is unknown;
 `hypothesis_test` to check an explicit hypothesis; `forecast` to project observed
-history; inspect `frame.quality_summary` or `frame.quality_report()` to gate a
+history; inspect `frame.quality_summary` and `frame.contract().issues` to gate a
 published result. Concrete intent paths, composition
 patterns, and report shape are the agent's responsibility; the `marivo-analysis`
 skill owns boundaries and handoffs only. The mechanical next actions from any

@@ -29,7 +29,7 @@ Marivo 0.5.0 引入了面向 agent 的、由 registry 负责的渐进式契约�
 - Artifact continuation、shape admission、grouping 和 typed recovery 都从 live registry 披露，
   同时保留专用 runtime error 的精确身份。
 - 质量 evidence 归属于 Frame/Artifact 生命周期，不再建立独立的 quality-intent lineage。调用方应
-  使用 `BaseFrame.quality_report()` 和 Artifact 提交契约获取质量状态。
+  使用 `frame.quality_summary` 与 `frame.contract().issues` 获取质量状态。
 
 ## 修复
 

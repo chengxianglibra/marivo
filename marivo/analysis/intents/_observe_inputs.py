@@ -77,6 +77,10 @@ from marivo.semantic.runtime_metric import (
 
 
 def _gen_ref(prefix: str) -> str:
+    if prefix == "job":
+        from marivo.analysis.session._runs import active_run_id
+
+        return active_run_id() or f"run_{secrets.token_hex(12)}"
     return f"{prefix}_{secrets.token_hex(4)}"
 
 

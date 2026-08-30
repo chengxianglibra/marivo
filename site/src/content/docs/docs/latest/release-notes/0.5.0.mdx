@@ -39,8 +39,7 @@ removes the independent `assess_quality` analysis operator.
   available at their exact identities.
 - Quality evidence is attached to the owning Frame/Artifact lifecycle instead
   of creating a separate quality-intent lineage. Callers should use
-  `BaseFrame.quality_report()` and the artifact commit contract for quality
-  state.
+  `frame.quality_summary` and `frame.contract().issues` for quality state.
 
 ## Fixed
 

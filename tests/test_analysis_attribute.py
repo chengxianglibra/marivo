@@ -130,26 +130,14 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert loaded.meta.driver_field == "region"
     assert list(loaded.to_pandas().columns) == list(result.columns)
     contract = out.contract()
-    assert any(item.capability_id == "BaseFrame.quality_report" for item in contract.affordances)
-
-    quality = out.quality_report()
-    assert quality is not None
-    assert quality.meta.report_shape == "attribution"
-    assert quality.meta.target_metric_id == "sales.revenue"
-    assert quality.meta.target_semantic_kind == "segmented"
-    assert quality.meta.overall_status == "ok"
-    assert quality.evidence_digest is None
-    assert quality.to_pandas()["metric_id"].isna().all()
-    assert set(quality.to_pandas()["check_id"]) == {
-        "attribution_row_count",
-        "attribution_row_contract",
-        "attribution_contribution_values",
-        "attribution_reconciliation",
-    }
-    recovered_quality = loaded.quality_report()
-    assert recovered_quality is not None
-    assert recovered_quality.meta.report_shape == "attribution"
-    assert quality.meta.produced_by_job == out.meta.produced_by_job
+    assert not any(
+        item.capability_id == "BaseFrame.quality_report" for item in contract.affordances
+    )
+    assert out.quality_summary is not None
+    assert out.quality_summary.evaluated_check_count == 4
+    assert out.quality_summary.failed_check_count == 0
+    assert loaded.meta.quality_summary == out.meta.quality_summary
+    assert not hasattr(loaded, "quality_report")
 
 
 def test_attribute_single_axis_top_k_preserves_null_and_real_other_identity() -> None:
@@ -401,7 +389,7 @@ def test_attribute_reconciles_nullable_unsigned_one_sided_segments() -> None:
     assert attribution.meta.reconciliation.residual == pytest.approx(0.0)
 
 
-def test_generic_attribution_quality_reports_row_and_reconciliation_corruption() -> None:
+def test_generic_attribution_quality_checks_row_and_reconciliation_corruption() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _delta(
         session,
@@ -504,19 +492,22 @@ def test_empty_attribution_quality_warns_on_row_count_not_reconciliation() -> No
         axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
-    quality = out.quality_report()
-    assert quality is not None
+    assert out.quality_summary is not None
+    check_rows = run_attribution_checks(out)
     status = dict(
-        zip(quality.to_pandas()["check_id"], quality.to_pandas()["severity"], strict=True)
+        zip(
+            (row["check_id"] for row in check_rows),
+            (row["severity"] for row in check_rows),
+            strict=True,
+        )
     )
 
-    assert quality.meta.overall_status == "warning"
-    assert quality.meta.blocking_issue_count == 0
-    assert quality.evidence_digest is None
+    assert out.quality_summary.warning_check_count == 1
+    assert out.quality_summary.failed_check_count == 0
     assert status["attribution_row_count"] == "warning"
     assert status["attribution_row_contract"] == "ok"
     assert status["attribution_reconciliation"] == "ok"
-    issue_kinds = {issue.kind for issue in quality.meta.issues}
+    issue_kinds = {issue.kind for issue in out.contract().issues}
     assert "sample_size_low" in issue_kinds
     assert "attribution_reconciliation_invalid" not in issue_kinds
 
@@ -1003,8 +994,8 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
     assert "session.attribute(...) -> AttributionFrame" in contract_text
     with pytest.raises(ValueError, match="never truncates affordances or repairs"):
         delta.contract().render(max_output_bytes=1024)
-    assert [job.intent for job in session.jobs()].count("observe") == 4
-    assert [job.intent for job in session.jobs()].count("compare") == 2
+    assert [job.intent for job in session.jobs()].count("observe") == 2
+    assert [job.intent for job in session.jobs()].count("compare") == 1
 
 
 def test_attribute_validates_original_delta_before_axis_materialization(

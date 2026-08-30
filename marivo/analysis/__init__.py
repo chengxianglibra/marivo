@@ -85,7 +85,6 @@ from marivo.analysis.frames.forecast import ForecastFrame
 from marivo.analysis.frames.hypothesis import HypothesisTestResult
 from marivo.analysis.frames.lifecycle import LifecycleFrame
 from marivo.analysis.frames.metric import MetricFrame
-from marivo.analysis.frames.quality import QualityReport
 from marivo.analysis.frames.subject import SubjectSet
 from marivo.analysis.funnel import FunnelLossRate, funnel_loss_rate
 from marivo.analysis.lifecycle import FromInception, InState, from_inception, in_state
@@ -253,7 +252,6 @@ __all__ = [
     "PeriodShiftSelection",
     "PointAnomalySelection",
     "QualityCheckResult",
-    "QualityReport",
     "Session",
     "SliceSelection",
     "SubjectSet",

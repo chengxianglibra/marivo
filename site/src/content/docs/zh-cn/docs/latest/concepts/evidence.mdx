@@ -56,8 +56,8 @@ result.show()
 | `discover.*` | `AnomalyCandidate` | 等待复核的候选 |
 | `transform.*` / `MetricFrame.metric(...)` | 空摘要 | 仅保留血缘的变换或投影 |
 
-构建期质量自检不是产出 evidence 的独立算子。使用 `frame.quality_report()` 读取
-父 Artifact 自带的检查；该报告没有独立 digest 或 job。
+构建期质量自检不是产出 evidence 的独立算子。其 `quality_summary` 与类型化
+issues 都归属于父 Artifact；不会创建独立的质量 Artifact、digest 或 job。
 
 ## 查看边界与精确证据
 

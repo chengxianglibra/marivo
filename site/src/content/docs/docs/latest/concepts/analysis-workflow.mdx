@@ -616,18 +616,17 @@ history = session.observe(
 projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
 ```
 
-### Construction-time quality → `QualityReport`
+### Construction-time quality
 
 `MetricFrame`, `DeltaFrame`, `AttributionFrame`, `EventFrame`, and
 `LifecycleFrame` run fixed, deterministic quality checks automatically before
 publication. A blocking contradiction raises `ArtifactQualityError`; the main
-Artifact, its quality sidecar, and a successful job are not published.
+Artifact and a successful job are not published.
 
 Published `ok` and `warning` results retain bounded counts and coverage facts in
-`frame.quality_summary`. Use `frame.quality_report()` to read the complete
-committed checks when row-level detail matters. This read-only call does not
-recompute checks or create a job, and the report has no independent evidence
-digest or lineage. Missing, modified, or shape-mismatched sidecars fail closed.
+`frame.quality_summary`; warning `DataQualityIssue` entries are available in
+`frame.contract().issues`. These are the complete persisted quality disclosures;
+there is no separate quality Artifact or check-level sidecar.
 
 Empty or low-volume results, high null ratios, missing time buckets, unknown
 coverage, and censoring remain warnings that must be disclosed. Multi-metric
@@ -1286,6 +1285,5 @@ source artifact contract for the exact current admission rules.
 | `AttributionFrame` | `attribute` |
 | `AssociationResult` | `correlate` |
 | `ForecastFrame` | `forecast` |
-| `QualityReport` | `frame.quality_report()` (read-only committed sidecar) |
 | `HypothesisTestResult` | `hypothesis_test` |
 | `CandidateSet` | `discover.*` |

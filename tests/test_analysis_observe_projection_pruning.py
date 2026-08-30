@@ -46,7 +46,7 @@ def _session_with_unused_columns():
     )
 
 
-def test_panel_observe_prunes_unused_source_columns_from_query_sql() -> None:
+def test_panel_observe_keeps_query_sql_out_of_runtime_projection() -> None:
     session = _session_with_unused_columns()
 
     frame = session.observe(
@@ -57,14 +57,12 @@ def test_panel_observe_prunes_unused_source_columns_from_query_sql() -> None:
     )
 
     job = session.job(frame.meta.produced_by_job)
-    sql = job["queries"][0]["sql"]
+    query = job["queries"][0]
 
-    assert '"t0"."amount"' in sql
-    assert '"t0"."created_at"' in sql
-    assert '"t0"."region"' in sql
-    assert '"t0"."user_id"' not in sql
-    assert '"t0"."unused_metric"' not in sql
-    assert '"t0"."unused_text"' not in sql
+    assert query["sql_digest"]
+    assert "sql" not in query
+    assert "normalized_sql" not in query
+    assert "bind_params" not in query
 
 
 def test_segmented_observe_keeps_metric_results_after_projection_pruning() -> None:
@@ -108,9 +106,6 @@ def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
     }
     assert rows == {("core", 40.0), ("expansion", 20.0)}
 
-    job = session.job(frame.meta.produced_by_job)
-    sql = job["queries"][0]["sql"]
-    assert '"t0"."amount"' in sql
-    assert '"t0"."region"' in sql
-    assert '"t0"."unused_metric"' not in sql
-    assert '"t0"."unused_text"' not in sql
+    query = session.job(frame.meta.produced_by_job)["queries"][0]
+    assert query["sql_digest"]
+    assert "sql" not in query

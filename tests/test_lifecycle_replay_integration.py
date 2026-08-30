@@ -743,7 +743,7 @@ def test_lifecycle_capabilities_are_discoverable_with_help_parity(
         assert "session.lifecycle.match" not in history_contract
 
         reduced = session.lifecycle.transitions(history)
-        assert "frame.quality_report()" in reduced.contract().render()
+        assert "quality_report" not in reduced.contract().render()
     finally:
         session.close()
         session_attach._reset_process_state()
@@ -824,19 +824,15 @@ def test_reducers_and_evidence_consume_committed_history_without_event_rereads(
             session.lifecycle.dwell(history),
             session.lifecycle.violations(history),
         )
-        reports = tuple(frame.quality_report() for frame in (history, *reducers))
-        assert all(report is not None for report in reports)
-        reports = tuple(report for report in reports if report is not None)
-        history_checks = {
-            row.check_kind: row.status for row in reports[0].to_pandas().itertuples(index=False)
-        }
+        frames = (history, *reducers)
+        assert all(frame.quality_summary is not None for frame in frames)
+        assert all(frame.quality_summary.failed_check_count == 0 for frame in frames)
+        assert history.quality_summary.evaluated_check_count >= 2
 
         # Reducers and quality run purely from committed rows.
         assert calls == []
         assert session._connection_runtime.take_captured_queries() == []
         assert all(frame.meta.source_history_ref for frame in reducers)
-        assert history_checks["lifecycle_history_state"] == "ok"
-        assert history_checks["lifecycle_trace"] == "ok"
 
         # No raw subject or Event identity ever reaches metadata or evidence.
         raw_identities = ("o1", "o2", "e1", "e2", "e3", "e4", "e5", "e6", "e7")
@@ -847,10 +843,6 @@ def test_reducers_and_evidence_consume_committed_history_without_event_rereads(
             for value in raw_identities:
                 assert f'"{value}"' not in payload
                 assert f'"{value}"' not in evidence_payload
-        for report in reports:
-            report_payload = json.dumps(report.meta.model_dump(mode="json"), sort_keys=True)
-            for value in raw_identities:
-                assert f'"{value}"' not in report_payload
     finally:
         session.close()
         session_attach._reset_process_state()

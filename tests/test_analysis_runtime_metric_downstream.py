@@ -50,11 +50,10 @@ def test_runtime_frame_uses_ordinary_quality_and_transform_state(runtime_session
         grain=mv.grain("month"),
     )
 
-    quality = frame.quality_report()
-    assert quality is not None
+    assert frame.quality_summary is not None
+    assert frame.quality_summary.failed_check_count == 0
     top = frame.transform.topk(by=frame.value_columns[0], limit=1)
 
-    assert quality.meta.source_refs == [frame.ref]
     assert top.meta.metric_identity == frame.meta.metric_identity
     assert top.meta.expression_graph == frame.meta.expression_graph
     assert top.meta.artifact_identity is None

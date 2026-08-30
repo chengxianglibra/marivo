@@ -314,8 +314,8 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
     # got/expected must be visible through public fields (not only private
     # context) so an agent can see what was read vs what is required.
     assert exc_info.value.received == (schema_version or "<missing>")
-    assert exc_info.value.expected == "analysis-artifact/v11"
-    assert "analysis-artifact/v11" in str(exc_info.value)
+    assert exc_info.value.expected == "analysis-artifact/v13"
+    assert "analysis-artifact/v13" in str(exc_info.value)
     # A cutover is expected: the repair must tell the agent to re-run analysis.
     assert exc_info.value.repair is not None
     assert "recreate" in exc_info.value.message
@@ -323,11 +323,11 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
     assert "Repair:" in str(exc_info.value)
 
 
-def test_current_artifact_schema_version_is_v10():
-    """Producers write analysis-artifact/v11 and the loader accepts only v11."""
+def test_current_artifact_schema_version_is_v13():
+    """Producers write analysis-artifact/v13 and the loader accepts only v13."""
     from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION
 
-    assert CURRENT_ARTIFACT_SCHEMA_VERSION == "analysis-artifact/v11"
+    assert CURRENT_ARTIFACT_SCHEMA_VERSION == "analysis-artifact/v13"
 
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(
@@ -339,7 +339,7 @@ def test_current_artifact_schema_version_is_v10():
         semantic_model="custom",
         session=session,
     )
-    assert frame.meta.artifact_schema_version == "analysis-artifact/v11"
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v13"
 
 
 def test_cross_session_frame_raises_cross_session_frame_error():

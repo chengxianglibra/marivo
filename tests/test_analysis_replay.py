@@ -263,6 +263,15 @@ def _metric_frame_no_lineage(session: mv.Session) -> MetricFrame:
 def test_recover_observe_replay_falls_back_to_job_record() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _metric_frame_no_lineage(session)
+    session._store.record_artifact(
+        session_id=session.id,
+        artifact_id="frame_current",
+        kind="metric_frame",
+        path="frames/frame_current/data.parquet",
+        meta_path="frames/frame_current/meta.json",
+        content_hash=None,
+        produced_by_job="job_observe_current",
+    )
 
     persist_job_record(
         session,

@@ -132,6 +132,7 @@ def test_analysis_skill_package_layout() -> None:
 def test_analysis_skill_routes_through_progressive_help_topology() -> None:
     text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
 
+    assert text.index('marivo.help("analysis")') < text.index('marivo.help("analysis.entry")')
     for target in (
         "analysis.entry",
         "analysis.methods",
@@ -191,6 +192,7 @@ def test_semantic_skill_package_layout() -> None:
 def test_semantic_skill_routes_coherent_slice_authoring() -> None:
     text = (SEMANTIC_SKILL_DIR / "SKILL.md").read_text()
 
+    assert text.index('marivo.help("authoring")') < text.index('marivo.help("semantic.authoring")')
     for target in (
         "semantic.authoring",
         "semantic.objects",

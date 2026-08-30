@@ -17,7 +17,6 @@ def test_analysis_keeps_frame_and_policy_exports():
     import marivo.analysis as mv
     from marivo.analysis.frames.forecast import ForecastFrameMeta
     from marivo.analysis.frames.hypothesis import HypothesisTestResultMeta
-    from marivo.analysis.frames.quality import QualityReportMeta
 
     assert mv.window_bucket().kind == "window_bucket"
     assert callable(mv.day_of_week)
@@ -27,7 +26,6 @@ def test_analysis_keeps_frame_and_policy_exports():
     assert mv.SamplingPolicy().pairing == "window_bucket"
     assert HypothesisTestResultMeta.model_fields["kind"].default == "hypothesis_test_result"
     assert ForecastFrameMeta.model_fields["kind"].default == "forecast_frame"
-    assert QualityReportMeta.model_fields["kind"].default == "quality_report"
 
 
 def test_session_does_not_expose_report_methods() -> None:
@@ -86,7 +84,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "AssociationResult",
         "HypothesisTestResult",
         "ForecastFrame",
-        "QualityReport",
         "window_bucket",
         "day_of_week",
         "period_progress",

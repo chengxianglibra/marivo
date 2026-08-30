@@ -164,15 +164,15 @@ def test_activate_session_preserves_artifact_and_job_rows(
     store: SessionStore, project_root: Path
 ) -> None:
     session = store.get_or_insert_session(name="s", question="q1", cwd=project_root)
-    store.record_job(
+    store.begin_run(
         session_id=session["id"],
-        job_id="j1",
-        intent="observe",
-        status="completed",
+        run_id="j1",
+        capability_id="observe",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=(),
         started_at="2026-01-01T00:00:00+00:00",
-        finished_at="2026-01-01T00:01:00+00:00",
-        output_artifact_id="a1",
-        record_path="jobs/j1.json",
     )
     store.record_artifact(
         session_id=session["id"],
@@ -184,6 +184,13 @@ def test_activate_session_preserves_artifact_and_job_rows(
         produced_by_job="j1",
         evidence_status="complete",
         created_at="2026-01-01T00:01:00+00:00",
+    )
+    store.complete_run(
+        session_id=session["id"],
+        run_id="j1",
+        output_artifact_ref="a1",
+        output_mode="produced",
+        finished_at="2026-01-01T00:01:00+00:00",
     )
     job_before = store.get_job(session["id"], "j1")
     artifact_before = store.get_artifact(session["id"], "a1")
@@ -272,15 +279,15 @@ def test_duplicate_create_race_handled_gracefully(store: SessionStore, project_r
 def test_page_sessions_includes_counts(store: SessionStore, project_root: Path) -> None:
     row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
-    store.record_job(
+    store.begin_run(
         session_id=sid,
-        job_id="j1",
-        intent="observe",
-        status="completed",
+        run_id="j1",
+        capability_id="observe",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=(),
         started_at="2026-01-01T00:00:00+00:00",
-        finished_at="2026-01-01T00:01:00+00:00",
-        output_artifact_id=None,
-        record_path="jobs/j1.json",
     )
     store.record_artifact(
         session_id=sid,
@@ -289,7 +296,14 @@ def test_page_sessions_includes_counts(store: SessionStore, project_root: Path) 
         path="frames/a1/data.parquet",
         meta_path="frames/a1/meta.json",
         content_hash=None,
-        produced_by_job=None,
+        produced_by_job="j1",
+    )
+    store.complete_run(
+        session_id=sid,
+        run_id="j1",
+        output_artifact_ref="a1",
+        output_mode="produced",
+        finished_at="2026-01-01T00:00:01+00:00",
     )
     page = store.page_sessions(limit=10, after=None)
     assert len(page) == 1
@@ -389,15 +403,15 @@ def test_delete_session_rows_removes_session_and_related(
         content_hash=None,
         produced_by_job=None,
     )
-    store.record_job(
+    store.begin_run(
         session_id=sid,
-        job_id="j1",
-        intent="observe",
-        status="completed",
+        run_id="j1",
+        capability_id="observe",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=(),
         started_at="2026-01-01T00:00:00+00:00",
-        finished_at=None,
-        output_artifact_id=None,
-        record_path="jobs/j1.json",
     )
     result = store.delete_session_rows(name="s")
     assert result is not None
@@ -526,21 +540,37 @@ def test_list_artifacts(store: SessionStore, project_root: Path) -> None:
 def test_record_and_get_job(store: SessionStore, project_root: Path) -> None:
     row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
-    store.record_job(
+    store.begin_run(
         session_id=sid,
-        job_id="j1",
-        intent="observe",
-        status="completed",
+        run_id="j1",
+        capability_id="observe",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=(),
         started_at="2026-01-01T00:00:00+00:00",
+    )
+    store.record_artifact(
+        session_id=sid,
+        artifact_id="a1",
+        kind="frame",
+        path="f1",
+        meta_path="m1",
+        content_hash=None,
+        produced_by_job="j1",
+    )
+    store.complete_run(
+        session_id=sid,
+        run_id="j1",
+        output_artifact_ref="a1",
+        output_mode="produced",
         finished_at="2026-01-01T00:01:00+00:00",
-        output_artifact_id="a1",
-        record_path="jobs/j1.json",
     )
     job = store.get_job(sid, "j1")
     assert job is not None
-    assert job["intent"] == "observe"
-    assert job["status"] == "completed"
-    assert job["output_artifact_id"] == "a1"
+    assert job["capability_id"] == "observe"
+    assert job["lifecycle"] == "succeeded"
+    assert job["output_artifact_ref"] == "a1"
 
 
 def test_get_job_missing(store: SessionStore, project_root: Path) -> None:
@@ -551,29 +581,29 @@ def test_get_job_missing(store: SessionStore, project_root: Path) -> None:
 def test_list_jobs(store: SessionStore, project_root: Path) -> None:
     row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
-    store.record_job(
+    store.begin_run(
         session_id=sid,
-        job_id="j1",
-        intent="observe",
-        status="completed",
+        run_id="j1",
+        capability_id="observe",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=(),
         started_at="2026-01-01T00:00:00+00:00",
-        finished_at=None,
-        output_artifact_id=None,
-        record_path="jobs/j1.json",
     )
-    store.record_job(
+    store.begin_run(
         session_id=sid,
-        job_id="j2",
-        intent="compare",
-        status="completed",
+        run_id="j2",
+        capability_id="compare",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=(),
         started_at="2026-01-01T00:01:00+00:00",
-        finished_at=None,
-        output_artifact_id=None,
-        record_path="jobs/j2.json",
     )
-    jobs = store.list_jobs(sid)
+    jobs = store.list_runs(sid)
     assert len(jobs) == 2
-    ids = {j["job_id"] for j in jobs}
+    ids = {j["run_id"] for j in jobs}
     assert ids == {"j1", "j2"}
 
 

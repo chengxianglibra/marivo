@@ -583,6 +583,10 @@ def transform_normalize(
 
 
 def _gen_ref(prefix: str) -> str:
+    if prefix == "job":
+        from marivo.analysis.session._runs import active_run_id
+
+        return active_run_id() or f"run_{secrets.token_hex(12)}"
     return f"{prefix}_{secrets.token_hex(4)}"
 
 
@@ -2804,8 +2808,6 @@ def _persist_transform_frame(
         meta_payload["artifact_identity"] = None
         meta_payload["comparable_value_semantics_ref"] = None
         meta_payload["component_ref"] = None
-        meta_payload["quality_ref"] = None
-        meta_payload["quality_report"] = None
         meta_payload["issues"] = ()
         meta_payload["coverage_ref"] = None
         meta_payload["coverage_summary"] = None

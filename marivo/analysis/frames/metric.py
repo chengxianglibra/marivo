@@ -1070,8 +1070,9 @@ class MetricFrame(BaseFrame):
             frame has no ``coverage_ref`` (e.g. all_history and grain_to_date
             cumulatives, or any observe result that did not emit a coverage
             sidecar). ``None`` is the ordinary "no coverage" state; construction
-            quality coverage checks are available through ``quality_report()``. A set
-            ``coverage_ref`` whose sidecar is missing or corrupt on disk still
+            quality checks are reflected in ``quality_summary`` and typed
+            ``DataQualityIssue`` entries. A set ``coverage_ref`` whose sidecar is
+            missing or corrupt on disk still
             raises a fail-closed ``FrameReadError``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
@@ -1113,6 +1114,18 @@ class MetricFrame(BaseFrame):
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.frames._metric_projection import project_metric
+        from marivo.analysis.session._runtime import require_current_session
+        from marivo.analysis.session.core import _track_materializing_operation
 
         validate_capability_inputs("MetricFrame.metric", receiver=self)
-        return project_metric(self, metric_id)
+        session = require_current_session()
+        with _track_materializing_operation(
+            session,
+            "marivo.analysis.frame.metric",
+            capability_id="MetricFrame.metric",
+            family="frame",
+            intent="metric",
+            arguments={"receiver": self, "metric_id": metric_id},
+            analysis_purpose=None,
+        ):
+            return project_metric(self, metric_id)

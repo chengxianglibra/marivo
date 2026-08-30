@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
-from contextlib import AbstractContextManager
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -15,7 +15,7 @@ from marivo.analysis._pages import (
     decode_keyset_cursor,
     encode_keyset_cursor,
 )
-from marivo.analysis.session._layout import PersistenceLayout, read_job_record
+from marivo.analysis.session._layout import PersistenceLayout
 from marivo.analysis.timezone import resolve_system_timezone
 from marivo.render import Card, RenderableResult
 
@@ -116,6 +116,61 @@ def _track_session_operation(
     )
 
 
+@contextmanager
+def _track_materializing_operation(
+    session: Session,
+    event_name: str,
+    *,
+    capability_id: str,
+    family: str,
+    intent: str,
+    arguments: Mapping[str, object],
+    analysis_purpose: str | None,
+    attributes: dict[str, str | int | float | bool] | None = None,
+) -> Iterator[Any]:
+    """Combine telemetry with one private persisted Run admission."""
+    from marivo.analysis.errors import CrossSessionFrameError
+    from marivo.analysis.frames.base import BaseFrame
+    from marivo.analysis.session._runs import admit_run, collect_input_artifact_refs
+
+    def validate_frame_ownership(value: object) -> None:
+        if isinstance(value, BaseFrame):
+            if value.meta.session_id != session.id:
+                raise CrossSessionFrameError(
+                    message=(
+                        f"frame belongs to session {value.meta.session_id!r}, not {session.id!r}"
+                    )
+                )
+            return
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                validate_frame_ownership(key)
+                validate_frame_ownership(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                validate_frame_ownership(item)
+
+    validate_frame_ownership(arguments)
+
+    with (
+        _track_session_operation(
+            session,
+            event_name,
+            family=family,
+            intent=intent,
+            attributes=attributes,
+        ) as operation,
+        admit_run(
+            session,
+            capability_id=capability_id,
+            analysis_purpose=analysis_purpose,
+            arguments=arguments,
+            input_artifact_refs=collect_input_artifact_refs(arguments),
+        ),
+    ):
+        yield operation
+
+
 @dataclass(frozen=True, repr=False, kw_only=True)
 class JobSummary(RenderableResult):
     id: str
@@ -186,17 +241,27 @@ def _read_job_summaries(
     *, store: SessionStore, layout: PersistenceLayout, session_id: str
 ) -> list[JobSummary]:
     """Read persisted job summaries without requiring a live session."""
+    del layout
+    from marivo.analysis.session._runs import legacy_job_record
+
     summaries: list[JobSummary] = []
     for row in store.list_jobs(session_id):
-        record = read_job_record(layout, row["job_id"])
+        record = legacy_job_record(
+            row,
+            input_artifact_refs=store.run_input_refs(session_id, str(row["run_id"])),
+        )
         summaries.append(
             JobSummary(
-                id=record["id"],
-                intent=record["intent"],
-                status=record["status"],
-                started_at=record["started_at"],
-                duration_ms=record["duration_ms"],
-                output_frame_ref=record.get("output_frame_ref"),
+                id=str(record["id"]),
+                intent=str(record["intent"]),
+                status=str(record["status"]),
+                started_at=str(record["started_at"]),
+                duration_ms=int(str(record["duration_ms"])),
+                output_frame_ref=(
+                    str(record["output_frame_ref"])
+                    if record.get("output_frame_ref") is not None
+                    else None
+                ),
             )
         )
     summaries.sort(key=lambda item: (item.started_at, item.id))
@@ -515,7 +580,8 @@ class Session(RenderableResult):
         objects, this returns the complete persisted record including fields
         such as ``params``. Raises if no job with ``job_id`` exists.
         """
-        from marivo.analysis.errors import JobNotFoundError, SchemaVersionMismatchError
+        from marivo.analysis.errors import AnalysisError, JobNotFoundError
+        from marivo.analysis.session._runs import legacy_job_record
 
         row = self._store.get_job(self.id, job_id)
         if row is None:
@@ -523,17 +589,38 @@ class Session(RenderableResult):
                 message=f"no job '{job_id}' in session {self.id!r}",
                 context={"session_id": self.id, "job_id": job_id},
             )
-        record = read_job_record(self._layout, job_id)
-        if record.get("schema") != "marivo.analysis_job/v2":
-            raise SchemaVersionMismatchError(
-                message="unsupported_persisted_schema: job record is not marivo.analysis_job/v2",
-                context={
-                    "job_id": job_id,
-                    "received_schema": record.get("schema"),
-                    "expected_schema": "marivo.analysis_job/v2",
-                    "repair": "Start a new analysis session and regenerate the artifact.",
-                },
-            )
+        record = legacy_job_record(
+            row,
+            input_artifact_refs=self._store.run_input_refs(self.id, job_id),
+        )
+        output_ref = record.get("output_frame_ref")
+        if row["lifecycle"] == "succeeded" and isinstance(output_ref, str):
+            from marivo.analysis._semantic_persistence import job_semantics_from_frames
+
+            try:
+                output = self.get_frame(output_ref)
+            except AnalysisError:
+                return record
+            if output.lineage.steps:
+                record["intent"] = output.lineage.steps[-1].intent
+            with suppress(AttributeError):
+                record.update(job_semantics_from_frames(output))
+            semantic_models = getattr(output.meta, "semantic_models", None)
+            if isinstance(semantic_models, list):
+                record["semantic_models"] = semantic_models
+            metric_ids = getattr(output.meta, "metric_ids", None)
+            if isinstance(metric_ids, list) and metric_ids and record.get("subjects") == []:
+                record["subjects"] = [
+                    {
+                        "kind": "catalog_metric",
+                        "metric_ref": {
+                            "schema": "marivo.semantic_ref/v1",
+                            "kind": "metric",
+                            "path": metric_id,
+                        },
+                    }
+                    for metric_id in metric_ids
+                ]
         return record
 
     def get_frame(self, ref: str) -> BaseFrame:
@@ -707,11 +794,14 @@ class Session(RenderableResult):
             artifact=artifact,
             selection=selection,
         )
-        with _track_session_operation(
+        with _track_materializing_operation(
             self,
             "marivo.analysis.select_subjects",
+            capability_id="select_subjects",
             family="subjects",
             intent="select_subjects",
+            arguments={"artifact": artifact, "selection": selection},
+            analysis_purpose=analysis_purpose,
         ):
             return select_subjects(
                 artifact,
@@ -900,14 +990,17 @@ class Session(RenderableResult):
                 )
             from marivo.analysis.intents.observe_candidate import observe_candidate
 
-            with _track_session_operation(
+            validate_capability_inputs("observe", metrics=metrics)
+            with _track_materializing_operation(
                 self,
                 "marivo.analysis.observe",
+                capability_id="observe",
                 family="core",
                 intent="observe",
+                arguments={"metrics": metrics},
+                analysis_purpose=analysis_purpose,
                 attributes={"marivo.analysis.candidate_observation": True},
             ):
-                validate_capability_inputs("observe", metrics=metrics)
                 return observe_candidate(
                     metrics,
                     analysis_purpose=analysis_purpose,
@@ -922,19 +1015,31 @@ class Session(RenderableResult):
         normalized_expect_shape = _normalize_unset(expect_shape)
         normalized_cohort = _normalize_unset(cohort)
 
-        with _track_session_operation(
+        validate_capability_inputs(
+            "observe",
+            session=self,
+            time_scope=normalized_time_scope,
+            cohort=normalized_cohort,
+        )
+        with _track_materializing_operation(
             self,
             "marivo.analysis.observe",
+            capability_id="observe",
             family="core",
             intent="observe",
+            arguments={
+                "metrics": metrics,
+                "time_scope": normalized_time_scope,
+                "grain": normalized_grain,
+                "dimensions": normalized_dimensions,
+                "slice_by": normalized_slice_by,
+                "time_dimension": normalized_time_dimension,
+                "expect_shape": normalized_expect_shape,
+                "cohort": normalized_cohort,
+            },
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.dimension_count": len(normalized_dimensions or [])},
         ) as telemetry_operation:
-            validate_capability_inputs(
-                "observe",
-                session=self,
-                time_scope=normalized_time_scope,
-                cohort=normalized_cohort,
-            )
             result = observe(
                 metrics,
                 time_scope=normalized_time_scope,
@@ -1085,13 +1190,32 @@ class Session(RenderableResult):
         from marivo.analysis.frames.event import EventFrame
 
         if type(current) is EventFrame or type(baseline) is EventFrame:
-            from marivo.analysis.intents.funnel_compare import compare_funnels
+            from marivo.analysis.intents.funnel_compare import (
+                compare_funnels,
+                validate_funnel_compare_admission,
+            )
 
-            with _track_session_operation(
+            validate_funnel_compare_admission(
+                current,
+                baseline,
+                alignment=alignment,
+                session=self,
+            )
+            validate_capability_inputs(
+                "compare", current=current, baseline=baseline, alignment=alignment
+            )
+            with _track_materializing_operation(
                 self,
                 "marivo.analysis.compare.funnel",
+                capability_id="compare",
                 family="events",
                 intent="compare",
+                arguments={
+                    "current": current,
+                    "baseline": baseline,
+                    "alignment": alignment,
+                },
+                analysis_purpose=analysis_purpose,
                 attributes={"marivo.analysis.semantic_kind": "funnel"},
             ):
                 return compare_funnels(
@@ -1113,19 +1237,26 @@ class Session(RenderableResult):
             if isinstance(semantic_kind, str)
             else None
         )
-        with _track_session_operation(
+        validate_capability_inputs(
+            "compare",
+            current=current_metric,
+            baseline=baseline_metric,
+            alignment=alignment,
+        )
+        with _track_materializing_operation(
             self,
             "marivo.analysis.compare",
+            capability_id="compare",
             family="core",
             intent="compare",
+            arguments={
+                "current": current_metric,
+                "baseline": baseline_metric,
+                "alignment": alignment,
+            },
+            analysis_purpose=analysis_purpose,
             attributes=attrs,
         ):
-            validate_capability_inputs(
-                "compare",
-                current=current_metric,
-                baseline=baseline_metric,
-                alignment=alignment,
-            )
             return compare(
                 current_metric,
                 baseline_metric,
@@ -1255,13 +1386,26 @@ class Session(RenderableResult):
                     message="attribute top_k is not applicable to funnel attribution",
                     context={"argument": "top_k", "reason": "top_k_not_applicable"},
                 )
-            from marivo.analysis.intents.funnel_attribute import attribute_funnel
+            from marivo.analysis.intents.funnel_attribute import (
+                attribute_funnel,
+                validate_funnel_attribute_admission,
+            )
 
-            with _track_session_operation(
+            validate_funnel_attribute_admission(frame, session=self)
+
+            with _track_materializing_operation(
                 self,
                 "marivo.analysis.attribute.funnel",
+                capability_id="attribute",
                 family="events",
                 intent="attribute",
+                arguments={
+                    "frame": frame,
+                    "axes": axes,
+                    "mode": mode,
+                    "target": target,
+                },
+                analysis_purpose=analysis_purpose,
                 attributes={"marivo.analysis.axis_count": len(axes)},
             ):
                 return attribute_funnel(
@@ -1305,11 +1449,19 @@ class Session(RenderableResult):
             attrs["marivo.analysis.attribution_mode"] = effective_mode
         if validated_top_k is not None:
             attrs["marivo.analysis.top_k"] = validated_top_k
-        with _track_session_operation(
+        with _track_materializing_operation(
             self,
             "marivo.analysis.attribute",
+            capability_id="attribute",
             family="core",
             intent="attribute",
+            arguments={
+                "frame": frame,
+                "axes": axes,
+                "mode": effective_mode,
+                "top_k": validated_top_k,
+            },
+            analysis_purpose=analysis_purpose,
             attributes=attrs,
         ):
             return attribute(
@@ -1395,14 +1547,25 @@ class Session(RenderableResult):
             if isinstance(semantic_kind, str)
             else None
         )
-        with _track_session_operation(
+        validate_capability_inputs("correlate", a=a, b=b, alignment=alignment)
+        with _track_materializing_operation(
             self,
             "marivo.analysis.correlate",
+            capability_id="correlate",
             family="core",
             intent="correlate",
+            arguments={
+                "a": a,
+                "b": b,
+                "measure_a": measure_a,
+                "measure_b": measure_b,
+                "alignment": alignment,
+                "method": method,
+                "lag_range": tuple(lag_range) if lag_range is not None else None,
+            },
+            analysis_purpose=analysis_purpose,
             attributes=attrs,
         ):
-            validate_capability_inputs("correlate", a=a, b=b, alignment=alignment)
             return correlate(
                 a,
                 b,
@@ -1483,7 +1646,7 @@ class Session(RenderableResult):
             periods when a snapshot, key, boundary, or coverage check fails.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.forecast import forecast
+        from marivo.analysis.intents.forecast import forecast, validate_forecast_admission
 
         semantic_kind = getattr(history.meta, "semantic_kind", None)
         attrs: dict[str, str | int | float | bool] = {
@@ -1492,14 +1655,32 @@ class Session(RenderableResult):
         }
         if isinstance(semantic_kind, str):
             attrs["marivo.analysis.semantic_kind"] = semantic_kind
-        with _track_session_operation(
+        validate_capability_inputs("forecast", history=history)
+        validate_forecast_admission(
+            history,
+            horizon=horizon,
+            model=model,
+            seasonality_period=seasonality_period,
+            interval_level=interval_level,
+            session=self,
+        )
+        with _track_materializing_operation(
             self,
             "marivo.analysis.forecast",
+            capability_id="forecast",
             family="core",
             intent="forecast",
+            arguments={
+                "history": history,
+                "horizon": horizon,
+                "model": model,
+                "seasonality_period": seasonality_period,
+                "interval_level": interval_level,
+                "measure_column": measure_column,
+            },
+            analysis_purpose=analysis_purpose,
             attributes=attrs,
         ):
-            validate_capability_inputs("forecast", history=history)
             return forecast(
                 history,
                 horizon=horizon,
@@ -1573,20 +1754,32 @@ class Session(RenderableResult):
             if isinstance(semantic_kind, str)
             else None
         )
-        with _track_session_operation(
+        validate_capability_inputs(
+            "hypothesis_test",
+            a=a,
+            b=b,
+            alignment=alignment,
+            sampling=sampling,
+        )
+        with _track_materializing_operation(
             self,
             "marivo.analysis.hypothesis_test",
+            capability_id="hypothesis_test",
             family="core",
             intent="hypothesis_test",
+            arguments={
+                "a": a,
+                "b": b,
+                "hypothesis": hypothesis,
+                "value_a": value_a,
+                "value_b": value_b,
+                "alignment": alignment,
+                "sampling": sampling,
+                "alpha": alpha,
+            },
+            analysis_purpose=analysis_purpose,
             attributes=attrs,
         ):
-            validate_capability_inputs(
-                "hypothesis_test",
-                a=a,
-                b=b,
-                alignment=alignment,
-                sampling=sampling,
-            )
             return hypothesis_test(
                 a,
                 b,
@@ -1834,11 +2027,21 @@ class SessionEvents(RenderableResult):
             completeness=completeness,
             cohort=cohort,
         )
-        with _track_session_operation(
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.events.match",
+            capability_id="events.match",
             family="events",
             intent="events.match",
+            arguments={
+                "pattern": pattern,
+                "cohort_window": cohort_window,
+                "completion_through": completion_through,
+                "matching": matching,
+                "completeness": completeness,
+                "cohort": cohort,
+            },
+            analysis_purpose=analysis_purpose,
             attributes={
                 "marivo.analysis.event_step_count": len(pattern.steps),
                 "marivo.analysis.event_matching": matching.kind,
@@ -1897,11 +2100,14 @@ class SessionEvents(RenderableResult):
             journeys=journeys,
             axes=axes,
         )
-        with _track_session_operation(
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.events.funnel",
+            capability_id="events.funnel",
             family="events",
             intent="events.funnel",
+            arguments={"journeys": journeys, "axes": axes},
+            analysis_purpose=analysis_purpose,
         ):
             return funnel(
                 journeys,
@@ -1958,11 +2164,19 @@ class SessionEvents(RenderableResult):
             end_step=end_step,
             axes=axes,
         )
-        with _track_session_operation(
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.events.time_to_event",
+            capability_id="events.time_to_event",
             family="events",
             intent="events.time_to_event",
+            arguments={
+                "journeys": journeys,
+                "start_step": start_step,
+                "end_step": end_step,
+                "axes": axes,
+            },
+            analysis_purpose=analysis_purpose,
         ):
             return time_to_event(
                 journeys,
@@ -2070,7 +2284,7 @@ class SessionLifecycle(RenderableResult):
             classification.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.lifecycle import replay
+        from marivo.analysis.intents.lifecycle import replay, validate_replay_admission
 
         validate_capability_inputs(
             "lifecycle.replay",
@@ -2079,11 +2293,28 @@ class SessionLifecycle(RenderableResult):
             completeness=completeness,
             cohort=cohort,
         )
-        with _track_session_operation(
+        validate_replay_admission(
+            model,
+            window=window,
+            seed=seed,
+            completeness=completeness,
+            cohort=cohort,
+            session=self._session,
+        )
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.lifecycle.replay",
+            capability_id="lifecycle.replay",
             family="lifecycle",
             intent="lifecycle.replay",
+            arguments={
+                "model": model,
+                "window": window,
+                "seed": seed,
+                "completeness": completeness,
+                "cohort": cohort,
+            },
+            analysis_purpose=analysis_purpose,
         ):
             return replay(
                 model,
@@ -2135,11 +2366,14 @@ class SessionLifecycle(RenderableResult):
             history=history,
             axes=axes,
         )
-        with _track_session_operation(
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.lifecycle.distribution",
+            capability_id="lifecycle.distribution",
             family="lifecycle",
             intent="lifecycle.distribution",
+            arguments={"history": history, "at": at, "axes": axes},
+            analysis_purpose=analysis_purpose,
         ):
             return distribution(
                 history,
@@ -2176,11 +2410,14 @@ class SessionLifecycle(RenderableResult):
         from marivo.analysis.intents.lifecycle_reducers import transitions
 
         validate_capability_inputs("lifecycle.transitions", history=history)
-        with _track_session_operation(
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.lifecycle.transitions",
+            capability_id="lifecycle.transitions",
             family="lifecycle",
             intent="lifecycle.transitions",
+            arguments={"history": history},
+            analysis_purpose=analysis_purpose,
         ):
             return transitions(
                 history,
@@ -2216,11 +2453,14 @@ class SessionLifecycle(RenderableResult):
         from marivo.analysis.intents.lifecycle_reducers import dwell
 
         validate_capability_inputs("lifecycle.dwell", history=history)
-        with _track_session_operation(
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.lifecycle.dwell",
+            capability_id="lifecycle.dwell",
             family="lifecycle",
             intent="lifecycle.dwell",
+            arguments={"history": history},
+            analysis_purpose=analysis_purpose,
         ):
             return dwell(
                 history,
@@ -2262,11 +2502,14 @@ class SessionLifecycle(RenderableResult):
         from marivo.analysis.intents.lifecycle_reducers import violations
 
         validate_capability_inputs("lifecycle.violations", history=history)
-        with _track_session_operation(
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.lifecycle.violations",
+            capability_id="lifecycle.violations",
             family="lifecycle",
             intent="lifecycle.violations",
+            arguments={"history": history},
+            analysis_purpose=analysis_purpose,
         ):
             return violations(
                 history,
@@ -2306,19 +2549,30 @@ class SessionDiscoverNamespace:
             scores them, or creates causal evidence.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.semantic_hypotheses import semantic_hypotheses
+        from marivo.analysis.intents.semantic_hypotheses import (
+            semantic_hypotheses,
+            validate_semantic_hypotheses_admission,
+        )
 
-        with _track_session_operation(
+        validate_capability_inputs(
+            "discover.semantic_hypotheses",
+            session=self._session,
+            source=source,
+        )
+        validate_semantic_hypotheses_admission(
+            source,
+            limit=limit,
+            session=self._session,
+        )
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.discover.semantic_hypotheses",
+            capability_id="discover.semantic_hypotheses",
             family="discover",
             intent="semantic_hypotheses",
+            arguments={"source": source, "limit": limit},
+            analysis_purpose=None,
         ):
-            validate_capability_inputs(
-                "discover.semantic_hypotheses",
-                session=self._session,
-                source=source,
-            )
             return semantic_hypotheses(source, limit=limit, session=self._session)
 
     def point_anomalies(
@@ -2344,15 +2598,32 @@ class SessionDiscoverNamespace:
         anomaly contaminating the baseline and avoids flagging weekly seasonality.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.discover import discover
+        from marivo.analysis.intents.discover import discover, validate_discover_admission
 
-        with _track_session_operation(
+        validate_capability_inputs("discover.point_anomalies", source=source)
+        validate_discover_admission(
+            source,
+            objective="point_anomalies",
+            strategy=strategy,
+            threshold=threshold,
+            limit=limit,
+            session=self._session,
+        )
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.discover.point_anomalies",
+            capability_id="discover.point_anomalies",
             family="discover",
             intent="point_anomalies",
+            arguments={
+                "source": source,
+                "value": value,
+                "threshold": threshold,
+                "limit": limit,
+                "strategy": strategy,
+            },
+            analysis_purpose=analysis_purpose,
         ):
-            validate_capability_inputs("discover.point_anomalies", source=source)
             return discover.point_anomalies(
                 source,
                 value=value,
@@ -2382,15 +2653,30 @@ class SessionDiscoverNamespace:
         recorded in ``params``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.discover import discover
+        from marivo.analysis.intents.discover import discover, validate_discover_admission
 
-        with _track_session_operation(
+        validate_capability_inputs("discover.period_shifts", source=source)
+        validate_discover_admission(
+            source,
+            objective="period_shifts",
+            threshold=threshold,
+            limit=limit,
+            session=self._session,
+        )
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.discover.period_shifts",
+            capability_id="discover.period_shifts",
             family="discover",
             intent="period_shifts",
+            arguments={
+                "source": source,
+                "value": value,
+                "threshold": threshold,
+                "limit": limit,
+            },
+            analysis_purpose=analysis_purpose,
         ):
-            validate_capability_inputs("discover.period_shifts", source=source)
             return discover.period_shifts(
                 source,
                 value=value,
@@ -2422,16 +2708,31 @@ class SessionDiscoverNamespace:
             >>> candidates.show()
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.discover import discover
+        from marivo.analysis.intents.discover import discover, validate_discover_admission
 
-        with _track_session_operation(
+        validate_capability_inputs("discover.driver_axes", source=source)
+        validate_discover_admission(
+            source,
+            objective="driver_axes",
+            limit=limit,
+            search_space=search_space,
+            session=self._session,
+        )
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.discover.driver_axes",
+            capability_id="discover.driver_axes",
             family="discover",
             intent="driver_axes",
+            arguments={
+                "source": source,
+                "search_space": search_space,
+                "value": value,
+                "limit": limit,
+            },
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.search_space_count": len(search_space)},
         ):
-            validate_capability_inputs("discover.driver_axes", source=source)
             return discover.driver_axes(
                 source,
                 search_space=search_space,
@@ -2468,16 +2769,33 @@ class SessionDiscoverNamespace:
             >>> candidates.show()
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.discover import discover
+        from marivo.analysis.intents.discover import discover, validate_discover_admission
 
-        with _track_session_operation(
+        validate_capability_inputs("discover.interesting_slices", source=source)
+        validate_discover_admission(
+            source,
+            objective="interesting_slices",
+            threshold=threshold,
+            limit=limit,
+            search_space=search_space,
+            session=self._session,
+        )
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.discover.interesting_slices",
+            capability_id="discover.interesting_slices",
             family="discover",
             intent="interesting_slices",
+            arguments={
+                "source": source,
+                "search_space": search_space,
+                "value": value,
+                "threshold": threshold,
+                "limit": limit,
+            },
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.search_space_count": len(search_space or [])},
         ):
-            validate_capability_inputs("discover.interesting_slices", source=source)
             return discover.interesting_slices(
                 source,
                 search_space=search_space,
@@ -2506,15 +2824,30 @@ class SessionDiscoverNamespace:
         ``None`` for unbounded); truncation is recorded in ``params``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.discover import discover
+        from marivo.analysis.intents.discover import discover, validate_discover_admission
 
-        with _track_session_operation(
+        validate_capability_inputs("discover.interesting_windows", source=source)
+        validate_discover_admission(
+            source,
+            objective="interesting_windows",
+            threshold=threshold,
+            limit=limit,
+            session=self._session,
+        )
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.discover.interesting_windows",
+            capability_id="discover.interesting_windows",
             family="discover",
             intent="interesting_windows",
+            arguments={
+                "source": source,
+                "value": value,
+                "threshold": threshold,
+                "limit": limit,
+            },
+            analysis_purpose=analysis_purpose,
         ):
-            validate_capability_inputs("discover.interesting_windows", source=source)
             return discover.interesting_windows(
                 source,
                 value=value,
@@ -2552,16 +2885,33 @@ class SessionDiscoverNamespace:
             >>> candidates.show()
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.discover import discover
+        from marivo.analysis.intents.discover import discover, validate_discover_admission
 
-        with _track_session_operation(
+        validate_capability_inputs("discover.cross_sectional_outliers", source=source)
+        validate_discover_admission(
+            source,
+            objective="cross_sectional_outliers",
+            threshold=threshold,
+            limit=limit,
+            peer_scope=peer_scope,
+            session=self._session,
+        )
+        with _track_materializing_operation(
             self._session,
             "marivo.analysis.discover.cross_sectional_outliers",
+            capability_id="discover.cross_sectional_outliers",
             family="discover",
             intent="cross_sectional_outliers",
+            arguments={
+                "source": source,
+                "peer_scope": peer_scope,
+                "value": value,
+                "threshold": threshold,
+                "limit": limit,
+            },
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.peer_scope_count": len(peer_scope or [])},
         ):
-            validate_capability_inputs("discover.cross_sectional_outliers", source=source)
             return discover.cross_sectional_outliers(
                 source,
                 peer_scope=peer_scope,

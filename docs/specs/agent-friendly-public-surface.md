@@ -444,7 +444,6 @@ learns a small, stable vocabulary rather than a menu of ad-hoc shapes
 | `correlate` | `AssociationResult` |
 | `hypothesis_test` | `HypothesisTestResult` |
 | `forecast` | `ForecastFrame` |
-| `frame.quality_report()` | `QualityReport` (read-only parent sidecar) |
 
 Two rules keep this vocabulary trustworthy:
 

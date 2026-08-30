@@ -1815,7 +1815,7 @@ def _result(
         "message": message,
         "details_json": json.dumps(details, sort_keys=True, default=str),
         # Empty string is an internal row-builder sentinel. Construction-time
-        # evaluation normalizes it before persisting QualityReport rows.
+        # evaluation normalizes it before building the in-memory check table.
         "metric_id": metric_id or "",
     }
 

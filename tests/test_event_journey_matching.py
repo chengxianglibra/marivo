@@ -1257,46 +1257,27 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
         "events.funnel",
         "events.time_to_event",
         "select_subjects",
-        "BaseFrame.quality_report",
     }.issubset(journey_affordances)
     assert {item.capability_id for item in funnel.contract().affordances} == {
-        "BaseFrame.quality_report",
         "compare",
     }
-    assert {item.capability_id for item in time_to_payment.contract().affordances} == {
-        "BaseFrame.quality_report"
-    }
+    assert not time_to_payment.contract().affordances
 
     for artifact in (funnel, grouped_funnel, time_to_payment, grouped_time_to_payment):
         recovered = session.get_frame(artifact.ref)
         assert isinstance(recovered, mv.EventFrame)
         assert recovered.meta.model_dump(mode="json") == artifact.meta.model_dump(mode="json")
+        assert recovered.quality_summary == artifact.quality_summary
         pd.testing.assert_frame_equal(
             recovered.to_pandas(),
             artifact.to_pandas(),
             check_dtype=False,
         )
 
-    funnel_quality = funnel.quality_report()
-    grouped_funnel_quality = grouped_funnel.quality_report()
-    duration_quality = time_to_payment.quality_report()
-    grouped_duration_quality = grouped_time_to_payment.quality_report()
-    assert funnel_quality is not None
-    assert grouped_funnel_quality is not None
-    assert duration_quality is not None
-    assert grouped_duration_quality is not None
-    assert funnel_quality.meta.report_shape == "event_funnel"
-    assert grouped_funnel_quality.meta.report_shape == "event_funnel"
-    assert duration_quality.meta.report_shape == "event_time_to_event"
-    assert grouped_duration_quality.meta.report_shape == "event_time_to_event"
-    assert funnel_quality.meta.blocking_issue_count == 0
-    assert grouped_funnel_quality.meta.blocking_issue_count == 0
-    assert duration_quality.meta.blocking_issue_count == 0
-    assert grouped_duration_quality.meta.blocking_issue_count == 0
-    assert funnel_quality.evidence_status == "unavailable"
-    assert grouped_funnel_quality.evidence_status == "unavailable"
-    assert duration_quality.evidence_status == "unavailable"
-    assert grouped_duration_quality.evidence_status == "unavailable"
+    for artifact in (funnel, grouped_funnel, time_to_payment, grouped_time_to_payment):
+        assert artifact.quality_summary is not None
+        assert artifact.quality_summary.failed_check_count == 0
+        assert not hasattr(artifact, "quality_report")
 
 
 def test_time_to_event_rejects_axis_colliding_with_emitted_row_columns(

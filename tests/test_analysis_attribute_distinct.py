@@ -182,10 +182,8 @@ def test_count_distinct_hierarchy_recomputes_each_prefix(
     assert rows.groupby("attribution_level")["contribution"].sum().to_dict() == pytest.approx(
         {1: 0.0, 2: 0.0}
     )
-    quality = result.quality_report()
-    assert quality is not None
-    assert quality.meta.report_shape == "attribution"
-    assert quality.meta.overall_status == "ok"
+    assert result.quality_summary is not None
+    assert result.quality_summary.failed_check_count == 0
     contract = result.contract()
     assert contract.row_arithmetic == "not_additive_across_resolutions"
     resolution_affordance = next(
@@ -352,7 +350,5 @@ def test_count_distinct_panel_source_reconciles_each_comparison_bucket(
     assert result.meta.bucket_column == "bucket_start"
     reloaded = session.get_frame(result.ref)
     assert reloaded.meta.semantic_kind == "panel"
-    quality = result.quality_report()
-    assert quality is not None
-    assert quality.meta.report_shape == "attribution"
-    assert quality.meta.overall_status == "ok"
+    assert result.quality_summary is not None
+    assert result.quality_summary.failed_check_count == 0

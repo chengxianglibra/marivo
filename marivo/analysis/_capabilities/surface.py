@@ -76,7 +76,6 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.lifecycle import LifecycleFrame
     from marivo.analysis.frames.metric import MetricFrame
-    from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
     from marivo.analysis.funnel import FunnelLossRate
     from marivo.analysis.lifecycle import FromInception, InState
@@ -105,7 +104,6 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             AttributionFrame: "AttributionFrame",
             CandidateSet: "CandidateSet",
             ForecastFrame: "ForecastFrame",
-            QualityReport: "QualityReport",
             HypothesisTestResult: "HypothesisTestResult",
             AssociationResult: "AssociationResult",
             ComponentFrame: "ComponentFrame",

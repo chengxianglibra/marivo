@@ -601,7 +601,12 @@ def _validate_delta_comparison_state(
         )
 
 
-def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
+def load_frame(
+    ref: str | ArtifactRef,
+    *,
+    session: Session,
+    _require_evidence_marker: bool = False,
+) -> BaseFrame:
     """Load a persisted analysis frame by ref from the given or active session."""
     import json
 
@@ -613,8 +618,13 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     # transaction and Session Store registration.
     artifact_row = session._store.get_artifact(session.id, ref)
     recovery_marker: sqlite3.Row | None = None
-    if artifact_row is None:
+    if artifact_row is None or _require_evidence_marker:
         recovery_marker = _evidence_recovery_marker(session, ref)
+    if _require_evidence_marker and recovery_marker is None:
+        raise FrameRefNotFound(
+            message=f"artifact '{ref}' has no committed Evidence recovery marker",
+            context={"session_id": session.id, "ref": ref},
+        )
     registered_content_hash: object | None
     if artifact_row is not None:
         # Use store-registered paths to locate the on-disk data.
@@ -647,7 +657,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
 
         df = _read_parquet_frame(data_path)
         meta = json.loads(meta_path.read_text())
-        if recovery_marker is not None:
+        if recovery_marker is not None and artifact_row is None:
             registered_content_hash = meta.get("content_hash")
     except Exception as exc:
         raise FrameCacheCorruptedError(
@@ -1342,15 +1352,18 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             _recovery_data_path=data_path,
             _recovery_content_hash=expected_content_hash,
         )
-        session._store.record_artifact(
-            session_id=session.id,
-            artifact_id=ref,
-            kind=parsed_meta.kind,
-            path=session._layout.relative_path(data_path),
-            meta_path=session._layout.relative_path(meta_path),
-            content_hash=expected_content_hash,
-            produced_by_job=parsed_meta.produced_by_job,
-            evidence_status=parsed_meta.evidence_status,
-            created_at=parsed_meta.created_at.isoformat(),
-        )
+        if artifact_row is None:
+            session._store.record_recovered_artifact(
+                session_id=session.id,
+                artifact_id=ref,
+                kind=parsed_meta.kind,
+                path=session._layout.relative_path(data_path),
+                meta_path=session._layout.relative_path(meta_path),
+                content_hash=expected_content_hash,
+                produced_by_job=parsed_meta.produced_by_job,
+                evidence_status=parsed_meta.evidence_status,
+                artifact_schema_version=parsed_meta.artifact_schema_version,
+                finding_count=parsed_meta.finding_count,
+                created_at=parsed_meta.created_at.isoformat(),
+            )
     return loaded_frame

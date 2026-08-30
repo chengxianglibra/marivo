@@ -26,7 +26,7 @@ from marivo.analysis.frames.attribution import (
 )
 from marivo.analysis.frames.delta import DeltaFrameMeta
 from marivo.analysis.policies import window_bucket
-from marivo.analysis.session._layout import read_frame_from_disk, read_job_record
+from marivo.analysis.session._layout import read_frame_from_disk
 from marivo.analysis.windows.spec import normalize_timescope_input
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
@@ -48,6 +48,22 @@ def _active_transform(frame: MetricFrame | DeltaFrame, **kwargs):
 
 def _positive_delta_predicate(row):
     return row["delta"] > 0
+
+
+def _register_synthetic_frame(frame: MetricFrame | DeltaFrame) -> MetricFrame | DeltaFrame:
+    session = session_attach.current()
+    session._store.record_artifact(
+        session_id=session.id,
+        artifact_id=frame.ref,
+        kind=frame.meta.kind,
+        path=f"synthetic/{frame.ref}/data.parquet",
+        meta_path=f"synthetic/{frame.ref}/meta.json",
+        content_hash=frame.meta.content_hash,
+        produced_by_job=frame.meta.produced_by_job,
+        artifact_schema_version=frame.meta.artifact_schema_version,
+        finding_count=frame.meta.finding_count,
+    )
+    return frame
 
 
 @pytest.fixture(autouse=True)
@@ -250,25 +266,27 @@ def _make_topk_delta_time_series() -> DeltaFrame:
             "time_dimension": "order_date",
         },
     }
-    return DeltaFrame(
-        _df=df,
-        meta=DeltaFrameMeta(
-            **make_test_delta_contract("sales.revenue"),
-            ref="frame_topk_delta",
-            session_id=session.id,
-            project_root=str(session.project_root),
-            produced_by_job=None,
-            created_at=datetime.now(UTC),
-            row_count=len(df),
-            byte_size=0,
-            metric_id="sales.revenue",
-            source_current_ref="frame_current",
-            source_baseline_ref="frame_baseline",
-            alignment={"kind": "window_bucket", "axes": axes},
-            semantic_kind="time_series",
-            semantic_model="sales",
-        ),
-    )
+    return _register_synthetic_frame(
+        DeltaFrame(
+            _df=df,
+            meta=DeltaFrameMeta(
+                **make_test_delta_contract("sales.revenue"),
+                ref="frame_topk_delta",
+                session_id=session.id,
+                project_root=str(session.project_root),
+                produced_by_job=None,
+                created_at=datetime.now(UTC),
+                row_count=len(df),
+                byte_size=0,
+                metric_id="sales.revenue",
+                source_current_ref="frame_current",
+                source_baseline_ref="frame_baseline",
+                alignment={"kind": "window_bucket", "axes": axes},
+                semantic_kind="time_series",
+                semantic_model="sales",
+            ),
+        )
+    )  # type: ignore[return-value]
 
 
 def _make_delta_panel(tmp_path) -> DeltaFrame:
@@ -442,25 +460,27 @@ def _make_one_sided_delta_panel(tmp_path) -> DeltaFrame:
         },
         "country": {"role": "dimension", "column": "country"},
     }
-    return DeltaFrame(
-        _df=df,
-        meta=DeltaFrameMeta(
-            **make_test_delta_contract("sales.revenue"),
-            ref="frame_one_sided_delta",
-            session_id=session.id,
-            project_root=str(session.project_root),
-            produced_by_job=None,
-            created_at=datetime.now(UTC),
-            row_count=len(df),
-            byte_size=0,
-            metric_id="sales.revenue",
-            source_current_ref="frame_current",
-            source_baseline_ref="frame_baseline",
-            alignment={"kind": "window_bucket", "axes": axes},
-            semantic_kind="panel",
-            semantic_model="sales",
-        ),
-    )
+    return _register_synthetic_frame(
+        DeltaFrame(
+            _df=df,
+            meta=DeltaFrameMeta(
+                **make_test_delta_contract("sales.revenue"),
+                ref="frame_one_sided_delta",
+                session_id=session.id,
+                project_root=str(session.project_root),
+                produced_by_job=None,
+                created_at=datetime.now(UTC),
+                row_count=len(df),
+                byte_size=0,
+                metric_id="sales.revenue",
+                source_current_ref="frame_current",
+                source_baseline_ref="frame_baseline",
+                alignment={"kind": "window_bucket", "axes": axes},
+                semantic_kind="panel",
+                semantic_model="sales",
+            ),
+        )
+    )  # type: ignore[return-value]
 
 
 def _make_current_only_delta_panel(tmp_path) -> DeltaFrame:
@@ -485,25 +505,27 @@ def _make_current_only_delta_panel(tmp_path) -> DeltaFrame:
         },
         "country": {"role": "dimension", "column": "country"},
     }
-    return DeltaFrame(
-        _df=df,
-        meta=DeltaFrameMeta(
-            **make_test_delta_contract("sales.revenue"),
-            ref="frame_current_only_delta",
-            session_id=session.id,
-            project_root=str(session.project_root),
-            produced_by_job=None,
-            created_at=datetime.now(UTC),
-            row_count=len(df),
-            byte_size=0,
-            metric_id="sales.revenue",
-            source_current_ref="frame_current",
-            source_baseline_ref="frame_baseline",
-            alignment={"kind": "window_bucket", "axes": axes},
-            semantic_kind="panel",
-            semantic_model="sales",
-        ),
-    )
+    return _register_synthetic_frame(
+        DeltaFrame(
+            _df=df,
+            meta=DeltaFrameMeta(
+                **make_test_delta_contract("sales.revenue"),
+                ref="frame_current_only_delta",
+                session_id=session.id,
+                project_root=str(session.project_root),
+                produced_by_job=None,
+                created_at=datetime.now(UTC),
+                row_count=len(df),
+                byte_size=0,
+                metric_id="sales.revenue",
+                source_current_ref="frame_current",
+                source_baseline_ref="frame_baseline",
+                alignment={"kind": "window_bucket", "axes": axes},
+                semantic_kind="panel",
+                semantic_model="sales",
+            ),
+        )
+    )  # type: ignore[return-value]
 
 
 def _assert_persisted_metric_frame(frame: MetricFrame) -> None:
@@ -512,7 +534,7 @@ def _assert_persisted_metric_frame(frame: MetricFrame) -> None:
     assert isinstance(stored_df, pd.DataFrame)
     assert stored_meta["ref"] == frame.ref
     assert frame.meta.produced_by_job is not None
-    job_record = read_job_record(session._layout, frame.meta.produced_by_job)
+    job_record = session.job(frame.meta.produced_by_job)
     assert job_record["output_frame_ref"] == frame.ref
 
 
@@ -565,7 +587,7 @@ def test_transform_lineage_and_job_record_persist(tmp_path):
     _, meta_dict = read_frame_from_disk(session._layout, out.ref)
     assert meta_dict["lineage"]["steps"][-1]["intent"] == "transform"
     assert meta_dict["lineage"]["steps"][-1]["inputs"] == [frame.ref]
-    job_record = read_job_record(session._layout, out.meta.produced_by_job)
+    job_record = session.job(out.meta.produced_by_job)
     assert job_record["intent"] == "transform"
     assert job_record["input_frame_refs"] == [frame.ref]
     assert job_record["output_frame_ref"] == out.ref
@@ -644,6 +666,7 @@ def test_transform_window_clips_delta_time_series_without_axes(tmp_path):
         ),
     )
     assert "axes" not in frame.meta.alignment
+    _register_synthetic_frame(frame)
 
     clipped = _active_transform(
         frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"}
@@ -828,7 +851,7 @@ def test_persist_transform_frame_stores_json_safe_params(tmp_path):
     )
 
     assert out.meta.produced_by_job is not None
-    job_record = read_job_record(session._layout, out.meta.produced_by_job)
+    job_record = session.job(out.meta.produced_by_job)
     json.dumps(job_record["params"])
     assert job_record["params"]["drop_axes"] == [
         {
@@ -1112,7 +1135,7 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
 
     assert sliced.meta.row_count == 1
     assert sliced.meta.produced_by_job is not None
-    job_record = read_job_record(session_attach.current()._layout, sliced.meta.produced_by_job)
+    job_record = session_attach.current().job(sliced.meta.produced_by_job)
     json.dumps(job_record["params"])
     assert job_record["params"]["where"]["sales.orders.event_date"] == "2026-07-01"
 
@@ -2217,7 +2240,7 @@ def test_transform_persists_artifact_job_lineage_and_empty_digest(tmp_path):
     assert isinstance(stored_df, pd.DataFrame)
     assert stored_meta["ref"] == out.ref
     assert out.meta.produced_by_job is not None
-    job_record = read_job_record(session._layout, out.meta.produced_by_job)
+    job_record = session.job(out.meta.produced_by_job)
     assert job_record["intent"] == "transform"
     assert job_record["output_frame_ref"] == out.ref
     assert out.meta.lineage.steps[-1].intent == "transform"

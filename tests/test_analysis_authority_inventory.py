@@ -24,7 +24,6 @@ from marivo.analysis.frames.lifecycle import (
     LifecycleFrameMetaBase,
     LifecycleReducerFrameMetaBase,
 )
-from marivo.analysis.frames.quality import QualityReportMeta
 from marivo.analysis.session._load import _FRAME_CLASSES
 
 
@@ -87,8 +86,7 @@ def test_authority_context_inventory_covers_every_artifact_family_and_loader_kin
     inventory_kinds = {item.frame_kind for item in ARTIFACT_AUTHORITY_INVENTORY}
     loader_families = {frame_type.__name__ for frame_type, _ in _FRAME_CLASSES.values()}
 
-    independently_loadable = set(ARTIFACT_FAMILIES) - {"QualityReport"}
-    assert inventory_families == independently_loadable == loader_families
+    assert inventory_families == set(ARTIFACT_FAMILIES) == loader_families
     assert inventory_kinds == set(_FRAME_CLASSES)
     for item in ARTIFACT_AUTHORITY_INVENTORY:
         frame_type, _ = _FRAME_CLASSES[item.frame_kind]
@@ -101,10 +99,7 @@ def test_authority_context_inventory_covers_every_concrete_frame_meta_variant() 
         LifecycleFrameMetaBase,
         LifecycleReducerFrameMetaBase,
     }
-    concrete_meta_types = _recursive_subclasses(BaseFrameMeta) - {
-        *abstract_meta_types,
-        QualityReportMeta,
-    }
+    concrete_meta_types = _recursive_subclasses(BaseFrameMeta) - abstract_meta_types
     inventoried_meta_types = {item.meta_type for item in ARTIFACT_AUTHORITY_INVENTORY}
 
     assert len(ARTIFACT_AUTHORITY_INVENTORY) == 22
@@ -180,7 +175,7 @@ def test_authority_inventory_fields_exist_and_require_normalization_only() -> No
         assert item.schema_action == "normalization_only"
 
 
-def test_authority_inventory_normalizes_artifact_ref_and_excludes_quality_sidecar() -> None:
+def test_authority_inventory_normalizes_artifact_ref() -> None:
     local_meta = BaseFrameMeta.model_construct(ref="frame:local", artifact_id=None)
     persisted_meta = BaseFrameMeta.model_construct(
         ref="frame:local",
@@ -189,8 +184,6 @@ def test_authority_inventory_normalizes_artifact_ref_and_excludes_quality_sideca
 
     assert artifact_authority_ref(local_meta) == "frame:local"
     assert artifact_authority_ref(persisted_meta) == "artifact:persisted"
-
-    assert all(item.meta_type is not QualityReportMeta for item in ARTIFACT_AUTHORITY_INVENTORY)
 
 
 def test_authority_inventory_remains_analysis_internal() -> None:

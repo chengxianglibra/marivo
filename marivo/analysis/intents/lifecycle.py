@@ -80,6 +80,39 @@ from marivo.semantic.ir import StateModelIR, StateTriggerIR
 _HELP_TARGET = "lifecycle.replay"
 
 
+def validate_replay_admission(
+    model: _SemanticInput[StateModelKind],
+    *,
+    window: TimeScope,
+    seed: FromInception,
+    completeness: tuple[CompletenessDeclaration, ...],
+    cohort: SubjectSet | None,
+    session: Session,
+) -> None:
+    """Validate every non-executing replay input before Run admission."""
+    ensure_session_can_execute(session)
+    _model_ref, model_ir, _model_fingerprint = _resolve_model(session=session, model=model)
+    _window_start, window_end = _resolve_window(window)
+    _require_seed(seed)
+    model_events = frozenset(trigger.event_ref for trigger in _model_triggers(model_ir))
+    _resolve_completeness(
+        completeness=completeness,
+        model_events=model_events,
+        window_end=window_end,
+        window=window,
+    )
+    subject_entity = ref_factory.entity(model_ir.subject)
+    subject_identity = _subject_identity(session=session, entity_path=model_ir.subject)
+    resolve_subject_cohort(
+        session=session,
+        cohort=cohort,
+        consumer="lifecycle.replay",
+        expected_subject_entity=RefPayloadV1.from_ref(subject_entity),
+        expected_subject_identity=subject_identity,
+    )
+    _event_plan(session=session, model_ir=model_ir, subject_identity=subject_identity)
+
+
 def _repair(
     *,
     kind: RepairKind,

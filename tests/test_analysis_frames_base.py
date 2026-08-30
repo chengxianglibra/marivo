@@ -303,14 +303,14 @@ def test_affordance_and_contract_models_are_closed_and_immutable():
         bindable_from_current_artifact=True,
     )
     affordance = ArtifactAffordance(
-        capability_id="BaseFrame.quality_report",
-        public_entrypoint="frame.quality_report()",
+        capability_id="BaseFrame.show",
+        public_entrypoint="frame.show()",
         help_target=LiveHelpTarget(
             surface="analysis",
-            canonical_id="BaseFrame.quality_report",
+            canonical_id="BaseFrame.show",
         ),
         input_requirements=(requirement,),
-        expected_output_family="QualityReport",
+        expected_output_family="terminal_text",
     )
     contract = ArtifactContract(
         kind="metric_frame",

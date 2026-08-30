@@ -605,9 +605,11 @@ def test_semantic_hypothesis_limit_is_closed(tmp_path, limit: object) -> None:
     _ready_project(tmp_path)
     session = _session_with_orders(tmp_path)
     source = session.observe(ms.ref.metric("sales.revenue"))
+    run_count = len(session._store.list_runs(session.id))
 
     with pytest.raises(mv.errors.SemanticKindMismatchError):
         session.discover.semantic_hypotheses(source, limit=cast("Any", limit))
+    assert len(session._store.list_runs(session.id)) == run_count
 
 
 def test_discovery_errors_for_absent_and_session_unavailable(tmp_path) -> None:

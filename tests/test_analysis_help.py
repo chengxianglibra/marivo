@@ -258,7 +258,6 @@ def test_slice3_evidence_help_preserves_proof_boundaries() -> None:
         "session.evidence.compatibility",
         "session.revalidate",
         "BaseFrame.show",
-        "BaseFrame.quality_report",
     ):
         assert target in evidence
     assert "healthy empty page" in browse
@@ -428,12 +427,8 @@ def test_every_artifact_type_page_renders_complete_derived_algebra() -> None:
             "Static consumers are possibilities, not current admission",
         ):
             assert required in text
-        if contract.artifact_family == "QualityReport":
-            assert "session.evidence.digest" not in text
-            assert "session.get_frame" not in text
-        else:
-            assert "session.evidence.digest" in text
-            assert "session.get_frame" in text
+        assert "session.evidence.digest" in text
+        assert "session.get_frame" in text
         budget = REGISTRY.render_budget("public_type")
         assert len(text.splitlines()) <= budget.max_lines
         assert len(text) <= budget.max_codepoints
@@ -488,12 +483,17 @@ def test_slice2_final_render_budget_rejects_import_and_route_overflow() -> None:
 def test_singleton_method_and_input_contracts_have_no_family_aliases() -> None:
     for removed_topic, direct_target in (
         ("methods.forecast", "forecast"),
-        ("methods.quality", "BaseFrame.quality_report"),
         ("inputs.sampling", "SamplingPolicy"),
     ):
         with pytest.raises(MarivoHelpTargetError):
             _text(removed_topic)
         assert _text(direct_target)
+
+
+def test_quality_report_help_targets_are_removed() -> None:
+    for target in ("BaseFrame.quality_report", "QualityReport"):
+        with pytest.raises(MarivoHelpTargetError):
+            _text(target)
 
 
 def test_slice3_removed_navigation_topics_have_no_alias_fallback() -> None:
@@ -948,18 +948,6 @@ def test_focused_help_routes_supported_semantic_input_forms_without_extra_exampl
     assert "Common-key cross-sectional frames from exact Refs:" not in correlate_text
 
 
-def test_observe_and_quality_inputs_route_through_family_owners() -> None:
-    observe = _text("observe")
-    quality = _text("BaseFrame.quality_report")
-
-    assert 'cohort: acquire via marivo.help("analysis.artifacts.event_lifecycle")' in observe
-    assert 'marivo.help("analysis.select_subjects")' not in observe
-    assert 'marivo.help("analysis.artifacts.metric_change")' in quality
-    assert 'marivo.help("analysis.artifacts.event_lifecycle")' in quality
-    for producer in ("observe", "compare", "attribute", "events", "lifecycle", "transform"):
-        assert f'marivo.help("analysis.{producer}")' not in quality
-
-
 def test_metric_projection_primary_example_uses_full_metric_id() -> None:
     text = _text("MetricFrame.metric")
     assert 'frame.metric("sales.revenue")' in text
@@ -1239,14 +1227,6 @@ def test_transform_help_uses_public_value_columns(target: str) -> None:
     if target == "transform.rank":
         assert "value is reserved" in text
         assert "canonical MetricFrame storage" in text
-
-
-def test_quality_report_help_declares_read_only_sidecar_contract() -> None:
-    text = _text("BaseFrame.quality_report")
-
-    assert "frame.quality_report()" in text
-    assert "Output family: QualityReport | None" in text
-    assert "session.assess_quality" not in text
 
 
 @pytest.mark.parametrize("target", ["discover.period_shifts", "discover.driver_axes"])
@@ -1535,23 +1515,6 @@ def test_type_help_lists_registry_allowlist_members() -> None:
         assert prop in text, f"missing property: {prop}"
     for method in PUBLIC_FRAME_METHODS.get("MetricFrame", ()):
         assert method in text, f"missing method: {method}"
-
-
-def test_quality_report_help_exposes_verdict_and_all_exact_shapes() -> None:
-    from marivo.analysis._capabilities.registry import PUBLIC_TYPE_VARIANTS
-
-    text = _text("QualityReport")
-    for prop in ("overall_status", "blocking_issue_count", "warning_count"):
-        assert prop in text
-    for variant in PUBLIC_TYPE_VARIANTS["QualityReport"]:
-        assert f"QualityReport[{variant}]" in text
-    assert "report.state is ArtifactState materialization metadata" in text
-    assert "Typed Evidence reads:" not in text
-    assert "Recovery:" not in text
-    assert "session.get_frame" not in text
-    assert "session.evidence." not in text
-    assert 'marivo.help("analysis.BaseFrame.quality_report")' in text
-    assert 'marivo.help("analysis.boundary.to_pandas")' in text
 
 
 def test_session_type_help_teaches_acquisition_without_delete() -> None:
@@ -2038,7 +2001,6 @@ def test_analysis_all_is_pinned() -> None:
         "HypothesisTestResult",
         "LifecycleFrame",
         "MetricFrame",
-        "QualityReport",
         "Session",
         "OntologyMetricCandidate",
         "SubjectSet",

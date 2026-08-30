@@ -1463,6 +1463,22 @@ def observe(
             if cached_frame is not None:
                 session._connection_runtime.take_captured_queries()
                 _raise_on_empty_slice_result(cached_frame, where_by_id)
+                persist_reused_artifact_job(
+                    session,
+                    intent="observe",
+                    analysis_purpose=analysis_purpose,
+                    params=params,
+                    input_frame_refs=(
+                        [resolved_cohort.binding.artifact_ref]
+                        if resolved_cohort is not None
+                        else []
+                    ),
+                    output_frame_ref=cached_frame.meta.artifact_id or cached_frame.ref,
+                    semantics=_observe_job_semantics(cached_frame),
+                    started_at=started_at,
+                    started_monotonic=started,
+                    semantic_project_root=str(session.catalog.semantic_root),
+                )
                 return _mark_cache_hit(cached_frame)
             graph_execution = execute_metric_graph_observe(
                 graph_plan,
@@ -2432,6 +2448,20 @@ def _observe_metric_forest(
         )
         if cached_frame is not None:
             session._connection_runtime.take_captured_queries()
+            persist_reused_artifact_job(
+                session,
+                intent="observe",
+                analysis_purpose=analysis_purpose,
+                params=params,
+                input_frame_refs=(
+                    [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
+                ),
+                output_frame_ref=cached_frame.meta.artifact_id or cached_frame.ref,
+                semantics=_observe_job_semantics(cached_frame),
+                started_at=started_at,
+                started_monotonic=started,
+                semantic_project_root=str(session.catalog.semantic_root),
+            )
             return _mark_cache_hit(cached_frame)
         execution = execute_metric_graph_observe(
             graph_plan,

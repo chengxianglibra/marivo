@@ -355,8 +355,6 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
 ) -> None:
     import importlib
 
-    from marivo.analysis.session._layout import write_job_record
-
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     historical = mv.session.get_or_create(
@@ -400,26 +398,22 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
         produced_by_job="job_1",
         evidence_status="complete",
     )
-    job_record = {
-        "id": "job_1",
-        "intent": "observe",
-        "status": "succeeded",
-        "started_at": "2026-01-01T00:00:00+00:00",
-        "duration_ms": 10,
-        "output_frame_ref": "frame_1",
-    }
-    write_job_record(historical._layout, job_record)
-    historical._store.record_job(
+    historical._store.begin_run(
         session_id=historical.id,
-        job_id="job_1",
-        intent="observe",
-        status="succeeded",
-        started_at=job_record["started_at"],
+        run_id="job_1",
+        capability_id="observe",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=(),
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    historical._store.complete_run(
+        session_id=historical.id,
+        run_id="job_1",
+        output_artifact_ref="frame_1",
+        output_mode="produced",
         finished_at="2026-01-01T00:00:00.010000+00:00",
-        output_artifact_id="frame_1",
-        record_path=str(
-            historical._layout.relative_path(historical._layout.jobs_dir / "job_1.json")
-        ),
     )
     active = mv.session.get_or_create(name="active", use_datasources=False)
     before = next(item for item in mv.session.recent(limit=100).items if item.name == "historical")
