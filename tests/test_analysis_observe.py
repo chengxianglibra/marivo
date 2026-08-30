@@ -12,7 +12,6 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis.errors import (
-    FrameCacheCorruptedError,
     GrainUnsupportedError,
     MetricNotFoundError,
     NoBackendFactoryError,
@@ -1032,9 +1031,9 @@ def test_observe_persists_job_and_frame(tmp_path):
     assert summaries[0].output_frame_ref == mf.ref
     frame_dir = s._layout.frames_dir / mf.ref
     assert (frame_dir / "data.parquet").is_file()
-    assert (frame_dir / "quality.parquet").is_file()
+    assert not (frame_dir / "quality.parquet").exists()
     persisted_meta = json.loads((frame_dir / "meta.json").read_text())
-    assert persisted_meta["artifact_schema_version"] == "analysis-artifact/v11"
+    assert persisted_meta["artifact_schema_version"] == "analysis-artifact/v13"
     assert {
         "metric_id",
         "axes",
@@ -1049,17 +1048,16 @@ def test_observe_persists_job_and_frame(tmp_path):
     }
     assert "axis_bindings" in persisted_meta
     assert "slice_predicates" in persisted_meta
-    assert persisted_meta["quality_ref"] == f"{mf.ref}#quality"
-    manifest = persisted_meta["quality_report"]
-    assert manifest["filename"] == "quality.parquet"
-    assert manifest["content_hash"].startswith("sha256:")
-    assert manifest["row_count"] == len(manifest["checks_run"])
+    assert "quality_ref" not in persisted_meta
+    assert "quality_report" not in persisted_meta
     assert mf.meta.quality_summary is not None
-    assert mf.meta.quality_summary.evaluated_check_count == manifest["row_count"]
+    assert persisted_meta["quality_summary"]["evaluated_check_count"] == (
+        mf.meta.quality_summary.evaluated_check_count
+    )
     assert mf.meta.quality_summary.failed_check_count == 0
 
-    job_path = next(s._layout.jobs_dir.glob("*.json"))
-    persisted_job = json.loads(job_path.read_text())
+    assert list(s._layout.jobs_dir.glob("*.json")) == []
+    persisted_job = s.job(mf.meta.produced_by_job)
     assert persisted_job["schema"] == "marivo.analysis_job/v2"
     assert persisted_job["subject"]["metric_ref"]["path"] == "sales.revenue"
     assert {
@@ -1075,47 +1073,12 @@ def test_observe_persists_job_and_frame(tmp_path):
     assert loaded.meta.semantic_model == "sales"
     assert loaded.meta.axes == mf.meta.axes
     assert loaded.meta.where == mf.meta.where
+    assert loaded.meta.quality_summary == mf.meta.quality_summary
+    assert not hasattr(loaded, "quality_report")
     jobs_before_read = len(s.jobs())
-    report = loaded.quality_report()
-    assert report is not None
-    assert report.ref == f"{mf.ref}#quality"
-    assert report.meta.produced_by_job == mf.meta.produced_by_job
-    assert report.meta.lineage == mf.meta.lineage
-    assert report.evidence_digest is None
     assert len(s.jobs()) == jobs_before_read
     component = mf.components()
     assert component is not None
-    assert component.quality_report() is None
-
-
-@pytest.mark.parametrize("failure", ["missing", "hash", "row_count"])
-def test_quality_report_sidecar_integrity_fails_closed(tmp_path, failure):
-    bootstrap_sales_project(tmp_path)
-    con = connect_sales_orders()
-    session = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-    frame = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=session)
-    manifest = frame.meta.quality_report
-    assert manifest is not None
-    quality_path = session._layout.frames_dir / frame.ref / manifest.filename
-
-    if failure == "missing":
-        quality_path.unlink()
-    elif failure == "hash":
-        quality_path.write_bytes(b"corrupt")
-    else:
-        frame.meta = frame.meta.model_copy(
-            update={
-                "quality_report": manifest.model_copy(
-                    update={
-                        "row_count": manifest.row_count + 1,
-                        "checks_run": (*manifest.checks_run, "forged"),
-                    }
-                )
-            }
-        )
-
-    with pytest.raises(FrameCacheCorruptedError):
-        frame.quality_report()
 
 
 def test_observe_read_only_session_without_backend_raises(tmp_path):
@@ -1335,7 +1298,7 @@ def test_observe_nested_catalog_ratio_reuses_leaf_cse(tmp_path):
     assert frame.meta.key_schema is not None
     assert frame.meta.source_compatibility_domain is not None
     assert frame.meta.comparable_value_semantics is not None
-    assert frame.meta.artifact_schema_version == "analysis-artifact/v11"
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v13"
 
     store = session._evidence_store()
     assert store is not None

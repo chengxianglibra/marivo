@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import PurePath
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -39,11 +39,7 @@ from marivo.refs import SemanticKind
 from marivo.render import Card, RenderableResult, result_repr
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
-if TYPE_CHECKING:
-    from marivo.analysis.frames.quality import QualityReport
-
-
-CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v11"] = "analysis-artifact/v11"
+CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v13"] = "analysis-artifact/v13"
 _ARTIFACT_SEMANTIC_INPUT_LIMIT = 12
 _DEFAULT_FRAME_PREVIEW_ROWS = 50
 
@@ -396,37 +392,13 @@ class ArtifactState(BaseModel):
     content_hash: str | None = None
 
 
-class QualityReportSidecarV1(BaseModel):
-    """Integrity-bound receipt for one frame-owned quality report."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal["quality-report-sidecar/v1"] = "quality-report-sidecar/v1"
-    filename: Literal["quality.parquet"] = "quality.parquet"
-    row_count: int = Field(ge=0)
-    content_hash: str
-    report_shape: str = Field(min_length=1)
-    checks_run: tuple[str, ...]
-    overall_status: Literal["ok", "warning"]
-    blocking_issue_count: Literal[0] = 0
-    warning_count: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def _validate_content_hash(self) -> QualityReportSidecarV1:
-        if not self.content_hash.startswith("sha256:"):
-            raise ValueError("quality sidecar content_hash must use the sha256: prefix")
-        if len(self.checks_run) != self.row_count:
-            raise ValueError("quality sidecar checks_run must match row_count")
-        return self
-
-
 class BaseFrameMeta(BaseModel):
     """Shared ownership and provenance fields for every frame family."""
 
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    artifact_schema_version: Literal["analysis-artifact/v11"] = CURRENT_ARTIFACT_SCHEMA_VERSION
+    artifact_schema_version: Literal["analysis-artifact/v13"] = CURRENT_ARTIFACT_SCHEMA_VERSION
     ref: str
     session_id: str
     project_root: str
@@ -438,10 +410,9 @@ class BaseFrameMeta(BaseModel):
     lineage: Lineage = Lineage()
     artifact_id: str | None = None
     evidence_status: Literal["complete", "partial", "unavailable"] = "unavailable"
+    finding_count: int = Field(default=0, ge=0)
     analysis_scope: EvidenceScope | None = None
     quality_summary: QualitySummary | None = None
-    quality_ref: str | None = None
-    quality_report: QualityReportSidecarV1 | None = None
     evidence_digest: ArtifactDigest | None = None
     issues: tuple[ArtifactIssue, ...] = ()
     content_hash: str | None = None
@@ -891,24 +862,6 @@ class BaseFrame(RenderableResult):
     @property
     def quality_summary(self) -> QualitySummary | None:
         return self.meta.quality_summary
-
-    def quality_report(self) -> QualityReport | None:
-        """Load the immutable quality report persisted with this Artifact.
-
-        Returns:
-            The linked :class:`QualityReport`, or ``None`` when this Artifact
-            family does not own fixed construction-time quality checks.
-
-        Example:
-            >>> report = frame.quality_report()
-            >>> report.overall_status if report is not None else None
-
-        Constraints:
-            This method never re-runs checks or creates an analysis job. A
-            declared but missing or corrupt sidecar fails closed.
-        """
-        quality_module = importlib.import_module("marivo.analysis.frames._quality")
-        return cast("QualityReport | None", quality_module.load_quality_report(self))
 
     def _evaluate_construction_quality(
         self,

@@ -38,7 +38,6 @@ from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.lineage import Lineage
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.resolve import resolve_live_target
@@ -253,22 +252,6 @@ def _artifact_cases():
             interval_method="normal_residual",
             train_row_count_per_segment={"all": 10},
             segment_dimensions=[],
-        ),
-    )
-    yield QualityReport(
-        _df=pd.DataFrame({"check_id": ["row_count"], "status": ["ok"], "message": ["ok"]}),
-        meta=QualityReportMeta(
-            **_base_meta("quality_report", "frame_quality"),
-            source_refs=["frame_metric"],
-            report_shape="metric",
-            target_kind="metric_frame",
-            target_metric_id="sales.revenue",
-            target_semantic_model="sales",
-            target_semantic_kind="time_series",
-            checks_run=["row_count"],
-            overall_status="ok",
-            blocking_issue_count=0,
-            warning_count=0,
         ),
     )
 

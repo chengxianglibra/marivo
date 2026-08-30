@@ -137,7 +137,11 @@ def _persistence_state(session) -> tuple[set[str], set[str], set[str], set[str],
         {path.name for path in session._layout.frames_dir.iterdir()},
         {path.name for path in session._layout.jobs_dir.glob("*.json")},
         {row["artifact_id"] for row in session._store.list_artifacts(session.id)},
-        {row["job_id"] for row in session._store.list_jobs(session.id)},
+        {
+            row["run_id"]
+            for row in session._store.list_runs(session.id)
+            if row["lifecycle"] == "succeeded"
+        },
         {
             row[0]
             for row in session._evidence_store()
@@ -174,29 +178,22 @@ def test_observe_uses_runtime_expression_labels_as_output_columns(
     assert list(mixed.to_pandas().columns) == ["runtime_total", "measure_revenue"]
 
 
-def test_multi_metric_quality_preserves_runtime_expression_identity(runtime_session) -> None:
+def test_multi_metric_quality_summary_preserves_runtime_expression_identity(
+    runtime_session,
+) -> None:
     amount = _measure_ref(runtime_session)
     runtime_total = mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
     catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     frame = runtime_session.observe([runtime_total, catalog_metric])
 
-    report = frame.quality_report()
-    assert report is not None
-    rows = report.to_pandas()
     runtime_id = frame.metrics[0]
 
     assert runtime_id.startswith("runtime:")
-    assert rows["check_id"].tolist() == [
-        "row_count",
-        "metric_row_contract",
-        "null_ratio:runtime_total",
-        "null_ratio:measure_revenue",
-    ]
-    assert rows["metric_id"].tolist() == [None, None, runtime_id, "sales.measure_revenue"]
-    assert report.meta.target_metric_id is None
-    assert report.evidence_digest is None
-    assert report.meta.analysis_scope is not None
-    assert report.meta.analysis_scope.metric_ids == (runtime_id, "sales.measure_revenue")
+    assert frame.quality_summary is not None
+    assert frame.quality_summary.evaluated_check_count == 4
+    assert frame.quality_summary.failed_check_count == 0
+    assert frame.meta.analysis_scope is not None
+    assert frame.meta.analysis_scope.metric_ids == (runtime_id, "sales.measure_revenue")
 
 
 def test_observe_runtime_aggregate_materializes_typed_artifact(runtime_session) -> None:
@@ -1043,11 +1040,11 @@ def test_current_metric_frame_rejects_omitted_graph_identity_state(runtime_sessi
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(
-        FrameMetaInvalidError, match="is missing required analysis-artifact/v11 fields"
+        FrameMetaInvalidError, match="is missing required analysis-artifact/v13 fields"
     ) as exc_info:
         runtime_session.get_frame(frame.ref)
     assert removed <= set(exc_info.value._context["missing_fields"])
-    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v11"
+    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v13"
 
 
 def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_session) -> None:
@@ -1075,9 +1072,9 @@ def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_sessio
     assert "analysis-artifact/v6" in message
     # got/expected must be reachable through public fields and str(e).
     assert exc_info.value.received == "analysis-artifact/v6"
-    assert exc_info.value.expected == "analysis-artifact/v11"
+    assert exc_info.value.expected == "analysis-artifact/v13"
     assert "analysis-artifact/v6" in str(exc_info.value)
-    assert "analysis-artifact/v11" in str(exc_info.value)
+    assert "analysis-artifact/v13" in str(exc_info.value)
     # The failure is a schema cutover, not a v6 missing field.
     assert "missing_fields" not in exc_info.value._context
     # The agent must get an executable repair telling it to regenerate the frame.

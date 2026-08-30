@@ -13,7 +13,7 @@ from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.transform import NormalizeBaseline, NormalizeKind, RankMethod
 from marivo.analysis.session._runtime import require_current_session
-from marivo.analysis.session.core import _track_session_operation
+from marivo.analysis.session.core import _track_materializing_operation
 from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows import TimeScope
 from marivo.refs import DimensionKind, TimeDimensionKind
@@ -57,11 +57,14 @@ class _FrameTransforms(Generic[TFrame]):
 
         validate_capability_inputs("transform.filter", receiver=self._frame)
         session = require_current_session()
-        with _track_session_operation(
+        with _track_materializing_operation(
             session,
             "marivo.analysis.frame.transform.filter",
+            capability_id="transform.filter",
             family="transform",
             intent="filter",
+            arguments={"receiver": self._frame, "predicate": predicate},
+            analysis_purpose=analysis_purpose,
         ):
             return transform_filter(
                 self._frame,
@@ -97,11 +100,14 @@ class _FrameTransforms(Generic[TFrame]):
 
         validate_capability_inputs("transform.slice", receiver=self._frame)
         session = require_current_session()
-        with _track_session_operation(
+        with _track_materializing_operation(
             session,
             "marivo.analysis.frame.transform.slice",
+            capability_id="transform.slice",
             family="transform",
             intent="slice",
+            arguments={"receiver": self._frame, "slice_by": slice_by},
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.slice_count": len(slice_by)},
         ):
             return transform_slice(
@@ -146,11 +152,14 @@ class _FrameTransforms(Generic[TFrame]):
         validate_capability_inputs("transform.rollup", receiver=self._frame)
         session = require_current_session()
         axis_count = len(drop_axes) if drop_axes is not None else 0
-        with _track_session_operation(
+        with _track_materializing_operation(
             session,
             "marivo.analysis.frame.transform.rollup",
+            capability_id="transform.rollup",
             family="transform",
             intent="rollup",
+            arguments={"receiver": self._frame, "drop_axes": drop_axes, "grain": grain},
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.axis_count": axis_count},
         ):
             return transform_rollup(
@@ -185,11 +194,14 @@ class _FrameTransforms(Generic[TFrame]):
 
         validate_capability_inputs("transform.topk", receiver=self._frame)
         session = require_current_session()
-        with _track_session_operation(
+        with _track_materializing_operation(
             session,
             "marivo.analysis.frame.transform.topk",
+            capability_id="transform.topk",
             family="transform",
             intent="topk",
+            arguments={"receiver": self._frame, "by": by, "limit": limit},
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.limit": limit},
         ):
             return transform_topk(
@@ -224,11 +236,14 @@ class _FrameTransforms(Generic[TFrame]):
 
         validate_capability_inputs("transform.bottomk", receiver=self._frame)
         session = require_current_session()
-        with _track_session_operation(
+        with _track_materializing_operation(
             session,
             "marivo.analysis.frame.transform.bottomk",
+            capability_id="transform.bottomk",
             family="transform",
             intent="bottomk",
+            arguments={"receiver": self._frame, "by": by, "limit": limit},
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.limit": limit},
         ):
             return transform_bottomk(
@@ -274,11 +289,19 @@ class _FrameTransforms(Generic[TFrame]):
 
         validate_capability_inputs("transform.rank", receiver=self._frame)
         session = require_current_session()
-        with _track_session_operation(
+        with _track_materializing_operation(
             session,
             "marivo.analysis.frame.transform.rank",
+            capability_id="transform.rank",
             family="transform",
             intent="rank",
+            arguments={
+                "receiver": self._frame,
+                "by": by,
+                "method": method,
+                "rank_column": rank_column,
+            },
+            analysis_purpose=analysis_purpose,
         ):
             return transform_rank(
                 self._frame,
@@ -312,11 +335,14 @@ class _FrameTransforms(Generic[TFrame]):
 
         validate_capability_inputs("transform.window", receiver=self._frame, window=window)
         session = require_current_session()
-        with _track_session_operation(
+        with _track_materializing_operation(
             session,
             "marivo.analysis.frame.transform.window",
+            capability_id="transform.window",
             family="transform",
             intent="window",
+            arguments={"receiver": self._frame, "window": window},
+            analysis_purpose=analysis_purpose,
         ):
             return transform_window(
                 self._frame,
@@ -362,11 +388,14 @@ class MetricFrameTransforms(_FrameTransforms[MetricFrame]):
 
         validate_capability_inputs("transform.normalize", receiver=self._frame)
         session = require_current_session()
-        with _track_session_operation(
+        with _track_materializing_operation(
             session,
             "marivo.analysis.frame.transform.normalize",
+            capability_id="transform.normalize",
             family="transform",
             intent="normalize",
+            arguments={"receiver": self._frame, "mode": mode, "baseline": baseline},
+            analysis_purpose=analysis_purpose,
             attributes={"marivo.analysis.normalize_mode": str(mode)},
         ):
             return transform_normalize(

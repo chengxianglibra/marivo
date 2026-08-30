@@ -199,7 +199,6 @@ ANALYSIS_PUBLIC = {
     "AssociationResult",
     "HypothesisTestResult",
     "ForecastFrame",
-    "QualityReport",
     "window_bucket",
     "day_of_week",
     "period_progress",

@@ -88,7 +88,6 @@ Analysis results and selections
 
    AssociationResult
    HypothesisTestResult
-   QualityReport
    CandidateSet
    PointAnomalySelection
    PeriodShiftSelection

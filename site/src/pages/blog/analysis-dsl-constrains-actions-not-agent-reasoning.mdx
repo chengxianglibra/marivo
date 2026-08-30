@@ -168,13 +168,13 @@ candidates.show()
 
 This reduces the search space. The agent still decides which candidate to pursue and whether it matters to the business question.
 
-### Run statistical checks, forecasts, and quality checks
+### Run statistical checks and forecasts, then inspect quality
 
-`correlate` measures the statistical association between two `MetricFrame` results. `hypothesis_test` runs a declared statistical test. `forecast` projects a historical frame into future intervals. `assess_quality` applies fixed quality checks to supported results. They return `AssociationResult`, `HypothesisTestResult`, `ForecastFrame`, and `QualityReport` rather than collapsing everything into a generic analysis response.
+`correlate` measures the statistical association between two `MetricFrame` results. `hypothesis_test` runs a declared statistical test. `forecast` projects a historical frame into future intervals. They return `AssociationResult`, `HypothesisTestResult`, and `ForecastFrame` rather than collapsing everything into a generic analysis response. Quality is already evaluated when a frame is constructed and remains available through `frame.quality_summary` and `frame.contract().issues`; it is not a separate analysis action or result type.
 
 The distinctions are deliberate: association is not causation, a forecast is not an observation, and statistical significance is not the same as business importance. Keeping the result types separate makes it harder for an agent to claim more than an operation established.
 
-The following example places the four actions side by side. `order_count_frame` uses the same period, grain, and region dimension as `current`:
+The following example places the three actions beside the current frame's quality disclosures. `order_count_frame` uses the same period, grain, and region dimension as `current`:
 
 ```python
 order_count = session.catalog.metrics.get("sales.order_count")
@@ -188,15 +188,16 @@ order_count_frame = session.observe(
 association = session.correlate(current, order_count_frame)
 test = session.hypothesis_test(current, baseline)
 projection = session.forecast(current, horizon=3, model="drift")
-quality = session.assess_quality(current)
+quality = current.quality_summary
+quality_issues = current.contract().issues
 
 association.show()
 test.show()
 projection.show()
-quality.show()
+current.show()
 ```
 
-These results answer different questions: whether revenue and order count move together, whether the current and baseline difference passes a statistical test, how the next three periods might develop, and whether the current data has known quality concerns. None is a substitute for another.
+These results and disclosures answer different questions: whether revenue and order count move together, whether the current and baseline difference passes a statistical test, how the next three periods might develop, and whether the current data has known quality concerns. None is a substitute for another.
 
 ### Preserve event paths and lifecycle state
 

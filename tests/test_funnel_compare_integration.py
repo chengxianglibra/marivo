@@ -92,7 +92,7 @@ def test_compare_produces_an_aligned_funnel_delta(funnel_session: Any) -> None:
     assert delta.evidence_status == "complete", delta.meta.issues
     contract = delta.contract().render()
     assert "session.attribute(...)" in contract
-    assert "frame.quality_report()" in contract
+    assert "quality_report" not in contract
     assert "session.correlate" not in contract
 
 
@@ -437,7 +437,7 @@ def test_multi_axis_requires_mode_and_hierarchy_has_layout(
     }.issubset(hierarchy.columns)
 
 
-def test_quality_reports_cover_both_new_shapes(
+def test_quality_summaries_cover_both_new_shapes(
     funnel_session: Any,
     payment_step: Any,
     acquisition_channel_entry: Any,
@@ -449,35 +449,14 @@ def test_quality_reports_cover_both_new_shapes(
         axes=[acquisition_channel_entry],
         target=mv.funnel_loss_rate(step=payment_step),
     )
-    delta_report = delta.quality_report()
-    attribution_report = drivers.quality_report()
-    assert delta_report is not None
-    assert attribution_report is not None
-    assert delta_report.meta.report_shape == "funnel_delta"
-    assert delta_report.meta.overall_status == "ok"
-    assert attribution_report.meta.report_shape == "funnel_attribution"
-    assert delta_report.evidence_status == "unavailable"
-    assert delta_report.evidence_digest is None
-    assert attribution_report.evidence_status == "unavailable"
-    assert attribution_report.evidence_digest is None
-    assert {
-        "funnel_delta_alignment",
-        "funnel_delta_components",
-        "funnel_delta_coverage",
-        "funnel_delta_row_contract",
-    }.issubset(set(delta_report.to_pandas()["check_id"]))
-    assert {
-        "funnel_attribution_components",
-        "funnel_attribution_pools",
-        "funnel_attribution_residual",
-        "funnel_attribution_reconciliation",
-    }.issubset(set(attribution_report.to_pandas()["check_id"]))
-    delta_quality_job = funnel_session.job(delta_report.meta.produced_by_job)
-    attribution_quality_job = funnel_session.job(attribution_report.meta.produced_by_job)
-    assert "event_reducer" not in delta_quality_job
-    assert delta_quality_job["funnel_comparison"]["artifact_ref"] == delta.ref
-    assert "event_journey" not in attribution_quality_job
-    assert attribution_quality_job["funnel_attribution"]["artifact_ref"] == drivers.ref
+    assert delta.quality_summary is not None
+    assert delta.quality_summary.evaluated_check_count >= 4
+    assert delta.quality_summary.failed_check_count == 0
+    assert drivers.quality_summary is not None
+    assert drivers.quality_summary.evaluated_check_count >= 4
+    assert drivers.quality_summary.failed_check_count == 0
+    assert "quality_report" not in delta.contract().render()
+    assert "quality_report" not in drivers.contract().render()
 
 
 def test_empty_funnel_delta_is_row_count_warning_not_row_contract_blocker(
@@ -723,7 +702,6 @@ def test_funnel_delta_contract_hides_metric_only_affordances(
     advertised = {affordance.capability_id for affordance in delta.contract().affordances}
     assert advertised == {
         "attribute",
-        "BaseFrame.quality_report",
     }
 
 

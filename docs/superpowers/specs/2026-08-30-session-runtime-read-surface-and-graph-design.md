@@ -15,7 +15,8 @@ preserves the following implemented boundaries:
   Artifact;
 - an `ArtifactDigest` is an immutable commit-time projection, not a later
   session synthesis;
-- canonical Findings and derivation traces remain the raw audit surface;
+- canonical Findings remain Artifact-owned raw audit records and carry their
+  complete derivation trace;
 - revalidation is explicit, read-only, and does not prove datasource freshness;
 - the agent owns cross-Artifact interpretation, business judgment, method
   choice, and stopping;
@@ -29,19 +30,27 @@ This design supersedes the public recovery names and topology in:
   `job()`, and the decision not to expose any Session-level DAG projection;
 - [`docs/specs/analysis/evidence-access-surface.md`](../../specs/analysis/evidence-access-surface.md),
   where Artifact digests are currently exposed again through
-  `session.evidence.digests()` and `session.evidence.digest()`; this design
-  removes only the duplicate collection and retains the exact metadata-only
-  digest lookup;
+  `session.evidence.digests()` and `session.evidence.digest()`, and raw Finding
+  audit is Session-scoped; this design removes the Session Evidence namespace,
+  keeps digest and Finding reads on their owning Artifact, folds trace into
+  `Finding`, and removes public selection compatibility;
 - [`2026-07-18-evidence-typed-digest-refactor-design.md`](2026-07-18-evidence-typed-digest-refactor-design.md),
   only for its session recap and recovery API layout;
+- [`evidence-compatibility-and-revalidation-design.md`](evidence-compatibility-and-revalidation-design.md),
+  for the complete public `EvidenceCompatibility` API, result algebra, Help,
+  skill, documentation, and multi-Finding combination promise; its Artifact
+  revalidation contract remains authoritative;
 - [`2026-08-27-progressive-analysis-live-help-design.md`](2026-08-27-progressive-analysis-live-help-design.md),
-  only for the `runtime.artifacts`, `runtime.jobs`, Evidence browse, and Evidence
-  exact navigation members changed here.
+  only for removing the now-singleton `runtime.artifacts`, replacing
+  `runtime.jobs` with `runtime.runs`, and removing the now-singleton Evidence
+  browse/exact pages; its root, hub, discovery-ownership, render-class, budget,
+  and exact-leaf rules remain authoritative.
 
 The capability kernel, Artifact family algebra, focused-help ownership,
-Evidence semantics, Artifact compatibility, revalidation algorithm, and result
-protocol remain authoritative unless this design explicitly changes their
-public entry point.
+Evidence semantics, operator Artifact-admission compatibility, revalidation
+algorithm, and result protocol remain authoritative unless this design
+explicitly changes their public entry point. Marivo no longer promises that an
+arbitrary caller-selected set of Findings is mechanically safe to combine.
 
 This is a clean public-surface cutover. The final release contains no aliases,
 deprecation wrappers, dual read paths, or two public vocabularies for the same
@@ -56,30 +65,40 @@ runtime model:
 
 ```text
 Session
-  -> Runs perform typed computations
+  -> exposes typed analysis Capabilities
+  -> each admitted materializing Capability execution becomes one Run
   -> Runs consume zero or more Artifacts
-  -> Runs produce or reuse one Artifact
-  -> Artifacts carry commit-time Evidence and quality facts
-  -> Findings provide exact raw audit records
+  -> successful Runs produce or reuse one Artifact
+  -> Artifacts carry commit-time Evidence, quality, and Finding ownership
+  -> each Finding provides one exact raw audit record and derivation trace
 ```
 
-The target public read surface is:
+The primary Session navigation surface is deliberately Run-first:
 
 ```python
 session.show()                          # bounded Session recap
+session.runs(...)                       # primary paged runtime history
+session.get_run(run_id)                 # exact typed execution record
 session.graph()                         # bounded factual Session DAG
 session.graph(artifact_ref=ref, direction="ancestors")
 session.graph(artifact_ref=ref, direction="descendants")
-session.artifacts(...)                  # paged Artifact summaries
+```
+
+Exact Artifact recovery and authority remain explicit:
+
+```python
 session.artifact(ref)                   # exact live Artifact recovery
 session.revalidate(ref)                 # explicit current authority check
-session.runs(...)                       # paged typed execution records
-session.run(run_id)                     # exact typed execution record
-session.evidence.digest(artifact_ref)   # exact metadata-only Artifact digest
-session.evidence.findings(...)          # canonical raw audit page
-session.evidence.finding(finding_id)    # exact Finding
-session.evidence.trace(finding_id)      # exact derivation trace
-session.evidence.compatibility(ids)     # exact selection compatibility
+```
+
+Evidence drill-down is discovered from the exact Artifact rather than mixed
+into Session history navigation:
+
+```python
+artifact.evidence_digest                # immediate commit-time snapshot
+artifact.finding_count                  # exact bounded metadata fact
+artifact.findings(...)                  # bounded Artifact-scoped raw audit page
+artifact.finding(finding_id)            # exact Artifact-owned Finding
 ```
 
 The corresponding removals are:
@@ -90,8 +109,28 @@ session.get_frame
 session.jobs
 session.recent_jobs
 session.job
+session.evidence.digest
 session.evidence.digests
+session.evidence.findings
+session.evidence.finding
+session.evidence.trace
+session.evidence.compatibility
+EvidenceCompatibility
+EvidenceCompatibilityIssue
+EvidenceSelectionError
+EvidenceDigestNotAvailableError
+analysis.runtime.artifacts
+analysis.runtime.jobs
+analysis.evidence.browse
+analysis.evidence.exact
 ```
+
+Compatibility-only status/type aliases and renderers are removed with that
+public result algebra. `EvidenceDigestNotAvailableError` is removed because its
+only public producer was the deleted exact Session digest lookup.
+`EvidenceStoreUnavailableError` remains for Artifact-scoped Finding reads and
+revalidation; `EvidenceRuleIssue` remains because Artifact revalidation
+independently consumes it.
 
 Add `session.graph()` as a first-class factual projection. It returns a typed,
 immutable, bounded `SessionGraph` containing Artifact summaries, Run records,
@@ -109,17 +148,18 @@ independent.
 
 The target optimizes implementation and agent cost together:
 
-- one collection and one exact read per public identity family;
+- one primary history collection (`runs`) plus exact identity reads;
 - one optional Graph entrypoint rather than a persisted snapshot or planner;
-- existing `ArtifactSummary`, `RunRecord`, and `ArtifactDigest` values reused
-  across pages, exact reads, and Graphs;
+- existing `ArtifactSummary`, concrete Run variant, and `ArtifactDigest` values
+  reused without a parallel Artifact collection hierarchy;
 - one edge value instead of node and edge class hierarchies;
 - one Session Store Run projection and input index instead of a second graph
   authority;
 - no public family filter, opaque Graph fingerprint, exact omission counts,
-  wrapper handle, or duplicate Run summary type in V1;
-- exact digest lookup retained because avoiding a full Parquet load is worth
-  more than removing one already implemented drill-down method.
+  wrapper handle, duplicate Run summary type, or Session Evidence namespace in
+  V1;
+- Artifact digest inspection requires exact Artifact recovery; the narrow
+  ref-only optimization does not justify a second public access path.
 
 New public structure is justified only when it removes a repeated agent join or
 makes an invalid state unrepresentable. Internal integrity fields and storage
@@ -161,8 +201,8 @@ owned by the agent.
 
 The runtime documentation consistently calls returned values Artifacts, while
 recovery uses `frame_summaries()` and `get_frame()`. Execution is presented as
-jobs even though the agent's conceptual unit is one typed operator run. An
-agent must therefore remember three translations:
+jobs even though the agent needs a record of one typed Capability execution
+attempt. An agent must therefore remember three translations:
 
 ```text
 Artifact <-> Frame <-> artifact row
@@ -193,15 +233,15 @@ job in an ordinary list, `recent_jobs()` slices that full list, and `job()`
 returns `dict[str, Any]`. This violates the public result and concrete typing
 principles even before a graph is introduced.
 
-### Artifact digest browsing is duplicated
+### Artifact digest access is duplicated
 
 An Artifact already owns its exact commit-time `evidence_digest`, and
-`artifact.show()` renders it. Listing the same family again through
-`session.evidence.digests()` creates a second browsing surface and encourages
-agents to call two collection APIs for the same Artifact set. The exact
-`session.evidence.digest(ref)` read is different: it is a metadata-only index
-lookup that avoids loading Artifact rows. It remains as a drill-down access path
-to the Artifact-owned snapshot, not a second semantic owner.
+`artifact.show()` renders it. Both `session.evidence.digests()` and
+`session.evidence.digest(ref)` create a second route to the same Artifact-owned
+value. The exact Session lookup can avoid loading Artifact rows, but that narrow
+optimization does not justify a second namespace, Help route, failure surface,
+and agent decision. V1 keeps one canonical path: recover the exact Artifact,
+then read or render its digest.
 
 ### The no-synthesis rule is too broad
 
@@ -234,14 +274,17 @@ persistence explicit and typed.
    and both upstream and downstream Artifact navigation truthfully.
 6. Keep commit-time state, current semantic authority, and datasource freshness
    visibly distinct.
-7. Preserve exact Artifact recovery and raw Finding audit without requiring
-   private storage inspection.
+7. Preserve exact Artifact recovery and Artifact-scoped raw Finding audit
+   without requiring private storage inspection.
 8. Keep Graph construction read-only and free of backend queries, Evidence
    recomputation, business judgment, and method recommendation.
 9. Keep the public result algebra small by reusing Artifact summaries and Run
    records inside the Graph rather than creating parallel node families.
 10. Make Help, result cards, the packaged skill, English/Chinese documentation,
    persistence validation, and public type snapshots one coordinated contract.
+11. Accept only the exact current Session Store, Run payload, and Artifact
+    schemas; incompatible prior or future state fails before mutation and is
+    never reused.
 
 ## Non-Goals
 
@@ -253,12 +296,14 @@ This design does not add:
 - a scalar `session.status` or `artifact.health` that combines unrelated axes;
 - automatic Artifact revalidation while rendering or building a graph;
 - datasource freshness checks;
+- multi-Finding compatibility, combination, subset selection, or synthesis;
 - causal or business interpretation across Artifact digests;
 - Mermaid, Graphviz, NetworkX, HTML, or visualization-specific public output;
 - graph pagination;
 - public access to raw SQL, credentials, backend objects, stack traces, or
   arbitrary persisted parameter payloads;
-- a compatibility period for the removed public names.
+- a compatibility period for removed public names;
+- migration, import, decoding, backfill, or reuse of pre-cutover Session state.
 
 The structured `SessionGraph.artifacts`, `.runs`, and `.edges` are sufficient
 for an external renderer. A Marivo-owned visualization format requires a
@@ -275,9 +320,33 @@ A Session is not one analysis result and has no single analytical conclusion.
 
 ### Run
 
-A Run is one admitted invocation of a typed Session operator after Session
-ownership and Artifact inputs have been normalized. `Run` is the public term.
-`job` is storage vocabulary only.
+Decision: retain `Run` as the runtime-attempt abstraction.
+
+A Run is the persistent record of one admitted execution attempt of a typed,
+Help-resolvable, materializing analysis Capability. Admission occurs after
+Session ownership, Capability arguments, and Artifact inputs have been
+normalized. `Run` is the public term; `job` is storage vocabulary only.
+
+The abstraction boundary is:
+
+```text
+Capability   what can be executed
+Run          what happened in one admitted execution attempt
+Artifact     what one successful Run produced or reused
+Finding      what exact Evidence records support an Artifact
+```
+
+A Run is therefore a runtime attempt identity, not a callable operation, a
+workflow plan or step, a backend queue job, an Artifact, or a business
+conclusion. Each retry creates a new Run. A successful attempt that reuses an
+existing Artifact is still a distinct Run because the attempt, inputs, safe
+arguments, time, and reuse outcome are facts of the current Session history.
+
+This layer is necessary because failed and incomplete attempts have no output
+Artifact, while multiple attempts may return the same content-addressed
+Artifact. Neither Capability nor Artifact identity can truthfully represent
+those lifecycle facts or the consumed-by edges needed for downstream impact
+navigation.
 
 A Run has exactly one closed lifecycle variant:
 
@@ -287,9 +356,9 @@ SucceededRun   # returned exactly one produced or reused Artifact
 FailedRun      # terminated with one sanitized AnalysisError or internal summary
 ```
 
-Calls rejected before Session ownership and Artifact inputs are normalized do
-not become Runs. They remain ordinary structured call-site errors and do not
-pollute Session history.
+Read-only Session methods never create Runs. Calls rejected before admission
+also do not become Runs; they remain ordinary structured call-site errors and
+do not pollute Session history.
 
 ### Artifact
 
@@ -302,9 +371,17 @@ does not introduce an `artifact_id` alias.
 
 ### Finding
 
-A Finding is one canonical raw Evidence record with stable identity and exact
-derivation. Findings remain under `session.evidence` because they belong to the
-Session Evidence ledger and may be selected across Artifacts.
+A Finding is one canonical raw Evidence record with stable identity, exactly
+one owning Artifact ref, and its complete derivation trace. The Session Evidence
+ledger remains the persistence authority, but it does not make Findings a
+Session-level collection: public browsing is always scoped by the owning
+Artifact.
+
+`artifact.findings(...)` is an explicit bounded read rather than a Python
+property. A property named `artifact.findings` must not hide SQLite I/O or imply
+that an unbounded collection is already resident in the immutable Artifact.
+`artifact.finding(id)` performs an exact ownership-checked read. Marivo does not
+expose a public operation for combining Findings from one or more Artifacts.
 
 ### SessionGraph
 
@@ -319,7 +396,7 @@ The following axes remain independent:
 
 | Axis | Owner | Values | Observation time |
 | --- | --- | --- | --- |
-| Run lifecycle | `RunRecord` | `incomplete`, `succeeded`, `failed` | invocation time |
+| Run lifecycle | concrete Run variant | `incomplete`, `succeeded`, `failed` | execution-attempt time |
 | Artifact materialization | `ArtifactState` | existing closed materialization values | commit time |
 | Evidence availability | Artifact metadata | `complete`, `partial`, `unavailable` | commit time |
 | Quality | `QualitySummary` and typed issues | existing closed summary/issues | commit time |
@@ -363,33 +440,29 @@ recap after identity and runtime mode:
 
 The exact aggregate counts come from one Session Store read transaction. The
 recap does not scan Artifact metadata to aggregate quality or issues; those
-facts remain on bounded Artifact summaries and exact Artifacts. Head derivation
-uses the normalized Run-input index rather than constructing the Graph. The
-recap does not render Artifact digest items, rows, complete Run records, or the
-graph.
+facts remain on bounded Graph Artifact summaries and exact Artifacts. Head
+derivation uses the normalized Run-input index rather than constructing the
+Graph. The recap does not render Artifact digest items, rows, complete Run
+records, or the graph.
 
-### Artifact collection
+### Run-first Artifact discovery
 
-```python
-session.artifacts(
-    *,
-    evidence_status: EvidenceStatus | None = None,
-    limit: int = 20,
-    cursor: str | None = None,
-) -> ArtifactSummaryPage
-```
+There is no `session.artifacts(...)` collection. It would create a second
+history browsing axis parallel to Runs and force the agent to decide which
+collection to inspect first.
 
-This replaces `session.frame_summaries()`.
+Artifacts are discovered through facts already owned by the primary runtime
+model:
 
-`ArtifactSummaryPage` is newest-first keyset pagination with the existing
-`items`, `limit`, `has_more`, and opaque `next_cursor` contract. `limit` remains
-bounded to `[1, 100]`.
+- `session.runs(...)` exposes ordered input refs and the succeeded output ref;
+- `session.get_run(id)` exposes the exact attempt and its Artifact refs;
+- `session.graph(...)` exposes bounded `ArtifactSummary` values when topology
+  matters;
+- `session.show()` exposes only bounded global head refs and attention Runs.
 
-Linked Component and Coverage sidecars are always excluded. They are
-implementation projections, not independent Session results. V1 deliberately
-omits both family filtering and an `include_sidecars` flag: paging and exact
-Artifact refs cover the ordinary recovery choices without publishing a second
-kind/family vocabulary.
+Linked Component and Coverage sidecars remain excluded from these public
+Artifact summaries. Once an exact ref is known, `session.artifact(ref)` is the
+one live recovery operation.
 
 ### Exact Artifact recovery
 
@@ -399,10 +472,9 @@ session.artifact(ref: str) -> BaseFrame
 
 This replaces `session.get_frame(ref)` while preserving concrete Artifact
 families, immutability, exact Session ownership, cold-start reconstruction, and
-typed corruption errors.
-
-The return annotation may use the existing closed public Artifact union if it
-is available at cutover. It must not widen to `Any` or a wrapper result.
+typed corruption errors. `BaseFrame` is the stable public supertype; the runtime
+returns the exact concrete subclass. The API does not add an Artifact union
+alias, widen to `Any`, or return a wrapper result.
 
 The recovered Artifact continues to expose:
 
@@ -413,11 +485,39 @@ artifact.state
 artifact.lineage
 artifact.evidence_status
 artifact.evidence_digest
+artifact.finding_count                  # exact non-negative int
 artifact.quality_summary
 artifact.to_pandas()
+artifact.findings(...)
+artifact.finding(finding_id)
 ```
 
 No `ArtifactHandle`, `ArtifactView`, or second `.load()` step is introduced.
+
+Finding access is explicit and bounded:
+
+```python
+artifact.findings(
+    *,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> FindingPage
+
+artifact.finding(finding_id: str) -> Finding
+```
+
+`artifact.findings()` is newest-first keyset pagination bounded to `[1, 100]`.
+It opens the owning Session ledger through the immutable `session_id` and
+`project_root` already persisted in Artifact metadata; no mutable Session
+handle or public wrapper is attached to the Artifact. `artifact.finding(id)`
+requires the canonical Finding to name `artifact.ref` as its owner. An unknown
+id or a Finding owned by another Artifact raises the existing
+`FindingNotFoundError` scoped to this Artifact; no second ownership-error class
+is added.
+
+`Finding` includes the derivation rule, source Artifact ref, source fields,
+source refs, and retained digest-item refs needed for exact audit. There is no
+second trace result or `artifact.trace(...)` call.
 
 ### Artifact revalidation
 
@@ -453,22 +553,26 @@ This replaces both `session.jobs()` and `session.recent_jobs()`.
 
 The page is newest-first and keyset-paged by `(started_at, run_id)`. `limit` is
 bounded to `[1, 100]`. An ordinary call is bounded; `limit=5` replaces the old
-recent-jobs use case without a separate method. `RunPage` uses immutable
-`items`, `limit`, `has_more`, and opaque `next_cursor`, matching the Artifact
-page protocol.
+recent-jobs use case without a separate method. `RunPage` uses the standard
+immutable page fields: `items`, `limit`, `has_more`, and opaque `next_cursor`.
 
-`capability_id` is one exact Help-resolvable capability id. Persisted legacy
-intent spellings are normalized by the internal current-schema decoder and are
-never accepted as a second public filter vocabulary. An unsupported historical
-intent fails typed decoding instead of silently becoming a public alias.
+`capability_id` is one exact Help-resolvable capability id. Every v1 Run payload
+must carry that canonical id; a legacy or non-canonical intent spelling is an
+integrity error and is never normalized into a second vocabulary.
 
 ### Exact Run recovery
 
 ```python
-session.run(run_id: str) -> RunRecord
+session.get_run(run_id: str) -> IncompleteRun | SucceededRun | FailedRun
 ```
 
 This replaces `session.job(job_id) -> dict[str, Any]`.
+
+The `get_` prefix is intentional. `session.get_run(...)` is an exact read and
+must not look like an imperative method that starts execution. Collection
+discovery remains `session.runs(...)`. Artifact recovery remains
+`session.artifact(...)`: `artifact` is unambiguously a noun in method position,
+while `run` is also an action verb.
 
 `RunRecord` is the closed union:
 
@@ -476,48 +580,55 @@ This replaces `session.job(job_id) -> dict[str, Any]`.
 RunRecord = IncompleteRun | SucceededRun | FailedRun
 ```
 
-The concrete variant determines which fields exist. There is no optional-field
+`RunRecord` is specification and annotation shorthand, not an exported runtime
+class or Help target. The three concrete variants are the public result types;
+the concrete variant determines which fields exist. There is no optional-field
 mega-record with nullable output and error fields.
 
-### Evidence audit
+### Artifact Evidence audit
 
-The canonical Evidence namespace keeps one exact Artifact digest lookup plus
-Finding audit and compatibility:
-
-```python
-session.evidence.digest(artifact_ref)
-session.evidence.findings(...)
-session.evidence.finding(finding_id)
-session.evidence.trace(finding_id)
-session.evidence.compatibility(finding_ids)
-```
-
-Remove:
-
-```python
-session.evidence.digests(...)
-```
-
-The Artifact remains the semantic owner of the digest:
+The Artifact is the semantic owner and only public read path for its digest:
 
 ```python
 artifact = session.artifact(ref)
 digest = artifact.evidence_digest
 ```
 
-When the agent has only a ref and does not need rows, the retained exact lookup
-returns the same persisted `ArtifactDigest` without loading Parquet:
+Remove the complete Session Evidence namespace:
 
 ```python
-digest = session.evidence.digest(ref)
+session.evidence.digest(...)
+session.evidence.digests(...)
+session.evidence.findings(...)
+session.evidence.finding(...)
+session.evidence.trace(...)
+session.evidence.compatibility(...)
 ```
 
-The exact lookup is a metadata index read, not another collection, synthesis,
-or recomputation path.
+V1 does not optimize ref-only digest recovery. An agent with only an Artifact
+ref recovers the exact Artifact once, then uses `artifact.show()` or
+`artifact.evidence_digest`. This keeps one owner, one discovery route, and one
+recovery decision.
 
-`ArtifactSummary` carries a bounded Evidence summary so Session browsing does
-not require loading Artifact rows merely to distinguish complete, partial, and
-unavailable Evidence.
+`ArtifactDigest.fallback`, `.show()`, `.contract()`, structured repairs, and
+dynamic guidance must route raw audit to `artifact.findings()` or
+`artifact.finding(id)` and must never emit a `session.evidence.*` continuation.
+
+Canonical Finding audit is reached from the owning Artifact:
+
+```python
+page = artifact.findings(limit=20)
+finding = artifact.finding(page.items[0].finding_id)
+```
+
+There is no Session-wide Finding browse, separate derivation-trace call, or
+Finding-selection compatibility API. Marivo guarantees each Finding's own
+canonical identity, Artifact ownership, derivation, and integrity; it makes no
+promise that multiple Findings are safe to combine.
+
+`ArtifactSummary` carries a bounded Evidence summary including the exact Finding
+count persisted by the producing Artifact. Session browsing reads that metadata
+fact and never opens the Evidence ledger merely to fill the field.
 
 ## Public Result Types
 
@@ -547,17 +658,49 @@ class ArtifactEvidenceSummary:
     digest_present: bool
     digest_item_count: int
     omitted_item_count: int
+    finding_count: int
 ```
 
-It does not repeat digest items, inference boundaries, or Finding payloads.
+It does not repeat digest items, inference boundaries, Finding ids, or Finding
+payloads. Every exact current-schema Artifact persists an exact non-negative
+`finding_count` at commit, so the property remains a pure bounded metadata fact.
+Exact records always require `artifact.findings(...)`.
 
 `ArtifactIssueCounts` contains typed severity counts, not free-form messages.
 Exact issues remain on the recovered Artifact contract.
 
+### Finding
+
+The existing canonical Finding is tightened to one Artifact-owned exact audit
+record:
+
+```python
+class Finding:
+    finding_id: str
+    artifact_ref: str
+    session_id: str
+    finding_type: FindingType
+    epistemic_kind: EpistemicKind
+    subject: EvidenceSubject
+    canonical_item_key: str
+    value: FindingValue
+    derivation: DerivationRule
+    source_artifact_ref: str
+    source_fields: tuple[str, ...]
+    source_refs: tuple[str, ...]
+    retained_digest_item_refs: tuple[str, ...]
+    committed_at: datetime
+```
+
+`artifact_ref`, not `artifact_id`, is the only public Artifact identity name.
+The derivation fields subsume the previous `EvidenceDerivationTrace`; no trace
+identity or second read result remains. `FindingPage.items` contains these same
+full immutable Findings and carries the standard bounded keyset page fields.
+
 ### Run records
 
-`RunPage.items` contains the same closed `RunRecord` values returned by
-`session.run(id)`. Runs are small metadata records, so V1 does not create a
+`RunPage.items` contains the same three closed concrete variants returned by
+`session.get_run(id)`. Runs are small metadata records, so V1 does not create a
 second summary hierarchy for list results.
 
 All Run types are immutable bounded results with deterministic `repr`,
@@ -571,18 +714,14 @@ run_id: str
 capability_id: str
 analysis_purpose: str | None
 input_artifact_refs: tuple[str, ...]
-invocation: RunInvocation
+arguments: tuple[RunArgument, ...]
+omitted_argument_names: tuple[str, ...]
 started_at: datetime
 ```
 
-`RunInvocation` is one bounded, capability-neutral envelope for admitted public
-arguments:
+`RunArgument` is one normalized public argument value:
 
 ```python
-class RunInvocation:
-    arguments: tuple[RunArgument, ...]
-    omitted_argument_names: tuple[str, ...]
-
 class RunArgument:
     name: str
     value: JsonValue
@@ -596,13 +735,13 @@ credentials, backend objects, executable callables, and unvalidated `repr`
 strings are never projected. Their parameter names appear in
 `omitted_argument_names`. The projection must preserve every other safe value
 that changes the observable computation, so an agent can distinguish ordinary
-Runs without decoding an opaque hash. `RunInvocation` is an inspection record,
-not an automatic replay API; any omission is explicit and prevents a mechanical
-replay claim.
+Runs without decoding an opaque hash. These argument fields are inspection
+facts, not an automatic replay API; any omission is explicit and prevents a
+mechanical replay claim.
 
 The implementation may retain a private parameter digest for integrity and
 Artifact-lineage cross-checking. It is not a public Run field and is not a
-substitute for invocation facts.
+substitute for safe argument facts.
 
 `SucceededRun` additionally carries:
 
@@ -645,18 +784,24 @@ message. Unknown exceptions never contribute their original message.
 
 ### Public type placement
 
-`SessionGraph`, `ArtifactSummaryPage`, `RunPage`, and the terminal Run
-record union are public analysis result families. `ArtifactSummary` and the Run
-variants are reused directly by `SessionGraph`; there is no parallel graph-node
-class hierarchy. Supporting immutable values such as `RunInvocation`,
-`RunArgument`, `SessionGraphEdge`, summary counts, and failure shapes resolve
-through their owning result's focused type Help but do not become top-level
-`__all__` exports or root discovery entries.
+`SessionGraph`, `ArtifactSummary`, `RunPage`, `IncompleteRun`, `SucceededRun`,
+`FailedRun`, `FindingPage`, and `Finding` are public analysis result types. The
+same `ArtifactSummary` and concrete Run variants are reused directly by
+`SessionGraph`; there is no parallel Artifact page or graph-node class
+hierarchy. `RunRecord` remains union shorthand in annotations and prose rather
+than another exported identity. Supporting immutable values such as
+`RunArgument`, `SessionGraphEdge`, summary counts, and failure shapes resolve as
+exact focused type leaves reached through their owning result. They do not
+become top-level `__all__` exports or discovery members.
 
-Every new terminal public result joins the `__all__` snapshot, public result
-protocol, type resolver, API reference, and Help reachability checks exactly
-once. Nested value objects are tested through their owner and do not expand the
-root surface.
+Every public result type named above joins the `__all__` snapshot, public result
+protocol where terminal, type resolver, API reference, and Help reachability
+checks exactly once. Nested value objects and the `RunRecord` shorthand are
+tested through their owner and do not expand the root surface.
+
+Public errors named by this design join the existing Analysis error family,
+`__all__` snapshot, API reference, and focused error Help. They do not implement
+the result protocol or enter root discovery.
 
 ## SessionGraph Contract
 
@@ -699,12 +844,12 @@ and Run records. It exposes:
 
 ```python
 artifacts: tuple[ArtifactSummary, ...]
-runs: tuple[RunRecord, ...]
+runs: tuple[IncompleteRun | SucceededRun | FailedRun, ...]
 edges: tuple[SessionGraphEdge, ...]
 ```
 
 `ArtifactSummary` still excludes rows, complete digest items, complete issues,
-and current revalidation state. `RunRecord` retains its closed lifecycle
+and current revalidation state. Every Run value retains its concrete lifecycle
 variant. Separate tuple fields provide the identity-family discriminator, so
 there is no generic node bag or `SessionGraphNodeRef` wrapper.
 
@@ -736,7 +881,7 @@ committed Artifact and the Artifact's canonical producer is another Run. Reuse
 must not rewrite Artifact metadata or impersonate a second producer.
 
 Input ordering has no graph meaning. A Run record retains input order for exact
-invocation inspection, but Graph edges are normalized and deterministically
+attempt inspection, but Graph edges are normalized and deterministically
 sorted.
 
 ### Roots, heads, and attention sets
@@ -746,7 +891,7 @@ sorted.
 ```python
 session_id: str
 artifacts: tuple[ArtifactSummary, ...]
-runs: tuple[RunRecord, ...]
+runs: tuple[IncompleteRun | SucceededRun | FailedRun, ...]
 edges: tuple[SessionGraphEdge, ...]
 root_run_ids: tuple[str, ...]
 head_artifact_refs: tuple[str, ...]
@@ -756,6 +901,13 @@ boundary_artifact_refs: tuple[str, ...]
 boundary_run_ids: tuple[str, ...]
 truncated: bool
 ```
+
+Every id tuple is a subset of the records selected into this `SessionGraph`.
+Root and head membership is nevertheless evaluated against the complete
+Session Store snapshot, not relative to the selected subgraph. Failed and
+incomplete ids likewise name only selected attention Runs. Boundary tuples name
+selected records with omitted adjacency; any other unselected records are
+reported only by `truncated=True` and the readable omission summary.
 
 A root Run consumes no Session Artifact. It may still depend on governed
 semantic definitions, datasource snapshots, or external values retained in its
@@ -830,7 +982,7 @@ The projection uses each source only for facts it owns:
 | Fact | Authority |
 | --- | --- |
 | Session membership and Artifact index | Session Store |
-| Run identity, capability, lifecycle, inputs, output, reuse, timing, safe invocation | Session Store canonical Run record |
+| Run identity, capability, lifecycle, inputs, output, reuse, timing, safe arguments | Session Store canonical Run record |
 | Artifact identity, canonical producer, family, state, Evidence, quality | Artifact metadata |
 | historical computation ancestry | Artifact lineage, as an integrity cross-check |
 | exact Findings and derivations | Evidence ledger, not read by Graph |
@@ -880,8 +1032,8 @@ index invariant cannot be trusted.
 An overall graph requires an exact hard scan bound in addition to
 `max_nodes`. The implementation defines a private, tested bound derived from
 the Session Store read budget. If the Session exceeds it, the overall read
-raises a structured size error and teaches `session.artifacts(...)` followed by
-the exact ancestor- or descendant-focused call.
+raises a structured size error and teaches bounded `session.runs(...)` browsing
+followed by the exact ancestor- or descendant-focused call.
 
 The hard bound is not a user policy parameter. Raising it is an implementation
 and resource-contract change, not an analysis choice.
@@ -900,7 +1052,7 @@ A Run begins only after:
 - the Session is resolved and writable;
 - capability inputs are structurally valid;
 - every Artifact input has exact same-Session ownership;
-- input Artifact refs and the safe `RunInvocation` projection are normalized;
+- input Artifact refs and the safe argument projection are normalized;
 - a stable Run id is allocated.
 
 Errors before this point remain call-site errors and do not create Run history.
@@ -981,7 +1133,7 @@ question: Why did weekly revenue fall?
 artifacts: total=7 heads=2 evidence_complete=5 partial=1 unavailable=1
 runs: succeeded=7 failed=1 incomplete=0
 attention:
-- run_... failed compare; call session.run('run_...').show()
+- run_... failed compare; call session.get_run('run_...').show()
 heads:
 - delta_... DeltaFrame evidence=complete
 - attr_... AttributionFrame evidence=partial
@@ -991,12 +1143,10 @@ available:
 - .graph()
 - .graph(artifact_ref='<ref>', direction='ancestors')
 - .graph(artifact_ref='<ref>', direction='descendants')
-- .artifacts(...)
 - .artifact(ref)
 - .runs(...)
-- .run(run_id)
+- .get_run(run_id)
 - .revalidate(ref)
-- .evidence
 ...
 ```
 
@@ -1004,8 +1154,8 @@ The concrete card remains within the Session render budget. Counts are exact
 for the Session Store snapshot used by the read; listed attention and head
 items are explicitly bounded. When the indexed Session size exceeds the Graph
 scan bound, the card does not advertise an overall `.graph()` call that will
-fail. It states that the overall graph is too large and advertises Artifact
-paging plus the two focused call templates instead.
+fail. It states that the overall graph is too large and advertises Run paging
+plus the two focused call templates instead.
 
 ### SessionGraph show
 
@@ -1046,7 +1196,7 @@ The renderer:
 - reports truncation and boundary records;
 - never calls an incomplete selected topology the complete Session DAG;
 - never renders Evidence items or data rows;
-- provides exact `session.artifact(ref)`, `session.run(id)`, or focused
+- provides exact `session.artifact(ref)`, `session.get_run(id)`, or focused
   `session.graph(artifact_ref=..., direction=...)` recovery calls when detail
   is omitted.
 
@@ -1057,55 +1207,84 @@ location, and a current executable repair:
 
 | Error | Trigger | Repair direction |
 | --- | --- | --- |
-| `ArtifactNotFoundError` | exact Artifact ref absent from Session | use `session.artifacts(...)` |
+| `ArtifactNotFoundError` | exact Artifact ref absent from Session | inspect `session.runs(...)` or `session.graph()` |
 | `RunNotFoundError` | exact Run id absent from Session | use `session.runs(...)` |
+| `FindingNotFoundError` | exact Finding id absent from the owning Artifact | use `artifact.findings(...)` |
 | `SessionGraphLimitError` | `max_nodes` outside `[1, 500]` | pass the bounded value |
 | `SessionGraphArgumentError` | focused direction is invalid or lacks `artifact_ref` | pass an exact ref and one supported direction |
-| `SessionGraphTooLargeError` | overall scan exceeds the hard bound | page Artifacts, then call one focused graph direction |
+| `SessionGraphTooLargeError` | overall scan exceeds the hard bound | page Runs, take an exact Artifact ref, then call one focused graph direction |
 | `SessionGraphIntegrityError` | selected persisted facts disagree or cycle | inspect the concrete Run/Artifact ids carried by the error, then regenerate that named computation in a fresh Session if canonical storage is corrupt |
+| `SchemaVersionMismatchError` | Session Store or Run payload version is not the exact current contract | create a new named Session; do not migrate or reuse the old state |
+| `FrameMetaInvalidError` | Artifact metadata version is not `analysis-artifact/v13` | create a new named Session and rerun the analysis |
 | existing Artifact corruption errors | exact Artifact bytes/meta invalid | preserve existing typed repair |
 | existing Session lock errors | Session persistence is locked | preserve existing ownership repair |
 
-`ArtifactNotFoundError` may replace the Frame-named recovery error only when the
-complete active public contract, tests, Help, and docs use Artifact identity.
-There is no compatibility subclass or duplicate public error spelling.
+`ArtifactNotFoundError` replaces the Frame-named recovery error in the atomic
+cutover, together with the complete active public contract, tests, Help, and
+docs. There is no compatibility subclass or duplicate public error spelling.
 
-An empty `SessionGraph`, `ArtifactSummaryPage`, or `RunPage` means the
-healthy Session matched no records. Store unavailability and corruption always
-raise.
+An empty `SessionGraph`, `RunPage`, or `FindingPage` means the healthy owning
+store matched no records. Store unavailability and corruption always raise.
 
 ## Help and Disclosure Contract
 
+### Progressive disclosure invariants
+
+This design does not add a seventh analysis hub or expand the analysis root.
+`marivo.help("analysis")` remains the bounded root defined by the progressive
+Help design: six decision hubs plus the exact terminal boundary. This design
+changes membership only inside the existing `analysis.runtime` and
+`analysis.evidence` hubs.
+
+The existing render classes and budgets remain unchanged:
+
+- `analysis.runtime` and `analysis.evidence` are `decision_hub` pages;
+- `analysis.runtime.runs` is a `navigation` page;
+- Session and Artifact methods are `exact_callable` leaves with reflected
+  signatures and at most one minimal example;
+- public result types are `public_type` leaves reached from their producer or
+  consumer contract;
+- error classes use focused error Help and error instances use the bounded
+  `current_briefing` contract.
+
+Root, hub, and navigation pages contain no signatures, parameter tables,
+examples, public-type field inventories, or error catalogs. Membership is an
+explicit registry fact, never inferred from dotted prefixes or copied into the
+renderer. Every exact callable has one discovery owner; output-type, error,
+Artifact-type, result-card, and structured-repair routes are cross-links rather
+than duplicate membership.
+
 ### Analysis runtime navigation
 
-`marivo.help("analysis.runtime")` becomes a decision page for persisted runtime
-facts rather than storage identities:
+`marivo.help("analysis.runtime")` remains the decision page for persisted
+runtime facts rather than storage identities:
 
 ```text
 runtime
   -> runtime.sessions   # create, locate, inspect, resume, delete
   -> session.graph      # understand one resumed Session
-  -> runtime.artifacts  # list and recover Artifacts
+  -> session.artifact   # recover one exact Artifact
   -> runtime.runs       # list and inspect Runs
 ```
 
-`runtime.artifacts` owns:
-
-```text
-session.artifacts
-session.artifact
-session.revalidate
-ArtifactSummaryPage
-```
+The previous `runtime.artifacts` page is removed. After `frame_summaries()` is
+deleted it would contain only one recovery callable, so the progressive
+singleton rule requires `analysis.runtime` to route directly to
+`analysis.session.artifact`. Artifact revalidation and Finding audit are
+Evidence questions, not runtime-recovery membership.
 
 `runtime.runs` owns:
 
 ```text
 session.runs
-session.run
-RunPage
-RunRecord
+session.get_run
 ```
+
+`RunPage` and the three concrete Run variants are return-type cross-links from
+those exact leaves. They are not extra navigation members. `session.graph` and
+`session.artifact` are direct singleton routes owned by `analysis.runtime`;
+`session.runs` and `session.get_run` are discovery-owned by
+`analysis.runtime.runs`.
 
 ### Evidence navigation
 
@@ -1113,18 +1292,23 @@ RunRecord
 ownership explicit:
 
 ```text
-Artifact commit-time Evidence -> artifact.show / artifact.evidence_digest
-Exact digest without row load    -> evidence.digest
-Finding audit                 -> evidence.findings / finding / trace
-Finding compatibility         -> evidence.compatibility
+Artifact commit-time Evidence -> BaseFrame.show / artifact.evidence_digest
+browse Artifact Findings      -> artifact.findings
+read one exact Finding        -> artifact.finding
 current Artifact authority    -> session.revalidate
 quality                       -> Artifact quality summary and issues
 source freshness              -> outside this Session surface
 ```
 
-The `evidence.browse` grouping lists Finding collection operations only. The
-`evidence.exact` grouping lists exact digest, Finding, and trace reads. There is
-no second Artifact-digest collection.
+The previous `evidence.browse` and `evidence.exact` groupings are removed.
+Each would become a one-callable pass-through after the Session Evidence
+namespace is deleted. `analysis.evidence` therefore discovery-owns the exact
+`artifact.findings`, `artifact.finding`, and `session.revalidate` leaves
+directly. `BaseFrame.show`, the Artifact type page, `ArtifactDigest`,
+`FindingPage`, `Finding`, `ArtifactRevalidation`, and quality are typed
+cross-links owned by their existing contracts. There is no Session Evidence
+namespace, second Artifact-digest route, separate trace result, or
+selection-compatibility target.
 
 ### Focused leaves
 
@@ -1132,31 +1316,62 @@ Every new callable and public result has one exact leaf:
 
 ```text
 analysis.session.graph
-analysis.session.artifacts
 analysis.session.artifact
 analysis.session.runs
-analysis.session.run
+analysis.session.get_run
 analysis.session.revalidate
+analysis.artifact.findings
+analysis.artifact.finding
 analysis.SessionGraph
-analysis.ArtifactSummaryPage
+analysis.ArtifactSummary
+analysis.FindingPage
+analysis.Finding
 analysis.RunPage
-analysis.RunRecord
+analysis.IncompleteRun
+analysis.SucceededRun
+analysis.FailedRun
 ```
 
-All removed ids fail as unknown targets and suggest the new canonical target
-from registry-owned migration facts during the development candidate only.
-The released public registry contains no callable alias descriptor.
+Supporting values remain exact resolvable leaves without discovery ownership:
+
+```text
+analysis.ArtifactEvidenceSummary
+analysis.RunArgument
+analysis.RunFailure
+analysis.SessionGraphEdge
+```
+
+Every new or renamed public error also has one exact leaf:
+
+```text
+analysis.ArtifactNotFoundError
+analysis.RunNotFoundError
+analysis.FindingNotFoundError
+analysis.SessionGraphLimitError
+analysis.SessionGraphArgumentError
+analysis.SessionGraphTooLargeError
+analysis.SessionGraphIntegrityError
+analysis.SchemaVersionMismatchError
+analysis.FrameMetaInvalidError
+```
+
+All removed ids fail as unknown targets. The ordinary bounded lexical
+suggestion mechanism may show nearby installed canonical ids, but there is no
+migration map, alias descriptor, fallback resolver, or automatic translation
+from an old id.
 
 ### Object-near disclosure
 
-`Session.show()` advertises `graph`, Artifact recovery, Run inspection, and raw
-Evidence without expanding their signatures.
+`Session.show()` advertises `graph`, Artifact recovery, and Run inspection
+without expanding their signatures.
 
 `SessionGraph.show()` points to exact Run and Artifact reads. It never lists
 analysis operators as recommendations.
 
-`Artifact.show()` remains the only immediate Evidence summary and updates
-recovery text from `session.get_frame(ref)` to `session.artifact(ref)`.
+`Artifact.show()` remains the only immediate Evidence summary, reports
+the exact `finding_count`, and points to Artifact-scoped raw audit when the
+count is nonzero. It updates recovery text from `session.get_frame(ref)` to
+`session.artifact(ref)`.
 
 ## Packaged Skill Contract
 
@@ -1164,18 +1379,23 @@ The packaged `marivo-analysis` skill must change in the same atomic cutover.
 
 It teaches:
 
-1. after resuming an unfamiliar Session, call `session.show()`;
-2. call `session.graph()` only when cross-Artifact structure matters;
-3. use the ancestor-focused graph for provenance and the descendant-focused
+1. resume only an exact current-format Session; on a schema mismatch, create a
+   new named Session rather than migrating or reusing old state;
+2. after resuming an unfamiliar current-format Session, call `session.show()`;
+3. call `session.graph()` only when cross-Artifact structure matters;
+4. use the ancestor-focused graph for provenance and the descendant-focused
    graph for downstream impact when the overall graph is too large;
-4. recover an exact result through `session.artifact(ref)`;
-5. inspect failed or incomplete execution through `session.run(id)`;
-6. trust `artifact.show()` for immediate commit-time Evidence, use
-   `session.evidence.digest(ref)` for an exact metadata-only digest read, and
-   use Findings for canonical audit detail;
-7. revalidate explicitly when current semantic authority matters;
-8. never treat Graph structure, Evidence completeness, or successful Runs as a
+5. recover an exact result through `session.artifact(ref)`;
+6. inspect failed or incomplete execution through `session.get_run(id)`;
+7. trust `artifact.show()` for immediate commit-time Evidence, use
+   `artifact.evidence_digest` for structured digest access, and use
+   `artifact.findings()` / `artifact.finding(id)` for canonical raw audit;
+8. revalidate explicitly when current semantic authority matters;
+9. never treat Graph structure, Evidence completeness, or successful Runs as a
    business conclusion or datasource-freshness proof.
+
+The skill does not teach multi-Finding combination or claim that two Findings
+are mechanically safe to use together.
 
 The skill does not copy signatures, result fields, graph ordering rules, error
 catalogs, or render budgets. Those remain live runtime facts.
@@ -1196,53 +1416,55 @@ The same change set updates:
 - the packaged `marivo-analysis` skill.
 
 Historical versioned site documentation remains historical. Current docs must
-not teach both old and new public names.
+not teach both old and new public names. Current Session/runtime guidance states
+that pre-cutover state is incompatible, remains untouched, and must be replaced
+by a newly named Session rather than migrated or imported.
 
-## Persistence and Compatibility
+## Persistence and Incompatible State
 
 ### Session Store
 
-The Session Store remains the only mutable runtime index. The implementation
-performs one additive SQLite schema upgrade so the canonical Run row owns its
-closed lifecycle variant, capability id, safe invocation projection, input
-refs, output mode/ref, timing, and safe failure. Terminal transition and output
-relationship update occur in one SQLite transaction.
+The Session Store remains the only mutable runtime index. A new Session is
+created directly with Session Store `PRAGMA user_version = 1` and canonical Run
+payload schema `marivo.analysis_run/v1`. The canonical Run row owns its closed
+lifecycle variant, capability id, safe argument projection, input refs, output
+mode/ref, timing, and safe failure. Terminal transition and output relationship
+update occur in one SQLite transaction.
 
 A normalized `run_inputs(session_id, run_id, artifact_ref, position)` relation
 is maintained in that transaction. It is a Run lookup index, not a persisted
 Session graph or second lineage authority. It supports focused descendant
-navigation without scanning every Run. `position` preserves invocation input
+navigation without scanning every Run. `position` preserves execution input
 order for exact Run reads; Graph edges continue to ignore input order.
 
-New canonical Run state is not split between mutable JSON and SQLite. Existing
-job JSON may remain as a legacy immutable source for current-schema succeeded
-records, but new incomplete/terminal transitions live in the Session Store.
+Canonical Run state is not split between JSON and SQLite. The old
+`marivo.analysis_job/v2` files are neither written nor read by this contract.
 The implementation must not persist a `session_graph` table or graph JSON
 snapshot.
 
-### Existing Sessions
+### Incompatible pre-cutover state
 
-One internal canonical decoder accepts either the new Session Store Run payload
-or the exact current `marivo.analysis_job/v2` succeeded record and emits the
-same target `RunRecord`. For v2 it maps storage names such as
-`input_frame_refs`, `output_frame_ref`, and `reused_artifact` internally,
-normalizes known intent names to current capability ids, and projects safe
-arguments from the persisted `params`. These mappings never become public
-aliases or Help targets.
+Pre-cutover Session state is intentionally not reusable. `session.resume(...)`
+validates the Session Store version before any mutation or recovery work. A
+Store other than exact version 1, a Run payload other than
+`marivo.analysis_run/v1`, or Artifact metadata other than
+`analysis-artifact/v13` fails closed.
 
-The additive Store upgrade decodes current v2 records once to backfill the
-canonical Run payload and `run_inputs` relation transactionally. A failed
-decode aborts the upgrade and raises the exact schema/integrity error; it never
-publishes a partial index. After successful backfill, ordinary reads use only
-the canonical Store payload. The v2 decoder remains the cold-recovery input
-adapter, not a second runtime read path.
+There is no decoder, migration, import, backfill, state rewrite, dual read, or
+fallback to `marivo.analysis_job/v2` or `analysis-artifact/v12`. The failure
+uses `SchemaVersionMismatchError` for Session Store or Run payload mismatch and
+the existing `FrameMetaInvalidError` for Artifact schema mismatch. Both errors
+state expected, received, location, and the exact repair: preserve or move the
+entire old `.marivo/analysis` directory, initialize one fresh Store, create a
+new Session with a new name, and rerun the required analysis. A new Session in
+the incompatible Store is not a repair. The errors never suggest reopening,
+upgrading, or partially copying the old Session.
 
-Current-schema records naturally lack failed or incomplete Runs that were never
-persisted; the Graph must not infer them. Unsupported intent names, unsafe or
-contradictory values, and non-current schemas fail with the existing
-schema/integrity errors. There is no best-effort decoding, public compatibility
-method, or second public vocabulary. The narrow internal v2 decoder is the
-explicit compatibility required to keep existing current sessions readable.
+The old Session directory remains byte-for-byte untouched after the error.
+Session discovery may list its bounded identity without claiming runtime
+readability, but `show()`, `runs()`, `artifact()`, `graph()`, and revalidation
+never project old runtime facts. The repair creates fresh state; it does not
+reuse old Artifact refs, job ids, Evidence rows, or lineage.
 
 ### Atomic cutover
 
@@ -1250,8 +1472,11 @@ The public cutover is released only when:
 
 - new runtime reads and result types are complete;
 - Graph and Run persistence are complete;
-- old Session methods and the digest collection method are removed;
-- all registry/help references resolve to new ids;
+- old Session methods and the complete Session Evidence namespace are removed;
+- removed singleton/legacy navigation topics are absent and all advertised
+  registry/Help references resolve to canonical ids;
+- fresh state uses only Store v1, Run payload v1, and Artifact v13, while
+  incompatible state fails without mutation or migration;
 - Artifact recovery strings are updated;
 - packaged skill and current bilingual docs are updated;
 - public export, typing, persistence, and agent-journey gates pass.
@@ -1278,17 +1503,26 @@ in place.
 Rejected. It creates a second state authority that can drift from Session
 Store, Run records, Artifact metadata, and the Evidence ledger.
 
+### Migrate or decode pre-cutover Session state
+
+Rejected. Supporting job-v2, Artifact-v12, or unknown future schemas would add
+decoder, backfill, dual-read, partial-migration, and repair branches for state
+that the user does not require. The exact current schemas fail closed and teach
+creation of a new named Session; old bytes remain untouched.
+
 ### Return `ArtifactHandle` wrappers
 
 Rejected. The existing concrete Artifact already owns immediate reading,
 contract, lineage, Evidence digest, quality, and terminal row access. A wrapper
 would add another mandatory step and identity surface.
 
-### Put all Evidence under Artifact
+### Persist raw Findings inside Artifact metadata
 
-Rejected. Artifact digest belongs to the Artifact, but canonical Findings,
-derivation traces, and selection compatibility belong to the Session ledger
-and may span Artifacts.
+Rejected. Each Finding is owned and publicly scoped by one Artifact, but the
+Session Evidence ledger remains the canonical indexed storage authority.
+Embedding every Finding in Artifact metadata would make Artifact recovery and
+`artifact.show()` unbounded. New Artifacts store only bounded Evidence metadata
+and `finding_count`; explicit `artifact.findings()` reads the ledger.
 
 ### Expose a raw adjacency dictionary
 
@@ -1314,19 +1548,33 @@ the core recovery decision.
 
 Tests must prove:
 
-- every new terminal result has bounded deterministic `repr`, `render()`, and
-  `show()`;
-- `session.run()` returns the exact closed Run variant, never a dict;
+- every new public result has a bounded deterministic `repr`; terminal results
+  additionally have bounded deterministic `render()` and `show()`;
+- `session.get_run()` returns the exact closed Run variant, never a dict;
 - pages expose immutable tuples, exact limits, and opaque keyset cursors;
-- exact Run records expose bounded safe invocation facts rather than only an
+- exact Run records expose bounded safe argument facts rather than only an
   opaque parameter digest;
-- exact `session.evidence.digest(ref)` performs no Artifact Parquet read;
-- graph records reuse `ArtifactSummary` and `RunRecord` instead of duplicating
-  public node variants;
+- `artifact.evidence_digest` returns the Artifact's immutable commit-time
+  snapshot without a second Evidence Store lookup or recomputation;
+- `artifact.finding_count` and `ArtifactEvidenceSummary.finding_count` are exact
+  non-negative integers for every exact current-schema Artifact;
+- `artifact.findings()` is bounded, Artifact-scoped, and explicit about ledger
+  I/O;
+- exact `artifact.finding(id)` rejects a Finding owned by another Artifact;
+- each exact Finding carries its complete derivation trace without a second
+  public read;
+- public Help, exports, structured repairs, digest continuations, skills, and
+  current docs contain no `session.evidence` route,
+  `EvidenceDigestNotAvailableError`, Finding-selection compatibility API, or
+  multi-Finding combination promise;
+- graph records reuse `ArtifactSummary` and the concrete Run variants instead
+  of duplicating public node variants;
 - no new public callable or type exposes `Any`;
 - Artifact, Run, and Finding ids cannot be silently interchanged;
 - public exports, API reference, type resolver, and result protocol snapshots
-  agree.
+  agree;
+- each new or renamed error class and concrete instance resolves to focused
+  Help with expected, received, location, and a canonical repair.
 
 ### Graph topology
 
@@ -1380,9 +1628,15 @@ Tests must cover:
   field;
 - persistence failure precedence and chaining;
 - Artifact reuse without producer metadata rewrite;
-- cold-start decoding of current-schema succeeded Runs;
-- exact v2 storage-name normalization without public legacy aliases;
-- all-or-nothing v2 canonical payload and Run-input index backfill;
+- fresh Sessions initialize exact Store version 1, Run payload v1, Artifact
+  metadata v13, and the normalized Run-input index directly;
+- Store versions other than 1, Run payloads other than
+  `marivo.analysis_run/v1`, and Artifact metadata other than
+  `analysis-artifact/v13` fail before any runtime fact is projected;
+- incompatible-state failure leaves the old Session directory byte-for-byte
+  unchanged and teaches creation of a newly named Session;
+- no decoder, migration, import, backfill, dual read, job-v2 fallback, or
+  Artifact-v12 fallback exists in runtime code;
 - recovery after interruption between Artifact commit and Run completion;
 - one-snapshot reads while another process transitions a Run;
 - Session lock behavior under parallel processes.
@@ -1394,9 +1648,23 @@ Tests must prove:
 - each new focused leaf resolves from string, callable/type object, and exact
   runtime instance where applicable;
 - removed targets are absent from the released registry and root topology;
-- runtime and Evidence navigation list each canonical target exactly once;
+- the analysis root remains the six existing decision hubs plus the exact
+  terminal boundary, with no Session/Run/Graph inventory added to it;
+- `analysis.runtime` discovery-owns direct `session.graph` and
+  `session.artifact` routes plus `runtime.sessions` and `runtime.runs`;
+- `analysis.runtime.runs` owns exactly `session.runs` and `session.get_run`;
+- `analysis.evidence` discovery-owns `artifact.findings`, `artifact.finding`,
+  and `session.revalidate`, while result/type/error links remain cross-links;
+- `runtime.artifacts`, `runtime.jobs`, `evidence.browse`, and `evidence.exact`
+  are absent because the target topology would make them aliases or singleton
+  pass-through pages;
+- every exact callable has one discovery owner, every registered navigation
+  page has at least two members, and renderer/prefix inference owns no members;
 - every route emitted by root, hub, grouping, result, contract, and error output
   resolves;
+- old Help ids fail normally with no migration map or fallback resolution;
+- root, decision-hub, navigation, exact-callable, public-type, and
+  current-briefing budgets are enforced independently;
 - Session and Graph cards stay within independent line/codepoint/byte budgets;
 - current English and Chinese docs contain new names and reject old names;
 - packaged skill guidance contains boundaries and routes but no copied API
@@ -1404,7 +1672,10 @@ Tests must prove:
 
 ### Agent acceptance
 
-At least six isolated cold-start recovery journeys must demonstrate:
+All positive journeys use newly created exact current-schema Sessions. One
+separate negative journey proves that resuming pre-cutover state fails before
+mutation and teaches creation of a new named Session. At least six isolated
+cold-start recovery journeys must demonstrate:
 
 1. identify the current head Artifact from a branched Session;
 2. locate the Run that produced one Artifact;
@@ -1412,18 +1683,16 @@ At least six isolated cold-start recovery journeys must demonstrate:
    descendant navigation without treating its input as failed;
 4. distinguish partial Evidence from stale or unchecked semantic authority;
 5. distinguish two Runs with the same capability and inputs but different safe
-   invocation arguments;
-6. recover an exact digest without loading Artifact rows, then recover exact
-   Findings omitted from that digest.
+   arguments;
+6. recover one exact Artifact, inspect its bounded digest, then recover exact
+   Findings omitted from that digest through the same owning Artifact.
 
 Acceptance targets:
 
 - the ordinary Session shape is recovered with `session.show()` plus at most
   one `session.graph()` call;
 - no journey manually joins `jobs()` and `frame_summaries()`;
-- no journey calls a second digest `show()` after `artifact.show()` merely to
-  discover immediate Evidence; exact digest lookup is used only for requested
-  drill-down;
+- no journey calls a second Session digest API after `artifact.show()`;
 - no answer claims datasource freshness, business validity, or recommended
   next action from Graph topology;
 - every recovery call used by the agent is a canonical Help-resolvable public
@@ -1434,57 +1703,174 @@ persistence, typing, Help, and rendering gates belong in this repository.
 
 ## Delivery Slices
 
-The implementation may be developed in slices, but the public release remains
-atomic.
+Implementation is divided into exactly three dependent but independently
+verifiable slices. "Independently verifiable" means that each slice ends in a
+bounded behavioral invariant, dedicated automated tests, and a reviewable diff;
+it does not mean the slices can land in arbitrary order or that an intermediate
+commit is a public release. Slice 1 and Slice 2 keep candidate read services and
+types internal. The public release remains the atomic Slice 3 cutover.
 
-### Slice 1: canonical Run persistence
+Each slice must pass its own focused gate before the next begins. Later slices
+rerun the earlier focused gates; they do not defer unfinished tests or repairs
+to the final full suite.
 
-- add canonical Session Store Run payloads and the normalized Run-input index;
-- add the narrow current-v2 decoder and all-or-nothing backfill;
-- persist incomplete Runs before execution;
-- publish succeeded and failed terminal variants;
-- preserve Artifact/Evidence independence and interruption recovery;
-- verify one-snapshot reads, lock behavior, sanitization, and failure precedence.
+### Slice 1: persisted runtime truth
 
-### Slice 2: typed Run reads
+Outcome: the Session Store can represent and recover every target Run lifecycle
+fact, and incompatible old state fails before mutation, without advertising any
+target runtime API.
 
-- define closed Run records, `RunPage`, and the safe invocation projection;
-- add bounded Run paging and exact read;
-- keep the new API private until the cutover surface is complete.
+Implementation scope:
 
-### Slice 3: Artifact recovery naming and summaries
+- add the canonical Run payload and normalized `run_inputs` index;
+- place one admission wrapper before materializing Capability execution and
+  persist `IncompleteRun` before backend work starts;
+- atomically publish succeeded and sanitized failed terminal variants;
+- implement interruption reconciliation, persistence-failure precedence, and
+  one-snapshot/lock behavior;
+- initialize new Sessions directly with Store version 1 and canonical
+  `marivo.analysis_run/v1` payloads;
+- require `analysis-artifact/v13` and persist exact `finding_count` on every
+  exact current-schema Artifact commit;
+- reject any other Store, Run, or Artifact schema before recovery or mutation,
+  with no decoder, migration, backfill, import, or legacy fallback;
+- keep every new type, adapter, and Store read private; the staged Artifact
+  metadata field is not documented as public until Slice 3, and public exports,
+  Session methods, Help, skills, and current docs remain unchanged in this
+  slice.
 
-- define `ArtifactSummary` and bounded pages;
-- implement `session.artifact(ref)` and ref-based revalidation;
-- preserve exact Artifact family reconstruction;
-- update internal recovery builders without advertising aliases.
+Independent verification:
 
-### Slice 4: SessionGraph projection
+- transition tests cover only `absent -> incomplete -> succeeded|failed` and
+  prove execution never starts when initial persistence fails;
+- failure tests cover allowlisting, recursive bounds, secret/SQL redaction,
+  unknown exceptions, re-raise behavior, and terminal-write failure chaining;
+- recovery tests cover reuse, partial/unavailable Evidence, interruption after
+  Artifact commit, parallel readers, and process locks;
+- schema tests prove v1/v13 exact reads, v2/v12/future-version rejection,
+  byte-for-byte preservation of old Session state, and new-Session repair;
+- Artifact metadata tests prove exact non-negative counts for every exact
+  current-schema Artifact.
 
-- define the reused Artifact/Run collections, one edge shape, boundary tuples,
-  truncation, and errors;
-- implement overall and ancestor/descendant-focused construction;
-- validate reuse, branches, failures, integrity, bounds, and purity;
-- add bounded Session and Graph rendering.
+Focused gate:
 
-### Slice 5: atomic disclosure cutover
+```bash
+make test TESTS='tests/test_analysis_run_persistence.py tests/test_analysis_runtime_schema.py tests/test_analysis_evidence_pipeline.py tests/test_analysis_session_store.py tests/test_public_surface.py'
+make typecheck
+make lint
+```
 
-- replace public Session methods and exports;
-- remove digest collection duplication while retaining the exact metadata-only
-  digest read;
-- update capability registry, Help topology, dynamic recovery strings, errors,
-  packaged skill, API docs, current bilingual site docs, and release notes;
-- delete old contract tests and add negative absence tests.
+Exit criterion: canonical persisted records can be reconstructed and validated
+without Graph construction or any new public symbol, and the public export/Help
+snapshots are unchanged. This intermediate schema-bearing commit is not a
+releasable public version.
 
-### Slice 6: acceptance and closeout
+### Slice 2: typed internal read model and Graph
 
-- run focused Session, Evidence, result-protocol, registry, persistence, and
-  process-isolation tests;
-- run `make test`, `make typecheck`, `make lint`, and `make docs-api`;
-- run site content verification and build;
-- run clean installed-wheel Help and recovery smoke tests;
-- run the six isolated agent recovery journeys;
-- confirm the released tree contains one canonical runtime vocabulary.
+Outcome: the complete target read behavior works through internal candidate
+services over Slice 1 persistence, without exposing a half-cut-over public
+surface.
+
+Implementation scope:
+
+- define `ArtifactSummary`, `ArtifactEvidenceSummary`, `FindingPage`, the three
+  concrete Run variants, `RunPage`, `SessionGraph`, its edge value, boundaries,
+  typed errors, and bounded renderers;
+- implement internal bounded Run paging and exact Run recovery with safe
+  arguments;
+- implement exact Artifact recovery, ref-based revalidation, Artifact-scoped
+  Finding paging/exact ownership checks, and full derivation fields;
+- implement overall and ancestor/descendant-focused Graph construction,
+  deterministic selection, reuse, integrity validation, and purity;
+- implement the bounded Session recap and object-near continuation builders;
+- keep the candidate methods detached from the public `Session`/Artifact
+  surface and absent from `__all__`, Help, the packaged skill, and user docs.
+
+Independent verification:
+
+- read-model tests cover empty pages, pagination, exact variants, unknown ids,
+  exact Finding counts, cross-Artifact Finding rejection, and Artifact-family
+  cold reconstruction from exact current schemas;
+- topology tests cover empty, linear, branch, merge, reuse, failed, incomplete,
+  focused, truncated, boundary, cycle, mismatch, and concurrent-transition
+  fixtures;
+- purity probes fail if Graph construction loads Parquet, opens the Evidence
+  ledger, executes a datasource, revalidates, or recomputes Evidence/quality;
+- result-protocol tests prove bounded deterministic `repr` for every candidate
+  public result and `render()` / `show()` for every terminal result.
+
+Focused gate:
+
+```bash
+make test TESTS='tests/test_analysis_runtime_reads.py tests/test_analysis_artifact_evidence_reads.py tests/test_analysis_session_graph.py tests/test_agent_result_protocol.py tests/test_public_surface.py'
+make typecheck
+make lint
+```
+
+Exit criterion: every target read and error can be exercised through the
+internal candidate service, all graph facts come from their declared authority,
+and the released public vocabulary is still unchanged.
+
+### Slice 3: atomic public cutover and acceptance
+
+Outcome: the verified internal model becomes the one released public runtime
+contract, with the old vocabulary and Session Evidence namespace absent.
+
+Implementation scope:
+
+- attach `runs`, `get_run`, `artifact`, `revalidate`, and `graph` to `Session`,
+  and attach Finding reads to the owning Artifact;
+- export and register only the canonical public result types, including the
+  three concrete Run variants; keep `RunRecord` as non-exported annotation
+  shorthand;
+- remove `frame_summaries`, `get_frame`, `jobs`, `recent_jobs`, `job`, the
+  complete `session.evidence` namespace, compatibility result algebra, obsolete
+  errors, aliases, renderers, tests, and dynamic continuations;
+- preserve the six-hub analysis root, remove the singleton
+  `runtime.artifacts`, `evidence.browse`, and `evidence.exact` pages, replace
+  `runtime.jobs` with the two-member `runtime.runs` page, and assign every exact
+  callable one registry-owned discovery owner;
+- update focused leaves, structured repairs,
+  Session/Artifact/Graph cards, API reference inputs, the packaged skill,
+  current English/Chinese specs and site pages, and release notes atomically;
+- add negative absence, reachability, drift, render-budget, clean-wheel, and six
+  isolated agent-recovery journey tests.
+
+Independent verification:
+
+- black-box tests import only `marivo.analysis`, resolve every advertised route,
+  exercise every new callable and concrete result type, and prove every removed
+  symbol and Help id is absent;
+- Help graph tests prove root/hub/navigation budgets, singleton rejection,
+  unique discovery ownership, cross-link reachability, and absence of renderer
+  or prefix-derived membership;
+- incompatible Session state fails with canonical structured errors and no
+  migration-target or alias fallback;
+- current English/Chinese docs and the packaged skill contain only canonical
+  calls and preserve Evidence, authority, and freshness boundaries;
+- a clean built wheel reproduces Help, Session recovery, Artifact audit, and
+  Graph behavior without importing the source checkout;
+- the six cold-start journeys satisfy the Agent acceptance targets before the
+  cutover is considered complete.
+
+Focused and release gate:
+
+```bash
+make test TESTS='tests/test_analysis_runtime_cutover.py tests/test_analysis_help.py tests/test_analysis_help_resolution.py tests/test_agent_api_drift.py tests/test_public_surface.py tests/test_packaged_skill_shape.py tests/test_analysis_runtime_agent_journeys.py'
+make test
+make typecheck
+make lint
+make docs-api
+make examples-check
+cd site && npm run verify:content && npm run build
+```
+
+After those repository gates, build and inspect the wheel, run the installed
+wheel smoke tests, and run the model-backed journeys in `marivo-agent-evals`.
+
+Exit criterion: the released tree exposes one canonical runtime vocabulary,
+all deterministic and model-backed acceptance evidence is recorded, and no
+old/new dual path remains.
 
 ## Acceptance Criteria
 
@@ -1497,14 +1883,16 @@ This design is complete only when all of the following are true:
    ancestor, and descendant semantics.
 3. Graph construction uses persisted facts without querying data, recomputing
    Evidence/quality, or performing revalidation.
-4. `session.artifacts()` and `session.runs()` are bounded typed pages.
-5. `session.artifact(ref)` and `session.run(id)` are exact typed reads, and the
-   Run read exposes bounded safe invocation facts.
+4. `session.runs()` is the one bounded typed history page; Artifact discovery
+   uses Run refs or Graph summaries rather than a second collection.
+5. `session.artifact(ref)` and `session.get_run(id)` are exact typed reads, and
+   the Run read exposes bounded safe argument facts.
 6. `session.revalidate(ref)` is the one-step current-authority read.
-7. Artifact digest has one semantic owner: the Artifact; exact
-   `session.evidence.digest(ref)` remains a metadata-only access path.
-8. `session.evidence` contains one exact digest lookup plus canonical Finding
-   audit and compatibility, with no duplicate digest collection.
+7. Artifact digest has one semantic owner and public read path: the Artifact;
+   there is no public Session Evidence namespace.
+8. Canonical Finding browse and exact audit are Artifact-scoped, every Finding
+   carries its derivation trace, and no public multi-Finding compatibility
+   promise remains.
 9. No public Session collection returns an unbounded list or `dict[str, Any]`.
 10. No public scalar combines Run, Evidence, quality, authority, and freshness
     into one status.
@@ -1514,8 +1902,17 @@ This design is complete only when all of the following are true:
     are absent from the released contract.
 13. Graph construction reads one Session Store snapshot, and focused descendant
     navigation does not scan every Run.
-14. Every new terminal public symbol is reachable through canonical Help and
-    covered by export, typing, render-budget, persistence, and drift tests;
-    nested value objects do not inflate root discovery.
-15. Existing unrelated working-tree changes remain untouched during
+14. Every new public result type and error class is reachable through canonical
+    Help and covered by export, typing, persistence, and drift tests; terminal
+    results also satisfy the result protocol, structured errors preserve their
+    repair contract, and nested values do not inflate root discovery.
+15. The analysis root remains six decision hubs plus the exact terminal leaf;
+    runtime and Evidence membership is explicit, singleton navigation pages are
+    absent, every exact callable has one discovery owner, and cross-links do not
+    create duplicate membership.
+16. Only Store version 1, `marivo.analysis_run/v1`, and
+    `analysis-artifact/v13` are readable; incompatible Session state fails
+    before mutation and is never decoded, migrated, imported, backfilled, or
+    reused.
+17. Existing unrelated working-tree changes remain untouched during
     implementation.

@@ -112,7 +112,6 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
                 _analysis_target("discover"),
                 _analysis_target("methods.relationship_testing"),
                 _analysis_target("forecast"),
-                _analysis_target("BaseFrame.quality_report"),
                 _analysis_target("events"),
                 _analysis_target("lifecycle"),
                 _analysis_target("select_subjects"),
@@ -160,7 +159,6 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
                 _analysis_target("evidence.exact"),
                 _analysis_target("session.evidence.compatibility"),
                 _analysis_target("session.revalidate"),
-                _analysis_target("BaseFrame.quality_report"),
             ),
         ),
         AnalysisNavigationTopic(
@@ -355,11 +353,10 @@ def _slice2_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
         ),
         AnalysisNavigationTopic(
             canonical_id="artifacts.quality_projection",
-            summary="Inspect quality and bounded component or coverage projections.",
+            summary="Inspect bounded component or coverage projections.",
             render_class="navigation",
             members=tuple(
-                _analysis_target(target)
-                for target in ("QualityReport", "ComponentFrame", "CoverageFrame")
+                _analysis_target(target) for target in ("ComponentFrame", "CoverageFrame")
             ),
         ),
         AnalysisNavigationTopic(
@@ -662,12 +659,6 @@ def _slice2_artifact_contracts() -> tuple[AnalysisArtifactFamilyContract, ...]:
             shapes=("time_series", "panel"),
         ),
         _artifact_contract(
-            "QualityReport",
-            "Fixed quality evaluations over one supported Artifact.",
-            ("quality_evaluation",),
-            shapes=PUBLIC_TYPE_VARIANTS["QualityReport"],
-        ),
-        _artifact_contract(
             "CandidateSet",
             "Bounded candidates for one closed discovery objective.",
             ("candidate",),
@@ -741,7 +732,6 @@ def _slice3_discovery_memberships(
                 "discover",
                 "methods.relationship_testing",
                 "forecast",
-                "BaseFrame.quality_report",
                 "events",
                 "lifecycle",
                 "select_subjects",
@@ -835,10 +825,7 @@ def _slice3_cross_links() -> Mapping[str, tuple[LiveHelpTarget, ...]]:
                 _analysis_target("catalog.readiness"),
                 _semantic_target("authoring"),
             ),
-            "evidence": (
-                _analysis_target("BaseFrame.show"),
-                _analysis_target("BaseFrame.quality_report"),
-            ),
+            "evidence": (_analysis_target("BaseFrame.show"),),
             "runtime": (
                 _analysis_target("Session"),
                 _analysis_target("evidence"),
@@ -1003,11 +990,6 @@ PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "DeltaFrame": ("semantic_shape", "transform"),
         "AttributionFrame": ("attribution_shape", "attribution_mode"),
         "LifecycleFrame": ("semantic_shape",),
-        "QualityReport": (
-            "overall_status",
-            "blocking_issue_count",
-            "warning_count",
-        ),
     }
 )
 
@@ -1040,21 +1022,6 @@ PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "dwell",
             "violations",
         ),
-        "QualityReport": (
-            "metric",
-            "delta",
-            "event_journey",
-            "event_funnel",
-            "event_time_to_event",
-            "lifecycle_history",
-            "lifecycle_distribution",
-            "lifecycle_transitions",
-            "lifecycle_dwell",
-            "lifecycle_violations",
-            "funnel_delta",
-            "attribution",
-            "funnel_attribution",
-        ),
     }
 )
 
@@ -1073,7 +1040,6 @@ def _installed_artifact_types() -> Mapping[ArtifactFamily, type]:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.lifecycle import LifecycleFrame
     from marivo.analysis.frames.metric import MetricFrame
-    from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
 
     return MappingProxyType(
@@ -1085,7 +1051,6 @@ def _installed_artifact_types() -> Mapping[ArtifactFamily, type]:
             "DeltaFrame": DeltaFrame,
             "AttributionFrame": AttributionFrame,
             "ForecastFrame": ForecastFrame,
-            "QualityReport": QualityReport,
             "CandidateSet": CandidateSet,
             "AssociationResult": AssociationResult,
             "ComponentFrame": ComponentFrame,
@@ -2593,21 +2558,6 @@ def _build_registry() -> CapabilityRegistry:
     # -- BaseFrame reads --------------------------------------------------
 
     descriptors.append(
-        OperatorCapability(
-            id="BaseFrame.quality_report",
-            public_entrypoint="frame.quality_report()",
-            help_target="BaseFrame.quality_report",
-            summary="Load the construction-time quality report linked to this Artifact.",
-            constraint_ids=(),
-            callable_path="marivo.analysis.frames.base.BaseFrame.quality_report",
-            authority_policy="materialized_only",
-            receiver="BaseFrame",
-            accepted_inputs={"receiver": _MF | _EF | _LF | _DF | _AF},
-            output_contract=_output("QualityReport", nullable=True),
-        )
-    )
-
-    descriptors.append(
         ReadCapability(
             id="BaseFrame.show",
             public_entrypoint="frame.show()",
@@ -3846,13 +3796,12 @@ def _derive_cross_links(
             )
             if route is not None:
                 routed_algebra_values.append(route)
-        independently_recoverable = artifact_family != "QualityReport"
         add(
             artifact_family,
             (
-                *((_analysis_target("artifacts.reading"),) if independently_recoverable else ()),
+                _analysis_target("artifacts.reading"),
                 *routed_algebra_values,
-                *((_analysis_target("session.get_frame"),) if independently_recoverable else ()),
+                _analysis_target("session.get_frame"),
             ),
         )
 
@@ -4383,7 +4332,6 @@ def _validate_public_type_variants() -> None:
         LifecycleTransitionsFrameMeta,
         LifecycleViolationsFrameMeta,
     )
-    from marivo.analysis.frames.quality import QualityReportMeta
 
     def one_literal(model: type[BaseModel], field_name: str) -> str:
         values = get_args(model.model_fields[field_name].annotation)
@@ -4410,7 +4358,6 @@ def _validate_public_type_variants() -> None:
                 LifecycleViolationsFrameMeta,
             )
         ),
-        "QualityReport": get_args(QualityReportMeta.model_fields["report_shape"].annotation),
     }
     for type_name, expected_variants in expected.items():
         actual = PUBLIC_TYPE_VARIANTS.get(type_name)

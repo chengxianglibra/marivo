@@ -30,7 +30,6 @@ from marivo.analysis.errors import NoActiveSessionError, SessionStateError
 from marivo.analysis.session._layout import (
     PersistenceLayout,
     write_frame_to_disk,
-    write_job_record,
 )
 from marivo.analysis.session._store import SessionStore
 from marivo.analysis.session.core import Session
@@ -1012,6 +1011,7 @@ def _session_from_row(
     """
     # sqlite3.Row is not importable at type-check time; accept a duck-typed row.
     session_id = row["id"]
+    store.validate_session_runtime_schema(str(session_id))
     project_root = store.project_root
     layout = PersistenceLayout(project_root=project_root, session_id=session_id)
     semantic_catalog = _build_semantic_catalog(project_root)
@@ -1092,6 +1092,8 @@ def persist_frame(session: Session, frame: BaseFrame) -> BaseFrameMeta:
         content_hash=updated.content_hash,
         produced_by_job=updated.produced_by_job,
         evidence_status=updated.evidence_status,
+        artifact_schema_version=updated.artifact_schema_version,
+        finding_count=updated.finding_count,
         created_at=updated.created_at.isoformat(),
     )
     return updated
@@ -1121,15 +1123,111 @@ def register_frame_artifact(session: Session, frame: BaseFrame | BaseFrameMeta) 
         content_hash=meta.content_hash,
         produced_by_job=meta.produced_by_job,
         evidence_status=meta.evidence_status,
+        artifact_schema_version=meta.artifact_schema_version,
+        finding_count=meta.finding_count,
         created_at=meta.created_at.isoformat(),
     )
 
 
+def _persist_run_success_from_legacy_record(session: Session, record: dict[str, Any]) -> None:
+    """Finish one canonical Run from an existing intent-owned success payload."""
+    from collections.abc import Mapping
+
+    from marivo.analysis.session._runs import active_run_admission, project_run_arguments
+
+    active = active_run_admission()
+    run_id = active.run_id if active is not None else str(record["id"])
+    params = record.get("params")
+    argument_source = (
+        dict(cast("Mapping[str, object]", params)) if isinstance(params, Mapping) else {}
+    )
+    raw_queries = record.get("queries")
+    if isinstance(raw_queries, list):
+        argument_source["__queries"] = [
+            {
+                "id": query.get("query_id"),
+                "datasource": query.get("datasource"),
+                "dialect": query.get("dialect"),
+                "digest": query.get("sql_digest"),
+                "row_count": query.get("row_count"),
+                "duration_ms": query.get("duration_ms"),
+                "status": query.get("status"),
+                "output_ref": query.get("output_ref"),
+            }
+            for query in raw_queries
+            if isinstance(query, Mapping)
+        ]
+    projected, omitted = project_run_arguments(argument_source)
+    input_refs_value = record.get("input_frame_refs", ())
+    input_refs = (
+        tuple(str(value) for value in input_refs_value)
+        if isinstance(input_refs_value, list | tuple)
+        else ()
+    )
+    if active is None:
+        input_refs = tuple(
+            ref for ref in input_refs if session._store.get_artifact(session.id, ref) is not None
+        )
+    if session._store.get_run(session.id, run_id) is None:
+        session._store.begin_run(
+            session_id=session.id,
+            run_id=run_id,
+            capability_id=str(record["intent"]),
+            analysis_purpose=cast("str | None", record.get("analysis_purpose")),
+            arguments=projected,
+            omitted_argument_names=omitted,
+            input_artifact_refs=input_refs,
+            started_at=str(record["started_at"]),
+        )
+    output_ref = record.get("output_frame_ref") or record.get("output_artifact_id")
+    if not isinstance(output_ref, str) or not output_ref:
+        raise SessionStateError(
+            message="succeeded materializing Run requires one output Artifact",
+            expected="non-empty output Artifact ref",
+            received=str(output_ref),
+            location=f"Run {run_id!r} terminal transition",
+        )
+    record_intent = str(record["intent"])
+    completes_active = active is None or (
+        active.capability_id == record_intent
+        or (active.capability_id.startswith("transform.") and record_intent == "transform")
+        or (active.capability_id.startswith("discover.") and record_intent == "discover")
+        or (active.capability_id == "MetricFrame.metric" and record_intent == "select_metric")
+        or (active.capability_id == "compare" and record_intent == "compare.funnel")
+        or (active.capability_id == "attribute" and record_intent == "attribute.funnel_loss_rate")
+    )
+    if active is not None and not completes_active:
+        return
+    output_mode = "reused" if record.get("reused_artifact") is True else "produced"
+    artifact_row = session._store.get_artifact(session.id, output_ref)
+    if artifact_row is not None and artifact_row["produced_by_job"] != run_id:
+        output_mode = "reused"
+    if active is not None:
+        active.succeed(
+            output_ref,
+            output_mode=output_mode,
+            finished_at=str(record.get("finished_at") or datetime.now(UTC).isoformat()),
+            arguments=projected,
+            omitted_argument_names=omitted,
+        )
+    else:
+        session._store.complete_run(
+            session_id=session.id,
+            run_id=run_id,
+            output_artifact_ref=output_ref,
+            output_mode=output_mode,
+            finished_at=str(record.get("finished_at") or datetime.now(UTC).isoformat()),
+            arguments=projected,
+            omitted_argument_names=omitted,
+        )
+
+
 @staged("persist")
 def persist_job_record(session: Session, record: dict[str, Any]) -> None:
-    """Write a job record to disk and register it in the session store.
+    """Validate an intent success payload and finish its canonical persisted Run.
 
-    Writes the JSON file first, then inserts a ``jobs`` row.
+    This private compatibility boundary accepts the established intent-owned
+    payload shape, but does not write or parse legacy job JSON files.
 
     Args:
         session: The owning session.
@@ -1194,21 +1292,7 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
         else:
             _validate_funnel_attribution_payload(payload)
         persisted = {"schema": "marivo.analysis_job/v2", **record}
-        write_job_record(session._layout, persisted)
-        finished_at = persisted.get("finished_at")
-        session._store.record_job(
-            session_id=session.id,
-            job_id=persisted["id"],
-            intent=persisted["intent"],
-            status=persisted["status"],
-            started_at=persisted["started_at"],
-            finished_at=finished_at if isinstance(finished_at, str) else None,
-            output_artifact_id=persisted.get("output_frame_ref")
-            or persisted.get("output_artifact_id"),
-            record_path=session._layout.relative_path(
-                session._layout.jobs_dir / f"{persisted['id']}.json"
-            ),
-        )
+        _persist_run_success_from_legacy_record(session, persisted)
         return
     lifecycle_roles = {"lifecycle_history", "lifecycle_reducer"} & set(record)
     if len(lifecycle_roles) > 1:
@@ -1236,21 +1320,7 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
         else:
             _validate_lifecycle_reducer_payload(record["lifecycle_reducer"])
         persisted = {"schema": "marivo.analysis_job/v2", **record}
-        write_job_record(session._layout, persisted)
-        finished_at = persisted.get("finished_at")
-        session._store.record_job(
-            session_id=session.id,
-            job_id=persisted["id"],
-            intent=persisted["intent"],
-            status=persisted["status"],
-            started_at=persisted["started_at"],
-            finished_at=finished_at if isinstance(finished_at, str) else None,
-            output_artifact_id=persisted.get("output_frame_ref")
-            or persisted.get("output_artifact_id"),
-            record_path=session._layout.relative_path(
-                session._layout.jobs_dir / f"{persisted['id']}.json"
-            ),
-        )
+        _persist_run_success_from_legacy_record(session, persisted)
         return
     event_roles = {"event_journey", "event_reducer"} & set(record)
     if len(event_roles) > 1:
@@ -1275,21 +1345,7 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
         else:
             _validate_event_reducer_payload(record["event_reducer"])
         persisted = {"schema": "marivo.analysis_job/v2", **record}
-        write_job_record(session._layout, persisted)
-        finished_at = persisted.get("finished_at")
-        session._store.record_job(
-            session_id=session.id,
-            job_id=persisted["id"],
-            intent=persisted["intent"],
-            status=persisted["status"],
-            started_at=persisted["started_at"],
-            finished_at=finished_at if isinstance(finished_at, str) else None,
-            output_artifact_id=persisted.get("output_frame_ref")
-            or persisted.get("output_artifact_id"),
-            record_path=session._layout.relative_path(
-                session._layout.jobs_dir / f"{persisted['id']}.json"
-            ),
-        )
+        _persist_run_success_from_legacy_record(session, persisted)
         return
     if "subject_set" in record:
         if has_subjects or record["subject"].get("kind") != "subject_set":
@@ -1309,21 +1365,7 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             )
         _validate_subject_set_payload(record["subject_set"])
         persisted = {"schema": "marivo.analysis_job/v2", **record}
-        write_job_record(session._layout, persisted)
-        finished_at = persisted.get("finished_at")
-        session._store.record_job(
-            session_id=session.id,
-            job_id=persisted["id"],
-            intent=persisted["intent"],
-            status=persisted["status"],
-            started_at=persisted["started_at"],
-            finished_at=finished_at if isinstance(finished_at, str) else None,
-            output_artifact_id=persisted.get("output_frame_ref")
-            or persisted.get("output_artifact_id"),
-            record_path=session._layout.relative_path(
-                session._layout.jobs_dir / f"{persisted['id']}.json"
-            ),
-        )
+        _persist_run_success_from_legacy_record(session, persisted)
         return
     has_digest = "semantic_dependency_digest" in record
     has_digests = "semantic_dependency_digests" in record
@@ -1369,20 +1411,7 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
         if decoded.kind.value not in {"dimension", "time_dimension"}:
             raise ValueError("analysis job slice predicate requires a dimension ref")
     persisted = {"schema": "marivo.analysis_job/v2", **record}
-    write_job_record(session._layout, persisted)
-    finished_at = persisted.get("finished_at")
-    session._store.record_job(
-        session_id=session.id,
-        job_id=persisted["id"],
-        intent=persisted["intent"],
-        status=persisted["status"],
-        started_at=persisted["started_at"],
-        finished_at=finished_at if isinstance(finished_at, str) else None,
-        output_artifact_id=persisted.get("output_frame_ref") or persisted.get("output_artifact_id"),
-        record_path=session._layout.relative_path(
-            session._layout.jobs_dir / f"{persisted['id']}.json"
-        ),
-    )
+    _persist_run_success_from_legacy_record(session, persisted)
 
 
 def persist_reused_artifact_job(
@@ -1405,7 +1434,9 @@ def persist_reused_artifact_job(
     (issue #38).  The frame meta is never rewritten, so the artifact keeps its
     original producer/purpose while this job marks the reuse explicitly.
     """
-    job_ref = f"job_{secrets.token_hex(4)}"
+    from marivo.analysis.session._runs import active_run_id
+
+    job_ref = active_run_id() or f"run_{secrets.token_hex(12)}"
     persist_job_record(
         session,
         {

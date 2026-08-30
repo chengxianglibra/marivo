@@ -101,9 +101,10 @@ For every material result, check the facts that can change its interpretation:
 Supported Frame families run fixed quality checks automatically before
 publication. A blocking `ArtifactQualityError` means no usable Artifact was
 published. For a material published result, inspect `frame.quality_summary` and
-read `frame.quality_report()` when check-level detail matters; this is a
-read-only sidecar lookup and does not create a job. Preserve warnings and
-partial coverage; do not turn absence into zero, association into causation, a
+the typed `DataQualityIssue` entries in `frame.contract().issues`; these are
+the complete persisted quality disclosure and do not create a job. Preserve
+warnings and partial coverage; do not turn absence into zero, association into
+causation, a
 point forecast into certainty, or a segment result into a population claim.
 
 ### 5. Synthesize, hand off, or stop

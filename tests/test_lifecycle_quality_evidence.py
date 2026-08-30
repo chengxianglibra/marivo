@@ -309,15 +309,15 @@ def test_lifecycle_quality_dispatches_every_shape_and_recomputes_source() -> Non
         checks = run_lifecycle_checks(frame, source_history=source_history)
         assert checks
         assert {row["severity"] for row in checks} == {"ok"}
-        report = evaluate_frame_quality(
+        evaluation = evaluate_frame_quality(
             frame,
             artifact_id="prospective",
             source_history=source_history,
         )
-        assert report is not None
-        assert report.report_shape == f"lifecycle_{frame.semantic_shape}"
-        assert report.overall_status == "ok"
-        assert report.dataframe["metric_id"].isna().all()
+        assert evaluation is not None
+        assert evaluation.summary.evaluated_check_count == len(checks)
+        assert evaluation.overall_status == "ok"
+        assert evaluation.dataframe["metric_id"].isna().all()
 
     reducers[0]._df.loc[0, "subject_count"] = 99
     tampered = {

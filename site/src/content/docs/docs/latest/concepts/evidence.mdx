@@ -66,9 +66,9 @@ The main item types match operator semantics:
 | `discover.*` | `AnomalyCandidate` | candidate requiring review |
 | `transform.*` / `MetricFrame.metric(...)` | empty digest | lineage-preserving transformation or projection only |
 
-Construction-time quality is not an evidence-producing operator. Read its
-parent-owned checks with `frame.quality_report()`; the returned report has no
-independent digest or job.
+Construction-time quality is not an evidence-producing operator. Its
+`quality_summary` and typed issues are owned by the parent Artifact; no separate
+quality Artifact, digest, or job is created.
 
 ## Inspect limits and exact evidence
 

@@ -294,13 +294,13 @@ def _issue(
     )
 
 
-def semantic_hypotheses(
+def validate_semantic_hypotheses_admission(
     source: MetricFrame | DeltaFrame,
     *,
-    limit: int = 50,
+    limit: int,
     session: Session,
-) -> CandidateSet:
-    """Discover unscored one-edge Metric hypotheses from a persisted source."""
+) -> None:
+    """Validate source ownership and bounded parameters before Run admission."""
     ensure_session_can_execute(session)
     ensure_frame_in_session(source, session=session, label="semantic_hypotheses source")
     if type(limit) is not int or not 1 <= limit <= 200:
@@ -309,6 +309,16 @@ def semantic_hypotheses(
             expected="int in [1, 200], excluding bool",
             received=repr(limit),
         )
+
+
+def semantic_hypotheses(
+    source: MetricFrame | DeltaFrame,
+    *,
+    limit: int = 50,
+    session: Session,
+) -> CandidateSet:
+    """Discover unscored one-edge Metric hypotheses from a persisted source."""
+    validate_semantic_hypotheses_admission(source, limit=limit, session=session)
     source_artifact_ref = source.meta.artifact_id or source.ref
     if session._store.get_artifact(session.id, source_artifact_ref) is None:
         raise SemanticKindMismatchError(

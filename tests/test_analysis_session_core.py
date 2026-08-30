@@ -12,7 +12,6 @@ from marivo._compat import UTC
 from marivo.analysis.errors import (
     FrameMetaInvalidError,
     JobNotFoundError,
-    SchemaVersionMismatchError,
     SourceBindingError,
 )
 from marivo.analysis.session._layout import PersistenceLayout
@@ -335,6 +334,16 @@ def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, caps
 
 def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
     s = _session(tmp_path)
+    for artifact_id, producer in (("f2", "job_two"), ("f1", "job_one")):
+        s._store.record_artifact(
+            session_id=s.id,
+            artifact_id=artifact_id,
+            kind="metric_frame",
+            path=f"frames/{artifact_id}/data.parquet",
+            meta_path=f"frames/{artifact_id}/meta.json",
+            content_hash=None,
+            produced_by_job=producer,
+        )
     persist_job_record(
         s,
         {
@@ -383,20 +392,27 @@ def test_session_job_raises_job_not_found_from_store_absence(tmp_path):
     assert "nonexistent_job" in exc_info.value.message
 
 
-def test_session_job_rejects_v1_without_compatibility_read(tmp_path) -> None:
+def test_session_job_hides_private_failed_run(tmp_path) -> None:
     session = _session(tmp_path)
-    record = _job_record(session, _job_semantics(session))
-    persist_job_record(session, record)
-    job_path = session._layout.jobs_dir / f"{record['id']}.json"
-    payload = json.loads(job_path.read_text())
-    payload["schema"] = "marivo.analysis_job/v1"
-    job_path.write_text(json.dumps(payload))
-
-    with pytest.raises(SchemaVersionMismatchError) as exc_info:
-        session.job(str(record["id"]))
-
-    assert exc_info.value._context["expected_schema"] == "marivo.analysis_job/v2"
-    assert "new analysis session" in exc_info.value._context["repair"]
+    session._store.begin_run(
+        session_id=session.id,
+        run_id="run_failed",
+        capability_id="observe",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=(),
+        started_at="2026-05-24T10:00:00+00:00",
+    )
+    session._store.fail_run(
+        session_id=session.id,
+        run_id="run_failed",
+        failure={"error_type": "InternalExecutionError"},
+        failed_at="2026-05-24T10:00:01+00:00",
+    )
+    with pytest.raises(JobNotFoundError):
+        session.job("run_failed")
+    assert list(session._layout.jobs_dir.glob("*.json")) == []
 
 
 def test_session_frame_summaries_returns_only_registered_artifacts(tmp_path):

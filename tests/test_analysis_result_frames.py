@@ -16,7 +16,6 @@ from marivo.analysis.evidence.types import (
 )
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
-from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import persist_frame
 from tests.shared_fixtures import make_test_analysis_scope, make_test_subject
@@ -107,7 +106,7 @@ def test_candidate_set_rejects_removed_persisted_affordances(tmp_path, monkeypat
             "capability_id": "legacy_quality_operator",
             "public_entrypoint": "session.legacy_quality_operator(...) ",
             "help_target": "legacy_quality_operator",
-            "expected_output_family": "QualityReport",
+            "expected_output_family": "RemovedQualityArtifact",
         }
     ]
     meta_path.write_text(json.dumps(legacy_meta))
@@ -169,72 +168,3 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
     assert "method=pearson" in association_text
     assert "evidence=complete" in association_text
     assert association_text.index("evidence:") < association_text.index("preview:")
-
-
-def test_quality_report_renders_evidence_with_family_status(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    session_attach._reset_process_state()
-    session = mv.session.get_or_create(name="demo")
-    quality = QualityReport(
-        _df=pd.DataFrame({"check": ["missing_values"], "status": ["ok"]}),
-        meta=QualityReportMeta(
-            **_base_meta(session, kind="quality_report", ref="frame_quality"),
-            source_refs=["frame_metric"],
-            report_shape="metric",
-            target_kind="metric_frame",
-            target_metric_id="sales.revenue",
-            target_semantic_model="sales",
-            target_semantic_kind="time_series",
-            checks_run=["missing_values"],
-            overall_status="warning",
-            blocking_issue_count=0,
-            warning_count=1,
-            evidence_status="unavailable",
-        ),
-    )
-
-    quality_text = quality.render(max_output_bytes=None)
-    assert "status=warning" in quality_text
-    assert "evidence=unavailable" in quality_text
-    assert "checks:" in quality_text
-
-
-def test_quality_report_bounded_render_recovers_through_parent_frame(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    session_attach._reset_process_state()
-    session = mv.session.get_or_create(name="demo")
-    checks = [f"check_{index}" for index in range(53)]
-    base_meta = _base_meta(
-        session,
-        kind="quality_report",
-        ref="frame_metric#quality",
-    )
-    base_meta["row_count"] = len(checks)
-    quality = QualityReport(
-        _df=pd.DataFrame(
-            {
-                "check": checks,
-                "severity": ["warning"] * len(checks),
-                "status": ["warning"] * len(checks),
-            }
-        ),
-        meta=QualityReportMeta(
-            **base_meta,
-            source_refs=["frame_metric"],
-            report_shape="metric",
-            target_kind="metric_frame",
-            target_metric_id="sales.revenue",
-            target_semantic_model="sales",
-            target_semantic_kind="time_series",
-            checks_run=checks,
-            overall_status="warning",
-            blocking_issue_count=0,
-            warning_count=len(checks),
-            evidence_status="unavailable",
-        ),
-    )
-
-    rendered = quality.render()
-
-    assert "recover: frame.quality_report().to_pandas()" in rendered
-    assert "session.get_frame" not in rendered

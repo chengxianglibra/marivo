@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 from dataclasses import replace
 from datetime import datetime
 
@@ -1072,7 +1071,9 @@ def test_trailing_delta_topk_rebuilds_pair_summary(tmp_path, monkeypatch) -> Non
     assert top.meta.cumulative_alignment.pairs.matched_null_rows == 0
 
 
-def test_cumulative_delta_quality_reads_typed_pairing_caveats(tmp_path, monkeypatch) -> None:
+def test_cumulative_delta_quality_disclosure_keeps_typed_pairing_caveats(
+    tmp_path, monkeypatch
+) -> None:
     session = _session(tmp_path, monkeypatch)
     current = _ts_frame(
         session,
@@ -1092,17 +1093,14 @@ def test_cumulative_delta_quality_reads_typed_pairing_caveats(tmp_path, monkeypa
     )
     delta = compare(current, baseline, session=session)
 
-    report = delta.quality_report()
-    assert report is not None
-    pairing = report.to_pandas().set_index("check_kind").loc["cumulative_pairing"]
-    details = json.loads(pairing["details_json"])
-
-    assert report.meta.report_shape == "delta"
-    assert pairing["severity"] == "warning"
-    assert details["matched_rows"] == 2
-    assert details["baseline_unpaired_rows"] == 1
+    assert delta.quality_summary is not None
+    assert delta.quality_summary.warning_check_count >= 1
+    assert delta.quality_summary.failed_check_count == 0
+    assert delta.meta.cumulative_alignment is not None
+    assert delta.meta.cumulative_alignment.pairs.matched_rows == 2
+    assert delta.meta.cumulative_alignment.pairs.baseline_unpaired_rows == 1
     assert any(
-        issue.kind == "cumulative_alignment_caveat_present" for issue in report.contract().issues
+        issue.kind == "cumulative_alignment_caveat_present" for issue in delta.contract().issues
     )
 
 
@@ -1614,10 +1612,8 @@ def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatc
     assert drivers.meta.params["delta_math_contract"] == DELTA_MATH_CONTRACT_VERSION
     assert drivers.meta.method_evidence is not None
     assert drivers.meta.method_evidence.kind == "cumulative_business_axes"
-    quality = drivers.quality_report()
-    assert quality is not None
-    assert quality.meta.report_shape == "attribution"
-    assert quality.meta.overall_status == "ok"
+    assert drivers.quality_summary is not None
+    assert drivers.quality_summary.failed_check_count == 0
 
     top_k_drivers = attribute(delta, axes=[region], top_k=2, session=session)
     top_k_rows = top_k_drivers.to_pandas()
@@ -1658,16 +1654,9 @@ def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, mon
     assert rows["flow_interval_end"].tolist() == [pd.Timestamp("2026-07-04T00:00:00Z")]
     reloaded = session.get_frame(flow.ref)
     assert reloaded.meta.row_contract_version == "cumulative-flow-attribution-rows/v1"
-    quality = flow.quality_report()
-    assert quality is not None
-    assert quality.meta.report_shape == "attribution"
-    assert quality.meta.overall_status == "ok"
-    assert set(quality.to_pandas()["check_id"]) == {
-        "attribution_row_count",
-        "attribution_row_contract",
-        "attribution_contribution_values",
-        "attribution_reconciliation",
-    }
+    assert flow.quality_summary is not None
+    assert flow.quality_summary.evaluated_check_count == 4
+    assert flow.quality_summary.failed_check_count == 0
 
 
 def test_cumulative_flow_validator_rejects_semantic_evidence_corruption(
@@ -1765,10 +1754,8 @@ def test_cumulative_delta_attributes_comparable_period_flow(
     assert flow.meta.reconciliation is not None
     assert flow.meta.reconciliation.max_abs_residual <= 1e-9
     assert len(flow.meta.method_evidence.partitions) == len(delta.to_pandas())
-    quality = flow.quality_report()
-    assert quality is not None
-    assert quality.meta.report_shape == "attribution"
-    assert quality.meta.overall_status == "ok"
+    assert flow.quality_summary is not None
+    assert flow.quality_summary.failed_check_count == 0
 
 
 def test_grain_to_date_flow_uses_period_owning_exclusive_boundary(tmp_path, monkeypatch) -> None:

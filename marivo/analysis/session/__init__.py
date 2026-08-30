@@ -99,6 +99,17 @@ def _activate_session(
 
     with _SESSION_ACTIVATION_LOCK:
         layout = _Layout(project_root=store.project_root, session_id=row["id"])
+        store.validate_session_runtime_schema(str(row["id"]))
+        if layout.session_dir.is_dir():
+            from marivo.analysis.session._runs import reconcile_incomplete_runs
+
+            recovery_session = _from_row(store, row, connection_runtime)
+            try:
+                reconcile_incomplete_runs(recovery_session)
+            finally:
+                if recovery_session._judgment_store is not None:
+                    recovery_session._judgment_store.close()
+                    recovery_session._judgment_store = None
         layout.session_dir.mkdir(parents=True, exist_ok=True)
         meta_path = layout.session_dir / "meta.json"
 

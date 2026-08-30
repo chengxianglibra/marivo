@@ -20,6 +20,7 @@ _SESSION_LOCAL_META_FIELDS = {
     "artifact_id",
     "content_hash",
     "evidence_status",
+    "finding_count",
     "analysis_scope",
     "quality_summary",
     "evidence_digest",

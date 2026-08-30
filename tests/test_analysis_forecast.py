@@ -308,11 +308,13 @@ def test_forecast_panel_without_dimension_axis_raises_typed_shape_error(tmp_path
 def test_forecast_errors_and_persistence(tmp_path):
     session = session_attach.get_or_create(name="demo")
     history = seeded_time_series_metric_frame(session=session, n_buckets=5)
+    run_count = len(session._store.list_runs(session.id))
 
     with pytest.raises(ForecastPolicyError):
         session.forecast(history, horizon=0)
     with pytest.raises(ForecastPolicyError):
         session.forecast(history, horizon=1, interval_level=1.0)
+    assert len(session._store.list_runs(session.id)) == run_count
     with pytest.raises(ForecastInsufficientHistoryError):
         session.forecast(history, horizon=1, model="seasonal_naive", seasonality_period=7)
 

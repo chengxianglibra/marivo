@@ -29,7 +29,6 @@ from marivo.analysis.frames.lifecycle import (
     LifecycleViolationsFrameMeta,
 )
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.frames.subject import SubjectSet, SubjectSetMeta
 
 __all__ = [
@@ -67,8 +66,6 @@ __all__ = [
     "LifecycleViolationsFrameMeta",
     "MetricFrame",
     "MetricFrameMeta",
-    "QualityReport",
-    "QualityReportMeta",
     "SubjectAxisBinding",
     "SubjectSet",
     "SubjectSetMeta",

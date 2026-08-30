@@ -28,7 +28,6 @@ inventing family names. The public families and their producers are:
 | `AssociationResult` | `session.correlate(...)` | Statistical association between frames |
 | `HypothesisTestResult` | `session.hypothesis_test(...)` | Result of an explicit statistical test |
 | `ForecastFrame` | `session.forecast(...)` | Model projection of future buckets |
-| `QualityReport` | `frame.quality_report()` | Read-only construction-quality sidecar owned by a supported Frame |
 
 Two projection frames are produced by frame accessors rather than operators, and
 are therefore not part of the default `mv.__all__` surface:
@@ -61,7 +60,6 @@ backend scan.
 | `DeltaFrame[scalar_delta \| time_series_delta \| segmented_delta \| panel_delta]` | `DeltaFrame` | Delta of the corresponding metric shape |
 | `CandidateSet[point_anomaly \| period_shift \| driver_axis \| slice \| window \| cross_sectional_outlier \| semantic_hypothesis]` | `CandidateSet` | Objective-specific scored candidates or unscored ontology hypotheses |
 | `AssociationResult[signed_lag]` | `AssociationResult` | Zero-lag or signed lag-sweep association |
-| `QualityReport[metric \| delta \| candidate \| forecast \| attribution]` | `QualityReport` | Quality report scoped to the assessed family |
 
 Adding a shape requires updating the family registry, producer, consumer
 compatibility (the [DAG](#shape-aware-dag), projection, and evidence/follow-up
@@ -571,19 +569,14 @@ evaluation is not a public Session step.
 Supported Metric, Delta, Attribution, Event, and Lifecycle Frames run fixed
 mechanical checks at the unified commit boundary, after the final Artifact id is
 known and before any file is written. A blocking contradiction raises
-`ArtifactQualityError` and publishes no main Artifact, quality sidecar, store
-registration, or successful job. `ok` and `warning` results publish normally;
-bounded counts live in `frame.quality_summary`, warning `DataQualityIssue`s are
-merged into the Frame, and complete rows live in the parent-owned
-`quality.parquet` sidecar.
-
-`frame.quality_report()` verifies and reads that sidecar without recomputing or
-creating a job. The returned `QualityReport` inherits the parent's scope,
-lineage, purpose, and producer job, and has no independent evidence digest.
-Missing, modified, or row-count-mismatched sidecars fail closed. Multi-metric
-measure checks retain canonical `metric_id` identity. Lifecycle source history
-is a build dependency, not a quality predicate; `session.revalidate(reducer)`
-later reports it as admissible, `indeterminate`, or `stale`.
+`ArtifactQualityError` and publishes no main Artifact, store registration, or
+successful job. `ok` and `warning` results publish normally; bounded counts live
+in `frame.quality_summary`, and warning `DataQualityIssue`s are merged into the
+Frame and exposed through `frame.contract().issues`. There is no separate
+quality Artifact or check-level sidecar. Multi-metric measure checks retain
+canonical `metric_id` identity. Lifecycle source history is a build dependency,
+not a quality predicate; `session.revalidate(reducer)` later reports it as
+admissible, `indeterminate`, or `stale`.
 
 Severity is correctness-based. `blocking` is reserved for structural, identity,
 ordering, arithmetic, reconciliation, or coverage-receipt contradictions that
@@ -591,15 +584,13 @@ make the artifact's result wrong or ambiguous. Empty or low-volume results,
 nulls, missing time buckets, unknown coverage, pairing caveats, and censoring are
 `warning`: analysis may continue, but the limitation must be disclosed. A
 requested time window that extends beyond `data_extent_end` while remaining
-complete inside the extent is an `info` check row and does not change
-`overall_status`. Warning rows retain typed issues; only blocking rows contribute
-to `blocking_issue_count`.
+complete inside the extent is an `info` check and does not count as a failure.
+Warnings increment `warning_check_count` and remain typed issues; blocking checks
+increment `failed_check_count` and prevent publication.
 
-The bounded Quality card reports total, ok, info, warning, and blocking counts. It
-lists only blocking and warning checks, ordered by blocking first, warning
-second, then original check order; metric-level rows retain `metric_id`. A clean
-report says `attention: none`. `render(max_output_bytes=None)` renders every
-committed check row.
+The bounded Frame card reports the persisted quality summary and typed issues.
+Check-level rows are an internal construction-time detail and are not exposed as
+a separate result.
 
 ## Result contract and read protocol
 
@@ -797,8 +788,8 @@ typed terminal selectors until a shape-specific downstream operator explicitly
 accepts them.
 
 Evaluation results (`HypothesisTestResult`, `AssociationResult`) are not directly
-re-fed into `compare`/`attribute`/`discover`. A `QualityReport` is a read-only
-view of its parent Frame sidecar and has no independent digest or continuation.
+re-fed into `compare`/`attribute`/`discover`. Quality metadata remains owned by
+the parent Frame and has no independent digest or continuation.
 
 ## Shape-aware DAG
 
@@ -808,16 +799,16 @@ time. Projection/read methods are not analysis steps. Summary of the adjacency
 
 | Source | Legal downstream |
 | --- | --- |
-| `MetricFrame[time_series]` | `transform.<op>`, `compare` (same shape), `correlate` (same shape), `discover.point_anomalies`, `discover.interesting_windows`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `forecast`, `quality_report()` |
-| `MetricFrame[segmented]` | `transform.<op>`, `compare`, `correlate`, `discover.interesting_slices`, `discover.cross_sectional_outliers`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `quality_report()` |
+| `MetricFrame[time_series]` | `transform.<op>`, `compare` (same shape), `correlate` (same shape), `discover.point_anomalies`, `discover.interesting_windows`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `forecast` |
+| `MetricFrame[segmented]` | `transform.<op>`, `compare`, `correlate`, `discover.interesting_slices`, `discover.cross_sectional_outliers`, conditional `discover.semantic_hypotheses`, `hypothesis_test` |
 | `MetricFrame[panel]` | union of the time_series and segmented rows above |
-| `DeltaFrame[time_series_delta \| panel_delta]` | `transform.<op>`, `attribute`, `discover.period_shifts`, `discover.driver_axes`, `discover.interesting_windows`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `quality_report()` |
-| `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, conditional `discover.semantic_hypotheses`, `quality_report()` |
-| `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `quality_report()` |
-| `AttributionFrame[scalar \| time_series \| segmented \| panel \| funnel_loss_rate]` | `transform`, `select`, `quality_report()` |
+| `DeltaFrame[time_series_delta \| panel_delta]` | `transform.<op>`, `attribute`, `discover.period_shifts`, `discover.driver_axes`, `discover.interesting_windows`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses` |
+| `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, conditional `discover.semantic_hypotheses` |
+| `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses` |
+| `AttributionFrame[scalar \| time_series \| segmented \| panel \| funnel_loss_rate]` | `transform`, `select` |
 | Scored `CandidateSet[*]` | `CandidateSet.select` |
 | `CandidateSet[semantic_hypothesis]` | `CandidateSet.select` → `OntologyMetricCandidate` → exact-scope `session.observe` |
-| `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `QualityReport` | bounded reads and supported quality inspection |
+| `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` | bounded reads |
 
 Illegal paths fail closed: `candidate_set -> attribute` (select an axis/window/
 slice first); `summary -> compare` (a projection is not a canonical input);
@@ -865,9 +856,9 @@ canonical `MetricFrame` producer.
 
 ## Cross-cutting metadata
 
-- **Construction quality reads.** `frame.quality_summary` is the bounded
-  persisted projection; `frame.quality_report()` verifies and reads the complete
-  parent-owned sidecar without a new analysis action.
+- **Construction quality reads.** `frame.quality_summary` and the typed entries in
+  `frame.contract().issues` are the persisted quality disclosure; construction
+  check rows are not a separate public Artifact.
 - **Metric-definition compatibility.** Cross-frame operators compute a
   compatibility verdict and write it to result metadata: `exact` (same id +
   version) runs; catalog-declared backward-compatible changes run with a warning;

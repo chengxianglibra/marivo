@@ -262,7 +262,10 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
     assert q["row_count"] == 1
     assert q["duration_ms"] >= 0
     assert q["status"] == "succeeded"
-    assert "from=marivo" in q["sql"]
+    assert q["sql_digest"]
+    assert "sql" not in q
+    assert "normalized_sql" not in q
+    assert "bind_params" not in q
     assert q["output_ref"] is not None
 
 
@@ -376,7 +379,8 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     assert q["datasource"] == "warehouse"
     assert q["row_count"] >= 1
     assert q["duration_ms"] >= 0
-    assert "from=marivo" in q["sql"]
+    assert q["sql_digest"]
+    assert "sql" not in q
 
     # Time series
     ts = s.observe(

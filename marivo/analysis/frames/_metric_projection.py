@@ -283,6 +283,11 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             context={"metric": metric_id, "metrics": sorted(by_id)},
         )
     if frame.arity == 1:
+        from marivo.analysis.session._runs import active_run_admission
+
+        admission = active_run_admission()
+        if admission is not None:
+            admission.succeed(frame.meta.artifact_id or frame.ref, output_mode="reused")
         return frame
 
     session = require_current_session()
@@ -320,7 +325,13 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         semantic_anchors=CommitSemanticAnchors.from_frame(frame),
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
-        return cast("MetricFrame", load_frame(prospective_id, session=session))
+        from marivo.analysis.session._runs import active_run_admission
+
+        cached = cast("MetricFrame", load_frame(prospective_id, session=session))
+        admission = active_run_admission()
+        if admission is not None:
+            admission.succeed(cached.meta.artifact_id or cached.ref, output_mode="reused")
+        return cached
 
     axis_columns = [axis["column"] for axis in frame.meta.axes.values() if "column" in axis]
     df = frame._dataframe_copy()[[*axis_columns, entry["column"]]].rename(

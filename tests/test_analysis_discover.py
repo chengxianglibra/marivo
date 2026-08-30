@@ -276,18 +276,22 @@ def test_discover_rejects_unsupported_strategy():
 def test_discover_rejects_invalid_threshold(threshold):
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
+    run_count = len(session._store.list_runs(session.id))
 
     with pytest.raises(SemanticKindMismatchError):
         session.discover.point_anomalies(frame, threshold=threshold)
+    assert len(session._store.list_runs(session.id)) == run_count
 
 
 @pytest.mark.parametrize("threshold", ["3", True])
 def test_discover_rejects_non_numeric_threshold(threshold):
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
+    run_count = len(session._store.list_runs(session.id))
 
     with pytest.raises(SemanticKindMismatchError):
         session.discover.point_anomalies(frame, threshold=threshold)  # type: ignore[arg-type]
+    assert len(session._store.list_runs(session.id)) == run_count
 
 
 def test_discover_writes_job_and_frame():

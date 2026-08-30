@@ -1485,13 +1485,6 @@ def commit_result(
             previous_meta_bytes = meta_path.read_bytes()
     df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
-    quality_manifest = None
-    if quality_evaluation is not None:
-        quality_path = artifact_dir / "quality.parquet"
-        quality_sha = _atomic_write_parquet(quality_evaluation.dataframe, quality_path)
-        quality_manifest = quality_evaluation.build_manifest(
-            content_hash=f"sha256:{quality_sha}",
-        )
     auxiliary_receipts: list[_FrameAuxiliaryReceipt] = []
     auxiliary_filenames: set[str] = set()
     for table in frame._auxiliary_tables():
@@ -1607,10 +1600,9 @@ def commit_result(
             "ref": artifact_id,
             "artifact_id": artifact_id,
             "evidence_status": status,
+            "finding_count": len(findings),
             "analysis_scope": scope,
             "quality_summary": quality,
-            "quality_ref": (f"{artifact_id}#quality" if quality_manifest is not None else None),
-            "quality_report": quality_manifest,
             "evidence_digest": digest,
             "issues": tuple(issues),
         }
@@ -1634,11 +1626,6 @@ def commit_result(
             update={
                 "byte_size": parquet_path.stat().st_size
                 + sum(item.byte_size for item in auxiliary_receipts)
-                + (
-                    (artifact_dir / quality_manifest.filename).stat().st_size
-                    if quality_manifest is not None
-                    else 0
-                )
             }
         )
         return result.model_copy(
@@ -1669,6 +1656,8 @@ def commit_result(
             content_hash=cast("str | None", withdrawn_registration["content_hash"]),
             produced_by_job=cast("str | None", withdrawn_registration["produced_by_job"]),
             evidence_status=str(withdrawn_registration["evidence_status"]),
+            artifact_schema_version=str(withdrawn_registration["artifact_schema_version"]),
+            finding_count=int(str(withdrawn_registration["finding_count"])),
             created_at=str(withdrawn_registration["created_at"]),
         )
 

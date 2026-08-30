@@ -186,6 +186,62 @@ def _normalize_dimension_inputs_boundary(
 _DEFAULT_DISCOVER_LIMIT: int = 50
 
 
+def validate_discover_admission(
+    source: MetricFrame | DeltaFrame,
+    *,
+    objective: CandidateObjective | str,
+    strategy: CandidateStrategy | None = None,
+    threshold: float | None = None,
+    limit: int | None = _DEFAULT_DISCOVER_LIMIT,
+    search_space: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
+    peer_scope: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
+    session: Session,
+) -> None:
+    """Validate discover parameters and ownership before one Run is admitted."""
+    ensure_session_can_execute(session)
+    search_space_ids = _normalize_dimension_inputs_boundary(
+        session,
+        search_space,
+        argument="search_space",
+    )
+    _normalize_dimension_inputs_boundary(
+        session,
+        peer_scope,
+        argument="peer_scope",
+    )
+    ensure_frame_in_session(source, session=session, label="discover source")
+    if isinstance(source, MetricFrame):
+        require_single_metric(source, intent=f"discover.{objective}")
+    if not _is_valid_objective(objective):
+        raise SemanticKindMismatchError(
+            message=f"unsupported discover objective {objective!r}",
+            context={
+                "expected_kind": "|".join(sorted(_VALID_OBJECTIVES)),
+                "got_kind": str(objective),
+            },
+        )
+    if isinstance(source.meta, FunnelDeltaFrameMeta):
+        allowed_semantic_kinds = _objective_semantic_kinds(objective)
+        raise SemanticKindMismatchError(
+            message=f"discover objective {objective!r} does not accept DeltaFrame[funnel]",
+            context={
+                "objective": objective,
+                "semantic_kind": source.meta.semantic_kind,
+                "expected_kind": "|".join(sorted(allowed_semantic_kinds)),
+            },
+        )
+    _check_objective_compatibility(objective, source.meta.semantic_kind)
+    _resolve_strategy(objective, strategy)
+    if objective == "driver_axes" and not search_space_ids:
+        raise SemanticKindMismatchError(
+            message="discover(driver_axes) requires a non-empty search_space",
+            context={"objective": objective, "missing": "search_space"},
+        )
+    if threshold is not None:
+        _validate_threshold(threshold)
+    _validate_limit(limit)
+
+
 def _discover_dispatch(
     source: MetricFrame | DeltaFrame,
     *,

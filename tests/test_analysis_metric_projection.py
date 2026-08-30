@@ -10,7 +10,6 @@ import marivo.analysis as mv
 from marivo._compat import UTC
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.session._layout import read_job_record
 from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import (
     make_test_metric_meta_contract,
@@ -357,9 +356,7 @@ def test_projected_frame_transforms_use_only_public_columns(sales_session):
     assert ranked.to_pandas()["rank"].tolist() == [2, 1]
     assert sales_session.get_frame(top.ref).columns == ["bucket_start", value_column]
     assert top.lineage.steps[-1].params["by"] == value_column
-    assert read_job_record(sales_session._layout, top.meta.produced_by_job)["params"]["by"] == (
-        value_column
-    )
+    assert sales_session.job(top.meta.produced_by_job)["params"]["by"] == (value_column)
 
     with pytest.raises(TransformArgError) as exc_info:
         revenue.transform.topk(by="value", limit=1)
@@ -634,10 +631,9 @@ def test_multi_frame_contract_keeps_quality_while_gating_single_metric_intents()
         'frame.metric("sales.order_count")',
     )
 
-    quality = next(
-        item for item in contract.affordances if item.capability_id == "BaseFrame.quality_report"
+    assert not any(
+        item.capability_id == "BaseFrame.quality_report" for item in contract.affordances
     )
-    assert "single_metric" not in {precondition.check for precondition in quality.preconditions}
 
 
 @pytest.mark.parametrize(

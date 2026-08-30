@@ -96,9 +96,7 @@ def test_final_progressive_topology_is_active() -> None:
     for target in ("entry", "methods", "inputs", "artifacts", "evidence", "runtime"):
         assert target in REGISTRY.canonical_ids()
     methods = REGISTRY.navigation_topic("methods")
-    assert tuple(target.canonical_id for target in methods.members)[5] == (
-        "BaseFrame.quality_report"
-    )
+    assert tuple(target.canonical_id for target in methods.members)[5] == "events"
 
 
 def test_runtime_registry_iteration_contains_exact_capabilities_only() -> None:
@@ -128,7 +126,6 @@ EXPECTED_ARTIFACT_FAMILIES = (
     "DeltaFrame",
     "AttributionFrame",
     "ForecastFrame",
-    "QualityReport",
     "CandidateSet",
     "AssociationResult",
     "ComponentFrame",
@@ -137,8 +134,8 @@ EXPECTED_ARTIFACT_FAMILIES = (
 )
 
 
-def test_artifact_families_has_thirteen_members() -> None:
-    assert len(ARTIFACT_FAMILIES) == 13
+def test_artifact_families_has_twelve_members() -> None:
+    assert len(ARTIFACT_FAMILIES) == 12
 
 
 def test_artifact_families_matches_expected_vocabulary() -> None:
@@ -230,15 +227,11 @@ def test_slice2_cross_links_are_explicit_immutable_and_budgeted() -> None:
         "methods.relationship_testing",
         "forecast",
         "discover",
-        "BaseFrame.quality_report",
         "boundary.to_pandas",
         "session.get_frame",
     )
-    assert len(metric_routes) == REGISTRY.render_budget("public_type").max_outgoing_routes
-    assert tuple(target.canonical_id for target in REGISTRY.cross_links("QualityReport")) == (
-        "BaseFrame.quality_report",
-        "boundary.to_pandas",
-    )
+    assert len(metric_routes) <= REGISTRY.render_budget("public_type").max_outgoing_routes
+    assert REGISTRY.cross_links("QualityReport") == ()
     for targets in REGISTRY.cross_link_index.values():
         for target in targets:
             if target.surface == "analysis" and target.canonical_id is not None:
@@ -343,7 +336,6 @@ def test_slice3_evidence_and_runtime_membership_is_exact_and_ordered() -> None:
 def test_slice3_cross_links_are_explicit_immutable_and_budgeted() -> None:
     assert tuple(target.canonical_id for target in REGISTRY.cross_links("evidence")) == (
         "BaseFrame.show",
-        "BaseFrame.quality_report",
     )
     assert tuple(target.canonical_id for target in REGISTRY.cross_links("runtime")) == (
         "Session",
@@ -1083,6 +1075,7 @@ def test_registry_rejects_dead_and_over_budget_static_cross_links() -> None:
                 "MetricFrame": (
                     *REGISTRY.cross_links("MetricFrame"),
                     LiveHelpTarget(surface="analysis", canonical_id="MetricFrame"),
+                    LiveHelpTarget(surface="analysis", canonical_id="BaseFrame.show"),
                 )
             },
             render_budgets=REGISTRY.render_budgets,
@@ -1674,14 +1667,14 @@ def test_registry_rejects_type_variant_drift(monkeypatch: pytest.MonkeyPatch) ->
     import marivo.analysis._capabilities.registry as registry_module
 
     variants = dict(registry_module.PUBLIC_TYPE_VARIANTS)
-    variants["QualityReport"] = variants["QualityReport"][:-1]
+    variants["EventFrame"] = variants["EventFrame"][:-1]
     monkeypatch.setattr(
         registry_module,
         "PUBLIC_TYPE_VARIANTS",
         MappingProxyType(variants),
     )
 
-    with pytest.raises(ValueError, match="QualityReport help variants"):
+    with pytest.raises(ValueError, match="EventFrame help variants"):
         registry_module._validate_public_type_variants()
 
 

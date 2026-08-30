@@ -72,8 +72,8 @@ Digest item variants are deliberately operator-specific:
 | `discover.semantic_hypotheses` | empty digest | ontology candidate only; no finding is seeded |
 | `transform.*` / `MetricFrame.metric(...)` | empty digest | lineage-preserving transformation or projection only |
 
-Construction quality is stored beside the parent Artifact and read with
-`frame.quality_report()`; it is not an evidence-producing operator.
+Construction quality is stored on the parent Artifact as `quality_summary` and
+typed issues; it is not an evidence-producing operator or a separate Artifact.
 
 Every item contains its `epistemic_kind`, source artifact, subject, scope, and
 `DerivationRule`. Unknown operator rules fail closed. Digest items can only be

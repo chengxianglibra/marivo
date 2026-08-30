@@ -68,7 +68,6 @@ def _classify_frame(value: object) -> str | None:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.lifecycle import LifecycleFrame
     from marivo.analysis.frames.metric import MetricFrame
-    from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
 
     if isinstance(value, MetricFrame):
@@ -85,8 +84,6 @@ def _classify_frame(value: object) -> str | None:
         return "AttributionFrame"
     if isinstance(value, ForecastFrame):
         return "ForecastFrame"
-    if isinstance(value, QualityReport):
-        return "QualityReport"
     if isinstance(value, CandidateSet):
         return "CandidateSet"
     if isinstance(value, AssociationResult):
