@@ -131,7 +131,12 @@ def _normalize_child(frame: Any, *, role: str, key_columns: tuple[str, ...]) -> 
         )
     normalized = frame.copy()
     normalized["value"] = _normalize_composition_value(normalized["value"], role=role)
-    normalized[_presence_column(role)] = True
+    pandas = __import__("pandas")
+    normalized[_presence_column(role)] = pandas.Series(
+        True,
+        index=normalized.index,
+        dtype="boolean",
+    )
     return normalized.rename(columns={"value": _value_column(role)})
 
 
