@@ -135,8 +135,15 @@ Use one stable, distinguishable session name for each persistent analysis
 workspace. `get_or_create` creates that name once and later attaches to the same
 immutable session id. An explicit `question` becomes the session's current
 guiding question; deliberately omitting it preserves the persisted value. The
-narrow session API is `get_or_create`, `resume(session_id)`, `current()`,
+narrow session API is `get_or_create`, `resume(identity)`, `current()`,
 `recent()`, `inspect(name)`, and `delete(name)`.
+
+`resume(identity)` accepts the exact stable session name or immutable session
+id. It only resumes existing state: an unknown or ambiguous identity fails
+without creating a session or changing its name, question, or report timezone.
+Normally omit `by`; if the same value matches one session name and a different
+session id, follow the structured error and retry with `by="name"` or `by="id"`
+to select the intended existing session explicitly.
 
 Updating the current question does not rewrite existing artifacts, jobs,
 evidence, lineage, or their `analysis_purpose`. Use a new stable session name

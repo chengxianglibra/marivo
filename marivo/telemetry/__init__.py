@@ -585,6 +585,14 @@ def _input_attributes(
     for name, value in arguments.items():
         if name in {"analysis_purpose", "question", "reason"}:
             continue
+        if (
+            capability_id == "session.resume"
+            and name == "by"
+            and isinstance(value, str)
+            and value in {"name", "id"}
+        ):
+            attrs["marivo.input.by"] = value
+            continue
         attrs.update(_parameter_attributes(name, value))
     attrs.update(_session_attributes(arguments))
     return attrs

@@ -175,7 +175,7 @@ def test_root_recovery_routes_only_to_runtime_hub() -> None:
     for entrypoint in (
         "mv.session.get_or_create(...)",
         "mv.session.current()",
-        "mv.session.resume(session_id)",
+        "mv.session.resume(identity)",
         "mv.session.recent()",
         "mv.session.inspect(name)",
         "mv.session.delete(name)",
@@ -184,13 +184,17 @@ def test_root_recovery_routes_only_to_runtime_hub() -> None:
         assert entrypoint in runtime_sessions
 
 
-def test_session_resume_focused_help_uses_exact_id_contract() -> None:
+def test_session_resume_focused_help_uses_exact_name_or_id_contract() -> None:
     text = _text("session.resume")
 
-    assert "Entrypoint: mv.session.resume(session_id)" in text
-    assert "Identity input: session_id" in text
+    assert "Entrypoint: mv.session.resume(identity)" in text
+    assert "Identity input: session_name_or_id" in text
+    assert "mv.session.resume(page.items[0].name)" in text
     assert "mv.session.resume(page.items[0].id)" in text
+    assert 'mv.session.resume(page.items[0].name, by="name")' in text
     signature_line = next(line for line in text.splitlines() if "Signature:" in line)
+    assert "by:" in signature_line
+    assert "Literal" in signature_line
     assert "question" not in signature_line
     assert "report_timezone" not in signature_line
 
@@ -266,7 +270,7 @@ def test_slice3_runtime_help_routes_exact_persisted_identities() -> None:
         "mv.session.current()",
         "mv.session.recent()",
         "mv.session.inspect(name)",
-        "mv.session.resume(session_id)",
+        "mv.session.resume(identity)",
         "mv.session.delete(name)",
     ):
         assert entrypoint in sessions

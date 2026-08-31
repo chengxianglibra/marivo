@@ -464,6 +464,22 @@ def test_get_session_by_id_missing(store: SessionStore) -> None:
     assert store.get_session_by_id("sess_nope") is None
 
 
+def test_get_sessions_by_identity_matches_exact_name_or_id(
+    store: SessionStore, project_root: Path
+) -> None:
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
+
+    assert [match["id"] for match in store.get_sessions_by_identity("s")] == [row["id"]]
+    assert [match["id"] for match in store.get_sessions_by_identity(row["id"])] == [row["id"]]
+    assert [match["id"] for match in store.get_sessions_by_identity("s", by="name")] == [row["id"]]
+    assert [match["id"] for match in store.get_sessions_by_identity(row["id"], by="id")] == [
+        row["id"]
+    ]
+    assert store.get_sessions_by_identity("s", by="id") == ()
+    assert store.get_sessions_by_identity(row["id"], by="name") == ()
+    assert store.get_sessions_by_identity("missing") == ()
+
+
 # ---------------------------------------------------------------------------
 # Touch and calendar helpers
 # ---------------------------------------------------------------------------

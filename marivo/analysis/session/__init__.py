@@ -5,8 +5,9 @@ The public surface is intentionally narrow:
 - ``mv.session.get_or_create(name=...)`` — attach if that session already
   exists, otherwise create it. An explicit question becomes the session's
   current guiding question. Sets the new or attached session as current.
-- ``mv.session.resume(session_id)`` — explicitly resume one existing session
-  by its immutable id and set it current.
+- ``mv.session.resume(identity, by=...)`` — explicitly resume one existing
+  session by its exact name or immutable id and set it current; ``by`` resolves
+  the rare case where one value matches different name and id rows.
 - ``mv.session.current()`` — return the current ``Session`` or ``None``
   when there is no current session. Safe probe: check and continue work.
 - ``mv.session.recent()`` — return a bounded newest-first page for reference.
@@ -27,7 +28,7 @@ import threading
 import types
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ibis.backends import BaseBackend
 
@@ -190,8 +191,8 @@ def get_or_create(
     Safe to call repeatedly with the same name -- the first call creates and
     subsequent calls attach to the same immutable session id. An explicit
     ``question`` becomes the current guiding question; omit it to resume without
-    changing the persisted question. Prefer :func:`resume` when the session id
-    is available.
+    changing the persisted question. Prefer :func:`resume` when an existing
+    session identity is available and creation must fail closed.
 
     Args:
         name: Session name. Creates if absent, attaches if present.
@@ -246,17 +247,21 @@ def get_or_create(
 
 
 def resume(
-    session_id: str,
+    identity: str,
     *,
+    by: Literal["name", "id"] | None = None,
     backends: dict[str, Callable[[], BaseBackend]] | None = None,
     backend_factory: Callable[[str], BaseBackend] | None = None,
     use_datasources: bool = True,
 ) -> Session:
-    """Resume an existing project session by its immutable id.
+    """Resume an existing project session by its exact name or immutable id.
 
     Args:
-        session_id: Exact ``sess_...`` id returned by a session or
-            :func:`recent` summary.
+        identity: Exact session name or ``sess_...`` id returned by a session
+            or :func:`recent` summary.
+        by: Explicit identity kind for resolving a name/id collision. Omit for
+            normal exact matching; pass ``"name"`` or ``"id"`` only when the
+            intended kind must be selected.
         backends: Explicit mapping of datasource name to zero-arg factory
             callable returning an ibis backend.
         backend_factory: Single callable taking a datasource name and returning
@@ -268,39 +273,100 @@ def resume(
         The resumed live :class:`Session`, set as the current session.
 
     Raises:
-        SessionNotFoundError: The id is absent from the current project.
-        SessionStateError: Both ``backends`` and ``backend_factory`` were
-            supplied.
+        SessionNotFoundError: The identity is absent from the current project.
+        SessionIdentityAmbiguousError: The identity matches one session id and
+            a different session name.
+        SessionStateError: ``by`` is not ``"name"``, ``"id"``, or ``None``;
+            or both ``backends`` and ``backend_factory`` were supplied.
 
     Example:
         >>> page = mv.session.recent(limit=10)
-        >>> session = mv.session.resume(page.items[0].id)
+        >>> by_name = mv.session.resume(page.items[0].name)
+        >>> by_id = mv.session.resume(page.items[0].id)
+        >>> selected = mv.session.resume(page.items[0].name, by="name")
 
     Constraints:
         This method never changes the persisted name, question, or report
-        timezone. Session ids are resolved only within the current project.
+        timezone. Ids and names are resolved only within the current project.
+        Omit ``by`` unless an ambiguous identity must be resolved explicitly.
     """
-    from marivo.analysis.errors import AnalysisRepair, SessionNotFoundError
+    from marivo.analysis.errors import (
+        AnalysisRepair,
+        SessionIdentityAmbiguousError,
+        SessionNotFoundError,
+        SessionStateError,
+    )
     from marivo.analysis.session._runtime import _build_connection_runtime
     from marivo.analysis.session._store import SessionStore as _Store
     from marivo.introspection.live.model import LiveHelpTarget
 
     store = _Store()
-    row = store.get_session_by_id(session_id)
-    if row is None:
-        candidates = tuple(item.id for item in store.page_sessions(limit=10, after=None)[:10])
+    if by not in (None, "name", "id"):
+        raise SessionStateError(
+            message=f"analysis session identity selector {by!r} is not supported",
+            expected='by="name", by="id", or omitted by',
+            received=by,
+            location="mv.session.resume(by=...)",
+            repair=AnalysisRepair(
+                kind="retry",
+                action='Retry with by="name", by="id", or omit by for automatic resolution.',
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.resume"),
+                candidates=("name", "id"),
+            ),
+        )
+    matches = store.get_sessions_by_identity(identity, by=by)
+    if not matches:
+        recent = store.page_sessions(limit=10, after=None)[:10]
+        candidates = tuple(item.id if by == "id" else item.name for item in recent)
+        expected_identity = (
+            "an existing project session id"
+            if by == "id"
+            else (
+                "an existing project session name"
+                if by == "name"
+                else "an existing project session name or id"
+            )
+        )
         raise SessionNotFoundError(
-            message=f"analysis session id {session_id!r} was not found in the current project",
-            expected="an existing project session id from mv.session.recent().items[*].id",
-            received=session_id,
-            location="mv.session.resume(session_id)",
+            message=f"analysis session identity {identity!r} was not found in the current project",
+            expected=f"{expected_identity} from mv.session.recent().items",
+            received=identity,
+            location="mv.session.resume(identity)",
             repair=AnalysisRepair(
                 kind="inspect",
-                action="Read mv.session.recent() and resume one of the returned session ids.",
+                action=(
+                    "Read mv.session.recent() and resume one of the returned "
+                    f"session {by or 'name or id'} values."
+                ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="session.recent"),
                 candidates=candidates,
             ),
         )
+    if len(matches) == 2:
+        id_match = matches[0]
+        name_match = matches[1]
+        raise SessionIdentityAmbiguousError(
+            message=(
+                f"analysis session identity {identity!r} matches session id "
+                f"{id_match['id']!r} and a different session name {name_match['name']!r}"
+            ),
+            expected="one session matched by exact name or id",
+            received=identity,
+            location="mv.session.resume(identity)",
+            repair=AnalysisRepair(
+                kind="user_choice",
+                action=(
+                    "Choose the intended matching session, then retry the same "
+                    'identity with by="id" or by="name".'
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.resume"),
+                candidates=(
+                    f'by="id" -> name={id_match["name"]!r}',
+                    f'by="name" -> id={name_match["id"]!r}',
+                ),
+            ),
+        )
+    row = matches[0]
 
     connection_runtime = _build_connection_runtime(
         store.project_root,

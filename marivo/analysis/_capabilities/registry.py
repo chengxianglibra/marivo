@@ -379,8 +379,8 @@ def _slice3_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
         AnalysisNavigationTopic(
             canonical_id="runtime.sessions",
             summary=(
-                "Create or locate Sessions by stable name and inspect or resume them by "
-                "immutable session id."
+                "Create or locate Sessions by stable name, inspect them by name, and resume "
+                "them by exact name or immutable session id."
             ),
             render_class="navigation",
             members=tuple(
@@ -3008,12 +3008,15 @@ def _build_registry() -> CapabilityRegistry:
         ),
         (
             "session.resume",
-            "mv.session.resume(session_id)",
+            "mv.session.resume(identity)",
             "session.resume",
-            "Explicitly resume an existing project session by its immutable id.",
+            (
+                "Resume an existing project session by exact name or immutable id; "
+                "use by='name' or by='id' only to resolve a collision."
+            ),
             "recovery",
             "Session",
-            "session_id",
+            "session_name_or_id",
         ),
         (
             "session.recent",

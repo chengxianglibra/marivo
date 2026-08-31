@@ -421,15 +421,28 @@ def test_session_question_update_and_explicit_resume_semantics(
         backend_factory=lambda _name: None,
         use_datasources=False,
     )
-    resumed = mv.session.resume(
+    resumed_by_name = mv.session.resume(
+        "demo",
+        by="name",
+        backend_factory=lambda _name: None,
+        use_datasources=False,
+    )
+    resumed_by_id = mv.session.resume(
         first.id,
+        by="id",
         backend_factory=lambda _name: None,
         use_datasources=False,
     )
 
     path = _event_path(telemetry_project)
-    assert updated.id == omitted.id == resumed.id == first.id
-    assert updated.question == omitted.question == resumed.question == "Replacement question"
+    assert updated.id == omitted.id == resumed_by_name.id == resumed_by_id.id == first.id
+    assert (
+        updated.question
+        == omitted.question
+        == resumed_by_name.question
+        == resumed_by_id.question
+        == "Replacement question"
+    )
     calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
     assert len(calls) == 6
     assert calls[0]["marivo.session.created"] is True
@@ -450,9 +463,53 @@ def test_session_question_update_and_explicit_resume_semantics(
     assert calls[5]["marivo.session.question"] == "Replacement question"
 
     resume_calls = [_attrs(record) for record in _capability_records(path, "session.resume")]
-    assert len(resume_calls) == 2
-    assert resume_calls[-1]["marivo.operation.status"] == "ok"
-    assert resume_calls[-1]["marivo.session.id"] == first.id
+    assert len(resume_calls) == 4
+    assert "demo" not in json.dumps(resume_calls)
+    assert all("marivo.input.identity" not in attrs for attrs in resume_calls)
+    assert all(attrs["marivo.input.identity.type"] == "str" for attrs in resume_calls)
+    assert [attrs["marivo.input.by"] for attrs in resume_calls] == ["name", "name", "id", "id"]
+    completed = [attrs for attrs in resume_calls if attrs["marivo.operation.status"] == "ok"]
+    assert len(completed) == 2
+    assert all(attrs["marivo.session.id"] == first.id for attrs in completed)
+
+
+def test_failed_session_resume_does_not_disclose_identity(
+    telemetry_project: Path,
+) -> None:
+    identity = "private-session-name"
+
+    with pytest.raises(mv.errors.SessionNotFoundError):
+        mv.session.resume(identity, use_datasources=False)
+
+    calls = [
+        _attrs(record)
+        for record in _capability_records(_event_path(telemetry_project), "session.resume")
+    ]
+    assert len(calls) == 2
+    assert identity not in json.dumps(calls)
+    assert all("marivo.input.identity" not in attrs for attrs in calls)
+    assert all(attrs["marivo.input.identity.type"] == "str" for attrs in calls)
+    assert all(attrs["marivo.input.identity.length"] == str(len(identity)) for attrs in calls)
+
+
+def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
+    telemetry_project: Path,
+) -> None:
+    selector = "private-selector"
+    resume_call = {"by": selector, "use_datasources": False}
+
+    with pytest.raises(mv.errors.SessionStateError):
+        mv.session.resume("known-session", **resume_call)
+
+    calls = [
+        _attrs(record)
+        for record in _capability_records(_event_path(telemetry_project), "session.resume")
+    ]
+    assert len(calls) == 2
+    assert selector not in json.dumps(calls)
+    assert all("marivo.input.by" not in attrs for attrs in calls)
+    assert all(attrs["marivo.input.by.type"] == "str" for attrs in calls)
+    assert all(attrs["marivo.input.by.length"] == str(len(selector)) for attrs in calls)
 
 
 def test_failed_session_question_update_reports_not_applied(

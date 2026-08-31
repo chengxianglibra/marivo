@@ -42,7 +42,8 @@ def test_session_acquisition_has_concrete_return_annotations() -> None:
     assert signature(mv.session.get_or_create).return_annotation != Any
     assert signature(mv.session.resume).return_annotation != Any
     assert tuple(signature(mv.session.resume).parameters) == (
-        "session_id",
+        "identity",
+        "by",
         "backends",
         "backend_factory",
         "use_datasources",
@@ -266,7 +267,35 @@ def test_resume_by_id_restores_session_and_marks_current(
     assert current.id == historical.id
 
 
-def test_resume_missing_id_raises_typed_error_with_real_id_candidates(
+def test_resume_by_name_restores_without_creating_or_changing_persisted_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    historical = mv.session.get_or_create(
+        name="historical",
+        question="why?",
+        report_timezone="UTC",
+        use_datasources=False,
+    )
+    mv.session.get_or_create(name="active", use_datasources=False)
+
+    resumed = mv.session.resume("historical", use_datasources=False)
+
+    assert resumed.id == historical.id
+    assert resumed.name == "historical"
+    assert resumed.question == "why?"
+    assert resumed.report_tz_name == "UTC"
+    assert {item.name for item in mv.session.recent(limit=10).items} == {
+        "active",
+        "historical",
+    }
+    current = mv.session.current()
+    assert current is not None
+    assert current.id == historical.id
+
+
+def test_resume_missing_identity_raises_typed_error_with_real_name_candidates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -277,16 +306,148 @@ def test_resume_missing_id_raises_typed_error_with_real_id_candidates(
         mv.session.resume("sess_missing", use_datasources=False)
 
     error = exc_info.value
-    assert error.expected == "an existing project session id from mv.session.recent().items[*].id"
+    assert error.expected == "an existing project session name or id from mv.session.recent().items"
     assert error.received == "sess_missing"
-    assert error.location == "mv.session.resume(session_id)"
+    assert error.location == "mv.session.resume(identity)"
     assert error.repair is not None
     assert error.repair.kind == "inspect"
     assert error.repair.help_target.canonical_id == "session.recent"
-    assert error.repair.candidates == (known.id,)
+    assert error.repair.candidates == (known.name,)
     current = mv.session.current()
     assert current is not None
     assert current.id == known.id
+
+
+def test_resume_rejects_identity_that_matches_different_id_and_name_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    store_module = import_module("marivo.analysis.session._store")
+    shared_identity = "sess_" + "a" * 24
+    generated_ids = iter((shared_identity, "sess_" + "b" * 24))
+    monkeypatch.setattr(store_module, "_gen_session_id", lambda: next(generated_ids))
+    id_match = mv.session.get_or_create(name="id-owner", use_datasources=False)
+    name_match = mv.session.get_or_create(name=shared_identity, use_datasources=False)
+
+    with pytest.raises(mv.errors.SessionIdentityAmbiguousError) as exc_info:
+        mv.session.resume(shared_identity, use_datasources=False)
+
+    error = exc_info.value
+    assert error.expected == "one session matched by exact name or id"
+    assert error.received == shared_identity
+    assert error.location == "mv.session.resume(identity)"
+    assert error.repair is not None
+    assert error.repair.kind == "user_choice"
+    assert error.repair.help_target.canonical_id == "session.resume"
+    assert error.repair.candidates == (
+        f'by="id" -> name={id_match.name!r}',
+        f'by="name" -> id={name_match.id!r}',
+    )
+
+    resumed_by_id = mv.session.resume(shared_identity, by="id", use_datasources=False)
+    resumed_by_name = mv.session.resume(shared_identity, by="name", use_datasources=False)
+
+    assert resumed_by_id.id == id_match.id
+    assert resumed_by_name.id == name_match.id
+    current = mv.session.current()
+    assert current is not None
+    assert current.id == name_match.id
+
+
+def test_resume_explicit_selector_breaks_two_identity_collision_cycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    store_module = import_module("marivo.analysis.session._store")
+    left_identity = "sess_" + "a" * 24
+    right_identity = "sess_" + "b" * 24
+    generated_ids = iter((left_identity, right_identity))
+    monkeypatch.setattr(store_module, "_gen_session_id", lambda: next(generated_ids))
+    left = mv.session.get_or_create(name=right_identity, use_datasources=False)
+    right = mv.session.get_or_create(name=left_identity, use_datasources=False)
+
+    for identity in (left_identity, right_identity):
+        with pytest.raises(mv.errors.SessionIdentityAmbiguousError):
+            mv.session.resume(identity, use_datasources=False)
+
+    assert mv.session.resume(left_identity, by="id", use_datasources=False).id == left.id
+    assert mv.session.resume(left_identity, by="name", use_datasources=False).id == right.id
+    assert mv.session.resume(right_identity, by="id", use_datasources=False).id == right.id
+    assert mv.session.resume(right_identity, by="name", use_datasources=False).id == left.id
+
+
+def test_resume_accepts_identity_matching_same_row_by_id_and_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    store_module = import_module("marivo.analysis.session._store")
+    monkeypatch.setattr(store_module, "_gen_session_id", lambda: "sess_same")
+    session = mv.session.get_or_create(name="sess_same", use_datasources=False)
+
+    resumed = mv.session.resume("sess_same", use_datasources=False)
+
+    assert resumed.id == session.id == "sess_same"
+
+
+@pytest.mark.parametrize(
+    ("by", "expected", "candidate_attribute"),
+    (
+        ("name", "an existing project session name", "name"),
+        ("id", "an existing project session id", "id"),
+    ),
+)
+def test_resume_explicit_selector_missing_identity_uses_matching_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    by: str,
+    expected: str,
+    candidate_attribute: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    known = mv.session.get_or_create(name="known", use_datasources=False)
+    resume_call = {"by": by, "use_datasources": False}
+
+    with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
+        mv.session.resume("missing", **resume_call)
+
+    error = exc_info.value
+    assert error.expected == f"{expected} from mv.session.recent().items"
+    assert error.repair is not None
+    assert error.repair.candidates == (getattr(known, candidate_attribute),)
+
+
+def test_resume_rejects_unknown_identity_selector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    invalid_selector_call = {"by": "prefix", "use_datasources": False}
+
+    with pytest.raises(mv.errors.SessionStateError) as exc_info:
+        mv.session.resume("s", **invalid_selector_call)
+
+    error = exc_info.value
+    assert error.expected == 'by="name", by="id", or omitted by'
+    assert error.received == "prefix"
+    assert error.location == "mv.session.resume(by=...)"
+    assert error.repair is not None
+    assert error.repair.candidates == ("name", "id")
+
+
+def test_resume_rejects_removed_session_id_keyword(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    session = mv.session.get_or_create(name="s", use_datasources=False)
+
+    removed_keyword_call = {"session_id": session.id, "use_datasources": False}
+    with pytest.raises(TypeError):
+        mv.session.resume(**removed_keyword_call)
 
 
 def test_resume_rejects_backends_and_backend_factory_together(
