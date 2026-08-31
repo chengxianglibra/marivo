@@ -399,7 +399,7 @@ analysis boundary, six decision hubs, and one exact terminal route:
 marivo.analysis
 <installed Marivo version, resolved Python executable, and package path>
 
-Governed entry:
+Resolve governed semantic inputs and enter typed analysis:
   marivo.help("analysis.entry")
 
 Installed computation families:

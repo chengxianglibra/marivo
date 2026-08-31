@@ -133,10 +133,12 @@ The target progressive-disclosure topology for those layers is specified in
   `analysis.methods`, `analysis.inputs`, `analysis.artifacts`,
   `analysis.evidence`, and `analysis.runtime`), and the exact terminal leaf
   `analysis.boundary.to_pandas`. It does not render an observation recipe or
-  the registry's complete type algebra. Each hub lists only its registered
-  members. Focused `marivo.help("analysis.<target>")` owns the live signature,
-  exact inputs and outputs, constraints and effects, and at most one minimal
-  example. Frames and results own dynamic guidance:
+  the registry's complete type algebra. Its entry label makes governed semantic
+  input resolution discoverable, while `analysis.entry` owns the narrower route
+  to `analysis.catalog`; catalog collections remain off the root. Each hub lists
+  only its registered members. Focused `marivo.help("analysis.<target>")` owns
+  the live signature, exact inputs and outputs, constraints and effects, and at
+  most one minimal example. Frames and results own dynamic guidance:
   `show()` describes an artifact's current state and only state-dependent
   continuation hints; `contract()` describes the complete mechanically valid
   next actions from where it is now. Readable operation labels use registry-owned

@@ -141,7 +141,7 @@ def test_root_help_renders_only_the_registry_owned_routes() -> None:
 def test_root_help_routes_to_six_hubs_and_exact_boundary() -> None:
     text = _text()
     for label in (
-        "Governed entry",
+        "Resolve governed semantic inputs and enter typed analysis",
         "Installed computation families",
         "Construct inputs and policies",
         "Understand Artifact families and reads",
@@ -150,6 +150,8 @@ def test_root_help_routes_to_six_hubs_and_exact_boundary() -> None:
         "Inspect typed-flow exits",
     ):
         assert label in text
+    assert 'marivo.help("analysis.entry")' in text
+    assert 'marivo.help("analysis.catalog")' not in text
     assert 'marivo.help("analysis.boundary.to_pandas")' in text
 
 
