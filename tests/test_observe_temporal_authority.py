@@ -229,7 +229,7 @@ def test_default_observe_records_physical_timezone_from_aware_axis(tmp_path) -> 
     )
     assert frame.meta.temporal_contract is not None
     assert frame.meta.temporal_contract.time_axis_timezones == expected
-    recovered = session.get_frame(frame.ref)
+    recovered = session.artifact(frame.ref)
     assert recovered.meta.temporal_contract is not None
     assert recovered.meta.temporal_contract.data_extent_end == date(2026, 7, 2)
     assert recovered.meta.temporal_contract.time_axis_timezones == expected

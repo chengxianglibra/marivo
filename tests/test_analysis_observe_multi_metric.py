@@ -256,8 +256,8 @@ def test_cross_entity_metrics_with_different_time_axes_fail_before_execution(
         "sales.user_count": ("sales.users.signup_date",),
     }
     assert calls == []
-    assert sales_session.jobs() == []
-    assert sales_session.frame_summaries().items == ()
+    assert sales_session.runs(limit=100).items == ()
+    assert sales_session.graph().artifacts == ()
 
 
 def test_mixed_axis_forest_repair_outputs_ready_to_copy_split_plan(
@@ -611,11 +611,7 @@ def test_repeat_call_hits_frame_cache(sales_session):
 
 def test_evidence_findings_per_metric(sales_session):
     frame = _fused_frame(sales_session)
-    findings = [
-        f
-        for f in sales_session.evidence.findings(artifact_ref=frame.meta.artifact_id)
-        if f.finding_type == "metric_value"
-    ]
+    findings = [f for f in frame.findings().items if f.finding_type == "metric_value"]
     subjects = {f.subject.metric for f in findings}
     assert subjects == {"sales.revenue", "sales.order_count"}
     assert all(isinstance(f.subject.typed_metric_subject, CatalogMetricSubjectV1) for f in findings)

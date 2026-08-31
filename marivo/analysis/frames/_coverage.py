@@ -25,9 +25,9 @@ def _load_coverage_frame(
     """
     from marivo.analysis.errors import (
         AnalysisRepair,
+        ArtifactNotFoundError,
         FrameCacheCorruptedError,
         FrameReadError,
-        FrameRefNotFound,
     )
     from marivo.analysis.evidence.identity import make_coverage_artifact_id
     from marivo.analysis.frames.coverage import CoverageFrame
@@ -45,7 +45,7 @@ def _load_coverage_frame(
         loaded = load_frame(coverage_ref, session=session)
         if isinstance(loaded, CoverageFrame):
             return loaded
-    except (FrameRefNotFound, FrameCacheCorruptedError):
+    except (ArtifactNotFoundError, FrameCacheCorruptedError):
         pass
 
     # Phase 2: derive deterministic ref from parent's artifact_id/ref
@@ -55,7 +55,7 @@ def _load_coverage_frame(
         loaded = load_frame(deterministic_ref, session=session)
         if isinstance(loaded, CoverageFrame):
             return loaded
-    except (FrameRefNotFound, FrameCacheCorruptedError):
+    except (ArtifactNotFoundError, FrameCacheCorruptedError):
         pass
 
     raise FrameReadError(

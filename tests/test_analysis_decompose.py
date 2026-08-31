@@ -432,9 +432,9 @@ def test_decompose_writes_job_and_frame():
         frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
     )
 
-    jobs = [job for job in session.jobs() if job.intent == "decompose"]
+    jobs = [job for job in session.runs(limit=100).items if job.capability_id == "attribute"]
     assert len(jobs) == 1
-    assert jobs[0].output_frame_ref == out.ref
+    assert jobs[0].output_artifact_ref == out.ref
     assert (session._layout.frames_dir / out.ref / "data.parquet").is_file()
 
 

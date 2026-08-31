@@ -1,4 +1,4 @@
-"""Private Slice-2 candidate Session runtime reads and factual graph projection."""
+"""Public Session runtime reads and factual graph projection."""
 
 from __future__ import annotations
 
@@ -16,33 +16,21 @@ from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.errors import (
     AnalysisRepair,
-    EvidenceLimitError,
-    EvidenceStoreUnavailableError,
-    FindingNotFoundError,
-    FrameMetaInvalidError,
-    FrameRefNotFound,
-)
-from marivo.analysis.evidence.audit import get_finding, query_findings
-from marivo.analysis.evidence.store import open_evidence_store
-from marivo.analysis.evidence.types import (
-    ArtifactDigest,
-)
-from marivo.analysis.session._artifact_meta import parse_current_artifact_meta
-from marivo.analysis.session._read_errors import (
     ArtifactNotFoundError,
+    EvidenceStoreUnavailableError,
+    FrameMetaInvalidError,
     RunNotFoundError,
     SessionGraphArgumentError,
     SessionGraphIntegrityError,
     SessionGraphLimitError,
     SessionGraphTooLargeError,
 )
+from marivo.analysis.session._artifact_meta import parse_current_artifact_meta
 from marivo.analysis.session._read_model import (
     ArtifactEvidenceSummary,
     ArtifactIssueCounts,
     ArtifactSummary,
     FailedRun,
-    Finding,
-    FindingPage,
     GraphDirection,
     IncompleteRun,
     RunArgument,
@@ -98,7 +86,7 @@ def _artifact_metadata_repair(ref: str) -> AnalysisRepair:
             f"Preserve the corrupt Artifact {ref!r}, create a fresh Session, and rerun its "
             "producing computation under the current schema."
         ),
-        help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.artifacts"),
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="session.artifact"),
     )
 
 
@@ -918,29 +906,6 @@ def _build_graph(
     )
 
 
-def _candidate_finding(old: object, *, retained: Mapping[str, tuple[str, ...]]) -> Finding:
-    from marivo.analysis.evidence.types import Finding as PersistedFinding
-
-    if not isinstance(old, PersistedFinding):
-        raise TypeError("expected one persisted Finding")
-    return Finding(
-        finding_id=old.finding_id,
-        artifact_ref=old.artifact_id,
-        session_id=old.session_id,
-        finding_type=old.finding_type,
-        epistemic_kind=old.epistemic_kind,
-        subject=old.subject,
-        canonical_item_key=old.canonical_item_key,
-        value=old.value,
-        derivation=old.derivation,
-        source_artifact_ref=old.artifact_id,
-        source_fields=old.derivation.source_fields,
-        source_refs=old.source_refs,
-        retained_digest_item_refs=retained.get(old.finding_id, ()),
-        committed_at=old.committed_at,
-    )
-
-
 def _recap_int(values: Mapping[str, object], key: str) -> int:
     value = values[key]
     if not isinstance(value, int) or isinstance(value, bool):
@@ -953,11 +918,61 @@ def _recap_int(values: Mapping[str, object], key: str) -> int:
     return value
 
 
+def read_run_page(
+    *,
+    store: object,
+    session_id: str,
+    status: Literal["incomplete", "succeeded", "failed"] | None = None,
+    capability_id: str | None = None,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> RunPage:
+    """Project a bounded Run page from a schema-validated Session Store."""
+    if not 1 <= limit <= 100:
+        raise ValueError("runs limit must be within [1, 100]")
+    if status not in {None, "incomplete", "succeeded", "failed"}:
+        raise ValueError("runs status must be incomplete, succeeded, failed, or None")
+    if capability_id is not None and capability_id not in REGISTRY.capability_ids:
+        raise ValueError("runs capability_id must be one exact current capability id")
+    after: tuple[str, str] | None = None
+    if cursor is not None:
+        started_at, run_id = decode_keyset_cursor(cursor)
+        if not isinstance(started_at, str):
+            raise ValueError("runs cursor has an invalid sort key")
+        after = started_at, run_id
+    rows = store.page_runs(  # type: ignore[attr-defined]
+        session_id,
+        status=status,
+        capability_id=capability_id,
+        limit=limit,
+        after=after,
+    )
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    items = tuple(
+        _row_to_run(
+            row,
+            input_refs=store.run_input_refs(  # type: ignore[attr-defined]
+                session_id, str(row["run_id"])
+            ),
+        )
+        for row in visible
+    )
+    next_cursor = None
+    if has_more:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(str(last["started_at"]), str(last["run_id"]))
+    return RunPage(items=items, limit=limit, has_more=has_more, next_cursor=next_cursor)
+
+
 class SessionRuntimeReads:
-    """Private verified candidate service; not attached to public Session in Slice 2."""
+    """Read the exact current persisted Run, Artifact, and graph projection."""
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def _validate_schema(self) -> None:
+        self._session._store.validate_session_runtime_read_schema(self._session.id)
 
     def runs(
         self,
@@ -967,48 +982,18 @@ class SessionRuntimeReads:
         limit: int = 20,
         cursor: str | None = None,
     ) -> RunPage:
-        if not 1 <= limit <= 100:
-            raise ValueError("runs limit must be within [1, 100]")
-        if status not in {None, "incomplete", "succeeded", "failed"}:
-            raise ValueError("runs status must be incomplete, succeeded, failed, or None")
-        if capability_id is not None and capability_id not in REGISTRY.capability_ids:
-            raise ValueError("runs capability_id must be one exact current capability id")
-        after: tuple[str, str] | None = None
-        if cursor is not None:
-            started_at, run_id = decode_keyset_cursor(cursor)
-            if not isinstance(started_at, str):
-                raise ValueError("runs cursor has an invalid sort key")
-            after = started_at, run_id
-        rows = self._session._store.page_runs(
-            self._session.id,
+        self._validate_schema()
+        return read_run_page(
+            store=self._session._store,
+            session_id=self._session.id,
             status=status,
             capability_id=capability_id,
             limit=limit,
-            after=after,
-        )
-        has_more = len(rows) > limit
-        visible = rows[:limit]
-        items = tuple(
-            _row_to_run(
-                row,
-                input_refs=self._session._store.run_input_refs(
-                    self._session.id, str(row["run_id"])
-                ),
-            )
-            for row in visible
-        )
-        next_cursor = None
-        if has_more:
-            last = visible[-1]
-            next_cursor = encode_keyset_cursor(str(last["started_at"]), str(last["run_id"]))
-        return RunPage(
-            items=items,
-            limit=limit,
-            has_more=has_more,
-            next_cursor=next_cursor,
+            cursor=cursor,
         )
 
     def get_run(self, run_id: str) -> RunRecord:
+        self._validate_schema()
         row = self._session._store.get_run(self._session.id, run_id)
         if row is None:
             raise RunNotFoundError.for_id(run_id)
@@ -1020,12 +1005,10 @@ class SessionRuntimeReads:
     def artifact(self, ref: str) -> BaseFrame:
         from marivo.analysis.session._load import load_frame
 
+        self._validate_schema()
         if self._session._store.get_artifact(self._session.id, ref) is None:
             raise ArtifactNotFoundError.for_ref(ref)
-        try:
-            return load_frame(ref, session=self._session)
-        except FrameRefNotFound as exc:
-            raise ArtifactNotFoundError.for_ref(ref) from exc
+        return load_frame(ref, session=self._session)
 
     def revalidate(self, ref: str) -> ArtifactRevalidation:
         from marivo.analysis._artifact_revalidation import evaluate_artifact_revalidation
@@ -1040,122 +1023,6 @@ class SessionRuntimeReads:
                 location=f"Artifact {ref!r} revalidation",
             )
         return evaluate_artifact_revalidation(session=self._session, store=store, frame=frame)
-
-    def findings(
-        self,
-        artifact: BaseFrame,
-        *,
-        limit: int = 20,
-        cursor: str | None = None,
-    ) -> FindingPage:
-        if not 1 <= limit <= 100:
-            raise EvidenceLimitError(
-                message="Artifact findings limit must be within [1, 100]",
-                context={
-                    "limit": limit,
-                    "location": "artifact.findings(...)",
-                    "help_target_id": "artifact.findings",
-                    "default_limit": 20,
-                },
-            )
-        if artifact.meta.session_id != self._session.id:
-            raise ArtifactNotFoundError.for_ref(artifact.ref)
-        db_path = self._artifact_evidence_path(artifact)
-        if not db_path.is_file():
-            raise EvidenceStoreUnavailableError(
-                message="Evidence Store is unavailable for Artifact Finding reads",
-                expected="a readable exact-current judgment.db",
-                received="missing",
-                location=str(db_path),
-            )
-        store = open_evidence_store(db_path)
-        try:
-            page = query_findings(
-                store=store,
-                session_id=artifact.meta.session_id,
-                artifact_ref=artifact.ref,
-                limit=limit,
-                cursor=cursor,
-            )
-            retained = self._retained_digest_refs(store=store, artifact_ref=artifact.ref)
-            return FindingPage(
-                items=tuple(_candidate_finding(item, retained=retained) for item in page.items),
-                limit=page.limit,
-                has_more=page.has_more,
-                next_cursor=page.next_cursor,
-            )
-        finally:
-            store.close()
-
-    def finding(self, artifact: BaseFrame, finding_id: str) -> Finding:
-        db_path = self._artifact_evidence_path(artifact)
-        if not db_path.is_file():
-            raise EvidenceStoreUnavailableError(
-                message="Evidence Store is unavailable for Artifact Finding reads",
-                expected="a readable exact-current judgment.db",
-                received="missing",
-                location=str(db_path),
-            )
-        store = open_evidence_store(db_path)
-        try:
-            try:
-                persisted = get_finding(store=store, finding_id=finding_id)
-            except FindingNotFoundError:
-                self._raise_artifact_finding_not_found(artifact.ref, finding_id)
-            if (
-                persisted.session_id != artifact.meta.session_id
-                or persisted.artifact_id != artifact.ref
-            ):
-                self._raise_artifact_finding_not_found(artifact.ref, finding_id)
-            retained = self._retained_digest_refs(store=store, artifact_ref=artifact.ref)
-            return _candidate_finding(persisted, retained=retained)
-        finally:
-            store.close()
-
-    def _artifact_evidence_path(self, artifact: BaseFrame) -> Path:
-        if artifact.meta.session_id != self._session.id:
-            raise ArtifactNotFoundError.for_ref(artifact.ref)
-        return (
-            Path(artifact.meta.project_root)
-            / ".marivo"
-            / "analysis"
-            / "sessions"
-            / artifact.meta.session_id
-            / "judgment.db"
-        )
-
-    @staticmethod
-    def _raise_artifact_finding_not_found(artifact_ref: str, finding_id: str) -> None:
-        raise FindingNotFoundError(
-            message=f"Finding {finding_id!r} does not exist on Artifact {artifact_ref!r}",
-            expected="an exact Finding id owned by this Artifact",
-            received=finding_id,
-            location="artifact.finding(finding_id)",
-            repair=AnalysisRepair(
-                kind="inspect",
-                action="Read the owning Artifact's bounded Finding page and retry one returned id.",
-                help_target=LiveHelpTarget(
-                    surface="analysis",
-                    canonical_id="artifact.findings",
-                ),
-                snippet="page = artifact.findings(limit=20)",
-            ),
-        )
-
-    @staticmethod
-    def _retained_digest_refs(*, store: object, artifact_ref: str) -> dict[str, tuple[str, ...]]:
-        connection = store.read()  # type: ignore[attr-defined]
-        row = connection.execute(
-            "SELECT digest_payload FROM artifact_digests WHERE artifact_id = ?",
-            (artifact_ref,),
-        ).fetchone()
-        retained: dict[str, list[str]] = defaultdict(list)
-        if row is not None:
-            digest = ArtifactDigest.model_validate_json(row["digest_payload"])
-            for item in digest.items:
-                for finding_id in item.derivation.source_finding_refs:
-                    retained[finding_id].append(item.item_id)
-        return {key: tuple(values) for key, values in retained.items()}
 
     def graph(
         self,
@@ -1177,6 +1044,7 @@ class SessionRuntimeReads:
                 artifact_ref=artifact_ref,
                 direction=direction,
             )
+        self._validate_schema()
         if artifact_ref is None:
             try:
                 run_rows, input_rows, artifact_rows = self._session._store.runtime_snapshot(
@@ -1225,6 +1093,7 @@ class SessionRuntimeReads:
         )
 
     def recap(self) -> SessionRuntimeRecap:
+        self._validate_schema()
         values = self._session._store.runtime_recap(self._session.id)
         return SessionRuntimeRecap(
             session_id=self._session.id,
@@ -1243,4 +1112,7 @@ class SessionRuntimeReads:
         )
 
 
-__all__: list[str] = []
+__all__ = [
+    "SessionRuntimeReads",
+    "read_run_page",
+]

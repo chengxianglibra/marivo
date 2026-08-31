@@ -57,7 +57,7 @@ def observe_candidate(
             received=type(candidate).__name__,
         )
     try:
-        recovered = session.get_frame(candidate.candidate_set_ref)
+        recovered = session.artifact(candidate.candidate_set_ref)
     except Exception as error:
         raise _not_observable(
             "candidate set artifact is unavailable in this Session",
@@ -177,7 +177,7 @@ def observe_candidate(
                 "candidate cohort binding has no artifact_ref",
                 received=repr(artifact_ref),
             )
-        cohort_frame = session.get_frame(artifact_ref)
+        cohort_frame = session.artifact(artifact_ref)
         if not isinstance(cohort_frame, SubjectSet):
             raise _not_observable(
                 "candidate cohort artifact is not a SubjectSet",

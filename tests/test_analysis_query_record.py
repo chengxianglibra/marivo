@@ -19,6 +19,7 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_queries
 
 
 def _runtime(factory=None) -> AnalysisConnectionRuntime:
@@ -254,15 +255,15 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
     )
     job_id = frame.meta.produced_by_job
     assert job_id is not None
-    job = s.job(job_id)
-    assert "queries" in job
-    assert len(job["queries"]) >= 1
-    q = job["queries"][0]
+    job = s.get_run(job_id)
+    queries = run_queries(job)
+    assert len(queries) >= 1
+    q = queries[0]
     assert q["datasource"] == "warehouse"
     assert q["row_count"] == 1
     assert q["duration_ms"] >= 0
     assert q["status"] == "succeeded"
-    assert q["sql_digest"]
+    assert q["digest"]
     assert "sql" not in q
     assert "normalized_sql" not in q
     assert "bind_params" not in q
@@ -302,10 +303,9 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
     attr = s.attribute(delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
     job_id = attr.meta.produced_by_job
     assert job_id is not None
-    job = s.job(job_id)
-    assert "queries" in job
+    job = s.get_run(job_id)
     # Frame-consuming intents issue no datasource SQL
-    assert job["queries"] == []
+    assert run_queries(job) == []
 
 
 def test_time_series_observe_has_queries(tmp_path, monkeypatch):
@@ -335,9 +335,10 @@ def test_time_series_observe_has_queries(tmp_path, monkeypatch):
         grain=mv.grain("day"),
     )
     job_id = frame.meta.produced_by_job
-    job = s.job(job_id)
-    assert len(job["queries"]) >= 1
-    q = job["queries"][0]
+    job = s.get_run(job_id)
+    queries = run_queries(job)
+    assert len(queries) >= 1
+    q = queries[0]
     assert q["dialect"] == "duckdb"
     assert q["output_ref"] is not None
 
@@ -373,13 +374,14 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
-    job = s.job(scalar.meta.produced_by_job)
-    assert len(job["queries"]) >= 1
-    q = job["queries"][0]
+    job = s.get_run(scalar.meta.produced_by_job)
+    queries = run_queries(job)
+    assert len(queries) >= 1
+    q = queries[0]
     assert q["datasource"] == "warehouse"
     assert q["row_count"] >= 1
     assert q["duration_ms"] >= 0
-    assert q["sql_digest"]
+    assert q["digest"]
     assert "sql" not in q
 
     # Time series
@@ -388,9 +390,10 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         grain=mv.grain("month"),
     )
-    job = s.job(ts.meta.produced_by_job)
-    assert len(job["queries"]) >= 1
-    assert job["queries"][0]["datasource"] == "warehouse"
+    job = s.get_run(ts.meta.produced_by_job)
+    queries = run_queries(job)
+    assert len(queries) >= 1
+    assert queries[0]["datasource"] == "warehouse"
 
     # Segmented
     seg = s.observe(
@@ -398,8 +401,8 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
-    job = s.job(seg.meta.produced_by_job)
-    assert len(job["queries"]) >= 1
+    job = s.get_run(seg.meta.produced_by_job)
+    assert len(run_queries(job)) >= 1
 
     # Panel
     panel = s.observe(
@@ -408,8 +411,8 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         grain=mv.grain("month"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
-    job = s.job(panel.meta.produced_by_job)
-    assert len(job["queries"]) >= 1
+    job = s.get_run(panel.meta.produced_by_job)
+    assert len(run_queries(job)) >= 1
 
 
 def test_same_query_shape_same_digest(tmp_path, monkeypatch):
@@ -442,9 +445,9 @@ def test_same_query_shape_same_digest(tmp_path, monkeypatch):
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-08-01", end="2026-08-31"),
     )
-    j1 = s.job(f1.meta.produced_by_job)
-    j2 = s.job(f2.meta.produced_by_job)
-    assert j1["queries"][0]["sql_digest"] == j2["queries"][0]["sql_digest"]
+    j1 = s.get_run(f1.meta.produced_by_job)
+    j2 = s.get_run(f2.meta.produced_by_job)
+    assert run_queries(j1)[0]["digest"] == run_queries(j2)[0]["digest"]
 
 
 def test_evidence_chain_reaches_queries(tmp_path, monkeypatch):
@@ -474,13 +477,13 @@ def test_evidence_chain_reaches_queries(tmp_path, monkeypatch):
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
     job_id = frame.meta.produced_by_job
-    job = s.job(job_id)
-    assert "queries" in job
-    assert len(job["queries"]) >= 1
+    job = s.get_run(job_id)
+    queries = run_queries(job)
+    assert len(queries) >= 1
     # The frame's lineage carries the job_ref
     assert frame.meta.lineage.steps[0].job_ref == job_id
     # The query output_ref points back to the frame
-    assert job["queries"][0]["output_ref"] is not None
+    assert queries[0]["output_ref"] is not None
 
 
 def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
@@ -525,7 +528,7 @@ def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
         )
 
     # No succeeded job should exist for the failed observe
-    for jid in [j.id for j in s.jobs()]:
-        job = s.job(jid)
-        if job.get("intent") == "observe":
-            assert job["status"] != "succeeded"
+    for jid in [j.run_id for j in s.runs(limit=100).items]:
+        job = s.get_run(jid)
+        if job.capability_id == "observe":
+            assert job.lifecycle != "succeeded"

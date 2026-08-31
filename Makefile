@@ -23,11 +23,12 @@ test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
 
-release-test:
+release-test: pypi-build pypi-check
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) -n 0 -m release \
 		tests/test_install_marivo_script.py \
-		tests/test_install_marivo_script_uv.py
+		tests/test_install_marivo_script_uv.py \
+		tests/test_analysis_runtime_wheel.py
 
 typecheck:
 	@./scripts/require-venv.sh mypy

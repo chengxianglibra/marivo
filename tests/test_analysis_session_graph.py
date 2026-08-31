@@ -5,15 +5,7 @@ import json
 
 import pytest
 
-from marivo.analysis.errors import FrameMetaInvalidError
-from marivo.analysis.session import _runtime_reads as runtime_reads
-from marivo.analysis.session._read_errors import (
-    ArtifactNotFoundError,
-    SessionGraphIntegrityError,
-    SessionGraphLimitError,
-)
-from marivo.analysis.session._read_model import FailedRun, IncompleteRun
-from marivo.analysis.session._runtime_reads import SessionRuntimeReads
+import marivo.analysis as mv
 from tests.runtime_read_fixtures import RuntimeReadHarness
 
 
@@ -35,11 +27,11 @@ def _linear(harness: RuntimeReadHarness) -> None:
 
 def test_empty_and_linear_graph_are_deterministic(tmp_path) -> None:
     empty = RuntimeReadHarness.create(tmp_path / "empty")
-    assert SessionRuntimeReads(empty.session).graph().artifacts == ()  # type: ignore[arg-type]
+    assert empty.session.graph().artifacts == ()
 
     harness = RuntimeReadHarness.create(tmp_path / "linear")
     _linear(harness)
-    reads = SessionRuntimeReads(harness.session)  # type: ignore[arg-type]
+    reads = harness.session
 
     first = reads.graph()
     second = reads.graph()
@@ -77,7 +69,7 @@ def test_branch_merge_and_reuse_edges_preserve_runtime_truth(tmp_path) -> None:
     harness.begin_run("run_reuse")
     harness.succeed("run_reuse", "artifact_root", output_mode="reused")
 
-    graph = SessionRuntimeReads(harness.session).graph()  # type: ignore[arg-type]
+    graph = harness.session.graph()
 
     assert graph.head_artifact_refs == ("artifact_merge",)
     assert any(edge.kind == "reuses" and edge.run_id == "run_reuse" for edge in graph.edges)
@@ -93,13 +85,13 @@ def test_failed_and_incomplete_consumers_do_not_remove_materialized_head(tmp_pat
     harness.fail("run_failed")
     harness.begin_run("run_incomplete", capability_id="compare", inputs=("artifact_root",))
 
-    graph = SessionRuntimeReads(harness.session).graph()  # type: ignore[arg-type]
+    graph = harness.session.graph()
 
     assert graph.head_artifact_refs == ("artifact_root",)
     assert graph.failed_run_ids == ("run_failed",)
     assert graph.incomplete_run_ids == ("run_incomplete",)
-    assert any(isinstance(run, FailedRun) for run in graph.runs)
-    assert any(isinstance(run, IncompleteRun) for run in graph.runs)
+    assert any(isinstance(run, mv.FailedRun) for run in graph.runs)
+    assert any(isinstance(run, mv.IncompleteRun) for run in graph.runs)
 
 
 def test_focused_ancestor_and_descendant_reads_use_index_without_overall_scan(
@@ -118,7 +110,7 @@ def test_focused_ancestor_and_descendant_reads_use_index_without_overall_scan(
         raise AssertionError("focused graph must not scan the overall runtime")
 
     monkeypatch.setattr(harness.store, "runtime_snapshot", reject_overall)
-    reads = SessionRuntimeReads(harness.session)  # type: ignore[arg-type]
+    reads = harness.session
 
     ancestors = reads.graph(artifact_ref="artifact_attribution", direction="ancestors")
     descendants = reads.graph(artifact_ref="artifact_metric", direction="descendants")
@@ -140,7 +132,7 @@ def test_focused_truncation_retains_focus_and_reports_boundary(tmp_path) -> None
     harness = RuntimeReadHarness.create(tmp_path)
     _linear(harness)
 
-    graph = SessionRuntimeReads(harness.session).graph(  # type: ignore[arg-type]
+    graph = harness.session.graph(
         artifact_ref="artifact_attribution",
         direction="ancestors",
         max_nodes=1,
@@ -157,7 +149,7 @@ def test_overall_attention_first_truncation_has_closed_edges(tmp_path) -> None:
     harness.begin_run("run_failed", inputs=("artifact_metric",))
     harness.fail("run_failed")
 
-    graph = SessionRuntimeReads(harness.session).graph(max_nodes=2)  # type: ignore[arg-type]
+    graph = harness.session.graph(max_nodes=2)
     selected_runs = {run.run_id for run in graph.runs}
     selected_artifacts = {artifact.ref for artifact in graph.artifacts}
 
@@ -178,7 +170,7 @@ def test_sidecars_are_excluded_from_graph_artifacts(tmp_path) -> None:
         inputs=("artifact_root",),
     )
 
-    graph = SessionRuntimeReads(harness.session).graph()  # type: ignore[arg-type]
+    graph = harness.session.graph()
 
     assert tuple(item.ref for item in graph.artifacts) == ("artifact_root",)
 
@@ -192,8 +184,8 @@ def test_graph_fails_closed_on_metadata_mismatch_and_cycle(tmp_path) -> None:
     payload = json.loads(meta_path.read_text())
     payload["content_hash"] = "sha256:wrong"
     meta_path.write_text(json.dumps(payload))
-    with pytest.raises(SessionGraphIntegrityError, match="disagree"):
-        SessionRuntimeReads(mismatch.session).graph()  # type: ignore[arg-type]
+    with pytest.raises(mv.errors.SessionGraphIntegrityError, match="disagree"):
+        mismatch.session.graph()
 
     cyclic = RuntimeReadHarness.create(tmp_path / "cycle")
     cyclic.produced("run_1", "artifact_1")
@@ -216,8 +208,8 @@ def test_graph_fails_closed_on_metadata_mismatch_and_cycle(tmp_path) -> None:
     payload["lineage"]["steps"][-1]["inputs"] = ["artifact_2"]
     meta_path.write_text(json.dumps(payload))
 
-    with pytest.raises(SessionGraphIntegrityError, match="cycle"):
-        SessionRuntimeReads(cyclic.session).graph()  # type: ignore[arg-type]
+    with pytest.raises(mv.errors.SessionGraphIntegrityError, match="cycle"):
+        cyclic.session.graph()
 
 
 def test_graph_rejects_metadata_that_fails_its_concrete_v13_model(tmp_path) -> None:
@@ -230,8 +222,8 @@ def test_graph_rejects_metadata_that_fails_its_concrete_v13_model(tmp_path) -> N
     del payload["catalog_definition_fingerprint"]
     meta_path.write_text(json.dumps(payload))
 
-    with pytest.raises(FrameMetaInvalidError, match="concrete v13 metadata"):
-        SessionRuntimeReads(harness.session).graph()  # type: ignore[arg-type]
+    with pytest.raises(mv.errors.FrameMetaInvalidError, match="concrete v13 metadata"):
+        harness.session.graph()
 
 
 def test_focused_graph_fails_closed_on_missing_indexed_input(tmp_path) -> None:
@@ -250,8 +242,8 @@ def test_focused_graph_fails_closed_on_missing_indexed_input(tmp_path) -> None:
             (harness.session_id,),
         )
 
-    with pytest.raises(SessionGraphIntegrityError, match="missing canonical records"):
-        SessionRuntimeReads(harness.session).graph(  # type: ignore[arg-type]
+    with pytest.raises(mv.errors.SessionGraphIntegrityError, match="missing canonical records"):
+        harness.session.graph(
             artifact_ref="artifact_child",
             direction="ancestors",
         )
@@ -281,8 +273,8 @@ def test_descendant_graph_validates_unselected_co_inputs(tmp_path) -> None:
     payload["lineage"]["steps"][-1]["inputs"] = ["artifact_left", "artifact_missing"]
     meta_path.write_text(json.dumps(payload))
 
-    with pytest.raises(SessionGraphIntegrityError, match="missing canonical records"):
-        SessionRuntimeReads(harness.session).graph(  # type: ignore[arg-type]
+    with pytest.raises(mv.errors.SessionGraphIntegrityError, match="missing canonical records"):
+        harness.session.graph(
             artifact_ref="artifact_left",
             direction="descendants",
         )
@@ -304,7 +296,7 @@ def test_focused_selection_orders_same_distance_by_timestamp_then_id(tmp_path) -
     )
     harness.fail("run_a_newer")
 
-    graph = SessionRuntimeReads(harness.session).graph(  # type: ignore[arg-type]
+    graph = harness.session.graph(
         artifact_ref="artifact_root",
         direction="descendants",
         max_nodes=2,
@@ -342,7 +334,7 @@ def test_graph_purity_does_not_load_artifacts_evidence_or_runtime_services(
         forbidden,
     )
 
-    graph = SessionRuntimeReads(harness.session).graph()  # type: ignore[arg-type]
+    graph = harness.session.graph()
     assert tuple(item.ref for item in graph.artifacts) == ("artifact_root",)
 
 
@@ -352,6 +344,7 @@ def test_graph_snapshot_is_stable_across_concurrent_terminal_transition(
     harness = RuntimeReadHarness.create(tmp_path)
     harness.produced("run_root", "artifact_root")
     harness.begin_run("run_pending", inputs=("artifact_root",))
+    runtime_reads = importlib.import_module("marivo.analysis.session._runtime_reads")
     original = runtime_reads._read_artifact_facts
     transitioned = False
 
@@ -364,23 +357,23 @@ def test_graph_snapshot_is_stable_across_concurrent_terminal_transition(
 
     monkeypatch.setattr(runtime_reads, "_read_artifact_facts", transition_after_snapshot)
 
-    graph = SessionRuntimeReads(harness.session).graph()  # type: ignore[arg-type]
+    graph = harness.session.graph()
 
     assert graph.incomplete_run_ids == ("run_pending",)
-    assert isinstance(SessionRuntimeReads(harness.session).get_run("run_pending"), FailedRun)  # type: ignore[arg-type]
+    assert isinstance(harness.session.get_run("run_pending"), mv.FailedRun)
 
 
 @pytest.mark.parametrize("max_nodes", [0, -1, 501, True])
 def test_graph_rejects_invalid_bounds(tmp_path, max_nodes) -> None:
     harness = RuntimeReadHarness.create(tmp_path)
-    with pytest.raises(SessionGraphLimitError):
-        SessionRuntimeReads(harness.session).graph(max_nodes=max_nodes)  # type: ignore[arg-type]
+    with pytest.raises(mv.errors.SessionGraphLimitError):
+        harness.session.graph(max_nodes=max_nodes)
 
 
 def test_focused_graph_unknown_artifact_is_typed_not_found(tmp_path) -> None:
     harness = RuntimeReadHarness.create(tmp_path)
-    with pytest.raises(ArtifactNotFoundError):
-        SessionRuntimeReads(harness.session).graph(  # type: ignore[arg-type]
+    with pytest.raises(mv.errors.ArtifactNotFoundError):
+        harness.session.graph(
             artifact_ref="missing",
             direction="ancestors",
         )

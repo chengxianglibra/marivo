@@ -12,8 +12,8 @@ from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import (
     AnalysisError,
+    ArtifactNotFoundError,
     EvidenceIntegrityError,
-    EvidenceSelectionError,
     HelpTargetError,
     MetricNotFoundError,
     WindowInvalidError,
@@ -102,12 +102,9 @@ def test_grouping_topic_transform() -> None:
     "target",
     (
         "evidence",
-        "evidence.browse",
-        "evidence.exact",
         "runtime",
         "runtime.sessions",
-        "runtime.artifacts",
-        "runtime.jobs",
+        "runtime.runs",
     ),
 )
 def test_slice3_navigation_targets_resolve(target: str) -> None:
@@ -116,7 +113,21 @@ def test_slice3_navigation_targets_resolve(target: str) -> None:
     assert result.descriptor.id == target
 
 
-@pytest.mark.parametrize("target", ("recovery", "session", "boundary", "sampling"))
+@pytest.mark.parametrize(
+    "target",
+    (
+        "recovery",
+        "session",
+        "boundary",
+        "sampling",
+        "evidence.browse",
+        "evidence.exact",
+        "runtime.artifacts",
+        "runtime.jobs",
+        "session.evidence.findings",
+        "session.evidence.compatibility",
+    ),
+)
 def test_slice3_removed_navigation_targets_do_not_resolve(target: str) -> None:
     with pytest.raises(HelpTargetError):
         resolve_help_target(target)
@@ -135,15 +146,15 @@ def test_nested_transform_target() -> None:
 
 
 def test_nested_evidence_target() -> None:
-    result = resolve_help_target("session.evidence.findings")
+    result = resolve_help_target("artifact.findings")
     assert result.kind == "descriptor"
-    assert result.descriptor.id == "session.evidence.findings"
+    assert result.descriptor.id == "artifact.findings"
 
 
 def test_nested_evidence_compatibility_target() -> None:
-    result = resolve_help_target("session.evidence.compatibility")
+    result = resolve_help_target("artifact.finding")
     assert result.kind == "descriptor"
-    assert result.descriptor.id == "session.evidence.compatibility"
+    assert result.descriptor.id == "artifact.finding"
 
 
 def test_session_revalidate_target() -> None:
@@ -162,13 +173,20 @@ def test_session_revalidate_target() -> None:
         "OntologyMetricCandidate",
         "CandidateOrigin",
         "CandidateResolutionIssue",
-        "ArtifactDigestPage",
+        "ArtifactSummary",
         "ArtifactRevalidation",
         "FindingPage",
-        "EvidenceCompatibility",
-        "EvidenceCompatibilityIssue",
+        "RunPage",
+        "IncompleteRun",
+        "SucceededRun",
+        "FailedRun",
+        "SessionGraph",
+        "RunArgument",
+        "RunFailure",
+        "SessionGraphEdge",
+        "ArtifactEvidenceSummary",
+        "ArtifactIssueCounts",
         "EvidenceRuleIssue",
-        "FrameSummaryPage",
         "PointAnomalySelection",
     ),
 )
@@ -397,7 +415,7 @@ def test_error_subclass_window_invalid() -> None:
     assert result.kind == "error_contract"
 
 
-@pytest.mark.parametrize("error_type", (EvidenceSelectionError, EvidenceIntegrityError))
+@pytest.mark.parametrize("error_type", (ArtifactNotFoundError, EvidenceIntegrityError))
 def test_evidence_compatibility_errors_resolve(error_type: type[AnalysisError]) -> None:
     result = resolve_help_target(error_type)
     assert result.kind == "error_contract"

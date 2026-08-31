@@ -176,11 +176,11 @@ Every persisted frame carries a `content_hash` computed from its `BaseFrameMeta`
 plus the parquet bytes (`compute_frame_content_hash`). After `observe()` /
 `compare()` return, `frame.ref` equals the deterministic artifact id, so a frame
 produced in one script can be reloaded in the next with
-`session.get_frame(prev_frame.ref)`.
+`session.artifact(prev_frame.ref)`.
 
-`ref` is the single artifact identity vocabulary: frames expose `frame.ref`,
-`FrameSummaryEntry` exposes its `ref`, and typed `ArtifactRef` carries the
-same field. There is no `id` alias — one name end to end avoids agent
+`ref` is the single Artifact identity vocabulary: Artifacts expose
+`artifact.ref`, Run outputs expose `output_artifact_ref`, and typed
+`ArtifactRef` carries the same field. There is no `id` alias — one name end to end avoids agent
 selection and serialization burden.
 
 `frame.state` (an `ArtifactState`) carries only the baseline runtime facts:
@@ -195,56 +195,34 @@ datasource freshness, never operator+params alone.
 
 ## Cold-start rehydration
 
-Loop turn N+1 may lose all in-memory objects (a new script, or context that was
-compacted). Recovery never re-queries the datasource unless the agent explicitly
-asks to refresh/recompute; it reads persisted state:
+Loop turn N+1 may lose every in-memory object. Recovery reads the current
+runtime schema without querying a datasource:
 
-- `mv.session.recent(...)` followed by `mv.session.inspect(name)` — bounded
-  discovery and metadata-only inspection when a resumed question, clearly
-  repeated task, or recurring failure makes historical reference relevant;
+- `mv.session.recent(...)` then `mv.session.inspect(name, run_limit=5)` provides
+  a bounded historical `RunPage` without resuming or mutating the Session;
+- `session.runs(...)` and `session.get_run(run_id)` expose the closed Run
+  lifecycle variants and exact Artifact inputs/output;
+- `session.artifact(ref)` reconstructs the exact committed Artifact;
+- `session.graph(...)` projects factual Run/Artifact adjacency, heads, failed
+  and incomplete Runs, with focused ancestor or descendant traversal;
+- `artifact.findings()` and `artifact.finding(id)` audit exact Findings;
+- `session.revalidate(ref)` checks persisted identity, current scoped semantic
+  authority, and evidence integrity.
 
-- `session.get_frame(ref) -> BaseFrame` — reconstruct a fully functional frame
-  from `data.parquet` + `meta.json`; the result can be passed to any operator.
-  Raises `FrameRefNotFound`, `CrossSessionFrameError`, or
-  `FrameCacheCorruptedError`.
-- `session.revalidate(frame) -> ArtifactRevalidation` — perform a bounded,
-  read-only check of canonical Artifact identity, current scoped semantic
-  authority, and evidence v4 consistency. `stale` takes precedence over
-  `indeterminate`; this check does not query datasource health or prove source
-  freshness.
-- Artifact-bearing execution uses the capability registry's closed authority
-  policy. `semantic_current` operators compare the committed Artifact's scoped
-  dependency closure with the current Session catalog before their business
-  logic and raise `mv.errors.ArtifactStaleError` or
-  `mv.errors.ArtifactAuthorityUnknownError`. `materialized_only` operators do
-  not perform catalog-current checks; their existing ownership, integrity,
-  shape, and content checks still apply. This admission is independent of
-  evidence coverage and datasource freshness.
-- `session.frame_summaries(*, kind=None, evidence_status=None, limit=20,
-  cursor=None) -> FrameSummaryPage` — a bounded newest-first keyset page of
-  `FrameSummaryEntry` values (`ref`, `kind`, `metric_id`, `semantic_kind`,
-  `semantic_model`, `created_at`, `row_count`, `content_hash`,
-  `analysis_purpose`, `evidence_status`). Pass `page.next_cursor` to the same
-  method when `page.has_more`.
-- `session.jobs()` / `session.recent_jobs(limit=5) -> list[JobSummary]` and
-  `session.job(job_id) -> dict` — the step history and full per-job records
-  (raises `JobNotFoundError` for an unknown id).
-- `session.evidence.digests(...) -> ArtifactDigestPage` and
-  `session.evidence.findings(...) -> FindingPage` — bounded audit reads;
-  `digest(ref)`, `finding(id)`, and `trace(id)` are exact reads. See
-  [`evidence-access-surface.md`](evidence-access-surface.md).
-- `session.evidence.compatibility(finding_ids=[...]) -> EvidenceCompatibility`
-  — read-only, selection-wide compatibility over 1–20 canonical Findings; it
-  evaluates every pair, validates current semantic authority, and fails closed
-  without changing the evidence ledger.
+Session reads and the graph do not check semantic authority or datasource
+freshness. Revalidation does not query datasource health or prove freshness.
+No public API exposes frames, jobs, a Session Evidence namespace, digest pages,
+derivation traces, or Finding-selection compatibility.
 
-`analysis_purpose`, accepted by every operator, is persisted on the frame and
-surfaced in `frame_summaries()` so a later turn can tell why a frame was produced.
+`Session.show()` reports exact Artifact and Run counts, bounded head and
+attention previews, Evidence status counts, and the canonical Run, Artifact,
+Graph, and revalidation continuations. Incompatible Store, Run, or Artifact
+schema fails before projection and does not modify the old directory.
 
 ## Cross-session frame ownership
 
 Frame ownership across sessions is enforced, not advisory. Each `BaseFrameMeta`
-records its owning `session_id` and `project_root`; `session.get_frame(ref)` raises
+records its owning `session_id` and `project_root`; `session.artifact(ref)` raises
 `CrossSessionFrameError` when the ref belongs to a different session. A helper that
 consumes a frame therefore cannot silently mix artifacts from two sessions — the
 consuming session must own the frame it is handed.
@@ -275,19 +253,17 @@ family.
 
 ## The session DAG and factual navigation
 
-An analysis is a multi-frame DAG, not a single object — no one value "is the
+An analysis is a multi-Artifact DAG, not a single object — no one value "is the
 analysis." Cross-turn state is reconstructed from session-level facts that already
 exist, which is why there is no public `AnalysisSnapshot` artifact:
 
-- `frame_summaries()` — bounded refs, kind, semantic shape, metric, row count,
-  created_at, and evidence status;
-- `recent_jobs()` — steps/jobs/status/output refs;
+- `session.runs()` — bounded typed execution history and exact Artifact refs;
+- `session.graph()` — factual producer, consumer, reuse, head, and attention state;
 - per-artifact bounded reads — `show()`/`render()`, `contract()`, `state`,
   `lineage`, `evidence_status`, and `evidence_digest`;
-- bounded audit pages — `session.evidence.digests(...)` and
-  `session.evidence.findings(...)`.
+- Artifact-owned bounded audit pages — `artifact.findings(...)`.
 
-The runtime intentionally has no session-level factual synthesis or planner.
+The graph is a factual projection, not synthesis or a planner.
 Cross-artifact judgment and the decision to execute another operator belong to
 the agent. If the evidence store cannot be read, audit methods raise
 `EvidenceStoreUnavailableError`; an empty page means a healthy store matched no

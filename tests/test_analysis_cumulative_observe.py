@@ -27,6 +27,7 @@ from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.refs import ref
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_queries
 from tests.shared_fixtures import fiscal_analysis_project_files, publish_fiscal_calendar_artifact
 
 
@@ -289,7 +290,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     assert rolled_df["fiscal_mtd"].tolist() == pytest.approx([30, 70])
     assert rolled.meta.temporal_contract is not None
     assert rolled.meta.temporal_contract.observation_period.level_name == "fiscal_month"
-    recovered = session.get_frame(rolled.ref)
+    recovered = session.artifact(rolled.ref)
     assert recovered.meta.temporal_contract == rolled.meta.temporal_contract
 
     with pytest.raises(TransformShapeUnsupportedError, match="supported grain"):
@@ -590,7 +591,7 @@ def test_semantic_reset_binds_derived_forest_and_recovers(
     assert forest.meta.measure_bindings[0].cumulative is not None
     assert forest.lineage.steps[-1].params["temporal_contract"]
     assert forest.lineage.steps[-1].params["cumulative"]
-    recovered = session.get_frame(forest.ref)
+    recovered = session.artifact(forest.ref)
     assert recovered.meta.temporal_contract == forest.meta.temporal_contract
     assert recovered.meta.cumulative is not None
     assert recovered.meta.cumulative["compare_blocker"] == "non_cumulative_component"
@@ -1304,7 +1305,7 @@ def test_ratio_over_cumulative_components_observes_and_marks_cumulative(
         .tolist()
     )
     assert frame.to_pandas()[EVALUATION_END_COLUMN].tolist() == expected_endpoints
-    recovered = session.get_frame(frame.ref)
+    recovered = session.artifact(frame.ref)
     assert recovered.to_pandas()[EVALUATION_END_COLUMN].tolist() == expected_endpoints
 
 
@@ -1319,7 +1320,7 @@ def test_derived_cumulative_partial_bucket_uses_exact_window_end(tmp_path, monke
 
     expected = pd.Timestamp("2026-07-05 12:00", tz=session.report_tz_name).tz_convert("UTC")
     assert frame.to_pandas()[EVALUATION_END_COLUMN].iloc[-1] == expected
-    assert session.get_frame(frame.ref).to_pandas()[EVALUATION_END_COLUMN].iloc[-1] == expected
+    assert session.artifact(frame.ref).to_pandas()[EVALUATION_END_COLUMN].iloc[-1] == expected
 
 
 def test_all_history_derived_compare_restricts_components_to_parent_pairs(
@@ -1597,7 +1598,7 @@ def _metric_for_base(base: str, anchor: object = None) -> str:
 def _recorded_executions(frame, session) -> list[object]:
     """Return persisted query executions for the materialization job."""
 
-    return list(session.job(frame.meta.produced_by_job)["queries"])
+    return run_queries(session.get_run(frame.meta.produced_by_job))
 
 
 def _observe_named_cumulative_metric(session, name: str, *, start: str, end: str):
@@ -1625,8 +1626,8 @@ def test_compare_mtd_ratio_over_cumulative_components_after_reload(
         end="2026-01-08",
     )
 
-    current = duckdb_session.get_frame(current.ref)
-    baseline = duckdb_session.get_frame(baseline.ref)
+    current = duckdb_session.artifact(current.ref)
+    baseline = duckdb_session.artifact(baseline.ref)
     assert current.meta.cumulative["anchor"] == ["grain_to_date", "month"]
     assert current.meta.cumulative["compare_blocker"] is None
     assert "grain_to_date" in current.render()
@@ -1639,7 +1640,7 @@ def test_compare_mtd_ratio_over_cumulative_components_after_reload(
     )
 
     delta = compare(current, baseline, session=duckdb_session)
-    delta = duckdb_session.get_frame(delta.ref)
+    delta = duckdb_session.artifact(delta.ref)
 
     assert delta.meta.cumulative == current.meta.cumulative
     assert delta.meta.cumulative_alignment is not None
@@ -1665,7 +1666,7 @@ def test_compare_mtd_ratio_drops_baseline_tail_from_parent_and_components(
     )
 
     delta = compare(current, baseline, session=duckdb_session)
-    delta = duckdb_session.get_frame(delta.ref)
+    delta = duckdb_session.artifact(delta.ref)
     parent_df = delta.to_pandas()
     component_df = delta.components().to_pandas()
 

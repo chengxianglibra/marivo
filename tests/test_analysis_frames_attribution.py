@@ -132,7 +132,7 @@ def test_load_frame_round_trips_attribution_frame(tmp_path):
     )
     written = persist_frame(session, AttributionFrame(_df=df, meta=meta))
 
-    loaded = session.get_frame(written.ref)
+    loaded = session.artifact(written.ref)
 
     assert isinstance(loaded, AttributionFrame)
     assert loaded.meta.kind == "attribution_frame"
@@ -179,7 +179,7 @@ def test_load_v3_attribution_rows_rejects_missing_required_column() -> None:
     corrupted.to_parquet(data_path, index=False)
 
     with pytest.raises(FrameMetaInvalidError, match="corrupt generic attribution rows"):
-        session.get_frame(written.ref)
+        session.artifact(written.ref)
 
 
 def test_load_v3_attribution_rows_rejects_non_null_other_axis_cell() -> None:
@@ -208,7 +208,7 @@ def test_load_v3_attribution_rows_rejects_non_null_other_axis_cell() -> None:
     written = persist_frame(session, AttributionFrame(_df=df, meta=meta))
 
     with pytest.raises(FrameMetaInvalidError, match="corrupt generic attribution rows") as exc_info:
-        session.get_frame(written.ref)
+        session.artifact(written.ref)
 
     assert exc_info.value._context["reason"] == (
         "attribution Other mask bit requires a null axis cell"
@@ -236,7 +236,7 @@ def test_load_v2_attribution_rows_requires_rerunning_hierarchy() -> None:
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        session.get_frame(written.ref)
+        session.artifact(written.ref)
 
     assert exc_info.value.repair is not None
     assert "Re-run session.attribute" in exc_info.value.repair.action

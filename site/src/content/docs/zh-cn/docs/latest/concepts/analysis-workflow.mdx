@@ -737,15 +737,14 @@ delta.to_pandas()    # 终端导出，用于自定义本地分析
 
 默认卡片受 50 行和 8 KiB 双重约束，以先达到者为准。省略行会准确报告
 `displayed`、`total`、`omitted`，并给出可复制的
-`session.get_frame('<ref>').to_pandas()` 恢复调用。向 `show()` 或 `render()`
+`session.artifact('<ref>').to_pandas()` 恢复调用。向 `show()` 或 `render()`
 传入 `max_output_bytes=None` 可展示全部行。
 
 当操作产生证据时，`artifact.show()` 会在结果预览之前展示有界的类型化
 摘要。同一个值可以从 `artifact.evidence_digest` 读取；通过
 `artifact.evidence_status` 检查降级。每条展示的 finding 都携带其持久化的
-指标、Event、Lifecycle 或 SubjectSet 主体身份。省略的精确证据项通过
-`session.evidence.findings(artifact_ref='<ref>')` 读取，derivation 追踪使用
-`session.evidence`。
+指标、Event、Lifecycle 或 SubjectSet 主体身份。省略的精确 Finding 通过
+`artifact.findings()` 读取，单条完整 derivation 审计使用 `artifact.finding(id)`。
 
 `artifact.show()` 只补充依赖当前产物状态的续接提示，并使用
 `session.compare(...)`、`session.attribute(...)` 这样的公共调用；它不会在每个
@@ -799,32 +798,32 @@ Marivo 维护一条类型化分析链。终端出口是 `frame.to_pandas()` 和 
 后续脚本需要前序结果时，读取持久化事实，而不是重跑上游查询：
 
 ```python
-summaries = session.frame_summaries(limit=20)
-jobs = session.recent_jobs(limit=5)
-previous = session.get_frame(ref)
+runs = session.runs(limit=20)
+run = session.get_run(runs.items[0].run_id)
+previous = session.artifact(ref)
+graph = session.graph(artifact_ref=ref, direction="ancestors")
 
 # 仅在恢复任务、问题明显重复或同类错误再次出现时查看历史：
 history = mv.session.recent(limit=10)
 prior = mv.session.inspect(history.items[0].name) if history.items else None
 ```
 
-`frame_summaries()` 返回 `FrameSummaryPage`。`has_more` 为 true 时把不透明的
+`session.runs()` 返回 `RunPage`。`has_more` 为 true 时把不透明的
 `next_cursor` 传回同一个方法。分页采用普通 keyset 语义，不提供快照隔离。
 
 使用 `marivo.help("analysis.runtime")` 选择当前有效的恢复帮助页；使用
-`marivo.help("analysis.runtime.artifacts")` 进行有界的产物发现和精确恢复，并使用
-`marivo.help("analysis.evidence")` 发现和读取持久化 Evidence。这些 Help target 是导航
-主题；可调用成员仍是上文展示的 Session API。
+`marivo.help("analysis.runtime.runs")` 进行有界 Run 发现，再通过精确 Artifact ref
+恢复，并使用 `marivo.help("analysis.evidence")` 读取 Artifact 自有的 Finding。
+SessionGraph 只做事实导航，不是规划器或权威检查。
 
 ## 证据链与审计
 
 每个已提交操作都会把确定性的类型化证据写入会话。Marivo 不生成跨产物
 判断，也不选择下一步操作。
 
-- `session.evidence.digests(...)` —— 有界、最新优先的摘要页面。
-- `session.evidence.findings(...)` —— 有界、最新优先的证据项页面。
-- `session.evidence.digest(ref)`、`.finding(id)`、`.trace(id)` —— 精确读取与证据项
-  derivation 审计。
+- `artifact.findings(...)` —— 单个 Artifact 自有的有界 Finding 页面。
+- `artifact.finding(id)` —— 一条带完整 derivation 的精确 Finding。
+- `session.revalidate(artifact.ref)` —— 当前语义权威与 Evidence 完整性检查。
 
 完整模型见 [证据链](/zh-cn/docs/latest/concepts/evidence/)。
 

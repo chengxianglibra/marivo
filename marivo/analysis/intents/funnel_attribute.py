@@ -14,7 +14,7 @@ from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AnalysisRepair,
-    FrameRefNotFound,
+    ArtifactNotFoundError,
     FunnelAttributionUnsupportedError,
     InvalidSubjectAxisError,
     PatternStepMismatchError,
@@ -409,8 +409,8 @@ def attribute_funnel(
         ("baseline", meta.source_baseline_journey_ref),
     ):
         try:
-            source_journeys.append(session.get_frame(source_ref))
-        except FrameRefNotFound as exc:
+            source_journeys.append(session.artifact(source_ref))
+        except ArtifactNotFoundError as exc:
             raise FunnelAttributionUnsupportedError(
                 message=f"persisted {label} source journey membership is unavailable",
                 expected="two retained EventFrame[journey] source artifacts",

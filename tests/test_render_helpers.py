@@ -195,7 +195,7 @@ def test_bounded_table_at_or_below_row_limit_is_not_omitted(row_count: int) -> N
 
 def test_bounded_table_row_limit_has_exact_counts_and_copyable_recovery() -> None:
     rows = [[f"row-{index}"] for index in range(53)]
-    recovery = "session.get_frame('frame_1').to_pandas()"
+    recovery = "session.artifact('frame_1').to_pandas()"
     card = Card(identity="Rows", available=(".show()",)).lazy_table(
         columns=["value"],
         rows_provider=lambda: iter(rows),
@@ -219,7 +219,7 @@ def test_bounded_table_row_limit_has_exact_counts_and_copyable_recovery() -> Non
 
 def test_bounded_table_wide_rows_hit_byte_budget_before_row_limit() -> None:
     rows = [[f"row-{index}", "x" * 400] for index in range(60)]
-    recovery = "session.get_frame('frame_1').to_pandas()"
+    recovery = "session.artifact('frame_1').to_pandas()"
     result = (
         Card(identity="Wide", available=(".show()",))
         .lazy_table(

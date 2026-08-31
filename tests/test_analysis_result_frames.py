@@ -114,7 +114,7 @@ def test_candidate_set_rejects_removed_persisted_affordances(tmp_path, monkeypat
     with pytest.raises(
         FrameMetaInvalidError, match="carries field\\(s\\) no longer in"
     ) as exc_info:
-        session.get_frame("frame_candidates")
+        session.artifact("frame_candidates")
     # A removed field is a version mismatch, not data corruption: the repair
     # must be visible to the agent.
     assert exc_info.value.repair is not None
@@ -147,7 +147,7 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
     )
     frame.meta = persist_frame(session, frame)
 
-    loaded = session.get_frame("frame_assoc")
+    loaded = session.artifact("frame_assoc")
 
     assert isinstance(loaded, AssociationResult)
     assert loaded.meta.kind == "association_result"

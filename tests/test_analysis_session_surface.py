@@ -1,4 +1,4 @@
-"""Lock the agent-advertised Session surface (dir, help, evidence namespace)."""
+"""Lock the agent-advertised Run-first Session surface."""
 
 from __future__ import annotations
 
@@ -10,18 +10,9 @@ def _session(tmp_path, monkeypatch):
     return mv.session.get_or_create(name="surface_probe", use_datasources=False)
 
 
-def test_evidence_namespace_exposes_bounded_audit_and_exact_reads(tmp_path, monkeypatch) -> None:
+def test_session_removes_the_legacy_evidence_namespace(tmp_path, monkeypatch) -> None:
     session = _session(tmp_path, monkeypatch)
-
-    for name in (
-        "findings",
-        "digests",
-        "finding",
-        "digest",
-        "trace",
-        "compatibility",
-    ):
-        assert callable(getattr(session.evidence, name))
+    assert not hasattr(session, "evidence")
 
 
 def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
@@ -35,18 +26,23 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "correlate",
         "forecast",
         "hypothesis_test",
-        "evidence",
-        "frame_summaries",
-        "get_frame",
+        "runs",
+        "get_run",
+        "artifact",
         "revalidate",
-        "jobs",
-        "recent_jobs",
+        "graph",
         "close",
         "is_read_only",
         "catalog",
     ):
         assert advertised in names, f"missing advertised member: {advertised}"
     for removed in (
+        "evidence",
+        "frame_summaries",
+        "get_frame",
+        "jobs",
+        "recent_jobs",
+        "job",
         "from_pandas",
         "explore_ibis",
         "promote_metric_frame",

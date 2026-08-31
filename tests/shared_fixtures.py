@@ -1466,11 +1466,11 @@ def grouped_two_scope_funnel_frames(session: Any) -> tuple[Any, Any]:
     channel = session.catalog.dimensions.get("acquisition_channel")
     return (
         session.events.funnel(
-            session.get_frame(current.meta.source_journey_ref),
+            session.artifact(current.meta.source_journey_ref),
             axes=[channel],
         ),
         session.events.funnel(
-            session.get_frame(baseline.meta.source_journey_ref),
+            session.artifact(baseline.meta.source_journey_ref),
             axes=[channel],
         ),
     )

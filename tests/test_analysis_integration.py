@@ -62,18 +62,25 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
     assert df.iloc[0]["baseline"] == pytest.approx(20.0)
     assert df.iloc[0]["delta"] == pytest.approx(40.0)
 
-    assert sorted(j.intent for j in s.jobs()) == ["compare", "observe", "observe"]
-    assert {f.kind for f in s.frame_summaries()} == {"metric_frame", "delta_frame"}
+    assert sorted(j.capability_id for j in s.runs(limit=100).items) == [
+        "compare",
+        "observe",
+        "observe",
+    ]
+    assert {artifact.family for artifact in s.graph().artifacts} == {
+        "MetricFrame",
+        "DeltaFrame",
+    }
 
-    reloaded = s.get_frame(q3.ref)
+    reloaded = s.artifact(q3.ref)
     assert reloaded.meta.metric_id == "sales.revenue"
     assert reloaded.meta.session_id == s.id
 
     session_attach._reset_process_state()
     s_ro = mv.session.get_or_create(name="qoq-investigation", use_datasources=False)
     assert s_ro.is_read_only
-    q3_again = s_ro.get_frame(q3.ref)
-    q2_again = s_ro.get_frame(q2.ref)
+    q3_again = s_ro.artifact(q3.ref)
+    q2_again = s_ro.artifact(q2.ref)
     d_again = s_ro.compare(
         q3_again,
         q2_again,

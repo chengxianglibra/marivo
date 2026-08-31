@@ -130,7 +130,7 @@ def _load_metric_source(
     missing_axes: list[str],
 ) -> MetricFrame:
     try:
-        frame = session.get_frame(ref)
+        frame = session.artifact(ref)
     except Exception as exc:
         raise AttributionMaterializationError(
             message=f"attribute could not load {label} source frame",

@@ -17,6 +17,7 @@ from marivo.analysis.intents.observe_errors import (
 )
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_queries
 
 
 @pytest.fixture(autouse=True)
@@ -139,9 +140,9 @@ def test_snapshot_as_of_root_time_job_queries_include_planning_sql(tmp_path):
         session=session,
     )
 
-    job = session.job(frame.meta.produced_by_job)
+    job = session.get_run(frame.meta.produced_by_job)
 
-    assert len(job["queries"]) >= 3
+    assert len(run_queries(job)) >= 3
 
 
 def test_snapshot_as_of_root_time_partition_missing(tmp_path):
@@ -942,7 +943,7 @@ def test_derived_observe_registers_component_frames(tmp_path):
     mf = observe(make_ref("sales.gmv_per_session", SemanticKind.METRIC), session=session)
     # Component frames should be loadable from the store.
     if mf.meta.component_ref is not None:
-        loaded = session.get_frame(mf.meta.component_ref)
+        loaded = session.artifact(mf.meta.component_ref)
         assert loaded.ref == mf.meta.component_ref
 
 

@@ -1,8 +1,4 @@
-"""Private candidate result algebra for the Session runtime read cutover.
-
-Slice 2 keeps these final-shape values detached from the public analysis
-surface.  Slice 3 promotes the verified algebra atomically.
-"""
+"""Immutable result algebra for public Session runtime reads."""
 
 from __future__ import annotations
 
@@ -16,12 +12,7 @@ from marivo.analysis.candidate_lineage import CandidateResolutionIssue
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.evidence.types import (
     ArtifactIssue,
-    DerivationRule,
-    EpistemicKind,
     EvidenceStatus,
-    EvidenceSubject,
-    FindingType,
-    FindingValue,
     QualitySummary,
 )
 from marivo.analysis.frames.base import ArtifactMaterialization
@@ -137,7 +128,7 @@ RunRecord: TypeAlias = IncompleteRun | SucceededRun | FailedRun
 
 
 class RunPage(_BoundedPage[RunRecord]):
-    """Private candidate bounded Run page."""
+    """Immutable bounded newest-first Run page."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -204,49 +195,6 @@ class ArtifactSummary(RenderableResult):
         if self.analysis_purpose:
             card.field("analysis_purpose", self.analysis_purpose)
         return card
-
-
-@dataclass(frozen=True, repr=False, slots=True, kw_only=True)
-class Finding(RenderableResult):
-    finding_id: str
-    artifact_ref: str
-    session_id: str
-    finding_type: FindingType
-    epistemic_kind: EpistemicKind
-    subject: EvidenceSubject
-    canonical_item_key: str
-    value: FindingValue
-    derivation: DerivationRule
-    source_artifact_ref: str
-    source_fields: tuple[str, ...]
-    source_refs: tuple[str, ...]
-    retained_digest_item_refs: tuple[str, ...]
-    committed_at: datetime
-
-    def _repr_identity(self) -> str:
-        return f"Finding id={self.finding_id} type={self.finding_type} artifact={self.artifact_ref}"
-
-    def _card(self) -> Card:
-        return (
-            Card(
-                identity=self._repr_identity(),
-                available=(".show()", ".value", ".derivation", ".source_refs"),
-            )
-            .status(self.epistemic_kind)
-            .field("committed_at", self.committed_at.isoformat())
-            .field("canonical_item_key", self.canonical_item_key)
-            .field("source_artifact", self.source_artifact_ref)
-            .listing("source_fields", self.source_fields or ("none",))
-            .listing("source_refs", self.source_refs or ("none",))
-            .listing(
-                "retained_digest_items",
-                self.retained_digest_item_refs or ("none",),
-            )
-        )
-
-
-class FindingPage(_BoundedPage[Finding]):
-    """Private candidate bounded Artifact-scoped Finding page."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

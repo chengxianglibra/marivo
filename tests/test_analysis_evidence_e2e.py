@@ -46,7 +46,8 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     assert delta.meta.evidence_status == "complete"
     assert delta.meta.artifact_id is not None
 
-    digest = session.evidence.digest(delta.ref)
+    digest = session.artifact(delta.ref).evidence_digest
+    assert digest is not None
     assert digest == delta.evidence_digest
     assert len(digest.items) == 1
     fact = digest.items[0]
@@ -57,7 +58,7 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     assert not hasattr(session, "knowledge")
 
     assert delta.evidence_digest is not None
-    loaded = session.get_frame(delta.ref)
+    loaded = session.artifact(delta.ref)
     assert loaded.evidence_digest == delta.evidence_digest
     assert loaded.render() == delta.render()
 
@@ -103,7 +104,7 @@ def test_e2e_observe_populates_quality_and_analysis_scope(tmp_path) -> None:
 
     persisted_meta = json.loads((session._layout.frames_dir / cur.ref / "meta.json").read_text())
     assert "metric_definition_compatibility" not in persisted_meta["quality_summary"]
-    loaded = session.get_frame(cur.ref)
+    loaded = session.artifact(cur.ref)
     assert loaded.meta.quality_summary == cur.meta.quality_summary
 
     assert cur.meta.analysis_scope is not None

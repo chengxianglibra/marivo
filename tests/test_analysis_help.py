@@ -32,8 +32,8 @@ from marivo.analysis.constraints import CONSTRAINTS, ConstraintId
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
+    ArtifactNotFoundError,
     EvidenceIntegrityError,
-    EvidenceSelectionError,
     MetricNotFoundError,
 )
 from marivo.analysis.frames.base import BaseFrame
@@ -198,10 +198,8 @@ def test_session_resume_focused_help_uses_exact_id_contract() -> None:
 def test_focused_grouping_help_lists_real_members() -> None:
     runtime = _text("runtime")
     assert 'Entrypoint: marivo.help("analysis.runtime")' in runtime
-    for target in ("runtime.sessions", "runtime.artifacts", "runtime.jobs"):
-        assert f'analysis.{target}")' in runtime
-    assert "Session" in runtime
-    assert "evidence" in runtime
+    for target in ("runtime.sessions", "session.graph", "session.artifact", "runtime.runs"):
+        assert target in runtime
 
     artifacts = _text("artifacts")
     assert 'Entrypoint: marivo.help("analysis.artifacts")' in artifacts
@@ -247,38 +245,21 @@ def test_entry_help_routes_governed_inputs_and_states_execution_boundaries() -> 
 
 def test_slice3_evidence_help_preserves_proof_boundaries() -> None:
     evidence = _text("evidence")
-    browse = _text("evidence.browse")
-    exact = _text("evidence.exact")
-
-    for boundary in ("quality", "compatibility", "revalidation", "source freshness"):
-        assert boundary in evidence
     for target in (
-        "evidence.browse",
-        "evidence.exact",
-        "session.evidence.compatibility",
+        "artifact.findings",
+        "artifact.finding",
         "session.revalidate",
         "BaseFrame.show",
     ):
         assert target in evidence
-    assert "healthy empty page" in browse
-    assert "unavailable Evidence store" in browse
-    assert "session.evidence.digests" in browse
-    assert "session.evidence.findings" in browse
-    for target in (
-        "session.evidence.digest",
-        "session.evidence.finding",
-        "session.evidence.trace",
-    ):
-        assert target in exact
 
 
 def test_slice3_runtime_help_routes_exact_persisted_identities() -> None:
     runtime = _text("runtime")
     sessions = _text("runtime.sessions")
-    artifacts = _text("runtime.artifacts")
-    jobs = _text("runtime.jobs")
+    runs = _text("runtime.runs")
 
-    for identity in ("Session name or id", "Artifact ref", "job id", "Evidence id"):
+    for identity in ("Session name or id", "Artifact ref", "Run id", "graph adjacency"):
         assert identity in runtime
     for entrypoint in (
         "mv.session.get_or_create(...)",
@@ -289,15 +270,10 @@ def test_slice3_runtime_help_routes_exact_persisted_identities() -> None:
         "mv.session.delete(name)",
     ):
         assert entrypoint in sessions
-    assert "session.frame_summaries()" in artifacts
-    assert "session.get_frame(ref)" in artifacts
-    assert "session.revalidate" in artifacts
-    for entrypoint in (
-        "session.jobs()",
-        "session.recent_jobs(limit=5)",
-        "session.job(job_id)",
-    ):
-        assert entrypoint in jobs
+    assert "session.runs" in runs
+    assert "session.get_run" in runs
+    assert "session.artifact" in runtime
+    assert "session.graph" in runtime
 
 
 def test_event_and_lifecycle_grouping_help_lists_real_members() -> None:
@@ -427,8 +403,7 @@ def test_every_artifact_type_page_renders_complete_derived_algebra() -> None:
             "Static consumers are possibilities, not current admission",
         ):
             assert required in text
-        assert "session.evidence.digest" in text
-        assert "session.get_frame" in text
+        assert "session.artifact" in text
         budget = REGISTRY.render_budget("public_type")
         assert len(text.splitlines()) <= budget.max_lines
         assert len(text) <= budget.max_codepoints
@@ -679,67 +654,18 @@ def test_runtime_linear_is_owned_by_closed_algebra_constraint() -> None:
     assert "runtime_metric.linear" in constraint.applies_to
 
 
-def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:
-    select_text = _text("CandidateSet.select")
-    assert "item_id: str" in select_text
-    assert "attribute" not in select_text
-    assert 'selection = candidates.select(item_id="candidate_<full sha256>")' in select_text
-
-    digests_text = _text("session.evidence.digests")
-    for token in ("operator", "subject", "limit: int = 10", "cursor"):
-        assert token in digests_text
-    assert "page.has_more" in digests_text
-
-    digest_type = _text("ArtifactDigest")
-    for field in ("items", "boundaries", "omissions", "fallback", "fingerprint"):
-        assert field in digest_type
-
-    issue_type = _text("ArtifactIssue")
-    for variant in (
-        "DataQualityIssue",
-        "ComparabilityIssue",
-        "EvidenceAvailabilityIssue",
+def test_slice3_help_exposes_run_graph_and_artifact_reads() -> None:
+    for target, output_type in (
+        ("session.runs", "RunPage"),
+        ("session.get_run", "IncompleteRun | SucceededRun | FailedRun"),
+        ("session.artifact", "BaseFrame"),
+        ("session.graph", "SessionGraph"),
+        ("artifact.findings", "FindingPage"),
+        ("artifact.finding", "Finding"),
     ):
-        assert variant in issue_type
-
-    compatibility_text = _text("session.evidence.compatibility")
-    assert "finding_ids: Sequence[str]" in compatibility_text
-    assert "Output type: EvidenceCompatibility" in compatibility_text
-    assert "immutable_metadata" in compatibility_text
-    assert "Read bound: bounded" in compatibility_text
-
-    compatibility_type = _text("EvidenceCompatibility")
-    for field in (
-        "status",
-        "finding_ids",
-        "subject_status",
-        "scope_status",
-        "semantic_status",
-        "issues",
-        "boundaries",
-        "fingerprint",
-    ):
-        assert field in compatibility_type
-
-    revalidation_text = _text("session.revalidate")
-    assert "frame: BaseFrame" in revalidation_text
-    assert "Output type: ArtifactRevalidation" in revalidation_text
-    assert "immutable_metadata" in revalidation_text
-    assert "Read bound: bounded" in revalidation_text
-
-    revalidation_type = _text("ArtifactRevalidation")
-    for field in (
-        "artifact_ref",
-        "content_hash",
-        "semantic_status",
-        "evidence_status",
-        "status",
-        "issues",
-        "checked_at",
-        "authority_fingerprint",
-        "fingerprint",
-    ):
-        assert field in revalidation_type
+        text = _text(target)
+        assert output_type in text
+        assert "Read bound: bounded" in text or "Query behavior: none" in text
 
 
 def test_focused_help_signature_matches_inspect() -> None:
@@ -781,21 +707,14 @@ def test_discover_help_distinguishes_period_shift_from_whole_window_compare() ->
 
 
 def test_findings_focused_help_discloses_pagination_contract() -> None:
-    text = _text("session.evidence.findings")
-    assert "limit: int = 50" in text
-    assert "[1, 100]" in text
-    assert "has_more" in text
-    assert "next_cursor" in text
-    assert "cursor=page.next_cursor" in text
-    assert "EvidenceLimitError" in text
+    text = _text("artifact.findings")
+    assert "limit: int = 20" in text
+    assert "FindingPage" in text
 
 
 def test_digests_focused_help_discloses_pagination_bound() -> None:
-    text = _text("session.evidence.digests")
-    assert "[1, 100]" in text
-    assert "has_more" in text
-    assert "next_cursor" in text
-    assert "EvidenceLimitError" in text
+    with pytest.raises(MarivoHelpTargetError):
+        _text("session.evidence.digests")
 
 
 def test_focused_operator_help_discloses_registered_authority_policy() -> None:
@@ -1408,12 +1327,9 @@ def test_semantic_handoffs_choose_one_progressive_entry_path_per_kind() -> None:
 def test_evidence_and_recovery_links_resolve_independently() -> None:
     owners = (
         "evidence",
-        "evidence.browse",
-        "evidence.exact",
         "runtime",
         "runtime.sessions",
-        "runtime.artifacts",
-        "runtime.jobs",
+        "runtime.runs",
     )
     for owner in owners:
         targets = (*REGISTRY.discovery_members(owner), *REGISTRY.cross_links(owner))
@@ -1562,7 +1478,7 @@ def test_error_class_help_shows_static_fields() -> None:
     assert "Every metric-expression leaf must resolve to an analysis-ready governed ref." in text
 
 
-@pytest.mark.parametrize("error_type", (EvidenceSelectionError, EvidenceIntegrityError))
+@pytest.mark.parametrize("error_type", (ArtifactNotFoundError, EvidenceIntegrityError))
 def test_compatibility_error_help_is_structured(error_type: type[AnalysisError]) -> None:
     text = _text(error_type)
     assert error_type.__name__ in text
@@ -1813,9 +1729,9 @@ def test_bound_method_resolves_same_as_unbound() -> None:
 
 def test_live_help_preserves_leading_keyword_only_separator() -> None:
     recent = _text("session.recent")
-    frames = _text("session.frame_summaries")
+    runs = _text("session.runs")
     assert "Signature: recent(*, limit: int = 20, cursor: str | None = None)" in recent
-    assert "Signature: frame_summaries(*, kind: str | None = None" in frames
+    assert "Signature: runs(*, status:" in runs
 
 
 @pytest.mark.parametrize(
@@ -1944,7 +1860,7 @@ def test_analysis_all_is_pinned() -> None:
         "AnalysisScope",
         "AnomalyCandidate",
         "ArtifactDigest",
-        "ArtifactDigestPage",
+        "ArtifactSummary",
         "ArtifactIssue",
         "ArtifactRevalidation",
         "AssociationFact",
@@ -1960,12 +1876,8 @@ def test_analysis_all_is_pinned() -> None:
         "DriverAxisSelection",
         "DroppedBefore",
         "EvidenceAvailabilityIssue",
-        "EvidenceCompatibility",
-        "EvidenceCompatibilityIssue",
-        "EvidenceDerivationTrace",
         "EvidenceIntegrityError",
         "EvidenceRuleIssue",
-        "EvidenceSelectionError",
         "EventOccurrenceBounds",
         "EventFrame",
         "EventPattern",
@@ -1974,10 +1886,10 @@ def test_analysis_all_is_pinned() -> None:
         "EveryStart",
         "Finding",
         "FindingPage",
+        "IncompleteRun",
         "FirstPerSubject",
         "ForecastOutput",
-        "FrameSummaryEntry",
-        "FrameSummaryPage",
+        "FailedRun",
         "Grain",
         "FunnelLossRate",
         "FromInception",
@@ -1987,7 +1899,10 @@ def test_analysis_all_is_pinned() -> None:
         "PeriodShiftSelection",
         "PointAnomalySelection",
         "QualityCheckResult",
+        "RunPage",
+        "SessionGraph",
         "SliceSelection",
+        "SucceededRun",
         "TestDecision",
         "WindowSelection",
         "AbsoluteWindow",

@@ -341,12 +341,9 @@ def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> Non
     "target",
     (
         "analysis.evidence",
-        "analysis.evidence.browse",
-        "analysis.evidence.exact",
         "analysis.runtime",
         "analysis.runtime.sessions",
-        "analysis.runtime.artifacts",
-        "analysis.runtime.jobs",
+        "analysis.runtime.runs",
     ),
 )
 def test_slice3_qualified_navigation_targets_resolve(target: str) -> None:
@@ -358,7 +355,6 @@ def test_slice3_qualified_navigation_targets_resolve(target: str) -> None:
 def test_slice3_active_guidance_uses_live_canonical_recovery_targets() -> None:
     targets = (
         "analysis.runtime",
-        "analysis.runtime.artifacts",
         "analysis.evidence",
     )
 
@@ -396,12 +392,9 @@ def test_slice5_active_guidance_uses_the_same_progressive_topology_in_both_local
 def test_slice3_bounded_target_projections_resolve_independently() -> None:
     for owner in (
         "evidence",
-        "evidence.browse",
-        "evidence.exact",
         "runtime",
         "runtime.sessions",
-        "runtime.artifacts",
-        "runtime.jobs",
+        "runtime.runs",
     ):
         topic = ANALYSIS_REGISTRY.navigation_topic(owner)
         projection = tuple(dict.fromkeys((*topic.members, *ANALYSIS_REGISTRY.cross_links(owner))))
@@ -416,7 +409,7 @@ def test_slice3_bounded_target_projections_resolve_independently() -> None:
 @pytest.mark.parametrize(
     ("target", "replacement"),
     (
-        ("analysis.recovery", "analysis.runtime.artifacts"),
+        ("analysis.recovery", "analysis.runtime.runs"),
         ("analysis.session", "analysis.runtime.sessions"),
         ("analysis.boundary", "analysis.boundary.to_pandas"),
         ("analysis.sampling", "analysis.SamplingPolicy"),
@@ -489,8 +482,9 @@ def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None
         "datasource.SourceInspection.sample",
         "semantic.readiness",
         "analysis.transform.filter",
-        "analysis.session.evidence.trace",
-        "analysis.session.get_frame",
+        "analysis.artifact.findings",
+        "analysis.session.artifact",
+        "analysis.session.get_run",
         "analysis.session.revalidate",
         "analysis.boundary.to_pandas",
         "analysis.MetricFrame.as_time_series",

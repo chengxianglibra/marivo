@@ -990,11 +990,11 @@ def test_multi_root_evidence_preserves_each_metric_unit(runtime_session) -> None
         ]
     )
 
-    findings = runtime_session.evidence.findings(
-        artifact_ref=frame.ref,
-        kind="metric_value",
-        limit=10,
-    ).items
+    findings = tuple(
+        finding
+        for finding in frame.findings(limit=10).items
+        if finding.finding_type == "metric_value"
+    )
     assert len(findings) == 2
     assert [finding.value.unit for finding in findings] == ["USD", "USD"]
 
@@ -1042,7 +1042,7 @@ def test_current_metric_frame_rejects_omitted_graph_identity_state(runtime_sessi
     with pytest.raises(
         FrameMetaInvalidError, match="is missing required analysis-artifact/v13 fields"
     ) as exc_info:
-        runtime_session.get_frame(frame.ref)
+        runtime_session.artifact(frame.ref)
     assert removed <= set(exc_info.value._context["missing_fields"])
     assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v13"
 
@@ -1066,7 +1066,7 @@ def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_sessio
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        runtime_session.get_frame(frame.ref)
+        runtime_session.artifact(frame.ref)
     message = exc_info.value.message
     assert "unsupported artifact schema" in message
     assert "analysis-artifact/v6" in message
@@ -1102,7 +1102,7 @@ def test_current_metric_frame_rejects_corrupt_expression_graph(runtime_session) 
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match="expression_graph") as exc_info:
-        runtime_session.get_frame(frame.ref)
+        runtime_session.artifact(frame.ref)
     assert exc_info.value._context["path"] == "expression_graph"
     assert "node id mismatch" in exc_info.value._context["reason"]
 
@@ -1118,7 +1118,7 @@ def test_current_metric_frame_rejects_mismatched_root_fingerprint(runtime_sessio
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match="expression_fingerprint") as exc_info:
-        runtime_session.get_frame(frame.ref)
+        runtime_session.artifact(frame.ref)
     assert exc_info.value._context["path"] == "expression_fingerprint"
 
 
@@ -1134,7 +1134,7 @@ def test_current_metric_frame_rejects_missing_typed_replay(runtime_session) -> N
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match="replay_expression") as exc_info:
-        runtime_session.get_frame(frame.ref)
+        runtime_session.artifact(frame.ref)
     assert exc_info.value._context["path"] == "lineage.observe.params.replay_expression"
 
 
@@ -1159,7 +1159,7 @@ def test_current_component_graph_rejects_missing_child_reference(runtime_session
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation") as exc_info:
-        runtime_session.get_frame(component.ref)
+        runtime_session.artifact(component.ref)
     assert "missing-node" in str(exc_info.value._context["validation_errors"])
 
 
@@ -1181,7 +1181,7 @@ def test_current_component_graph_rejects_invalid_linear_coefficient(runtime_sess
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation") as exc_info:
-        runtime_session.get_frame(component.ref)
+        runtime_session.artifact(component.ref)
     assert "linear_terms" in str(exc_info.value._context["validation_errors"])
 
 
@@ -1200,7 +1200,7 @@ def test_current_delta_rejects_omitted_comparison_identity(runtime_session) -> N
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match="delta identity") as exc_info:
-        runtime_session.get_frame(delta.ref)
+        runtime_session.artifact(delta.ref)
     assert exc_info.value._context["missing_state"] == ["comparison_identity"]
 
 
@@ -1223,7 +1223,7 @@ def test_current_delta_rejects_v1_identity_with_rerun_repair(runtime_session) ->
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match="invalid delta comparison identity") as exc:
-        runtime_session.get_frame(delta.ref)
+        runtime_session.artifact(delta.ref)
 
     assert "only delta-comparison/v2" in exc.value._context["reason"]
     assert exc.value.repair is not None
@@ -1256,7 +1256,9 @@ def test_observe_multi_metric_label_colliding_with_dimension_fails_closed(
     assert "region" in str(error.message)
     assert error.repair is not None
     # No partial artifact/job/evidence may remain.
-    assert [job.intent for job in runtime_session.jobs() if job.intent == "observe"] == []
+    failed = runtime_session.runs(status="failed", capability_id="observe").items
+    assert len(failed) == 1
+    assert failed[0].failure.error_type == "SemanticKindMismatchError"
 
 
 def test_observe_multi_metric_label_colliding_with_time_column_fails_closed(
@@ -1282,7 +1284,9 @@ def test_observe_multi_metric_label_colliding_with_time_column_fails_closed(
         "colliding_column"
     ] in {"bucket_start", "order_date"}
     assert error.repair is not None
-    assert [job.intent for job in runtime_session.jobs() if job.intent == "observe"] == []
+    failed = runtime_session.runs(status="failed", capability_id="observe").items
+    assert len(failed) == 1
+    assert failed[0].failure.error_type == "SemanticKindMismatchError"
 
 
 def test_observe_multi_metric_duplicate_labels_are_uniquely_suffixed(

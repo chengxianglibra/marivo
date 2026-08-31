@@ -82,7 +82,8 @@ def test_observe_emits_persisted_observation_digest(tmp_path) -> None:
         ).fetchall()
     assert rows == [("digest",)]
 
-    digest = session.evidence.digest(frame.ref)
+    digest = session.artifact(frame.ref).evidence_digest
+    assert digest is not None
     assert digest == frame.evidence_digest
     assert len(digest.items) == 1
     observation = digest.items[0]
@@ -114,7 +115,8 @@ def test_observe_segmented_emits_bounded_digest(tmp_path) -> None:
     assert counts.get("metric_value") == 1
     assert counts.get("observation") == 1
 
-    digest = session.evidence.digest(frame.ref)
+    digest = session.artifact(frame.ref).evidence_digest
+    assert digest is not None
     observation = digest.items[0]
     assert observation.kind == "observation"
     assert observation.value.shape == "segmented"
@@ -173,7 +175,8 @@ def test_session_direct_digest_returns_computed_change_without_status(tmp_path) 
     )
     delta = compare(current, baseline, session=session)
 
-    digest = session.evidence.digest(delta.ref)
+    digest = session.artifact(delta.ref).evidence_digest
+    assert digest is not None
     change = digest.items[0]
     assert change.kind == "change"
     assert change.direction == "increase"

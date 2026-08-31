@@ -6,14 +6,8 @@ from dataclasses import dataclass
 
 from marivo.analysis._pages import _BoundedPage, decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.errors import AnalysisRepair, SessionNotFoundError
-from marivo.analysis.session._layout import PersistenceLayout
+from marivo.analysis.session._read_model import RunPage
 from marivo.analysis.session._store import SessionStore, SessionSummary
-from marivo.analysis.session.core import (
-    FrameSummaryPage,
-    JobSummary,
-    _read_frame_summary_page,
-    _read_job_summaries,
-)
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.render import Card, RenderableResult
 
@@ -27,8 +21,7 @@ class SessionInspection(RenderableResult):
     """Bounded immutable metadata snapshot for one historical session."""
 
     summary: SessionSummary
-    frames: FrameSummaryPage
-    recent_jobs: tuple[JobSummary, ...]
+    runs: RunPage
 
     def _repr_identity(self) -> str:
         return f"SessionInspection id={self.summary.id} name={self.summary.name}"
@@ -36,17 +29,16 @@ class SessionInspection(RenderableResult):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".summary", ".frames", ".recent_jobs", ".show()"),
+            available=(".summary", ".runs", ".show()"),
         ).status(
-            f"frames={self.summary.frame_count} jobs={self.summary.job_count} "
+            f"artifacts={self.summary.frame_count} runs={self.summary.job_count} "
             f"updated={self.summary.updated_at}"
         )
         if self.summary.question:
             card.field("question", self.summary.question)
-        card.listing("recent_frames", (repr(item) for item in self.frames.items))
-        card.listing("recent_jobs", (repr(item) for item in self.recent_jobs))
-        if self.frames.has_more:
-            card.field("frames", f"more available after {len(self.frames.items)} retained entries")
+        card.listing("runs", (repr(item) for item in self.runs.items))
+        if self.runs.has_more:
+            card.field("runs", f"more available after {len(self.runs.items)} retained entries")
         return card
 
 
@@ -76,12 +68,10 @@ def recent_sessions(*, limit: int, cursor: str | None) -> SessionSummaryPage:
     )
 
 
-def inspect_session(*, name: str, frame_limit: int, job_limit: int) -> SessionInspection:
+def inspect_session(*, name: str, run_limit: int, run_cursor: str | None) -> SessionInspection:
     """Return a bounded session snapshot without resuming or touching it."""
-    if not 1 <= frame_limit <= 100:
-        raise ValueError("session.inspect frame_limit must be within [1, 100]")
-    if not 1 <= job_limit <= 100:
-        raise ValueError("session.inspect job_limit must be within [1, 100]")
+    if not 1 <= run_limit <= 100:
+        raise ValueError("session.inspect run_limit must be within [1, 100]")
     store = SessionStore()
     summary = store.session_summary(name)
     if summary is None:
@@ -98,18 +88,16 @@ def inspect_session(*, name: str, frame_limit: int, job_limit: int) -> SessionIn
                 candidates=candidates,
             ),
         )
-    layout = PersistenceLayout(project_root=store.project_root, session_id=summary.id)
-    frames = _read_frame_summary_page(
+    store.validate_session_runtime_schema(summary.id)
+    from marivo.analysis.session._runtime_reads import read_run_page
+
+    runs = read_run_page(
         store=store,
-        project_root=store.project_root,
         session_id=summary.id,
-        kind=None,
-        evidence_status=None,
-        limit=frame_limit,
-        cursor=None,
+        limit=run_limit,
+        cursor=run_cursor,
     )
-    jobs = _read_job_summaries(store=store, layout=layout, session_id=summary.id)
-    return SessionInspection(summary=summary, frames=frames, recent_jobs=tuple(jobs[-job_limit:]))
+    return SessionInspection(summary=summary, runs=runs)
 
 
 __all__ = ["SessionInspection", "SessionSummaryPage", "inspect_session", "recent_sessions"]

@@ -78,7 +78,7 @@ def _lifecycle_dependency_status(
     source: BaseFrame | None = None
     if row is not None:
         try:
-            source = session.get_frame(source_ref)
+            source = session.artifact(source_ref)
         except Exception:
             source = None
     if source is None:

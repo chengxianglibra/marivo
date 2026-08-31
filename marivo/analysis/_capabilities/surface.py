@@ -34,7 +34,6 @@ def _build_type_registry() -> MappingProxyType[type, str]:
         AnalysisScope,
         AnomalyCandidate,
         ArtifactDigest,
-        ArtifactDigestPage,
         ArtifactIssue,
         ArtifactRevalidation,
         AssociationFact,
@@ -43,17 +42,13 @@ def _build_type_registry() -> MappingProxyType[type, str]:
         ContributionFact,
         DataQualityIssue,
         EvidenceAvailabilityIssue,
-        EvidenceCompatibility,
-        EvidenceCompatibilityIssue,
-        EvidenceDerivationTrace,
         EvidenceRuleIssue,
-        Finding,
-        FindingPage,
         ForecastOutput,
         ObservationFact,
         QualityCheckResult,
         TestDecision,
     )
+    from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
     from marivo.analysis.frames.association import AssociationResult
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.base import BaseFrame
@@ -81,13 +76,20 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.lifecycle import FromInception, InState
     from marivo.analysis.policies import AlignmentPolicy
     from marivo.analysis.refs import ArtifactRef
-    from marivo.analysis.session.core import (
-        FrameSummaryEntry,
-        FrameSummaryPage,
-        Session,
-        SessionEvents,
-        SessionLifecycle,
+    from marivo.analysis.session._read_model import (
+        ArtifactEvidenceSummary,
+        ArtifactIssueCounts,
+        ArtifactSummary,
+        FailedRun,
+        IncompleteRun,
+        RunArgument,
+        RunFailure,
+        RunPage,
+        SessionGraph,
+        SessionGraphEdge,
+        SucceededRun,
     )
+    from marivo.analysis.session.core import Session, SessionEvents, SessionLifecycle
     from marivo.analysis.subject import DroppedBefore
 
     return MappingProxyType(
@@ -110,8 +112,19 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             CoverageFrame: "CoverageFrame",
             AnalysisScope: "AnalysisScope",
             Finding: "Finding",
+            FindingPage: "FindingPage",
+            RunPage: "RunPage",
+            IncompleteRun: "IncompleteRun",
+            SucceededRun: "SucceededRun",
+            FailedRun: "FailedRun",
+            RunArgument: "RunArgument",
+            RunFailure: "RunFailure",
+            ArtifactSummary: "ArtifactSummary",
+            ArtifactEvidenceSummary: "ArtifactEvidenceSummary",
+            ArtifactIssueCounts: "ArtifactIssueCounts",
+            SessionGraph: "SessionGraph",
+            SessionGraphEdge: "SessionGraphEdge",
             ArtifactDigest: "ArtifactDigest",
-            EvidenceDerivationTrace: "EvidenceDerivationTrace",
             ObservationFact: "ObservationFact",
             ChangeFact: "ChangeFact",
             ContributionFact: "ContributionFact",
@@ -124,13 +137,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             ComparabilityIssue: "ComparabilityIssue",
             EvidenceAvailabilityIssue: "EvidenceAvailabilityIssue",
             ArtifactRevalidation: "ArtifactRevalidation",
-            EvidenceCompatibility: "EvidenceCompatibility",
-            EvidenceCompatibilityIssue: "EvidenceCompatibilityIssue",
             EvidenceRuleIssue: "EvidenceRuleIssue",
-            ArtifactDigestPage: "ArtifactDigestPage",
-            FindingPage: "FindingPage",
-            FrameSummaryPage: "FrameSummaryPage",
-            FrameSummaryEntry: "FrameSummaryEntry",
             PointAnomalySelection: "PointAnomalySelection",
             PeriodShiftSelection: "PeriodShiftSelection",
             DriverAxisSelection: "DriverAxisSelection",

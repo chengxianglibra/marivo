@@ -42,6 +42,7 @@ from marivo.analysis.lifecycle import from_inception
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._runtime import persist_frame
 from marivo.refs import RefPayloadV1
+from tests.run_read_helpers import run_queries
 
 _DOMAIN = """\
 import marivo.semantic as ms
@@ -347,7 +348,7 @@ def test_lifecycle_reducers_use_committed_history_without_datasource_queries(
     for artifact in (distribution, transitions, dwell, violations):
         assert artifact.meta.source_history_ref == history.ref
         assert artifact.meta.source_history_fingerprint == history.meta.content_hash
-        assert session.job(artifact.meta.produced_by_job)["queries"] == []
+        assert run_queries(session.get_run(artifact.meta.produced_by_job)) == []
 
     grouped = session.lifecycle.distribution(
         history,
@@ -369,7 +370,7 @@ def test_lifecycle_reducers_use_committed_history_without_datasource_queries(
         "created": 1,
         "paid": 0,
     }
-    assert len(session.job(grouped.meta.produced_by_job)["queries"]) == 1
+    assert len(run_queries(session.get_run(grouped.meta.produced_by_job))) == 1
 
 
 def test_lifecycle_reducer_revalidation_tracks_history_dependency(
@@ -381,26 +382,26 @@ def test_lifecycle_reducer_revalidation_tracks_history_dependency(
     history = _committed_history(session)
     reducer = session.lifecycle.transitions(history)
 
-    admissible = session.revalidate(reducer)
+    admissible = session.revalidate(reducer.ref)
     assert admissible.status == "admissible"
     assert admissible.dependency_status == "admissible"
 
-    original_get_frame = session.get_frame
+    original_artifact = session.artifact
 
     def changed_source(ref):
-        loaded = original_get_frame(ref)
+        loaded = original_artifact(ref)
         if ref == history.ref:
             loaded.meta = loaded.meta.model_copy(update={"content_hash": "sha256:changed"})
         return loaded
 
-    monkeypatch.setattr(session, "get_frame", changed_source)
-    stale = session.revalidate(reducer)
+    monkeypatch.setattr(session, "artifact", changed_source)
+    stale = session.revalidate(reducer.ref)
     assert stale.status == "stale"
     assert stale.dependency_status == "stale"
     assert any(issue.severity == "blocking" for issue in stale.issues)
 
     session._store.delete_artifact(session.id, history.ref)
-    indeterminate = session.revalidate(reducer)
+    indeterminate = session.revalidate(reducer.ref)
     assert indeterminate.status == "indeterminate"
     assert indeterminate.dependency_status == "indeterminate"
 

@@ -19,14 +19,18 @@ def main() -> int:
     with ZipFile(wheel) as archive:
         names = tuple(sorted(archive.namelist()))
 
-    semantic_prefix = "marivo/skills/marivo-semantic/"
-    semantic_files = tuple(name for name in names if name.startswith(semantic_prefix))
-    expected = (f"{semantic_prefix}SKILL.md",)
-    if semantic_files != expected:
-        raise SystemExit(
-            "semantic skill wheel contract failed: "
-            f"expected={expected!r}; received={semantic_files!r}"
-        )
+    skill_prefixes = (
+        "marivo/skills/marivo-analysis/",
+        "marivo/skills/marivo-semantic/",
+    )
+    for prefix in skill_prefixes:
+        packaged_files = tuple(name for name in names if name.startswith(prefix))
+        expected = (f"{prefix}SKILL.md",)
+        if packaged_files != expected:
+            raise SystemExit(
+                "packaged skill wheel contract failed: "
+                f"expected={expected!r}; received={packaged_files!r}"
+            )
 
     forbidden = tuple(
         name
@@ -34,7 +38,7 @@ def main() -> int:
         if "__pycache__" in name
         or name.endswith((".pyc", ".pyo"))
         or (
-            name.startswith(semantic_prefix)
+            any(name.startswith(prefix) for prefix in skill_prefixes)
             and any(part in name for part in ("/references/", "/examples/"))
         )
     )

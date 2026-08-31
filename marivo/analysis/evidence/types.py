@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 from typing_extensions import TypeAliasType
 
 from marivo.analysis._cumulative import AllHistoryLevelChangeSchema
-from marivo.analysis._pages import _BoundedPage
 from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
 from marivo.analysis.errors import AnalysisRepair
@@ -33,16 +32,8 @@ JsonValue = TypeAliasType(  # type: ignore[misc]
 )
 EvidenceStatus = Literal["complete", "partial", "unavailable"]
 EvidenceCompleteness = EvidenceStatus
-EvidenceCompatibilityStatus = Literal["compatible", "incompatible", "indeterminate"]
 ArtifactSemanticStatus = Literal["current", "stale", "indeterminate"]
 ArtifactRevalidationStatus = Literal["admissible", "stale", "indeterminate"]
-CompatibilityDimensionStatus = Literal["compatible", "incompatible", "indeterminate"]
-CompatibilityQualityStatus = Literal[
-    "ready",
-    "needs_attention",
-    "not_ready",
-    "not_assessed",
-]
 EpistemicKind = Literal[
     "observed",
     "algebraic",
@@ -1093,105 +1084,6 @@ class EvidenceRuleIssue(_FrozenModel):
     repair: AnalysisRepair
 
 
-EvidenceCompatibilityDetail = Annotated[
-    DataQualityIssue | ComparabilityIssue | EvidenceAvailabilityIssue | EvidenceRuleIssue,
-    Field(discriminator="kind"),
-]
-EvidenceCompatibilityIssueKind: TypeAlias = (
-    DataQualityIssueKind
-    | ComparabilityIssueKind
-    | EvidenceAvailabilityIssueKind
-    | EvidenceRuleIssueKind
-)
-
-
-class EvidenceCompatibilityIssue(_FrozenModel):
-    """Attribute one compatibility detail to one Finding or one Finding pair."""
-
-    finding_ids: tuple[str, ...]
-    artifact_refs: tuple[str, ...]
-    detail: EvidenceCompatibilityDetail
-
-    @model_validator(mode="after")
-    def _validate_attribution(self) -> EvidenceCompatibilityIssue:
-        if len(self.finding_ids) not in {1, 2}:
-            raise ValueError("compatibility issues require one or two finding ids")
-        if tuple(sorted(set(self.finding_ids))) != self.finding_ids:
-            raise ValueError("compatibility issue finding ids must be unique and sorted")
-        if not 1 <= len(self.artifact_refs) <= 2:
-            raise ValueError("compatibility issues require one or two artifact refs")
-        if tuple(sorted(set(self.artifact_refs))) != self.artifact_refs:
-            raise ValueError("compatibility issue artifact refs must be unique and sorted")
-        return self
-
-
-class EvidenceCompatibility(_FrozenModel):
-    """Bounded terminal result for one canonical Finding selection."""
-
-    compatibility_version: Literal["v1"] = "v1"
-    status: EvidenceCompatibilityStatus
-    finding_ids: tuple[str, ...]
-    artifact_refs: tuple[str, ...]
-    session_id: str
-    subject_status: CompatibilityDimensionStatus
-    scope_status: CompatibilityDimensionStatus
-    semantic_status: CompatibilityDimensionStatus
-    evidence_status: EvidenceStatus
-    quality_status: CompatibilityQualityStatus
-    epistemic_kinds: tuple[EpistemicKind, ...]
-    issues: tuple[EvidenceCompatibilityIssue, ...] = ()
-    boundaries: tuple[InferenceBoundary, ...] = ()
-    evaluated_pair_count: int = Field(ge=0)
-    omitted_issue_count: int = Field(ge=0)
-    omitted_issue_kinds: tuple[EvidenceCompatibilityIssueKind, ...] = ()
-    fingerprint: str
-
-    @model_validator(mode="after")
-    def _validate_bounds(self) -> EvidenceCompatibility:
-        if not 1 <= len(self.finding_ids) <= 20:
-            raise ValueError("compatibility results require between one and twenty findings")
-        if tuple(sorted(set(self.finding_ids))) != self.finding_ids:
-            raise ValueError("compatibility result finding ids must be unique and sorted")
-        if not 1 <= len(self.artifact_refs) <= 20:
-            raise ValueError("compatibility results require between one and twenty artifact refs")
-        if tuple(sorted(set(self.artifact_refs))) != self.artifact_refs:
-            raise ValueError("compatibility result artifact refs must be unique and sorted")
-        expected_pairs = len(self.finding_ids) * (len(self.finding_ids) - 1) // 2
-        if self.evaluated_pair_count != expected_pairs:
-            raise ValueError("evaluated_pair_count must cover every Finding pair")
-        if len(self.issues) > 20:
-            raise ValueError("compatibility results retain at most twenty issues")
-        selected_findings = set(self.finding_ids)
-        selected_artifacts = set(self.artifact_refs)
-        if any(not set(issue.finding_ids) <= selected_findings for issue in self.issues):
-            raise ValueError("compatibility issue findings must belong to the selection")
-        if any(not set(issue.artifact_refs) <= selected_artifacts for issue in self.issues):
-            raise ValueError("compatibility issue artifacts must belong to the selection")
-        if tuple(sorted(set(self.omitted_issue_kinds))) != self.omitted_issue_kinds:
-            raise ValueError("omitted issue kinds must be unique and sorted")
-        if len({boundary.kind for boundary in self.boundaries}) != len(self.boundaries):
-            raise ValueError("compatibility boundaries must have distinct kinds")
-        if not self.fingerprint:
-            raise ValueError("compatibility fingerprint must be non-empty")
-        return self
-
-    def __repr__(self) -> str:
-        return result_repr(
-            f"EvidenceCompatibility status={self.status} findings={len(self.finding_ids)} "
-            f"issues={len(self.issues)} omitted={self.omitted_issue_count}"
-        )
-
-    def render(self, *, max_output_bytes: int | None = 8_000) -> str:
-        """Render this bounded compatibility result without reading persisted state."""
-        from marivo.analysis.evidence.summary import render_evidence_compatibility
-
-        return render_evidence_compatibility(self, max_output_bytes=max_output_bytes)
-
-    def show(self, *, max_output_bytes: int | None = 8_000) -> None:
-        """Print this bounded compatibility result."""
-        print(self.render(max_output_bytes=max_output_bytes))
-
-
 ArtifactIssue = Annotated[
     DataQualityIssue | ComparabilityIssue | EvidenceAvailabilityIssue | CandidateResolutionIssue,
     Field(discriminator="kind"),
@@ -1336,77 +1228,11 @@ class ArtifactDigest(_FrozenModel):
     def contract(self) -> DigestReadContract:
         return DigestReadContract(
             exact_reads=(
-                f"session.evidence.digest({self.artifact_ref!r})",
-                f"session.evidence.findings(artifact_ref={self.artifact_ref!r})",
-                f"session.get_frame({self.artifact_ref!r})",
+                f"artifact = session.artifact({self.artifact_ref!r})",
+                "page = artifact.findings(limit=20)",
+                "finding = artifact.finding('<finding_id>')",
             )
         )
-
-
-class EvidenceDerivationTrace(_FrozenModel):
-    finding: Finding
-    derivation: DerivationRule
-    source_artifact_ref: str
-    source_fields: tuple[str, ...]
-    source_refs: tuple[str, ...]
-    retained_digest_item_refs: tuple[str, ...] = ()
-
-
-class ArtifactDigestPage(_BoundedPage[ArtifactDigest]):
-    """Bounded newest-first page of persisted artifact digests."""
-
-
-class FindingPage(_BoundedPage[Finding]):
-    """Bounded newest-first page of canonical typed findings."""
-
-    def _card(self, *, language: Literal["en", "zh"] = "en") -> Card:
-        card = Card(
-            identity=self._repr_identity(),
-            available=(".items", ".next_cursor", ".show()"),
-        ).listing(
-            "items",
-            (
-                f"{finding.finding_id}: {finding.render(language=language, max_output_bytes=None)}"
-                for finding in self.items
-            ),
-        )
-        if self.next_cursor is not None:
-            card.field("next_cursor", self.next_cursor)
-        return card
-
-    def render(
-        self,
-        *,
-        language: Literal["en", "zh"] = "en",
-        max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
-    ) -> str:
-        """Render this page with each Finding in English or Chinese.
-
-        Args:
-            language: ``"en"`` for English or ``"zh"`` for Chinese item prose.
-            max_output_bytes: UTF-8 page bound; ``None`` returns the full page.
-
-        Returns:
-            A bounded page whose item lines retain canonical Finding identities.
-
-        Example:
-            ``page.render(language="zh")``
-
-        Constraints:
-            Item order and cursor semantics are unchanged by the selected language.
-        """
-        if language not in {"en", "zh"}:
-            raise ValueError("language must be 'en' or 'zh'")
-        return self._card(language=language).render(max_output_bytes=max_output_bytes)
-
-    def show(
-        self,
-        *,
-        language: Literal["en", "zh"] = "en",
-        max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
-    ) -> None:
-        """Print this page with each Finding in English or Chinese."""
-        print(self.render(language=language, max_output_bytes=max_output_bytes))
 
 
 __all__ = [
@@ -1414,7 +1240,6 @@ __all__ = [
     "AnomalyCandidate",
     "AnomalyCandidateFindingValue",
     "ArtifactDigest",
-    "ArtifactDigestPage",
     "ArtifactIssue",
     "ArtifactIssueAdapter",
     "ArtifactRevalidation",
@@ -1424,8 +1249,6 @@ __all__ = [
     "AssociationFindingValue",
     "ChangeFact",
     "ComparabilityIssue",
-    "CompatibilityDimensionStatus",
-    "CompatibilityQualityStatus",
     "ContributionFact",
     "ContributionFindingValue",
     "DataQualityIssue",
@@ -1439,13 +1262,7 @@ __all__ = [
     "EventJourneyObservationValue",
     "EventSubject",
     "EvidenceAvailabilityIssue",
-    "EvidenceCompatibility",
-    "EvidenceCompatibilityDetail",
-    "EvidenceCompatibilityIssue",
-    "EvidenceCompatibilityIssueKind",
-    "EvidenceCompatibilityStatus",
     "EvidenceCompleteness",
-    "EvidenceDerivationTrace",
     "EvidenceRuleIssue",
     "EvidenceRuleIssueKind",
     "EvidenceScope",
@@ -1455,7 +1272,6 @@ __all__ = [
     "EvidenceSubjectAdapter",
     "FallbackReason",
     "Finding",
-    "FindingPage",
     "FindingType",
     "FindingValue",
     "ForecastOutput",

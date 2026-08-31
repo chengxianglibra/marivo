@@ -51,6 +51,7 @@ from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.metric_graph import ExactComparisonSemanticsV1
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import (
     fiscal_analysis_project_files,
     make_metric_frame,
@@ -465,7 +466,7 @@ def test_compare_period_progress_and_correspondence_use_certified_snapshot(tmp_p
     for delta in (progress_delta, correspondence_delta):
         assert delta.evidence_status == "complete"
         assert delta.evidence_digest is not None
-        findings = session.evidence.findings(artifact_ref=delta.ref).items
+        findings = delta.findings().items
         assert len(findings) == 4
         assert len({finding.canonical_item_key for finding in findings}) == 4
 
@@ -677,7 +678,7 @@ def test_compare_occurrence_progress_uses_frames_from_public_observe(tmp_path):
     assert evidence.paired_points == 2
     assert delta.evidence_status == "complete"
     assert delta.evidence_digest is not None
-    findings = session.evidence.findings(artifact_ref=delta.ref).items
+    findings = delta.findings().items
     assert len(findings) == 2
     assert len({finding.canonical_item_key for finding in findings}) == 2
     assert all(
@@ -802,11 +803,11 @@ def test_compare_working_day_progress_uses_exact_schedule_and_excludes_nonworkin
         / f"{schedule_snapshot.snapshot_digest}.json"
     )
     snapshot_path.unlink()
-    recovered = session.get_frame(delta.ref)
+    recovered = session.artifact(delta.ref)
     pd.testing.assert_frame_equal(recovered.to_pandas(), delta.to_pandas())
     assert recovered.evidence_status == "complete"
     assert recovered.evidence_digest == delta.evidence_digest
-    findings = session.evidence.findings(artifact_ref=delta.ref).items
+    findings = delta.findings().items
     assert len(findings) == 2
     assert len({finding.canonical_item_key for finding in findings}) == 2
 
@@ -1560,15 +1561,14 @@ def test_compare_persists_job_and_frame(tmp_path):
     a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     b = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     d = compare(a, b, alignment=window_bucket(), session=s)
-    compare_jobs = [j for j in s.jobs() if j.intent == "compare"]
+    compare_jobs = [j for j in s.runs(limit=100).items if j.capability_id == "compare"]
     assert len(compare_jobs) == 1
-    assert compare_jobs[0].output_frame_ref == d.ref
+    assert compare_jobs[0].output_artifact_ref == d.ref
     assert (s._layout.frames_dir / d.ref / "data.parquet").is_file()
-    job_record = s.job(compare_jobs[0].id)
-    assert job_record["params"]["alignment"]["kind"] == "window_bucket"
-    assert job_record["schema"] == "marivo.analysis_job/v2"
-    assert job_record["subject"]["kind"] == "delta_metric"
-    assert "semantic_model" not in job_record
+    job_record = s.get_run(compare_jobs[0].run_id)
+    assert run_arguments(job_record)["alignment"]["kind"] == "window_bucket"
+    assert job_record.capability_id == "compare"
+    assert job_record.input_artifact_refs == (a.ref,)
 
     persisted_meta = json.loads((s._layout.frames_dir / d.ref / "meta.json").read_text())
     assert {"metric_id", "semantic_model", "status_time_dimension"}.isdisjoint(persisted_meta)
@@ -1578,7 +1578,7 @@ def test_compare_persists_job_and_frame(tmp_path):
     assert persisted_meta["catalog_definition_fingerprint"]
     assert persisted_meta["temporal_contract"]["alignment_policy"]["kind"] == "window_bucket"
     assert persisted_meta["temporal_contract"]["alignment_evidence"]["execution_path"] == "local"
-    loaded = s.get_frame(d.ref)
+    loaded = s.artifact(d.ref)
     assert loaded.meta.metric_id == "sales.revenue"
     assert loaded.meta.semantic_model == "sales"
     assert loaded.meta.temporal_contract == d.meta.temporal_contract

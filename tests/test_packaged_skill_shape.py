@@ -149,16 +149,14 @@ def test_analysis_skill_routes_through_progressive_help_topology() -> None:
     assert "session.lifecycle.replay/distribution" not in text
 
 
-def test_analysis_skill_gates_cross_finding_synthesis_on_compatibility() -> None:
+def test_analysis_skill_preserves_finding_and_runtime_boundaries() -> None:
     text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
     normalized = " ".join(text.split())
 
-    assert 'marivo.help("analysis.session.evidence.compatibility")' in text
-    assert "Before combining two or more Findings" in normalized
-    assert "including Findings from the same artifact or analysis round" in normalized
-    assert "exact Finding ids" in text
-    assert "Split or repair an incompatible selection" in normalized
-    assert "stop and disclose an indeterminate selection" in normalized
+    assert "Artifact-owned Finding reads" in normalized
+    assert "Finding reads preserve exact derivation" in normalized
+    assert "do not combine Findings or prove business validity" in normalized
+    assert "neither checks current semantic authority nor datasource freshness" in normalized
 
 
 def test_analysis_skill_revalidates_recovered_artifacts_before_reuse() -> None:
@@ -167,11 +165,28 @@ def test_analysis_skill_revalidates_recovered_artifacts_before_reuse() -> None:
 
     assert 'marivo.help("analysis.session.revalidate")' in text
     assert "After restoring an old Artifact" in normalized
-    assert "session.get_frame(ref)" in text
-    assert "session.revalidate(frame)" in text
+    assert "session.artifact(ref)" in text
+    assert "session.revalidate(ref)" in text
     assert "does not prove datasource freshness" in normalized
     assert "re-run a stale branch" in normalized.lower()
     assert "stop and disclose an indeterminate branch" in normalized.lower()
+
+
+def test_analysis_skill_contains_no_removed_runtime_names() -> None:
+    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+
+    for stale in (
+        "session.get_frame",
+        "session.frame_summaries",
+        "session.jobs",
+        "session.recent_jobs",
+        "session.evidence",
+        "runtime.artifacts",
+        "runtime.jobs",
+        "evidence.browse",
+        "evidence.exact",
+    ):
+        assert stale not in text
 
 
 def test_analysis_skill_follows_runtime_operator_authority_admission() -> None:

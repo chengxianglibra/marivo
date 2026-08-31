@@ -13,6 +13,7 @@ from marivo.analysis.errors import (
     TestShapeNotTestableError,
 )
 from marivo.analysis.session._load import load_frame
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import make_metric_frame, seeded_time_series_metric_frame
 
 
@@ -145,8 +146,8 @@ def test_hypothesis_test_resolves_public_value_names_and_excludes_numeric_dimens
 
     assert inferred.to_pandas().iloc[0]["sample_size"] == 3
     assert explicit.to_pandas().iloc[0]["sample_size"] == 3
-    jobs = [job for job in session.jobs() if job.intent == "hypothesis_test"]
-    params = session.job(jobs[-1].id)["params"]
+    jobs = [job for job in session.runs(limit=100).items if job.capability_id == "hypothesis_test"]
+    params = run_arguments(session.get_run(jobs[0].run_id))
     assert params["value_a"] == "current"
     assert params["value_b"] == "baseline"
 

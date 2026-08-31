@@ -157,10 +157,10 @@ def test_timescope_without_grain_stays_scalar(tmp_path):
     assert frame.meta.window["start"] == "2026-05-01"
     assert frame.meta.window["end"] == "2026-05-25"
 
-    jobs = s.jobs()
+    jobs = s.runs(limit=100).items
     assert len(jobs) == 1
-    job = s.job(jobs[0].id)
-    window_params = job["params"]["timescope"]
+    job = s.get_run(jobs[0].run_id)
+    window_params = {argument.name: argument.value for argument in job.arguments}["timescope"]
     assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-25"}
     assert window_params["resolved"]["start"] == "2026-05-01"
     assert window_params["resolved"]["end"] == "2026-05-25"
@@ -222,8 +222,8 @@ def test_windowed_time_series_requires_explicit_axis_for_multi_dataset_metric(tm
             "sales.refunds.refund_date",
         )
     }
-    assert s.jobs() == []
-    assert s.frame_summaries().items == ()
+    assert s.runs(limit=100).items == ()
+    assert s.graph().artifacts == ()
 
 
 def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
@@ -242,8 +242,8 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
         session=s,
     )
 
-    job = s.job(s.jobs()[0].id)
-    window_params = job["params"]["timescope"]
+    job = s.get_run(s.runs(limit=100).items[0].run_id)
+    window_params = {argument.name: argument.value for argument in job.arguments}["timescope"]
     assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-25"}
     assert window_params["report_tz"] == "Asia/Shanghai"
     assert window_params["resolved"] == {

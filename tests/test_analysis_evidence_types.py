@@ -171,17 +171,17 @@ def test_digest_read_contract_renders_exact_calls_without_executing_reads(
 ) -> None:
     contract = DigestReadContract(
         exact_reads=(
-            "session.evidence.digest('frame_abc')",
-            "session.evidence.findings(artifact_ref='frame_abc')",
-            "session.get_frame('frame_abc')",
+            "artifact = session.artifact('frame_abc')",
+            "page = artifact.findings(limit=20)",
+            "finding = artifact.finding('<finding_id>')",
         )
     )
 
     rendered = contract.render()
     assert capsys.readouterr().out == ""
-    assert "session.evidence.digest('frame_abc')" in rendered
-    assert "session.evidence.findings(artifact_ref='frame_abc')" in rendered
-    assert "session.get_frame('frame_abc')" in rendered
+    assert "artifact = session.artifact('frame_abc')" in rendered
+    assert "page = artifact.findings(limit=20)" in rendered
+    assert "finding = artifact.finding('<finding_id>')" in rendered
     assert contract.model_dump()["exact_reads"] == contract.exact_reads
     assert contract.show() is None
     assert capsys.readouterr().out == rendered + "\n"
@@ -217,7 +217,6 @@ def test_public_evidence_namespace_contains_digest_types_and_removes_judgment_ty
 
     for name in (
         "ArtifactDigest",
-        "Finding",
         "ObservationFact",
         "ChangeFact",
         "ContributionFact",
@@ -229,6 +228,8 @@ def test_public_evidence_namespace_contains_digest_types_and_removes_judgment_ty
         "AnalysisScope",
     ):
         assert hasattr(mv.evidence, name), name
+    assert hasattr(mv, "Finding")
+    assert not hasattr(mv.evidence, "Finding")
     for name in (
         "Proposition",
         "Assessment",

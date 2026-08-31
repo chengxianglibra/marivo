@@ -9,6 +9,7 @@ from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_arguments
 
 
 @pytest.fixture(autouse=True)
@@ -231,8 +232,8 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
         "grain": None,
         "time_dimension": None,
     }
-    job = s.job(windowed.meta.produced_by_job)
-    assert job["params"]["timescope"] == {
+    job = s.get_run(windowed.meta.produced_by_job)
+    assert run_arguments(job)["timescope"] == {
         "original": {"start": "2026-07-02", "end": "2026-08-02"},
         "resolved": windowed.meta.window,
         "report_tz": s.report_tz_name,
@@ -374,15 +375,19 @@ def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
         session=s,
     )
 
-    region_job_summary = next(job for job in s.jobs() if job.output_frame_ref == by_region.ref)
-    channel_job_summary = next(job for job in s.jobs() if job.output_frame_ref == by_channel.ref)
-    region_job = s.job(region_job_summary.id)
-    channel_job = s.job(channel_job_summary.id)
+    region_job_summary = next(
+        job for job in s.runs(limit=100).items if job.output_artifact_ref == by_region.ref
+    )
+    channel_job_summary = next(
+        job for job in s.runs(limit=100).items if job.output_artifact_ref == by_channel.ref
+    )
+    region_job = s.get_run(region_job_summary.run_id)
+    channel_job = s.get_run(channel_job_summary.run_id)
 
-    assert [item["path"] for item in region_job["params"]["dimension_refs"]] == [
+    assert [item["path"] for item in run_arguments(region_job)["dimension_refs"]] == [
         "sales.orders.region"
     ]
-    assert [item["path"] for item in channel_job["params"]["dimension_refs"]] == [
+    assert [item["path"] for item in run_arguments(channel_job)["dimension_refs"]] == [
         "sales.orders.channel"
     ]
     assert (

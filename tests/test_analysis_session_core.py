@@ -1,4 +1,4 @@
-"""Session class: store-backed jobs and frame summaries."""
+"""Session class: store-backed Run and Artifact reads."""
 
 import json
 import textwrap
@@ -9,16 +9,18 @@ import pytest
 
 import marivo.semantic as ms
 from marivo._compat import UTC
+from marivo.analysis import FailedRun, SucceededRun
 from marivo.analysis.errors import (
+    ArtifactNotFoundError,
     FrameMetaInvalidError,
-    JobNotFoundError,
+    RunNotFoundError,
     SourceBindingError,
 )
 from marivo.analysis.session._layout import PersistenceLayout
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import _build_connection_runtime, persist_job_record
 from marivo.analysis.session._store import SessionStore
-from marivo.analysis.session.core import JobSummary, Session
+from marivo.analysis.session.core import Session
 from marivo.refs import RefPayloadV1
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.metric_graph import (
@@ -313,7 +315,8 @@ def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, caps
     assert "question: q" in rendered
     assert "report_timezone:" in rendered
     assert ".catalog" in rendered
-    assert ".frame_summaries()" in rendered
+    assert ".runs(" in rendered
+    assert ".graph(" in rendered
     for call in REGISTRY.public_member_calls("Session"):
         if call == ".render()":
             continue  # render() backs show() and is never advertised in footers
@@ -332,7 +335,7 @@ def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, caps
     assert capsys.readouterr().out.rstrip() == rendered
 
 
-def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
+def test_session_runs_lists_records_newest_first(tmp_path):
     s = _session(tmp_path)
     for artifact_id, producer in (("f2", "job_two"), ("f1", "job_one")):
         s._store.record_artifact(
@@ -380,19 +383,19 @@ def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
             **_job_semantics(s),
         },
     )
-    summaries = s.jobs()
-    assert [j.id for j in summaries] == ["job_one", "job_two"]
-    assert isinstance(summaries[0], JobSummary)
+    summaries = s.runs(limit=100).items
+    assert [run.run_id for run in summaries] == ["job_two", "job_one"]
+    assert isinstance(summaries[0], SucceededRun)
 
 
-def test_session_job_raises_job_not_found_from_store_absence(tmp_path):
+def test_session_get_run_raises_run_not_found_from_store_absence(tmp_path):
     s = _session(tmp_path)
-    with pytest.raises(JobNotFoundError) as exc_info:
-        s.job("nonexistent_job")
+    with pytest.raises(RunNotFoundError) as exc_info:
+        s.get_run("nonexistent_job")
     assert "nonexistent_job" in exc_info.value.message
 
 
-def test_session_job_hides_private_failed_run(tmp_path) -> None:
+def test_session_get_run_returns_closed_failed_variant(tmp_path) -> None:
     session = _session(tmp_path)
     session._store.begin_run(
         session_id=session.id,
@@ -407,15 +410,25 @@ def test_session_job_hides_private_failed_run(tmp_path) -> None:
     session._store.fail_run(
         session_id=session.id,
         run_id="run_failed",
-        failure={"error_type": "InternalExecutionError"},
+        failure={
+            "error_type": "InternalExecutionError",
+            "message": "execution failed",
+            "expected": None,
+            "received": None,
+            "location": None,
+            "repair": None,
+        },
         failed_at="2026-05-24T10:00:01+00:00",
     )
-    with pytest.raises(JobNotFoundError):
-        session.job("run_failed")
+    run = session.get_run("run_failed")
+    assert isinstance(run, FailedRun)
+    assert run.run_id == "run_failed"
+    assert run.lifecycle == "failed"
+    assert run.failure.error_type == "InternalExecutionError"
     assert list(session._layout.jobs_dir.glob("*.json")) == []
 
 
-def test_session_frame_summaries_returns_only_registered_artifacts(tmp_path):
+def test_session_artifact_reads_registered_artifact_by_ref(tmp_path):
     s = _session(tmp_path)
     import pandas as pd
 
@@ -430,11 +443,10 @@ def test_session_frame_summaries_returns_only_registered_artifacts(tmp_path):
         session=s,
     )
 
-    records = s.frame_summaries()
-    assert len(records) == 1
-    assert records[0].ref == frame.ref
-    assert records[0].kind == "metric_frame"
-    assert records[0].metric_id == "sales.revenue"
+    loaded = s.artifact(frame.ref)
+    assert loaded.ref == frame.ref
+    assert loaded.kind == "metric_frame"
+    assert loaded.meta.metric_id == "sales.revenue"
 
     # Write a frame directory without registering in the store — it should be invisible.
     orphan_dir = s._layout.frames_dir / "orphan_001"
@@ -442,7 +454,8 @@ def test_session_frame_summaries_returns_only_registered_artifacts(tmp_path):
     (orphan_dir / "meta.json").write_text(
         '{"ref": "orphan_001", "kind": "metric_frame", "metric_id": "orphan.metric"}'
     )
-    assert len(s.frame_summaries()) == 1
+    with pytest.raises(ArtifactNotFoundError):
+        s.artifact("orphan_001")
 
 
 def test_load_rejects_removed_pre_cutover_evidence_meta(tmp_path):
@@ -475,34 +488,6 @@ def test_load_rejects_removed_pre_cutover_evidence_meta(tmp_path):
     # must be visible to the agent.
     assert exc_info.value.repair is not None
     assert "Re-run observe()" in exc_info.value.repair.action
-
-
-def test_session_frame_summaries_sorted_newest_first(tmp_path):
-    s = _session(tmp_path)
-    import pandas as pd
-
-    frame_a = make_metric_frame(
-        pd.DataFrame({"value": [1.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="scalar",
-        semantic_model="sales",
-        session=s,
-    )
-    frame_b = make_metric_frame(
-        pd.DataFrame({"value": [2.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="scalar",
-        semantic_model="sales",
-        session=s,
-    )
-    records = s.frame_summaries()
-    assert len(records) == 2
-    assert records[0].ref == frame_b.ref
-    assert records[1].ref == frame_a.ref
 
 
 def test_session_close_closes_runtime_connections(tmp_path):
@@ -762,11 +747,10 @@ def test_persisted_frame_records_content_hash_in_meta_store_and_state(tmp_path):
     meta_payload = json.loads(meta_path.read_text())
     assert meta_payload["content_hash"] == frame.state.content_hash
 
-    loaded = s.get_frame(frame.ref)
+    loaded = s.artifact(frame.ref)
     assert loaded.state.content_hash == frame.state.content_hash
 
-    [summary] = s.frame_summaries()
-    assert summary.content_hash == frame.state.content_hash
+    assert s.artifact(frame.ref).state.content_hash == frame.state.content_hash
 
 
 # ---------------------------------------------------------------------------

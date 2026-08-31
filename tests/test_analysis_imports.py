@@ -93,6 +93,14 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "TimeScope",
         "AbsoluteWindow",
         "runtime_metric",
+        "SessionGraph",
+        "ArtifactSummary",
+        "RunPage",
+        "IncompleteRun",
+        "SucceededRun",
+        "FailedRun",
+        "FindingPage",
+        "Finding",
     }
     for name in default_exports:
         assert name in mv.__all__, name
@@ -103,7 +111,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
     advanced_internal = {
         "BaseFrame",
         "BaseFrameMeta",
-        "JobSummary",
         "SessionSummary",
         "Lineage",
         "LineageStep",
@@ -115,6 +122,7 @@ def test_analysis_exports_public_surface_by_layer() -> None:
     for name in advanced_internal:
         assert name not in mv.__all__, name
         assert hasattr(mv, name), name
+    assert not hasattr(mv, "JobSummary")
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:

@@ -32,6 +32,7 @@ from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 
@@ -358,7 +359,7 @@ def test_transformed_delta_recovery_revalidates_comparison_identity(tmp_path):
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match="invalid delta comparison identity"):
-        session.get_frame(transformed.ref)
+        session.artifact(transformed.ref)
 
 
 def test_transform_api_methods_cover_supported_ops(tmp_path):
@@ -534,8 +535,8 @@ def _assert_persisted_metric_frame(frame: MetricFrame) -> None:
     assert isinstance(stored_df, pd.DataFrame)
     assert stored_meta["ref"] == frame.ref
     assert frame.meta.produced_by_job is not None
-    job_record = session.job(frame.meta.produced_by_job)
-    assert job_record["output_frame_ref"] == frame.ref
+    job_record = session.get_run(frame.meta.produced_by_job)
+    assert job_record.output_artifact_ref == frame.ref
 
 
 def test_frame_transform_unknown_op_is_plain_attribute_error(tmp_path):
@@ -587,11 +588,11 @@ def test_transform_lineage_and_job_record_persist(tmp_path):
     _, meta_dict = read_frame_from_disk(session._layout, out.ref)
     assert meta_dict["lineage"]["steps"][-1]["intent"] == "transform"
     assert meta_dict["lineage"]["steps"][-1]["inputs"] == [frame.ref]
-    job_record = session.job(out.meta.produced_by_job)
-    assert job_record["intent"] == "transform"
-    assert job_record["input_frame_refs"] == [frame.ref]
-    assert job_record["output_frame_ref"] == out.ref
-    assert job_record["status"] == "succeeded"
+    job_record = session.get_run(out.meta.produced_by_job)
+    assert job_record.capability_id == "transform.filter"
+    assert job_record.input_artifact_refs == (frame.ref,)
+    assert job_record.output_artifact_ref == out.ref
+    assert job_record.lifecycle == "succeeded"
 
 
 def test_transform_window_clips_time_series(tmp_path):
@@ -851,16 +852,17 @@ def test_persist_transform_frame_stores_json_safe_params(tmp_path):
     )
 
     assert out.meta.produced_by_job is not None
-    job_record = session.job(out.meta.produced_by_job)
-    json.dumps(job_record["params"])
-    assert job_record["params"]["drop_axes"] == [
+    job_record = session.get_run(out.meta.produced_by_job)
+    arguments = run_arguments(job_record)
+    json.dumps(arguments)
+    assert arguments["drop_axes"] == [
         {
             "schema": "marivo.semantic_ref/v1",
             "kind": "dimension",
             "path": "sales.orders.country",
         }
     ]
-    predicate_params = job_record["params"]["predicate"]
+    predicate_params = arguments["predicate"]
     assert predicate_params["type"] == "callable"
     assert predicate_params["name"] == f"{__name__}._positive_delta_predicate"
     assert len(predicate_params["implementation_digest"]) == 64
@@ -1135,9 +1137,10 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
 
     assert sliced.meta.row_count == 1
     assert sliced.meta.produced_by_job is not None
-    job_record = session_attach.current().job(sliced.meta.produced_by_job)
-    json.dumps(job_record["params"])
-    assert job_record["params"]["where"]["sales.orders.event_date"] == "2026-07-01"
+    job_record = session_attach.current().get_run(sliced.meta.produced_by_job)
+    arguments = run_arguments(job_record)
+    json.dumps(arguments)
+    assert arguments["where"]["sales.orders.event_date"] == "2026-07-01"
 
 
 def test_transform_filter_preserves_metric_frame(tmp_path):
@@ -2096,7 +2099,7 @@ def test_rollup_grain_takes_period_ends_for_cumulative(cumulative_day_session):
     feb_source = raw.loc[raw["bucket_start"] == pd.Timestamp("2026-02-15")].iloc[0]
     feb_rolled = df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01")].iloc[0]
     assert feb_rolled["evaluation_end"] == feb_source["evaluation_end"]
-    recovered = session.get_frame(rolled.ref)
+    recovered = session.artifact(rolled.ref)
     assert recovered.to_pandas().sort_values("bucket_start")["evaluation_end"].tolist() == (
         df["evaluation_end"].tolist()
     )
@@ -2240,9 +2243,9 @@ def test_transform_persists_artifact_job_lineage_and_empty_digest(tmp_path):
     assert isinstance(stored_df, pd.DataFrame)
     assert stored_meta["ref"] == out.ref
     assert out.meta.produced_by_job is not None
-    job_record = session.job(out.meta.produced_by_job)
-    assert job_record["intent"] == "transform"
-    assert job_record["output_frame_ref"] == out.ref
+    job_record = session.get_run(out.meta.produced_by_job)
+    assert job_record.capability_id == "transform.topk"
+    assert job_record.output_artifact_ref == out.ref
     assert out.meta.lineage.steps[-1].intent == "transform"
 
     store = session._evidence_store()

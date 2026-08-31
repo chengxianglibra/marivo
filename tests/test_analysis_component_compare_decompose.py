@@ -1510,7 +1510,9 @@ def test_decompose_component_ratio_rejects_reserved_axis_column(
     assert error.repair is not None
     assert error.repair.kind == "semantic_authoring"
     # Failing closed must not leave a partially-persisted attribution artifact.
-    assert [job.intent for job in session.jobs() if job.intent == "attribute"] == []
+    failed = session.runs(status="failed", capability_id="attribute").items
+    assert len(failed) == 1
+    assert failed[0].failure.error_type == "SemanticKindMismatchError"
 
 
 def _reattach_component_frame(session, frame: MetricFrame, time_column: str) -> MetricFrame:

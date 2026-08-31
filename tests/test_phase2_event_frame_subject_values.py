@@ -442,7 +442,9 @@ def test_event_reducer_shapes_cold_recover_to_exact_metadata_variants(
                 "duration_ms": 1000,
             },
         )
-        assert session.job(job_id)["event_reducer"]["kind"] == output.semantic_shape
+        persisted_run = session.get_run(job_id)
+        assert persisted_run.capability_id == intent
+        assert persisted_run.output_artifact_ref == output.ref
 
     mv.session._reset_process_state()
     recovered_session = mv.session.get_or_create(
@@ -450,8 +452,8 @@ def test_event_reducer_shapes_cold_recover_to_exact_metadata_variants(
         backend_factory=lambda _name: None,
         use_datasources=False,
     )
-    recovered_funnel = recovered_session.get_frame(funnel.ref)
-    recovered_time = recovered_session.get_frame(time_to_event.ref)
+    recovered_funnel = recovered_session.artifact(funnel.ref)
+    recovered_time = recovered_session.artifact(time_to_event.ref)
 
     assert isinstance(recovered_funnel, EventFrame)
     assert isinstance(recovered_funnel.meta, EventFunnelFrameMeta)
@@ -532,8 +534,9 @@ def test_subject_set_is_privacy_safe_and_cold_recovers(tmp_path, monkeypatch) ->
             "duration_ms": 1000,
         },
     )
-    job_payload = session.job("job_select_subjects")
-    assert job_payload["schema"] == "marivo.analysis_job/v2"
+    job_payload = session.get_run("job_select_subjects")
+    assert job_payload.capability_id == "select_subjects"
+    assert job_payload.output_artifact_ref == frame.ref
     assert "private_user" not in repr(job_payload)
 
     mv.session._reset_process_state()
@@ -542,7 +545,7 @@ def test_subject_set_is_privacy_safe_and_cold_recovers(tmp_path, monkeypatch) ->
         backend_factory=lambda _name: None,
         use_datasources=False,
     )
-    recovered = recovered_session.get_frame(frame.ref)
+    recovered = recovered_session.artifact(frame.ref)
 
     assert isinstance(recovered, SubjectSet)
     assert recovered.meta.model_dump(mode="json") == frame.meta.model_dump(mode="json")

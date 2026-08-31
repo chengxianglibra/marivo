@@ -23,6 +23,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.session._load import load_frame
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import (
     fiscal_analysis_project_files,
     make_metric_frame,
@@ -93,8 +94,8 @@ def test_forecast_resolves_public_value_name_and_excludes_numeric_dimension(tmp_
 
     assert len(inferred) == 2
     assert len(explicit) == 2
-    jobs = [job for job in session.jobs() if job.intent == "forecast"]
-    assert session.job(jobs[-1].id)["params"]["measure_column"] == "revenue"
+    jobs = [job for job in session.runs(limit=100).items if job.capability_id == "forecast"]
+    assert run_arguments(session.get_run(jobs[0].run_id))["measure_column"] == "revenue"
 
 
 def test_seasonal_naive_dow_period_7(tmp_path):

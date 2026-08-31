@@ -126,7 +126,7 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     ]
     merged = frame.to_pandas().merge(result, on="region")
     assert list(merged["region"]) == ["US", "CN", "US"]
-    loaded = session.get_frame(out.ref)
+    loaded = session.artifact(out.ref)
     assert loaded.meta.driver_field == "region"
     assert list(loaded.to_pandas().columns) == list(result.columns)
     contract = out.contract()
@@ -460,7 +460,7 @@ def test_panel_attribution_quality_validates_each_bucket_reconciliation() -> Non
 
     assert out.meta.reconciliation is not None
     assert len(out.meta.reconciliation.bucket_reconciliations) == 2
-    reloaded = session.get_frame(out.ref)
+    reloaded = session.artifact(out.ref)
     assert reloaded.meta.reconciliation == out.meta.reconciliation
 
     corrupted = out._dataframe_copy()
@@ -994,8 +994,8 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
     assert "session.attribute(...) -> AttributionFrame" in contract_text
     with pytest.raises(ValueError, match="never truncates affordances or repairs"):
         delta.contract().render(max_output_bytes=1024)
-    assert [job.intent for job in session.jobs()].count("observe") == 2
-    assert [job.intent for job in session.jobs()].count("compare") == 1
+    assert [job.capability_id for job in session.runs(limit=100).items].count("observe") == 2
+    assert [job.capability_id for job in session.runs(limit=100).items].count("compare") == 1
 
 
 def test_attribute_validates_original_delta_before_axis_materialization(
@@ -1053,8 +1053,8 @@ def test_attribute_validates_original_delta_before_axis_materialization(
         session.attribute(delta, axes=[region])
 
     assert exc_info.value._context["blocker"] == "unsupported_aggregate"
-    assert [job.intent for job in session.jobs()].count("observe") == 2
-    assert [job.intent for job in session.jobs()].count("compare") == 1
+    assert [job.capability_id for job in session.runs(limit=100).items].count("observe") == 2
+    assert [job.capability_id for job in session.runs(limit=100).items].count("compare") == 1
 
 
 def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
@@ -1125,7 +1125,7 @@ def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
     assert delta.meta.additivity == "non_additive"
     assert delta.meta.aggregation == "mean"
     assert delta.meta.status_time_dimension is None
-    loaded_delta = session.get_frame(delta.ref)
+    loaded_delta = session.artifact(delta.ref)
     assert isinstance(loaded_delta, DeltaFrame)
     assert loaded_delta.meta.additivity == "non_additive"
     assert loaded_delta.meta.aggregation == "mean"

@@ -208,7 +208,7 @@ def test_recovered_metric_frame_keeps_internal_value_and_public_metric_name(tmp_
     )
     warm_contract = frame.contract()
 
-    recovered = session.get_frame(frame.ref)
+    recovered = session.artifact(frame.ref)
 
     assert isinstance(recovered, MetricFrame)
     assert list(recovered._dataframe_copy().columns) == ["region", "value"]

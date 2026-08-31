@@ -93,7 +93,7 @@ def _integrity_error(
         repair=_repair(
             "Re-run the producing operator in a fresh analysis session when the exact Artifact "
             "and its evidence ledger can no longer be restored together.",
-            snippet=f"session.get_frame({artifact_ref!r})",
+            snippet=f"session.artifact({artifact_ref!r})",
         ),
         context={"artifact_ref": artifact_ref},
     )
@@ -164,7 +164,7 @@ def load_canonical_frame_identity(
             )
         )
     artifact_ref = frame.meta.artifact_id or frame.meta.ref
-    canonical_frame = session.get_frame(artifact_ref)
+    canonical_frame = session.artifact(artifact_ref)
     session_row = session._store.get_artifact(session.id, artifact_ref)
     if session_row is None:
         raise _integrity_error(
@@ -247,7 +247,7 @@ def _load_linked_unavailable_evidence(
             ),
         )
     try:
-        parent = session.get_frame(parent_ref)
+        parent = session.artifact(parent_ref)
         parent_evidence = load_canonical_artifact_evidence(
             session=session,
             store=store,

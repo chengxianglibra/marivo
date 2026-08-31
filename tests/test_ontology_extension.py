@@ -407,7 +407,7 @@ def test_semantic_hypothesis_end_to_end_and_candidate_origin(tmp_path) -> None:
     assert isinstance(candidates, CandidateSet)
     assert candidates.meta.shape == "semantic_hypothesis"
     assert candidates.meta.resolution_summary.emitted_candidates == 1
-    assert session.evidence.findings(artifact_ref=candidates.ref).items == ()
+    assert candidates.findings().items == ()
     row = candidates.to_pandas().iloc[0]
     assert pd.isna(row["score"])
     assert row["edge_relation"] == "influences"
@@ -428,7 +428,7 @@ def test_semantic_hypothesis_end_to_end_and_candidate_origin(tmp_path) -> None:
         in candidates.contract().render()
     )
 
-    recovered = session.get_frame(candidates.ref)
+    recovered = session.artifact(candidates.ref)
     selected = recovered.select(item_id=str(row["item_id"]))
     assert isinstance(selected, OntologyMetricCandidate)
     assert selected.metric_ref.path == "sales.order_count"
@@ -444,17 +444,17 @@ def test_semantic_hypothesis_end_to_end_and_candidate_origin(tmp_path) -> None:
     origin = observed.meta.candidate_origins[-1]
     assert origin.item_id == selected.item_id
     assert origin.edge_context.business_definition.startswith("Order volume")
-    cold = session.get_frame(observed.ref)
+    cold = session.artifact(observed.ref)
     assert cold.meta.candidate_origins == observed.meta.candidate_origins
 
     association = session.correlate(source, observed)
     assert association.meta.candidate_origins == observed.meta.candidate_origins
-    finding = session.evidence.findings(artifact_ref=association.ref).items[0]
+    finding = association.findings().items[0]
     assert finding.derivation.candidate_origins == observed.meta.candidate_origins
 
     tested = session.hypothesis_test(source, observed)
     assert tested.meta.candidate_origins == observed.meta.candidate_origins
-    test_finding = session.evidence.findings(artifact_ref=tested.ref).items[0]
+    test_finding = tested.findings().items[0]
     assert test_finding.derivation.candidate_origins == observed.meta.candidate_origins
 
     driver_source = session.observe(ms.ref.metric("sales.order_count"))
@@ -534,7 +534,7 @@ def test_configured_empty_ontology_commits_empty_candidate_set(tmp_path) -> None
     assert session._ontology_state == "ready"
     assert candidates.meta.resolution_summary.examined_edges == 0
     assert candidates.meta.resolution_summary.emitted_candidates == 0
-    assert session.get_frame(candidates.ref).to_pandas().empty
+    assert session.artifact(candidates.ref).to_pandas().empty
     assert "examined_edges=0" in candidates.render()
 
 
@@ -649,7 +649,7 @@ def test_candidate_recovery_rejects_digest_tampering(tmp_path) -> None:
     data.to_parquet(data_path, index=False)
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        session.get_frame(candidates.ref)
+        session.artifact(candidates.ref)
     assert exc_info.value._context["reason"] == "digest_mismatch"
 
 
@@ -666,7 +666,7 @@ def test_candidate_recovery_rejects_edge_relation_context_mismatch(tmp_path) -> 
     data.to_parquet(data_path, index=False)
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        session.get_frame(candidates.ref)
+        session.artifact(candidates.ref)
 
     assert exc_info.value._context["reason"] == "edge_relation_context_mismatch"
 
@@ -688,7 +688,7 @@ def test_frame_recovery_rejects_conflicting_candidate_origins(tmp_path) -> None:
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        session.get_frame(observed.ref)
+        session.artifact(observed.ref)
 
     assert "conflicting CandidateOrigin payload" in str(
         exc_info.value._context["validation_errors"]

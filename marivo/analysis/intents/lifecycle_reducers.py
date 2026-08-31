@@ -167,7 +167,7 @@ def _require_history_source(
             received="source=unavailable_or_changed",
             action="Inspect the source history and replay it before reducing it.",
         )
-    committed = session.get_frame(source_ref)
+    committed = session.artifact(source_ref)
     if (
         type(committed) is not LifecycleFrame
         or committed.meta.semantic_kind != "history"

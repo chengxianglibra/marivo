@@ -565,7 +565,7 @@ def test_replay_history_cold_recovers_with_identical_rows_and_trace(
         backends={"warehouse": lambda: backend},
     )
     try:
-        cold = reopened.get_frame(artifact_id)
+        cold = reopened.artifact(artifact_id)
 
         assert isinstance(cold, LifecycleFrame)
         assert cold.meta.semantic_kind == "history"
@@ -661,7 +661,7 @@ def test_replay_preserves_a_preexisting_artifact_when_a_later_job_write_fails(
             )
 
         assert session._store.get_artifact(session.id, artifact_id) is not None
-        recovered = session.get_frame(artifact_id)
+        recovered = session.artifact(artifact_id)
         assert isinstance(recovered, LifecycleFrame)
         assert recovered.to_pandas().equals(first.to_pandas())
     finally:
@@ -838,7 +838,8 @@ def test_reducers_and_evidence_consume_committed_history_without_event_rereads(
         raw_identities = ("o1", "o2", "e1", "e2", "e3", "e4", "e5", "e6", "e7")
         for frame in (history, *reducers):
             payload = json.dumps(frame.meta.model_dump(mode="json"), sort_keys=True)
-            digest = session.evidence.digest(frame.meta.artifact_id or frame.ref)
+            digest = session.artifact(frame.meta.artifact_id or frame.ref).evidence_digest
+            assert digest is not None
             evidence_payload = json.dumps(digest.model_dump(mode="json"), sort_keys=True)
             for value in raw_identities:
                 assert f'"{value}"' not in payload

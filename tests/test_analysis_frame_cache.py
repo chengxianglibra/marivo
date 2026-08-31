@@ -1,5 +1,5 @@
 """Idempotent frame caching: observe/compare return cached frames on repeat calls,
-and session.get_frame() recovers frames across script boundaries."""
+and session.artifact() recovers frames across script boundaries."""
 
 import ibis
 import pytest
@@ -7,8 +7,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
+    ArtifactNotFoundError,
     FrameCacheCorruptedError,
-    FrameRefNotFound,
 )
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.frames.component import ComponentFrame
@@ -149,7 +149,7 @@ def test_get_frame_returns_live_frame(tmp_path):
     s = _make_session(tmp_path, con)
 
     original = s.observe(make_ref("sales.revenue", SemanticKind.METRIC))
-    loaded = s.get_frame(original.ref)
+    loaded = s.artifact(original.ref)
 
     assert isinstance(loaded, MetricFrame)
     assert loaded.ref == original.ref
@@ -169,7 +169,7 @@ def test_get_frame_cross_script(tmp_path):
     session_attach._reset_process_state()
     s2 = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    loaded = s2.get_frame(ref)
+    loaded = s2.artifact(ref)
     assert loaded.ref == ref
     assert loaded.meta.metric_id == "sales.revenue"
 
@@ -178,8 +178,8 @@ def test_get_frame_not_found(tmp_path):
     bootstrap_sales_project(tmp_path)
     s = session_attach.get_or_create(name="demo")
 
-    with pytest.raises(FrameRefNotFound):
-        s.get_frame("frame_nonexistent")
+    with pytest.raises(ArtifactNotFoundError):
+        s.artifact("frame_nonexistent")
 
 
 def test_get_frame_corrupted(tmp_path):
@@ -195,28 +195,7 @@ def test_get_frame_corrupted(tmp_path):
     parquet_path.write_bytes(b"not a parquet file")
 
     with pytest.raises(FrameCacheCorruptedError):
-        s.get_frame(ref)
-
-
-# --- session.frame_summaries ---
-
-
-def test_frame_summaries_contains_rich_metadata(tmp_path):
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-    s = _make_session(tmp_path, con)
-
-    s.observe(make_ref("sales.revenue", SemanticKind.METRIC))
-
-    summaries = s.frame_summaries()
-    assert len(summaries) >= 1
-    entry = summaries[0]
-    assert entry.kind == "metric_frame"
-    assert entry.metric_id == "sales.revenue"
-    assert entry.semantic_kind is not None
-    assert entry.semantic_model is not None
-    assert entry.row_count is not None
-    assert entry.row_count >= 1
+        s.artifact(ref)
 
 
 # --- derived-metric observe caching ---
@@ -324,14 +303,14 @@ def test_observe_derived_metric_components_after_reattach(tmp_path):
     session_attach._reset_process_state()
     s2 = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
-    loaded = s2.get_frame(ref)
+    loaded = s2.artifact(ref)
     components = loaded.components()
     assert isinstance(components, ComponentFrame)
     assert components.meta.parent_ref == ref
 
 
 def test_components_via_session_get_frame(tmp_path):
-    """frame.components() works on a frame loaded via session.get_frame()."""
+    """frame.components() works on a frame loaded via session.artifact()."""
     _bootstrap_failure_rate(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_failure_rate(con)
@@ -340,7 +319,7 @@ def test_components_via_session_get_frame(tmp_path):
     frame = s.observe(make_ref("sales.failure_rate", SemanticKind.METRIC))
     ref = frame.ref
 
-    loaded = s.get_frame(ref)
+    loaded = s.artifact(ref)
     components = loaded.components()
     assert isinstance(components, ComponentFrame)
     assert components.meta.composition_kind == "ratio"
@@ -374,18 +353,3 @@ def test_compare_derived_metric_delta_components_after_cache_hit(tmp_path):
     assert delta2.ref == delta.ref
     delta_comp2 = delta2.components()
     assert isinstance(delta_comp2, ComponentFrame)
-
-
-# --- session.frame_summaries smoke test ---
-
-
-def test_frame_summaries_returns_refs(tmp_path):
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-    s = _make_session(tmp_path, con)
-
-    s.observe(make_ref("sales.revenue", SemanticKind.METRIC))
-
-    refs = s.frame_summaries()
-    assert len(refs) >= 1
-    assert all(r.ref and r.kind for r in refs)

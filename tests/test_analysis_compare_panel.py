@@ -445,7 +445,9 @@ def test_compare_panel_rejects_dimension_colliding_with_protocol_column(
     assert error.location == "session.compare"
     assert error.repair is not None
     assert error.repair.kind == "semantic_authoring"
-    assert [job.intent for job in s.jobs() if job.intent == "compare"] == []
+    assert [
+        job.capability_id for job in s.runs(limit=100).items if job.capability_id == "compare"
+    ] == []
 
 
 @pytest.mark.parametrize("conflicting_name", ["current", "baseline", "delta"])

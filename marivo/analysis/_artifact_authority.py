@@ -150,7 +150,7 @@ def _integrity_error(
         repair=_repair(
             "Recover the exact artifact and re-run its producing operator in a fresh analysis "
             "session if the committed authority graph cannot be restored.",
-            snippet=f"session.get_frame({artifact_ref!r})",
+            snippet=f"session.artifact({artifact_ref!r})",
         ),
         context={"artifact_ref": artifact_ref},
     )
@@ -361,7 +361,7 @@ def authority_context(
             try:
                 current, _ = load_canonical_frame_identity(
                     session=session,
-                    frame=session.get_frame(artifact_ref),
+                    frame=session.artifact(artifact_ref),
                 )
             except Exception as exc:
                 if not strict_source_identity:

@@ -108,7 +108,7 @@ def test_load_frame_round_trips_component_frame():
     )
     component.meta = persist_frame(session, component)
 
-    loaded = session.get_frame(component.ref)
+    loaded = session.artifact(component.ref)
 
     assert isinstance(loaded, ComponentFrame)
     assert loaded.meta.parent_kind == "metric_frame"

@@ -360,44 +360,6 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
     historical = mv.session.get_or_create(
         name="historical", question="Why did revenue drop?", use_datasources=False
     )
-    meta_relative = (
-        Path(".marivo")
-        / "analysis"
-        / "sessions"
-        / historical.id
-        / "frames"
-        / "frame_1"
-        / "meta.json"
-    )
-    meta_path = tmp_path / meta_relative
-    meta_path.parent.mkdir(parents=True, exist_ok=True)
-    meta_path.write_text(
-        json.dumps(
-            {
-                "ref": "frame_1",
-                "kind": "metric_frame",
-                "metric_identity": {
-                    "kind": "catalog",
-                    "metric_ref": {
-                        "schema": "marivo.semantic_ref/v1",
-                        "kind": "metric",
-                        "path": "sales.revenue",
-                    },
-                },
-                "analysis_purpose": "explain revenue decline",
-            }
-        )
-    )
-    historical._store.record_artifact(
-        session_id=historical.id,
-        artifact_id="frame_1",
-        kind="metric_frame",
-        path=str(meta_relative.with_name("data.parquet")),
-        meta_path=str(meta_relative),
-        content_hash="content-1",
-        produced_by_job="job_1",
-        evidence_status="complete",
-    )
     historical._store.begin_run(
         session_id=historical.id,
         run_id="job_1",
@@ -407,13 +369,6 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
         omitted_argument_names=(),
         input_artifact_refs=(),
         started_at="2026-01-01T00:00:00+00:00",
-    )
-    historical._store.complete_run(
-        session_id=historical.id,
-        run_id="job_1",
-        output_artifact_ref="frame_1",
-        output_mode="produced",
-        finished_at="2026-01-01T00:00:00.010000+00:00",
     )
     active = mv.session.get_or_create(name="active", use_datasources=False)
     before = next(item for item in mv.session.recent(limit=100).items if item.name == "historical")
@@ -426,7 +381,7 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
         "_build_semantic_catalog",
         lambda project_root: pytest.fail("inspect must not load the semantic catalog"),
     )
-    snapshot = mv.session.inspect("historical", frame_limit=1, job_limit=1)
+    snapshot = mv.session.inspect("historical", run_limit=1)
 
     after = next(item for item in mv.session.recent(limit=100).items if item.name == "historical")
     assert mv.session.current() is not None
@@ -434,8 +389,7 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
     assert after.updated_at == before.updated_at
     assert session_meta_path.read_text() == meta_before
     assert snapshot.summary.question == "Why did revenue drop?"
-    assert snapshot.frames.items[0].metric_id == "sales.revenue"
-    assert snapshot.recent_jobs[0].id == "job_1"
+    assert snapshot.runs.items[0].run_id == "job_1"
 
 
 def test_inspect_missing_session_raises_typed_error_with_real_candidates(
@@ -459,8 +413,8 @@ def test_inspect_missing_session_raises_typed_error_with_real_candidates(
     ("call", "message"),
     [
         (lambda: mv.session.recent(limit=0), "session.recent limit"),
-        (lambda: mv.session.inspect("x", frame_limit=0), "frame_limit"),
-        (lambda: mv.session.inspect("x", job_limit=101), "job_limit"),
+        (lambda: mv.session.inspect("x", run_limit=0), "run_limit"),
+        (lambda: mv.session.inspect("x", run_limit=101), "run_limit"),
     ],
 )
 def test_history_limits_fail_before_lookup(

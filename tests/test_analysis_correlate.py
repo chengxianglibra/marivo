@@ -14,6 +14,7 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.association import AssociationResult
 from marivo.introspection.live.model import LiveHelpTarget
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import (
     bootstrap_multi_metric_sales_project,
     make_metric_frame,
@@ -463,7 +464,9 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
             alignment=mv.window_bucket(),
         )
 
-    assert [job for job in session.jobs() if job.intent == "correlate"] == []
+    failed = session.runs(status="failed", capability_id="correlate").items
+    assert len(failed) == 1
+    assert failed[0].failure.error_type == "AlignmentFailedError"
 
 
 def test_correlate_rejects_unsupported_window_bucket_sub_modes():
@@ -553,11 +556,11 @@ def test_correlate_writes_job_and_frame():
 
     out = session.correlate(a, b)
 
-    jobs = [job for job in session.jobs() if job.intent == "correlate"]
+    jobs = [job for job in session.runs(limit=100).items if job.capability_id == "correlate"]
     assert len(jobs) == 1
-    assert jobs[0].output_frame_ref == out.ref
+    assert jobs[0].output_artifact_ref == out.ref
     assert (session._layout.frames_dir / out.ref / "data.parquet").is_file()
-    params = session.job(jobs[0].id)["params"]
+    params = run_arguments(session.get_run(jobs[0].run_id))
     assert params["measure_a"] == "revenue"
     assert params["measure_b"] == "orders"
     assert params["alignment"] == {
@@ -586,7 +589,7 @@ def test_correlate_output_round_trips_through_load_frame():
     )
 
     out = session.correlate(a, b)
-    loaded = session.get_frame(out.ref)
+    loaded = session.artifact(out.ref)
 
     assert isinstance(loaded, AssociationResult)
     assert loaded.meta.correlation == pytest.approx(1.0)
@@ -599,7 +602,7 @@ def test_correlate_sample_output_round_trips_with_null_driver_field():
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
     out = session.correlate(a, b)
-    loaded = session.get_frame(out.ref)
+    loaded = session.artifact(out.ref)
 
     assert isinstance(loaded, AssociationResult)
     row = loaded.to_pandas().iloc[0]
@@ -621,7 +624,9 @@ def test_correlate_rejects_constant_input_without_persisting():
     assert "at least two positions" in excinfo.value.repair.action
     assert excinfo.value.repair.help_target is not None
     assert excinfo.value.repair.help_target.canonical_id == "correlate"
-    assert [job for job in session.jobs() if job.intent == "correlate"] == []
+    failed = session.runs(status="failed", capability_id="correlate").items
+    assert len(failed) == 1
+    assert failed[0].failure.error_type == "AlignmentFailedError"
 
 
 def test_correlate_allows_cross_model_same_shape_frames():
@@ -641,15 +646,11 @@ def test_correlate_allows_cross_model_same_shape_frames():
     row = out.to_pandas().iloc[0]
     assert row["semantic_model_a"] == "sales"
     assert row["semantic_model_b"] == "marketing"
-    jobs = [job for job in session.jobs() if job.intent == "correlate"]
+    jobs = [job for job in session.runs(limit=100).items if job.capability_id == "correlate"]
     assert len(jobs) == 1
-    record = session.job(jobs[0].id)
-    assert "semantic_model" not in record
-    assert record["semantic_models"] == ["sales", "marketing"]
-    assert [subject["metric_ref"]["path"] for subject in record["subjects"]] == [
-        "sales.revenue",
-        "marketing.spend",
-    ]
+    record = session.get_run(jobs[0].run_id)
+    assert "semantic_model" not in run_arguments(record)
+    assert record.capability_id == "correlate"
 
 
 def test_correlate_rejects_mixed_semantic_kind():
@@ -871,7 +872,7 @@ def test_correlate_lag_range_explores_lags_and_marks_best():
         "lags": [-3, -2, -1, 0, 1, 2, 3],
     }
 
-    loaded = session.get_frame(result.ref)
+    loaded = session.artifact(result.ref)
     assert isinstance(loaded, AssociationResult)
     assert loaded.meta.best_lag == 2
     assert loaded.meta.lag_policy == result.meta.lag_policy
@@ -898,7 +899,7 @@ def test_correlate_lag_range_persists_selection_rule_and_selected_lag():
     assert result.meta.selected_lag_offset == 2
     assert result.meta.selected_lag_offset == result.meta.best_lag
 
-    loaded = session.get_frame(result.ref)
+    loaded = session.artifact(result.ref)
     assert loaded.meta.selection_rule == "max_abs_correlation_closest_lag"
     assert loaded.meta.selected_lag_offset == 2
 
