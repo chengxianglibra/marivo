@@ -149,27 +149,56 @@ def test_analysis_skill_routes_through_progressive_help_topology() -> None:
     assert "session.lifecycle.replay/distribution" not in text
 
 
-def test_analysis_skill_preserves_finding_and_runtime_boundaries() -> None:
+def test_analysis_skill_keeps_recovery_at_the_boundary_level() -> None:
     text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
-    normalized = " ".join(text.split())
 
-    assert "Artifact-owned Finding reads" in normalized
-    assert "Finding reads preserve exact derivation" in normalized
-    assert "do not combine Findings or prove business validity" in normalized
-    assert "neither checks current semantic authority nor datasource freshness" in normalized
+    assert "### Evidence continuity and recovery" in text
+    assert 'marivo.help("analysis.runtime")' in text
+    assert 'marivo.help("analysis.evidence")' in text
 
 
-def test_analysis_skill_revalidates_recovered_artifacts_before_reuse() -> None:
+def test_analysis_skill_does_not_duplicate_live_runtime_contracts() -> None:
     text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
-    normalized = " ".join(text.split())
 
-    assert 'marivo.help("analysis.session.revalidate")' in text
-    assert "After restoring an old Artifact" in normalized
-    assert "session.artifact(ref)" in text
-    assert "session.revalidate(ref)" in text
-    assert "does not prove datasource freshness" in normalized
-    assert "re-run a stale branch" in normalized.lower()
-    assert "stop and disclose an indeterminate branch" in normalized.lower()
+    for leaked_contract in (
+        "ArtifactQualityError",
+        "DataQualityIssue",
+        "ArtifactStaleError",
+        "ArtifactAuthorityUnknownError",
+        "frame.quality_summary",
+        'marivo.help("analysis.session.revalidate")',
+        "session.artifact(ref)",
+        "session.revalidate(ref)",
+        "artifact.findings(",
+        "session.graph(",
+    ):
+        assert leaked_contract not in text
+
+
+def test_analysis_skill_does_not_write_private_session_storage() -> None:
+    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+
+    for private_protocol in (
+        ".marivo/analysis/sessions/",
+        "00_bootstrap.py",
+        "01_*.py",
+        "scripts/ directory",
+        "immutable source record",
+        "private Store collections",
+    ):
+        assert private_protocol not in text
+
+
+def test_analysis_skill_defers_environment_mechanics_to_the_host() -> None:
+    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+
+    for host_mechanic in (
+        ".venv/bin/python",
+        ".venv/Scripts/python.exe",
+        "marivo doctor",
+        "selected-python",
+    ):
+        assert host_mechanic not in text
 
 
 def test_analysis_skill_contains_no_removed_runtime_names() -> None:
@@ -185,19 +214,9 @@ def test_analysis_skill_contains_no_removed_runtime_names() -> None:
         "runtime.jobs",
         "evidence.browse",
         "evidence.exact",
+        "session/job",
     ):
         assert stale not in text
-
-
-def test_analysis_skill_follows_runtime_operator_authority_admission() -> None:
-    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
-    normalized = " ".join(text.split())
-
-    assert "Artifact-consuming capabilities enforce their registered authority" in normalized
-    assert "ArtifactStaleError" in text
-    assert "ArtifactAuthorityUnknownError" in text
-    assert "materialized continuation may remain valid" in normalized
-    assert "Never treat `artifact.contract()` as current revalidation" in normalized
 
 
 def test_semantic_skill_package_layout() -> None:
