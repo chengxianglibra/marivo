@@ -5,7 +5,7 @@ description: Metric-first sessions, typed operators, artifacts, evidence, and ad
 ---
 
 This page is the deeper reference for the agent-guided journey introduced in
-[First agent-guided analysis](/docs/latest/first-analysis/).
+[First agent-guided analysis](/docs/v0.5/first-analysis/).
 
 ## Give the agent the question, not the procedure
 
@@ -617,18 +617,17 @@ history = session.observe(
 projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
 ```
 
-### Construction-time quality → `QualityReport`
+### Construction-time quality
 
 `MetricFrame`, `DeltaFrame`, `AttributionFrame`, `EventFrame`, and
 `LifecycleFrame` run fixed, deterministic quality checks automatically before
 publication. A blocking contradiction raises `ArtifactQualityError`; the main
-Artifact, its quality sidecar, and a successful job are not published.
+Artifact and a successful job are not published.
 
 Published `ok` and `warning` results retain bounded counts and coverage facts in
-`frame.quality_summary`. Use `frame.quality_report()` to read the complete
-committed checks when row-level detail matters. This read-only call does not
-recompute checks or create a job, and the report has no independent evidence
-digest or lineage. Missing, modified, or shape-mismatched sidecars fail closed.
+`frame.quality_summary`; warning `DataQualityIssue` entries are available in
+`frame.contract().issues`. These are the complete persisted quality disclosures;
+there is no separate quality Artifact or check-level sidecar.
 
 Empty or low-volume results, high null ratios, missing time buckets, unknown
 coverage, and censoring remain warnings that must be disclosed. Multi-metric
@@ -860,16 +859,15 @@ delta.to_pandas()    # terminal export for custom local analysis
 
 The default card stops at 50 rows or 8 KiB, whichever comes first. Its omission
 line reports exact displayed, total, and omitted row counts and includes a
-copyable `session.get_frame('<ref>').to_pandas()` recovery call. Pass
+copyable `session.artifact('<ref>').to_pandas()` recovery call. Pass
 `max_output_bytes=None` to `show()` or `render()` to render all rows.
 
 When an operator emits evidence, `artifact.show()` includes its bounded typed
 digest before the result preview. The same value is available as
 `artifact.evidence_digest`; check `artifact.evidence_status` for degradation.
 Each displayed finding carries its persisted Metric, Event, Lifecycle, or
-SubjectSet identity. Use
-`session.evidence.findings(artifact_ref='<ref>')` for omitted exact findings and
-`session.evidence` for derivation traces.
+SubjectSet identity. Use `artifact.findings()` for omitted exact Findings and
+`artifact.finding(id)` for one complete derivation audit.
 
 `artifact.show()` adds only continuation hints that depend on the current
 artifact state, using public calls such as `session.compare(...)` or
@@ -937,34 +935,33 @@ When a later script needs previous work, recover persisted facts instead of
 rerunning upstream queries:
 
 ```python
-summaries = session.frame_summaries(limit=20)
-jobs = session.recent_jobs(limit=5)
-previous = session.get_frame(ref)
+runs = session.runs(limit=20)
+run = session.get_run(runs.items[0].run_id)
+previous = session.artifact(ref)
+graph = session.graph(artifact_ref=ref, direction="ancestors")
 
 # Only when recovery, a repeated task, or a recurring failure makes history relevant:
 history = mv.session.recent(limit=10)
 prior = mv.session.inspect(history.items[0].name) if history.items else None
 ```
 
-`frame_summaries()` returns a `FrameSummaryPage`. Continue with the opaque
-`next_cursor` when `has_more` is true. Pages use ordinary keyset semantics, not
+`session.runs()` returns a `RunPage`. Continue with the opaque `next_cursor`
+when `has_more` is true. Pages use ordinary keyset semantics, not
 snapshot isolation.
 
 Use `marivo.help("analysis.runtime")` to choose the live recovery page. Read
-`marivo.help("analysis.runtime.artifacts")` for bounded frame discovery and exact
-restoration, and `marivo.help("analysis.evidence")` for persisted Evidence
-discovery and reads. These Help targets are navigation topics; the callable
-members remain the Session APIs shown above.
+`marivo.help("analysis.runtime.runs")` for bounded Run discovery, then use exact
+Artifact refs and `marivo.help("analysis.evidence")` for Artifact-owned Finding
+reads. SessionGraph is factual navigation, not a planner or authority check.
 
 ## Evidence and audit
 
 Every committed operator records deterministic typed evidence into the session.
 Marivo does not create cross-artifact judgments or choose the next operation.
 
-- `session.evidence.digests(...)` — bounded newest-first digest pages.
-- `session.evidence.findings(...)` — bounded newest-first finding pages.
-- `session.evidence.digest(ref)`, `.finding(id)`, `.trace(id)` — exact reads and
-  finding derivation audit.
+- `artifact.findings(...)` — bounded Finding pages owned by one Artifact.
+- `artifact.finding(id)` — one exact Finding with complete derivation audit.
+- `session.revalidate(artifact.ref)` — current semantic authority and Evidence integrity.
 
 See [Evidence](/docs/v0.5/concepts/evidence/) for the full model.
 
@@ -1287,6 +1284,5 @@ source artifact contract for the exact current admission rules.
 | `AttributionFrame` | `attribute` |
 | `AssociationResult` | `correlate` |
 | `ForecastFrame` | `forecast` |
-| `QualityReport` | `frame.quality_report()` (read-only committed sidecar) |
 | `HypothesisTestResult` | `hypothesis_test` |
 | `CandidateSet` | `discover.*` |

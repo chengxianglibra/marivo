@@ -149,6 +149,11 @@ disclose an affected branch when its authority or Evidence cannot be restored,
 and disclose freshness as unchecked unless a separate current source check
 establishes it.
 
+Cold-start recovery starts with bounded Run history. Use the runtime Help route
+to choose the installed Run read, restore the exact committed Artifact through
+the public runtime read, use a focused Session graph only for factual adjacency,
+and choose Artifact-owned Finding reads when audit details are required.
+
 ### Structured repair and stopping
 
 Follow the structured repair or focused Help for a failed public capability.
