@@ -75,6 +75,10 @@ Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。doctor 报告中的
 `Prerequisites` 路由带 family 的输入，`Parameter construction` 则把每个非 family
 的构造值或闭合取值路由到精确的下一步 `marivo.help(...)` target；但它不是每次 API
 调用的前置步骤。
+
+根入口将 `analysis.entry` 标为“解析受治理的语义输入并进入类型化分析”的路径。沿该路径
+进入 `analysis.catalog`，即可读取当前 Session 的语义目录；各个 catalog collection 仍由
+聚焦页面展示，不会平铺到根索引中。
 :::
 
 分析需要新建或刚修改的语义时，先完成最小依赖一致切片的编写收尾：加载当前目录 →

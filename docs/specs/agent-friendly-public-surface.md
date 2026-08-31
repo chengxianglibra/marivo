@@ -274,17 +274,16 @@ There are three disclosure ladders, and they compose:
    (~2–3 KB), not a 70 KB manual
    ([help progressive disclosure](../superpowers/plans/2026-06-02-help-progressive-disclosure.md)).
    The agent chooses the authoring or analysis secondary root, drills into a
-   symbol, and only then sees full parameters and constraints. The analysis root additionally carries one
-   guarded first-observation path so an agent can acquire a session, inspect a
-   current metric entry, check readiness, and materialize its first artifact
-   without Python reflection.
+   symbol, and only then sees full parameters and constraints. The analysis root
+   is a bounded index whose entry route explicitly covers governed semantic
+   inputs without flattening catalog collections or an inline observation recipe.
 
    ```python
    import marivo
 
    marivo.help()  # concepts plus the authoring and analysis routes
    marivo.help("authoring")  # datasource, semantic, and optional ontology authoring
-   marivo.help("analysis")  # bounded index plus one guarded first observation
+   marivo.help("analysis")  # bounded six-hub index plus the terminal exit
    marivo.help("analysis.events")  # registered namespace members
    marivo.help("semantic.time_dimension_column")  # one constructor contract
    marivo.help("analysis.observe")  # one analysis operator contract

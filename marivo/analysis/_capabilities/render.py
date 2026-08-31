@@ -249,7 +249,7 @@ def _constraints_for_descriptor(desc: CapabilityDescriptor) -> tuple[Constraint,
 # ---------------------------------------------------------------------------
 
 _ROOT_ROUTE_LABELS: dict[str, str] = {
-    "entry": "Governed entry",
+    "entry": "Resolve governed semantic inputs and enter typed analysis",
     "methods": "Installed computation families",
     "inputs": "Construct inputs and policies",
     "artifacts": "Understand Artifact families and reads",
