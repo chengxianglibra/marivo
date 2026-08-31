@@ -1,0 +1,75 @@
+---
+slug: docs/latest/release-notes/0.5.1
+title: Marivo 0.5.1
+description: Release notes for Marivo 0.5.1.
+---
+
+Marivo 0.5.1 introduces a Run-first public Session runtime read surface and
+hardens the persistence and recovery paths behind it.
+
+## Highlights
+
+- `session.runs()` and `session.get_run()` expose a closed immutable lifecycle:
+  `IncompleteRun`, `SucceededRun`, or `FailedRun`.
+- `session.artifact(ref)` restores one exact committed Artifact, while
+  `session.graph()` projects bounded factual producer, consumer, reuse, head,
+  failed, and incomplete state.
+- Every Artifact exposes `finding_count`, `findings()`, and `finding(id)`.
+  Finding audit is Artifact-owned and retains complete derivation data.
+- `mv.session.inspect()` now returns only a Session summary and bounded Run page.
+  Runtime and Graph reads do not check current semantic authority or datasource
+  freshness; use `session.revalidate(ref)` for the authority and Evidence-integrity check.
+
+## Changed
+
+- Canonical Session runtime truth is persisted before it is projected into
+  Run, Artifact, Finding, and Graph reads. Nullable metric presence markers
+  preserve the distinction between an absent value and a present null value.
+- Runtime reads are an atomic cutover. Frame/job reads, the Session Evidence
+  namespace, digest pages, derivation traces, Finding-selection compatibility,
+  and their Help routes have no aliases or migration path.
+- The packaged `marivo-analysis` skill and analysis Help routing now follow the
+  same narrow Run-first ownership model.
+
+## Fixed
+
+- Interrupted and incomplete runs recover from persisted state without
+  fabricating terminal success or losing the bounded failure context.
+- Session read helpers now retain the correct runtime and session identity
+  across recovery, replay, and graph projection.
+
+## Documentation
+
+- Updated the English and Chinese Session runtime, evidence, analysis workflow,
+  API, and packaged-skill guidance for the new read contracts.
+- Added the design documentation for canonical runtime truth and bounded
+  Session graph reads.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.5.1 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/latest/installation/)
+- [Quick Start](/docs/latest/quick-start/)
+- [Semantic Layer](/docs/latest/concepts/semantic-layer/)
+- [Readiness](/docs/latest/concepts/readiness/)
+- [Analysis Workflow](/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/docs/latest/concepts/evidence/)

@@ -1,207 +1,57 @@
 ---
 slug: zh-cn/docs/v0.5/concepts/evidence
 title: 证据链
-description: 用类型化证据项与有界摘要保持可审计，同时不替代智能体判断。
+description: 通过 Artifact 自有的 Finding 读取保持可审计，同时区分语义权威与数据源新鲜度。
 ---
 
-Marivo 是纯 Python 分析库。它不调用 LLM，不替智能体判断业务含义，也不替智能体选择下一步。
-证据引擎的职责，是让确定性的操作结果更容易读取和审计。
+Marivo 的证据层记录确定性分析事实，但不替智能体组合 Finding、判断因果或业务有效性。
 
-## 证据模型
-
-每个已提交的操作结果只经过一条路径：
-
-```text
-artifact -> typed findings -> bounded artifact digest
-```
-
-`Finding` 是从单个产物中提取出的类型化结果元素。`ArtifactDigest` 是面向当前一步读取的、
-按操作定义的证据项投影。跨产物综合、业务判断与下一步选择始终由智能体负责。
-
-摘要不会把贡献升级为因果，把相关升级为效果，把候选升级为已确认异常，把统计检验升级为
-业务重要性，也不会把预测升级为已发生事实。`boundaries` 会明确记录操作没有支持的推断。
-
-## 读取当前结果
-
-使用唯一的结构化路径：
+## 读取当前 Artifact
 
 ```python
-result = session.compare(current, baseline)
-
-print(result.evidence_status)
-digest = result.evidence_digest
-result.show()
+artifact = session.compare(current, baseline)
+artifact.show()
+print(artifact.evidence_status, artifact.finding_count)
 ```
 
-`evidence_status` 取值为 `complete`、`partial` 或 `unavailable`。
-`evidence_digest` 是不可变的 commit-时间 `ArtifactDigest`；无法生成时为 `None`。
-`show()` 在数据预览之前渲染的就是同一个有界摘要。
-
-一个摘要最多保留 5 个类型化项和 3 个推断边界。`omissions` 记录被省略的数量，
-`fallback` 说明精确证据项与原始行是否可用。有界摘要中没有出现，不代表产物中不存在。
-对于多指标观察，摘要按照传给 `observe` 的指标顺序保留前 5 个指标，不会按不同指标的
-总量排名。达到上限时，`show()` 会输出 `selection=metric_input_order`，并通过
-`session.evidence.findings(artifact_ref='<ref>')` 指向全部精确证据项。`top_segments`
-仍是单个指标内部按分群绝对值计算的独立排名。
-
-主要项与操作语义严格对应：
-
-| 操作 | 摘要项 | 含义 |
-| --- | --- | --- |
-| `observe` | `ObservationFact` | 观测值或分布摘要 |
-| `compare` | `ChangeFact` | 代数变化 |
-| `attribute` | `ContributionFact` | 代数贡献，不是因果 |
-| `correlate` | `AssociationFact` | 估计的相关关系，不是因果 |
-| `hypothesis_test` | `TestDecision` | 声明的统计检验下的决策 |
-| `forecast` | `ForecastOutput` | 预测，不是已观测实际值 |
-| `discover.*` | `AnomalyCandidate` | 等待复核的候选 |
-| `transform.*` / `MetricFrame.metric(...)` | 空摘要 | 仅保留血缘的变换或投影 |
-
-构建期质量自检不是产出 evidence 的独立算子。使用 `frame.quality_report()` 读取
-父 Artifact 自带的检查；该报告没有独立 digest 或 job。
-
-## 查看边界与精确证据
-
-问题涉及被省略的项、行级验证或操作推断边界之外的证据时，使用精确读取：
+`evidence_status` 为 `complete`、`partial` 或 `unavailable`。内嵌
+`evidence_digest` 是有界的即时摘要；遗漏项通过同一 Artifact 审计：
 
 ```python
-digest = session.evidence.digest(result.ref)
-findings = session.evidence.findings(artifact_ref=result.ref, limit=50)
-frame = session.get_frame(result.ref)
-
-for finding in findings.items:
-    finding.show(language="zh")
+page = artifact.findings(limit=20)
+finding = artifact.finding(page.items[0].finding_id)
 ```
 
-`Finding.render()` 默认返回一行、有界的英文证据陈述；传入 `language="zh"` 返回中文。
-单条陈述不包含 canonical id，`FindingPage.render()` 会在每条陈述前保留真实
-`finding_id`，便于继续精确读取。渲染是纯展示：不会查询 Session，也不会推断“本周”等
-相对周期名称。delta finding 同时保留两个精确比较范围时，会展示半开区间
-`[start, end)`；缺少任一范围时直接省略窗口短语。
+`FindingPage` 不可变，`has_more` 为真时把 `next_cursor` 传回同一方法。
+Finding 保留完整 derivation、来源 Artifact、字段、引用以及被摘要保留的 item 引用，
+因此不再提供独立 derivation trace API。
 
-可以把一个证据项追溯到声明的源字段与被保留的摘要项：
+## 冷启动恢复
 
 ```python
-trace = session.evidence.trace(findings.items[0].finding_id)
-print(trace.derivation.rule_id, trace.source_fields)
+runs = session.runs(limit=20)
+run = session.get_run(runs.items[0].run_id)
+artifact = session.artifact(run.output_artifact_ref)
+graph = session.graph(artifact_ref=artifact.ref, direction="ancestors")
 ```
 
-追踪是审计记录，不是系统生成的主张或判断。
+Run 与 Graph 只投影持久化的运行事实。它们不检查当前语义权威，也不检查数据源新鲜度。
 
-## 跨 Finding 综合前检查兼容性
-
-当一个结论组合两条或更多 Finding 时，即使它们来自同一 Artifact 或同一分析轮次，也先检查
-精确 selection：
+## 当前权威
 
 ```python
-compatibility = session.evidence.compatibility(
-    finding_ids=[finding_a.finding_id, finding_b.finding_id],
-)
-compatibility.show()
+check = session.revalidate(artifact.ref)
+check.show()
 ```
 
-输入必须是 1–20 个唯一 Finding id；输入顺序不表达语义，所有 Finding pair 都会被检查。
-不可变结果会比较受治理的 subject identity、scope 和当前 semantic definition，并汇总
-quality、evidence status、epistemic kinds、类型化 issues，以及各 operator 的完整推断边界集合。
+revalidation 检查持久化身份、当前作用域语义权威和证据完整性，但仍不查询数据源健康状态，
+也不证明新鲜度。`admissible` 不能被解读为业务有效、推荐行动或数据源当前。
 
-只有 `status == "compatible"` 时才继续机械综合。`incompatible` 表示已知矛盾或 blocking
-quality/evidence issue；`indeterminate` 表示 Marivo 无法证明 subject、scope、operator rule
-或当前 semantic authority，不能跨过未知边界继续推断。compatibility 不判断因果、业务重要性、
-freshness 或 intended use，也不会修改 Artifact 或 evidence store。
+## 失败边界
 
-## 重新校验恢复的 Artifact
+- ledger 不可读会抛出 `EvidenceStoreUnavailableError`，不会伪装为空页面；
+- 不属于该 Artifact 的 id 会抛出 `FindingNotFoundError`；
+- 不兼容 Store、Run 或 Artifact schema 会在投影前失败，旧目录保持不变；
+- 不提供 Session Evidence namespace、digest page、Finding selection compatibility 或兼容别名。
 
-恢复精确 Artifact 后，检查其持久化 identity、当前 scoped semantic authority 与 evidence
-是否仍然一致：
-
-```python
-frame = session.get_frame(artifact_ref)
-revalidation = session.revalidate(frame)
-revalidation.show()
-```
-
-只有 `status == "admissible"` 时才继续使用。`stale` 表示至少一个受治理依赖已确认漂移，
-应重新运行对应的生产分支；`indeterminate` 表示无法证明当前 authority，或保留的 evidence
-不满足契约。`complete` evidence 可通过；`partial` 只有在全部 availability issue 都是
-warning，且显式 fallback 保留安全 rows 时才可通过；`unavailable` 为 indeterminate。
-
-linked `ComponentFrame` 和 `CoverageFrame` sidecar 不拥有独立 evidence projection。
-Revalidation 会校验它们自身的持久化 identity 与 canonical parent evidence，再将健康的
-unavailable evidence 状态返回为 `indeterminate`。
-
-结果是不可变、有界且临时的；稳定 fingerprint 不包含 UTC 检查时间。revalidation 不修改
-Artifact 或 ledger，也不会查询 datasource 或 source health，因此不能证明 source freshness。
-损坏的 evidence identity 抛出 `EvidenceIntegrityError`；evidence store 不可用抛出
-`EvidenceStoreUnavailableError`。
-
-## 理解执行时 authority admission
-
-消费 Artifact 的 capability 会声明是否要求当前 semantic authority。`semantic_current`
-operator 会在业务逻辑之前检查 Artifact 的精确 scoped dependency closure。已确认 drift 抛出
-`mv.errors.ArtifactStaleError`；authority 缺失或无法证明时抛出
-`mv.errors.ArtifactAuthorityUnknownError`。structured error 会携带 capability、parameter、
-Artifact/source/definition refs、真实 recorded/current fingerprints 与可执行 repair。
-
-`materialized_only` operator 消费已提交数值，不读取当前 catalog。既有的 Session ownership、
-integrity、shape、coverage、content identity 与 operator-specific 检查仍然保留。因此封闭 reducer、
-transform、projection 和 terminal read 不会被无关 catalog 变化阻塞。
-
-focused operator help 会披露已登记的 authority requirement。Artifact 的 `.contract()` 仍只描述
-commit-time mechanical compatibility，不执行 currentness validation。执行准入不会调用
-`session.revalidate(...)`，不会检查 evidence coverage，也不会查询 datasource/source health。
-
-## 用有界分页恢复会话
-
-列表读取默认有界，并按最新记录优先。`session.evidence.findings` 的 `limit`
-范围为 `[1, 100]`（默认 `50`）；`session.evidence.digests` 同范围（默认 `10`）。
-超出范围的 `limit` 抛出 `EvidenceLimitError`，其中包含期望范围和可复制的修复建议。
-
-```python
-frames = session.frame_summaries(limit=20)
-digests = session.evidence.digests(limit=10)
-findings = session.evidence.findings(limit=50)
-
-if digests.has_more:
-    digests = session.evidence.digests(
-        limit=10,
-        cursor=digests.next_cursor,
-    )
-
-if findings.has_more:
-    findings = session.evidence.findings(
-        limit=50,
-        cursor=findings.next_cursor,
-    )
-```
-
-页面暴露不可变的 `items`、`limit`、`has_more` 和 `next_cursor`。它采用普通 keyset
-分页，而不是快照隔离；两次读取之间的新 commit 可能改变最新端。游标只能当作不透明续页令牌。
-
-证据存储不可用时，列表和精确读取都会抛出 `EvidenceStoreUnavailableError`。
-空页面只表示健康存储没有匹配记录。
-
-## 问题与修复建议
-
-`result.contract().issues` 包含封闭的类型化问题：
-
-- `DataQualityIssue`：已求值的数据质量失败；
-- `ComparabilityIssue`：不兼容或近似的比较；
-- `EvidenceAvailabilityIssue`：提取、摘要或存储降级。
-
-切换 A 是破坏性切换：非 v4 证据存储，以及包含已移除证据字段的 frame
-sidecar，都会被拒绝。应重新创建分析会话；Marivo 不迁移或重新解释判断
-时代的状态。
-
-问题可以携带 `AnalysisRepair`，说明如何重试失败的能力。修复建议是局部错误恢复信息，
-不是持久化的后续项计划。是否以及如何继续仍由智能体决定。
-
-## 审阅结论
-
-重点检查三件事：
-
-1. 结果是否使用了预期的指标、范围与比较；
-2. 每个重要判断是否由产物或类型化证据项支撑；
-3. 结论是否遵守 omissions、质量问题与推断边界。
-
-如果指标定义有误，应停止并通过 `marivo-semantic` 修复。继续分析不能补偿错误的业务契约。
-类型化操作循环参见[分析流程](/zh-cn/docs/v0.5/concepts/analysis-workflow/)。
+从 `marivo.help("analysis.evidence")` 获取当前唯一入口。

@@ -102,7 +102,7 @@ def test_clean_wheel_exposes_session_runtime_and_artifact_audit(tmp_path: Path) 
         "marivo.help('analysis.runtime.runs')\n"
         "marivo.help('analysis.evidence')\n"
         "skill = files('marivo.skills').joinpath('marivo-analysis/SKILL.md').read_text()\n"
-        "for token in ('bounded Run history', 'session.artifact(ref)', "
+        "for token in ('bounded Run history', 'exact committed Artifact', "
         "'focused Session graph', 'Artifact-owned Finding reads'):\n"
         "    assert token in skill\n"
         "for stale in ('session.jobs(', 'session.get_frame(', 'session.evidence'):\n"
