@@ -27,7 +27,7 @@ from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.refs import ref
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
-from tests.run_read_helpers import run_queries
+from tests.run_read_helpers import capture_persisted_job_records, persisted_queries
 from tests.shared_fixtures import fiscal_analysis_project_files, publish_fiscal_calendar_artifact
 
 
@@ -1595,10 +1595,10 @@ def _metric_for_base(base: str, anchor: object = None) -> str:
     }[base]
 
 
-def _recorded_executions(frame, session) -> list[object]:
+def _recorded_executions(frame, records) -> list[object]:
     """Return persisted query executions for the materialization job."""
 
-    return run_queries(session.get_run(frame.meta.produced_by_job))
+    return persisted_queries(records, output_ref=frame.ref)
 
 
 def _observe_named_cumulative_metric(session, name: str, *, start: str, end: str):
@@ -1830,8 +1830,11 @@ def test_grain_to_date_month_resets_at_month_boundary(day_project, duckdb_sessio
     assert feb02 == pytest.approx(feb01_flow + project.flow_for("2026-02-02"))
 
 
-def test_grain_to_date_seed_only_for_first_partial_period(day_project, duckdb_session) -> None:
+def test_grain_to_date_seed_only_for_first_partial_period(
+    day_project, duckdb_session, monkeypatch
+) -> None:
     """A window starting on a reset boundary runs ONE query (no seed)."""
+    records = capture_persisted_job_records(monkeypatch)
     cum = _observe_cumulative(
         day_project,
         duckdb_session,
@@ -1841,12 +1844,15 @@ def test_grain_to_date_seed_only_for_first_partial_period(day_project, duckdb_se
         end="2026-03-01",
         grain="day",
     )
-    executions = _recorded_executions(cum, duckdb_session)
+    executions = _recorded_executions(cum, records)
     assert len(executions) == 1
 
 
-def test_grain_to_date_seed_for_partial_first_period(day_project, duckdb_session) -> None:
+def test_grain_to_date_seed_for_partial_first_period(
+    day_project, duckdb_session, monkeypatch
+) -> None:
     """A window starting mid-period runs a seed query for the first partial period only."""
+    records = capture_persisted_job_records(monkeypatch)
     cum = _observe_cumulative(
         day_project,
         duckdb_session,
@@ -1856,7 +1862,7 @@ def test_grain_to_date_seed_for_partial_first_period(day_project, duckdb_session
         end="2026-03-01",
         grain="day",
     )
-    executions = _recorded_executions(cum, duckdb_session)
+    executions = _recorded_executions(cum, records)
     # Seed (first partial period) + flow == 2 queries.
     assert len(executions) == 2
 
@@ -2071,7 +2077,7 @@ def test_grain_to_date_count_distinct_quarter_reset_aligns_across_paths(
 
 
 def test_grain_to_date_count_distinct_seed_scoped_for_mid_period_start(
-    day_project, duckdb_session
+    day_project, duckdb_session, monkeypatch
 ) -> None:
     """Seed-scoping path for count_distinct: a MID-PERIOD window start exercises
     the count_distinct-specific seed SQL
@@ -2091,6 +2097,7 @@ def test_grain_to_date_count_distinct_seed_scoped_for_mid_period_start(
         in the January period + Jan 15's own first-seen flow of 1), a value that
         DEPENDS ON the seed running correctly.
     """
+    records = capture_persisted_job_records(monkeypatch)
     cum = _observe_cumulative(
         day_project,
         duckdb_session,
@@ -2100,7 +2107,7 @@ def test_grain_to_date_count_distinct_seed_scoped_for_mid_period_start(
         end="2026-02-01",
         grain="day",
     )
-    executions = _recorded_executions(cum, duckdb_session)
+    executions = _recorded_executions(cum, records)
     # Seed (first partial period) + flow == 2 queries.
     assert len(executions) == 2
     df = _metric_pandas(cum)

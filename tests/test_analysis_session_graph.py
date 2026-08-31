@@ -78,6 +78,34 @@ def test_branch_merge_and_reuse_edges_preserve_runtime_truth(tmp_path) -> None:
     assert root.produced_by_run == "run_root"
 
 
+def test_graph_rejects_reuse_without_a_canonical_producing_run(tmp_path) -> None:
+    harness = RuntimeReadHarness.create(tmp_path)
+    harness.add_artifact("artifact_orphan", producer=None)
+    harness.begin_run("run_reuse")
+    with harness.store._connect() as connection:
+        connection.execute(
+            "UPDATE runs SET lifecycle = 'succeeded', finished_at = ?, "
+            "output_artifact_ref = 'artifact_orphan', output_mode = 'reused' "
+            "WHERE session_id = ? AND run_id = 'run_reuse'",
+            (harness.timestamp(), harness.session_id),
+        )
+
+    with pytest.raises(mv.errors.SessionGraphIntegrityError, match="canonical producing Run"):
+        harness.session.graph()
+
+
+def test_graph_card_points_to_exact_runtime_recovery_calls(tmp_path) -> None:
+    harness = RuntimeReadHarness.create(tmp_path)
+    harness.produced("run_root", "artifact_root")
+
+    rendered = harness.session.graph().render()
+
+    assert "session.artifact('artifact_root')" in rendered
+    assert "session.get_run('run_root')" in rendered
+    assert "session.graph(artifact_ref='artifact_root', direction='ancestors')" in rendered
+    assert "session.graph(artifact_ref='artifact_root', direction='descendants')" in rendered
+
+
 def test_failed_and_incomplete_consumers_do_not_remove_materialized_head(tmp_path) -> None:
     harness = RuntimeReadHarness.create(tmp_path)
     harness.produced("run_root", "artifact_root")

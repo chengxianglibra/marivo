@@ -17,7 +17,7 @@ from marivo.analysis.intents.observe_errors import (
 )
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
-from tests.run_read_helpers import run_queries
+from tests.run_read_helpers import capture_persisted_job_records, persisted_queries
 
 
 @pytest.fixture(autouse=True)
@@ -127,11 +127,12 @@ def test_snapshot_as_of_root_time_picks_per_row_partition(tmp_path):
     assert snapshot_version["resolved_partition_summary"]["partition_count"] == 2
 
 
-def test_snapshot_as_of_root_time_job_queries_include_planning_sql(tmp_path):
+def test_snapshot_as_of_root_time_job_queries_include_planning_sql(tmp_path, monkeypatch):
     _bootstrap_snapshot_as_of(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_snapshot_as_of(con)
     session = _session(con)
+    records = capture_persisted_job_records(monkeypatch)
 
     frame = observe(
         make_ref("sales.revenue_by_profile", SemanticKind.METRIC),
@@ -140,9 +141,7 @@ def test_snapshot_as_of_root_time_job_queries_include_planning_sql(tmp_path):
         session=session,
     )
 
-    job = session.get_run(frame.meta.produced_by_job)
-
-    assert len(run_queries(job)) >= 3
+    assert len(persisted_queries(records, output_ref=frame.ref)) >= 3
 
 
 def test_snapshot_as_of_root_time_partition_missing(tmp_path):

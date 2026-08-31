@@ -227,7 +227,7 @@ class SessionStore:
         """Create one fresh v1 store or validate an existing store read-only first."""
         path = self.db_path
         if path.exists():
-            uri = f"file:{path.as_posix()}?mode=ro"
+            uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
             read_conn = sqlite3.connect(uri, uri=True)
             try:
                 received = int(read_conn.execute("PRAGMA user_version").fetchone()[0])
@@ -981,13 +981,31 @@ class SessionStore:
                     received=output_artifact_ref,
                     location=f"Run {run_id!r} terminal transition",
                 )
-            if output_mode == "produced" and artifact["produced_by_job"] != run_id:
+            producer = artifact["produced_by_job"]
+            if output_mode == "produced" and producer != run_id:
                 raise SessionStateError(
                     message="produced Artifact does not identify the completing Run",
                     expected=run_id,
-                    received=str(artifact["produced_by_job"]),
+                    received=str(producer),
                     location=f"Artifact {output_artifact_ref!r} producer",
                 )
+            if output_mode == "reused":
+                producer_run = (
+                    self._fetchone(
+                        conn,
+                        "SELECT lifecycle FROM runs WHERE session_id = ? AND run_id = ?",
+                        (session_id, producer),
+                    )
+                    if isinstance(producer, str) and producer != run_id
+                    else None
+                )
+                if producer_run is None or producer_run["lifecycle"] != "succeeded":
+                    raise SessionStateError(
+                        message="reused Artifact requires another succeeded canonical producing Run",
+                        expected="a different succeeded canonical producing Run in the same Session",
+                        received=repr(producer),
+                        location=f"Artifact {output_artifact_ref!r} producer",
+                    )
             assignments = [
                 "lifecycle = 'succeeded'",
                 "finished_at = ?",

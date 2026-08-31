@@ -228,16 +228,48 @@ class SessionGraph(RenderableResult):
     def _card(self) -> Card:
         runs = {run.run_id: run for run in self.runs}
         artifacts = {artifact.ref: artifact for artifact in self.artifacts}
+        available = [
+            ".artifacts",
+            ".runs",
+            ".edges",
+            ".head_artifact_refs",
+            ".failed_run_ids",
+            ".show()",
+        ]
+        focus_ref = next(
+            iter(
+                (
+                    *self.boundary_artifact_refs,
+                    *self.head_artifact_refs,
+                    *(artifact.ref for artifact in self.artifacts),
+                )
+            ),
+            None,
+        )
+        if focus_ref is not None:
+            available.extend(
+                (
+                    f"session.artifact({focus_ref!r})",
+                    f"session.graph(artifact_ref={focus_ref!r}, direction='ancestors')",
+                    f"session.graph(artifact_ref={focus_ref!r}, direction='descendants')",
+                )
+            )
+        recovery_run_id = next(
+            iter(
+                (
+                    *self.failed_run_ids,
+                    *self.incomplete_run_ids,
+                    *self.boundary_run_ids,
+                    *(run.run_id for run in self.runs),
+                )
+            ),
+            None,
+        )
+        if recovery_run_id is not None:
+            available.append(f"session.get_run({recovery_run_id!r})")
         card = Card(
             identity=self._repr_identity(),
-            available=(
-                ".artifacts",
-                ".runs",
-                ".edges",
-                ".head_artifact_refs",
-                ".failed_run_ids",
-                ".show()",
-            ),
+            available=tuple(available),
         ).status("truncated" if self.truncated else "complete")
         attention = [
             f"{run.run_id} {run.lifecycle} {run.capability_id} "

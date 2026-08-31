@@ -581,11 +581,11 @@ def _validate_graph_integrity(
                     received=repr(producer),
                     location=f"Artifact {facts.summary.ref!r} producer",
                 )
-            if run.output_mode == "reused" and producer == run.run_id:
+            if run.output_mode == "reused" and (producer is None or producer == run.run_id):
                 raise SessionGraphIntegrityError.mismatch(
-                    message="reused Run impersonates the Artifact canonical producer",
+                    message="reused Run has no different canonical producing Run",
                     expected="a different canonical producing Run",
-                    received=run.run_id,
+                    received=repr(producer),
                     location=f"Artifact {facts.summary.ref!r} producer",
                 )
     for facts in artifacts.values():

@@ -238,7 +238,7 @@ can reuse upstream work:
 - successfully materialized upstream artifact refs (in `artifacts` + on disk);
 - the failed step's operator, expected/received, and repair hints (structured
   error);
-- the job record with its `status`, retrievable via `recent_jobs()` / `job(id)`.
+- the Run record with its lifecycle, retrievable via `runs()` / `get_run(run_id)`.
 
 SQLite `locked`/`busy` timeouts in either the Session Store or evidence ledger raise
 `SessionLockedByAnotherProcessError`. They are not silently retried, overwritten,

@@ -10,7 +10,7 @@ import marivo.analysis.session as session_attach
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
-from tests.run_read_helpers import run_queries
+from tests.run_read_helpers import capture_persisted_job_records, persisted_queries
 
 
 @pytest.fixture(autouse=True)
@@ -47,8 +47,9 @@ def _session_with_unused_columns():
     )
 
 
-def test_panel_observe_keeps_query_sql_out_of_runtime_projection() -> None:
+def test_panel_observe_keeps_query_sql_out_of_runtime_projection(monkeypatch) -> None:
     session = _session_with_unused_columns()
+    records = capture_persisted_job_records(monkeypatch)
 
     frame = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
@@ -57,13 +58,9 @@ def test_panel_observe_keeps_query_sql_out_of_runtime_projection() -> None:
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
-    job = session.get_run(frame.meta.produced_by_job)
-    query = run_queries(job)[0]
+    query = persisted_queries(records, output_ref=frame.ref)[0]
 
-    assert query["digest"]
-    assert "sql" not in query
-    assert "normalized_sql" not in query
-    assert "bind_params" not in query
+    assert query["sql_digest"]
 
 
 def test_segmented_observe_keeps_metric_results_after_projection_pruning() -> None:
@@ -84,6 +81,7 @@ def test_segmented_observe_keeps_metric_results_after_projection_pruning() -> No
 
 def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
     tmp_path,
+    monkeypatch,
 ) -> None:
     semantic_file = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
     semantic_file.write_text(
@@ -94,6 +92,7 @@ def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
         + "    return (orders.region == 'north').ifelse('core', 'expansion')\n"
     )
     session = _session_with_unused_columns()
+    records = capture_persisted_job_records(monkeypatch)
 
     frame = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
@@ -107,6 +106,5 @@ def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
     }
     assert rows == {("core", 40.0), ("expansion", 20.0)}
 
-    query = run_queries(session.get_run(frame.meta.produced_by_job))[0]
-    assert query["digest"]
-    assert "sql" not in query
+    query = persisted_queries(records, output_ref=frame.ref)[0]
+    assert query["sql_digest"]

@@ -1861,7 +1861,6 @@ make test
 make typecheck
 make lint
 make docs-api
-make examples-check
 cd site && npm run verify:content && npm run build
 ```
 

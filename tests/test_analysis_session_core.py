@@ -18,7 +18,9 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.session._layout import PersistenceLayout
 from marivo.analysis.session._load import load_frame
+from marivo.analysis.session._read_model import SessionRuntimeRecap
 from marivo.analysis.session._runtime import _build_connection_runtime, persist_job_record
+from marivo.analysis.session._runtime_reads import SessionRuntimeReads
 from marivo.analysis.session._store import SessionStore
 from marivo.analysis.session.core import Session
 from marivo.refs import RefPayloadV1
@@ -320,6 +322,9 @@ def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, caps
     for call in REGISTRY.public_member_calls("Session"):
         if call == ".render()":
             continue  # render() backs show() and is never advertised in footers
+        if call.startswith(".graph("):
+            assert ".graph()" in rendered
+            continue  # Session owns state-dependent graph continuations
         assert call in rendered
     for receiver, namespace in (
         ("SessionEvents", session.events),
@@ -333,6 +338,34 @@ def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, caps
         assert ".close()" not in namespace_rendered
     assert session.show() is None
     assert capsys.readouterr().out.rstrip() == rendered
+
+
+def test_session_card_does_not_advertise_an_unavailable_overall_graph(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path)
+    recap = SessionRuntimeRecap(
+        session_id=session.id,
+        artifact_count=51,
+        head_artifact_count=1,
+        head_artifact_refs=("artifact_head",),
+        succeeded_run_count=51,
+        failed_run_count=0,
+        incomplete_run_count=0,
+        evidence_complete_count=51,
+        evidence_partial_count=0,
+        evidence_unavailable_count=0,
+        attention_run_ids=(),
+        overall_graph_available=False,
+    )
+    monkeypatch.setattr(SessionRuntimeReads, "recap", lambda _reads: recap)
+
+    rendered = session.render()
+
+    assert ".graph(artifact_ref=None" not in rendered
+    assert "overall graph: too large" in rendered
+    assert ".graph(artifact_ref='<ref>', direction='ancestors')" in rendered
+    assert ".graph(artifact_ref='<ref>', direction='descendants')" in rendered
 
 
 def test_session_runs_lists_records_newest_first(tmp_path):

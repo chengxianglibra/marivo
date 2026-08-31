@@ -373,6 +373,7 @@ def test_event_reducer_shapes_cold_recover_to_exact_metadata_variants(
         ]
     )
     common["ref"] = "frame_funnel"
+    common["produced_by_job"] = "job_funnel"
     common["row_count"] = len(funnel_rows)
     funnel = EventFrame(
         _df=funnel_rows,
@@ -406,6 +407,7 @@ def test_event_reducer_shapes_cold_recover_to_exact_metadata_variants(
         ]
     )
     common["ref"] = "frame_time_to_event"
+    common["produced_by_job"] = "job_time_to_event"
     common["row_count"] = len(time_rows)
     time_to_event = EventFrame(
         _df=time_rows,

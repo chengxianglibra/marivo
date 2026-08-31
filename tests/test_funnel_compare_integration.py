@@ -33,7 +33,6 @@ from marivo.analysis.intents._event_funnel import (
 )
 from marivo.analysis.intents.funnel_compare import _COMPATIBILITY_FACETS
 from marivo.refs import RefPayloadV1
-from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import (
     analysis_persistence_snapshot,
     grouped_two_scope_funnel_frames,
@@ -334,9 +333,7 @@ def test_compare_job_timestamps_bracket_delta_computation(
     assert job.started_at <= observed["computed_at"]
     assert observed["computed_at"] <= job.finished_at
     assert delta.meta.created_at == job.finished_at
-    arguments = run_arguments(job)
-    assert arguments["source_current_ref"] == current.ref
-    assert arguments["source_baseline_ref"] == baseline.ref
+    assert job.input_artifact_refs == (current.ref, baseline.ref)
 
 
 @pytest.mark.parametrize(
