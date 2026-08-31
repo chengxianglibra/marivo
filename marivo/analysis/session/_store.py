@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from marivo._compat import UTC
 from marivo.analysis.errors import (
@@ -436,6 +436,44 @@ class SessionStore:
         """
         with self._connect() as conn:
             return self._fetchone(conn, "SELECT * FROM sessions WHERE id = ?", (session_id,))
+
+    def get_sessions_by_identity(
+        self,
+        identity: str,
+        *,
+        by: Literal["name", "id"] | None = None,
+    ) -> tuple[sqlite3.Row, ...]:
+        """Look up exact session id and name matches in one database snapshot.
+
+        Args:
+            identity: Exact session id or name.
+            by: Optional exact identity column to select.
+
+        Returns:
+            Zero, one, or two distinct matching rows. An id match is ordered
+            before a name match when the identity resolves to different rows.
+        """
+        with self._connect() as conn:
+            if by == "name":
+                rows = self._fetchall(
+                    conn,
+                    "SELECT * FROM sessions WHERE name = ?",
+                    (identity,),
+                )
+            elif by == "id":
+                rows = self._fetchall(
+                    conn,
+                    "SELECT * FROM sessions WHERE id = ?",
+                    (identity,),
+                )
+            else:
+                rows = self._fetchall(
+                    conn,
+                    "SELECT * FROM sessions WHERE id = ? OR name = ? "
+                    "ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id",
+                    (identity, identity, identity),
+                )
+        return tuple(rows)
 
     def page_sessions(
         self,

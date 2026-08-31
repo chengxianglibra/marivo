@@ -46,16 +46,19 @@ names `archive`, `attach`, `create`, `switch`, `active` are gone):
   attach to the same immutable session id. An explicit string becomes the current
   guiding question, while omitting `question` preserves the persisted value.
   Either way the named session becomes current.
-- `mv.session.resume(session_id, *, backends=None, backend_factory=None, use_datasources=True) -> Session`
-  — explicitly resume one current-project session by its immutable `sess_...` id.
-  It never changes the persisted name, question, or report timezone.
+- `mv.session.resume(identity, *, by=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
+  — explicitly resume one current-project session by its exact stable name or
+  immutable `sess_...` id. Unknown and ambiguous identities fail without
+  creating a session. It never changes the persisted name, question, or report
+  timezone. Omit `by` for normal resolution; after an ambiguous match, retry
+  with the closed selector `by="name"` or `by="id"` to choose the intended row.
 - `mv.session.current() -> Session | None` — a safe probe for the current session
   (process-current, else the persisted `current_session_id`, else `None`).
 - `mv.session.recent(*, limit=20, cursor=None) -> SessionSummaryPage` — a bounded,
   newest-updated-first keyset page for selective historical reference. This is
   the discovery path for historical sessions; each summary supports bounded
-  `.show()`, and its immutable `id` can be passed to `resume` to obtain a live
-  `Session`.
+  `.show()`, and its exact `name` or immutable `id` can be passed to `resume`
+  to obtain a live `Session`.
 - `mv.session.inspect(name, *, frame_limit=10, job_limit=5) -> SessionInspection`
   — a bounded metadata snapshot containing the exact session summary, recent
   frame summaries, and recent jobs. It does not resume the session, move the

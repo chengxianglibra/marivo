@@ -108,7 +108,13 @@ region.details().show()
 每个持续推进的分析工作区应使用一个稳定且可区分的会话名称。`get_or_create` 首次创建
 该名称，之后附着到同一个不可变 session id。显式传入的 `question` 会成为会话当前的
 引导问题；有意省略时则保留已保存的值。会话的精简 API 为 `get_or_create`、
-`resume(session_id)`、`current()`、`recent()`、`inspect(name)` 和 `delete(name)`。
+`resume(identity)`、`current()`、`recent()`、`inspect(name)` 和 `delete(name)`。
+
+`resume(identity)` 接受精确的稳定 session name 或不可变 session id。它只恢复已有
+状态：未知或有歧义的 identity 会直接失败，不会创建 session，也不会改变 name、
+question 或 report timezone。通常应省略 `by`；如果同一个值分别匹配了一个 session
+name 和另一个 session id，则按照结构化错误使用 `by="name"` 或 `by="id"` 重试，
+显式选择目标 session。
 
 更新当前问题不会改写已有 artifact、job、evidence、lineage 或其中的
 `analysis_purpose`。如果工作需要独立的历史，而不只是更换当前问题，请使用新的稳定
