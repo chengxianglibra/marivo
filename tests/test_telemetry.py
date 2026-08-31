@@ -72,7 +72,7 @@ def _capability_records(path: Path, capability_id: str) -> list[dict[str, object
 def telemetry_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n', encoding="utf-8")
-    monkeypatch.delenv("MARIVO_TELEMETRY", raising=False)
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
     yield tmp_path
 
 

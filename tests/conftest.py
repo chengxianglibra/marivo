@@ -40,6 +40,12 @@ ibis.duckdb.connect = _duckdb_connect_single_thread
 
 
 @pytest.fixture(autouse=True)
+def _disable_telemetry_outside_telemetry_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep unrelated tests from writing local telemetry for every public call."""
+    monkeypatch.setenv("MARIVO_TELEMETRY", "off")
+
+
+@pytest.fixture(autouse=True)
 def _reset_analysis_session_process_state():
     from marivo.analysis.session._runtime import reset_process_state
 
