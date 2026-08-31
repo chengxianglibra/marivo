@@ -1082,6 +1082,41 @@ def test_observe_persists_job_and_frame(tmp_path):
     assert component is not None
 
 
+def test_public_observe_run_arguments_are_only_public_call_facts(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = session_attach.get_or_create(
+        name="public-run-arguments", backends=sales_backends(con)
+    )
+    frame = session.observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+        grain=mv.grain("day"),
+    )
+
+    arguments = run_arguments(session.get_run(frame.meta.produced_by_job))
+
+    assert tuple(arguments) == (
+        "cohort",
+        "dimensions",
+        "expect_shape",
+        "grain",
+        "metrics",
+        "slice_by",
+        "time_dimension",
+        "time_scope",
+    )
+    assert "__queries" not in arguments
+    assert {
+        "coverage_fingerprint",
+        "datasource_compatibility_domain",
+        "fanouts",
+        "metric_graph",
+        "presentation",
+        "temporal_contract",
+    }.isdisjoint(arguments)
+
+
 def test_observe_read_only_session_without_backend_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     # Session without backend factory is read-only and cannot execute.

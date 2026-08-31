@@ -1141,22 +1141,6 @@ def _persist_run_success_from_legacy_record(session: Session, record: dict[str, 
     argument_source = (
         dict(cast("Mapping[str, object]", params)) if isinstance(params, Mapping) else {}
     )
-    raw_queries = record.get("queries")
-    if isinstance(raw_queries, list):
-        argument_source["__queries"] = [
-            {
-                "id": query.get("query_id"),
-                "datasource": query.get("datasource"),
-                "dialect": query.get("dialect"),
-                "digest": query.get("sql_digest"),
-                "row_count": query.get("row_count"),
-                "duration_ms": query.get("duration_ms"),
-                "status": query.get("status"),
-                "output_ref": query.get("output_ref"),
-            }
-            for query in raw_queries
-            if isinstance(query, Mapping)
-        ]
     projected, omitted = project_run_arguments(argument_source)
     raw_capability_id = str(record["intent"])
     capability_id = {
@@ -1222,8 +1206,6 @@ def _persist_run_success_from_legacy_record(session: Session, record: dict[str, 
             output_ref,
             output_mode=output_mode,
             finished_at=str(record.get("finished_at") or datetime.now(UTC).isoformat()),
-            arguments=projected,
-            omitted_argument_names=omitted,
         )
     else:
         session._store.complete_run(

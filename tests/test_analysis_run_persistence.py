@@ -141,6 +141,7 @@ def test_failed_success_terminal_write_keeps_artifact_and_incomplete_run(
 
 def test_reused_run_does_not_rewrite_artifact_producer(run_store) -> None:
     store, session_id = run_store
+    _begin(store, session_id, "run_original")
     store.record_artifact(
         session_id=session_id,
         artifact_id="art_1",
@@ -149,6 +150,13 @@ def test_reused_run_does_not_rewrite_artifact_producer(run_store) -> None:
         meta_path="frames/art_1/meta.json",
         content_hash=None,
         produced_by_job="run_original",
+    )
+    store.complete_run(
+        session_id=session_id,
+        run_id="run_original",
+        output_artifact_ref="art_1",
+        output_mode="produced",
+        finished_at=_started(),
     )
     _begin(store, session_id, "run_reuse")
     store.complete_run(
@@ -159,6 +167,31 @@ def test_reused_run_does_not_rewrite_artifact_producer(run_store) -> None:
         finished_at=_started(),
     )
     assert store.get_artifact(session_id, "art_1")["produced_by_job"] == "run_original"
+
+
+def test_reused_run_requires_another_succeeded_canonical_producer(run_store) -> None:
+    store, session_id = run_store
+    store.record_artifact(
+        session_id=session_id,
+        artifact_id="art_orphan",
+        kind="metric_frame",
+        path="frames/art_orphan/data.parquet",
+        meta_path="frames/art_orphan/meta.json",
+        content_hash=None,
+        produced_by_job=None,
+    )
+    _begin(store, session_id, "run_reuse")
+
+    with pytest.raises(SessionStateError, match="canonical producing Run"):
+        store.complete_run(
+            session_id=session_id,
+            run_id="run_reuse",
+            output_artifact_ref="art_orphan",
+            output_mode="reused",
+            finished_at=_started(),
+        )
+
+    assert store.get_run(session_id, "run_reuse")["lifecycle"] == "incomplete"
 
 
 def test_run_inputs_preserve_order_and_require_same_session_ownership(run_store) -> None:

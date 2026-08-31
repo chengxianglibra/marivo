@@ -216,11 +216,10 @@ def collect_input_artifact_refs(arguments: Mapping[str, object]) -> tuple[str, .
 
     def visit(value: object) -> None:
         if isinstance(value, BaseFrame):
-            # Only committed Artifact identities belong in the persisted Run
-            # graph. In-memory frames used by lower-level/internal callers have
-            # no Artifact identity and therefore no reverse-index edge.
-            if value.meta.artifact_id is not None:
-                refs.append(value.meta.artifact_id)
+            # ``artifact_id`` is optional on older frame metadata.  Keep the
+            # canonical frame ref as a candidate; the owning Session filters
+            # candidates against its Artifact store before Run admission.
+            refs.append(value.meta.artifact_id or value.ref)
             return
         if isinstance(value, Mapping):
             for key, item in value.items():

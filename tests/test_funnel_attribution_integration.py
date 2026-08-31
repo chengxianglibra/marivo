@@ -509,8 +509,8 @@ def test_attribution_job_timestamps_bracket_materialization(
     assert job.started_at <= observed["computed_at"]
     assert observed["computed_at"] <= job.finished_at
     assert drivers.meta.created_at == job.finished_at
+    assert job.input_artifact_refs == (delta.ref,)
     arguments = run_arguments(job)
-    assert arguments["source_delta_ref"] == delta.ref
     assert arguments["target"]["step"]["key"] == payment_step.key
 
 

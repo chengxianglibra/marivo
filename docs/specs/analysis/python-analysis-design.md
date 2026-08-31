@@ -81,7 +81,7 @@ analysis DAG. Four constraints follow, and they shape the runtime
 | Constraint | Loop reality | Requirement |
 | --- | --- | --- |
 | Recompute-safe | each turn may re-run an accumulating script | operators are pure; artifacts carry fingerprint/cache metadata; re-running never drifts |
-| Cold-start rebuild | turn N+1 may lose in-memory objects | `get_frame(ref)` and persisted metadata restore kind, schema, lineage, quality, blocking |
+| Cold-start rebuild | turn N+1 may lose in-memory objects | `session.artifact(ref)` and persisted metadata restore kind, schema, lineage, quality, blocking |
 | Read economics | every frame read costs context tokens | layered reads (`repr -> show() -> contract() -> to_pandas()`) avoid forcing a full read |
 | Resumable failure | step *k* fails after *k-1* materialized | operators fail loud; the session/job layer keeps completed upstream refs and structured errors |
 

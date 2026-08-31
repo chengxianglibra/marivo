@@ -560,16 +560,15 @@ def test_correlate_writes_job_and_frame():
     assert len(jobs) == 1
     assert jobs[0].output_artifact_ref == out.ref
     assert (session._layout.frames_dir / out.ref / "data.parquet").is_file()
-    params = run_arguments(session.get_run(jobs[0].run_id))
-    assert params["measure_a"] == "revenue"
-    assert params["measure_b"] == "orders"
-    assert params["alignment"] == {
-        "kind": "window_bucket",
-        "mode": "ordinal_bucket",
-        "strict_lengths": False,
+    run = session.get_run(jobs[0].run_id)
+    assert run.input_artifact_refs == (a.ref, b.ref)
+    assert run_arguments(run) == {
+        "alignment": None,
+        "lag_range": None,
+        "measure_a": None,
+        "measure_b": None,
+        "method": "pearson",
     }
-    assert "lag_policy" not in params
-    assert params["method"] == "pearson"
 
 
 def test_correlate_output_round_trips_through_load_frame():

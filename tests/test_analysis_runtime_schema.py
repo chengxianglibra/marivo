@@ -34,9 +34,14 @@ def test_incompatible_existing_store_fails_read_only_without_mutation(tmp_path, 
     db_path = tmp_path / ".marivo" / "analysis" / "session_store.db"
     db_path.parent.mkdir(parents=True)
     with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
         connection.execute("CREATE TABLE sentinel (value TEXT)")
         connection.execute("INSERT INTO sentinel VALUES ('preserve')")
         connection.execute(f"PRAGMA user_version={version}")
+        connection.commit()
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    for suffix in ("-wal", "-shm"):
+        db_path.with_name(f"{db_path.name}{suffix}").unlink(missing_ok=True)
     before = db_path.read_bytes()
     before_names = sorted(path.name for path in db_path.parent.iterdir())
     with pytest.raises(SchemaVersionMismatchError) as exc_info:

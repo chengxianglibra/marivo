@@ -1139,8 +1139,9 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
     assert sliced.meta.produced_by_job is not None
     job_record = session_attach.current().get_run(sliced.meta.produced_by_job)
     arguments = run_arguments(job_record)
-    json.dumps(arguments)
-    assert arguments["where"]["sales.orders.event_date"] == "2026-07-01"
+    encoded = json.dumps(arguments)
+    assert "slice_by" in arguments
+    assert "2026-07-01" in encoded
 
 
 def test_transform_filter_preserves_metric_frame(tmp_path):

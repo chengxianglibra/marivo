@@ -143,6 +143,11 @@ def _track_materializing_operation(
                 validate_frame_ownership(item)
 
     validate_frame_ownership(arguments)
+    input_artifact_refs = tuple(
+        ref
+        for ref in collect_input_artifact_refs(arguments)
+        if session._store.get_artifact(session.id, ref) is not None
+    )
 
     with (
         _track_session_operation(
@@ -157,7 +162,7 @@ def _track_materializing_operation(
             capability_id=capability_id,
             analysis_purpose=analysis_purpose,
             arguments=arguments,
-            input_artifact_refs=collect_input_artifact_refs(arguments),
+            input_artifact_refs=input_artifact_refs,
         ),
     ):
         yield operation
@@ -258,19 +263,27 @@ class Session(RenderableResult):
         from marivo.analysis.session._runtime_reads import SessionRuntimeReads
 
         mode = "read_only" if self.is_read_only else "writable"
+        recap = SessionRuntimeReads(self).recap()
         properties, methods = REGISTRY.public_object_members("Session")
         intrinsic_methods = tuple(method for method in methods if method in {"show"})
         registered_calls = tuple(
             call
             for call in REGISTRY.public_member_calls("Session")
-            if call not in {".render()", ".show()"}
+            if call not in {".render()", ".show()"} and not call.startswith(".graph(")
         )
+        graph_calls = [
+            ".graph(artifact_ref='<ref>', direction='ancestors')",
+            ".graph(artifact_ref='<ref>', direction='descendants')",
+        ]
+        if recap.overall_graph_available:
+            graph_calls.insert(0, ".graph()")
         card = Card(
             identity=self._repr_identity(),
             available=(
                 *(f".{property_name}" for property_name in properties),
                 *(f".{method_name}()" for method_name in intrinsic_methods),
                 *registered_calls,
+                *graph_calls,
             ),
         ).status(mode)
         card.field("question", self._question or "none")
@@ -278,7 +291,6 @@ class Session(RenderableResult):
         card.field("report_timezone", self._report_tz_name)
         card.field("created_at", self._created_at.isoformat())
         card.field("updated_at", self._updated_at.isoformat())
-        recap = SessionRuntimeReads(self).recap()
         card.field(
             "artifacts",
             f"total={recap.artifact_count} heads={recap.head_artifact_count} "
@@ -293,6 +305,8 @@ class Session(RenderableResult):
         )
         card.listing("attention", recap.attention_run_ids or ("none",))
         card.listing("heads", recap.head_artifact_refs or ("none",))
+        if not recap.overall_graph_available:
+            card.field("overall graph", "too large; use Run paging or a focused graph call")
         card.field("current authority", "not checked; call session.revalidate('<ref>')")
         card.field("source freshness", "not checked by Session reads")
         return card

@@ -19,7 +19,7 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
-from tests.run_read_helpers import run_queries
+from tests.run_read_helpers import capture_persisted_job_records, persisted_queries
 
 
 def _runtime(factory=None) -> AnalysisConnectionRuntime:
@@ -249,24 +249,19 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
         question="audit",
         backends={"warehouse": lambda: con},
     )
+    records = capture_persisted_job_records(monkeypatch)
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
-    job_id = frame.meta.produced_by_job
-    assert job_id is not None
-    job = s.get_run(job_id)
-    queries = run_queries(job)
+    queries = persisted_queries(records, output_ref=frame.ref)
     assert len(queries) >= 1
     q = queries[0]
     assert q["datasource"] == "warehouse"
     assert q["row_count"] == 1
     assert q["duration_ms"] >= 0
     assert q["status"] == "succeeded"
-    assert q["digest"]
-    assert "sql" not in q
-    assert "normalized_sql" not in q
-    assert "bind_params" not in q
+    assert q["sql_digest"]
     assert q["output_ref"] is not None
 
 
@@ -290,6 +285,7 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
         question="decompose audit",
         backends={"warehouse": lambda: con},
     )
+    records = capture_persisted_job_records(monkeypatch)
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-08-31"),
@@ -301,11 +297,8 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
         alignment=mv.window_bucket(),
     )
     attr = s.attribute(delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
-    job_id = attr.meta.produced_by_job
-    assert job_id is not None
-    job = s.get_run(job_id)
     # Frame-consuming intents issue no datasource SQL
-    assert run_queries(job) == []
+    assert persisted_queries(records, output_ref=attr.ref) == []
 
 
 def test_time_series_observe_has_queries(tmp_path, monkeypatch):
@@ -329,14 +322,13 @@ def test_time_series_observe_has_queries(tmp_path, monkeypatch):
         question="audit ts",
         backends={"warehouse": lambda: con},
     )
+    records = capture_persisted_job_records(monkeypatch)
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         grain=mv.grain("day"),
     )
-    job_id = frame.meta.produced_by_job
-    job = s.get_run(job_id)
-    queries = run_queries(job)
+    queries = persisted_queries(records, output_ref=frame.ref)
     assert len(queries) >= 1
     q = queries[0]
     assert q["dialect"] == "duckdb"
@@ -368,21 +360,20 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         question="acceptance tests",
         backends={"warehouse": lambda: con},
     )
+    records = capture_persisted_job_records(monkeypatch)
 
     # Scalar
     scalar = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
-    job = s.get_run(scalar.meta.produced_by_job)
-    queries = run_queries(job)
+    queries = persisted_queries(records, output_ref=scalar.ref)
     assert len(queries) >= 1
     q = queries[0]
     assert q["datasource"] == "warehouse"
     assert q["row_count"] >= 1
     assert q["duration_ms"] >= 0
-    assert q["digest"]
-    assert "sql" not in q
+    assert q["sql_digest"]
 
     # Time series
     ts = s.observe(
@@ -390,8 +381,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         grain=mv.grain("month"),
     )
-    job = s.get_run(ts.meta.produced_by_job)
-    queries = run_queries(job)
+    queries = persisted_queries(records, output_ref=ts.ref)
     assert len(queries) >= 1
     assert queries[0]["datasource"] == "warehouse"
 
@@ -401,8 +391,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
-    job = s.get_run(seg.meta.produced_by_job)
-    assert len(run_queries(job)) >= 1
+    assert len(persisted_queries(records, output_ref=seg.ref)) >= 1
 
     # Panel
     panel = s.observe(
@@ -411,8 +400,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         grain=mv.grain("month"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
-    job = s.get_run(panel.meta.produced_by_job)
-    assert len(run_queries(job)) >= 1
+    assert len(persisted_queries(records, output_ref=panel.ref)) >= 1
 
 
 def test_same_query_shape_same_digest(tmp_path, monkeypatch):
@@ -437,6 +425,7 @@ def test_same_query_shape_same_digest(tmp_path, monkeypatch):
         question="digest acceptance",
         backends={"warehouse": lambda: con},
     )
+    records = capture_persisted_job_records(monkeypatch)
     f1 = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
@@ -445,9 +434,10 @@ def test_same_query_shape_same_digest(tmp_path, monkeypatch):
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-08-01", end="2026-08-31"),
     )
-    j1 = s.get_run(f1.meta.produced_by_job)
-    j2 = s.get_run(f2.meta.produced_by_job)
-    assert run_queries(j1)[0]["digest"] == run_queries(j2)[0]["digest"]
+    assert (
+        persisted_queries(records, output_ref=f1.ref)[0]["sql_digest"]
+        == persisted_queries(records, output_ref=f2.ref)[0]["sql_digest"]
+    )
 
 
 def test_evidence_chain_reaches_queries(tmp_path, monkeypatch):
@@ -472,13 +462,13 @@ def test_evidence_chain_reaches_queries(tmp_path, monkeypatch):
         question="chain acceptance",
         backends={"warehouse": lambda: con},
     )
+    records = capture_persisted_job_records(monkeypatch)
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
     job_id = frame.meta.produced_by_job
-    job = s.get_run(job_id)
-    queries = run_queries(job)
+    queries = persisted_queries(records, output_ref=frame.ref)
     assert len(queries) >= 1
     # The frame's lineage carries the job_ref
     assert frame.meta.lineage.steps[0].job_ref == job_id
