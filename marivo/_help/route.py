@@ -18,6 +18,7 @@ from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
     resolve_live_target,
+    try_resolve_live_string_target,
 )
 
 _SURFACES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis", "ontology")
@@ -79,8 +80,18 @@ def _suggestions(errors: Iterable[Exception]) -> tuple[str, ...]:
 
 
 def _resolve_one(target: object, owner: HelpSurface) -> NativeHelpRoute | None:
+    surface = _native_surface(owner)
+    if isinstance(target, str):
+        resolved = try_resolve_live_string_target(target, surface)
+        if resolved is None:
+            return None
+        return NativeHelpRoute(
+            owner=owner,
+            resolved=resolved,
+            original_target=target,
+        )
     try:
-        resolved = resolve_live_target(target, _native_surface(owner))
+        resolved = resolve_live_target(target, surface)
     except _native_target_error(owner):
         return None
     return NativeHelpRoute(
@@ -159,20 +170,10 @@ def route_help_target(target: object | None) -> HelpRoute:
         if target in _GLOBAL_TOPICS:
             return TopicHelpRoute(cast("GlobalTopic", target))
     routes: list[NativeHelpRoute] = []
-    errors: list[Exception] = []
     for owner in _SURFACES:
-        try:
-            resolved = resolve_live_target(target, _native_surface(owner))
-        except _native_target_error(owner) as error:
-            errors.append(error)
-            continue
-        routes.append(
-            NativeHelpRoute(
-                owner=owner,
-                resolved=resolved,
-                original_target=target,
-            )
-        )
+        route = _resolve_one(target, owner)
+        if route is not None:
+            routes.append(route)
 
     if len(routes) == 1:
         return routes[0]
@@ -186,11 +187,13 @@ def route_help_target(target: object | None) -> HelpRoute:
             outcome="ambiguous",
             candidates=candidates,
         )
-    raise MarivoHelpTargetError(
-        target=target,
-        outcome="unknown",
-        candidates=_suggestions(errors),
-    )
+    errors: list[Exception] = []
+    for owner in _SURFACES:
+        try:
+            resolve_live_target(target, _native_surface(owner))
+        except _native_target_error(owner) as error:
+            errors.append(error)
+    raise MarivoHelpTargetError(target=target, outcome="unknown", candidates=_suggestions(errors))
 
 
 def render_surface_root(route: SurfaceRootHelpRoute) -> str:

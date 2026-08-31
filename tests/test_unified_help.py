@@ -270,6 +270,18 @@ def test_every_unique_unqualified_registry_target_routes_to_its_only_owner() -> 
         assert route.resolved.descriptor is _REGISTRIES[owners[0]].by_canonical_id(canonical_id)
 
 
+def test_unique_unqualified_target_skips_failed_surface_suggestions(monkeypatch) -> None:
+    def fail_suggestions(*_args: object, **_kwargs: object) -> tuple[str, ...]:
+        raise AssertionError("exact cross-surface probes must not compute fuzzy suggestions")
+
+    monkeypatch.setattr("marivo.introspection.live.resolve.suggestions_for", fail_suggestions)
+
+    route = route_help_target("duckdb")
+
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "datasource"
+
+
 def test_unregistered_multi_owner_target_never_uses_surface_order() -> None:
     with pytest.raises(MarivoHelpTargetError) as exc_info:
         route_help_target("load")

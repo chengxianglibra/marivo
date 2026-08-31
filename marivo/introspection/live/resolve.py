@@ -142,8 +142,19 @@ def _resolve_string(
     target: str,
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
+    resolved = try_resolve_live_string_target(target, surface)
+    if resolved is not None:
+        return resolved
+    _raise(surface, target)
+
+
+def try_resolve_live_string_target(
+    target: str,
+    surface: LiveSurface[DescriptorT],
+) -> ResolvedLiveTarget[DescriptorT] | None:
+    """Resolve one exact string target without computing repair suggestions."""
     if not target:
-        _raise(surface, target)
+        return None
     for candidate in _help_target_candidates(target):
         try:
             return _resolved_descriptor(surface.registry.by_canonical_id(candidate), surface)
@@ -171,7 +182,7 @@ def _resolve_string(
                 surface=surface.registry.surface,
                 error_name=error_type.__name__,
             )
-    _raise(surface, target)
+    return None
 
 
 # Prefixes users paste from help output / CLI invocations. Canonical ids never
