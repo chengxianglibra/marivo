@@ -271,7 +271,7 @@ def test_multi_metric_commit_persists_and_renders_metric_input_order(tmp_path: P
         rendered = result.render(max_output_bytes=None)
         evidence_line = (
             "evidence: items=5 omitted=3 selection=metric_input_order; "
-            f"recover=session.evidence.findings(artifact_ref='{result.ref}')"
+            "recover=artifact.findings(limit=20)"
         )
         assert evidence_line in rendered
         assert rendered.index(evidence_line) < rendered.index("preview:")

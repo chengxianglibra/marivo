@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from typing import Any
 
 from marivo._compat import UTC
@@ -14,6 +14,7 @@ from marivo.analysis.frames.coverage import CoverageFrameMeta
 from marivo.analysis.frames.metric import MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._store import SessionStore
+from marivo.analysis.session.core import Session
 from tests.shared_fixtures import make_test_metric_meta_contract
 
 
@@ -35,6 +36,8 @@ class RuntimeReadHarness:
             project_root=project_root,
             _store=store,
         )
+        for method_name in ("runs", "get_run", "artifact", "revalidate", "graph"):
+            setattr(session, method_name, MethodType(getattr(Session, method_name), session))
         return cls(
             project_root=project_root,
             store=store,

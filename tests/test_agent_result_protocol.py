@@ -13,6 +13,8 @@ import marivo.analysis.frames as analysis_frames
 from marivo._compat import UTC
 from marivo._temporal import TimeScopeContractV1
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
+from marivo.analysis.evidence.artifact_reads import Finding as CandidateFinding
+from marivo.analysis.evidence.artifact_reads import FindingPage as CandidateFindingPage
 from marivo.analysis.evidence.types import (
     ArtifactDigest,
     DerivationRule,
@@ -36,14 +38,7 @@ from marivo.analysis.session._read_model import (
     SessionRuntimeRecap,
     SucceededRun,
 )
-from marivo.analysis.session._read_model import (
-    Finding as CandidateFinding,
-)
-from marivo.analysis.session._read_model import (
-    FindingPage as CandidateFindingPage,
-)
 from marivo.analysis.session._store import SessionSummary
-from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
 from marivo.datasource.errors import repair as datasource_repair
 from marivo.datasource.manage import (
     DatasourceDescription,
@@ -110,15 +105,6 @@ def assert_conforms(obj: object) -> None:
     assert obj.show() is None  # type: ignore[attr-defined]
 
 
-def test_session_results_byte_capped_and_uncapped() -> None:
-    job = _job_summary()
-    capped = job.render()
-    assert len(capped.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
-    full = job.render(max_output_bytes=None)
-    assert "truncated" not in full
-    assert full == capped  # small fixture fits both ways
-
-
 def _preview_result() -> PreviewResult:
     return PreviewResult(
         kind="semantic_dataset",
@@ -182,53 +168,6 @@ def _raw_sql_result() -> RawSqlResult:
     )
 
 
-def _job_summary() -> JobSummary:
-    return JobSummary(
-        id="job_1",
-        intent="observe",
-        status="succeeded",
-        started_at="2026-06-13T00:00:00Z",
-        duration_ms=12,
-        output_frame_ref="frame_ab12",
-    )
-
-
-def _frame_summary_entry() -> FrameSummaryEntry:
-    return FrameSummaryEntry(
-        ref="frame_ab12",
-        kind="metric_frame",
-        metric_id="sales.revenue",
-        semantic_kind="time_series",
-        semantic_model="sales",
-        created_at="2026-06-13T00:00:00Z",
-    )
-
-
-def test_frame_summary_entry_rejects_positional_construction() -> None:
-    # Keyword construction must succeed so the TypeError below is pinned to
-    # "positional args rejected", not "the field values are invalid".
-    _frame_summary_entry()
-    with pytest.raises(TypeError):
-        FrameSummaryEntry(
-            "frame_ab12",
-            "metric_frame",
-            "sales.revenue",
-            "time_series",
-            "sales",
-            "2026-06-13T00:00:00Z",
-            10,
-            "sha256:abc",
-        )  # type: ignore[misc, call-arg]
-
-
-def test_job_summary_rejects_positional_construction() -> None:
-    # Keyword construction must succeed so the TypeError below is pinned to
-    # "positional args rejected", not "the field values are invalid".
-    _job_summary()
-    with pytest.raises(TypeError):
-        JobSummary("job_1", "observe", "succeeded", "2026-06-13T00:00:00Z", 12, "frame_ab12")  # type: ignore[misc, call-arg]
-
-
 def test_session_summary_rejects_positional_construction() -> None:
     # Keyword construction must succeed so the TypeError below is pinned to
     # "positional args rejected", not "the field values are invalid".
@@ -247,14 +186,6 @@ def _session_summary() -> SessionSummary:
         job_count=1,
         frame_count=2,
     )
-
-
-def test_frame_summary_entry_exposes_ref_without_id_alias() -> None:
-    entry = _frame_summary_entry()
-
-    # Artifact identity is exposed via ``ref`` only; there is no ``id`` alias.
-    assert entry.ref == "frame_ab12"
-    assert not hasattr(entry, "id")
 
 
 def _authoring_assessment() -> AuthoringAssessment:
@@ -295,8 +226,6 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_datasource_summary, id="DatasourceSummary"),
     pytest.param(_datasource_test_result, id="DatasourceTestResult"),
     pytest.param(_raw_sql_result, id="RawSqlResult"),
-    pytest.param(_job_summary, id="JobSummary"),
-    pytest.param(_frame_summary_entry, id="FrameSummaryEntry"),
     pytest.param(_session_summary, id="SessionSummary"),
     pytest.param(_authoring_assessment, id="AuthoringAssessment"),
     pytest.param(_readiness_report, id="ReadinessReport"),
@@ -664,9 +593,9 @@ def test_plain_metric_frame_card_does_not_invent_fold_or_coverage() -> None:
 def _digest_read_contract() -> DigestReadContract:
     return DigestReadContract(
         exact_reads=(
-            "session.evidence.digest('frame_protocol_test')",
-            "session.evidence.findings(artifact_ref='frame_protocol_test')",
-            "session.get_frame('frame_protocol_test')",
+            "session.artifact('frame_protocol_test')",
+            "artifact.findings(limit=20)",
+            "artifact.finding('<finding_id>')",
         )
     )
 

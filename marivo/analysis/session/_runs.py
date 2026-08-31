@@ -21,8 +21,6 @@ from marivo.analysis.errors import AnalysisError, SessionStateError
 from marivo.refs import Ref, RefPayloadV1
 
 if TYPE_CHECKING:
-    import sqlite3
-
     from marivo.analysis.session.core import Session
 
 JsonScalar: TypeAlias = str | int | float | bool | None
@@ -235,7 +233,10 @@ def collect_input_artifact_refs(arguments: Mapping[str, object]) -> tuple[str, .
 
     for value in arguments.values():
         visit(value)
-    return tuple(refs)
+    # One Artifact may appear in more than one public parameter (for example,
+    # comparing an Artifact with itself).  The Run graph stores normalized
+    # dependency identities, not repeated call-site occurrences.
+    return tuple(dict.fromkeys(refs))
 
 
 def _generic_failure() -> dict[str, object]:
@@ -499,75 +500,6 @@ def reconcile_incomplete_runs(session: Session) -> None:
                 output_mode="produced",
                 finished_at=recovered.meta.created_at.isoformat(),
             )
-
-
-def legacy_job_record(
-    row: sqlite3.Row,
-    *,
-    input_artifact_refs: tuple[str, ...],
-) -> dict[str, object]:
-    """Project one v1 Run into the unreleased Slice-1 legacy job read shape."""
-    arguments = cast("list[dict[str, object]]", json.loads(str(row["arguments_json"])))
-    params = {str(item["name"]): item["value"] for item in arguments}
-    stored_queries_value = params.pop("__queries", [])
-    stored_queries = stored_queries_value if isinstance(stored_queries_value, list) else []
-    queries = [
-        {
-            "query_id": item.get("id"),
-            "datasource": item.get("datasource"),
-            "dialect": item.get("dialect"),
-            "sql_digest": item.get("digest"),
-            "row_count": item.get("row_count"),
-            "duration_ms": item.get("duration_ms"),
-            "status": item.get("status"),
-            "output_ref": item.get("output_ref"),
-        }
-        for item in stored_queries
-        if isinstance(item, dict)
-    ]
-    capability_id = str(row["capability_id"])
-    intent = capability_id
-    if capability_id.startswith("transform."):
-        intent = "transform"
-        slice_by = params.pop("slice_by", None)
-        if isinstance(slice_by, list):
-            where: dict[str, object] = {}
-            for entry in slice_by:
-                if not isinstance(entry, dict):
-                    continue
-                key = entry.get("key")
-                if isinstance(key, dict) and isinstance(key.get("path"), str):
-                    where[str(key["path"])] = entry.get("value")
-            if where:
-                params["where"] = where
-    elif capability_id.startswith("discover."):
-        intent = "discover"
-    elif capability_id == "MetricFrame.metric":
-        intent = "select_metric"
-    started_at = datetime.fromisoformat(str(row["started_at"]))
-    finished_raw = row["finished_at"]
-    finished_at = datetime.fromisoformat(str(finished_raw)) if finished_raw is not None else None
-    duration_ms = (
-        int((finished_at - started_at).total_seconds() * 1000) if finished_at is not None else 0
-    )
-    lifecycle = str(row["lifecycle"])
-    return {
-        "schema": "marivo.analysis_job/v2",
-        "id": str(row["run_id"]),
-        "session_id": str(row["session_id"]),
-        "intent": intent,
-        "analysis_purpose": row["analysis_purpose"],
-        "params": params,
-        "queries": queries,
-        "input_frame_refs": list(input_artifact_refs),
-        "output_frame_ref": row["output_artifact_ref"],
-        "started_at": row["started_at"],
-        "finished_at": row["finished_at"],
-        "duration_ms": duration_ms,
-        "status": "succeeded" if lifecycle == "succeeded" else lifecycle,
-        "reused_artifact": row["output_mode"] == "reused",
-        "error": json.loads(str(row["failure_json"])) if row["failure_json"] else None,
-    }
 
 
 __all__: list[str] = []

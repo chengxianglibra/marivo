@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager, suppress
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast, overload
 
-from marivo.analysis._pages import (
-    _BoundedPage,
-    decode_keyset_cursor,
-    encode_keyset_cursor,
-)
 from marivo.analysis.session._layout import PersistenceLayout
 from marivo.analysis.timezone import resolve_system_timezone
 from marivo.render import Card, RenderableResult
@@ -48,15 +42,7 @@ if TYPE_CHECKING:
         EventWatermarkReceipt,
         PatternStep,
     )
-    from marivo.analysis.evidence import (
-        ArtifactDigest,
-        ArtifactDigestPage,
-        ArtifactRevalidation,
-        EvidenceCompatibility,
-        EvidenceDerivationTrace,
-        Finding,
-        FindingPage,
-    )
+    from marivo.analysis.evidence import ArtifactRevalidation
     from marivo.analysis.evidence.store import EvidenceStore
     from marivo.analysis.frames.association import AssociationResult
     from marivo.analysis.frames.attribution import AttributionFrame
@@ -79,6 +65,12 @@ if TYPE_CHECKING:
     from marivo.analysis.lifecycle import FromInception
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.runtime_metric import RuntimeMetricExpr
+    from marivo.analysis.session._read_model import (
+        GraphDirection,
+        RunPage,
+        RunRecord,
+        SessionGraph,
+    )
     from marivo.analysis.session._store import SessionStore
     from marivo.analysis.slice_types import SliceValue
     from marivo.analysis.subject import SubjectSelection
@@ -169,165 +161,6 @@ def _track_materializing_operation(
         ),
     ):
         yield operation
-
-
-@dataclass(frozen=True, repr=False, kw_only=True)
-class JobSummary(RenderableResult):
-    id: str
-    intent: str
-    status: str
-    started_at: str
-    duration_ms: int
-    output_frame_ref: str | None
-
-    def _repr_identity(self) -> str:
-        return f"JobSummary id={self.id} intent={self.intent} status={self.status}"
-
-    def _card(self) -> Card:
-        return Card(identity=self._repr_identity(), available=(".show()",)).status(
-            f"duration={self.duration_ms}ms frame={self.output_frame_ref}"
-        )
-
-
-@dataclass(frozen=True, repr=False, kw_only=True)
-class FrameSummaryEntry(RenderableResult):
-    ref: str
-    kind: str
-    metric_id: str | None
-    semantic_kind: str | None
-    semantic_model: str | None
-    created_at: str | None
-    row_count: int | None = None
-    content_hash: str | None = None
-    analysis_purpose: str | None = None
-    evidence_status: str = "unavailable"
-
-    def _repr_identity(self) -> str:
-        parts = f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
-        if self.metric_id:
-            parts += f" metric={self.metric_id}"
-        return parts
-
-    def _card(self) -> Card:
-        card = Card(identity=self._repr_identity(), available=(".show()",)).status(
-            f"metric={self.metric_id} created={self.created_at}"
-        )
-        if self.analysis_purpose:
-            card.field("analysis_purpose", self.analysis_purpose)
-        return card
-
-
-class FrameSummaryPage(_BoundedPage[FrameSummaryEntry]):
-    """Bounded newest-first page of persisted frame summaries."""
-
-
-def _catalog_metric_path(meta: dict[str, object]) -> str | None:
-    """Project one catalog metric display path from structured persisted identity."""
-    identity = meta.get("metric_identity")
-    if not isinstance(identity, dict):
-        identities = meta.get("metric_identities")
-        if isinstance(identities, list) and len(identities) == 1:
-            identity = identities[0]
-    if not isinstance(identity, dict) or identity.get("kind") != "catalog":
-        return None
-    payload = identity.get("metric_ref")
-    if not isinstance(payload, dict) or payload.get("kind") != "metric":
-        return None
-    path = payload.get("path")
-    return path if isinstance(path, str) and path else None
-
-
-def _read_job_summaries(
-    *, store: SessionStore, layout: PersistenceLayout, session_id: str
-) -> list[JobSummary]:
-    """Read persisted job summaries without requiring a live session."""
-    del layout
-    from marivo.analysis.session._runs import legacy_job_record
-
-    summaries: list[JobSummary] = []
-    for row in store.list_jobs(session_id):
-        record = legacy_job_record(
-            row,
-            input_artifact_refs=store.run_input_refs(session_id, str(row["run_id"])),
-        )
-        summaries.append(
-            JobSummary(
-                id=str(record["id"]),
-                intent=str(record["intent"]),
-                status=str(record["status"]),
-                started_at=str(record["started_at"]),
-                duration_ms=int(str(record["duration_ms"])),
-                output_frame_ref=(
-                    str(record["output_frame_ref"])
-                    if record.get("output_frame_ref") is not None
-                    else None
-                ),
-            )
-        )
-    summaries.sort(key=lambda item: (item.started_at, item.id))
-    return summaries
-
-
-def _read_frame_summary_page(
-    *,
-    store: SessionStore,
-    project_root: Path,
-    session_id: str,
-    kind: str | None,
-    evidence_status: str | None,
-    limit: int,
-    cursor: str | None,
-) -> FrameSummaryPage:
-    """Read one persisted frame-summary page without a live session."""
-    if not 1 <= limit <= 100:
-        raise ValueError("frame_summaries limit must be within [1, 100]")
-    after: tuple[str, str] | None = None
-    if cursor is not None:
-        committed_at, identity = decode_keyset_cursor(cursor)
-        if not isinstance(committed_at, str):
-            raise ValueError("frame_summaries cursor has an invalid sort key")
-        after = (committed_at, identity)
-    rows = store.page_artifacts(
-        session_id,
-        kind=kind,
-        evidence_status=evidence_status,
-        limit=limit,
-        after=after,
-    )
-    has_more = len(rows) > limit
-    entries: list[FrameSummaryEntry] = []
-    for row in rows[:limit]:
-        meta_path = row["meta_path"]
-        abs_meta = project_root / meta_path
-        try:
-            meta = json.loads(abs_meta.read_text()) if abs_meta.is_file() else {}
-        except (OSError, json.JSONDecodeError):
-            meta = {}
-        metric_id = _catalog_metric_path(meta)
-        entries.append(
-            FrameSummaryEntry(
-                ref=meta.get("ref", row["artifact_id"]),
-                kind=meta.get("kind", row["kind"]),
-                metric_id=metric_id,
-                semantic_kind=meta.get("semantic_kind"),
-                semantic_model=metric_id.split(".", 1)[0] if metric_id else None,
-                created_at=meta.get("created_at", row["created_at"]),
-                evidence_status=row["evidence_status"],
-                analysis_purpose=meta.get("analysis_purpose"),
-                row_count=meta.get("row_count"),
-                content_hash=meta.get("content_hash", row["content_hash"]),
-            )
-        )
-    next_cursor = None
-    if has_more:
-        last_row = rows[limit - 1]
-        next_cursor = encode_keyset_cursor(last_row["created_at"], last_row["artifact_id"])
-    return FrameSummaryPage(
-        items=tuple(entries),
-        limit=limit,
-        has_more=has_more,
-        next_cursor=next_cursor,
-    )
 
 
 class Session(RenderableResult):
@@ -422,6 +255,7 @@ class Session(RenderableResult):
 
     def _card(self) -> Card:
         from marivo.analysis._capabilities.registry import REGISTRY
+        from marivo.analysis.session._runtime_reads import SessionRuntimeReads
 
         mode = "read_only" if self.is_read_only else "writable"
         properties, methods = REGISTRY.public_object_members("Session")
@@ -444,6 +278,23 @@ class Session(RenderableResult):
         card.field("report_timezone", self._report_tz_name)
         card.field("created_at", self._created_at.isoformat())
         card.field("updated_at", self._updated_at.isoformat())
+        recap = SessionRuntimeReads(self).recap()
+        card.field(
+            "artifacts",
+            f"total={recap.artifact_count} heads={recap.head_artifact_count} "
+            f"evidence_complete={recap.evidence_complete_count} "
+            f"partial={recap.evidence_partial_count} "
+            f"unavailable={recap.evidence_unavailable_count}",
+        )
+        card.field(
+            "runs",
+            f"succeeded={recap.succeeded_run_count} failed={recap.failed_run_count} "
+            f"incomplete={recap.incomplete_run_count}",
+        )
+        card.listing("attention", recap.attention_run_ids or ("none",))
+        card.listing("heads", recap.head_artifact_refs or ("none",))
+        card.field("current authority", "not checked; call session.revalidate('<ref>')")
+        card.field("source freshness", "not checked by Session reads")
         return card
 
     # -- Public identity properties (read-only) --
@@ -555,148 +406,134 @@ class Session(RenderableResult):
 
         return source_binding_scope(self._connection_runtime, self._catalog, bindings)
 
-    def jobs(self) -> list[JobSummary]:
-        """Return lightweight summaries for every recorded job, oldest first.
-
-        Each entry is a :class:`JobSummary` (id, intent, status, timing, output
-        frame ref). For the full record of a single job, use :meth:`job`.
-        """
-
-        return _read_job_summaries(store=self._store, layout=self._layout, session_id=self.id)
-
-    def recent_jobs(self, limit: int = 5) -> list[JobSummary]:
-        """Return the most recent ``limit`` job summaries, oldest first.
-
-        A non-positive ``limit`` returns an empty list.
-        """
-        if limit <= 0:
-            return []
-        return self.jobs()[-limit:]
-
-    def job(self, job_id: str) -> dict[str, Any]:
-        """Return the full record for a single job as a dict.
-
-        Unlike :meth:`jobs`, which returns lightweight :class:`JobSummary`
-        objects, this returns the complete persisted record including fields
-        such as ``params``. Raises if no job with ``job_id`` exists.
-        """
-        from marivo.analysis.errors import AnalysisError, JobNotFoundError
-        from marivo.analysis.session._runs import legacy_job_record
-
-        row = self._store.get_job(self.id, job_id)
-        if row is None:
-            raise JobNotFoundError(
-                message=f"no job '{job_id}' in session {self.id!r}",
-                context={"session_id": self.id, "job_id": job_id},
-            )
-        record = legacy_job_record(
-            row,
-            input_artifact_refs=self._store.run_input_refs(self.id, job_id),
-        )
-        output_ref = record.get("output_frame_ref")
-        if row["lifecycle"] == "succeeded" and isinstance(output_ref, str):
-            from marivo.analysis._semantic_persistence import job_semantics_from_frames
-
-            try:
-                output = self.get_frame(output_ref)
-            except AnalysisError:
-                return record
-            if output.lineage.steps:
-                record["intent"] = output.lineage.steps[-1].intent
-            with suppress(AttributeError):
-                record.update(job_semantics_from_frames(output))
-            semantic_models = getattr(output.meta, "semantic_models", None)
-            if isinstance(semantic_models, list):
-                record["semantic_models"] = semantic_models
-            metric_ids = getattr(output.meta, "metric_ids", None)
-            if isinstance(metric_ids, list) and metric_ids and record.get("subjects") == []:
-                record["subjects"] = [
-                    {
-                        "kind": "catalog_metric",
-                        "metric_ref": {
-                            "schema": "marivo.semantic_ref/v1",
-                            "kind": "metric",
-                            "path": metric_id,
-                        },
-                    }
-                    for metric_id in metric_ids
-                ]
-        return record
-
-    def get_frame(self, ref: str) -> BaseFrame:
-        """Load a persisted frame by ref or artifact_id.
-
-        Reconstructs a live frame object from the on-disk parquet and
-        meta.json.  The returned frame is fully functional and can be
-        passed to any intent (compare, attribute, etc.).
-
-        Args:
-            ref: The frame ref string.  After observe() or compare()
-                returns, ``frame.ref`` equals the deterministic
-                artifact_id, so ``session.get_frame(prev_frame.ref)``
-                works across script boundaries.
-
-        Raises:
-            FrameRefNotFound: No frame with this ref exists in this session.
-            CrossSessionFrameError: The frame belongs to a different session.
-            FrameCacheCorruptedError: The frame data is on disk but unreadable.
-        """
-        from marivo.analysis.session._load import load_frame
-
-        return load_frame(ref, session=self)
-
-    def revalidate(self, frame: BaseFrame) -> ArtifactRevalidation:
-        """Revalidate one committed Artifact against current authority and evidence.
-
-        Args:
-            frame: A committed Frame owned by this Session. Recover an exact ref
-                with ``session.get_frame(ref)`` before calling this method.
-
-        Returns:
-            An immutable ArtifactRevalidation covering identity integrity,
-            current semantic authority, and persisted evidence integrity.
-
-        Example:
-            result = session.revalidate(session.get_frame(artifact_ref))
-            result.show()
-
-        Constraints:
-            Revalidation is read-only and does not query datasource health,
-            infer freshness, or modify the Artifact or evidence ledger.
-        """
-        from marivo.analysis._artifact_revalidation import evaluate_artifact_revalidation
-
-        return evaluate_artifact_revalidation(
-            session=self,
-            store=self.evidence._require_store(),
-            frame=frame,
-        )
-
-    def frame_summaries(
+    def runs(
         self,
         *,
-        kind: str | None = None,
-        evidence_status: str | None = None,
+        status: Literal["incomplete", "succeeded", "failed"] | None = None,
+        capability_id: str | None = None,
         limit: int = 20,
         cursor: str | None = None,
-    ) -> FrameSummaryPage:
-        """Return one bounded newest-first page of analysis-result metadata.
+    ) -> RunPage:
+        """Return one bounded newest-first page of immutable Run records.
 
-        With no ``kind`` filter, linked component and coverage sidecars are
-        omitted. Pass their exact kind to inspect those internal frames.
+        Args:
+            status: Optional exact lifecycle filter.
+            capability_id: Optional exact current capability id.
+            limit: Maximum records to retain, from 1 through 100.
+            cursor: Opaque continuation returned by the previous page.
+
+        Returns:
+            A bounded immutable :class:`RunPage`.
 
         Example:
-            page = session.frame_summaries(limit=20)
-            next_page = session.frame_summaries(limit=20, cursor=page.next_cursor)
+            >>> page = session.runs(status="failed", limit=5)
+            >>> failed = page.items[0] if page.items else None
+
+        Constraints:
+            Reads only exact current-schema state and never resumes or retries a Run.
         """
-        return _read_frame_summary_page(
-            store=self._store,
-            project_root=self._project_root,
-            session_id=self.id,
-            kind=kind,
-            evidence_status=evidence_status,
+        from marivo.analysis.session._runtime_reads import SessionRuntimeReads
+
+        return SessionRuntimeReads(self).runs(
+            status=status,
+            capability_id=capability_id,
             limit=limit,
             cursor=cursor,
+        )
+
+    def get_run(self, run_id: str) -> RunRecord:
+        """Return one exact immutable Run record.
+
+        Args:
+            run_id: Exact Run identity from ``runs()`` or ``graph()``.
+
+        Returns:
+            One :class:`IncompleteRun`, :class:`SucceededRun`, or :class:`FailedRun`.
+
+        Example:
+            >>> run = session.get_run("run_01")
+            >>> run.show()
+
+        Constraints:
+            Unknown ids fail structurally; no implicit latest Run is selected.
+        """
+        from marivo.analysis.session._runtime_reads import SessionRuntimeReads
+
+        return SessionRuntimeReads(self).get_run(run_id)
+
+    def artifact(self, ref: str) -> BaseFrame:
+        """Load one exact committed Artifact owned by this Session.
+
+        Args:
+            ref: Exact Artifact ref from a Run, graph, or Session recap.
+
+        Returns:
+            The concrete immutable :class:`BaseFrame` subtype for that Artifact.
+
+        Example:
+            >>> artifact = session.artifact("artifact_01")
+            >>> artifact.show()
+
+        Constraints:
+            The ref must belong to this exact current-schema Session.
+        """
+        from marivo.analysis.session._runtime_reads import SessionRuntimeReads
+
+        return SessionRuntimeReads(self).artifact(ref)
+
+    def revalidate(self, ref: str) -> ArtifactRevalidation:
+        """Revalidate one exact Artifact against current authority and Evidence.
+
+        Args:
+            ref: Exact Artifact ref owned by this Session.
+
+        Returns:
+            An ephemeral immutable :class:`ArtifactRevalidation` result.
+
+        Example:
+            >>> result = session.revalidate("artifact_01")
+            >>> result.show()
+
+        Constraints:
+            Revalidation is read-only and does not establish datasource freshness or
+            business validity.
+        """
+        from marivo.analysis.session._runtime_reads import SessionRuntimeReads
+
+        return SessionRuntimeReads(self).revalidate(ref)
+
+    def graph(
+        self,
+        *,
+        artifact_ref: str | None = None,
+        direction: GraphDirection = "ancestors",
+        max_nodes: int = 100,
+    ) -> SessionGraph:
+        """Project a bounded factual Run/Artifact graph for this Session.
+
+        Args:
+            artifact_ref: Optional exact focus Artifact; omit for the overall graph.
+            direction: ``"ancestors"`` or, with a focus, ``"descendants"``.
+            max_nodes: Maximum retained Run and Artifact nodes, from 1 through 500.
+
+        Returns:
+            An immutable :class:`SessionGraph` with explicit truncation boundaries.
+
+        Example:
+            >>> graph = session.graph(
+            ...     artifact_ref="artifact_01", direction="ancestors", max_nodes=100
+            ... )
+
+        Constraints:
+            Graphs contain persisted runtime facts only; they do not read Findings,
+            infer semantic authority, or check datasource freshness.
+        """
+        from marivo.analysis.session._runtime_reads import SessionRuntimeReads
+
+        return SessionRuntimeReads(self).graph(
+            artifact_ref=artifact_ref,
+            direction=direction,
+            max_nodes=max_nodes,
         )
 
     def close(self) -> None:
@@ -728,11 +565,6 @@ class Session(RenderableResult):
             return None
         self._judgment_store = store
         return store
-
-    @property
-    def evidence(self) -> EvidenceNamespace:
-        """Return Surface 3 evidence lookup helpers."""
-        return EvidenceNamespace(self)
 
     @property
     def discover(self) -> SessionDiscoverNamespace:
@@ -2921,157 +2753,3 @@ class SessionDiscoverNamespace:
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )
-
-
-@dataclass(frozen=True)
-class EvidenceNamespace:
-    """Session-scoped Surface 3 evidence object lookups."""
-
-    _session: Session
-
-    def findings(
-        self,
-        *,
-        kind: str | None = None,
-        artifact_ref: str | None = None,
-        subject: Any = None,
-        limit: int = 50,
-        cursor: str | None = None,
-    ) -> FindingPage:
-        """Return one bounded newest-first page of canonical findings.
-
-        Guidance:
-            ``limit`` is bounded to [1, 100] and defaults to 50. The returned
-            page exposes immutable ``items``, ``limit``, ``has_more``, and
-            ``next_cursor``; when ``has_more`` is True, pass ``next_cursor`` back
-            as ``cursor`` to read the next newest-first page. An out-of-range
-            ``limit`` raises ``EvidenceLimitError`` with the expected range and a
-            copyable repair.
-
-        Example:
-            page = session.evidence.findings(artifact_ref=artifact.ref, limit=50)
-            page.show()
-            page.show(language="zh")
-            next_page = session.evidence.findings(
-                artifact_ref=artifact.ref, limit=50, cursor=page.next_cursor
-            )
-        """
-        from marivo.analysis.evidence.audit import query_findings
-
-        return query_findings(
-            store=self._require_store(),
-            session_id=self._session.id,
-            kind=kind,
-            artifact_ref=artifact_ref,
-            subject=subject,
-            limit=limit,
-            cursor=cursor,
-        )
-
-    def digests(
-        self,
-        *,
-        operator: str | None = None,
-        subject: Any = None,
-        limit: int = 10,
-        cursor: str | None = None,
-    ) -> ArtifactDigestPage:
-        """Return one bounded newest-first page of persisted digest snapshots.
-
-        Guidance:
-            ``limit`` is bounded to [1, 100] and defaults to 10. The returned
-            page exposes immutable ``items``, ``limit``, ``has_more``, and
-            ``next_cursor``; pass ``next_cursor`` back as ``cursor`` to page. An
-            out-of-range ``limit`` raises ``EvidenceLimitError`` with the expected
-            range and a copyable repair.
-
-        Example:
-            page = session.evidence.digests(operator="compare", limit=10)
-            print(page.has_more, page.next_cursor)
-            next_page = session.evidence.digests(limit=10, cursor=page.next_cursor)
-        """
-        from marivo.analysis.evidence.audit import query_digests
-
-        return query_digests(
-            store=self._require_store(),
-            session_id=self._session.id,
-            operator=operator,
-            subject=subject,
-            limit=limit,
-            cursor=cursor,
-        )
-
-    def digest(self, artifact_ref: str) -> ArtifactDigest:
-        """Return the exact persisted digest for one artifact.
-
-        Example:
-            digest = session.evidence.digest(artifact.ref)
-            digest.show()
-        """
-        from marivo.analysis.evidence.audit import get_digest
-
-        return get_digest(store=self._require_store(), artifact_ref=artifact_ref)
-
-    def finding(self, finding_id: str) -> Finding:
-        """Return one canonical typed finding by identity.
-
-        Example:
-            finding = session.evidence.finding(finding_id)
-            finding.show()
-            finding.show(language="zh")
-        """
-        from marivo.analysis.evidence.audit import get_finding
-
-        return get_finding(store=self._require_store(), finding_id=finding_id)
-
-    def trace(self, finding_id: str) -> EvidenceDerivationTrace:
-        """Trace one finding to its source fields and retained digest items.
-
-        Example:
-            trace = session.evidence.trace(finding_id)
-            print(trace.derivation.rule_id, trace.source_fields)
-        """
-        from marivo.analysis.evidence.audit import build_evidence_trace
-
-        return build_evidence_trace(store=self._require_store(), finding_id=finding_id)
-
-    def compatibility(self, finding_ids: Sequence[str]) -> EvidenceCompatibility:
-        """Check one canonical Finding selection for mechanical compatibility.
-
-        Args:
-            finding_ids: Between one and twenty unique Finding identities from
-                this Session. Input order has no semantic meaning.
-
-        Returns:
-            An immutable bounded compatibility result covering every Finding
-            and Finding pair.
-
-        Example:
-            compatibility = session.evidence.compatibility(
-                finding_ids=[finding_a.finding_id, finding_b.finding_id],
-            )
-            compatibility.show()
-
-        Constraints:
-            This check does not judge intended use, causality, importance, or
-            datasource freshness. Invalid selections and corrupted canonical
-            evidence fail with structured analysis errors.
-        """
-        from marivo.analysis._evidence_compatibility import evaluate_compatibility
-
-        return evaluate_compatibility(
-            session=self._session,
-            store=self._require_store(),
-            finding_ids=finding_ids,
-        )
-
-    def _require_store(self) -> EvidenceStore:
-        from marivo.analysis.errors import EvidenceStoreUnavailableError
-
-        store = self._session._evidence_store()
-        if store is None:
-            raise EvidenceStoreUnavailableError(
-                message="evidence store is unavailable for this session",
-                context={"session_id": self._session.id},
-            )
-        return store

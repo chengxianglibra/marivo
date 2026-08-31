@@ -13,17 +13,15 @@ import pytest
 from pydantic import ValidationError
 
 import marivo.analysis as mv
-import marivo.analysis._artifact_integrity as artifact_integrity_module
 import marivo.analysis.evidence.pipeline as pipeline_module
 import marivo.semantic as ms
 from marivo._compat import UTC
 from marivo.analysis._artifact_revalidation import _evidence_satisfies_contract
 from marivo.analysis.errors import (
-    CrossSessionFrameError,
+    ArtifactNotFoundError,
     EvidenceIntegrityError,
     EvidenceStoreUnavailableError,
     FrameCacheCorruptedError,
-    FrameRefNotFound,
     SchemaVersionMismatchError,
 )
 from marivo.analysis.evidence.identity import canonical_json, make_issue_id
@@ -100,7 +98,7 @@ def _rewrite_evidence_state(
     status: Literal["complete", "partial", "unavailable"],
     issue: EvidenceAvailabilityIssue | None = None,
 ) -> None:
-    frame = session.get_frame(artifact_ref)
+    frame = session.artifact(artifact_ref)
     session_row = session._store.get_artifact(session.id, artifact_ref)
     assert session_row is not None
     meta_path = session.project_root / session_row["meta_path"]
@@ -177,7 +175,7 @@ def test_current_and_recovered_artifact_revalidation_is_stable_and_ephemeral(
 ) -> None:
     session = _session(tmp_path, monkeypatch)
     frame = _observe(session)
-    recovered = session.get_frame(frame.ref)
+    recovered = session.artifact(frame.ref)
     store = session._evidence_store()
     assert store is not None
     before = tuple(
@@ -189,8 +187,8 @@ def test_current_and_recovered_artifact_revalidation_is_stable_and_ephemeral(
         .fetchone()
     )
 
-    first = session.revalidate(frame)
-    second = session.revalidate(recovered)
+    first = session.revalidate(frame.ref)
+    second = session.revalidate(recovered.ref)
 
     assert isinstance(first, mv.ArtifactRevalidation)
     assert first.status == "admissible"
@@ -213,11 +211,11 @@ def test_current_and_recovered_artifact_revalidation_is_stable_and_ephemeral(
         .fetchone()
     )
     assert after == before
-    assert session.get_frame(frame.ref).meta == recovered.meta
+    assert session.artifact(frame.ref).meta == recovered.meta
 
     session.close()
     resumed = mv.session.resume(session.id, use_datasources=False)
-    cold = resumed.revalidate(resumed.get_frame(frame.ref))
+    cold = resumed.revalidate(frame.ref)
     assert cold.fingerprint == first.fingerprint
     assert cold.status == "admissible"
 
@@ -234,7 +232,7 @@ def test_unrelated_catalog_change_does_not_make_scoped_artifact_stale(
     )
     session._catalog = ms.load()
 
-    result = session.revalidate(frame)
+    result = session.revalidate(frame.ref)
 
     assert result.status == "admissible"
     assert result.semantic_status == "current"
@@ -252,7 +250,7 @@ def test_dependency_drift_is_stale_and_missing_authority_is_indeterminate(
     semantic_file.write_text(original.replace("amount.sum()", "amount.mean()"))
     session._catalog = ms.load()
 
-    stale = session.revalidate(frame)
+    stale = session.revalidate(frame.ref)
 
     assert stale.status == "stale"
     assert stale.semantic_status == "stale"
@@ -262,7 +260,7 @@ def test_dependency_drift_is_stale_and_missing_authority_is_indeterminate(
 
     semantic_file.write_text(original[: original.index("@ms.metric")])
     session._catalog = ms.load()
-    unknown = session.revalidate(frame)
+    unknown = session.revalidate(frame.ref)
 
     assert unknown.status == "indeterminate"
     assert unknown.semantic_status == "indeterminate"
@@ -281,7 +279,7 @@ def test_multi_source_delta_any_dependency_drift_is_stale(
     semantic_file.write_text(semantic_file.read_text().replace("amount.sum()", "amount.mean()"))
     session._catalog = ms.load()
 
-    result = session.revalidate(delta)
+    result = session.revalidate(delta.ref)
 
     assert result.status == "stale"
     assert result.semantic_status == "stale"
@@ -307,7 +305,7 @@ def test_healthy_negative_evidence_states_remain_results(
     issue = _availability_issue(frame.ref, severity=severity) if severity is not None else None
     _rewrite_evidence_state(session, frame.ref, status=status, issue=issue)
 
-    result = session.revalidate(session.get_frame(frame.ref))
+    result = session.revalidate(frame.ref)
 
     assert result.evidence_status == status
     assert result.status == expected_status
@@ -321,8 +319,8 @@ def test_store_unavailable_and_cross_session_fail_with_existing_typed_errors(
     frame = _observe(session)
     other = mv.session.get_or_create(name="other", use_datasources=False)
 
-    with pytest.raises(CrossSessionFrameError):
-        other.revalidate(frame)
+    with pytest.raises(ArtifactNotFoundError):
+        other.revalidate(frame.ref)
 
     store = session._evidence_store()
     assert store is not None
@@ -330,75 +328,7 @@ def test_store_unavailable_and_cross_session_fail_with_existing_typed_errors(
     session._judgment_store = None
     session._judgment_store_unavailable = True
     with pytest.raises(EvidenceStoreUnavailableError):
-        session.revalidate(frame)
-
-
-def test_committed_ledger_recovers_missing_session_store_registration(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    frame = _observe(session)
-    original_registration = session._store.get_artifact(session.id, frame.ref)
-    assert original_registration is not None
-    session._store.delete_artifact(session.id, frame.ref)
-    assert session._store.get_artifact(session.id, frame.ref) is None
-    original_validate = artifact_integrity_module.load_canonical_artifact_evidence
-    validation_observations: list[object | None] = []
-
-    def validate_before_publication(**kwargs):
-        validation_observations.append(session._store.get_artifact(session.id, frame.ref))
-        return original_validate(**kwargs)
-
-    monkeypatch.setattr(
-        artifact_integrity_module,
-        "load_canonical_artifact_evidence",
-        validate_before_publication,
-    )
-
-    recovered = session.get_frame(frame.ref)
-
-    registration = session._store.get_artifact(session.id, frame.ref)
-    assert registration is not None
-    assert validation_observations == [None]
-    assert registration["content_hash"] == frame.meta.content_hash
-    assert registration["created_at"] == original_registration["created_at"]
-    assert recovered.ref == frame.ref
-    assert session.revalidate(recovered).status == "admissible"
-
-
-def test_recovery_preserves_artifact_page_order(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    first = _observe(session, start="2026-07-01", end="2026-07-15")
-    _observe(session, start="2026-07-16", end="2026-07-31")
-    before = [
-        (row["artifact_id"], row["created_at"])
-        for row in session._store.page_artifacts(
-            session.id,
-            kind=None,
-            evidence_status=None,
-            limit=10,
-            after=None,
-        )
-    ]
-
-    session._store.delete_artifact(session.id, first.ref)
-    session.get_frame(first.ref)
-
-    after = [
-        (row["artifact_id"], row["created_at"])
-        for row in session._store.page_artifacts(
-            session.id,
-            kind=None,
-            evidence_status=None,
-            limit=10,
-            after=None,
-        )
-    ]
-    assert after == before
+        session.revalidate(frame.ref)
 
 
 def test_unavailable_retry_hides_stale_registration_before_complete_meta(
@@ -441,8 +371,8 @@ def test_unavailable_retry_hides_stale_registration_before_complete_meta(
         )
         registration = session._store.get_artifact(session.id, artifact_ref)
         observations.append((sidecar_status, ledger_rows, registration))
-        with pytest.raises(FrameRefNotFound):
-            session.get_frame(artifact_ref)
+        with pytest.raises(ArtifactNotFoundError):
+            session.artifact(artifact_ref)
         return original_insert(store, **kwargs)
 
     monkeypatch.setattr(pipeline_module, "_insert_projection", inspect_before_projection)
@@ -464,56 +394,6 @@ def test_unavailable_retry_hides_stale_registration_before_complete_meta(
     assert registration["evidence_status"] == "complete"
 
 
-def test_corrupt_recovery_marker_never_registers_artifact(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    frame = _observe(session)
-    session._store.delete_artifact(session.id, frame.ref)
-    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
-    meta_path.write_text("{interrupted")
-
-    with pytest.raises(FrameCacheCorruptedError):
-        session.get_frame(frame.ref)
-
-    assert session._store.get_artifact(session.id, frame.ref) is None
-
-
-def test_recovery_marker_rejects_non_current_evidence_schema(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    frame = _observe(session)
-    session._store.delete_artifact(session.id, frame.ref)
-    store = session._evidence_store()
-    assert store is not None
-    store.read().execute("PRAGMA user_version = 3")
-
-    with pytest.raises(SchemaVersionMismatchError):
-        session.get_frame(frame.ref)
-
-    assert session._store.get_artifact(session.id, frame.ref) is None
-
-
-def test_recovery_marker_rejects_complete_artifact_with_missing_findings(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    frame = _observe(session)
-    store = session._evidence_store()
-    assert store is not None
-    store.read().execute("DELETE FROM findings WHERE artifact_id = ?", (frame.ref,))
-    session._store.delete_artifact(session.id, frame.ref)
-
-    with pytest.raises(EvidenceIntegrityError):
-        session.get_frame(frame.ref)
-
-    assert session._store.get_artifact(session.id, frame.ref) is None
-
-
 def test_sidecar_ledger_and_content_corruption_fail_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -527,7 +407,7 @@ def test_sidecar_ledger_and_content_corruption_fail_closed(
         (frame.ref,),
     )
     with pytest.raises(EvidenceIntegrityError):
-        session.revalidate(frame)
+        session.revalidate(frame.ref)
 
     session = mv.session.get_or_create(
         name="content",
@@ -542,7 +422,7 @@ def test_sidecar_ledger_and_content_corruption_fail_closed(
     payload["content_hash"] = "sha256:tampered"
     meta_path.write_text(json.dumps(payload))
     with pytest.raises(FrameCacheCorruptedError):
-        session.revalidate(content_frame)
+        session.revalidate(content_frame.ref)
 
 
 def test_complete_digest_references_missing_findings_fail_closed(
@@ -565,7 +445,7 @@ def test_complete_digest_references_missing_findings_fail_closed(
     store.read().execute("DELETE FROM findings WHERE artifact_id = ?", (frame.ref,))
 
     with pytest.raises(EvidenceIntegrityError):
-        session.revalidate(frame)
+        session.revalidate(frame.ref)
 
 
 def test_derived_revalidation_rehashes_every_typed_source_artifact(
@@ -584,7 +464,7 @@ def test_derived_revalidation_rehashes_every_typed_source_artifact(
     source_data.to_parquet(source_path, index=False)
 
     with pytest.raises(EvidenceIntegrityError):
-        session.revalidate(delta)
+        session.revalidate(delta.ref)
 
 
 def test_linked_component_artifact_revalidates_as_healthy_unavailable(
@@ -606,7 +486,7 @@ def test_linked_component_artifact_revalidates_as_healthy_unavailable(
         is None
     )
 
-    result = session.revalidate(component)
+    result = session.revalidate(component.ref)
 
     assert result.status == "indeterminate"
     assert result.semantic_status == "current"
@@ -635,7 +515,7 @@ def test_linked_coverage_artifact_revalidates_as_healthy_unavailable(
     )
     coverage.meta = persist_frame(session, coverage)
 
-    result = session.revalidate(coverage)
+    result = session.revalidate(coverage.ref)
 
     assert result.status == "indeterminate"
     assert result.semantic_status == "current"
@@ -694,7 +574,7 @@ def test_evidence_ledger_mismatches_fail_closed(
             (frame.ref,),
         )
     with pytest.raises(EvidenceIntegrityError):
-        session.revalidate(frame)
+        session.revalidate(frame.ref)
 
 
 def test_evidence_schema_mismatch_is_stable_across_connection_lifecycle(
@@ -708,11 +588,11 @@ def test_evidence_schema_mismatch_is_stable_across_connection_lifecycle(
     store.read().execute("PRAGMA user_version = 3")
 
     with pytest.raises(SchemaVersionMismatchError):
-        session.revalidate(frame)
+        session.revalidate(frame.ref)
 
     session.close()
     with pytest.raises(SchemaVersionMismatchError):
-        session.revalidate(frame)
+        session.revalidate(frame.ref)
 
 
 def test_revalidation_does_not_access_datasource_runtime(
@@ -728,7 +608,7 @@ def test_revalidation_does_not_access_datasource_runtime(
 
     session._connection_runtime = _NoDatasourceAccess()
 
-    assert session.revalidate(frame).status == "admissible"
+    assert session.revalidate(frame.ref).status == "admissible"
 
 
 def test_partial_contract_requires_explicit_safe_warning_fallback() -> None:

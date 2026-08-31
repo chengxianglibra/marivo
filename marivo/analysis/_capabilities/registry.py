@@ -66,9 +66,9 @@ def _semantic_target(canonical_id: str) -> LiveHelpTarget:
 _ARTIFACT_EVIDENCE_TARGETS: tuple[LiveHelpTarget, ...] = tuple(
     _analysis_target(target)
     for target in (
-        "session.evidence.digest",
-        "session.evidence.findings",
-        "session.evidence.trace",
+        "artifact.findings",
+        "artifact.finding",
+        "session.revalidate",
     )
 )
 
@@ -150,30 +150,28 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
             canonical_id="evidence",
             summary=(
                 "Route by the Evidence identity or proof boundary being checked; "
-                "quality, compatibility, revalidation, and source freshness remain distinct."
+                "quality, revalidation, and source freshness remain distinct."
             ),
             render_class="decision_hub",
             members=(
                 _analysis_target("BaseFrame.show"),
-                _analysis_target("evidence.browse"),
-                _analysis_target("evidence.exact"),
-                _analysis_target("session.evidence.compatibility"),
+                _analysis_target("artifact.findings"),
+                _analysis_target("artifact.finding"),
                 _analysis_target("session.revalidate"),
             ),
         ),
         AnalysisNavigationTopic(
             canonical_id="runtime",
             summary=(
-                "Route persisted identities by Session name or id, Artifact ref, job id, "
-                "and exact Evidence id."
+                "Route persisted identities by Session name or id, Artifact ref, Run id, "
+                "and factual graph adjacency."
             ),
             render_class="decision_hub",
             members=(
                 _analysis_target("runtime.sessions"),
-                _analysis_target("runtime.artifacts"),
-                _analysis_target("runtime.jobs"),
-                _analysis_target("Session"),
-                _analysis_target("evidence"),
+                _analysis_target("session.graph"),
+                _analysis_target("session.artifact"),
+                _analysis_target("runtime.runs"),
             ),
         ),
     )
@@ -379,28 +377,6 @@ def _slice3_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
 
     return (
         AnalysisNavigationTopic(
-            canonical_id="evidence.browse",
-            summary=(
-                "Browse bounded persisted digest or Finding pages; a healthy empty page "
-                "is distinct from an unavailable Evidence store."
-            ),
-            render_class="navigation",
-            members=(
-                _analysis_target("session.evidence.digests"),
-                _analysis_target("session.evidence.findings"),
-            ),
-        ),
-        AnalysisNavigationTopic(
-            canonical_id="evidence.exact",
-            summary="Read one exact persisted digest, Finding, or derivation trace by identity.",
-            render_class="navigation",
-            members=(
-                _analysis_target("session.evidence.digest"),
-                _analysis_target("session.evidence.finding"),
-                _analysis_target("session.evidence.trace"),
-            ),
-        ),
-        AnalysisNavigationTopic(
             canonical_id="runtime.sessions",
             summary=(
                 "Create or locate Sessions by stable name and inspect or resume them by "
@@ -420,22 +396,12 @@ def _slice3_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
             ),
         ),
         AnalysisNavigationTopic(
-            canonical_id="runtime.artifacts",
-            summary="Find persisted Artifact summaries and recover one exact Artifact by ref.",
+            canonical_id="runtime.runs",
+            summary="Inspect bounded Run history or recover one exact immutable Run by id.",
             render_class="navigation",
             members=(
-                _analysis_target("session.frame_summaries"),
-                _analysis_target("session.get_frame"),
-            ),
-        ),
-        AnalysisNavigationTopic(
-            canonical_id="runtime.jobs",
-            summary="Inspect bounded job summaries or one exact persisted job by job id.",
-            render_class="navigation",
-            members=(
-                _analysis_target("session.jobs"),
-                _analysis_target("session.recent_jobs"),
-                _analysis_target("session.job"),
+                _analysis_target("session.runs"),
+                _analysis_target("session.get_run"),
             ),
         ),
     )
@@ -765,9 +731,8 @@ def _slice3_discovery_memberships(
         "evidence": tuple(
             _analysis_target(target)
             for target in (
-                "evidence.browse",
-                "evidence.exact",
-                "session.evidence.compatibility",
+                "artifact.findings",
+                "artifact.finding",
                 "session.revalidate",
             )
         ),
@@ -775,8 +740,9 @@ def _slice3_discovery_memberships(
             _analysis_target(target)
             for target in (
                 "runtime.sessions",
-                "runtime.artifacts",
-                "runtime.jobs",
+                "session.graph",
+                "session.artifact",
+                "runtime.runs",
             )
         ),
         "Session": (_analysis_target("Session.render"), _analysis_target("Session.show")),
@@ -797,11 +763,8 @@ def _slice3_discovery_memberships(
         "artifacts.discovery_inference",
         "artifacts.quality_projection",
         "artifacts.reading",
-        "evidence.browse",
-        "evidence.exact",
         "runtime.sessions",
-        "runtime.artifacts",
-        "runtime.jobs",
+        "runtime.runs",
     ):
         memberships[owner_id] = navigation_by_id[owner_id].members
     for owner_id, family in family_by_id.items():
@@ -830,7 +793,7 @@ def _slice3_cross_links() -> Mapping[str, tuple[LiveHelpTarget, ...]]:
                 _analysis_target("Session"),
                 _analysis_target("evidence"),
             ),
-            "runtime.artifacts": (_analysis_target("session.revalidate"),),
+            "session.artifact": (_analysis_target("session.revalidate"),),
         }
     )
 
@@ -926,7 +889,7 @@ SEMANTIC_HANDOFF_CONTRACTS: Mapping[SemanticKind, SemanticHandoffContract] = Map
 
 PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
-        "BaseFrame": ("show", "contract", "to_pandas"),
+        "BaseFrame": ("show", "contract", "findings", "finding", "to_pandas"),
         "MetricFrame": (
             "metric",
             "components",
@@ -975,6 +938,7 @@ PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "quality_summary",
             "evidence_status",
             "evidence_digest",
+            "finding_count",
             "state",
             "shape",
             "columns",
@@ -1072,7 +1036,6 @@ PUBLIC_OBJECT_CONTRACTS: Mapping[str, PublicObjectContract] = MappingProxyType(
                 "updated_at",
                 "report_tz_name",
                 "is_read_only",
-                "evidence",
                 "discover",
                 "events",
                 "lifecycle",
@@ -1081,7 +1044,6 @@ PUBLIC_OBJECT_CONTRACTS: Mapping[str, PublicObjectContract] = MappingProxyType(
         ),
         "SessionEvents": PublicObjectContract(),
         "SessionLifecycle": PublicObjectContract(),
-        "FrameSummaryEntry": PublicObjectContract(properties=("ref",)),
     }
 )
 
@@ -3097,43 +3059,36 @@ def _build_registry() -> CapabilityRegistry:
             )
         )
 
-    # -- Session job/frame reads ------------------------------------------
+    # -- Session Run/Artifact/Graph reads ---------------------------------
 
     session_read_specs: tuple[tuple[str, str, str, str, str], ...] = (
         (
-            "session.jobs",
-            "session.jobs()",
-            "session.jobs",
-            "Return lightweight summaries for every recorded job.",
-            "JobSummary",
+            "session.runs",
+            "session.runs(status=None, capability_id=None, limit=20, cursor=None)",
+            "session.runs",
+            "Return one bounded newest-first page of immutable Run records.",
+            "RunPage",
         ),
         (
-            "session.recent_jobs",
-            "session.recent_jobs(limit=5)",
-            "session.recent_jobs",
-            "Return the most recent job summaries.",
-            "JobSummary",
+            "session.get_run",
+            "session.get_run(run_id)",
+            "session.get_run",
+            "Return one exact immutable Run record.",
+            "IncompleteRun | SucceededRun | FailedRun",
         ),
         (
-            "session.job",
-            "session.job(job_id)",
-            "session.job",
-            "Return the full record for a single job.",
-            "dict",
-        ),
-        (
-            "session.frame_summaries",
-            "session.frame_summaries()",
-            "session.frame_summaries",
-            "Return rich metadata for each persisted frame.",
-            "FrameSummaryPage",
-        ),
-        (
-            "session.get_frame",
-            "session.get_frame(ref)",
-            "session.get_frame",
-            "Load a persisted frame by ref or artifact_id.",
+            "session.artifact",
+            "session.artifact(ref)",
+            "session.artifact",
+            "Load one exact committed Artifact by ref.",
             "BaseFrame",
+        ),
+        (
+            "session.graph",
+            "session.graph(artifact_ref=None, direction='ancestors', max_nodes=100)",
+            "session.graph",
+            "Project a bounded factual Run and Artifact graph.",
+            "SessionGraph",
         ),
     )
 
@@ -3147,7 +3102,7 @@ def _build_registry() -> CapabilityRegistry:
                 summary=summary,
                 constraint_ids=(),
                 callable_path=f"marivo.analysis.session.core.Session.{method_name}",
-                identity_input="session_id_or_frame_ref",
+                identity_input="session_id_or_artifact_ref_or_run_id",
                 restored_family=restored,
                 query_behavior="none",
             )
@@ -3156,7 +3111,7 @@ def _build_registry() -> CapabilityRegistry:
     descriptors.append(
         ReadCapability(
             id="session.revalidate",
-            public_entrypoint="session.revalidate(frame)",
+            public_entrypoint="session.revalidate(ref)",
             help_target="session.revalidate",
             summary=(
                 "Revalidate one committed Artifact against current semantic authority "
@@ -3171,44 +3126,20 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
-    # -- Evidence namespace reads -----------------------------------------
+    # -- Artifact-owned Finding reads -------------------------------------
 
     evidence_specs: tuple[tuple[str, str, str, str], ...] = (
         (
-            "session.evidence.compatibility",
-            "session.evidence.compatibility(finding_ids=[...])",
-            "session.evidence.compatibility",
-            "Check one canonical Finding selection for mechanical compatibility.",
+            "artifact.findings",
+            "artifact.findings(limit=20, cursor=None)",
+            "artifact.findings",
+            "Return one bounded page of Findings owned by this Artifact.",
         ),
         (
-            "session.evidence.digests",
-            "session.evidence.digests(...) ",
-            "session.evidence.digests",
-            "Return a bounded newest-first page of persisted artifact digests.",
-        ),
-        (
-            "session.evidence.findings",
-            "session.evidence.findings(...)",
-            "session.evidence.findings",
-            "Return Surface 3 findings for this session.",
-        ),
-        (
-            "session.evidence.finding",
-            "session.evidence.finding(id)",
-            "session.evidence.finding",
-            "Return one canonical typed finding by identity.",
-        ),
-        (
-            "session.evidence.digest",
-            "session.evidence.digest(artifact_ref)",
-            "session.evidence.digest",
-            "Return one persisted artifact digest by identity.",
-        ),
-        (
-            "session.evidence.trace",
-            "session.evidence.trace(id)",
-            "session.evidence.trace",
-            "Trace one finding to its source fields and retained digest items.",
+            "artifact.finding",
+            "artifact.finding(finding_id)",
+            "artifact.finding",
+            "Return one exact Finding owned by this Artifact.",
         ),
     )
 
@@ -3221,13 +3152,11 @@ def _build_registry() -> CapabilityRegistry:
                 help_target=target,
                 summary=summary,
                 constraint_ids=(),
-                callable_path=f"marivo.analysis.session.core.EvidenceNamespace.{method_name}",
-                receiver_family="EvidenceNamespace",
+                callable_path=f"marivo.analysis.frames.base.BaseFrame.{method_name}",
+                receiver_family="BaseFrame",
                 result_kind="immutable_metadata",
                 read_bound="bounded",
-                output_type=(
-                    "EvidenceCompatibility" if cap_id == "session.evidence.compatibility" else ""
-                ),
+                output_type="FindingPage" if method_name == "findings" else "Finding",
             )
         )
 
@@ -3801,7 +3730,7 @@ def _derive_cross_links(
             (
                 _analysis_target("artifacts.reading"),
                 *routed_algebra_values,
-                _analysis_target("session.get_frame"),
+                _analysis_target("session.artifact"),
             ),
         )
 

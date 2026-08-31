@@ -135,7 +135,7 @@ ANALYSIS_PUBLIC = {
     "AnalysisScope",
     "AnomalyCandidate",
     "ArtifactDigest",
-    "ArtifactDigestPage",
+    "ArtifactSummary",
     "ArtifactIssue",
     "ArtifactRevalidation",
     "AssociationFact",
@@ -151,12 +151,8 @@ ANALYSIS_PUBLIC = {
     "DriverAxisSelection",
     "DroppedBefore",
     "EvidenceAvailabilityIssue",
-    "EvidenceCompatibility",
-    "EvidenceCompatibilityIssue",
-    "EvidenceDerivationTrace",
     "EvidenceIntegrityError",
     "EvidenceRuleIssue",
-    "EvidenceSelectionError",
     "EventOccurrenceBounds",
     "EventFrame",
     "EventPattern",
@@ -165,10 +161,10 @@ ANALYSIS_PUBLIC = {
     "EveryStart",
     "Finding",
     "FindingPage",
+    "IncompleteRun",
     "FirstPerSubject",
     "ForecastOutput",
-    "FrameSummaryEntry",
-    "FrameSummaryPage",
+    "FailedRun",
     "FunnelLossRate",
     "FromInception",
     "InState",
@@ -177,7 +173,10 @@ ANALYSIS_PUBLIC = {
     "PeriodShiftSelection",
     "PointAnomalySelection",
     "QualityCheckResult",
+    "RunPage",
+    "SessionGraph",
     "SliceSelection",
+    "SucceededRun",
     "TestDecision",
     "WindowSelection",
     "session",
@@ -339,5 +338,5 @@ def test_analysis_public_surface_keeps_session_summaries_not_frame_summaries() -
     assert not hasattr(ma, "FramePreview")
     assert not hasattr(ma, "AssociationResultSummary")
     assert not hasattr(ma, "QualityReportSummary")
-    assert hasattr(ma, "FrameSummaryEntry")
-    assert hasattr(ma, "JobSummary")
+    assert not hasattr(ma, "FrameSummaryEntry")
+    assert not hasattr(ma, "JobSummary")

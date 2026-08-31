@@ -89,12 +89,14 @@ def test_observe_compare_persist_graph_owned_distinct_basis(
             )
         }
     )
-    jobs_before = len(session.jobs())
+    jobs_before = len(session.runs(limit=100).items)
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     with pytest.raises(mv.errors.AttributionMaterializationError) as mismatch:
         session.attribute(delta, axes=[region])
     assert mismatch.value._context["recoverability_status"] == "basis_source_graph_mismatch"
-    assert len(session.jobs()) == jobs_before
+    assert len(session.runs(limit=100).items) == jobs_before + 1
+    failed = session.runs(status="failed", capability_id="attribute").items
+    assert failed[0].failure.error_type == "AttributionMaterializationError"
     delta.meta = original_meta
 
     delta.meta = original_meta.model_copy(

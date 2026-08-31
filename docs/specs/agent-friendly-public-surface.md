@@ -141,7 +141,7 @@ subject-labelled evidence; table columns and preview rows when tabular; exact
 omission/recovery detail; and the `available:` footer. The default read stops at
 the first of 50 rows or 8 KiB. Passing `max_output_bytes=None` preserves every
 row. Any omission reports `displayed`, `total`, and `omitted`, plus a copyable
-`session.get_frame('<ref>').to_pandas()` recovery call; data is never silently
+`session.artifact('<ref>').to_pandas()` recovery call; data is never silently
 omitted.
 
 Analysis cards use the real table header as the sole column display. Complete

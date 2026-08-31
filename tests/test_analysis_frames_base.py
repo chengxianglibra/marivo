@@ -366,9 +366,9 @@ def test_artifact_digest_contract_returns_structural_read_contract() -> None:
 
     assert isinstance(contract, DigestReadContract)
     assert contract.exact_reads == (
-        "session.evidence.digest('frame_abc')",
-        "session.evidence.findings(artifact_ref='frame_abc')",
-        "session.get_frame('frame_abc')",
+        "artifact = session.artifact('frame_abc')",
+        "page = artifact.findings(limit=20)",
+        "finding = artifact.finding('<finding_id>')",
     )
     assert "DigestReadContract" in repr(contract)
     assert "call .show()" in repr(contract)
@@ -430,9 +430,7 @@ def test_show_points_to_full_rows_when_digest_items_are_omitted():
 
     rendered = frame.render(max_output_bytes=None)
 
-    assert (
-        "evidence: items=1 omitted=3; recover=session.evidence.findings(artifact_ref='frame_abc')"
-    ) in rendered
+    assert ("evidence: items=1 omitted=3; recover=artifact.findings(limit=20)") in rendered
     assert "subject=sales.revenue" in rendered
     assert "full_distribution_not_in_digest" in rendered
 
@@ -442,8 +440,8 @@ def test_repr_and_show_are_bounded_agent_reads(capsys):
     # Artifact identity is exposed via ``ref`` only; there is no ``id`` alias.
     assert not hasattr(frame, "id")
     assert "call .show() to inspect" in repr(frame)
-    frame.show(max_output_bytes=300)
-    assert len(capsys.readouterr().out.encode()) <= 301
+    frame.show(max_output_bytes=400)
+    assert len(capsys.readouterr().out.encode()) <= 401
 
 
 def test_frame_default_preview_caps_at_50_rows_with_exact_recovery() -> None:
@@ -454,7 +452,7 @@ def test_frame_default_preview_caps_at_50_rows_with_exact_recovery() -> None:
     assert "\n49\n" in rendered
     assert "\n50\n" not in rendered
     assert "preview (displayed=50 total=53 omitted=3)" in rendered
-    assert "session.get_frame('frame_abc').to_pandas()" in rendered
+    assert "session.artifact('frame_abc').to_pandas()" in rendered
     assert "\n52\n" in frame.render(max_output_bytes=None)
 
 
@@ -545,7 +543,7 @@ def test_compute_quality_summary_coverage_uses_frame_report_tz(
     assert qs.coverage == pytest.approx(0.0)
     # report_tz must survive persistence/reload so summary stays consistent
     # with the check on later reads of the same artifact.
-    loaded = session.get_frame(frame.ref)
+    loaded = session.artifact(frame.ref)
     assert loaded.meta.report_tz == "UTC"
 
 

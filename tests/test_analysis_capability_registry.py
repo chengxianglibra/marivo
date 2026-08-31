@@ -213,9 +213,9 @@ def test_artifact_edges_preserve_output_and_admission_contracts() -> None:
 
 def test_slice2_cross_links_are_explicit_immutable_and_budgeted() -> None:
     assert tuple(target.canonical_id for target in REGISTRY.cross_links("artifacts.reading")) == (
-        "session.evidence.digest",
-        "session.evidence.findings",
-        "session.evidence.trace",
+        "artifact.findings",
+        "artifact.finding",
+        "session.revalidate",
         "boundary.to_pandas",
     )
     metric_routes = REGISTRY.cross_links("MetricFrame")
@@ -228,7 +228,7 @@ def test_slice2_cross_links_are_explicit_immutable_and_budgeted() -> None:
         "forecast",
         "discover",
         "boundary.to_pandas",
-        "session.get_frame",
+        "session.artifact",
     )
     assert len(metric_routes) <= REGISTRY.render_budget("public_type").max_outgoing_routes
     assert REGISTRY.cross_links("QualityReport") == ()
@@ -254,13 +254,14 @@ def test_slice2_discovery_owners_are_explicit_and_unique() -> None:
         "SamplingPolicy": "inputs",
         "MetricFrame": "artifacts.metric_change",
         "MetricFrame.coverage": "MetricFrame",
-        "session.evidence.compatibility": "evidence",
+        "artifact.findings": "evidence",
+        "artifact.finding": "evidence",
         "session.revalidate": "evidence",
-        "session.evidence.digests": "evidence.browse",
-        "session.evidence.trace": "evidence.exact",
         "session.get_or_create": "runtime.sessions",
-        "session.get_frame": "runtime.artifacts",
-        "session.job": "runtime.jobs",
+        "session.artifact": "runtime",
+        "session.graph": "runtime",
+        "session.runs": "runtime.runs",
+        "session.get_run": "runtime.runs",
         "boundary.to_pandas": "analysis",
     }
     for target, owner in expected.items():
@@ -303,21 +304,11 @@ def test_slice2_family_membership_is_exact_and_ordered() -> None:
 def test_slice3_evidence_and_runtime_membership_is_exact_and_ordered() -> None:
     expected = {
         "evidence": (
-            "evidence.browse",
-            "evidence.exact",
-            "session.evidence.compatibility",
+            "artifact.findings",
+            "artifact.finding",
             "session.revalidate",
         ),
-        "evidence.browse": (
-            "session.evidence.digests",
-            "session.evidence.findings",
-        ),
-        "evidence.exact": (
-            "session.evidence.digest",
-            "session.evidence.finding",
-            "session.evidence.trace",
-        ),
-        "runtime": ("runtime.sessions", "runtime.artifacts", "runtime.jobs"),
+        "runtime": ("runtime.sessions", "session.graph", "session.artifact", "runtime.runs"),
         "runtime.sessions": (
             "session.get_or_create",
             "session.current",
@@ -326,8 +317,7 @@ def test_slice3_evidence_and_runtime_membership_is_exact_and_ordered() -> None:
             "session.resume",
             "session.delete",
         ),
-        "runtime.artifacts": ("session.frame_summaries", "session.get_frame"),
-        "runtime.jobs": ("session.jobs", "session.recent_jobs", "session.job"),
+        "runtime.runs": ("session.runs", "session.get_run"),
     }
     for owner, members in expected.items():
         assert tuple(target.canonical_id for target in REGISTRY.discovery_members(owner)) == members
@@ -341,18 +331,11 @@ def test_slice3_cross_links_are_explicit_immutable_and_budgeted() -> None:
         "Session",
         "evidence",
     )
-    assert tuple(target.canonical_id for target in REGISTRY.cross_links("runtime.artifacts")) == (
-        "session.revalidate",
-    )
-
     for owner in (
         "evidence",
-        "evidence.browse",
-        "evidence.exact",
         "runtime",
         "runtime.sessions",
-        "runtime.artifacts",
-        "runtime.jobs",
+        "runtime.runs",
     ):
         descriptor = REGISTRY.by_help_target(owner)
         routes = {
@@ -608,7 +591,7 @@ def test_read_capability_defaults() -> None:
 def test_recovery_capability_defaults() -> None:
     cap = RecoveryCapability(
         id="recovery.test",
-        public_entrypoint="session.get_frame()",
+        public_entrypoint="session.artifact()",
         help_target="test",
         summary="test recovery",
     )
@@ -1568,23 +1551,20 @@ def test_session_recovery_methods_registered() -> None:
         "session.recent",
         "session.inspect",
         "session.delete",
-        "session.jobs",
-        "session.recent_jobs",
-        "session.job",
-        "session.frame_summaries",
-        "session.get_frame",
+        "session.runs",
+        "session.get_run",
+        "session.artifact",
+        "session.graph",
     ):
         assert expected in ids, f"missing recovery/read id: {expected}"
 
 
-def test_session_evidence_methods_registered() -> None:
+def test_artifact_evidence_methods_registered() -> None:
     ids = set(REGISTRY.capability_ids)
     for expected in (
-        "session.evidence.findings",
-        "session.evidence.digests",
-        "session.evidence.digest",
-        "session.evidence.finding",
-        "session.evidence.trace",
+        "artifact.findings",
+        "artifact.finding",
+        "session.revalidate",
     ):
         assert expected in ids, f"missing evidence id: {expected}"
 
@@ -1622,12 +1602,9 @@ def test_native_navigation_descriptors_exist() -> None:
         "lifecycle",
         "artifacts",
         "evidence",
-        "evidence.browse",
-        "evidence.exact",
         "runtime",
         "runtime.sessions",
-        "runtime.artifacts",
-        "runtime.jobs",
+        "runtime.runs",
     ):
         desc = REGISTRY.by_help_target(topic)
         assert desc is not None, f"missing navigation descriptor for {topic}"
@@ -1642,12 +1619,9 @@ def test_native_navigation_descriptors_are_not_invokable() -> None:
         "lifecycle",
         "artifacts",
         "evidence",
-        "evidence.browse",
-        "evidence.exact",
         "runtime",
         "runtime.sessions",
-        "runtime.artifacts",
-        "runtime.jobs",
+        "runtime.runs",
     ):
         desc = REGISTRY.by_help_target(topic)
         assert desc.callable_path is None, f"{topic} navigation must not be invokable"
@@ -1835,6 +1809,8 @@ def test_frame_methods_allowlist_matches_registered() -> None:
     # BaseFrame.to_pandas is registered as boundary.to_pandas (terminal exit).
     id_aliases: Mapping[str, str] = {
         "BaseFrame.to_pandas": "boundary.to_pandas",
+        "BaseFrame.findings": "artifact.findings",
+        "BaseFrame.finding": "artifact.finding",
     }
 
     for class_name, method_names in PUBLIC_FRAME_METHODS.items():

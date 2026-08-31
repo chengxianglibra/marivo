@@ -83,7 +83,7 @@ def test_observe_uses_global_datasource_name(tmp_path: Path, fake_home: Path) ->
     assert frame.to_pandas().iloc[0, 0] == 10.0
     # The observe succeeded using the global datasource, meaning the frame
     # is persisted and loadable from the store.
-    assert session.get_frame(frame.ref) is not None
+    assert session.artifact(frame.ref) is not None
 
 
 def test_model_qualified_datasource_name_is_rejected(tmp_path: Path, fake_home: Path) -> None:

@@ -115,10 +115,7 @@ operator-local read model; it never performs cross-artifact judgment. A
    Finding
    ArtifactDigest
    ArtifactRevalidation
-   EvidenceCompatibility
-   EvidenceCompatibilityIssue
    EvidenceRuleIssue
-   EvidenceDerivationTrace
    AnalysisScope
    ObservationFact
    ChangeFact
@@ -144,10 +141,8 @@ isolation.
    :toctree: api/
    :nosignatures:
 
-   FrameSummaryPage
-   FrameSummaryEntry
-   ArtifactDigestPage
    FindingPage
+   RunPage
 
 Scopes and windows
 ------------------
@@ -236,8 +231,8 @@ Refs and lineage
    Lineage
    LineageStep
 
-Session and jobs
-----------------
+Session runtime
+---------------
 
 .. autosummary::
    :toctree: api/
@@ -245,7 +240,11 @@ Session and jobs
 
    Session
    SessionSummary
-   JobSummary
+   SessionGraph
+   ArtifactSummary
+   IncompleteRun
+   SucceededRun
+   FailedRun
 
 Alignment and window helpers
 ----------------------------

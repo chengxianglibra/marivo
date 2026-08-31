@@ -83,7 +83,7 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "catalog.readiness",
         "artifacts.reading",
         "artifacts.quality_projection",
-        "runtime.artifacts",
+        "session.artifact",
         "runtime.sessions",
         "boundary.to_pandas",
         "alignment",

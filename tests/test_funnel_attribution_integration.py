@@ -23,6 +23,7 @@ from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.intents.funnel_attribute import attribute_funnel
 from marivo.introspection.live.model import LiveHelpTarget
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import (
     analysis_persistence_snapshot,
     grouped_two_scope_funnel_frames,
@@ -503,15 +504,14 @@ def test_attribution_job_timestamps_bracket_materialization(
         axes=[acquisition_channel_entry],
         target=mv.funnel_loss_rate(step=payment_step),
     )
-    job = funnel_session.job(drivers.meta.produced_by_job)
+    job = funnel_session.get_run(drivers.meta.produced_by_job)
 
-    assert datetime.fromisoformat(job["started_at"]) <= observed["computed_at"]
-    assert observed["computed_at"] <= datetime.fromisoformat(job["finished_at"])
-    assert drivers.meta.created_at == datetime.fromisoformat(job["finished_at"])
-    assert "event_journey" not in job
-    assert job["funnel_attribution"]["artifact_ref"] == drivers.ref
-    assert job["funnel_attribution"]["source_delta_ref"] == delta.ref
-    assert job["funnel_attribution"]["target"]["step"]["key"] == payment_step.key
+    assert job.started_at <= observed["computed_at"]
+    assert observed["computed_at"] <= job.finished_at
+    assert drivers.meta.created_at == job.finished_at
+    arguments = run_arguments(job)
+    assert arguments["source_delta_ref"] == delta.ref
+    assert arguments["target"]["step"]["key"] == payment_step.key
 
 
 @pytest.mark.parametrize(
@@ -542,7 +542,7 @@ def test_attribution_rolls_back_new_output_on_late_failure(
         )
 
     assert analysis_persistence_snapshot(funnel_session) == before
-    assert funnel_session.get_frame(delta.meta.artifact_id or delta.ref).ref == delta.ref
+    assert funnel_session.artifact(delta.meta.artifact_id or delta.ref).ref == delta.ref
 
 
 def test_attribution_preserves_a_preexisting_output_on_late_failure(
@@ -576,7 +576,7 @@ def test_attribution_preserves_a_preexisting_output_on_late_failure(
         )
 
     assert analysis_persistence_snapshot(funnel_session) == before
-    recovered = funnel_session.get_frame(first.meta.artifact_id or first.ref)
+    recovered = funnel_session.artifact(first.meta.artifact_id or first.ref)
     assert recovered.to_pandas().equals(first.to_pandas())
 
 
@@ -628,17 +628,13 @@ def test_attribution_funnel_repeated_call_records_reused_invocation_job(
     )
 
     assert second.ref == first.ref
-    attribute_jobs = [
-        funnel_session.job(job.id)
-        for job in funnel_session.jobs()
-        if funnel_session.job(job.id).get("intent") == "attribute.funnel_loss_rate"
-    ]
-    assert {job.get("analysis_purpose") for job in attribute_jobs} >= {
+    attribute_runs = list(funnel_session.runs(capability_id="attribute", limit=100).items)
+    assert {run.analysis_purpose for run in attribute_runs} >= {
         "first attr purpose",
         "second attr purpose",
     }
-    reused_flags = [job.get("reused_artifact") for job in attribute_jobs]
-    assert reused_flags.count(True) == 1
-    assert reused_flags.count(False) == 1
-    reused = next(job for job in attribute_jobs if job.get("reused_artifact") is True)
-    assert reused["analysis_purpose"] == "second attr purpose"
+    modes = [run.output_mode for run in attribute_runs]
+    assert modes.count("reused") == 1
+    assert modes.count("produced") == 1
+    reused = next(run for run in attribute_runs if run.output_mode == "reused")
+    assert reused.analysis_purpose == "second attr purpose"

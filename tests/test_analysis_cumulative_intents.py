@@ -609,7 +609,7 @@ def test_compare_all_history_all_shapes_persist_exact_endpoint_evidence(
     )
 
     delta = compare(current, baseline, session=session)
-    recovered = session.get_frame(delta.ref)
+    recovered = session.artifact(delta.ref)
     recovered_df = recovered.to_pandas()
 
     assert recovered_df["delta"].tolist() == pytest.approx(expected_deltas)
@@ -618,7 +618,7 @@ def test_compare_all_history_all_shapes_persist_exact_endpoint_evidence(
     }
     assert CURRENT_EVALUATION_END_COLUMN in recovered_df
     assert BASELINE_EVALUATION_END_COLUMN in recovered_df
-    findings = session.evidence.findings(artifact_ref=delta.ref).items
+    findings = delta.findings().items
     assert len(findings) == len(recovered_df)
     expected_endpoint_pairs = sorted(
         (
@@ -702,7 +702,7 @@ def test_compare_all_history_drops_one_sided_and_retains_matched_null(
     invalid_pairs["matching_rows"] = invalid_pairs.pop("matched_rows")
     with pytest.raises(ValueError, match="matched_rows"):
         CumulativeDeltaFrameMetaV1.model_validate(invalid_meta)
-    finding = session.evidence.findings(artifact_ref=delta.ref).items[0]
+    finding = delta.findings().items[0]
     assert finding.value.presence is None
     assert finding.value.magnitude is None
     assert finding.value.matched_rows == 1
@@ -802,7 +802,7 @@ def test_compare_all_history_drops_one_sided_time_and_panel_coordinates(
     assert pair_info["matched_rows"] == 2
     assert pair_info["current_unpaired_rows"] == 0
     assert pair_info["baseline_unpaired_rows"] == 1
-    assert len(session.evidence.findings(artifact_ref=delta.ref).items) == 2
+    assert len(delta.findings().items) == 2
 
 
 def test_all_history_endpoint_order_is_stable_after_recovery(tmp_path, monkeypatch) -> None:
@@ -829,7 +829,7 @@ def test_all_history_endpoint_order_is_stable_after_recovery(tmp_path, monkeypat
     ):
         delta = compare(scalar(15.0, current_end), scalar(10.0, baseline_end), session=session)
         assert f"endpoint_order={expected}" in delta.render()
-        assert f"endpoint_order={expected}" in session.get_frame(delta.ref).render()
+        assert f"endpoint_order={expected}" in session.artifact(delta.ref).render()
 
     current = _all_history_shape_frame(
         session,
@@ -869,7 +869,7 @@ def test_all_history_endpoint_order_is_stable_after_recovery(tmp_path, monkeypat
     )
     mixed = compare(current, baseline, session=session)
     assert "endpoint_order=mixed" in mixed.render()
-    assert "endpoint_order=mixed" in session.get_frame(mixed.ref).render()
+    assert "endpoint_order=mixed" in session.artifact(mixed.ref).render()
 
 
 def test_compare_all_history_level_change_is_allowed(tmp_path, monkeypatch) -> None:
@@ -1652,7 +1652,7 @@ def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, mon
     assert rows["contribution"].tolist() == [pytest.approx(25.0)]
     assert rows["flow_interval_start"].tolist() == [pd.Timestamp("2026-07-03T00:00:00Z")]
     assert rows["flow_interval_end"].tolist() == [pd.Timestamp("2026-07-04T00:00:00Z")]
-    reloaded = session.get_frame(flow.ref)
+    reloaded = session.artifact(flow.ref)
     assert reloaded.meta.row_contract_version == "cumulative-flow-attribution-rows/v1"
     assert flow.quality_summary is not None
     assert flow.quality_summary.evaluated_check_count == 4

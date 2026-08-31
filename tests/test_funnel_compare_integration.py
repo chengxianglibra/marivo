@@ -33,6 +33,7 @@ from marivo.analysis.intents._event_funnel import (
 )
 from marivo.analysis.intents.funnel_compare import _COMPATIBILITY_FACETS
 from marivo.refs import RefPayloadV1
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import (
     analysis_persistence_snapshot,
     grouped_two_scope_funnel_frames,
@@ -127,10 +128,8 @@ def test_compare_persists_declared_completeness(funnel_session: Any) -> None:
 
     assert delta.meta.current_completeness == (declaration,)
     assert delta.meta.baseline_completeness == (declaration,)
-    job = funnel_session.job(delta.meta.produced_by_job)
-    assert job["funnel_comparison"]["current_completeness"][0]["kind"] == (
-        "declared_complete_through"
-    )
+    job = funnel_session.get_run(delta.meta.produced_by_job)
+    assert job.capability_id == "compare"
 
 
 def test_compare_rejects_a_caller_supplied_alignment(funnel_session: Any) -> None:
@@ -330,15 +329,14 @@ def test_compare_job_timestamps_bracket_delta_computation(
 
     monkeypatch.setattr(module, "build_funnel_delta", recording_build)
     delta = funnel_session.compare(current, baseline)
-    job = funnel_session.job(delta.meta.produced_by_job)
+    job = funnel_session.get_run(delta.meta.produced_by_job)
 
-    assert datetime.fromisoformat(job["started_at"]) <= observed["computed_at"]
-    assert observed["computed_at"] <= datetime.fromisoformat(job["finished_at"])
-    assert delta.meta.created_at == datetime.fromisoformat(job["finished_at"])
-    assert "event_reducer" not in job
-    assert job["funnel_comparison"]["artifact_ref"] == delta.ref
-    assert job["funnel_comparison"]["source_current_ref"] == current.ref
-    assert job["funnel_comparison"]["source_baseline_ref"] == baseline.ref
+    assert job.started_at <= observed["computed_at"]
+    assert observed["computed_at"] <= job.finished_at
+    assert delta.meta.created_at == job.finished_at
+    arguments = run_arguments(job)
+    assert arguments["source_current_ref"] == current.ref
+    assert arguments["source_baseline_ref"] == baseline.ref
 
 
 @pytest.mark.parametrize(
@@ -362,7 +360,7 @@ def test_compare_rolls_back_new_output_on_late_failure(
         funnel_session.compare(current, baseline)
 
     assert analysis_persistence_snapshot(funnel_session) == before
-    assert funnel_session.get_frame(current.meta.artifact_id or current.ref).ref == current.ref
+    assert funnel_session.artifact(current.meta.artifact_id or current.ref).ref == current.ref
 
 
 def test_compare_preserves_a_preexisting_output_on_late_failure(
@@ -384,7 +382,7 @@ def test_compare_preserves_a_preexisting_output_on_late_failure(
         funnel_session.compare(current, baseline)
 
     assert analysis_persistence_snapshot(funnel_session) == before
-    recovered = funnel_session.get_frame(first.meta.artifact_id or first.ref)
+    recovered = funnel_session.artifact(first.meta.artifact_id or first.ref)
     assert recovered.to_pandas().equals(first.to_pandas())
 
 
@@ -739,8 +737,8 @@ def test_cold_recovery_restores_funnel_variants(
 
     recovered = funnel_session_factory("funnel-cold-recovery")
     try:
-        cold_delta = recovered.get_frame(delta_ref)
-        cold_drivers = recovered.get_frame(drivers_ref)
+        cold_delta = recovered.artifact(delta_ref)
+        cold_drivers = recovered.artifact(drivers_ref)
         assert cold_delta.meta.semantic_kind == "funnel"
         assert cold_drivers.meta.semantic_kind == "funnel_loss_rate"
         assert cold_drivers.meta.target.step == payment_step
@@ -773,17 +771,15 @@ def test_compare_funnel_repeated_call_records_reused_invocation_job(
 
     assert second.ref == first.ref
     compare_purposes = {
-        funnel_session.job(job.id).get("analysis_purpose")
-        for job in funnel_session.jobs()
-        if funnel_session.job(job.id).get("intent") == "compare.funnel"
+        run.analysis_purpose
+        for run in funnel_session.runs(capability_id="compare", limit=100).items
     }
     assert "first funnel purpose" in compare_purposes
     assert "second funnel purpose" in compare_purposes
     reused = [
-        funnel_session.job(job.id)
-        for job in funnel_session.jobs()
-        if funnel_session.job(job.id).get("intent") == "compare.funnel"
-        and funnel_session.job(job.id).get("reused_artifact") is True
+        run
+        for run in funnel_session.runs(capability_id="compare", limit=100).items
+        if run.output_mode == "reused"
     ]
     assert len(reused) == 1
-    assert reused[0]["analysis_purpose"] == "second funnel purpose"
+    assert reused[0].analysis_purpose == "second funnel purpose"

@@ -81,10 +81,13 @@ def test_observe_collection_shorthand_uses_in_predicate(tmp_path, slice_value, e
             "value": {"op": "in", "value": expected_value},
         }
     ]
-    job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
-    record = session.job(job.id)
+    job = next(
+        item for item in session.runs(limit=100).items if item.output_artifact_ref == frame.ref
+    )
+    record = session.get_run(job.run_id)
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(100.0)
-    assert record["params"]["slice_predicates"] == expected_predicates
+    arguments = {argument.name: argument.value for argument in record.arguments}
+    assert arguments["slice_predicates"] == expected_predicates
     assert frame.meta.where == expected_where
 
 
@@ -101,10 +104,13 @@ def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
         session=session,
     )
 
-    job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
-    record = session.job(job.id)
+    job = next(
+        item for item in session.runs(limit=100).items if item.output_artifact_ref == frame.ref
+    )
+    record = session.get_run(job.run_id)
     expected = {"sales.orders.region": {"op": "in", "value": ["NORTH"]}}
-    assert record["params"]["slice_predicates"][0]["value"] == expected["sales.orders.region"]
+    arguments = {argument.name: argument.value for argument in record.arguments}
+    assert arguments["slice_predicates"][0]["value"] == expected["sales.orders.region"]
     assert frame.meta.where == expected
 
 
@@ -157,6 +163,6 @@ def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
             session=session,
         )
 
-    # No frames or jobs should be persisted since observe failed.
-    assert len(session.frame_summaries()) == 0
-    assert len(session.jobs()) == 0
+    # No Artifacts or Runs should be persisted since observe failed.
+    assert session.graph().artifacts == ()
+    assert session.runs(limit=100).items == ()

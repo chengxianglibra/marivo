@@ -26,6 +26,7 @@ from marivo.semantic.catalog import DerivedMetricDetails, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 
@@ -1025,10 +1026,10 @@ def test_observe_persists_job_and_frame(tmp_path):
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     mf = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
-    summaries = s.jobs()
+    summaries = s.runs(limit=100).items
     assert len(summaries) == 1
-    assert summaries[0].intent == "observe"
-    assert summaries[0].output_frame_ref == mf.ref
+    assert summaries[0].capability_id == "observe"
+    assert summaries[0].output_artifact_ref == mf.ref
     frame_dir = s._layout.frames_dir / mf.ref
     assert (frame_dir / "data.parquet").is_file()
     assert not (frame_dir / "quality.parquet").exists()
@@ -1057,26 +1058,26 @@ def test_observe_persists_job_and_frame(tmp_path):
     assert mf.meta.quality_summary.failed_check_count == 0
 
     assert list(s._layout.jobs_dir.glob("*.json")) == []
-    persisted_job = s.job(mf.meta.produced_by_job)
-    assert persisted_job["schema"] == "marivo.analysis_job/v2"
-    assert persisted_job["subject"]["metric_ref"]["path"] == "sales.revenue"
+    persisted_job = s.get_run(mf.meta.produced_by_job)
+    assert persisted_job.capability_id == "observe"
+    assert persisted_job.output_artifact_ref == mf.ref
+    arguments = run_arguments(persisted_job)
     assert {
         "semantic_model",
         "semantic_anchors",
         "metric_id",
         "metric_ids",
-    }.isdisjoint(persisted_job)
-    assert {"metric", "dimensions", "where"}.isdisjoint(persisted_job["params"])
+    }.isdisjoint(arguments)
 
-    loaded = s.get_frame(mf.ref)
+    loaded = s.artifact(mf.ref)
     assert loaded.meta.metric_id == "sales.revenue"
     assert loaded.meta.semantic_model == "sales"
     assert loaded.meta.axes == mf.meta.axes
     assert loaded.meta.where == mf.meta.where
     assert loaded.meta.quality_summary == mf.meta.quality_summary
     assert not hasattr(loaded, "quality_report")
-    jobs_before_read = len(s.jobs())
-    assert len(s.jobs()) == jobs_before_read
+    jobs_before_read = len(s.runs(limit=100).items)
+    assert len(s.runs(limit=100).items) == jobs_before_read
     component = mf.components()
     assert component is not None
 
@@ -1108,7 +1109,7 @@ def test_observe_frame_survives_reattach(tmp_path):
     mf = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     session_attach._reset_process_state()
     reattached = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-    loaded = reattached.get_frame(mf.ref)
+    loaded = reattached.artifact(mf.ref)
     assert loaded.ref == mf.ref
 
 

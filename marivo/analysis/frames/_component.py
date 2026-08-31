@@ -32,8 +32,8 @@ def _load_component_frame(
     (no composition, no ref) simply never had components.
     """
     from marivo.analysis.errors import (
+        ArtifactNotFoundError,
         ComponentFrameUnavailableError,
-        FrameRefNotFound,
     )
     from marivo.analysis.frames.component import ComponentFrame
     from marivo.analysis.session._load import load_frame
@@ -55,7 +55,7 @@ def _load_component_frame(
     session = resolve_frame_session(session_id, project_root)
     try:
         loaded = load_frame(component_ref, session=session)
-    except FrameRefNotFound as exc:
+    except ArtifactNotFoundError as exc:
         raise ComponentFrameUnavailableError(
             message=(
                 f"component frame referenced by this {parent_kind} is no longer "

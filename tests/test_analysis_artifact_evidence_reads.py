@@ -11,8 +11,6 @@ from marivo.analysis.errors import (
     EvidenceStoreUnavailableError,
     FindingNotFoundError,
 )
-from marivo.analysis.session._read_model import Finding, FindingPage
-from marivo.analysis.session._runtime_reads import SessionRuntimeReads
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import (
@@ -40,14 +38,13 @@ def test_artifact_findings_page_is_exact_bounded_and_carries_derivation(
     monkeypatch.chdir(tmp_path)
     connection, session, _, delta = _materialized_session(tmp_path)
     try:
-        reads = SessionRuntimeReads(session)
-        page = reads.findings(delta, limit=1)
+        page = delta.findings(limit=1)
 
-        assert isinstance(page, FindingPage)
+        assert isinstance(page, mv.FindingPage)
         assert len(page.items) == 1
         assert page.limit == 1
         finding = page.items[0]
-        assert isinstance(finding, Finding)
+        assert isinstance(finding, mv.Finding)
         assert finding.artifact_ref == delta.ref
         assert finding.session_id == session.id
         assert finding.source_artifact_ref == delta.ref
@@ -63,17 +60,16 @@ def test_artifact_finding_count_matches_complete_paged_read(tmp_path, monkeypatc
     monkeypatch.chdir(tmp_path)
     connection, session, _, delta = _materialized_session(tmp_path)
     try:
-        reads = SessionRuntimeReads(session)
-        page = reads.findings(delta, limit=1)
+        page = delta.findings(limit=1)
         findings = list(page.items)
         while page.has_more:
             assert page.next_cursor is not None
-            page = reads.findings(delta, limit=1, cursor=page.next_cursor)
+            page = delta.findings(limit=1, cursor=page.next_cursor)
             findings.extend(page.items)
 
-        assert len(findings) == delta.meta.finding_count
+        assert len(findings) == delta.finding_count
         assert len({finding.finding_id for finding in findings}) == len(findings)
-        assert reads.finding(delta, findings[0].finding_id) == findings[0]
+        assert delta.finding(findings[0].finding_id) == findings[0]
     finally:
         connection.disconnect()
         session_attach._reset_process_state()
@@ -83,11 +79,10 @@ def test_exact_finding_rejects_cross_artifact_ownership(tmp_path, monkeypatch) -
     monkeypatch.chdir(tmp_path)
     connection, session, metric, delta = _materialized_session(tmp_path)
     try:
-        reads = SessionRuntimeReads(session)
-        metric_finding = reads.findings(metric).items[0]
+        metric_finding = metric.findings().items[0]
 
         with pytest.raises(FindingNotFoundError) as exc_info:
-            reads.finding(delta, metric_finding.finding_id)
+            delta.finding(metric_finding.finding_id)
 
         assert exc_info.value.expected == "an exact Finding id owned by this Artifact"
         assert exc_info.value.location == "artifact.finding(finding_id)"
@@ -105,7 +100,7 @@ def test_artifact_finding_page_rejects_out_of_range_limit(tmp_path, monkeypatch,
     connection, session, _, delta = _materialized_session(tmp_path)
     try:
         with pytest.raises(EvidenceLimitError) as exc_info:
-            SessionRuntimeReads(session).findings(delta, limit=limit)
+            delta.findings(limit=limit)
         assert exc_info.value.location == "artifact.findings(...)"
     finally:
         connection.disconnect()
@@ -121,7 +116,7 @@ def test_missing_evidence_store_does_not_become_empty_page(tmp_path, monkeypatch
         judgment_path.rename(judgment_path.with_suffix(".unavailable"))
 
         with pytest.raises(EvidenceStoreUnavailableError):
-            SessionRuntimeReads(session).findings(delta)
+            delta.findings()
     finally:
         connection.disconnect()
         session_attach._reset_process_state()

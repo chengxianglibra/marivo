@@ -467,7 +467,7 @@ def test_in_state_subject_set_cold_recovers_with_identical_rows_and_selection(
         backends={"warehouse": lambda: backend},
     )
     try:
-        cold = reopened.get_frame(artifact_id)
+        cold = reopened.artifact(artifact_id)
 
         assert isinstance(cold, SubjectSet)
         assert cold.to_pandas().equals(warm_rows)

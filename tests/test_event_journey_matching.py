@@ -34,6 +34,7 @@ from marivo.analysis.intents.events import (
     _Occurrence,
     _ResolvedStep,
 )
+from tests.run_read_helpers import run_queries
 
 
 def _bootstrap_event_project(tmp_path: Any) -> None:
@@ -743,7 +744,7 @@ def test_session_events_match_materializes_persists_and_recovers(
         "complete": 2,
         "incomplete": 2,
     }
-    recovered = session.get_frame(frame.ref)
+    recovered = session.artifact(frame.ref)
     assert isinstance(recovered, mv.EventFrame)
     assert recovered.meta.model_dump(mode="json") == frame.meta.model_dump(mode="json")
     assert recovered.to_pandas().to_dict("records") == frame.to_pandas().to_dict("records")
@@ -897,11 +898,11 @@ def test_subject_set_scopes_event_match_and_metric_observe_before_reduction(
     assert subjects.meta.coverage_status == "ready"
     assert subjects.to_pandas()["subject_identity"].tolist() == [("u2",)]
     assert "u2" not in str(subjects.meta.model_dump(mode="json"))
-    subject_findings = session.evidence.findings(artifact_ref=subjects.ref).items
+    subject_findings = subjects.findings().items
     assert len(subject_findings) == 1
     assert subject_findings[0].value.value.shape == "subject_set"
-    assert "u2" not in subject_findings[0].model_dump_json()
-    recovered_subjects = session.get_frame(subjects.ref)
+    assert "u2" not in repr(subject_findings[0])
+    recovered_subjects = session.artifact(subjects.ref)
     assert isinstance(recovered_subjects, mv.SubjectSet)
     assert recovered_subjects.meta.model_dump(mode="json") == subjects.meta.model_dump(mode="json")
 
@@ -1189,11 +1190,11 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert journeys.meta.unused_event_count == 1
     assert journeys.meta.unused_event_counts_by_step["payment"] == 1
     assert funnel.meta.source_unused_event_count == 1
-    funnel_findings = session.evidence.findings(artifact_ref=funnel.ref).items
+    funnel_findings = funnel.findings().items
     assert len(funnel_findings) == 1
     assert funnel_findings[0].value.value.shape == "event_funnel"
     assert funnel_findings[0].value.value.source_unused_event_count == 1
-    assert "u1" not in funnel_findings[0].model_dump_json()
+    assert "u1" not in repr(funnel_findings[0])
     assert len(grouped_funnel.meta.axes) == 1
     assert grouped_funnel.meta.axes[0].relationship_path == ()
     assert grouped_funnel.meta.grouped_reconciliation.status == "pass"
@@ -1208,11 +1209,11 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     )
     forged_checks = {row["check_id"]: row for row in run_event_funnel_checks(forged_funnel)}
     assert forged_checks["event_funnel_reconciliation"]["severity"] == "blocking"
-    grouped_job = session.job(grouped_funnel.meta.produced_by_job)
-    assert len(grouped_job["queries"]) == 1
-    grouped_findings = session.evidence.findings(artifact_ref=grouped_funnel.ref).items
+    grouped_job = session.get_run(grouped_funnel.meta.produced_by_job)
+    assert len(run_queries(grouped_job)) == 1
+    grouped_findings = grouped_funnel.findings().items
     assert len(grouped_findings) == 1
-    assert "u1" not in grouped_findings[0].model_dump_json()
+    assert "u1" not in repr(grouped_findings[0])
 
     channel = session.catalog.require(ms.ref.dimension("commerce.users.acquisition_channel"))
     first_grouped = session.events.funnel(journeys, axes=[channel])
@@ -1225,11 +1226,11 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert duration_rows["completion_status"].tolist() == ["complete", "incomplete"]
     assert duration_rows.iloc[0]["duration"] == pd.Timedelta(hours=1)
     assert pd.isna(duration_rows.iloc[1]["duration"])
-    duration_findings = session.evidence.findings(artifact_ref=time_to_payment.ref).items
+    duration_findings = time_to_payment.findings().items
     assert len(duration_findings) == 1
     assert duration_findings[0].value.value.shape == "event_time_to_event"
     assert duration_findings[0].value.value.source_unused_end_count == 1
-    assert "u1" not in duration_findings[0].model_dump_json()
+    assert "u1" not in repr(duration_findings[0])
 
     grouped_duration_rows = grouped_time_to_payment.to_pandas().sort_values("subject_identity")
     assert grouped_time_to_payment.meta.axes[0].relationship_path == ()
@@ -1239,12 +1240,10 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert grouped_duration_rows["completion_status"].tolist() == ["complete", "incomplete"]
     assert grouped_duration_rows.iloc[0]["duration"] == pd.Timedelta(hours=1)
     assert pd.isna(grouped_duration_rows.iloc[1]["duration"])
-    grouped_duration_findings = session.evidence.findings(
-        artifact_ref=grouped_time_to_payment.ref
-    ).items
+    grouped_duration_findings = grouped_time_to_payment.findings().items
     assert len(grouped_duration_findings) == 1
     assert grouped_duration_findings[0].value.value.shape == "event_time_to_event"
-    assert "u1" not in grouped_duration_findings[0].model_dump_json()
+    assert "u1" not in repr(grouped_duration_findings[0])
 
     grouped_scope = compute_analysis_scope(grouped_time_to_payment)
     assert grouped_scope.kind == "event_time_to_event"
@@ -1264,7 +1263,7 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert not time_to_payment.contract().affordances
 
     for artifact in (funnel, grouped_funnel, time_to_payment, grouped_time_to_payment):
-        recovered = session.get_frame(artifact.ref)
+        recovered = session.artifact(artifact.ref)
         assert isinstance(recovered, mv.EventFrame)
         assert recovered.meta.model_dump(mode="json") == artifact.meta.model_dump(mode="json")
         assert recovered.quality_summary == artifact.quality_summary

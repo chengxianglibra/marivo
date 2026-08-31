@@ -171,16 +171,16 @@ Write later rounds as ordered `01_*.py`, `02_*.py`, and so on in the session's
 for one decision round. Apply a repair in a new step script rather than editing
 or re-executing an earlier one.
 
-Carry dependencies by exact artifact ref and restore them with
-`session.get_frame(ref)`. Do not share Python variables across rounds, import a
+Carry dependencies by exact Artifact ref and restore them with
+`session.artifact(ref)`. Do not share Python variables across rounds, import a
 prior script, select an implicit latest result, or repeat a successful
 observation merely to obtain a new artifact id. Label new operations with a
 concise `analysis_purpose` and show only artifacts produced in the current
 round.
 
-After restoring an old Artifact with `session.get_frame(ref)`, read
+After restoring an old Artifact with `session.artifact(ref)`, read
 `marivo.help("analysis.session.revalidate")` and run
-`session.revalidate(frame)` before treating it as current evidence. Continue
+`session.revalidate(ref)` before treating it as current evidence. Continue
 only when the result is admissible. Re-run a stale branch from its producing
 operator; stop and disclose an indeterminate branch until its authority or
 evidence can be restored. Revalidation proves persisted identity, current
@@ -196,19 +196,20 @@ use focused help to inspect that capability's requirement. Never treat
 commit-time compatibility.
 
 When resuming work, start with `marivo.help("analysis.runtime")`. Use
-`marivo.help("analysis.runtime.artifacts")` for bounded frame discovery and
-exact restoration, then use `marivo.help("analysis.evidence")` for persisted
-Evidence discovery and exact reads before loading supporting artifacts.
+bounded Run history to recover exact Artifact refs, then restore them with
+`session.artifact(ref)`. Use a focused Session graph when producer ancestry,
+descendant impact, branch heads, or failed and incomplete Runs matter; do not
+build lineage by joining private Store collections. Then use
+`marivo.help("analysis.evidence")` and the Artifact-owned Finding reads for
+persisted Evidence audit.
 Historical conclusions and chat or script summaries are navigation aids, not
 current evidence.
 
-Before combining two or more Findings, including Findings from the same
-artifact or analysis round, read
-`marivo.help("analysis.session.evidence.compatibility")` and run the public
-compatibility check over the exact Finding ids. Continue mechanical synthesis
-only when it is compatible. Split or repair an incompatible selection; stop and
-disclose an indeterminate selection instead of inferring through its unknown
-authority or rule boundary.
+Finding reads preserve exact derivation and retained digest membership, but do
+not combine Findings or prove business validity. Session graph and Run history
+are factual runtime projections: neither checks current semantic authority nor
+datasource freshness. Revalidate the exact Artifact for authority, and disclose
+freshness as unchecked unless a separate current source check establishes it.
 
 ### Structured repair and stopping
 

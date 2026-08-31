@@ -11,7 +11,7 @@ from marivo.analysis import errors as errors
 from marivo.analysis import runtime_metric as runtime_metric
 from marivo.analysis import session
 from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
-from marivo.analysis.errors import EvidenceIntegrityError, EvidenceSelectionError
+from marivo.analysis.errors import EvidenceIntegrityError
 from marivo.analysis.event import (
     CompletenessDeclaration,
     EventOccurrenceBounds,
@@ -31,7 +31,6 @@ from marivo.analysis.evidence import (
     AnalysisScope,
     AnomalyCandidate,
     ArtifactDigest,
-    ArtifactDigestPage,
     ArtifactIssue,
     ArtifactRevalidation,
     AssociationFact,
@@ -40,17 +39,13 @@ from marivo.analysis.evidence import (
     ContributionFact,
     DataQualityIssue,
     EvidenceAvailabilityIssue,
-    EvidenceCompatibility,
-    EvidenceCompatibilityIssue,
-    EvidenceDerivationTrace,
     EvidenceRuleIssue,
-    Finding,
-    FindingPage,
     ForecastOutput,
     ObservationFact,
     QualityCheckResult,
     TestDecision,
 )
+from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
 from marivo.analysis.frames.association import AssociationResult
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.base import (
@@ -101,13 +96,16 @@ from marivo.analysis.policies import (
     working_day_progress,
 )
 from marivo.analysis.refs import ArtifactRef
-from marivo.analysis.session._store import SessionSummary
-from marivo.analysis.session.core import (
-    FrameSummaryEntry,
-    FrameSummaryPage,
-    JobSummary,
-    Session,
+from marivo.analysis.session._read_model import (
+    ArtifactSummary,
+    FailedRun,
+    IncompleteRun,
+    RunPage,
+    SessionGraph,
+    SucceededRun,
 )
+from marivo.analysis.session._store import SessionSummary
+from marivo.analysis.session.core import Session
 from marivo.analysis.slice_types import (
     SlicePredicate,
     SlicePredicateOp,
@@ -199,10 +197,10 @@ __all__ = [
     "AnalysisScope",
     "AnomalyCandidate",
     "ArtifactDigest",
-    "ArtifactDigestPage",
     "ArtifactIssue",
     "ArtifactRef",
     "ArtifactRevalidation",
+    "ArtifactSummary",
     "AssociationFact",
     "AssociationResult",
     "AttributionFrame",
@@ -226,24 +224,20 @@ __all__ = [
     "EventWatermarkRequest",
     "EveryStart",
     "EvidenceAvailabilityIssue",
-    "EvidenceCompatibility",
-    "EvidenceCompatibilityIssue",
-    "EvidenceDerivationTrace",
     "EvidenceIntegrityError",
     "EvidenceRuleIssue",
-    "EvidenceSelectionError",
+    "FailedRun",
     "Finding",
     "FindingPage",
     "FirstPerSubject",
     "ForecastFrame",
     "ForecastOutput",
-    "FrameSummaryEntry",
-    "FrameSummaryPage",
     "FromInception",
     "FunnelLossRate",
     "Grain",
     "HypothesisTestResult",
     "InState",
+    "IncompleteRun",
     "LifecycleFrame",
     "MetricFrame",
     "ObservationFact",
@@ -252,9 +246,12 @@ __all__ = [
     "PeriodShiftSelection",
     "PointAnomalySelection",
     "QualityCheckResult",
+    "RunPage",
     "Session",
+    "SessionGraph",
     "SliceSelection",
     "SubjectSet",
+    "SucceededRun",
     "TestDecision",
     "TimeScope",
     "WindowSelection",

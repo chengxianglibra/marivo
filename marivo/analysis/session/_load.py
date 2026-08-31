@@ -22,11 +22,11 @@ from marivo.analysis.candidate_identity import (
 )
 from marivo.analysis.errors import (
     AnalysisRepair,
+    ArtifactNotFoundError,
     CrossSessionFrameError,
     EvidenceStoreUnavailableError,
     FrameCacheCorruptedError,
     FrameMetaInvalidError,
-    FrameRefNotFound,
     SchemaVersionMismatchError,
 )
 from marivo.analysis.evidence.store import EXPECTED_SCHEMA_VERSION
@@ -621,10 +621,7 @@ def load_frame(
     if artifact_row is None or _require_evidence_marker:
         recovery_marker = _evidence_recovery_marker(session, ref)
     if _require_evidence_marker and recovery_marker is None:
-        raise FrameRefNotFound(
-            message=f"artifact '{ref}' has no committed Evidence recovery marker",
-            context={"session_id": session.id, "ref": ref},
-        )
+        raise ArtifactNotFoundError.for_ref(ref)
     registered_content_hash: object | None
     if artifact_row is not None:
         # Use store-registered paths to locate the on-disk data.
@@ -638,10 +635,7 @@ def load_frame(
     else:
         # No index or committed evidence marker: unregistered files are orphans,
         # not loadable artifacts.
-        raise FrameRefNotFound(
-            message=f"no frame '{ref}' under session {session.id!r}",
-            context={"session_id": session.id, "ref": ref},
-        )
+        raise ArtifactNotFoundError.for_ref(ref)
     if not meta_path.is_file():
         raise FrameCacheCorruptedError(
             message=f"frame '{ref}' is committed but meta file is missing",
@@ -697,7 +691,18 @@ def load_frame(
         )
     kind = meta["kind"]
     if kind not in _FRAME_CLASSES:
-        raise FrameRefNotFound(message=f"unknown frame kind '{kind}' for ref '{ref}'")
+        raise FrameMetaInvalidError(
+            message=f"Artifact {ref!r} has an unsupported kind",
+            expected=f"one of {sorted(_FRAME_CLASSES)!r}",
+            received=str(kind),
+            location=f"Artifact {ref!r} kind",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action="Inspect the Artifact record, then regenerate it from its producing Run.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.artifact"),
+                snippet=f"session.artifact({ref!r})",
+            ),
+        )
     frame_cls, meta_cls = _FRAME_CLASSES[kind]
     if kind == "event_frame":
         semantic_kind = meta.get("semantic_kind")
@@ -1013,9 +1018,7 @@ def load_frame(
                         "that includes removed field(s). Re-run observe() to "
                         "regenerate the frame under the current contract."
                     ),
-                    help_target=LiveHelpTarget(
-                        surface="analysis", canonical_id="runtime.artifacts"
-                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="session.artifact"),
                 ),
             ) from exc
         raise FrameMetaInvalidError(
@@ -1028,7 +1031,7 @@ def load_frame(
                     "validation. Inspect the persisted artifact; if it is stale, "
                     "re-run the producing intent to regenerate it."
                 ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.artifacts"),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.artifact"),
             ),
             context={
                 "ref": ref,
@@ -1222,9 +1225,7 @@ def load_frame(
                         "hash. Re-run the producing intent to regenerate the "
                         "frame."
                     ),
-                    help_target=LiveHelpTarget(
-                        surface="analysis", canonical_id="runtime.artifacts"
-                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="session.artifact"),
                 ),
                 context={
                     "ref": ref,

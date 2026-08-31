@@ -46,21 +46,13 @@ def test_observe_analysis_purpose_round_trips_through_session_recovery(tmp_path)
     assert frame.lineage.steps[-1].analysis_purpose == purpose
     assert frame.lineage.steps[-1].params.get("analysis_purpose") is None
     assert "analysis_purpose" not in frame.lineage.steps[-1].params
-    assert session.get_frame(frame.ref).meta.analysis_purpose == purpose
+    assert session.artifact(frame.ref).meta.analysis_purpose == purpose
 
-    summaries = session.frame_summaries()
-    assert len(summaries) == 1
-    component_summaries = session.frame_summaries(kind="component_frame")
-    assert len(component_summaries) == 1
-    assert component_summaries[0].kind == "component_frame"
-    assert summaries[0].ref == frame.ref
-    assert summaries[0].analysis_purpose == purpose
-    assert purpose in summaries[0].render()
     assert purpose in frame.render()
 
-    job = session.job(frame.meta.produced_by_job or "")
-    assert job["analysis_purpose"] == purpose
-    assert "analysis_purpose" not in job["params"]
+    run = session.get_run(frame.meta.produced_by_job or "")
+    assert run.analysis_purpose == purpose
+    assert "analysis_purpose" not in {argument.name for argument in run.arguments}
 
 
 def test_analysis_purpose_propagates_to_core_discover_and_transform(tmp_path) -> None:
@@ -83,7 +75,7 @@ def test_analysis_purpose_propagates_to_core_discover_and_transform(tmp_path) ->
     )
     assert delta.meta.analysis_purpose == "quantify September revenue change vs August"
     assert delta.lineage.steps[-1].analysis_purpose == "quantify September revenue change vs August"
-    assert session.job(delta.meta.produced_by_job or "")["analysis_purpose"] == (
+    assert session.get_run(delta.meta.produced_by_job or "").analysis_purpose == (
         "quantify September revenue change vs August"
     )
 
@@ -168,11 +160,9 @@ def test_observe_repeated_call_records_each_invocation_purpose(tmp_path) -> None
     assert second.ref == first.ref
     assert second.meta.analysis_purpose == first.meta.analysis_purpose
 
-    # Every invocation must be recoverable through the job history API.
+    # Every invocation must be recoverable through the Run history API.
     purposes = {
-        session.job(job.id).get("analysis_purpose")
-        for job in session.jobs()
-        if session.job(job.id).get("intent") == "observe"
+        run.analysis_purpose for run in session.runs(capability_id="observe", limit=100).items
     }
     assert "confirm September revenue exceeds August" in purposes
     assert "audit the same window for reporting" in purposes
@@ -207,20 +197,16 @@ def test_attribute_repeated_call_records_reused_invocation_job(tmp_path) -> None
     assert second.meta.produced_by_job == first.meta.produced_by_job
 
     # Both invocations are recoverable, and the reused one is marked.
-    attribute_jobs = [
-        session.job(job.id)
-        for job in session.jobs()
-        if session.job(job.id).get("intent") == "attribute"
-    ]
-    assert {job.get("analysis_purpose") for job in attribute_jobs} >= {
+    attribute_runs = list(session.runs(capability_id="attribute", limit=100).items)
+    assert {run.analysis_purpose for run in attribute_runs} >= {
         "explain revenue change",
         "re-attribute for reporting",
     }
-    reused = [job for job in attribute_jobs if job.get("reused_artifact") is True]
+    reused = [run for run in attribute_runs if run.output_mode == "reused"]
     assert len(reused) == 1
-    assert reused[0]["analysis_purpose"] == "re-attribute for reporting"
+    assert reused[0].analysis_purpose == "re-attribute for reporting"
     # The reused job must reference the shared artifact, never a different one.
-    assert {job.get("output_frame_ref") for job in attribute_jobs} == {second.ref}
+    assert {run.output_artifact_ref for run in attribute_runs} == {second.ref}
 
 
 def test_compare_repeated_call_records_reused_invocation_job(tmp_path) -> None:
@@ -249,19 +235,15 @@ def test_compare_repeated_call_records_reused_invocation_job(tmp_path) -> None:
     assert second.meta.analysis_purpose == first.meta.analysis_purpose
     assert second.meta.produced_by_job == first.meta.produced_by_job
 
-    compare_jobs = [
-        session.job(job.id)
-        for job in session.jobs()
-        if session.job(job.id).get("intent") == "compare"
-    ]
-    assert {job.get("analysis_purpose") for job in compare_jobs} >= {
+    compare_runs = list(session.runs(capability_id="compare", limit=100).items)
+    assert {run.analysis_purpose for run in compare_runs} >= {
         "quantify September change",
         "re-compare for audit",
     }
-    reused = [job for job in compare_jobs if job.get("reused_artifact") is True]
+    reused = [run for run in compare_runs if run.output_mode == "reused"]
     assert len(reused) == 1
-    assert reused[0]["analysis_purpose"] == "re-compare for audit"
-    assert {job.get("output_frame_ref") for job in compare_jobs} == {second.ref}
+    assert reused[0].analysis_purpose == "re-compare for audit"
+    assert {run.output_artifact_ref for run in compare_runs} == {second.ref}
 
 
 def test_observe_multi_metric_repeated_call_records_each_purpose(tmp_path) -> None:
@@ -300,23 +282,12 @@ def test_observe_multi_metric_repeated_call_records_each_purpose(tmp_path) -> No
 
     assert second.ref == first.ref
     observe_purposes = {
-        session.job(job.id).get("analysis_purpose")
-        for job in session.jobs()
-        if session.job(job.id).get("intent") == "observe"
+        run.analysis_purpose for run in session.runs(capability_id="observe", limit=100).items
     }
     assert "compare revenue and orders" in observe_purposes
     assert "re-audit multi-metric report" in observe_purposes
-    reused = [
-        session.job(job.id)
-        for job in session.jobs()
-        if session.job(job.id).get("intent") == "observe"
-        and session.job(job.id).get("reused_artifact") is True
-    ]
+    observe_runs = session.runs(capability_id="observe", limit=100).items
+    reused = [run for run in observe_runs if run.output_mode == "reused"]
     assert len(reused) == 1
-    assert reused[0]["analysis_purpose"] == "re-audit multi-metric report"
-    # Every observe job reports reused_artifact explicitly.
-    assert all(
-        "reused_artifact" in session.job(job.id)
-        for job in session.jobs()
-        if session.job(job.id).get("intent") == "observe"
-    )
+    assert reused[0].analysis_purpose == "re-audit multi-metric report"
+    assert {run.output_mode for run in observe_runs} == {"produced", "reused"}

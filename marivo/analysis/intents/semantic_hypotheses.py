@@ -173,7 +173,7 @@ def _inherited_scope(
 ) -> InheritedObservationScope:
     if isinstance(source, MetricFrame):
         return _scope_from_metric_meta(source.meta)
-    current = session.get_frame(source.meta.source_current_ref)
+    current = session.artifact(source.meta.source_current_ref)
     if not isinstance(current, MetricFrame):
         raise MissingMetricLineageError(
             message="DeltaFrame current source is not a recoverable MetricFrame",

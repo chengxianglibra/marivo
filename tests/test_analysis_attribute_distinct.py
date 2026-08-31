@@ -195,9 +195,9 @@ def test_count_distinct_hierarchy_recomputes_each_prefix(
         ("sales.orders.region",),
         ("sales.orders.region", "sales.orders.channel"),
     ]
-    job_count = len(session.jobs())
+    job_count = len(session.runs(limit=100).items)
     region_rows = result.at_resolution(axes=[region])
-    assert len(session.jobs()) == job_count
+    assert len(session.runs(limit=100).items) == job_count
     assert region_rows.contract().is_canonical is False
     assert region_rows.contract().row_arithmetic == "additive_once_per_comparison_bucket"
     assert not any(
@@ -348,7 +348,7 @@ def test_count_distinct_panel_source_reconciles_each_comparison_bucket(
     assert current.meta.semantic_kind == "panel"
     assert rows.groupby("bucket_start")["contribution"].sum().tolist() == pytest.approx([0.0, 1.0])
     assert result.meta.bucket_column == "bucket_start"
-    reloaded = session.get_frame(result.ref)
+    reloaded = session.artifact(result.ref)
     assert reloaded.meta.semantic_kind == "panel"
     assert result.quality_summary is not None
     assert result.quality_summary.failed_check_count == 0

@@ -14,7 +14,7 @@ from marivo._temporal import (
 )
 from marivo.analysis.errors import (
     AttributionMaterializationError,
-    JobNotFoundError,
+    RunNotFoundError,
 )
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
@@ -307,7 +307,7 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
     cohort: SubjectSet | None = None
     if frame.meta.cohort is not None:
         try:
-            loaded_cohort = session.get_frame(frame.meta.cohort.artifact_ref)
+            loaded_cohort = session.artifact(frame.meta.cohort.artifact_ref)
         except Exception as exc:
             raise AttributionMaterializationError(
                 message="MetricFrame cohort artifact is unavailable for replay",
@@ -389,11 +389,10 @@ def _observe_params_from_job(frame: MetricFrame, *, session: Session) -> dict[st
     if not job_ref:
         return {}
     try:
-        record = session.job(job_ref)
-    except JobNotFoundError:
+        record = session.get_run(job_ref)
+    except RunNotFoundError:
         return {}
-    params = record.get("params") if isinstance(record, dict) else None
-    return dict(cast("dict[str, Any]", params)) if isinstance(params, dict) else {}
+    return {argument.name: argument.value for argument in record.arguments}
 
 
 def _dimension_ref(session: Session, semantic_id: str) -> Ref[FieldKind]:

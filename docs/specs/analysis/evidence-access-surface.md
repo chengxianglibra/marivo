@@ -99,8 +99,8 @@ Use the fallback references when:
 - the question requires causal, business-policy, or independent-review
   evidence outside the operator contract.
 
-The fallback is mechanical. It points to `session.evidence.findings(...)` and
-`session.get_frame(...)`; it does not recommend an analysis plan.
+The fallback is mechanical. It points to `artifact.findings()` and
+`session.artifact(...)`; it does not recommend an analysis plan.
 
 ## Artifact issues
 
@@ -130,111 +130,43 @@ scope:
 
 No scope variant exposes a `compatible_with()` method.
 
-## Session recovery and audit
+## Session recovery and Artifact audit
 
-Session reads are bounded by default:
+Runtime recovery begins with bounded Run history and exact Artifact refs:
 
 ```python
-frames = session.frame_summaries(
-    kind=None,
-    evidence_status=None,
-    limit=20,
-    cursor=None,
-)
-
-digests = session.evidence.digests(
-    operator=None,
-    subject=None,
-    limit=10,
-    cursor=None,
-)
-
-findings = session.evidence.findings(
-    kind=None,
-    artifact_ref=None,
-    subject=None,
-    limit=50,
-    cursor=None,
-)
+runs = session.runs(limit=20)
+run = session.get_run(runs.items[0].run_id)
+artifact = session.artifact(run.output_artifact_ref)
 ```
 
-These return `FrameSummaryPage`, `ArtifactDigestPage`, and `FindingPage`.
-Pages have immutable `items`, the requested `limit`, `has_more`, and an opaque
-`next_cursor`. To continue, pass `page.next_cursor` to the same method:
+`RunPage` is immutable, newest-first, and cursor-bounded. Each Run is exactly
+one of `IncompleteRun`, `SucceededRun`, or `FailedRun`; there is no generic
+public Run record and no job-shaped compatibility projection. When ancestry,
+descendant impact, heads, failures, or incomplete work matter, use the factual
+Session graph instead of joining private Store collections.
+
+Findings are owned and read by their Artifact:
 
 ```python
-page = session.evidence.digests(limit=10)
+page = artifact.findings(limit=20)
 if page.has_more:
-    next_page = session.evidence.digests(limit=10, cursor=page.next_cursor)
+    page = artifact.findings(limit=20, cursor=page.next_cursor)
+finding = artifact.finding(page.items[0].finding_id)
 ```
 
-Paging uses newest-first keyset order. It is not snapshot isolation: if the
-agent commits another artifact between pages, ordinary keyset behavior applies.
-The cursor is an opaque continuation token, not a durable cross-version query
-identity.
+`artifact.finding_count` is the exact committed count. Finding projection opens
+the ledger identified by the Artifact's immutable `project_root` and
+`session_id`; it does not retain a mutable Session handle. The Finding includes
+its full derivation, source Artifact, source fields and refs, and retained
+digest item refs, so a separate derivation-trace API is unnecessary.
 
-`Finding.render(language="en")` returns one deterministic English evidence
-statement; `language="zh"` returns the corresponding Chinese statement. English
-is the default. The statement does not include `finding_id`; `FindingPage`
-prefixes each rendered item with its canonical id so an agent can perform an
-exact read. Both renderers are byte-bounded and read only the immutable Finding
-payload. They never query Session state or infer relative labels such as “this
-week.” Delta findings may retain exact current and baseline half-open windows
-from their comparison temporal contract; when either window is absent, the
-renderer omits the window clause.
+An unavailable ledger raises `EvidenceStoreUnavailableError`; an empty page
+therefore means a healthy ledger matched no Findings. `FindingNotFoundError`
+is Artifact-scoped and directs recovery back to `artifact.findings()`.
 
-Exact reads remain available:
-
-```python
-digest = session.evidence.digest(artifact_ref)
-finding = session.evidence.finding(finding_id)
-finding.show()
-finding.show(language="zh")
-trace = session.evidence.trace(finding_id)
-frame = session.get_frame(artifact_ref)
-```
-
-`EvidenceDerivationTrace` connects one finding to its derivation rule, declared
-source fields, source refs, source artifact, and any retained digest items. It
-does not construct a claim or judgment around the finding.
-
-If the evidence store is unavailable, all list and exact evidence reads raise
-`EvidenceStoreUnavailableError`. An empty page therefore means “the healthy
-store matched no records,” never “the store could not be read.” Missing exact
-digests and findings raise their typed not-available/not-found errors.
-
-## Selection-wide compatibility
-
-Before mechanically combining Finding evidence, submit the exact ids to the
-single compatibility entrypoint:
-
-```python
-compatibility = session.evidence.compatibility(
-    finding_ids=[finding_a.finding_id, finding_b.finding_id],
-)
-compatibility.show()
-```
-
-The selection contains 1–20 unique ids, has no anchor, and is normalized by id;
-every Finding pair is evaluated symmetrically. `EvidenceCompatibility` reports
-subject, scope, current semantic authority, quality, evidence status, epistemic
-kinds, complete operator inference boundaries, and issues attributed to exactly
-one Finding or one Finding pair. Mixed epistemic kinds are disclosed but are not
-an intended-use judgment.
-
-Known contradictions and blocking quality/evidence issues produce
-`incompatible`. Unknown subject/scope/operator rules or semantic authority that
-cannot be proven produce `indeterminate`; they never default to compatible.
-The result retains at most 20 sorted issues after status and fingerprint are
-computed over the complete issue set. Its renderer shows at most five Finding
-ids, five issues, and three boundaries with exact omission counts.
-
-Compatibility is a read-only, ephemeral check. It does not modify Artifacts or
-the evidence ledger, access datasource health, judge freshness or causality, or
-perform Artifact revalidation. Invalid selections raise
-`EvidenceSelectionError`; missing or cross-Session ids raise
-`FindingNotFoundError`; broken committed identity, derivation, source refs, or
-sidecar/ledger agreement raise `EvidenceIntegrityError`.
+These reads do not combine Findings, judge causality or business validity,
+check current semantic authority, or establish datasource freshness.
 
 ## Artifact revalidation
 
@@ -242,8 +174,8 @@ Revalidate an exact recovered or newly committed Artifact before relying on it
 as current evidence:
 
 ```python
-frame = session.get_frame(artifact_ref)
-revalidation = session.revalidate(frame)
+artifact = session.artifact(artifact_ref)
+revalidation = session.revalidate(artifact_ref)
 revalidation.show()
 ```
 

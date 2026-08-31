@@ -10,6 +10,7 @@ import marivo.analysis.session as session_attach
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_queries
 
 
 @pytest.fixture(autouse=True)
@@ -56,10 +57,10 @@ def test_panel_observe_keeps_query_sql_out_of_runtime_projection() -> None:
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
-    job = session.job(frame.meta.produced_by_job)
-    query = job["queries"][0]
+    job = session.get_run(frame.meta.produced_by_job)
+    query = run_queries(job)[0]
 
-    assert query["sql_digest"]
+    assert query["digest"]
     assert "sql" not in query
     assert "normalized_sql" not in query
     assert "bind_params" not in query
@@ -106,6 +107,6 @@ def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
     }
     assert rows == {("core", 40.0), ("expansion", 20.0)}
 
-    query = session.job(frame.meta.produced_by_job)["queries"][0]
-    assert query["sql_digest"]
+    query = run_queries(session.get_run(frame.meta.produced_by_job))[0]
+    assert query["digest"]
     assert "sql" not in query

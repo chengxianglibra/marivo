@@ -1,0 +1,25 @@
+---
+slug: docs/latest/release-notes/0.6.0
+title: Marivo 0.6.0
+description: Release notes for Marivo 0.6.0.
+---
+
+Marivo 0.6.0 introduces a Run-first public Session runtime read surface.
+
+## Highlights
+
+- `session.runs()` and `session.get_run()` expose a closed immutable lifecycle:
+  `IncompleteRun`, `SucceededRun`, or `FailedRun`.
+- `session.artifact(ref)` restores one exact committed Artifact, while
+  `session.graph()` projects bounded factual producer, consumer, reuse, head,
+  failed, and incomplete state.
+- Every Artifact exposes `finding_count`, `findings()`, and `finding(id)`.
+  Finding audit is Artifact-owned and retains complete derivation data.
+- `mv.session.inspect()` now returns only a Session summary and bounded Run page.
+- Runtime and Graph reads explicitly do not check current semantic authority or
+  datasource freshness; use `session.revalidate(ref)` for the authority and
+  Evidence-integrity check.
+
+This is an atomic cutover. Frame/job reads, the Session Evidence namespace,
+digest pages, derivation traces, Finding-selection compatibility, and their
+Help routes have no aliases or migration path.

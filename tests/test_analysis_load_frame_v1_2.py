@@ -9,10 +9,10 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo._compat import UTC
 from marivo.analysis.errors import (
+    ArtifactNotFoundError,
     CrossSessionFrameError,
     FrameCacheCorruptedError,
     FrameMetaInvalidError,
-    FrameRefNotFound,
 )
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -85,7 +85,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
     )
     frame.meta = persist_frame(session, frame)
 
-    loaded = session.get_frame("frame_test")
+    loaded = session.artifact("frame_test")
 
     assert isinstance(loaded, HypothesisTestResult)
     assert loaded.meta.kind == "hypothesis_test_result"
@@ -122,7 +122,7 @@ def test_load_frame_round_trips_forecast_frame():
     )
     frame.meta = persist_frame(session, frame)
 
-    loaded = session.get_frame("frame_forecast")
+    loaded = session.artifact("frame_forecast")
 
     assert isinstance(loaded, ForecastFrame)
     assert loaded.meta.kind == "forecast_frame"
@@ -143,7 +143,7 @@ def test_loads_new_operator_frame_families(tmp_path, monkeypatch):
         session.forecast(frame, horizon=2, model="naive"),
     ]
 
-    assert [session.get_frame(output.ref).meta.kind for output in outputs] == [
+    assert [session.artifact(output.ref).meta.kind for output in outputs] == [
         "hypothesis_test_result",
         "forecast_frame",
     ]
@@ -160,15 +160,15 @@ def test_session_get_frame_accepts_ref_string():
         semantic_model="custom",
         session=session,
     )
-    loaded = session.get_frame(frame.ref)
+    loaded = session.artifact(frame.ref)
     assert isinstance(loaded, MetricFrame)
     assert loaded.ref == frame.ref
 
 
 def test_session_get_frame_ref_not_found():
     session = session_attach.get_or_create(name="demo")
-    with pytest.raises(FrameRefNotFound):
-        session.get_frame("frame_nonexistent")
+    with pytest.raises(ArtifactNotFoundError):
+        session.artifact("frame_nonexistent")
 
 
 # ---------------------------------------------------------------------------
@@ -247,9 +247,9 @@ def test_frame_file_without_artifacts_row_is_unreachable():
     frame = MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
     # Write to disk only (no store registration).
     write_frame_to_disk(session._layout, frame)
-    # Attempting to load it should raise FrameRefNotFound.
-    with pytest.raises(FrameRefNotFound):
-        session.get_frame(ref)
+    # Attempting to load it should raise ArtifactNotFoundError.
+    with pytest.raises(ArtifactNotFoundError):
+        session.artifact(ref)
 
 
 def test_registered_frame_with_missing_bytes_raises_corrupted_error():
@@ -269,7 +269,7 @@ def test_registered_frame_with_missing_bytes_raises_corrupted_error():
     data_path = session._layout.frames_dir / frame.ref / "data.parquet"
     data_path.unlink()
     with pytest.raises(FrameCacheCorruptedError):
-        session.get_frame(frame.ref)
+        session.artifact(frame.ref)
 
 
 @pytest.mark.parametrize(
@@ -310,7 +310,7 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError, match="unsupported artifact schema") as exc_info:
-        session.get_frame(frame.ref)
+        session.artifact(frame.ref)
     # got/expected must be visible through public fields (not only private
     # context) so an agent can see what was read vs what is required.
     assert exc_info.value.received == (schema_version or "<missing>")
@@ -374,7 +374,7 @@ def test_cross_session_frame_raises_cross_session_frame_error():
         produced_by_job=None,
     )
     with pytest.raises(CrossSessionFrameError):
-        session_b.get_frame(frame.ref)
+        session_b.artifact(frame.ref)
 
 
 def test_current_metric_state_error_message_carries_concrete_reason(tmp_path):
@@ -507,7 +507,7 @@ def test_cumulative_delta_missing_attribution_raises_missing_state(tmp_path):
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        session.get_frame(frame.ref)
+        session.artifact(frame.ref)
 
     err = exc_info.value
     assert "cumulative_attribution" in err.message
@@ -569,7 +569,7 @@ def test_cumulative_delta_unsupported_schema_reports_expected_and_received(tmp_p
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        session.get_frame(frame.ref)
+        session.artifact(frame.ref)
 
     err = exc_info.value
     assert "unsupported cumulative delta artifact schema" in err.message

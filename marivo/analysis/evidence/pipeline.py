@@ -1453,7 +1453,7 @@ def commit_result(
     )
     if reused is not None:
         if session is not None and session._store.get_artifact(session.id, artifact_id) is None:
-            return session.get_frame(artifact_id)
+            return session.artifact(artifact_id)
         return reused
     source_history = next(
         (

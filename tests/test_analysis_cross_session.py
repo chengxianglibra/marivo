@@ -5,7 +5,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import FrameRefNotFound
+from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
@@ -32,10 +32,10 @@ def test_load_frame_cross_session_raises(tmp_path):
     session_attach._reset_process_state()
     s_b = mv.session.get_or_create(name="b", backends={"warehouse": lambda: con})
     # The frame is not registered in session_b's store, so it raises
-    # FrameRefNotFound (not CrossSessionFrameError, since the store lookup
+    # ArtifactNotFoundError (not CrossSessionFrameError, since the store lookup
     # fails before the on-disk metadata can be checked).
-    with pytest.raises(FrameRefNotFound):
-        s_b.get_frame(mf.ref)
+    with pytest.raises(ArtifactNotFoundError):
+        s_b.artifact(mf.ref)
 
 
 def test_load_frame_same_session_succeeds(tmp_path):
@@ -44,7 +44,7 @@ def test_load_frame_same_session_succeeds(tmp_path):
     _seed(con)
     s = mv.session.get_or_create(name="a", backends={"warehouse": lambda: con})
     mf = s.observe(make_ref("sales.revenue", SemanticKind.METRIC))
-    loaded = s.get_frame(mf.ref)
+    loaded = s.artifact(mf.ref)
     assert loaded.ref == mf.ref
     assert loaded.meta.metric_id == "sales.revenue"
 
@@ -52,5 +52,5 @@ def test_load_frame_same_session_succeeds(tmp_path):
 def test_load_frame_missing_ref_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     s = mv.session.get_or_create(name="a")
-    with pytest.raises(FrameRefNotFound):
-        s.get_frame("frame_nonexistent_ref")
+    with pytest.raises(ArtifactNotFoundError):
+        s.artifact("frame_nonexistent_ref")

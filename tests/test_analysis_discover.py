@@ -16,6 +16,7 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.candidate import CandidateSet
 from marivo.analysis.intents._candidate_columns import CANDIDATE_COLUMNS
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -97,7 +98,7 @@ def test_discover_empty_candidate_set_round_trips_with_numeric_schema():
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b", "c"], "value": [5.0, 5.0, 5.0]}))
 
     out = session.discover.point_anomalies(frame)
-    loaded = session.get_frame(out.ref)
+    loaded = session.artifact(out.ref)
 
     df = loaded.to_pandas()
     assert df.empty
@@ -300,14 +301,18 @@ def test_discover_writes_job_and_frame():
 
     out = session.discover.point_anomalies(frame, threshold=1.0)
 
-    jobs = [job for job in session.jobs() if job.intent == "discover"]
+    jobs = [
+        job
+        for job in session.runs(limit=100).items
+        if job.capability_id == "discover.point_anomalies"
+    ]
     assert len(jobs) == 1
-    assert jobs[0].output_frame_ref == out.ref
+    assert jobs[0].output_artifact_ref == out.ref
     assert (session._layout.frames_dir / out.ref / "data.parquet").is_file()
-    record = session.job(jobs[0].id)
-    assert record["params"]["objective"] == "point_anomalies"
-    assert record["params"]["strategy"] == "zscore"
-    assert record["params"]["source_ref"] == frame.ref
+    record = session.get_run(jobs[0].run_id)
+    arguments = run_arguments(record)
+    assert arguments["threshold"] == 1.0
+    assert record.capability_id == "discover.point_anomalies"
 
 
 def test_discover_rejects_cross_session_frame():

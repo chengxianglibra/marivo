@@ -11,6 +11,7 @@ from marivo._compat import UTC
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.refs import ref as ref_factory
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import (
     make_test_metric_meta_contract,
     make_test_multi_metric_contract,
@@ -354,9 +355,9 @@ def test_projected_frame_transforms_use_only_public_columns(sales_session):
     assert top.to_pandas()[value_column].tolist() == [50.0]
     assert bottom.to_pandas()[value_column].tolist() == [10.0]
     assert ranked.to_pandas()["rank"].tolist() == [2, 1]
-    assert sales_session.get_frame(top.ref).columns == ["bucket_start", value_column]
+    assert sales_session.artifact(top.ref).columns == ["bucket_start", value_column]
     assert top.lineage.steps[-1].params["by"] == value_column
-    assert sales_session.job(top.meta.produced_by_job)["params"]["by"] == (value_column)
+    assert run_arguments(sales_session.get_run(top.meta.produced_by_job))["by"] == value_column
 
     with pytest.raises(TransformArgError) as exc_info:
         revenue.transform.topk(by="value", limit=1)
@@ -435,7 +436,7 @@ def test_projection_is_idempotent(sales_session):
 def test_projection_emits_no_value_findings(sales_session):
     frame = _fused(sales_session)
     projected = frame.metric("sales.revenue")
-    findings = sales_session.evidence.findings(artifact_ref=projected.meta.artifact_id)
+    findings = projected.findings()
     assert findings.items == ()
     assert projected.meta.evidence_status == "complete"
     assert [issue.kind for issue in projected.meta.issues] == ["sample_size_low"]

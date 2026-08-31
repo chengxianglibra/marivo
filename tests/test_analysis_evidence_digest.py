@@ -157,7 +157,7 @@ def test_multi_metric_observe_digest_retains_metric_input_order() -> None:
     assert reversed_digest.fingerprint == digest.fingerprint
     assert digest.omissions.omitted_items == 3
     rendered = digest.render(max_output_bytes=None)
-    recovery = "recover=session.evidence.findings(artifact_ref='art_observe')"
+    recovery = "recover=artifact.findings(limit=20)"
     assert f"selection=metric_input_order; {recovery}" in rendered
 
     historical = ArtifactDigest.model_validate(

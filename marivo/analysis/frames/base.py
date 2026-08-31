@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import PurePath
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -38,6 +38,9 @@ from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind
 from marivo.render import Card, RenderableResult, result_repr
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
+
+if TYPE_CHECKING:
+    from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
 
 CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v13"] = "analysis-artifact/v13"
 _ARTIFACT_SEMANTIC_INPUT_LIMIT = 12
@@ -833,6 +836,8 @@ class BaseFrame(RenderableResult):
     _AVAILABLE_ENTRIES: tuple[str, ...] = (
         ".show()",
         ".contract()",
+        ".findings(...)",
+        ".finding(finding_id)",
         ".to_pandas()",
     )
 
@@ -884,6 +889,64 @@ class BaseFrame(RenderableResult):
     @property
     def evidence_digest(self) -> ArtifactDigest | None:
         return self.meta.evidence_digest
+
+    @property
+    def finding_count(self) -> int:
+        """Return the exact persisted Finding count for this Artifact.
+
+        Returns:
+            The non-negative count committed with this Artifact.
+
+        Example:
+            >>> artifact.finding_count
+            3
+
+        Constraints:
+            The count is persisted metadata, not a live ledger query.
+        """
+        return self.meta.finding_count
+
+    def findings(self, *, limit: int = 20, cursor: str | None = None) -> FindingPage:
+        """Return one bounded page of Findings owned by this Artifact.
+
+        Args:
+            limit: Maximum Findings to retain, from 1 through 100.
+            cursor: Opaque continuation returned by the previous page.
+
+        Returns:
+            An immutable Artifact-scoped :class:`FindingPage`.
+
+        Example:
+            >>> page = artifact.findings(limit=20)
+            >>> page.items[0].show() if page.items else None
+
+        Constraints:
+            Reads the ledger identified by immutable Artifact metadata and never
+            attaches a mutable Session handle.
+        """
+        from marivo.analysis.evidence.artifact_reads import findings
+
+        return findings(self, limit=limit, cursor=cursor)
+
+    def finding(self, finding_id: str) -> Finding:
+        """Return one exact Finding owned by this Artifact.
+
+        Args:
+            finding_id: Exact id returned by this Artifact's ``findings()`` page.
+
+        Returns:
+            The full immutable :class:`Finding`, including derivation.
+
+        Example:
+            >>> finding = artifact.finding("finding_01")
+            >>> finding.show()
+
+        Constraints:
+            A Finding owned by another Artifact is treated as not found.
+        """
+        from marivo.analysis.evidence.artifact_reads import finding
+
+        return finding(self, finding_id)
 
     @property
     def state(self) -> ArtifactState:
@@ -1226,11 +1289,7 @@ class BaseFrame(RenderableResult):
 
                 selection = render_digest_selection(digest)
                 selection_token = f" selection={selection}" if selection is not None else ""
-                recovery = (
-                    f"; recover=session.evidence.findings(artifact_ref='{self.meta.ref}')"
-                    if omitted_items
-                    else ""
-                )
+                recovery = "; recover=artifact.findings(limit=20)" if omitted_items else ""
                 card.field(
                     "evidence",
                     (
@@ -1251,7 +1310,7 @@ class BaseFrame(RenderableResult):
                     (boundary.kind for boundary in digest.boundaries),
                 )
         if any(issue.kind == "evidence_digest_unavailable" for issue in self.meta.issues):
-            card.field("evidence recovery", "inspect canonical records with session.evidence")
+            card.field("evidence recovery", "inspect canonical records with artifact.findings()")
         return card
 
     def _base_card(self) -> Card:
@@ -1282,5 +1341,5 @@ class BaseFrame(RenderableResult):
             label=label,
             show_omission_counts=True,
             bounded_row_limit=_DEFAULT_FRAME_PREVIEW_ROWS,
-            recovery=f"session.get_frame('{self.meta.ref}').to_pandas()",
+            recovery=f"session.artifact('{self.meta.ref}').to_pandas()",
         )

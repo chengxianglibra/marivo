@@ -260,7 +260,7 @@ def test_select_unknown_item_id_raises_without_creating_a_job():
         shape="driver_axis",
         rows=[{"item_id": "axis_1", "score": 0.9, "axis": "country"}],
     )
-    before = len(session.jobs())
+    before = len(session.runs(limit=100).items)
     with pytest.raises(SemanticKindMismatchError) as exc:
         candidates.select(item_id="candidate_" + "0" * 64)
     assert exc.value._context == {
@@ -268,7 +268,7 @@ def test_select_unknown_item_id_raises_without_creating_a_job():
         "match_count": 0,
         "row_count": 1,
     }
-    assert len(session.jobs()) == before
+    assert len(session.runs(limit=100).items) == before
 
 
 def test_driver_axis_selection_feeds_attribute(tmp_path):

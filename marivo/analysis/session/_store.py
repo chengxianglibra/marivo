@@ -814,9 +814,12 @@ class SessionStore:
                 repair=SessionStore._schema_repair(),
             )
 
-    def validate_session_runtime_schema(self, session_id: str) -> None:
-        """Fail before activation when one target Session is not exact-current."""
+    def validate_session_runtime_read_schema(self, session_id: str) -> None:
+        """Fail before reads when the Store or indexed runtime schema is incompatible."""
         with self._connect() as conn:
+            received_store_schema = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            if received_store_schema != _STORE_SCHEMA_VERSION:
+                self._raise_store_schema_mismatch(received_store_schema)
             rows = self._fetchall(
                 conn,
                 "SELECT run_id, payload_schema FROM runs WHERE session_id = ?",
@@ -833,11 +836,6 @@ class SessionStore:
                 "WHERE session_id = ? AND artifact_schema_version != ? LIMIT 1",
                 (session_id, "analysis-artifact/v13"),
             )
-            artifact_rows = self._fetchall(
-                conn,
-                "SELECT artifact_id, meta_path FROM artifacts WHERE session_id = ?",
-                (session_id,),
-            )
         if artifact is not None:
             from marivo.analysis.errors import FrameMetaInvalidError
 
@@ -847,6 +845,16 @@ class SessionStore:
                 received=str(artifact["artifact_schema_version"]),
                 location=f"Artifact {artifact['artifact_id']!r} metadata schema",
                 repair=self._schema_repair(),
+            )
+
+    def validate_session_runtime_schema(self, session_id: str) -> None:
+        """Fail before activation when one target Session is not exact-current."""
+        self.validate_session_runtime_read_schema(session_id)
+        with self._connect() as conn:
+            artifact_rows = self._fetchall(
+                conn,
+                "SELECT artifact_id, meta_path FROM artifacts WHERE session_id = ?",
+                (session_id,),
             )
         from marivo.analysis.errors import FrameMetaInvalidError
 

@@ -14,6 +14,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.policies import day_of_week, window_bucket
+from tests.run_read_helpers import run_arguments
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -108,15 +109,15 @@ def test_compare_cache_identity_includes_delta_math_contract(monkeypatch) -> Non
     baseline = _segmented_metric(session, [{"region": "NORTH", "value": 5}])
 
     first = compare(current, baseline, alignment=window_bucket(), session=session)
-    first_job = session.job(first.meta.produced_by_job)
-    assert first_job["params"]["delta_math_contract"] == "float64/v1"
+    first_job = session.get_run(first.meta.produced_by_job)
+    assert run_arguments(first_job)["delta_math_contract"] == "float64/v1"
 
     monkeypatch.setattr(compare_module, "DELTA_MATH_CONTRACT_VERSION", "float64/v2")
     second = compare(current, baseline, alignment=window_bucket(), session=session)
 
     assert second.ref != first.ref
-    second_job = session.job(second.meta.produced_by_job)
-    assert second_job["params"]["delta_math_contract"] == "float64/v2"
+    second_job = session.get_run(second.meta.produced_by_job)
+    assert run_arguments(second_job)["delta_math_contract"] == "float64/v2"
 
 
 def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments():
@@ -208,4 +209,6 @@ def test_compare_segmented_rejects_dimension_colliding_with_protocol_column(
     assert error.repair is not None
     assert error.repair.kind == "semantic_authoring"
     # Failing closed before alignment must not leave compare job/frame residue.
-    assert [job.intent for job in s.jobs() if job.intent == "compare"] == []
+    assert [
+        job.capability_id for job in s.runs(limit=100).items if job.capability_id == "compare"
+    ] == []

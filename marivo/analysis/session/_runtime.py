@@ -1158,9 +1158,24 @@ def _persist_run_success_from_legacy_record(session: Session, record: dict[str, 
             if isinstance(query, Mapping)
         ]
     projected, omitted = project_run_arguments(argument_source)
+    raw_capability_id = str(record["intent"])
+    capability_id = {
+        "attribute.funnel_loss_rate": "attribute",
+        "compare.funnel": "compare",
+        "decompose": "attribute",
+        "select_metric": "MetricFrame.metric",
+    }.get(raw_capability_id, raw_capability_id)
+    if capability_id == "transform" and isinstance(params, Mapping):
+        op = params.get("op")
+        if isinstance(op, str):
+            capability_id = f"transform.{op}"
+    elif capability_id == "discover" and isinstance(params, Mapping):
+        objective = params.get("objective")
+        if isinstance(objective, str):
+            capability_id = f"discover.{objective}"
     input_refs_value = record.get("input_frame_refs", ())
     input_refs = (
-        tuple(str(value) for value in input_refs_value)
+        tuple(dict.fromkeys(str(value) for value in input_refs_value))
         if isinstance(input_refs_value, list | tuple)
         else ()
     )
@@ -1172,7 +1187,7 @@ def _persist_run_success_from_legacy_record(session: Session, record: dict[str, 
         session._store.begin_run(
             session_id=session.id,
             run_id=run_id,
-            capability_id=str(record["intent"]),
+            capability_id=capability_id,
             analysis_purpose=cast("str | None", record.get("analysis_purpose")),
             arguments=projected,
             omitted_argument_names=omitted,
@@ -1226,8 +1241,8 @@ def _persist_run_success_from_legacy_record(session: Session, record: dict[str, 
 def persist_job_record(session: Session, record: dict[str, Any]) -> None:
     """Validate an intent success payload and finish its canonical persisted Run.
 
-    This private compatibility boundary accepts the established intent-owned
-    payload shape, but does not write or parse legacy job JSON files.
+    This private intent-to-Run commit boundary accepts the established
+    intent-owned payload shape, but does not expose it through public reads.
 
     Args:
         session: The owning session.

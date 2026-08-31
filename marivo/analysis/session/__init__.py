@@ -387,23 +387,22 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     return recent_sessions(limit=limit, cursor=cursor)
 
 
-def inspect(name: str, *, frame_limit: int = 10, job_limit: int = 5) -> SessionInspection:
+def inspect(name: str, *, run_limit: int = 5, run_cursor: str | None = None) -> SessionInspection:
     """Read a bounded metadata snapshot of one historical session.
 
     Args:
         name: Exact session name returned by :func:`recent`.
-        frame_limit: Maximum newest frame summaries to retain, from 1 through 100.
-        job_limit: Maximum recent job summaries to retain, from 1 through 100.
+        run_limit: Maximum newest Run records to retain, from 1 through 100.
+        run_cursor: Optional cursor returned by the previous Run page.
 
     Returns:
-        A :class:`SessionInspection` containing the session summary, frame
-        summary page, and recent jobs.
+        A :class:`SessionInspection` containing the session summary and Run page.
 
     Raises:
         SessionNotFoundError: The name is absent from the current project.
 
     Example:
-        >>> snapshot = mv.session.inspect("q4-revenue", frame_limit=10, job_limit=5)
+        >>> snapshot = mv.session.inspect("q4-revenue", run_limit=5)
         >>> snapshot.show()
 
     Constraints:
@@ -412,7 +411,7 @@ def inspect(name: str, *, frame_limit: int = 10, job_limit: int = 5) -> SessionI
     """
     from marivo.analysis.session.history import inspect_session
 
-    return inspect_session(name=name, frame_limit=frame_limit, job_limit=job_limit)
+    return inspect_session(name=name, run_limit=run_limit, run_cursor=run_cursor)
 
 
 def _reset_process_state() -> None:

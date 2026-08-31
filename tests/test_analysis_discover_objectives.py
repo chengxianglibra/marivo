@@ -812,7 +812,7 @@ def test_persistence_round_trip(objective, source_kind, builder):
 
     helper = getattr(session.discover, objective)
     out = helper(src, **kwargs)
-    loaded = session.get_frame(out.ref)
+    loaded = session.artifact(out.ref)
     assert loaded.meta.shape == out.meta.shape
     assert loaded.meta.objective == out.meta.objective
     assert loaded.meta.strategy == out.meta.strategy

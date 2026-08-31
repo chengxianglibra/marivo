@@ -9,6 +9,7 @@ from marivo.analysis.errors import GrainUnsupportedError
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+from tests.run_read_helpers import run_arguments
 
 
 @pytest.fixture(autouse=True)
@@ -105,5 +106,5 @@ def test_resolved_window_and_promotion_store_grain_token(tmp_path):
         session=s,
     )
 
-    job = s.job(s.jobs()[0].id)
-    assert job["params"]["timescope"]["resolved"]["grain"] == "5minute"
+    job = s.get_run(s.runs(limit=100).items[0].run_id)
+    assert run_arguments(job)["timescope"]["resolved"]["grain"] == "5minute"

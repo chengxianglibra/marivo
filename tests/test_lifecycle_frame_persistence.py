@@ -152,7 +152,7 @@ def test_lifecycle_history_persists_empty_trace_and_cold_recovers():
     frame = _history_frame(session)
 
     frame.meta = persist_frame(session, frame)
-    loaded = session.get_frame(frame.ref)
+    loaded = session.artifact(frame.ref)
 
     assert isinstance(loaded, LifecycleFrame)
     assert loaded.meta.semantic_kind == "history"
@@ -180,7 +180,7 @@ def test_lifecycle_history_persists_nonempty_private_trace():
     frame = _history_frame(session, trace_rows=(trace_row,))
 
     frame.meta = persist_frame(session, frame)
-    loaded = session.get_frame(frame.ref)
+    loaded = session.artifact(frame.ref)
 
     trace = loaded._auxiliary_frames["violations.parquet"]
     assert tuple(trace.columns) == LIFECYCLE_VIOLATIONS_COLUMNS
@@ -210,7 +210,7 @@ def test_lifecycle_history_rejects_tampered_trace_hash():
     ).to_parquet(trace_path, index=False)
 
     with pytest.raises(FrameCacheCorruptedError, match="trace hash"):
-        session.get_frame(frame.ref)
+        session.artifact(frame.ref)
 
 
 def test_lifecycle_history_rejects_missing_trace():
@@ -221,7 +221,7 @@ def test_lifecycle_history_rejects_missing_trace():
     trace_path.unlink()
 
     with pytest.raises(FrameCacheCorruptedError, match="trace is missing"):
-        session.get_frame(frame.ref)
+        session.artifact(frame.ref)
 
 
 def test_lifecycle_history_rejects_trace_path_escape():
@@ -234,7 +234,7 @@ def test_lifecycle_history_rejects_trace_path_escape():
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameCacheCorruptedError, match="escaped Lifecycle trace path"):
-        session.get_frame(frame.ref)
+        session.artifact(frame.ref)
 
 
 def test_lifecycle_history_rejects_invalid_public_row_contract():
@@ -269,11 +269,10 @@ def test_lifecycle_history_emits_typed_v2_job_semantics():
 
     persist_job_record(session, record)
 
-    persisted = session.job("job_lifecycle")
-    assert persisted["schema"] == "marivo.analysis_job/v2"
-    assert persisted["subject"]["kind"] == "lifecycle"
-    assert persisted["lifecycle_history"]["violation_trace"]["content_hash"].startswith("sha256:")
-    assert "subject_identity" not in persisted["lifecycle_history"]
+    persisted = session.get_run("job_lifecycle")
+    assert persisted.capability_id == "lifecycle.replay"
+    assert persisted.output_artifact_ref == frame.ref
+    assert "subject_identity" not in repr(persisted)
 
 
 def test_lifecycle_reducer_shapes_enforce_closed_public_rows():
