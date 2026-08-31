@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+from datetime import date
 from types import SimpleNamespace
 
 import ibis
@@ -706,6 +707,132 @@ def test_quantile_endpoint_buckets_preserve_aligned_endpoint_values() -> None:
             -0.46,
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("current_bucket", "baseline_bucket"),
+    [
+        (date(2026, 8, 12), date(2026, 8, 11)),
+        (pd.Timestamp("2026-08-12"), pd.Timestamp("2026-08-11")),
+    ],
+)
+def test_native_percentile_scope_normalizes_daily_endpoint_values_to_string_buckets(
+    current_bucket: object,
+    baseline_bucket: object,
+) -> None:
+    endpoint = SimpleNamespace(
+        ref="delta:daily-p90-string-bucket",
+        meta=SimpleNamespace(alignment={"baseline_bucket_column": "bucket_start_b"}),
+        _dataframe_copy=lambda: pd.DataFrame(
+            {
+                "bucket_start": [current_bucket],
+                "bucket_start_b": [baseline_bucket],
+                "current": [1.79],
+                "baseline": [2.25],
+                "delta": [-0.46],
+            }
+        ),
+    )
+    current_table = ibis.memtable(
+        {
+            "bucket_start": ["2026-08-12", "2026-08-12", "2026-08-13"],
+            "cluster": ["production", "null-value", "other-day"],
+            "value": [1.79, None, 9.0],
+        }
+    )
+    baseline_table = ibis.memtable(
+        {
+            "bucket_start": ["2026-08-11", "2026-08-10"],
+            "cluster": ["production", "other-day"],
+            "value": [2.25, 8.0],
+        }
+    )
+    current_prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=current_table,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("cluster",),
+        axis_bindings=(),
+        bucket_column="bucket_start",
+        datasource_name="warehouse",
+    )
+    baseline_prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=baseline_table,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("cluster",),
+        axis_bindings=(),
+        bucket_column="bucket_start",
+        datasource_name="warehouse",
+    )
+    current_bucket, baseline_bucket, *_ = _nonadditive_attribution._endpoint_buckets(
+        endpoint,
+        bucket_column="bucket_start",
+    )[0]
+
+    current_scope = _nonadditive_attribution._native_percentile_scope(
+        current_prepared,
+        bucket_value=current_bucket,
+    )
+    baseline_scope = _nonadditive_attribution._native_percentile_scope(
+        baseline_prepared,
+        bucket_value=baseline_bucket,
+    )
+
+    assert ibis.to_sql(current_scope, dialect="trino")
+    assert current_scope.execute()["cluster"].tolist() == ["production"]
+    assert baseline_scope.execute()["cluster"].tolist() == ["production"]
+
+
+def test_native_percentile_scope_casts_timestamp_to_date_bucket() -> None:
+    table = ibis.memtable(
+        {
+            "bucket_start": [date(2026, 8, 12), date(2026, 8, 13)],
+            "cluster": ["target", "other-day"],
+            "value": [1.0, 2.0],
+        },
+        schema={"bucket_start": "date", "cluster": "string", "value": "float64"},
+    )
+    prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=table,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("cluster",),
+        axis_bindings=(),
+        bucket_column="bucket_start",
+        datasource_name="warehouse",
+    )
+
+    scope = _nonadditive_attribution._native_percentile_scope(
+        prepared,
+        bucket_value=pd.Timestamp("2026-08-12"),
+    )
+
+    assert scope.execute()["cluster"].tolist() == ["target"]
+
+
+def test_native_percentile_scope_preserves_null_bucket_filtering() -> None:
+    table = ibis.memtable(
+        {
+            "bucket_start": [None, "2026-08-12"],
+            "cluster": ["missing", "dated"],
+            "value": [1.0, 2.0],
+        },
+        schema={"bucket_start": "string", "cluster": "string", "value": "float64"},
+    )
+    prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=table,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("cluster",),
+        axis_bindings=(),
+        bucket_column="bucket_start",
+        datasource_name="warehouse",
+    )
+
+    scope = _nonadditive_attribution._native_percentile_scope(prepared, bucket_value=None)
+
+    assert scope.execute()["cluster"].tolist() == ["missing"]
 
 
 def test_permutation_quantile_is_deterministic_across_subprocesses() -> None:

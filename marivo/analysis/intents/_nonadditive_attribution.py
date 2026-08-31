@@ -1340,10 +1340,24 @@ def _native_percentile_scope(
     table = prepared.table
     if prepared.bucket_column is not None:
         bucket_field = table[prepared.bucket_column]
+        normalized_bucket_value = bucket_value
+        # Daily endpoint coordinates may be materialized as midnight timestamps
+        # while replay keeps the canonical ISO date bucket as a string.
+        if bucket_field.type().is_string() and isinstance(bucket_value, datetime):
+            timestamp = pd.Timestamp(bucket_value)
+            if (
+                timestamp.hour
+                == timestamp.minute
+                == timestamp.second
+                == timestamp.microsecond
+                == timestamp.nanosecond
+                == 0
+            ):
+                normalized_bucket_value = timestamp.date()
         table = table.filter(
             bucket_field.isnull()
             if _is_missing(bucket_value)
-            else bucket_field == ibis.literal(bucket_value)
+            else bucket_field == ibis.literal(normalized_bucket_value).cast(bucket_field.type())
         )
     table = table.filter(table[prepared.value_column].notnull())
     return table
