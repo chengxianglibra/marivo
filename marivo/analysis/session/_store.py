@@ -19,6 +19,7 @@ from typing import Literal, cast
 from marivo._compat import UTC
 from marivo.analysis.errors import (
     AnalysisRepair,
+    RunNotFoundError,
     SchemaVersionMismatchError,
     SessionLockedByAnotherProcessError,
     SessionNotFoundError,
@@ -30,6 +31,17 @@ from marivo.render import Card, RenderableResult
 
 _STORE_SCHEMA_VERSION = 1
 _RUN_PAYLOAD_SCHEMA = "marivo.analysis_run/v1"
+
+
+def _run_abandoned_failure(run_id: str) -> dict[str, object]:
+    return {
+        "error_type": "RunAbandoned",
+        "message": "The incomplete Run was explicitly abandoned after execution stopped.",
+        "expected": None,
+        "received": None,
+        "location": f"Run {run_id!r}",
+        "repair": None,
+    }
 
 
 class _RuntimeSnapshotTooLargeError(RuntimeError):
@@ -1100,6 +1112,143 @@ class SessionStore:
                 "failure_json = ?, output_artifact_ref = NULL, output_mode = NULL "
                 "WHERE session_id = ? AND run_id = ?",
                 (failed_at, failure_json, session_id, run_id),
+            )
+
+    def abandon_run(self, *, session_id: str, run_id: str) -> None:
+        """Atomically abandon one stopped incomplete Run and its unconsumed outputs."""
+        failure_json = json.dumps(
+            _run_abandoned_failure(run_id),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            session = self._fetchone(
+                conn,
+                "SELECT id FROM sessions WHERE id = ?",
+                (session_id,),
+            )
+            if session is None:
+                candidates = tuple(
+                    str(row["id"])
+                    for row in self._fetchall(
+                        conn,
+                        "SELECT id FROM sessions ORDER BY updated_at DESC, id DESC LIMIT 10",
+                    )
+                )
+                raise SessionNotFoundError(
+                    message=f"analysis session id {session_id!r} was not found in the current project",
+                    expected="an existing immutable session id from mv.session.recent().items",
+                    received=session_id,
+                    location="mv.session.abandon_run(session_id=...)",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action="Read mv.session.recent() and retry one returned immutable session id.",
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id="session.recent",
+                        ),
+                        candidates=candidates,
+                    ),
+                )
+            run = self._fetchone(
+                conn,
+                "SELECT * FROM runs WHERE session_id = ? AND run_id = ?",
+                (session_id, run_id),
+            )
+            if run is None:
+                candidates = tuple(
+                    str(row["run_id"])
+                    for row in self._fetchall(
+                        conn,
+                        "SELECT run_id FROM runs WHERE session_id = ? "
+                        "AND lifecycle = 'incomplete' "
+                        "ORDER BY started_at DESC, run_id DESC LIMIT 10",
+                        (session_id,),
+                    )
+                )
+                raise RunNotFoundError(
+                    message=f"Run {run_id!r} does not exist in Session {session_id!r}",
+                    expected="an exact incomplete Run id owned by the selected Session",
+                    received=run_id,
+                    location="mv.session.abandon_run(run_id=...)",
+                    repair=AnalysisRepair(
+                        kind="retry",
+                        action="Retry with one exact incomplete Run id from the recovery error.",
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id="session.abandon_run",
+                        ),
+                        candidates=candidates,
+                    ),
+                )
+            self._validate_payload_schema(run, location=f"Run {run_id!r}")
+            if run["lifecycle"] == "failed":
+                try:
+                    persisted_failure = json.loads(str(run["failure_json"]))
+                except (TypeError, ValueError):
+                    persisted_failure = None
+                if persisted_failure == _run_abandoned_failure(run_id):
+                    return
+            if run["lifecycle"] != "incomplete":
+                received = str(run["lifecycle"])
+                if run["lifecycle"] == "failed":
+                    received = "failed by another failure"
+                raise SessionStateError(
+                    message="only an incomplete Run can be explicitly abandoned",
+                    expected="incomplete or the same already-abandoned Run",
+                    received=received,
+                    location=f"Run {run_id!r}",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action="Leave this terminal Run unchanged and inspect its persisted state.",
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id="runtime.runs",
+                        ),
+                    ),
+                )
+            consumers = self._fetchall(
+                conn,
+                "SELECT i.run_id, i.artifact_ref FROM run_inputs i "
+                "JOIN artifacts a ON a.session_id = i.session_id "
+                "AND a.artifact_id = i.artifact_ref "
+                "WHERE a.session_id = ? AND a.produced_by_job = ? "
+                "AND i.run_id != ? "
+                "ORDER BY i.artifact_ref, i.run_id LIMIT 11",
+                (session_id, run_id, run_id),
+            )
+            if consumers:
+                candidates = tuple(
+                    f"{row['run_id']} <- {row['artifact_ref']}" for row in consumers[:10]
+                )
+                raise SessionStateError(
+                    message="cannot abandon a Run whose registered output has downstream consumers",
+                    expected="no other Run references an Artifact registered to the abandoned Run",
+                    received=str(candidates),
+                    location=f"Run {run_id!r} abandonment",
+                    repair=AnalysisRepair(
+                        kind="environment",
+                        action=(
+                            "Preserve this Session unchanged and create a new named Session; "
+                            "abandoning the producer would invalidate persisted downstream lineage."
+                        ),
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id="runtime.sessions",
+                        ),
+                        candidates=candidates,
+                    ),
+                )
+            conn.execute(
+                "DELETE FROM artifacts WHERE session_id = ? AND produced_by_job = ?",
+                (session_id, run_id),
+            )
+            conn.execute(
+                "UPDATE runs SET lifecycle = 'failed', finished_at = ?, "
+                "failure_json = ?, output_artifact_ref = NULL, output_mode = NULL "
+                "WHERE session_id = ? AND run_id = ?",
+                (_now_iso(), failure_json, session_id, run_id),
             )
 
     def get_run(self, session_id: str, run_id: str) -> sqlite3.Row | None:

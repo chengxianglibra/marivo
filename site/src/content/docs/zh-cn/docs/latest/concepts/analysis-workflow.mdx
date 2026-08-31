@@ -108,13 +108,20 @@ region.details().show()
 每个持续推进的分析工作区应使用一个稳定且可区分的会话名称。`get_or_create` 首次创建
 该名称，之后附着到同一个不可变 session id。显式传入的 `question` 会成为会话当前的
 引导问题；有意省略时则保留已保存的值。会话的精简 API 为 `get_or_create`、
-`resume(identity)`、`current()`、`recent()`、`inspect(name)` 和 `delete(name)`。
+`resume(identity)`、`current()`、`abandon_run(session_id=..., run_id=...)`、
+`recent()`、`inspect(name)` 和 `delete(name)`。
 
 `resume(identity)` 接受精确的稳定 session name 或不可变 session id。它只恢复已有
 状态：未知或有歧义的 identity 会直接失败，不会创建 session，也不会改变 name、
 question 或 report timezone。通常应省略 `by`；如果同一个值分别匹配了一个 session
 name 和另一个 session id，则按照结构化错误使用 `by="name"` 或 `by="id"` 重试，
 显式选择目标 session。
+
+如果激活报告某个 incomplete Run 存在多个可能的输出 Artifact，先确认执行进程已经
+停止，再执行错误中给出的精确
+`mv.session.abandon_run(session_id=..., run_id=...)` 修复，并用同一个不可变 session id
+恢复。放弃操作会记录一个普通 failed Run，并且只删除未被消费的 Session Store Artifact
+注册；它不会停止进程，也不会删除物理文件或 Evidence marker。
 
 更新当前问题不会改写已有 artifact、job、evidence、lineage 或其中的
 `analysis_purpose`。如果工作需要独立的历史，而不只是更换当前问题，请使用新的稳定
@@ -821,6 +828,8 @@ prior = mv.session.inspect(history.items[0].name) if history.items else None
 `marivo.help("analysis.runtime.runs")` 进行有界 Run 发现，再通过精确 Artifact ref
 恢复，并使用 `marivo.help("analysis.evidence")` 读取 Artifact 自有的 Finding。
 SessionGraph 只做事实导航，不是规划器或权威检查。
+当 incomplete Run 的对账存在歧义时，只能在确认执行已停止后使用结构化错误给出的
+`session.abandon_run` 修复；不要直接编辑 Session Store，也不要自行编写 failure payload。
 
 ## 证据链与审计
 

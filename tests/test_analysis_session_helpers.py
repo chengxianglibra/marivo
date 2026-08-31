@@ -23,8 +23,9 @@ import marivo.analysis as mv
 # ---------------------------------------------------------------------------
 
 
-def test_session_all_exports_exactly_six_names() -> None:
+def test_session_all_exports_exactly_seven_names() -> None:
     assert mv.session.__all__ == [
+        "abandon_run",
         "current",
         "delete",
         "get_or_create",
@@ -35,12 +36,18 @@ def test_session_all_exports_exactly_six_names() -> None:
 
 
 def test_session_acquisition_has_concrete_return_annotations() -> None:
+    assert get_type_hints(mv.session.abandon_run)["return"] is type(None)
     assert get_type_hints(mv.session.current)["return"] == mv.Session | None
     assert get_type_hints(mv.session.get_or_create)["return"] is mv.Session
     assert get_type_hints(mv.session.resume)["return"] is mv.Session
     assert signature(mv.session.current).return_annotation != Any
     assert signature(mv.session.get_or_create).return_annotation != Any
     assert signature(mv.session.resume).return_annotation != Any
+    assert tuple(signature(mv.session.abandon_run).parameters) == ("session_id", "run_id")
+    assert all(
+        parameter.kind.name == "KEYWORD_ONLY"
+        for parameter in signature(mv.session.abandon_run).parameters.values()
+    )
     assert tuple(signature(mv.session.resume).parameters) == (
         "identity",
         "by",

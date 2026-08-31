@@ -38,9 +38,17 @@ that touches a datasource. Operators that need a backend raise
 ### Lifecycle
 
 The public session surface is intentionally small (`mv.session.__all__` is exactly
-`current`, `delete`, `get_or_create`, `inspect`, `recent`, `resume`; the removed
-names `archive`, `attach`, `create`, `switch`, `active` are gone):
+`abandon_run`, `current`, `delete`, `get_or_create`, `inspect`, `recent`,
+`resume`; the removed names `archive`, `attach`, `create`, `switch`, `active`
+are gone):
 
+- `mv.session.abandon_run(*, session_id, run_id) -> None` — after confirming
+  execution stopped, atomically fail one incomplete Run before Session
+  activation. It removes only unconsumed Session Store Artifact registrations;
+  physical files and Evidence markers remain unchanged. Repeating the same
+  abandonment is a no-op. It does not stop a running process and rejects
+  succeeded Runs, Runs failed for another reason, and outputs referenced by any
+  downstream Run.
 - `mv.session.get_or_create(name, question=None, *, report_timezone=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
   — the default entry. The first call with a name creates the session; later calls
   attach to the same immutable session id. An explicit string becomes the current
@@ -53,7 +61,10 @@ names `archive`, `attach`, `create`, `switch`, `active` are gone):
   timezone. Omit `by` for normal resolution; after an ambiguous match, retry
   with the closed selector `by="name"` or `by="id"` to choose the intended row.
 - `mv.session.current() -> Session | None` — a safe probe for the current session
-  (process-current, else the persisted `current_session_id`, else `None`).
+  (process-current, else the persisted `current_session_id`, else `None`). Both
+  process and persisted paths validate exact Store row schemas and reconcile
+  incomplete Runs without changing the question, timestamps, or current pointer;
+  cold rehydration additionally validates every registered Artifact sidecar.
 - `mv.session.recent(*, limit=20, cursor=None) -> SessionSummaryPage` — a bounded,
   newest-updated-first keyset page for selective historical reference. This is
   the discovery path for historical sessions; each summary supports bounded
@@ -249,6 +260,14 @@ or downgraded to `evidence_status="unavailable"`. A failed final index write lea
 the already committed evidence marker recoverable on the next exact read or retry.
 Projection integrity failures are distinct from environment or permission failures:
 their typed repair directs a projection retry with the current Marivo build.
+
+An abrupt process termination may leave an incomplete Run. Activation first
+reconciles it when exactly one committed Evidence Artifact identifies the output.
+If several candidates remain, activation fails with a structured repair containing
+the exact immutable Session and Run ids. After confirming the executor stopped,
+call `mv.session.abandon_run(session_id=..., run_id=...)`, then resume by immutable
+id. The abandoned Run becomes a normal `FailedRun` with `error_type="RunAbandoned"`;
+there is no fourth lifecycle state and no public caller-authored failure payload.
 
 There is no non-raising batch API on the default surface; a future advanced
 `StepOutcome` / `try_*` path, if added, would not change the terminal artifact

@@ -379,13 +379,14 @@ def _slice3_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
         AnalysisNavigationTopic(
             canonical_id="runtime.sessions",
             summary=(
-                "Create or locate Sessions by stable name, inspect them by name, and resume "
-                "them by exact name or immutable session id."
+                "Manage the Session lifecycle: create or locate by stable name, resume by "
+                "exact identity, or abandon one stopped incomplete Run by immutable ids."
             ),
             render_class="navigation",
             members=tuple(
                 _analysis_target(target)
                 for target in (
+                    "session.abandon_run",
                     "session.get_or_create",
                     "session.current",
                     "session.recent",
@@ -2988,6 +2989,18 @@ def _build_registry() -> CapabilityRegistry:
     # -- Recovery / reads: session lifecycle ------------------------------
 
     recovery_specs: tuple[tuple[str, str, str, str, str, str, str], ...] = (
+        (
+            "session.abandon_run",
+            "mv.session.abandon_run(session_id=..., run_id=...)",
+            "session.abandon_run",
+            (
+                "Atomically fail one stopped incomplete Run and remove its unconsumed "
+                "Session Store Artifact registrations; this does not stop a running process."
+            ),
+            "recovery",
+            "None",
+            "session_id_and_run_id",
+        ),
         (
             "session.get_or_create",
             "mv.session.get_or_create(...)",
