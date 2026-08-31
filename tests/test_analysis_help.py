@@ -173,6 +173,7 @@ def test_root_recovery_routes_only_to_runtime_hub() -> None:
 
     assert 'marivo.help("analysis.runtime")' in root
     for entrypoint in (
+        "mv.session.abandon_run(session_id=..., run_id=...)",
         "mv.session.get_or_create(...)",
         "mv.session.current()",
         "mv.session.resume(identity)",
@@ -197,6 +198,19 @@ def test_session_resume_focused_help_uses_exact_name_or_id_contract() -> None:
     assert "Literal" in signature_line
     assert "question" not in signature_line
     assert "report_timezone" not in signature_line
+
+
+def test_session_abandon_run_focused_help_owns_exact_recovery_contract() -> None:
+    text = _text("session.abandon_run")
+
+    assert "Entrypoint: mv.session.abandon_run(session_id=..., run_id=...)" in text
+    assert "Identity input: session_id_and_run_id" in text
+    assert "Restored family: None" in text
+    assert "does not stop a running process" in text
+    assert 'mv.session.resume(session_id, by="id")' in text
+    signature_line = next(line for line in text.splitlines() if "Signature:" in line)
+    assert "session_id: str" in signature_line
+    assert "run_id: str" in signature_line
 
 
 def test_focused_grouping_help_lists_real_members() -> None:
@@ -266,6 +280,7 @@ def test_slice3_runtime_help_routes_exact_persisted_identities() -> None:
     for identity in ("Session name or id", "Artifact ref", "Run id", "graph adjacency"):
         assert identity in runtime
     for entrypoint in (
+        "mv.session.abandon_run(session_id=..., run_id=...)",
         "mv.session.get_or_create(...)",
         "mv.session.current()",
         "mv.session.recent()",

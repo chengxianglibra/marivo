@@ -2,6 +2,8 @@
 
 The public surface is intentionally narrow:
 
+- ``mv.session.abandon_run(session_id=..., run_id=...)`` — explicitly mark one
+  stopped incomplete Run failed so its Session can be resumed.
 - ``mv.session.get_or_create(name=...)`` — attach if that session already
   exists, otherwise create it. An explicit question becomes the session's
   current guiding question. Sets the new or attached session as current.
@@ -35,13 +37,45 @@ from ibis.backends import BaseBackend
 from marivo.analysis.session.core import Session
 from marivo.analysis.session.history import SessionInspection, SessionSummaryPage
 
-__all__ = ["current", "delete", "get_or_create", "inspect", "recent", "resume"]
+__all__ = ["abandon_run", "current", "delete", "get_or_create", "inspect", "recent", "resume"]
 
 _PUBLIC_NAMES = frozenset(__all__)
 
 _INTERNAL_NAMES = frozenset({"_reset_process_state"})
 
 _SESSION_ACTIVATION_LOCK = threading.RLock()
+
+
+def abandon_run(*, session_id: str, run_id: str) -> None:
+    """Abandon one stopped incomplete Run before activating its Session.
+
+    Args:
+        session_id: Exact immutable ``sess_...`` id that owns the Run.
+        run_id: Exact incomplete ``run_...`` id to abandon.
+
+    Returns:
+        ``None`` after the Run is failed atomically. Repeating the same
+        abandonment is a no-op.
+
+    Raises:
+        SessionNotFoundError: The session id is absent from the current project.
+        RunNotFoundError: The Run id is absent from the selected Session.
+        SessionStateError: The Run is terminal for another reason or one of its
+            registered output Artifacts has a downstream consumer.
+
+    Example:
+        >>> mv.session.abandon_run(session_id=session_id, run_id=run_id)
+        >>> session = mv.session.resume(session_id, by="id")
+
+    Constraints:
+        This operation does not stop a running process. Call it only after the
+        execution that owned the incomplete Run has stopped. It removes only
+        unconsumed Session Store Artifact registrations; on-disk files and
+        Evidence markers remain unchanged.
+    """
+    from marivo.analysis.session._store import SessionStore as _Store
+
+    _Store().abandon_run(session_id=session_id, run_id=run_id)
 
 
 def current() -> Session | None:
@@ -89,8 +123,10 @@ def _activate_session(
     import json as _json
 
     from marivo.analysis.errors import SessionTimezoneConflict
-    from marivo.analysis.session._layout import PersistenceLayout as _Layout
     from marivo.analysis.session._layout import _atomic_write_text
+    from marivo.analysis.session._runtime import (
+        _preflight_session as _preflight,
+    )
     from marivo.analysis.session._runtime import (
         _session_from_row as _from_row,
     )
@@ -99,18 +135,9 @@ def _activate_session(
     )
 
     with _SESSION_ACTIVATION_LOCK:
-        layout = _Layout(project_root=store.project_root, session_id=row["id"])
-        store.validate_session_runtime_schema(str(row["id"]))
-        if layout.session_dir.is_dir():
-            from marivo.analysis.session._runs import reconcile_incomplete_runs
-
-            recovery_session = _from_row(store, row, connection_runtime)
-            try:
-                reconcile_incomplete_runs(recovery_session)
-            finally:
-                if recovery_session._judgment_store is not None:
-                    recovery_session._judgment_store.close()
-                    recovery_session._judgment_store = None
+        recovery_session = _from_row(store, row, connection_runtime)
+        _preflight(recovery_session)
+        layout = recovery_session._layout
         layout.session_dir.mkdir(parents=True, exist_ok=True)
         meta_path = layout.session_dir / "meta.json"
 
@@ -539,6 +566,7 @@ _new.__path__ = __path__
 _new.__package__ = __package__
 _new.__all__ = __all__
 # Copy public names into the new module
+_new.abandon_run = abandon_run  # type: ignore[attr-defined]
 _new.current = current  # type: ignore[attr-defined]
 _new.get_or_create = get_or_create  # type: ignore[attr-defined]
 _new.inspect = inspect  # type: ignore[attr-defined]

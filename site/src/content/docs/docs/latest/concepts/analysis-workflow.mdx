@@ -136,7 +136,8 @@ workspace. `get_or_create` creates that name once and later attaches to the same
 immutable session id. An explicit `question` becomes the session's current
 guiding question; deliberately omitting it preserves the persisted value. The
 narrow session API is `get_or_create`, `resume(identity)`, `current()`,
-`recent()`, `inspect(name)`, and `delete(name)`.
+`abandon_run(session_id=..., run_id=...)`, `recent()`, `inspect(name)`, and
+`delete(name)`.
 
 `resume(identity)` accepts the exact stable session name or immutable session
 id. It only resumes existing state: an unknown or ambiguous identity fails
@@ -144,6 +145,13 @@ without creating a session or changing its name, question, or report timezone.
 Normally omit `by`; if the same value matches one session name and a different
 session id, follow the structured error and retry with `by="name"` or `by="id"`
 to select the intended existing session explicitly.
+
+If activation reports that one incomplete Run has multiple possible output
+Artifacts, first confirm that its executor has stopped, then follow the error's
+exact `mv.session.abandon_run(session_id=..., run_id=...)` repair and resume the
+same immutable session id. Abandonment records a normal failed Run and removes
+only unconsumed Session Store Artifact registrations. It does not stop a process
+or delete physical files and Evidence markers.
 
 Updating the current question does not rewrite existing artifacts, jobs,
 evidence, lineage, or their `analysis_purpose`. Use a new stable session name
@@ -959,6 +967,9 @@ Use `marivo.help("analysis.runtime")` to choose the live recovery page. Read
 `marivo.help("analysis.runtime.runs")` for bounded Run discovery, then use exact
 Artifact refs and `marivo.help("analysis.evidence")` for Artifact-owned Finding
 reads. SessionGraph is factual navigation, not a planner or authority check.
+When incomplete Run reconciliation is ambiguous, use only the structured
+`session.abandon_run` repair after confirming execution stopped; do not edit the
+Session Store or author a failure payload.
 
 ## Evidence and audit
 

@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from marivo.analysis.errors import SessionLockedByAnotherProcessError
+from marivo.analysis.errors import (
+    RunNotFoundError,
+    SessionLockedByAnotherProcessError,
+    SessionNotFoundError,
+    SessionStateError,
+)
 from marivo.analysis.session._store import SessionStore, SessionSummary
 
 # ---------------------------------------------------------------------------
@@ -25,6 +31,37 @@ def project_root(tmp_path: Path) -> Path:
 @pytest.fixture()
 def store(project_root: Path) -> SessionStore:
     return SessionStore(project_root=project_root)
+
+
+def _begin_incomplete_run(
+    store: SessionStore,
+    session_id: str,
+    run_id: str,
+    *,
+    inputs: tuple[str, ...] = (),
+) -> None:
+    store.begin_run(
+        session_id=session_id,
+        run_id=run_id,
+        capability_id="observe",
+        analysis_purpose=None,
+        arguments=[],
+        omitted_argument_names=(),
+        input_artifact_refs=inputs,
+        started_at="2026-08-31T00:00:00+00:00",
+    )
+
+
+def _record_run_artifact(store: SessionStore, session_id: str, run_id: str, ref: str) -> None:
+    store.record_artifact(
+        session_id=session_id,
+        artifact_id=ref,
+        kind="metric_frame",
+        path=f"frames/{ref}/data.parquet",
+        meta_path=f"frames/{ref}/meta.json",
+        content_hash=None,
+        produced_by_job=run_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -621,6 +658,144 @@ def test_list_jobs(store: SessionStore, project_root: Path) -> None:
     assert len(jobs) == 2
     ids = {j["run_id"] for j in jobs}
     assert ids == {"j1", "j2"}
+
+
+# ---------------------------------------------------------------------------
+# Explicit incomplete Run abandonment
+# ---------------------------------------------------------------------------
+
+
+def test_abandon_run_fails_incomplete_run_and_deletes_unconsumed_artifacts(
+    store: SessionStore, project_root: Path
+) -> None:
+    session = store.get_or_insert_session(name="abandon", question=None, cwd=project_root)
+    session_id = str(session["id"])
+    _begin_incomplete_run(store, session_id, "run_abandoned")
+    _record_run_artifact(store, session_id, "run_abandoned", "art_a")
+    _record_run_artifact(store, session_id, "run_abandoned", "art_b")
+
+    store.abandon_run(session_id=session_id, run_id="run_abandoned")
+
+    run = store.get_run(session_id, "run_abandoned")
+    assert run is not None
+    assert run["lifecycle"] == "failed"
+    assert run["finished_at"] is not None
+    assert run["output_artifact_ref"] is None
+    assert run["output_mode"] is None
+    assert json.loads(run["failure_json"]) == {
+        "error_type": "RunAbandoned",
+        "message": "The incomplete Run was explicitly abandoned after execution stopped.",
+        "expected": None,
+        "received": None,
+        "location": "Run 'run_abandoned'",
+        "repair": None,
+    }
+    assert store.list_artifacts(session_id) == []
+
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE runs SET failure_json = ? WHERE session_id = ? AND run_id = ?",
+            (json.dumps(json.loads(run["failure_json"]), indent=2), session_id, "run_abandoned"),
+        )
+    run = store.get_run(session_id, "run_abandoned")
+    assert run is not None
+    before = dict(run)
+    store.abandon_run(session_id=session_id, run_id="run_abandoned")
+    repeated = store.get_run(session_id, "run_abandoned")
+    assert repeated is not None
+    assert dict(repeated) == before
+
+
+def test_abandon_run_rejects_unknown_session_and_run_with_current_candidates(
+    store: SessionStore, project_root: Path
+) -> None:
+    session = store.get_or_insert_session(name="known", question=None, cwd=project_root)
+    session_id = str(session["id"])
+    _begin_incomplete_run(store, session_id, "run_known")
+
+    with pytest.raises(SessionNotFoundError) as session_error:
+        store.abandon_run(session_id="sess_missing", run_id="run_known")
+    assert session_error.value.repair is not None
+    assert session_error.value.repair.candidates == (session_id,)
+
+    with pytest.raises(RunNotFoundError) as run_error:
+        store.abandon_run(session_id=session_id, run_id="run_missing")
+    assert run_error.value.repair is not None
+    assert run_error.value.repair.help_target.canonical_id == "session.abandon_run"
+    assert run_error.value.repair.candidates == ("run_known",)
+
+
+def test_abandon_run_rejects_terminal_run_without_mutation(
+    store: SessionStore, project_root: Path
+) -> None:
+    session = store.get_or_insert_session(name="terminal", question=None, cwd=project_root)
+    session_id = str(session["id"])
+    _begin_incomplete_run(store, session_id, "run_succeeded")
+    _record_run_artifact(store, session_id, "run_succeeded", "art_succeeded")
+    store.complete_run(
+        session_id=session_id,
+        run_id="run_succeeded",
+        output_artifact_ref="art_succeeded",
+        output_mode="produced",
+        finished_at="2026-08-31T00:01:00+00:00",
+    )
+    _begin_incomplete_run(store, session_id, "run_failed")
+    store.fail_run(
+        session_id=session_id,
+        run_id="run_failed",
+        failure={
+            "error_type": "InternalExecutionError",
+            "message": "failed",
+            "expected": None,
+            "received": None,
+            "location": None,
+            "repair": None,
+        },
+        failed_at="2026-08-31T00:02:00+00:00",
+    )
+    before: dict[str, dict[str, object]] = {}
+    for run_id in ("run_succeeded", "run_failed"):
+        run = store.get_run(session_id, run_id)
+        assert run is not None
+        before[run_id] = dict(run)
+
+    for run_id in before:
+        with pytest.raises(SessionStateError):
+            store.abandon_run(session_id=session_id, run_id=run_id)
+
+    after: dict[str, dict[str, object]] = {}
+    for run_id in before:
+        run = store.get_run(session_id, run_id)
+        assert run is not None
+        after[run_id] = dict(run)
+    assert after == before
+    assert store.get_artifact(session_id, "art_succeeded") is not None
+
+
+def test_abandon_run_rejects_downstream_reference_and_rolls_back(
+    store: SessionStore, project_root: Path
+) -> None:
+    session = store.get_or_insert_session(name="dependent", question=None, cwd=project_root)
+    session_id = str(session["id"])
+    _begin_incomplete_run(store, session_id, "run_producer")
+    _record_run_artifact(store, session_id, "run_producer", "art_produced")
+    _begin_incomplete_run(
+        store,
+        session_id,
+        "run_consumer",
+        inputs=("art_produced",),
+    )
+
+    with pytest.raises(SessionStateError) as exc_info:
+        store.abandon_run(session_id=session_id, run_id="run_producer")
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.candidates == ("run_consumer <- art_produced",)
+    producer = store.get_run(session_id, "run_producer")
+    assert producer is not None
+    assert producer["lifecycle"] == "incomplete"
+    assert store.get_artifact(session_id, "art_produced") is not None
 
 
 def test_store_does_not_create_report_table_or_helpers(

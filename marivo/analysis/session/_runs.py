@@ -17,7 +17,8 @@ import numpy as np
 from pydantic import BaseModel
 
 from marivo._compat import UTC
-from marivo.analysis.errors import AnalysisError, SessionStateError
+from marivo.analysis.errors import AnalysisError, AnalysisRepair, SessionStateError
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import Ref, RefPayloadV1
 
 if TYPE_CHECKING:
@@ -473,6 +474,22 @@ def reconcile_incomplete_runs(session: Session) -> None:
                 expected="one unique producer match",
                 received=str(candidates),
                 location=f"Run {run_id!r} recovery",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        "After confirming execution stopped, abandon this incomplete Run, "
+                        "then resume its Session by immutable id."
+                    ),
+                    help_target=LiveHelpTarget(
+                        surface="analysis",
+                        canonical_id="session.abandon_run",
+                    ),
+                    snippet=(
+                        f"mv.session.abandon_run(session_id={session.id!r}, run_id={run_id!r})\n"
+                        f'session = mv.session.resume({session.id!r}, by="id")'
+                    ),
+                    candidates=tuple(candidates),
+                ),
             )
         artifact_ref = candidates[0]
         recovered = load_frame(

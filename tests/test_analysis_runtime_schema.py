@@ -177,3 +177,107 @@ def test_recovery_does_not_complete_registered_artifact_without_evidence_marker(
     finally:
         connection.disconnect()
         session_attach._reset_process_state()
+
+
+def test_public_abandonment_unlocks_multiple_candidate_recovery(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    bootstrap_sales_project(tmp_path)
+    connection = connect_sales_orders()
+    try:
+        session = mv.session.get_or_create(
+            name="recover-multiple-candidates",
+            backends=sales_backends(connection),
+        )
+        frame = session.observe(make_ref("sales.revenue", SemanticKind.METRIC))
+        run_id = frame.meta.produced_by_job
+        assert run_id is not None
+        duplicate_ref = "artifact_duplicate_candidate"
+        duplicate_dir = session._layout.frames_dir / duplicate_ref
+        duplicate_dir.mkdir(parents=True)
+        duplicate_dir.joinpath("meta.json").write_bytes(
+            session._layout.frames_dir.joinpath(frame.ref, "meta.json").read_bytes()
+        )
+        evidence_store = session._evidence_store()
+        assert evidence_store is not None
+        evidence_store.read().execute(
+            "INSERT INTO artifacts (artifact_id, session_id, step_type, artifact_type, "
+            "artifact_schema_version, subject_payload, lineage_payload, analysis_scope, "
+            "quality_summary, evidence_status, frame_path, frame_sha, committed_at_us) "
+            "SELECT ?, session_id, step_type, artifact_type, artifact_schema_version, "
+            "subject_payload, lineage_payload, analysis_scope, quality_summary, "
+            "evidence_status, frame_path, frame_sha, committed_at_us FROM artifacts "
+            "WHERE artifact_id = ?",
+            (duplicate_ref, frame.ref),
+        )
+        with session._store._connect() as store_connection:
+            store_connection.execute(
+                "UPDATE runs SET lifecycle = 'incomplete', finished_at = NULL, "
+                "output_artifact_ref = NULL, output_mode = NULL, failure_json = NULL "
+                "WHERE session_id = ? AND run_id = ?",
+                (session.id, run_id),
+            )
+        persisted = session._store.get_session_by_id(session.id)
+        assert persisted is not None
+        before_updated_at = persisted["updated_at"]
+
+        for activate in (
+            lambda: mv.session.resume(
+                session.id,
+                by="id",
+                backends=sales_backends(connection),
+            ),
+            mv.session.current,
+        ):
+            with pytest.raises(mv.errors.SessionStateError) as exc_info:
+                activate()
+            error = exc_info.value
+            assert error.received == str(sorted((frame.ref, duplicate_ref)))
+            assert error.repair is not None
+            assert error.repair.help_target.canonical_id == "session.abandon_run"
+            assert error.repair.snippet == (
+                f"mv.session.abandon_run(session_id={session.id!r}, run_id={run_id!r})\n"
+                f'session = mv.session.resume({session.id!r}, by="id")'
+            )
+
+        persisted = session._store.get_session_by_id(session.id)
+        assert persisted is not None
+        assert persisted["updated_at"] == before_updated_at
+        assert mv.session.abandon_run(session_id=session.id, run_id=run_id) is None
+        persisted = session._store.get_session_by_id(session.id)
+        assert persisted is not None
+        assert persisted["updated_at"] == before_updated_at
+
+        resumed = mv.session.resume(
+            session.id,
+            by="id",
+            backends=sales_backends(connection),
+        )
+        failed = resumed.get_run(run_id)
+        assert isinstance(failed, mv.FailedRun)
+        assert failed.failure.error_type == "RunAbandoned"
+        assert failed.failure.location == f"Run {run_id!r}"
+        graph = resumed.graph()
+        assert graph.failed_run_ids == (run_id,)
+        assert graph.incomplete_run_ids == ()
+        assert resumed._store.get_artifact(resumed.id, frame.ref) is None
+        assert duplicate_dir.joinpath("meta.json").is_file()
+
+        with pytest.raises(mv.errors.SessionStateError):
+            resumed._store.record_recovered_artifact(
+                session_id=resumed.id,
+                artifact_id="artifact_late_recovery",
+                kind="metric_frame",
+                path="frames/artifact_late_recovery/data.parquet",
+                meta_path="frames/artifact_late_recovery/meta.json",
+                content_hash=None,
+                produced_by_job=run_id,
+                evidence_status="complete",
+                artifact_schema_version="analysis-artifact/v13",
+                finding_count=0,
+                created_at="2026-08-31T00:00:00+00:00",
+            )
+        assert resumed._store.get_artifact(resumed.id, "artifact_late_recovery") is None
+    finally:
+        connection.disconnect()
+        session_attach._reset_process_state()

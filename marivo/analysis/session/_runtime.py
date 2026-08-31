@@ -884,6 +884,25 @@ def reset_process_state() -> None:
     set_process_current(None)
 
 
+def _preflight_session(session: Session, *, validate_artifacts: bool = True) -> None:
+    """Validate and reconcile one Session without activating or updating it."""
+    if validate_artifacts:
+        session._store.validate_session_runtime_schema(session.id)
+    else:
+        session._store.validate_session_runtime_read_schema(session.id)
+    if not session._layout.session_dir.is_dir():
+        return
+    from marivo.analysis.session._runs import reconcile_incomplete_runs
+
+    had_judgment_store = session._judgment_store is not None
+    try:
+        reconcile_incomplete_runs(session)
+    finally:
+        if not had_judgment_store and session._judgment_store is not None:
+            session._judgment_store.close()
+            session._judgment_store = None
+
+
 # ---------------------------------------------------------------------------
 # current() — resolves from process state or store
 # ---------------------------------------------------------------------------
@@ -900,6 +919,7 @@ def current() -> Session | None:
     """
     proc = get_process_current()
     if proc is not None:
+        _preflight_session(proc, validate_artifacts=False)
         return proc
 
     store = SessionStore()
@@ -917,6 +937,7 @@ def current() -> Session | None:
         store.project_root, None, None, use_datasources=True
     )
     session = _session_from_row(store, row, connection_runtime)
+    _preflight_session(session)
     set_process_current(session)
     return session
 

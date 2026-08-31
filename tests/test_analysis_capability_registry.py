@@ -310,6 +310,7 @@ def test_slice3_evidence_and_runtime_membership_is_exact_and_ordered() -> None:
         ),
         "runtime": ("runtime.sessions", "session.graph", "session.artifact", "runtime.runs"),
         "runtime.sessions": (
+            "session.abandon_run",
             "session.get_or_create",
             "session.current",
             "session.recent",
