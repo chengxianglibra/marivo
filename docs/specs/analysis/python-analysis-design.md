@@ -136,7 +136,10 @@ The target progressive-disclosure topology for those layers is specified in
   the registry's complete type algebra. Its entry label makes governed semantic
   input resolution discoverable, while `analysis.entry` owns the narrower route
   to `analysis.catalog`; catalog collections remain off the root. Each hub lists
-  only its registered members. Focused `marivo.help("analysis.<target>")` owns
+  only its registered members. The catalog hub and each catalog leaf repeat the
+  Session-bound receiver acquisition (`session = mv.session.get_or_create(...)`,
+  then `catalog = session.catalog`) so no page can imply a module-level
+  `mv.catalog`. Focused `marivo.help("analysis.<target>")` owns
   the live signature, exact inputs and outputs, constraints and effects, and at
   most one minimal example. Frames and results own dynamic guidance:
   `show()` describes an artifact's current state and only state-dependent
@@ -411,7 +414,9 @@ forms one ordered mixed forest with one outer scope.
 The same ordered catalog/runtime roots may be passed to
 `catalog.readiness(refs=[...])` before observation. Readiness lowers the forest,
 checks its governed leaves without querying, and returns passing roots through
-`analysis_ready_inputs`.
+`analysis_ready_inputs`. Bare strings fail with structured expected/received
+fields, a qualified `semantic.readiness` repair target, and current-catalog
+candidates plus a copyable `CatalogEntry` repair when the path matches exactly.
 
 Catalog and runtime roots lower to the same canonical expression graph. Runtime
 expressions may recursively contain other runtime expressions or catalog metric

@@ -71,7 +71,10 @@ They are review criteria and, increasingly, test-enforced contracts:
   structured error rather than guessing.
 - **One path per capability.** Each task has exactly one public entry point.
   Nothing described as "internal — use X instead" may appear in a module's
-  `__all__`.
+  `__all__`. When one unqualified string is both a canonical target on one
+  surface and another surface's public-entrypoint alias, the exact canonical
+  target wins; two exact canonical matches remain ambiguous rather than using
+  surface order.
 - **`__repr__` is the floor.** Every public result type has a bounded,
   single-line `repr()` that carries kind and identity and points to `.show()`.
   Default dataclass/pydantic reprs — which dump every field — are not acceptable

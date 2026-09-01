@@ -575,21 +575,30 @@ def _catalog_collection_guidance(
     ]
 
 
+def _catalog_receiver_guidance() -> list[str]:
+    """Render the one public Session-bound catalog acquisition path."""
+
+    return [
+        "  Receiver acquisition:",
+        '    session = mv.session.get_or_create("<stable-session-name>", '
+        'question="<business question>")',
+        "    catalog = session.catalog",
+    ]
+
+
 def _catalog_group_guidance() -> list[str]:
     """Render bounded discovery guidance for the catalog grouping topic."""
 
     properties = tuple(member.property_name for member in CATALOG_MEMBER_CONTRACTS)
     midpoint = (len(properties) + 1) // 2
     return [
-        "  Analysis entry:",
-        "    catalog = session.catalog",
+        *_catalog_receiver_guidance(),
         "    catalog.show()",
         "  Object families:",
         "    " + ", ".join(properties[:midpoint]),
         "    " + ", ".join(properties[midpoint:]),
         "  Discovery rule: select only the collection relevant to the question.",
         '  Focused collection contract: marivo.help("analysis.catalog.<family>").',
-        "  Object-level continuation: inspect the selected entry with marivo.help(entry).",
     ]
 
 
@@ -597,12 +606,27 @@ def _catalog_exact_ref_guidance() -> list[str]:
     """Render exact-ref handoff guidance for ``catalog.require`` help."""
 
     return [
+        *_catalog_receiver_guidance(),
+        "",
         "  Exact identity handoff:",
-        "    catalog = session.catalog",
         "    entry = catalog.require(ref)",
         "    entry.show(); entry.details().show(); marivo.help(entry)",
         "    Use catalog.require only for an exact Ref from configuration, logs, or persistence.",
         '  Entry contract: marivo.help("semantic.CatalogEntry").',
+    ]
+
+
+def _catalog_readiness_guidance() -> list[str]:
+    """Render receiver acquisition and the exact typed-input repair path."""
+
+    return [
+        *_catalog_receiver_guidance(),
+        "",
+        "  Exact input repair:",
+        '    entry = catalog.metrics.get("<full semantic path>")',
+        "    report = catalog.readiness(refs=[entry])",
+        "    Bare strings are rejected; pass a current CatalogEntry, exact Ref, or closed runtime metric expression.",
+        '    Input contract: marivo.help("semantic.readiness").',
     ]
 
 
@@ -681,6 +705,8 @@ def _render_navigation_help(desc: AnalysisNavigationTopic) -> str:
                 "    entry execution != analytical conclusion",
             )
         )
+    elif desc.canonical_id == "catalog":
+        lines.extend(("", *_catalog_group_guidance()))
     lines.extend(("", "  Members:"))
     for member in _grouping_members(desc):
         entrypoint = member.public_entrypoint or (f'marivo.help("analysis.{member.canonical_id}")')
@@ -785,8 +811,10 @@ def _render_descriptor_help(desc: AnalysisHelpDescriptor) -> str:
         return_type = _property_return_type(callable_obj)
         if return_type is not None:
             lines.append(f"  Returns: {return_type}")
-        lines.append(f"  Inspect: {desc.public_entrypoint}.show()")
         catalog_member = _catalog_member_for_descriptor(desc)
+        if catalog_member is not None:
+            lines.extend(("", *_catalog_receiver_guidance()))
+        lines.append(f"  Inspect: {desc.public_entrypoint}.show()")
         if catalog_member is not None:
             lines.extend(_catalog_collection_guidance(desc, catalog_member))
 
@@ -794,6 +822,8 @@ def _render_descriptor_help(desc: AnalysisHelpDescriptor) -> str:
         lines.extend(_catalog_group_guidance())
     elif desc.id == "catalog.require":
         lines.extend(_catalog_exact_ref_guidance())
+    elif desc.id == "catalog.readiness":
+        lines.extend(_catalog_readiness_guidance())
 
     # Live signature (for invokable capabilities)
     if callable_obj is not None and callable(callable_obj):
