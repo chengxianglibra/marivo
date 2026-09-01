@@ -14,33 +14,19 @@ def run_arguments(run: PublicRun) -> dict[str, object]:
     return {argument.name: argument.value for argument in run.arguments}
 
 
-def capture_persisted_job_records(monkeypatch: Any) -> list[dict[str, Any]]:
-    """Capture private intent commit payloads without changing production behavior."""
-    from marivo.analysis.session import _runtime
-
-    records: list[dict[str, Any]] = []
-    original = _runtime._persist_run_success_from_legacy_record
-
-    def capture(session: Any, record: dict[str, Any]) -> None:
-        records.append(dict(record))
-        original(session, record)
-
-    monkeypatch.setattr(_runtime, "_persist_run_success_from_legacy_record", capture)
-    return records
-
-
-def persisted_queries(
-    records: list[dict[str, Any]],
+def run_queries(
+    session: Any,
     *,
     output_ref: str,
-) -> list[dict[str, object]]:
-    """Return query audit payloads for one captured intent output."""
-    for record in reversed(records):
-        if (
-            record.get("output_frame_ref") == output_ref
-            or record.get("output_artifact_id") == output_ref
-        ):
-            queries = record.get("queries", [])
-            assert isinstance(queries, list)
-            return queries
-    raise AssertionError(f"no captured intent record for output {output_ref!r}")
+) -> tuple[Any, ...]:
+    """Return canonical queries for the newest Run yielding one Artifact."""
+    cursor: str | None = None
+    while True:
+        page = session.runs(limit=100, cursor=cursor)
+        for run in page.items:
+            if isinstance(run, SucceededRun) and run.output_artifact_ref == output_ref:
+                return run.queries
+        if not page.has_more:
+            break
+        cursor = page.next_cursor
+    raise AssertionError(f"no succeeded Run for output {output_ref!r}")

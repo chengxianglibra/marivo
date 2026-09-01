@@ -1083,7 +1083,6 @@ def match(
                 "status": "succeeded",
                 "error": None,
                 "semantic_project_root": str(resolved_session.catalog.semantic_root),
-                "queries": [query.to_dict() for query in queries],
             },
         )
     except SessionLockedByAnotherProcessError:

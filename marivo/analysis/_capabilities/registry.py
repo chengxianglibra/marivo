@@ -398,7 +398,10 @@ def _slice3_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
         ),
         AnalysisNavigationTopic(
             canonical_id="runtime.runs",
-            summary="Inspect bounded Run history or recover one exact immutable Run by id.",
+            summary=(
+                "Inspect bounded Run history, including captured terminal query executions, "
+                "or recover one exact immutable Run by id."
+            ),
             render_class="navigation",
             members=(
                 _analysis_target("session.runs"),
@@ -3084,14 +3087,14 @@ def _build_registry() -> CapabilityRegistry:
             "session.runs",
             "session.runs(status=None, capability_id=None, limit=20, cursor=None)",
             "session.runs",
-            "Return one bounded newest-first page of immutable Run records.",
+            "Return bounded immutable Runs with captured queries on terminal records.",
             "RunPage",
         ),
         (
             "session.get_run",
             "session.get_run(run_id)",
             "session.get_run",
-            "Return one exact immutable Run record.",
+            "Return one exact immutable Run, including captured terminal queries.",
             "IncompleteRun | SucceededRun | FailedRun",
         ),
         (

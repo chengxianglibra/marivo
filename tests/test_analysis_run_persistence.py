@@ -8,12 +8,34 @@ import pytest
 
 from marivo._compat import UTC
 from marivo.analysis.errors import AnalysisError, SessionStateError
-from marivo.analysis.session._runs import admit_run, project_run_arguments, project_run_failure
+from marivo.analysis.executor.query_record import QueryExecution
+from marivo.analysis.session._connections import AnalysisConnectionRuntime
+from marivo.analysis.session._runs import (
+    admit_run,
+    project_run_arguments,
+    project_run_failure,
+)
 from marivo.analysis.session._store import SessionStore
+from marivo.datasource.runtime import DatasourceConnectionService
 
 
 def _started() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _query_payload(query_id: str, *, status: str = "succeeded") -> dict[str, object]:
+    return {
+        "query_id": query_id,
+        "datasource": "warehouse",
+        "dialect": "duckdb",
+        "sql": "/* from=marivo,session=sess_test */\nSELECT 1",
+        "sql_digest": "0123456789abcdef",
+        "row_count": 1 if status == "succeeded" else 0,
+        "duration_ms": 3,
+        "started_at": "2026-09-01T00:00:00+00:00",
+        "finished_at": "2026-09-01T00:00:00.003000+00:00",
+        "status": status,
+    }
 
 
 @pytest.fixture
@@ -39,7 +61,9 @@ def _begin(store: SessionStore, session_id: str, run_id: str = "run_1") -> None:
 def test_run_lifecycle_is_incomplete_then_succeeded(run_store) -> None:
     store, session_id = run_store
     _begin(store, session_id)
-    assert store.get_run(session_id, "run_1")["lifecycle"] == "incomplete"
+    incomplete = store.get_run(session_id, "run_1")
+    assert incomplete["lifecycle"] == "incomplete"
+    assert json.loads(incomplete["queries_json"]) == []
     store.record_artifact(
         session_id=session_id,
         artifact_id="art_1",
@@ -55,11 +79,13 @@ def test_run_lifecycle_is_incomplete_then_succeeded(run_store) -> None:
         output_artifact_ref="art_1",
         output_mode="produced",
         finished_at=_started(),
+        queries=[_query_payload("query_00000001")],
     )
     row = store.get_run(session_id, "run_1")
     assert row["lifecycle"] == "succeeded"
     assert row["output_artifact_ref"] == "art_1"
     assert row["output_mode"] == "produced"
+    assert json.loads(row["queries_json"]) == [_query_payload("query_00000001")]
     with pytest.raises(SessionStateError, match="illegal persisted Run transition"):
         store.fail_run(
             session_id=session_id,
@@ -96,6 +122,126 @@ def test_complete_run_replaces_effective_arguments_with_terminal_transition(run_
     assert row["lifecycle"] == "succeeded"
     assert json.loads(row["arguments_json"]) == [{"name": "effective_limit", "value": 5}]
     assert json.loads(row["omitted_argument_names_json"]) == ["query"]
+
+
+def test_failed_run_persists_ordered_success_and_failed_queries(run_store) -> None:
+    store, session_id = run_store
+    _begin(store, session_id)
+    queries = [
+        _query_payload("query_00000001"),
+        _query_payload("query_00000002", status="failed"),
+    ]
+
+    store.fail_run(
+        session_id=session_id,
+        run_id="run_1",
+        failure={"error_type": "BackendError"},
+        failed_at=_started(),
+        queries=queries,
+    )
+
+    row = store.get_run(session_id, "run_1")
+    assert row["lifecycle"] == "failed"
+    assert json.loads(row["queries_json"]) == queries
+
+
+def test_unserializable_query_keeps_run_incomplete(run_store) -> None:
+    store, session_id = run_store
+    _begin(store, session_id)
+    store.record_artifact(
+        session_id=session_id,
+        artifact_id="art_1",
+        kind="metric_frame",
+        path="frames/art_1/data.parquet",
+        meta_path="frames/art_1/meta.json",
+        content_hash="sha256:test",
+        produced_by_job="run_1",
+    )
+
+    with pytest.raises(TypeError):
+        store.complete_run(
+            session_id=session_id,
+            run_id="run_1",
+            output_artifact_ref="art_1",
+            output_mode="produced",
+            finished_at=_started(),
+            queries=[{"invalid": object()}],
+        )
+
+    row = store.get_run(session_id, "run_1")
+    assert row["lifecycle"] == "incomplete"
+    assert json.loads(row["queries_json"]) == []
+
+
+def test_unserializable_failed_query_keeps_run_incomplete(run_store) -> None:
+    store, session_id = run_store
+    _begin(store, session_id)
+
+    with pytest.raises(TypeError):
+        store.fail_run(
+            session_id=session_id,
+            run_id="run_1",
+            failure={"error_type": "BackendError"},
+            failed_at=_started(),
+            queries=[{"invalid": object()}],
+        )
+
+    row = store.get_run(session_id, "run_1")
+    assert row["lifecycle"] == "incomplete"
+    assert json.loads(row["queries_json"]) == []
+
+
+def test_run_admission_accumulates_success_before_final_failed_query(run_store) -> None:
+    store, session_id = run_store
+    session = SimpleNamespace(id=session_id, _store=store)
+    started_at = "2026-09-01T00:00:00+00:00"
+    finished_at = "2026-09-01T00:00:00.003000+00:00"
+    runtime = AnalysisConnectionRuntime(
+        DatasourceConnectionService(project_root=store.project_root, backends={})
+    )
+
+    with (
+        pytest.raises(RuntimeError, match="final query failed"),
+        admit_run(
+            session,
+            capability_id="observe",
+            analysis_purpose=None,
+            arguments={},
+            input_artifact_refs=(),
+        ) as admission,
+    ):
+        queries = tuple(
+            QueryExecution(
+                query_id=query_id,
+                datasource="warehouse",
+                dialect="duckdb",
+                sql="SELECT 1",
+                sql_digest="0123456789abcdef",
+                row_count=1 if status == "succeeded" else 0,
+                duration_ms=3,
+                started_at=started_at,
+                finished_at=finished_at,
+                status=status,  # type: ignore[arg-type]
+            )
+            for query_id, status in (
+                ("query_00000001", "succeeded"),
+                ("query_00000002", "failed"),
+            )
+        )
+        runtime.begin_query_capture()
+        runtime.record_query(queries[0])
+        assert runtime.take_captured_queries() == [queries[0]]
+        runtime.record_query(queries[1])
+        assert runtime.take_captured_queries() == []
+        run_id = admission.run_id
+        raise RuntimeError("final query failed")
+
+    row = store.get_run(session_id, run_id)
+    assert row["lifecycle"] == "failed"
+    assert [query["status"] for query in json.loads(row["queries_json"])] == [
+        "succeeded",
+        "failed",
+    ]
 
 
 def test_failed_success_terminal_write_keeps_artifact_and_incomplete_run(
@@ -167,6 +313,7 @@ def test_reused_run_does_not_rewrite_artifact_producer(run_store) -> None:
         finished_at=_started(),
     )
     assert store.get_artifact(session_id, "art_1")["produced_by_job"] == "run_original"
+    assert json.loads(store.get_run(session_id, "run_reuse")["queries_json"]) == []
 
 
 def test_reused_run_requires_another_succeeded_canonical_producer(run_store) -> None:

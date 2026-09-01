@@ -8,7 +8,7 @@ import re
 import secrets
 from collections.abc import Mapping, Sequence
 from contextvars import ContextVar, Token
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import date, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast
@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from marivo._compat import UTC
 from marivo.analysis.errors import AnalysisError, AnalysisRepair, SessionStateError
+from marivo.analysis.executor.query_record import QueryExecution
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import Ref, RefPayloadV1
 
@@ -45,6 +46,8 @@ _SQL_TEXT_RE = re.compile(
     r"(?is)\b(?:select|insert|update|delete|merge|with)\b.{0,2048}"
     r"\b(?:from|into|set|using)\b"
 )
+_QUERY_ID_RE = re.compile(r"query_[0-9a-f]{8}\Z")
+_QUERY_DIGEST_RE = re.compile(r"[0-9a-f]{16}\Z")
 
 
 def _bounded_string(value: str) -> str:
@@ -281,6 +284,81 @@ def project_run_failure(exc: Exception) -> dict[str, object]:
     return sanitized
 
 
+def _project_run_queries(queries: Sequence[QueryExecution]) -> list[dict[str, object]]:
+    """Project ordered execution facts into the exact canonical Run shape."""
+    projected: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    for query in queries:
+        if not _QUERY_ID_RE.fullmatch(query.query_id) or query.query_id in seen_ids:
+            raise SessionStateError(
+                message="captured Run query id is invalid or duplicated",
+                expected="one unique query_<8 lowercase hex> id per execution",
+                received=query.query_id,
+                location="Run query capture",
+            )
+        seen_ids.add(query.query_id)
+        if not query.datasource or not query.dialect or not query.sql:
+            raise SessionStateError(
+                message="captured Run query identity is incomplete",
+                expected="non-empty datasource, dialect, and executed SQL",
+                received=query.query_id,
+                location="Run query capture",
+            )
+        if not _QUERY_DIGEST_RE.fullmatch(query.sql_digest):
+            raise SessionStateError(
+                message="captured Run query digest is invalid",
+                expected="16 lowercase hexadecimal characters",
+                received=query.sql_digest,
+                location=f"Query {query.query_id!r}",
+            )
+        if query.row_count < 0 or query.duration_ms < 0:
+            raise SessionStateError(
+                message="captured Run query counts are invalid",
+                expected="non-negative row_count and duration_ms",
+                received=f"rows={query.row_count}, duration_ms={query.duration_ms}",
+                location=f"Query {query.query_id!r}",
+            )
+        if query.status not in {"succeeded", "failed"}:
+            raise SessionStateError(
+                message="captured Run query status is invalid",
+                expected="succeeded or failed",
+                received=query.status,
+                location=f"Query {query.query_id!r}",
+            )
+        try:
+            started_at = datetime.fromisoformat(query.started_at)
+            finished_at = datetime.fromisoformat(query.finished_at)
+        except ValueError as exc:
+            raise SessionStateError(
+                message="captured Run query timestamps are invalid",
+                expected="ISO-8601 timestamps with UTC offsets",
+                received=query.query_id,
+                location=f"Query {query.query_id!r}",
+            ) from exc
+        if started_at.tzinfo is None or finished_at.tzinfo is None or finished_at < started_at:
+            raise SessionStateError(
+                message="captured Run query timestamps are inconsistent",
+                expected="aware timestamps with finished_at >= started_at",
+                received=query.query_id,
+                location=f"Query {query.query_id!r}",
+            )
+        projected.append(
+            {
+                "query_id": query.query_id,
+                "datasource": query.datasource,
+                "dialect": query.dialect,
+                "sql": query.sql,
+                "sql_digest": query.sql_digest,
+                "row_count": query.row_count,
+                "duration_ms": query.duration_ms,
+                "started_at": query.started_at,
+                "finished_at": query.finished_at,
+                "status": query.status,
+            }
+        )
+    return projected
+
+
 @dataclass(slots=True)
 class _RunAdmission:
     session: Session
@@ -289,6 +367,7 @@ class _RunAdmission:
     _token: Token[_RunAdmission | None] | None = None
     _terminal_attempted: bool = False
     _completed: bool = False
+    _queries: list[QueryExecution] = field(default_factory=list)
 
     def __enter__(self) -> _RunAdmission:
         self._token = _ACTIVE_RUN.set(self)
@@ -304,12 +383,14 @@ class _RunAdmission:
         omitted_argument_names: tuple[str, ...] | None = None,
     ) -> None:
         self._terminal_attempted = True
+        terminal_queries = () if output_mode == "reused" else tuple(self._queries)
         self.session._store.complete_run(
             session_id=self.session.id,
             run_id=self.run_id,
             output_artifact_ref=output_artifact_ref,
             output_mode=output_mode,
             finished_at=finished_at or datetime.now(UTC).isoformat(),
+            queries=_project_run_queries(terminal_queries),
             arguments=arguments,
             omitted_argument_names=omitted_argument_names,
         )
@@ -334,6 +415,7 @@ class _RunAdmission:
                     run_id=self.run_id,
                     failure=project_run_failure(exc),
                     failed_at=datetime.now(UTC).isoformat(),
+                    queries=_project_run_queries(self._queries),
                 )
             except Exception as persistence_exc:
                 raise SessionStateError(
@@ -385,6 +467,13 @@ def active_run_id() -> str | None:
 
 def active_run_admission() -> _RunAdmission | None:
     return _ACTIVE_RUN.get()
+
+
+def record_active_run_query(query: QueryExecution) -> None:
+    """Attach one executed query to the active Run without owning local buffers."""
+    active = _ACTIVE_RUN.get()
+    if active is not None:
+        active._queries.append(query)
 
 
 def require_active_run_id() -> str:

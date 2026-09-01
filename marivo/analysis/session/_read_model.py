@@ -20,6 +20,7 @@ from marivo.analysis.session._runs import JsonValue
 from marivo.render import Card, RenderableResult
 
 RunLifecycle: TypeAlias = Literal["incomplete", "succeeded", "failed"]
+RunQueryStatus: TypeAlias = Literal["succeeded", "failed"]
 GraphDirection: TypeAlias = Literal["ancestors", "descendants"]
 
 
@@ -37,6 +38,36 @@ class RunFailure:
     received: JsonValue | None
     location: str | None
     repair: AnalysisRepair | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RunQuery:
+    query_id: str
+    datasource: str
+    dialect: str
+    sql: str
+    sql_digest: str
+    row_count: int
+    duration_ms: int
+    started_at: datetime
+    finished_at: datetime
+    status: RunQueryStatus
+
+
+def _append_query_summary(card: Card, queries: tuple[RunQuery, ...]) -> Card:
+    return card.field("query_count", str(len(queries))).listing(
+        "queries",
+        (
+            (
+                f"{query.query_id} status={query.status} datasource={query.datasource} "
+                f"duration_ms={query.duration_ms} row_count={query.row_count} "
+                f"digest={query.sql_digest}"
+            )
+            for query in queries
+        )
+        if queries
+        else ("none",),
+    )
 
 
 @dataclass(frozen=True, repr=False, slots=True, kw_only=True)
@@ -60,9 +91,12 @@ class _RunBase(RenderableResult):
         )
 
     def _card(self) -> Card:
+        available = [".show()", ".arguments", ".input_artifact_refs"]
+        if isinstance(self, SucceededRun | FailedRun):
+            available.append(".queries")
         card = Card(
             identity=self._repr_identity(),
-            available=(".show()", ".arguments", ".input_artifact_refs"),
+            available=available,
         ).status(self.lifecycle)
         card.field("started_at", self.started_at.isoformat())
         if self.analysis_purpose:
@@ -92,36 +126,40 @@ class SucceededRun(_RunBase):
     output_artifact_ref: str
     output_mode: Literal["produced", "reused"]
     finished_at: datetime
+    queries: tuple[RunQuery, ...]
 
     @property
     def lifecycle(self) -> Literal["succeeded"]:
         return "succeeded"
 
     def _card(self) -> Card:
-        return (
+        card = (
             super(SucceededRun, self)
             ._card()
             .field("finished_at", self.finished_at.isoformat())
             .field("output", f"{self.output_artifact_ref} ({self.output_mode})")
         )
+        return _append_query_summary(card, self.queries)
 
 
 @dataclass(frozen=True, repr=False, slots=True, kw_only=True)
 class FailedRun(_RunBase):
     failed_at: datetime
     failure: RunFailure
+    queries: tuple[RunQuery, ...]
 
     @property
     def lifecycle(self) -> Literal["failed"]:
         return "failed"
 
     def _card(self) -> Card:
-        return (
+        card = (
             super(FailedRun, self)
             ._card()
             .field("failed_at", self.failed_at.isoformat())
             .field("failure", f"{self.failure.error_type}: {self.failure.message}")
         )
+        return _append_query_summary(card, self.queries)
 
 
 RunRecord: TypeAlias = IncompleteRun | SucceededRun | FailedRun

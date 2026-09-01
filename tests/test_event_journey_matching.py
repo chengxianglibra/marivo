@@ -34,7 +34,7 @@ from marivo.analysis.intents.events import (
     _Occurrence,
     _ResolvedStep,
 )
-from tests.run_read_helpers import capture_persisted_job_records, persisted_queries
+from tests.run_read_helpers import run_queries
 
 
 def _bootstrap_event_project(tmp_path: Any) -> None:
@@ -1160,7 +1160,6 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
         ),
     )
 
-    records = capture_persisted_job_records(monkeypatch)
     session._connection_runtime.begin_query_capture()
     funnel = session.events.funnel(journeys)
     grouped_funnel = session.events.funnel(
@@ -1210,7 +1209,7 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     )
     forged_checks = {row["check_id"]: row for row in run_event_funnel_checks(forged_funnel)}
     assert forged_checks["event_funnel_reconciliation"]["severity"] == "blocking"
-    assert len(persisted_queries(records, output_ref=grouped_funnel.ref)) == 1
+    assert len(run_queries(session, output_ref=grouped_funnel.ref)) == 1
     grouped_findings = grouped_funnel.findings().items
     assert len(grouped_findings) == 1
     assert "u1" not in repr(grouped_findings[0])

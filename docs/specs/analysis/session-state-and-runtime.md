@@ -215,7 +215,8 @@ runtime schema without querying a datasource:
 - `mv.session.recent(...)` then `mv.session.inspect(name, run_limit=5)` provides
   a bounded historical `RunPage` without resuming or mutating the Session;
 - `session.runs(...)` and `session.get_run(run_id)` expose the closed Run
-  lifecycle variants and exact Artifact inputs/output;
+  lifecycle variants, exact Artifact inputs/output, and ordered captured query
+  executions on succeeded and failed Runs;
 - `session.artifact(ref)` reconstructs the exact committed Artifact;
 - `session.graph(...)` projects factual Run/Artifact adjacency, heads, failed
   and incomplete Runs, with focused ancestor or descendant traversal;
@@ -252,6 +253,8 @@ can reuse upstream work:
 - successfully materialized upstream artifact refs (in `artifacts` + on disk);
 - the failed step's operator, expected/received, and repair hints (structured
   error);
+- every captured successful query before the failure and the final failed query
+  when compiled SQL was available;
 - the Run record with its lifecycle, retrievable via `runs()` / `get_run(run_id)`.
 
 SQLite `locked`/`busy` timeouts in either the Session Store or evidence ledger raise
@@ -279,7 +282,8 @@ An analysis is a multi-Artifact DAG, not a single object — no one value "is th
 analysis." Cross-turn state is reconstructed from session-level facts that already
 exist, which is why there is no public `AnalysisSnapshot` artifact:
 
-- `session.runs()` — bounded typed execution history and exact Artifact refs;
+- `session.runs()` — bounded typed execution history, exact Artifact refs, and
+  terminal query executions;
 - `session.graph()` — factual producer, consumer, reuse, head, and attention state;
 - per-artifact bounded reads — `show()`/`render()`, `contract()`, `state`,
   `lineage`, `evidence_status`, and `evidence_digest`;
@@ -297,6 +301,19 @@ Because operators are pure computations over content-addressed inputs, re-runnin
 accumulated script is safe: identical resolved params + definitions + datasource
 freshness reproduce the same `content_hash`, so repeated execution does not create
 semantic drift, and unchanged upstream steps can be served from persisted frames
-instead of re-querying. The persisted `jobs`/`artifacts` records let a script
+instead of re-querying. The persisted Run/Artifact records let a script
 reconcile its intended step chain against what already materialized before deciding
 what to recompute.
+
+Terminal `SucceededRun` and `FailedRun` values expose `queries`. Each immutable
+query value carries the exact compiled SQL submitted to the backend, its
+literal-neutral shape digest, datasource/dialect, status, timing, and row count.
+The normalized SQL used to compute the digest is transient and parser-derived
+literal values are not persisted as driver bind parameters. `Run.show()` renders
+only query summaries; inspect `.queries` explicitly for SQL. Because SQL keeps
+its literal values, protect project-local `.marivo` state accordingly. An empty
+tuple means no captured query records, not proof that no datasource activity
+occurred. Artifact-reuse Runs intentionally publish an empty tuple, including
+post-execution content deduplication; inspect `output_mode` before interpreting
+query absence. Incomplete Runs do not expose queries, and process termination
+before a terminal transition may lose in-memory query capture.

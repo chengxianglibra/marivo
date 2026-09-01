@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping
@@ -36,6 +37,7 @@ from marivo.analysis.session._read_model import (
     RunArgument,
     RunFailure,
     RunPage,
+    RunQuery,
     RunRecord,
     SessionGraph,
     SessionGraphEdge,
@@ -56,6 +58,8 @@ if TYPE_CHECKING:
 
 _OVERALL_GRAPH_SCAN_LIMIT = 5_000
 _SIDECAR_KINDS = frozenset({"component_frame", "coverage_frame"})
+_QUERY_ID_RE = re.compile(r"query_[0-9a-f]{8}\Z")
+_QUERY_DIGEST_RE = re.compile(r"[0-9a-f]{16}\Z")
 _FAMILY_BY_KIND: dict[str, ArtifactFamily] = {
     "metric_frame": "MetricFrame",
     "event_frame": "EventFrame",
@@ -214,6 +218,132 @@ def _decode_string_tuple(raw: object, *, location: str) -> tuple[str, ...]:
     return tuple(payload)
 
 
+def _decode_queries(raw: object, *, run_id: str) -> tuple[RunQuery, ...]:
+    location = f"Run {run_id!r} queries"
+    try:
+        payload = json.loads(str(raw))
+    except (TypeError, ValueError) as exc:
+        raise SessionGraphIntegrityError.mismatch(
+            message="persisted Run queries are not readable JSON",
+            expected="an ordered list of canonical query executions",
+            received=type(exc).__name__,
+            location=location,
+        ) from exc
+    if not isinstance(payload, list):
+        raise SessionGraphIntegrityError.mismatch(
+            message="persisted Run queries have the wrong shape",
+            expected="an ordered list of canonical query executions",
+            received=type(payload).__name__,
+            location=location,
+        )
+    expected_fields = {
+        "query_id",
+        "datasource",
+        "dialect",
+        "sql",
+        "sql_digest",
+        "row_count",
+        "duration_ms",
+        "started_at",
+        "finished_at",
+        "status",
+    }
+    seen_ids: set[str] = set()
+    result: list[RunQuery] = []
+    for index, item in enumerate(payload):
+        item_location = f"{location}[{index}]"
+        if not isinstance(item, dict) or set(item) != expected_fields:
+            if isinstance(item, dict):
+                missing = sorted(expected_fields - set(item))
+                unexpected_count = len(set(item) - expected_fields)
+                received = f"object missing={missing!r} unexpected_field_count={unexpected_count}"
+            else:
+                received = type(item).__name__
+            raise SessionGraphIntegrityError.mismatch(
+                message="persisted Run query entry has the wrong shape",
+                expected=f"exact fields {sorted(expected_fields)!r}",
+                received=received,
+                location=item_location,
+            )
+        query_id = item["query_id"]
+        datasource = item["datasource"]
+        dialect = item["dialect"]
+        sql = item["sql"]
+        sql_digest = item["sql_digest"]
+        row_count = item["row_count"]
+        duration_ms = item["duration_ms"]
+        status = item["status"]
+        if (
+            not isinstance(query_id, str)
+            or _QUERY_ID_RE.fullmatch(query_id) is None
+            or query_id in seen_ids
+        ):
+            raise SessionGraphIntegrityError.mismatch(
+                message="persisted Run query id is invalid or duplicated",
+                expected="one unique query_<8 lowercase hex> id",
+                received=repr(query_id),
+                location=item_location,
+            )
+        seen_ids.add(query_id)
+        if any(not isinstance(value, str) or not value for value in (datasource, dialect, sql)):
+            raise SessionGraphIntegrityError.mismatch(
+                message="persisted Run query identity is incomplete",
+                expected="non-empty datasource, dialect, and executed SQL",
+                received=query_id,
+                location=item_location,
+            )
+        if not isinstance(sql_digest, str) or _QUERY_DIGEST_RE.fullmatch(sql_digest) is None:
+            raise SessionGraphIntegrityError.mismatch(
+                message="persisted Run query digest is invalid",
+                expected="16 lowercase hexadecimal characters",
+                received=repr(sql_digest),
+                location=item_location,
+            )
+        if (
+            type(row_count) is not int
+            or row_count < 0
+            or type(duration_ms) is not int
+            or duration_ms < 0
+        ):
+            raise SessionGraphIntegrityError.mismatch(
+                message="persisted Run query counts are invalid",
+                expected="non-negative integer row_count and duration_ms",
+                received=f"rows={row_count!r}, duration_ms={duration_ms!r}",
+                location=item_location,
+            )
+        if not isinstance(status, str) or status not in {"succeeded", "failed"}:
+            raise SessionGraphIntegrityError.mismatch(
+                message="persisted Run query status is unsupported",
+                expected="succeeded or failed",
+                received=repr(status),
+                location=item_location,
+            )
+        started_at = _aware_datetime(item["started_at"], location=f"{item_location}.started_at")
+        finished_at = _aware_datetime(item["finished_at"], location=f"{item_location}.finished_at")
+        if finished_at < started_at:
+            raise SessionGraphIntegrityError.mismatch(
+                message="persisted Run query timestamps are inconsistent",
+                expected="finished_at >= started_at",
+                received=query_id,
+                location=item_location,
+            )
+        result.append(
+            RunQuery(
+                query_id=query_id,
+                datasource=cast("str", datasource),
+                dialect=cast("str", dialect),
+                sql=cast("str", sql),
+                sql_digest=sql_digest,
+                row_count=row_count,
+                duration_ms=duration_ms,
+                started_at=started_at,
+                finished_at=finished_at,
+                status=cast("Literal['succeeded', 'failed']", status),
+            )
+        )
+    return tuple(result)
+
+
 def _decode_failure(raw: object, *, run_id: str) -> RunFailure:
     location = f"Run {run_id!r} failure"
     try:
@@ -302,9 +432,17 @@ def _row_to_run(row: sqlite3.Row, *, input_refs: tuple[str, ...]) -> RunRecord:
         row["omitted_argument_names_json"],
         location=f"Run {run_id!r} omitted arguments",
     )
+    queries = _decode_queries(row["queries_json"], run_id=run_id)
     started_at = _aware_datetime(row["started_at"], location=f"Run {run_id!r} start")
     lifecycle = str(row["lifecycle"])
     if lifecycle == "incomplete":
+        if queries:
+            raise SessionGraphIntegrityError.mismatch(
+                message="incomplete Run carries terminal query executions",
+                expected="no persisted queries before a terminal transition",
+                received=run_id,
+                location=f"Run {run_id!r} lifecycle",
+            )
         if any(
             row[name] is not None
             for name in ("finished_at", "output_artifact_ref", "output_mode", "failure_json")
@@ -352,6 +490,7 @@ def _row_to_run(row: sqlite3.Row, *, input_refs: tuple[str, ...]) -> RunRecord:
             output_artifact_ref=output_ref,
             output_mode=cast("Literal['produced', 'reused']", output_mode),
             finished_at=_aware_datetime(finished_at, location=f"Run {run_id!r} finish"),
+            queries=queries,
         )
     if lifecycle == "failed":
         if (
@@ -376,6 +515,7 @@ def _row_to_run(row: sqlite3.Row, *, input_refs: tuple[str, ...]) -> RunRecord:
             started_at=started_at,
             failed_at=_aware_datetime(row["finished_at"], location=f"Run {run_id!r} failure"),
             failure=_decode_failure(row["failure_json"], run_id=run_id),
+            queries=queries,
         )
     raise SessionGraphIntegrityError.mismatch(
         message="persisted Run lifecycle is unsupported",
