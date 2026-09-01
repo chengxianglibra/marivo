@@ -65,10 +65,17 @@ class ObserveReplay:
     catalog_definition_fingerprint: str
     cohort: SubjectSet | None = None
 
-    def with_dimensions(self, axis_refs: list[Ref[FieldKind]]) -> ObserveReplay:
+    def with_dimensions(
+        self,
+        axis_refs: list[Ref[FieldKind]],
+        *,
+        include_time_dimension: bool = False,
+    ) -> ObserveReplay:
         dimensions = list(self.dimensions)
         for axis_ref in axis_refs:
-            if axis_ref not in dimensions and axis_ref != self.time_dimension:
+            if axis_ref not in dimensions and (
+                include_time_dimension or axis_ref != self.time_dimension
+            ):
                 dimensions.append(axis_ref)
         return ObserveReplay(
             metric=self.metric,
@@ -96,10 +103,8 @@ class ObserveReplay:
             cohort=self.cohort,
         )
 
-    def call_observe(self, session: Session) -> MetricFrame:
-        """Invoke ``observe`` with this replay's recovered parameters."""
-        from marivo.analysis.intents.observe import observe
-
+    def validate_authority(self, session: Session) -> None:
+        """Validate current semantic authority without executing a datasource query."""
         for ref in (
             *self.dimensions,
             *self.slice_by,
@@ -129,6 +134,12 @@ class ObserveReplay:
                     ),
                 },
             )
+
+    def call_observe(self, session: Session) -> MetricFrame:
+        """Invoke ``observe`` with this replay's recovered parameters."""
+        from marivo.analysis.intents.observe import observe
+
+        self.validate_authority(session)
         result = observe(
             self.metric,
             time_scope=self.time_scope,
@@ -145,6 +156,37 @@ class ObserveReplay:
             cohort=self.cohort,
             session=session,
         )
+        return self._mark_replay_used(result)
+
+    def call_session_observe(
+        self,
+        session: Session,
+        *,
+        analysis_purpose: str | None = None,
+    ) -> MetricFrame:
+        """Replay through the public Session boundary with an independent Run."""
+        self.validate_authority(session)
+        result = session.observe(
+            self.metric,
+            time_scope=self.time_scope,
+            grain=self.grain,
+            dimensions=cast(
+                "list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None",
+                list(self.dimensions) or None,
+            ),
+            slice_by=cast(
+                "Mapping[_SemanticInput[DimensionKind | TimeDimensionKind], SliceValue] | None",
+                self.slice_by or None,
+            ),
+            time_dimension=self.time_dimension,
+            cohort=self.cohort,
+            analysis_purpose=analysis_purpose,
+        )
+        return self._mark_replay_used(result)
+
+    @staticmethod
+    def _mark_replay_used(result: MetricFrame) -> MetricFrame:
+        """Mark replay execution on the returned in-memory frame and telemetry."""
         stats = result.meta.execution_stats
         if stats is not None:
             result.meta = result.meta.model_copy(

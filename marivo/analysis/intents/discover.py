@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from numbers import Real
 from time import monotonic
@@ -16,6 +18,8 @@ from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.candidate_identity import assign_scored_frame_item_ids
 from marivo.analysis.errors import (
     AnalysisRepair,
+    ArtifactNotFoundError,
+    AttributionMaterializationError,
     DiscoverAxisNotMaterializedError,
     DiscoverInsufficientDataError,
     SemanticKindMismatchError,
@@ -62,8 +66,15 @@ from marivo.analysis.intents._discover_scorers import (
     score_point_anomalies,
     score_point_anomalies_seasonal_robust,
 )
+from marivo.analysis.intents._replay import (
+    ObserveReplay,
+    _dimension_ref,
+    recover_alignment_policy,
+    recover_observe_replay,
+)
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
+from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.semantic_inputs import (
     normalize_dimension_boundary as normalize_catalog_dimension_boundary,
 )
@@ -186,6 +197,184 @@ def _normalize_dimension_inputs_boundary(
 _DEFAULT_DISCOVER_LIMIT: int = 50
 
 
+@dataclass(frozen=True)
+class _DriverAxesReplayPlan:
+    source: DeltaFrame
+    dimension_ids: tuple[str, ...]
+    missing_dimension_ids: tuple[str, ...]
+    current_replay: ObserveReplay | None = None
+    baseline_replay: ObserveReplay | None = None
+    alignment: AlignmentPolicy | None = None
+
+    def materialize(
+        self,
+        session: Session,
+        *,
+        analysis_purpose: str | None,
+    ) -> tuple[DeltaFrame, dict[str, Any]]:
+        """Return the scoring delta and explicit replay provenance."""
+        if not self.missing_dimension_ids:
+            return self.source, {
+                "materialization_status": "not_required",
+                "original_delta_ref": self.source.ref,
+            }
+
+        assert self.current_replay is not None
+        assert self.baseline_replay is not None
+        assert self.alignment is not None
+        expanded_current = self.current_replay.call_session_observe(
+            session,
+            analysis_purpose=analysis_purpose,
+        )
+        expanded_baseline = self.baseline_replay.call_session_observe(
+            session,
+            analysis_purpose=analysis_purpose,
+        )
+        expanded_delta = session.compare(
+            expanded_current,
+            expanded_baseline,
+            alignment=self.alignment,
+            analysis_purpose=analysis_purpose,
+        )
+        expanded_df = expanded_delta._dataframe_copy()
+        _, expanded_dimension_columns = _delta_axes(expanded_delta)
+        expanded_axes = _dimension_columns_for_ids(expanded_delta, list(self.dimension_ids))
+        _require_materialized_axes(
+            objective="driver_axes",
+            df=expanded_df,
+            axes=expanded_axes,
+            dimension_ids=list(self.dimension_ids),
+            available_dimension_columns=expanded_dimension_columns,
+        )
+        return expanded_delta, {
+            "materialization_status": "expanded",
+            "original_delta_ref": self.source.ref,
+            "missing_axes": list(self.missing_dimension_ids),
+            "expanded_current_ref": expanded_current.ref,
+            "expanded_baseline_ref": expanded_baseline.ref,
+            "expanded_delta_ref": expanded_delta.ref,
+            "alignment_policy": self.alignment.model_dump(mode="json"),
+        }
+
+
+def _driver_axes_replay_error(
+    *,
+    source: DeltaFrame,
+    missing_dimension_ids: list[str],
+    missing_columns: list[str],
+    available_dimension_columns: list[str],
+    recoverability_status: str,
+    cause: Exception | None = None,
+) -> DiscoverAxisNotMaterializedError:
+    context: dict[str, object] = {
+        "objective": "driver_axes",
+        "missing_axes": missing_columns,
+        "missing_axis_ids": missing_dimension_ids,
+        "available_dimension_columns": available_dimension_columns,
+        "recoverability_status": recoverability_status,
+        "source_refs": {
+            "current": source.meta.source_current_ref,
+            "baseline": source.meta.source_baseline_ref,
+        },
+    }
+    if isinstance(cause, AttributionMaterializationError):
+        context["replay_failure"] = cause.message
+    return DiscoverAxisNotMaterializedError(
+        message=(
+            "discover(driver_axes) could not materialize requested search axes "
+            f"from the persisted delta lineage: {', '.join(missing_dimension_ids)}"
+        ),
+        context=context,
+    )
+
+
+def prepare_driver_axes_replay(
+    source: DeltaFrame,
+    *,
+    search_space: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
+    session: Session,
+) -> _DriverAxesReplayPlan:
+    """Prepare exact missing-axis replay before a driver-axes Run is admitted."""
+    dimension_ids = _normalize_dimension_inputs_boundary(
+        session,
+        search_space,
+        argument="search_space",
+    )
+    assert dimension_ids is not None
+    source_df = source._dataframe_copy()
+    _, available_dimension_columns = _delta_axes(source)
+    requested_columns = _dimension_columns_for_ids(source, dimension_ids)
+    missing_pairs = [
+        (dimension_id, column)
+        for dimension_id, column in zip(dimension_ids, requested_columns, strict=True)
+        if column not in source_df.columns
+    ]
+    if not missing_pairs:
+        return _DriverAxesReplayPlan(
+            source=source,
+            dimension_ids=tuple(dimension_ids),
+            missing_dimension_ids=(),
+        )
+
+    missing_dimension_ids = [item[0] for item in missing_pairs]
+    missing_columns = [item[1] for item in missing_pairs]
+
+    def load_source(ref: str, *, label: str) -> MetricFrame:
+        try:
+            frame = session.artifact(ref)
+        except ArtifactNotFoundError as exc:
+            raise _driver_axes_replay_error(
+                source=source,
+                missing_dimension_ids=missing_dimension_ids,
+                missing_columns=missing_columns,
+                available_dimension_columns=available_dimension_columns,
+                recoverability_status=f"{label}_source_frame_missing",
+            ) from exc
+        if not isinstance(frame, MetricFrame):
+            raise _driver_axes_replay_error(
+                source=source,
+                missing_dimension_ids=missing_dimension_ids,
+                missing_columns=missing_columns,
+                available_dimension_columns=available_dimension_columns,
+                recoverability_status=f"{label}_source_frame_not_metric",
+            )
+        return frame
+
+    current = load_source(source.meta.source_current_ref, label="current")
+    baseline = load_source(source.meta.source_baseline_ref, label="baseline")
+    missing_axis_refs = [_dimension_ref(session, axis) for axis in missing_dimension_ids]
+    try:
+        current_replay = recover_observe_replay(current, session=session).with_dimensions(
+            missing_axis_refs,
+            include_time_dimension=True,
+        )
+        baseline_replay = recover_observe_replay(baseline, session=session).with_dimensions(
+            missing_axis_refs,
+            include_time_dimension=True,
+        )
+        alignment = recover_alignment_policy(source)
+        current_replay.validate_authority(session)
+        baseline_replay.validate_authority(session)
+    except AttributionMaterializationError as exc:
+        status = exc._context.get("recoverability_status")
+        raise _driver_axes_replay_error(
+            source=source,
+            missing_dimension_ids=missing_dimension_ids,
+            missing_columns=missing_columns,
+            available_dimension_columns=available_dimension_columns,
+            recoverability_status=(status if isinstance(status, str) else "replay_unavailable"),
+            cause=exc,
+        ) from exc
+    return _DriverAxesReplayPlan(
+        source=source,
+        dimension_ids=tuple(dimension_ids),
+        missing_dimension_ids=tuple(missing_dimension_ids),
+        current_replay=current_replay,
+        baseline_replay=baseline_replay,
+        alignment=alignment,
+    )
+
+
 def validate_discover_admission(
     source: MetricFrame | DeltaFrame,
     *,
@@ -254,6 +443,7 @@ def _discover_dispatch(
     peer_scope: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
     session: Session | None = None,
     analysis_purpose: str | None = None,
+    _params_extra: Mapping[str, Any] | None = None,
 ) -> CandidateSet:
     """Discover candidate follow-ups (anomalies, drivers, outliers) from a frame.
 
@@ -362,7 +552,7 @@ def _discover_dispatch(
     )
     source_artifact_ref = source.meta.artifact_id or source.ref
     rows, limit_info = _apply_limit(rows, limit)
-    params = {**params, **limit_info}
+    params = {**params, **limit_info, **dict(_params_extra or {})}
     df = build_union_columns(shape, rows)
     assign_scored_frame_item_ids(
         shape=shape,
@@ -535,6 +725,7 @@ class DiscoverAPI:
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
         analysis_purpose: str | None = None,
+        _params_extra: Mapping[str, Any] | None = None,
     ) -> CandidateSet:
         return _discover_dispatch(
             source,
@@ -544,6 +735,7 @@ class DiscoverAPI:
             search_space=search_space,
             session=session,
             analysis_purpose=analysis_purpose,
+            _params_extra=_params_extra,
         )
 
     def interesting_slices(
@@ -1197,6 +1389,11 @@ def _require_materialized_axes(
         message=(
             f"discover({objective}) search_space references axes not materialized "
             f"in the source frame: {', '.join(missing)}"
+        ),
+        hint=(
+            None
+            if objective == "driver_axes"
+            else "Pass only search_space axes already materialized in the source frame."
         ),
         context={
             "objective": objective,

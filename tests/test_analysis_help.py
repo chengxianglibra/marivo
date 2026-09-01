@@ -741,8 +741,17 @@ def test_digests_focused_help_discloses_pagination_bound() -> None:
 def test_focused_operator_help_discloses_registered_authority_policy() -> None:
     assert "authority: semantic_current" in _text("events.match")
     assert "authority: semantic_current" in _text("attribute")
+    assert "authority: materialized_only" in _text("discover.driver_axes")
     assert "authority: materialized_only" in _text("compare")
     assert "authority: materialized_only" in _text("transform.topk")
+
+
+def test_driver_axes_help_discloses_exact_missing_axis_replay() -> None:
+    text = _text("discover.driver_axes")
+
+    assert "discover_axis_replay_available" in text
+    assert "Driver-axis discovery uses materialized axes or exact current replay authority" in text
+    assert "with independent replay Runs" in text
 
 
 def test_observe_capability_registers_only_the_plural_metrics_input() -> None:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import inspect
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
@@ -11,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo._compat import UTC
 from marivo.analysis.errors import (
@@ -69,6 +72,69 @@ def _delta(session, df, *, semantic_kind="time_series"):
         semantic_model="sales",
     )
     return DeltaFrame(_df=df, meta=meta)
+
+
+@contextmanager
+def _driver_axes_replay_case(
+    semantic_project_factory: Any,
+) -> Iterator[tuple[Any, Any, Any, Any, Any, Any]]:
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+            ),
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+            ),
+            "sales/datasets.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "warehouse = ms.ref.datasource('warehouse')\n"
+                "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day')\n"
+                "def created_at(orders):\n"
+                "    return orders.created_at.cast('date')\n"
+                "@ms.dimension(entity=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region\n"
+                "@ms.dimension(entity=orders)\n"
+                "def platform(orders):\n"
+                "    return orders.platform\n"
+                "@ms.metric(entities=[orders], additivity='additive', name='revenue')\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    import ibis
+
+    connection = ibis.duckdb.connect(":memory:")
+    connection.raw_sql(
+        "CREATE TABLE orders ("
+        "id INTEGER, created_at DATE, region VARCHAR, platform VARCHAR, amount DOUBLE)"
+    )
+    connection.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 'US', 'mobile', 100.0),"
+        "(2, DATE '2026-07-02', 'CN', 'web', 20.0),"
+        "(3, DATE '2025-07-01', 'US', 'mobile', 70.0),"
+        "(4, DATE '2025-07-02', 'CN', 'web', 30.0)"
+    )
+    try:
+        session = mv.session.get_or_create(
+            name="demo",
+            backends={"warehouse": lambda: connection},
+        )
+        yield (
+            session,
+            session.catalog.metrics.get("sales.revenue").ref,
+            session.catalog.dimensions.get("sales.orders.region").ref,
+            session.catalog.dimensions.get("sales.orders.platform").ref,
+            session.catalog.time_dimensions.get("sales.orders.created_at").ref,
+            connection,
+        )
+    finally:
+        connection.disconnect()
 
 
 def test_discover_api_exposes_typed_method_signatures():
@@ -469,6 +535,8 @@ def test_driver_axes_rank_one_is_largest_axis():
     )
     rows = out.to_pandas()
     assert len(rows) == 2
+    assert out.meta.params["materialization_status"] == "not_required"
+    assert out.meta.params["original_delta_ref"] == src.ref
     # country: US contributes 225/325 ~= 0.69 (k=1).
     # platform: top group contributes 150/325 ~= 0.46 (<0.5), so k=2.
     # spec formula 1 / (k + cardinality/1000) ranks smaller k first -> country wins.
@@ -1062,15 +1130,15 @@ def test_point_anomalies_seasonal_robust_resists_masking():
     assert robust_out["item_id"].is_unique
 
 
-def test_driver_axes_rejects_unmaterialized_search_space():
-    """A search_space axis not materialized in the frame fails closed instead
-    of being silently dropped (issue #10)."""
+def test_driver_axes_rejects_unrecoverable_search_space_before_run():
+    """Missing source artifacts fail before a driver-axes Run is admitted."""
     session = session_attach.get_or_create(name="demo")
     delta = _delta(
         session,
         pd.DataFrame({"country": ["US", "CA"], "delta": [10.0, -2.0]}),
         semantic_kind="segmented",
     )
+    run_count = len(session.runs(limit=100).items)
     with pytest.raises(DiscoverAxisNotMaterializedError) as exc:
         session.discover.driver_axes(
             delta,
@@ -1079,6 +1147,123 @@ def test_driver_axes_rejects_unmaterialized_search_space():
     assert exc.value._context["objective"] == "driver_axes"
     assert "nonexistent" in exc.value._context["missing_axes"]
     assert "country" in exc.value._context["available_dimension_columns"]
+    assert exc.value._context["recoverability_status"] == "current_source_frame_missing"
+    assert exc.value.repair is not None
+    assert exc.value.repair.help_target.canonical_id == "discover.driver_axes"
+    assert exc.value.repair.snippet is None
+    assert len(session.runs(limit=100).items) == run_count
+
+
+def test_driver_axes_preserves_unexpected_source_artifact_read_failure(monkeypatch) -> None:
+    session = session_attach.get_or_create(name="demo")
+    delta = _delta(
+        session,
+        pd.DataFrame({"country": ["US", "CA"], "delta": [10.0, -2.0]}),
+        semantic_kind="segmented",
+    )
+    run_count = len(session.runs(limit=100).items)
+
+    def fail_artifact_read(_session, _ref):
+        raise RuntimeError("simulated frame decode corruption")
+
+    monkeypatch.setattr(type(session), "artifact", fail_artifact_read)
+
+    with pytest.raises(RuntimeError, match="simulated frame decode corruption"):
+        session.discover.driver_axes(
+            delta,
+            search_space=[make_ref("sales.orders.nonexistent", SemanticKind.DIMENSION)],
+        )
+    assert len(session.runs(limit=100).items) == run_count
+
+
+def test_driver_axes_replays_missing_axes_with_original_delta_authority(
+    semantic_project_factory,
+) -> None:
+    with _driver_axes_replay_case(semantic_project_factory) as (
+        session,
+        revenue,
+        region,
+        platform,
+        _created_at,
+        connection,
+    ):
+        current = session.observe(
+            revenue,
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        )
+        baseline = session.observe(
+            revenue,
+            time_scope=mv.time_scope(start="2025-07-01", end="2025-08-01"),
+        )
+        delta = session.compare(current, baseline)
+
+        candidates = session.discover.driver_axes(delta, search_space=[region, platform])
+
+        assert set(candidates.to_pandas()["axis"]) == {"region", "platform"}
+        assert candidates.meta.params["materialization_status"] == "expanded"
+        assert candidates.meta.params["original_delta_ref"] == delta.ref
+        assert candidates.meta.params["missing_axes"] == [
+            "sales.orders.region",
+            "sales.orders.platform",
+        ]
+        expanded_delta_ref = candidates.meta.params["expanded_delta_ref"]
+        assert candidates.meta.source_ref == expanded_delta_ref
+        assert candidates.meta.source_refs == [expanded_delta_ref]
+        runs = session.runs(limit=100).items
+        assert [run.capability_id for run in runs].count("observe") == 4
+        assert [run.capability_id for run in runs].count("compare") == 2
+        assert [run.capability_id for run in runs].count("discover.driver_axes") == 1
+        assert session.runs(status="failed", capability_id="discover.driver_axes").items == ()
+        driver_run = session.runs(capability_id="discover.driver_axes").items[0]
+        assert driver_run.input_artifact_refs == (expanded_delta_ref,)
+        session.graph()
+
+        session_id = session.id
+        candidate_ref = candidates.ref
+        session_attach._reset_process_state()
+        resumed = mv.session.resume(
+            session_id,
+            by="id",
+            backends={"warehouse": lambda: connection},
+        )
+        assert resumed.artifact(candidate_ref).ref == candidate_ref
+        resumed.graph()
+
+
+def test_driver_axes_replays_search_time_dimension_without_failed_driver_run(
+    semantic_project_factory,
+) -> None:
+    with _driver_axes_replay_case(semantic_project_factory) as (
+        session,
+        revenue,
+        _region,
+        _platform,
+        created_at,
+        _connection,
+    ):
+        current = session.observe(
+            revenue,
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+            grain=mv.grain("day"),
+            time_dimension=created_at,
+        )
+        baseline = session.observe(
+            revenue,
+            time_scope=mv.time_scope(start="2025-07-01", end="2025-08-01"),
+            grain=mv.grain("day"),
+            time_dimension=created_at,
+        )
+        delta = session.compare(current, baseline)
+
+        candidates = session.discover.driver_axes(delta, search_space=[created_at])
+
+        rows = candidates.to_pandas()
+        assert rows["axis"].tolist() == ["created_at"]
+        assert rows["axis_semantic_id"].tolist() == ["sales.orders.created_at"]
+        assert candidates.meta.params["materialization_status"] == "expanded"
+        assert candidates.meta.params["missing_axes"] == ["sales.orders.created_at"]
+        assert session.runs(status="failed", capability_id="discover.driver_axes").items == ()
+        session.graph()
 
 
 def test_interesting_slices_rejects_partially_unmaterialized_search_space():

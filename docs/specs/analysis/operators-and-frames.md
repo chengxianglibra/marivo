@@ -518,6 +518,18 @@ is a closed default, not a natural-language string. The current objectives:
 | `discover.cross_sectional_outliers(metric_frame, ...)` | `MetricFrame[segmented \| panel]` | `cross_sectional_outlier` |
 | `discover.semantic_hypotheses(metric_or_delta, limit=50)` | Arity-one catalog MetricFrame or same-Metric DeltaFrame | `semantic_hypothesis` |
 
+`discover.driver_axes` scores axes already retained by the input delta without
+replay. When `search_space` contains a missing axis, it may instead recover the
+persisted current and baseline observations, add the missing current-catalog
+axes, and compare them with the original alignment before scoring. This replay
+is admitted only when both source observations, their exact observe parameters,
+their semantic dependency digests, and the alignment remain recoverable. An
+unrecoverable request fails with `DiscoverAxisNotMaterializedError` before a Run
+is admitted. Successful replayed observations and comparison are persisted as
+independent Runs; the `driver_axes` Run consumes only the expanded delta. The
+returned `CandidateSet` records the original delta plus every expanded Artifact
+ref in `meta.params`.
+
 `discover` emits candidates only — never attribution, test verdicts, or new fact
 frames. The optional `semantic_hypotheses` objective follows at most one authored
 `influences` or `related_to` edge, resolves its opposite endpoint through the
