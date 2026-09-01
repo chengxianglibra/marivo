@@ -556,7 +556,7 @@ bounded to `[1, 100]`. An ordinary call is bounded; `limit=5` replaces the old
 recent-jobs use case without a separate method. `RunPage` uses the standard
 immutable page fields: `items`, `limit`, `has_more`, and opaque `next_cursor`.
 
-`capability_id` is one exact Help-resolvable capability id. Every v1 Run payload
+`capability_id` is one exact Help-resolvable capability id. Every v2 Run payload
 must carry that canonical id; a legacy or non-canonical intent spelling is an
 integrity error and is never normalized into a second vocabulary.
 
@@ -700,11 +700,13 @@ full immutable Findings and carries the standard bounded keyset page fields.
 ### Run records
 
 `RunPage.items` contains the same three closed concrete variants returned by
-`session.get_run(id)`. Runs are small metadata records, so V1 does not create a
-second summary hierarchy for list results.
+`session.get_run(id)`. Terminal Runs also carry their captured query executions;
+the page remains bounded by Run count and does not create a second summary
+hierarchy.
 
-All Run types are immutable bounded results with deterministic `repr`,
-`render()`, and `show()`.
+All Run types are immutable results with deterministic, bounded `repr`,
+`render()`, and `show()`. Full executed SQL is available only through the typed
+`queries` field and is never printed by the default render path.
 
 Common fields are carried by each variant rather than hidden in an untyped
 payload:
@@ -730,9 +732,9 @@ class RunArgument:
 Arguments are sorted by public parameter name and contain only normalized,
 bounded, non-secret JSON values. Semantic refs use their existing typed payload
 encoding. Session identity, Artifact inputs, and `analysis_purpose` are not
-repeated because their owning Run fields already expose them. Raw SQL,
-credentials, backend objects, executable callables, and unvalidated `repr`
-strings are never projected. Their parameter names appear in
+repeated because their owning Run fields already expose them. Raw SQL is never
+projected as an argument; credentials, backend objects, executable callables,
+and unvalidated `repr` strings are never projected at all. Their parameter names appear in
 `omitted_argument_names`. The projection must preserve every other safe value
 that changes the observable computation, so an agent can distinguish ordinary
 Runs without decoding an opaque hash. These argument fields are inspection
@@ -749,6 +751,7 @@ substitute for safe argument facts.
 output_artifact_ref: str
 output_mode: Literal["produced", "reused"]
 finished_at: datetime
+queries: tuple[RunQuery, ...]
 ```
 
 `FailedRun` additionally carries:
@@ -756,11 +759,39 @@ finished_at: datetime
 ```python
 failed_at: datetime
 failure: RunFailure
+queries: tuple[RunQuery, ...]
 ```
 
-`IncompleteRun` carries no invented finish time, error, or output. V1 does not
-publish `duration_ms`; exact start and terminal timestamps are sufficient for
-inspection, while interruption recovery must not invent monotonic duration.
+`RunQuery` is one captured datasource execution fact, ordered by capture
+completion within its terminal Run:
+
+```python
+class RunQuery:
+    query_id: str
+    datasource: str
+    dialect: str
+    sql: str
+    sql_digest: str
+    row_count: int
+    duration_ms: int
+    started_at: datetime
+    finished_at: datetime
+    status: Literal["succeeded", "failed"]
+```
+
+`sql` is the exact compiled SQL submitted to the backend, including the Session
+comment and literals. `sql_digest` is computed from a transient literal-neutral
+normalization. The normalized SQL and parser-derived literal list are neither
+persisted nor public because they are not executed SQL or real driver bind
+parameters. `show()` renders only bounded query summaries; inspect `.queries`
+explicitly for SQL. Empty `queries` means no captured query records, not proof
+that no datasource activity occurred. Runs with `output_mode="reused"` always
+publish an empty tuple, including post-execution content deduplication.
+
+`IncompleteRun` carries no invented finish time, error, output, or queries. The
+read surface does not publish Run-level `duration_ms`; exact start and terminal
+timestamps are sufficient for inspection, while interruption recovery must not
+invent monotonic duration.
 
 `RunFailure` is a persisted safe subset of the structured Analysis error:
 
@@ -774,7 +805,7 @@ repair: AnalysisRepair | None
 ```
 
 It excludes stack traces, exception reprs, arbitrary locals, backend handles,
-raw secret values, raw SQL, and unvalidated parameter payloads. All values are
+raw secret values, raw SQL copied from an error, and unvalidated parameter payloads. All values are
 bounded before persistence. Known `AnalysisError` fields pass through one
 recursive JSON allowlist, secret-pattern redaction, depth/item limit, and byte
 limit before `RunFailure` construction; the same sanitizer covers nested
@@ -791,8 +822,9 @@ same `ArtifactSummary` and concrete Run variants are reused directly by
 hierarchy. `RunRecord` remains union shorthand in annotations and prose rather
 than another exported identity. Supporting immutable values such as
 `RunArgument`, `SessionGraphEdge`, summary counts, and failure shapes resolve as
-exact focused type leaves reached through their owning result. They do not
-become top-level `__all__` exports or discovery members.
+exact focused type leaves reached through their owning result. `RunQuery` stays
+an owner-nested value documented by `runtime.runs`; it has no top-level export
+or independent Help target. Nested values do not become root discovery members.
 
 Every public result type named above joins the `__all__` snapshot, public result
 protocol where terminal, type resolver, API reference, and Help reachability
@@ -1425,11 +1457,13 @@ by a newly named Session rather than migrated or imported.
 ### Session Store
 
 The Session Store remains the only mutable runtime index. A new Session is
-created directly with Session Store `PRAGMA user_version = 1` and canonical Run
-payload schema `marivo.analysis_run/v1`. The canonical Run row owns its closed
+created directly with Session Store `PRAGMA user_version = 2` and canonical Run
+payload schema `marivo.analysis_run/v2`. The canonical Run row owns its closed
 lifecycle variant, capability id, safe argument projection, input refs, output
-mode/ref, timing, and safe failure. Terminal transition and output relationship
-update occur in one SQLite transaction.
+mode/ref, timing, ordered `queries_json`, and safe failure. Successful and
+failed terminal transitions write query executions in the same SQLite
+transaction as output or failure state. Query capture is accumulated by the
+active Run admission rather than recovered from a private intent payload.
 
 A normalized `run_inputs(session_id, run_id, artifact_ref, position)` relation
 is maintained in that transaction. It is a Run lookup index, not a persisted
@@ -1446,8 +1480,8 @@ snapshot.
 
 Pre-cutover Session state is intentionally not reusable. `session.resume(...)`
 validates the Session Store version before any mutation or recovery work. A
-Store other than exact version 1, a Run payload other than
-`marivo.analysis_run/v1`, or Artifact metadata other than
+Store other than exact version 2, a Run payload other than
+`marivo.analysis_run/v2`, or Artifact metadata other than
 `analysis-artifact/v13` fails closed.
 
 There is no decoder, migration, import, backfill, state rewrite, dual read, or
@@ -1475,7 +1509,7 @@ The public cutover is released only when:
 - old Session methods and the complete Session Evidence namespace are removed;
 - removed singleton/legacy navigation topics are absent and all advertised
   registry/Help references resolve to canonical ids;
-- fresh state uses only Store v1, Run payload v1, and Artifact v13, while
+- fresh state uses only Store v2, Run payload v2, and Artifact v13, while
   incompatible state fails without mutation or migration;
 - Artifact recovery strings are updated;
 - packaged skill and current bilingual docs are updated;
@@ -1628,10 +1662,10 @@ Tests must cover:
   field;
 - persistence failure precedence and chaining;
 - Artifact reuse without producer metadata rewrite;
-- fresh Sessions initialize exact Store version 1, Run payload v1, Artifact
+- fresh Sessions initialize exact Store version 2, Run payload v2, Artifact
   metadata v13, and the normalized Run-input index directly;
-- Store versions other than 1, Run payloads other than
-  `marivo.analysis_run/v1`, and Artifact metadata other than
+- Store versions other than 2, Run payloads other than
+  `marivo.analysis_run/v2`, and Artifact metadata other than
   `analysis-artifact/v13` fail before any runtime fact is projected;
 - incompatible-state failure leaves the old Session directory byte-for-byte
   unchanged and teaches creation of a newly named Session;
@@ -1728,8 +1762,8 @@ Implementation scope:
 - atomically publish succeeded and sanitized failed terminal variants;
 - implement interruption reconciliation, persistence-failure precedence, and
   one-snapshot/lock behavior;
-- initialize new Sessions directly with Store version 1 and canonical
-  `marivo.analysis_run/v1` payloads;
+- initialize new Sessions directly with Store version 2 and canonical
+  `marivo.analysis_run/v2` payloads;
 - require `analysis-artifact/v13` and persist exact `finding_count` on every
   exact current-schema Artifact commit;
 - reject any other Store, Run, or Artifact schema before recovery or mutation,
@@ -1909,7 +1943,7 @@ This design is complete only when all of the following are true:
     runtime and Evidence membership is explicit, singleton navigation pages are
     absent, every exact callable has one discovery owner, and cross-links do not
     create duplicate membership.
-16. Only Store version 1, `marivo.analysis_run/v1`, and
+16. Only Store version 2, `marivo.analysis_run/v2`, and
     `analysis-artifact/v13` are readable; incompatible Session state fails
     before mutation and is never decoded, migrated, imported, backfilled, or
     reused.

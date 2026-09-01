@@ -15,21 +15,23 @@ from tests.ref_helpers import make_ref
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 
-def test_fresh_store_is_exact_v1_with_runtime_tables(tmp_path) -> None:
+def test_fresh_store_is_exact_v2_with_runtime_tables(tmp_path) -> None:
     store = SessionStore(project_root=tmp_path)
     with sqlite3.connect(store.db_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
         tables = {
             row[0]
             for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             ).fetchall()
         }
+        run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)").fetchall()}
     assert {"sessions", "runtime_state", "artifacts", "runs", "run_inputs"} <= tables
     assert "jobs" not in tables
+    assert "queries_json" in run_columns
 
 
-@pytest.mark.parametrize("version", [0, 2, 99])
+@pytest.mark.parametrize("version", [0, 1, 99])
 def test_incompatible_existing_store_fails_read_only_without_mutation(tmp_path, version) -> None:
     db_path = tmp_path / ".marivo" / "analysis" / "session_store.db"
     db_path.parent.mkdir(parents=True)
@@ -67,12 +69,12 @@ def test_run_payload_schema_mismatch_fails_without_rewrite(tmp_path) -> None:
     )
     with store._connect() as connection:
         connection.execute(
-            "UPDATE runs SET payload_schema = 'marivo.analysis_run/v2' WHERE run_id = 'run_bad'"
+            "UPDATE runs SET payload_schema = 'marivo.analysis_run/v1' WHERE run_id = 'run_bad'"
         )
     before = store.db_path.read_bytes()
     with pytest.raises(SchemaVersionMismatchError) as exc_info:
         store.validate_session_runtime_schema(str(row["id"]))
-    assert exc_info.value.received == "marivo.analysis_run/v2"
+    assert exc_info.value.received == "marivo.analysis_run/v1"
     assert store.db_path.read_bytes() == before
 
 

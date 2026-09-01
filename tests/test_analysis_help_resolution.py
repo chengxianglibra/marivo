@@ -221,6 +221,11 @@ def test_unknown_string_raises() -> None:
     assert captured.value.repair.candidates  # non-empty suggestions
 
 
+def test_run_query_has_no_independent_help_target() -> None:
+    with pytest.raises(HelpTargetError):
+        resolve_help_target("RunQuery")
+
+
 # ---------------------------------------------------------------------------
 # Invalid aliases
 # ---------------------------------------------------------------------------

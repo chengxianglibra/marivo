@@ -38,7 +38,9 @@ graph = session.graph(artifact_ref=artifact.ref, direction="ancestors")
 ```
 
 Run history and SessionGraph project persisted runtime facts only. They do not
-check current semantic authority or datasource freshness.
+check current semantic authority or datasource freshness. For a succeeded or
+failed Run, inspect `run.queries` when exact executed SQL matters; the default
+Run card shows only bounded query summaries.
 
 ## Check current authority
 

@@ -248,22 +248,20 @@ def execute(
         query_finished_at = datetime.now(UTC)
         failed_duration = int((monotonic() - started) * 1000)
         if captured_sql is not None:
-            norm_sql, bind_params = normalize_sql(captured_sql, dialect=dialect)
+            normalized_sql = normalize_sql(captured_sql, dialect=dialect)
             failed_qe = QueryExecution(
                 query_id=gen_query_ref(),
                 datasource=datasource_name,
                 dialect=dialect,
                 sql=captured_sql,
-                normalized_sql=norm_sql,
-                sql_digest=compute_sql_digest(norm_sql),
-                bind_params=bind_params,
+                sql_digest=compute_sql_digest(normalized_sql),
                 row_count=0,
                 duration_ms=failed_duration,
                 started_at=query_started_at.isoformat(),
                 finished_at=query_finished_at.isoformat(),
                 status="failed",
-                output_ref=None,
             )
+            cache.record_query(failed_qe)
             _logger.warning(
                 "Query failed: datasource=%s dialect=%s digest=%s sql=%s",
                 datasource_name,
@@ -298,21 +296,18 @@ def execute(
 
     qe: QueryExecution | None = None
     if captured_sql is not None:
-        norm_sql, bind_params = normalize_sql(captured_sql, dialect=dialect)
+        normalized_sql = normalize_sql(captured_sql, dialect=dialect)
         qe = QueryExecution(
             query_id=gen_query_ref(),
             datasource=datasource_name,
             dialect=dialect,
             sql=captured_sql,
-            normalized_sql=norm_sql,
-            sql_digest=compute_sql_digest(norm_sql),
-            bind_params=bind_params,
+            sql_digest=compute_sql_digest(normalized_sql),
             row_count=len(df),
             duration_ms=duration_ms,
             started_at=query_started_at.isoformat(),
             finished_at=query_finished_at.isoformat(),
             status="succeeded",
-            output_ref=None,
         )
         cache.record_query(qe)
 

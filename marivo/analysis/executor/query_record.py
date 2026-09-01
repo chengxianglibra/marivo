@@ -5,8 +5,8 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
-from dataclasses import asdict, dataclass
-from typing import Any
+from dataclasses import dataclass
+from typing import Literal
 
 
 def gen_query_ref() -> str:
@@ -27,59 +27,61 @@ def _strip_session_comment(sql: str) -> str:
     return _SESSION_COMMENT_RE.sub("", sql)
 
 
-def normalize_sql(sql: str, dialect: str) -> tuple[str, tuple[Any, ...]]:
-    """Parameterize SQL by replacing literals with ``?`` placeholders.
+def normalize_sql(sql: str, dialect: str) -> str:
+    """Normalize SQL by replacing literals with ``?`` placeholders.
 
-    Returns ``(normalized_sql, bind_params)``.  If sqlglot parsing fails,
-    falls back to ``(sql_without_comment, ())`` so the analysis is never
-    blocked by audit capture.
+    If sqlglot parsing fails, token-level literal normalization is attempted;
+    the SQL without the Session comment is the final non-blocking fallback.
+    The normalized text is transient input to :func:`compute_sql_digest`; it is
+    not an executed query or a source of database-driver bind parameters.
     """
-    import sqlglot
-    from sqlglot import exp
+    from sqlglot import Tokenizer, TokenType, exp, parse_one
 
     sql_without_comment = _strip_session_comment(sql)
 
     try:
-        parsed = sqlglot.parse_one(sql_without_comment, dialect=dialect)
+        parsed = parse_one(sql_without_comment, dialect=dialect)
     except Exception:
-        return sql_without_comment, ()
+        try:
+            literal_tokens = {
+                TokenType.BIT_STRING,
+                TokenType.BOOLEAN,
+                TokenType.BYTE_STRING,
+                TokenType.FALSE,
+                TokenType.HEREDOC_STRING,
+                TokenType.HEX_STRING,
+                TokenType.NATIONAL_STRING,
+                TokenType.NUMBER,
+                TokenType.RAW_STRING,
+                TokenType.STRING,
+                TokenType.TRUE,
+                TokenType.UNICODE_STRING,
+            }
+            return " ".join(
+                "?" if token.token_type in literal_tokens else token.text
+                for token in Tokenizer(dialect=dialect).tokenize(sql_without_comment)
+            )
+        except Exception:
+            return sql_without_comment
 
-    bind_params: list[Any] = []
-    for literal in list(parsed.find_all(exp.Literal)):
-        value: Any = literal.this
-        if literal.is_string:
-            bind_params.append(str(value))
-        else:
-            try:
-                bind_params.append(int(value))
-            except (ValueError, TypeError):
-                try:
-                    bind_params.append(float(value))
-                except (ValueError, TypeError):
-                    bind_params.append(value)
+    literals = [*parsed.find_all(exp.Literal), *parsed.find_all(exp.Boolean)]
+    for literal in literals:
         literal.replace(exp.Placeholder())
 
-    normalized = parsed.sql(dialect=dialect)
-    return normalized, tuple(bind_params)
+    return parsed.sql(dialect=dialect)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class QueryExecution:
+    """Private execution-time query facts captured for the active Run."""
+
     query_id: str
     datasource: str
     dialect: str
     sql: str
-    normalized_sql: str
     sql_digest: str
-    bind_params: tuple[Any, ...]
     row_count: int
     duration_ms: int
     started_at: str
     finished_at: str
-    status: str
-    output_ref: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
-        d["bind_params"] = list(self.bind_params)
-        return d
+    status: Literal["succeeded", "failed"]

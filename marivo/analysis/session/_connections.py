@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from marivo.analysis.event import EventWatermarkReceipt, EventWatermarkRequest
+from marivo.analysis.executor.query_record import QueryExecution
 from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.timezone import DatasourceEngineTimezone
@@ -67,7 +68,10 @@ class AnalysisConnectionRuntime:
     def begin_query_capture(self) -> None:
         self._capture_buffer = []
 
-    def record_query(self, query: Any) -> None:
+    def record_query(self, query: QueryExecution) -> None:
+        from marivo.analysis.session._runs import record_active_run_query
+
+        record_active_run_query(query)
         if self._capture_buffer is not None:
             self._capture_buffer.append(query)
 

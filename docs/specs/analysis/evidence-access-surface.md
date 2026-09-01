@@ -142,7 +142,13 @@ artifact = session.artifact(run.output_artifact_ref)
 
 `RunPage` is immutable, newest-first, and cursor-bounded. Each Run is exactly
 one of `IncompleteRun`, `SucceededRun`, or `FailedRun`; there is no generic
-public Run record and no job-shaped compatibility projection. When ancestry,
+public Run record and no job-shaped compatibility projection. Terminal Runs
+carry their ordered captured query executions. Each query retains actual SQL
+and a literal-neutral shape digest; normalized SQL and parser-derived literal
+lists are not persisted as execution facts. Default Run rendering shows only
+bounded query summaries, while `.queries` explicitly exposes full SQL. Reused
+Artifact Runs carry no query records, so an empty tuple is not evidence that no
+datasource activity occurred. When ancestry,
 descendant impact, heads, failures, or incomplete work matter, use the factual
 Session graph instead of joining private Store collections.
 

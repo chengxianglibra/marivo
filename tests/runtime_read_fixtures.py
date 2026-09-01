@@ -162,6 +162,7 @@ class RuntimeReadHarness:
         output_ref: str,
         *,
         output_mode: str = "produced",
+        queries: list[dict[str, object]] | None = None,
     ) -> None:
         self.store.complete_run(
             session_id=self.session_id,
@@ -169,9 +170,16 @@ class RuntimeReadHarness:
             output_artifact_ref=output_ref,
             output_mode=output_mode,
             finished_at=self.timestamp(),
+            queries=queries,
         )
 
-    def fail(self, run_id: str, *, repair: dict[str, object] | None = None) -> None:
+    def fail(
+        self,
+        run_id: str,
+        *,
+        repair: dict[str, object] | None = None,
+        queries: list[dict[str, object]] | None = None,
+    ) -> None:
         self.store.fail_run(
             session_id=self.session_id,
             run_id=run_id,
@@ -184,6 +192,7 @@ class RuntimeReadHarness:
                 "repair": repair,
             },
             failed_at=self.timestamp(),
+            queries=queries,
         )
 
     def produced(

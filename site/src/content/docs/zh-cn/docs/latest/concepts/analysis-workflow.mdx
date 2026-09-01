@@ -828,6 +828,9 @@ run = session.get_run(runs.items[0].run_id)
 previous = session.artifact(ref)
 graph = session.graph(artifact_ref=ref, direction="ancestors")
 
+if isinstance(run, (mv.SucceededRun, mv.FailedRun)):
+    executed_sql = tuple(query.sql for query in run.queries)
+
 # 仅在恢复任务、问题明显重复或同类错误再次出现时查看历史：
 history = mv.session.recent(limit=10)
 prior = mv.session.inspect(history.items[0].name) if history.items else None
@@ -835,6 +838,14 @@ prior = mv.session.inspect(history.items[0].name) if history.items else None
 
 `session.runs()` 返回 `RunPage`。`has_more` 为 true 时把不透明的
 `next_cursor` 传回同一个方法。分页采用普通 keyset 语义，不提供快照隔离。
+SucceededRun 与 FailedRun 公开按捕获顺序排列的查询；IncompleteRun 不公开该字段。
+每条查询保留实际编译 SQL、数据源、方言、状态、耗时、行数以及忽略 literal 的 shape
+digest。用于生成 digest 的 normalized SQL 只在内存中短暂存在，解析器提取的 literal
+也不会伪装成数据库 driver bind parameters。`run.show()` 仅渲染不含 SQL 的有界摘要；
+需要完整 SQL 时显式读取 `run.queries`。SQL 会保留 literal，因此必须保护项目本地
+`.marivo` 状态。空 tuple 只表示没有捕获记录，不证明数据源没有发生任何活动。
+Artifact 复用 Run 始终公开空 tuple，包括执行后的内容去重；解释查询缺失前应先检查
+`output_mode`。
 
 使用 `marivo.help("analysis.runtime")` 选择当前有效的恢复帮助页；使用
 `marivo.help("analysis.runtime.runs")` 进行有界 Run 发现，再通过精确 Artifact ref

@@ -1490,7 +1490,7 @@ def observe(
         except BaseException:
             session._connection_runtime.take_captured_queries()
             raise
-        captured_queries = session._connection_runtime.take_captured_queries()
+        session._connection_runtime.take_captured_queries()
         snapshot_fingerprint, coverage_fingerprint = _execution_snapshot_fingerprints(
             graph_execution
         )
@@ -1968,7 +1968,6 @@ def observe(
                 "reused_artifact": False,
                 "error": None,
                 "semantic_project_root": str(session.catalog.semantic_root),
-                "queries": [{**qe.to_dict(), "output_ref": _output_ref} for qe in captured_queries],
             },
         )
         _remember_snapshot_verified_artifact(
@@ -2473,7 +2472,7 @@ def _observe_metric_forest(
     except BaseException:
         session._connection_runtime.take_captured_queries()
         raise
-    captured_queries = session._connection_runtime.take_captured_queries()
+    session._connection_runtime.take_captured_queries()
     snapshot_fingerprint, coverage_fingerprint = _execution_snapshot_fingerprints(execution)
     params["snapshot_fingerprint"] = snapshot_fingerprint
     params["coverage_fingerprint"] = coverage_fingerprint
@@ -2840,9 +2839,6 @@ def _observe_metric_forest(
             "reused_artifact": False,
             "error": None,
             "semantic_project_root": str(session.catalog.semantic_root),
-            "queries": [
-                {**query.to_dict(), "output_ref": output_ref} for query in captured_queries
-            ],
         },
     )
     _remember_snapshot_verified_artifact(

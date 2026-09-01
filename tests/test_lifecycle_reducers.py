@@ -42,7 +42,7 @@ from marivo.analysis.lifecycle import from_inception
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._runtime import persist_frame
 from marivo.refs import RefPayloadV1
-from tests.run_read_helpers import capture_persisted_job_records, persisted_queries
+from tests.run_read_helpers import run_queries
 
 _DOMAIN = """\
 import marivo.semantic as ms
@@ -283,7 +283,6 @@ def test_lifecycle_reducers_use_committed_history_without_datasource_queries(
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
     history = _committed_history(session)
-    records = capture_persisted_job_records(monkeypatch)
     from marivo.analysis.intents import _event_subject_axes
 
     executed_queries = 0
@@ -349,7 +348,7 @@ def test_lifecycle_reducers_use_committed_history_without_datasource_queries(
     for artifact in (distribution, transitions, dwell, violations):
         assert artifact.meta.source_history_ref == history.ref
         assert artifact.meta.source_history_fingerprint == history.meta.content_hash
-        assert persisted_queries(records, output_ref=artifact.ref) == []
+        assert run_queries(session, output_ref=artifact.ref) == ()
 
     grouped = session.lifecycle.distribution(
         history,
@@ -371,7 +370,7 @@ def test_lifecycle_reducers_use_committed_history_without_datasource_queries(
         "created": 1,
         "paid": 0,
     }
-    assert len(persisted_queries(records, output_ref=grouped.ref)) == 1
+    assert len(run_queries(session, output_ref=grouped.ref)) == 1
 
 
 def test_lifecycle_reducer_revalidation_tracks_history_dependency(

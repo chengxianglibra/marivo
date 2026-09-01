@@ -182,7 +182,6 @@ def _commit_reducer(
     finished_at: datetime,
     analysis_purpose: str | None,
     params: dict[str, Any],
-    queries: list[dict[str, object]],
 ) -> EventFrame:
     source_ref = source.meta.artifact_id or source.meta.ref
     commit_inputs = CommitInputs(input_refs=[source_ref])
@@ -235,7 +234,6 @@ def _commit_reducer(
                 "status": "succeeded",
                 "error": None,
                 "semantic_project_root": str(session.catalog.semantic_root),
-                "queries": queries,
             },
         )
     except SessionLockedByAnotherProcessError:
@@ -383,7 +381,6 @@ def funnel(
         finished_at=finished_at,
         analysis_purpose=analysis_purpose,
         params=params,
-        queries=list(axis_materialization.lineage),
     )
 
 
@@ -565,7 +562,6 @@ def time_to_event(
         finished_at=finished_at,
         analysis_purpose=analysis_purpose,
         params=params,
-        queries=list(axis_materialization.lineage),
     )
 
 

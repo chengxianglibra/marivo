@@ -623,7 +623,6 @@ def select_subjects(
                 "status": "succeeded",
                 "error": None,
                 "semantic_project_root": str(resolved_session.catalog.semantic_root),
-                "queries": [],
             },
         )
     except SessionLockedByAnotherProcessError:

@@ -333,6 +333,11 @@ def test_followup_action_is_not_public_analysis_api() -> None:
     assert not hasattr(ma, "FollowupAction")
 
 
+def test_run_query_stays_nested_under_terminal_runs() -> None:
+    assert "RunQuery" not in ma.__all__
+    assert not hasattr(ma, "RunQuery")
+
+
 def test_analysis_public_surface_keeps_session_summaries_not_frame_summaries() -> None:
     assert not hasattr(ma, "FrameSummary")
     assert not hasattr(ma, "FramePreview")

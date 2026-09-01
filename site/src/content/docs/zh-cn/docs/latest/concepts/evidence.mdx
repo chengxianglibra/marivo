@@ -35,6 +35,8 @@ graph = session.graph(artifact_ref=artifact.ref, direction="ancestors")
 ```
 
 Run 与 Graph 只投影持久化的运行事实。它们不检查当前语义权威，也不检查数据源新鲜度。
+需要核对 succeeded 或 failed Run 的实际 SQL 时读取 `run.queries`；默认 Run card
+只展示有界的查询摘要。
 
 ## 当前权威
 

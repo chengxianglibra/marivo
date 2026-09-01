@@ -293,6 +293,7 @@ def test_slice3_runtime_help_routes_exact_persisted_identities() -> None:
         assert entrypoint in sessions
     assert "session.runs" in runs
     assert "session.get_run" in runs
+    assert "captured terminal query executions" in runs
     assert "session.artifact" in runtime
     assert "session.graph" in runtime
 

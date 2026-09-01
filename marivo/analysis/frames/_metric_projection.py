@@ -573,7 +573,6 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog.semantic_root),
-            "queries": [],
         },
     )
     return result

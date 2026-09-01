@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import FrozenInstanceError
 
@@ -13,6 +14,26 @@ from tests.shared_fixtures import (
     connect_sales_orders,
     sales_backends,
 )
+
+
+def _query_payload(
+    query_id: str,
+    *,
+    status: str = "succeeded",
+    sql: str = "SELECT 'sensitive-literal'",
+) -> dict[str, object]:
+    return {
+        "query_id": query_id,
+        "datasource": "warehouse",
+        "dialect": "duckdb",
+        "sql": sql,
+        "sql_digest": "0123456789abcdef",
+        "row_count": 1 if status == "succeeded" else 0,
+        "duration_ms": 7,
+        "started_at": "2026-08-30T00:00:00+00:00",
+        "finished_at": "2026-08-30T00:00:00.007000+00:00",
+        "status": status,
+    }
 
 
 def test_empty_run_page_is_bounded(tmp_path) -> None:
@@ -62,6 +83,97 @@ def test_run_argument_projection_is_typed_immutable_and_deterministic(tmp_path) 
     assert len(run.render().encode()) <= 8192
     with pytest.raises(FrozenInstanceError):
         run.run_id = "changed"  # type: ignore[misc]
+
+
+def test_terminal_runs_rehydrate_ordered_queries_without_rendering_sql(tmp_path) -> None:
+    harness = RuntimeReadHarness.create(tmp_path)
+    harness.begin_run("run_succeeded")
+    harness.add_artifact("artifact_1", producer="run_succeeded")
+    harness.succeed(
+        "run_succeeded",
+        "artifact_1",
+        queries=[
+            _query_payload("query_00000001"),
+            _query_payload("query_00000002", sql="SELECT 2"),
+        ],
+    )
+    harness.begin_run("run_failed")
+    harness.fail(
+        "run_failed",
+        queries=[_query_payload("query_00000003", status="failed")],
+    )
+    harness.begin_run("run_incomplete")
+
+    reopened = RuntimeReadHarness.create(tmp_path)
+    succeeded = reopened.session.get_run("run_succeeded")
+    failed = reopened.session.get_run("run_failed")
+    incomplete = reopened.session.get_run("run_incomplete")
+
+    assert isinstance(succeeded, mv.SucceededRun)
+    assert tuple(query.query_id for query in succeeded.queries) == (
+        "query_00000001",
+        "query_00000002",
+    )
+    assert succeeded.queries[0].sql == "SELECT 'sensitive-literal'"
+    assert succeeded.queries[0].started_at.tzinfo is not None
+    assert "sensitive-literal" not in succeeded.render()
+    assert "query_count: 2" in succeeded.render()
+    assert "dialect=" not in succeeded.render()
+    assert ".queries" in succeeded.render()
+    assert isinstance(failed, mv.FailedRun)
+    assert failed.queries[0].status == "failed"
+    assert not hasattr(incomplete, "queries")
+    with pytest.raises(FrozenInstanceError):
+        succeeded.queries[0].sql = "changed"  # type: ignore[misc]
+
+
+def test_corrupt_run_query_payload_fails_closed(tmp_path) -> None:
+    harness = RuntimeReadHarness.create(tmp_path)
+    harness.produced("run_query", "artifact_query")
+    duplicate = _query_payload("query_00000001")
+    with sqlite3.connect(harness.store.db_path) as connection:
+        connection.execute(
+            "UPDATE runs SET queries_json = ? WHERE run_id = 'run_query'",
+            (json.dumps([duplicate, duplicate]),),
+        )
+
+    with pytest.raises(mv.errors.SessionGraphIntegrityError, match="duplicated"):
+        harness.session.get_run("run_query")
+
+
+@pytest.mark.parametrize(
+    ("mutation", "value"),
+    (
+        ("missing", None),
+        ("extra", None),
+        ("status", "cancelled"),
+        ("status", []),
+        ("row_count", -1),
+        ("duration_ms", -1),
+        ("started_at", "2026-08-30T00:00:00"),
+        ("finished_at", "2026-08-29T00:00:00+00:00"),
+        ("sql_digest", "not-a-digest"),
+    ),
+)
+def test_corrupt_run_query_fields_fail_closed(tmp_path, mutation, value) -> None:
+    harness = RuntimeReadHarness.create(tmp_path)
+    harness.produced("run_query", "artifact_query")
+    query = _query_payload("query_00000001")
+    if mutation == "missing":
+        query.pop("sql")
+    elif mutation == "extra":
+        query["normalized_sql"] = "SELECT ?"
+    else:
+        query[mutation] = value
+    with sqlite3.connect(harness.store.db_path) as connection:
+        connection.execute(
+            "UPDATE runs SET queries_json = ? WHERE run_id = 'run_query'",
+            (json.dumps([query]),),
+        )
+
+    with pytest.raises(mv.errors.SessionGraphIntegrityError) as exc_info:
+        harness.session.get_run("run_query")
+    assert "sensitive-literal" not in str(exc_info.value)
 
 
 def test_failed_run_rehydrates_typed_repair(tmp_path) -> None:
@@ -128,7 +240,7 @@ def test_every_public_runtime_read_rejects_hidden_incompatible_run(tmp_path, rea
     with pytest.raises(mv.errors.SchemaVersionMismatchError) as exc_info:
         read(harness.session)
 
-    assert exc_info.value.expected == "marivo.analysis_run/v1"
+    assert exc_info.value.expected == "marivo.analysis_run/v2"
     assert exc_info.value.received == "marivo.analysis_run/v0"
     assert exc_info.value.location is not None
     assert exc_info.value.repair is not None
@@ -142,7 +254,7 @@ def test_public_runtime_read_rechecks_store_schema_after_activation(tmp_path) ->
     with pytest.raises(mv.errors.SchemaVersionMismatchError) as exc_info:
         harness.session.runs()
 
-    assert exc_info.value.expected == "Session Store user_version=1"
+    assert exc_info.value.expected == "Session Store user_version=2"
     assert exc_info.value.received == "Session Store user_version=0"
 
 

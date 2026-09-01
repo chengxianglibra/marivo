@@ -19,7 +19,7 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
-from tests.run_read_helpers import capture_persisted_job_records, persisted_queries
+from tests.run_read_helpers import run_queries
 
 
 def _runtime(factory=None) -> AnalysisConnectionRuntime:
@@ -28,34 +28,29 @@ def _runtime(factory=None) -> AnalysisConnectionRuntime:
     )
 
 
-def test_query_execution_to_dict_round_trip() -> None:
+def test_query_execution_keeps_only_executed_sql_and_shape_digest() -> None:
     qe = QueryExecution(
         query_id=gen_query_ref(),
         datasource="warehouse",
         dialect="duckdb",
         sql="SELECT 1",
-        normalized_sql="SELECT ?",
         sql_digest="abc123",
-        bind_params=(1,),
         row_count=1,
         duration_ms=10,
         started_at="2026-06-03T08:00:00.000000+00:00",
         finished_at="2026-06-03T08:00:00.010000+00:00",
         status="succeeded",
-        output_ref=None,
     )
-    d = qe.to_dict()
-    assert d["query_id"].startswith("query_")
-    assert d["datasource"] == "warehouse"
-    assert d["dialect"] == "duckdb"
-    assert d["sql"] == "SELECT 1"
-    assert d["normalized_sql"] == "SELECT ?"
-    assert d["sql_digest"] == "abc123"
-    assert d["bind_params"] == [1]
-    assert d["row_count"] == 1
-    assert d["duration_ms"] == 10
-    assert d["status"] == "succeeded"
-    assert d["output_ref"] is None
+    assert qe.query_id.startswith("query_")
+    assert qe.datasource == "warehouse"
+    assert qe.dialect == "duckdb"
+    assert qe.sql == "SELECT 1"
+    assert qe.sql_digest == "abc123"
+    assert qe.row_count == 1
+    assert qe.duration_ms == 10
+    assert qe.status == "succeeded"
+    assert not hasattr(qe, "normalized_sql")
+    assert not hasattr(qe, "bind_params")
 
 
 def test_gen_query_ref_format() -> None:
@@ -66,42 +61,48 @@ def test_gen_query_ref_format() -> None:
 
 def test_normalize_sql_replaces_string_and_number_literals() -> None:
     sql = "SELECT SUM(amount) AS revenue FROM orders WHERE pay_status = 1 AND order_date >= '2026-07-01'"
-    normalized, params = normalize_sql(sql, dialect="duckdb")
+    normalized = normalize_sql(sql, dialect="duckdb")
     assert "1" not in normalized.replace("?", "")
     assert "'2026-07-01'" not in normalized
     assert "?" in normalized
-    assert 1 in params
-    assert "2026-07-01" in params
 
 
 def test_normalize_sql_strips_session_comment() -> None:
     sql = "/* from=marivo,session=sess_abc123 */\nSELECT 1"
-    normalized, params = normalize_sql(sql, dialect="duckdb")
+    normalized = normalize_sql(sql, dialect="duckdb")
     assert "from=marivo" not in normalized
     assert "?" in normalized
-    assert 1 in params
 
 
 def test_normalize_sql_fallback_on_parse_failure() -> None:
-    sql = "TOTAL GARBAGE !@#$%"
-    normalized, params = normalize_sql(sql, dialect="duckdb")
-    assert normalized == sql
-    assert params == ()
+    sql_a = "TOTAL GARBAGE !@#$% 'a' 1 TRUE"
+    sql_b = "TOTAL GARBAGE !@#$% 'b' 2 FALSE"
+    normalized_a = normalize_sql(sql_a, dialect="duckdb")
+    normalized_b = normalize_sql(sql_b, dialect="duckdb")
+    assert compute_sql_digest(normalized_a) == compute_sql_digest(normalized_b)
 
 
 def test_same_shape_produces_same_digest() -> None:
     sql_a = "SELECT * FROM t WHERE x = 1 AND y = 'a'"
     sql_b = "SELECT * FROM t WHERE x = 2 AND y = 'b'"
-    norm_a, _ = normalize_sql(sql_a, dialect="duckdb")
-    norm_b, _ = normalize_sql(sql_b, dialect="duckdb")
+    norm_a = normalize_sql(sql_a, dialect="duckdb")
+    norm_b = normalize_sql(sql_b, dialect="duckdb")
+    assert compute_sql_digest(norm_a) == compute_sql_digest(norm_b)
+
+
+def test_boolean_literals_produce_same_digest() -> None:
+    sql_a = "SELECT * FROM t WHERE enabled = TRUE"
+    sql_b = "SELECT * FROM t WHERE enabled = FALSE"
+    norm_a = normalize_sql(sql_a, dialect="duckdb")
+    norm_b = normalize_sql(sql_b, dialect="duckdb")
     assert compute_sql_digest(norm_a) == compute_sql_digest(norm_b)
 
 
 def test_different_shape_produces_different_digest() -> None:
     sql_a = "SELECT * FROM t WHERE x = 1"
     sql_b = "SELECT * FROM t WHERE y = 1"
-    norm_a, _ = normalize_sql(sql_a, dialect="duckdb")
-    norm_b, _ = normalize_sql(sql_b, dialect="duckdb")
+    norm_a = normalize_sql(sql_a, dialect="duckdb")
+    norm_b = normalize_sql(sql_b, dialect="duckdb")
     assert compute_sql_digest(norm_a) != compute_sql_digest(norm_b)
 
 
@@ -114,15 +115,12 @@ def _make_qe(datasource: str = "warehouse") -> QueryExecution:
         datasource=datasource,
         dialect="duckdb",
         sql="SELECT 1",
-        normalized_sql="SELECT ?",
-        sql_digest="abc123",
-        bind_params=(1,),
+        sql_digest="abc123def4567890",
         row_count=1,
         duration_ms=10,
         started_at="2026-06-03T08:00:00.000000+00:00",
         finished_at="2026-06-03T08:00:00.010000+00:00",
         status="succeeded",
-        output_ref=None,
     )
 
 
@@ -194,7 +192,6 @@ def test_execute_returns_query_execution() -> None:
         assert result.query.row_count == 3
         assert result.query.duration_ms >= 0
         assert result.query.status == "succeeded"
-        assert result.query.output_ref is None
         assert result.backend_dialect == "duckdb"
         assert result.backend_datetime_decode_policy == "local_naive_label"
     finally:
@@ -211,6 +208,25 @@ def test_execute_records_to_capture_buffer() -> None:
         assert len(queries) == 1
         assert queries[0].query_id == result.query.query_id
         assert queries[0].sql == result.query.sql
+    finally:
+        cache.close_all()
+
+
+def test_execute_failure_without_compiled_sql_records_no_query(monkeypatch) -> None:
+    cache, con = _duckdb_cache()
+    try:
+        expr = con.table("t").select("x")
+
+        def fail_before_compile(*_args, **_kwargs):
+            raise RuntimeError("compile was never reached")
+
+        monkeypatch.setattr(con, "execute", fail_before_compile)
+        cache.begin_query_capture()
+
+        with pytest.raises(mv.errors.BackendError):
+            execute(expr, datasource_name="test", cache=cache, session_id="sess_test")
+
+        assert cache.take_captured_queries() == []
     finally:
         cache.close_all()
 
@@ -249,20 +265,19 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
         question="audit",
         backends={"warehouse": lambda: con},
     )
-    records = capture_persisted_job_records(monkeypatch)
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
-    queries = persisted_queries(records, output_ref=frame.ref)
+    queries = run_queries(s, output_ref=frame.ref)
     assert len(queries) >= 1
     q = queries[0]
-    assert q["datasource"] == "warehouse"
-    assert q["row_count"] == 1
-    assert q["duration_ms"] >= 0
-    assert q["status"] == "succeeded"
-    assert q["sql_digest"]
-    assert q["output_ref"] is not None
+    assert q.datasource == "warehouse"
+    assert q.row_count == 1
+    assert q.duration_ms >= 0
+    assert q.status == "succeeded"
+    assert q.sql_digest
+    assert "from=marivo,session=" in q.sql
 
 
 def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
@@ -285,7 +300,6 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
         question="decompose audit",
         backends={"warehouse": lambda: con},
     )
-    records = capture_persisted_job_records(monkeypatch)
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-08-31"),
@@ -298,7 +312,7 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
     )
     attr = s.attribute(delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
     # Frame-consuming intents issue no datasource SQL
-    assert persisted_queries(records, output_ref=attr.ref) == []
+    assert run_queries(s, output_ref=attr.ref) == ()
 
 
 def test_time_series_observe_has_queries(tmp_path, monkeypatch):
@@ -322,17 +336,15 @@ def test_time_series_observe_has_queries(tmp_path, monkeypatch):
         question="audit ts",
         backends={"warehouse": lambda: con},
     )
-    records = capture_persisted_job_records(monkeypatch)
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         grain=mv.grain("day"),
     )
-    queries = persisted_queries(records, output_ref=frame.ref)
+    queries = run_queries(s, output_ref=frame.ref)
     assert len(queries) >= 1
     q = queries[0]
-    assert q["dialect"] == "duckdb"
-    assert q["output_ref"] is not None
+    assert q.dialect == "duckdb"
 
 
 # --- Acceptance criteria tests (spec §11) ---
@@ -360,20 +372,18 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         question="acceptance tests",
         backends={"warehouse": lambda: con},
     )
-    records = capture_persisted_job_records(monkeypatch)
-
     # Scalar
     scalar = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
-    queries = persisted_queries(records, output_ref=scalar.ref)
+    queries = run_queries(s, output_ref=scalar.ref)
     assert len(queries) >= 1
     q = queries[0]
-    assert q["datasource"] == "warehouse"
-    assert q["row_count"] >= 1
-    assert q["duration_ms"] >= 0
-    assert q["sql_digest"]
+    assert q.datasource == "warehouse"
+    assert q.row_count >= 1
+    assert q.duration_ms >= 0
+    assert q.sql_digest
 
     # Time series
     ts = s.observe(
@@ -381,9 +391,9 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         grain=mv.grain("month"),
     )
-    queries = persisted_queries(records, output_ref=ts.ref)
+    queries = run_queries(s, output_ref=ts.ref)
     assert len(queries) >= 1
-    assert queries[0]["datasource"] == "warehouse"
+    assert queries[0].datasource == "warehouse"
 
     # Segmented
     seg = s.observe(
@@ -391,7 +401,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
-    assert len(persisted_queries(records, output_ref=seg.ref)) >= 1
+    assert len(run_queries(s, output_ref=seg.ref)) >= 1
 
     # Panel
     panel = s.observe(
@@ -400,7 +410,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         grain=mv.grain("month"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
-    assert len(persisted_queries(records, output_ref=panel.ref)) >= 1
+    assert len(run_queries(s, output_ref=panel.ref)) >= 1
 
 
 def test_same_query_shape_same_digest(tmp_path, monkeypatch):
@@ -425,7 +435,6 @@ def test_same_query_shape_same_digest(tmp_path, monkeypatch):
         question="digest acceptance",
         backends={"warehouse": lambda: con},
     )
-    records = capture_persisted_job_records(monkeypatch)
     f1 = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
@@ -435,8 +444,8 @@ def test_same_query_shape_same_digest(tmp_path, monkeypatch):
         time_scope=mv.time_scope(start="2026-08-01", end="2026-08-31"),
     )
     assert (
-        persisted_queries(records, output_ref=f1.ref)[0]["sql_digest"]
-        == persisted_queries(records, output_ref=f2.ref)[0]["sql_digest"]
+        run_queries(s, output_ref=f1.ref)[0].sql_digest
+        == run_queries(s, output_ref=f2.ref)[0].sql_digest
     )
 
 
@@ -462,24 +471,21 @@ def test_evidence_chain_reaches_queries(tmp_path, monkeypatch):
         question="chain acceptance",
         backends={"warehouse": lambda: con},
     )
-    records = capture_persisted_job_records(monkeypatch)
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
     job_id = frame.meta.produced_by_job
-    queries = persisted_queries(records, output_ref=frame.ref)
+    queries = run_queries(s, output_ref=frame.ref)
     assert len(queries) >= 1
     # The frame's lineage carries the job_ref
     assert frame.meta.lineage.steps[0].job_ref == job_id
-    # The query output_ref points back to the frame
-    assert queries[0]["output_ref"] is not None
+    run = s.get_run(job_id)
+    assert isinstance(run, mv.SucceededRun)
+    assert run.output_artifact_ref == frame.ref
 
 
-def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
-    """§11: A forced backend error logs a failed QueryExecution and writes no queries[] entry."""
-    from unittest.mock import patch
-
+def test_failed_query_is_persisted_on_failed_run(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
     bootstrap_sales_project(tmp_path)
@@ -501,24 +507,26 @@ def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
 
-    # Patch execute to force a BackendError
-    def _failing_execute(*args, **kwargs):
-        raise mv.errors.BackendError(
-            message="forced failure for test",
-            context={"datasource": "warehouse"},
-        )
+    def _failing_execute(expr, *args, **kwargs):
+        con.compile(expr)
+        raise RuntimeError("forced failure for test")
 
-    with (
-        patch("marivo.analysis.intents._observe_base.execute", _failing_execute),
-        pytest.raises(mv.errors.BackendError),
-    ):
+    monkeypatch.setattr(con, "execute", _failing_execute)
+
+    with pytest.raises(mv.errors.BackendError):
         s.observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
             time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         )
 
-    # No succeeded job should exist for the failed observe
-    for jid in [j.run_id for j in s.runs(limit=100).items]:
-        job = s.get_run(jid)
-        if job.capability_id == "observe":
-            assert job.lifecycle != "succeeded"
+    failed = next(
+        run
+        for run in s.runs(status="failed", capability_id="observe", limit=100).items
+        if isinstance(run, mv.FailedRun)
+    )
+    assert len(failed.queries) == 1
+    query = failed.queries[0]
+    assert query.status == "failed"
+    assert query.row_count == 0
+    assert query.datasource == "warehouse"
+    assert "from=marivo,session=" in query.sql

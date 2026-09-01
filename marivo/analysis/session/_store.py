@@ -29,8 +29,8 @@ from marivo.introspection.live.model import LiveHelpTarget
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
 
-_STORE_SCHEMA_VERSION = 1
-_RUN_PAYLOAD_SCHEMA = "marivo.analysis_run/v1"
+_STORE_SCHEMA_VERSION = 2
+_RUN_PAYLOAD_SCHEMA = "marivo.analysis_run/v2"
 
 
 def _run_abandoned_failure(run_id: str) -> dict[str, object]:
@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS runs (
     analysis_purpose TEXT,
     arguments_json TEXT NOT NULL,
     omitted_argument_names_json TEXT NOT NULL,
+    queries_json TEXT NOT NULL,
     started_at TEXT NOT NULL,
     finished_at TEXT,
     output_artifact_ref TEXT,
@@ -236,7 +237,7 @@ class SessionStore:
         )
 
     def _initialize_or_validate(self) -> None:
-        """Create one fresh v1 store or validate an existing store read-only first."""
+        """Create one fresh v2 store or validate an existing store read-only first."""
         path = self.db_path
         if path.exists():
             uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
@@ -947,6 +948,7 @@ class SessionStore:
         omitted_json = json.dumps(
             list(omitted_argument_names), ensure_ascii=False, separators=(",", ":")
         )
+        queries_json = "[]"
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             for artifact_ref in input_artifact_refs:
@@ -965,8 +967,8 @@ class SessionStore:
             conn.execute(
                 "INSERT INTO runs (session_id, run_id, payload_schema, lifecycle, "
                 "capability_id, analysis_purpose, arguments_json, "
-                "omitted_argument_names_json, started_at) "
-                "VALUES (?, ?, ?, 'incomplete', ?, ?, ?, ?, ?)",
+                "omitted_argument_names_json, queries_json, started_at) "
+                "VALUES (?, ?, ?, 'incomplete', ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     run_id,
@@ -975,6 +977,7 @@ class SessionStore:
                     analysis_purpose,
                     arguments_json,
                     omitted_json,
+                    queries_json,
                     started_at,
                 ),
             )
@@ -995,10 +998,11 @@ class SessionStore:
         output_artifact_ref: str,
         output_mode: str,
         finished_at: str,
+        queries: list[dict[str, object]] | None = None,
         arguments: list[dict[str, object]] | None = None,
         omitted_argument_names: tuple[str, ...] | None = None,
     ) -> None:
-        """Finalize effective arguments and succeed a Run in one write transaction."""
+        """Finalize queries/effective arguments and succeed a Run atomically."""
         if output_mode not in {"produced", "reused"}:
             raise ValueError("output_mode must be 'produced' or 'reused'")
         if (arguments is None) != (omitted_argument_names is None):
@@ -1062,8 +1066,14 @@ class SessionStore:
                 "output_artifact_ref = ?",
                 "output_mode = ?",
                 "failure_json = NULL",
+                "queries_json = ?",
             ]
-            values: list[object] = [finished_at, output_artifact_ref, output_mode]
+            values: list[object] = [
+                finished_at,
+                output_artifact_ref,
+                output_mode,
+                json.dumps(queries or [], ensure_ascii=False, separators=(",", ":")),
+            ]
             if arguments is not None and omitted_argument_names is not None:
                 assignments.extend(["arguments_json = ?", "omitted_argument_names_json = ?"])
                 values.extend(
@@ -1088,9 +1098,11 @@ class SessionStore:
         run_id: str,
         failure: dict[str, object],
         failed_at: str,
+        queries: list[dict[str, object]] | None = None,
     ) -> None:
-        """Transition one incomplete Run to a sanitized failed variant."""
+        """Transition one incomplete Run with captured queries to failed."""
         failure_json = json.dumps(failure, ensure_ascii=False, separators=(",", ":"))
+        queries_json = json.dumps(queries or [], ensure_ascii=False, separators=(",", ":"))
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = self._fetchone(
@@ -1109,9 +1121,10 @@ class SessionStore:
             self._validate_payload_schema(row, location=f"Run {run_id!r}")
             conn.execute(
                 "UPDATE runs SET lifecycle = 'failed', finished_at = ?, "
-                "failure_json = ?, output_artifact_ref = NULL, output_mode = NULL "
+                "failure_json = ?, queries_json = ?, "
+                "output_artifact_ref = NULL, output_mode = NULL "
                 "WHERE session_id = ? AND run_id = ?",
-                (failed_at, failure_json, session_id, run_id),
+                (failed_at, failure_json, queries_json, session_id, run_id),
             )
 
     def abandon_run(self, *, session_id: str, run_id: str) -> None:

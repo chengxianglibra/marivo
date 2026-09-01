@@ -10,7 +10,7 @@ import marivo.analysis.session as session_attach
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
-from tests.run_read_helpers import capture_persisted_job_records, persisted_queries
+from tests.run_read_helpers import run_queries
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,6 @@ def _session_with_unused_columns():
 
 def test_panel_observe_keeps_query_sql_out_of_runtime_projection(monkeypatch) -> None:
     session = _session_with_unused_columns()
-    records = capture_persisted_job_records(monkeypatch)
 
     frame = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
@@ -58,9 +57,9 @@ def test_panel_observe_keeps_query_sql_out_of_runtime_projection(monkeypatch) ->
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
-    query = persisted_queries(records, output_ref=frame.ref)[0]
+    query = run_queries(session, output_ref=frame.ref)[0]
 
-    assert query["sql_digest"]
+    assert query.sql_digest
 
 
 def test_segmented_observe_keeps_metric_results_after_projection_pruning() -> None:
@@ -92,7 +91,6 @@ def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
         + "    return (orders.region == 'north').ifelse('core', 'expansion')\n"
     )
     session = _session_with_unused_columns()
-    records = capture_persisted_job_records(monkeypatch)
 
     frame = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
@@ -106,5 +104,5 @@ def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
     }
     assert rows == {("core", 40.0), ("expansion", 20.0)}
 
-    query = persisted_queries(records, output_ref=frame.ref)[0]
-    assert query["sql_digest"]
+    query = run_queries(session, output_ref=frame.ref)[0]
+    assert query.sql_digest

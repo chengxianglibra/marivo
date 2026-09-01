@@ -970,6 +970,9 @@ run = session.get_run(runs.items[0].run_id)
 previous = session.artifact(ref)
 graph = session.graph(artifact_ref=ref, direction="ancestors")
 
+if isinstance(run, (mv.SucceededRun, mv.FailedRun)):
+    executed_sql = tuple(query.sql for query in run.queries)
+
 # Only when recovery, a repeated task, or a recurring failure makes history relevant:
 history = mv.session.recent(limit=10)
 prior = mv.session.inspect(history.items[0].name) if history.items else None
@@ -977,7 +980,16 @@ prior = mv.session.inspect(history.items[0].name) if history.items else None
 
 `session.runs()` returns a `RunPage`. Continue with the opaque `next_cursor`
 when `has_more` is true. Pages use ordinary keyset semantics, not
-snapshot isolation.
+snapshot isolation. Succeeded and failed Runs expose ordered captured queries;
+incomplete Runs do not. Each query retains the actual compiled SQL, datasource,
+dialect, status, timing, row count, and a literal-neutral shape digest. The
+normalized SQL used for the digest is transient, and parser-derived literals
+are not presented as driver bind parameters. `run.show()` renders bounded query
+summaries without SQL; inspect `run.queries` explicitly for full SQL. Because
+the SQL keeps literal values, protect project-local `.marivo` state. An empty
+tuple means no captured records, not proof that no datasource activity occurred.
+Artifact-reuse Runs always expose an empty tuple, including post-execution
+content deduplication; check `output_mode` before interpreting query absence.
 
 Use `marivo.help("analysis.runtime")` to choose the live recovery page. Read
 `marivo.help("analysis.runtime.runs")` for bounded Run discovery, then use exact

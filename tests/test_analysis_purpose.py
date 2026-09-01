@@ -290,4 +290,5 @@ def test_observe_multi_metric_repeated_call_records_each_purpose(tmp_path) -> No
     reused = [run for run in observe_runs if run.output_mode == "reused"]
     assert len(reused) == 1
     assert reused[0].analysis_purpose == "re-audit multi-metric report"
+    assert reused[0].queries == ()
     assert {run.output_mode for run in observe_runs} == {"produced", "reused"}

@@ -266,6 +266,7 @@ def test_private_slice2_candidate_results_satisfy_terminal_protocol() -> None:
         output_artifact_ref="artifact_1",
         output_mode="produced",
         finished_at=started,
+        queries=(),
     )
     failed = FailedRun(
         run_id="run_failed",
@@ -279,6 +280,7 @@ def test_private_slice2_candidate_results_satisfy_terminal_protocol() -> None:
             location=None,
             repair=None,
         ),
+        queries=(),
     )
     artifact = ArtifactSummary(
         ref="artifact_1",
