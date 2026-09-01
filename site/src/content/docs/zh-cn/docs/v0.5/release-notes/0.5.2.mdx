@@ -1,0 +1,73 @@
+---
+slug: zh-cn/docs/v0.5/release-notes/0.5.2
+title: Marivo 0.5.2
+description: Marivo 0.5.2 发布说明。
+---
+
+Marivo 0.5.2 强化了 Session 恢复和引导式分析，并在原始 replay authority
+仍可用时，让 driver-axis discovery 能从已持久化的 observation 中恢复缺失维度。
+
+## 重点
+
+- `mv.session.resume(identity)` 支持按精确的稳定名称或不可变 id 恢复已有
+  Session。如果同一个值同时匹配一个名称和另一个 id，可使用 `by="name"`
+  或 `by="id"` 显式选择；未知或有歧义的 identity 会失败，不会创建或改变
+  Session 状态。
+- `driver_axes` 在请求的搜索轴缺失时，会恢复两侧已持久化的源 observation，
+  使用原始 alignment 重新 compare 后再评分。每次 replay observation 和
+  comparison 都是独立、可恢复的 Run，候选 metadata 会保留原始和展开后的
+  Artifact refs。
+- `mv.session.abandon_run(session_id=..., run_id=...)` 为已停止的 incomplete
+  Run 提供原子修复。它会记录 failed Run，只删除未消费的 Store Artifact 注册，
+  保留物理文件和 Evidence marker。
+
+## 变更
+
+- Analysis Help 现在将 `analysis.entry` 标为进入类型化分析的入口，并说明
+  Session 绑定的 `catalog` 获取路径。Catalog readiness 错误会为裸字符串提供
+  精确的 typed entry 修复指引。
+- Session 激活现在会预检恢复，并通过结构化修复指引对有歧义的 incomplete Run
+  对账保持 fail-closed。
+
+## 修复
+
+- Native percentile attribution 现在会把午夜 timestamp 坐标归一化为规范的日桶，
+  避免 replay 值与物化日值之间的不匹配。
+- Driver-axis replay 在允许 discovery Run 进入前，校验当前 semantic authority、
+  源 Artifact、恢复出的 observe 参数和 alignment。
+
+## 文档
+
+- 更新中英文 analysis workflow 指引，覆盖 Session identity、停止后的 Run 恢复、
+  driver-axis replay，以及渐进式 analysis/catalog Help 路由。
+
+## 安装
+
+国内网络建议运行：
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+也可以使用标准安装器：
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+手动安装：
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.5.2 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/v0.5/installation/)
+- [快速开始](/zh-cn/docs/v0.5/quick-start/)
+- [语义层](/zh-cn/docs/v0.5/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/v0.5/concepts/readiness/)
+- [分析流程](/zh-cn/docs/v0.5/concepts/analysis-workflow/)
+- [Evidence](/zh-cn/docs/v0.5/concepts/evidence/)
