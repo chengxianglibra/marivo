@@ -685,6 +685,17 @@ Neither order is a recommendation from Marivo.
 | `cross_sectional_outliers` | `MetricFrame` segmented/panel | — | `mad` | `peer_scope`, `value`, `threshold=3.0` |
 | `semantic_hypotheses` | arity-one catalog `MetricFrame` or same-Metric `DeltaFrame` | ready optional ontology | unscored | `limit=50` (`1..200`) |
 
+`driver_axes` scores axes already retained by the delta without replay. If a
+requested search axis is missing, Marivo automatically recovers both persisted
+source observations, adds the missing current-catalog axes, and compares them
+with the original alignment before scoring. Replay fails before admitting a Run
+when either observation, its exact observe parameters, its semantic dependency
+authority, or the alignment is no longer recoverable. The returned candidate
+metadata distinguishes `not_required` from `expanded` materialization and keeps
+the original and expanded Artifact refs. Each replayed observation and comparison
+is a separate recoverable Run; the `driver_axes` Run consumes only the expanded
+delta.
+
 Scored objectives pick one strategy per objective; only `point_anomalies` has a
 documented alternative (`seasonal_robust_zscore`, for strong weekly seasonality
 where anomalies would skew the global mean/std). Pass an unsupported strategy

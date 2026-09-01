@@ -2154,6 +2154,8 @@ def _build_registry() -> CapabilityRegistry:
             "discover_minimum_evidence",
             "frame_kind_compatible",
         )
+        if obj_id == "discover.driver_axes":
+            discover_constraints = (*discover_constraints, "discover_axis_replay_available")
         if "MetricFrame" in source_families:
             discover_constraints = (*discover_constraints, "single_metric_input")
         descriptors.append(

@@ -2546,7 +2546,11 @@ class SessionDiscoverNamespace:
         Source must be a DeltaFrame. ``search_space`` is required and lists
         the candidate dimensions to evaluate for explanatory power. ``limit``
         bounds the candidate count (top by |score|, default 50; ``None`` for
-        unbounded); truncation is recorded in ``params``.
+        unbounded); truncation is recorded in ``params``. Missing search axes
+        are materialized by exact replay of the persisted current and baseline
+        observations when their semantic authority remains current. Each replayed
+        observation and comparison has its own recoverable Run; the driver-axes
+        Run consumes only the expanded delta.
 
         Example:
             >>> country = session.catalog.dimensions.get("sales.orders.country")
@@ -2554,7 +2558,11 @@ class SessionDiscoverNamespace:
             >>> candidates.show()
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.discover import discover, validate_discover_admission
+        from marivo.analysis.intents.discover import (
+            discover,
+            prepare_driver_axes_replay,
+            validate_discover_admission,
+        )
 
         validate_capability_inputs("discover.driver_axes", source=source)
         validate_discover_admission(
@@ -2564,6 +2572,15 @@ class SessionDiscoverNamespace:
             search_space=search_space,
             session=self._session,
         )
+        replay_plan = prepare_driver_axes_replay(
+            source,
+            search_space=search_space,
+            session=self._session,
+        )
+        scoring_source, replay_params = replay_plan.materialize(
+            self._session,
+            analysis_purpose=analysis_purpose,
+        )
         with _track_materializing_operation(
             self._session,
             "marivo.analysis.discover.driver_axes",
@@ -2571,7 +2588,7 @@ class SessionDiscoverNamespace:
             family="discover",
             intent="driver_axes",
             arguments={
-                "source": source,
+                "source": scoring_source,
                 "search_space": search_space,
                 "value": value,
                 "limit": limit,
@@ -2580,12 +2597,13 @@ class SessionDiscoverNamespace:
             attributes={"marivo.analysis.search_space_count": len(search_space)},
         ):
             return discover.driver_axes(
-                source,
+                scoring_source,
                 search_space=search_space,
                 value=value,
                 limit=limit,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
+                _params_extra=replay_params,
             )
 
     def interesting_slices(

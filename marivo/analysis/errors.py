@@ -755,6 +755,42 @@ class DiscoverAxisNotMaterializedError(AnalysisError):
             if isinstance(available, (list, tuple)) and available
             else "<none>"
         )
+        available_candidates = (
+            tuple(str(axis) for axis in available) if isinstance(available, (list, tuple)) else ()
+        )
+        if objective_ref == "driver_axes":
+            missing_ids = self._context.get("missing_axis_ids")
+            missing_id_ref = (
+                ", ".join(str(axis) for axis in missing_ids)
+                if isinstance(missing_ids, (list, tuple)) and missing_ids
+                else missing_ref
+            )
+            recoverability_status = self._context.get("recoverability_status")
+            received = f"missing axes: {missing_ref}"
+            if isinstance(recoverability_status, str) and recoverability_status:
+                received = f"{received}; replay unavailable: {recoverability_status}"
+            return _DerivedFields(
+                expected=(
+                    "requested axes already materialized, or exact current replay authority "
+                    "for both source observations"
+                ),
+                received=received,
+                location="session.discover.driver_axes search_space",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        "Use a DeltaFrame with recoverable current and baseline observations, "
+                        f"or rebuild both observations with dimensions [{missing_id_ref}], compare "
+                        "them with the same alignment, and retry driver_axes. Available dimension "
+                        f"columns: {available_ref}"
+                    ),
+                    help_target=LiveHelpTarget(
+                        surface="analysis",
+                        canonical_id="discover.driver_axes",
+                    ),
+                    candidates=available_candidates,
+                ),
+            )
         return _DerivedFields(
             expected="axes materialized as columns in the source frame",
             received=f"missing axes: {missing_ref}",

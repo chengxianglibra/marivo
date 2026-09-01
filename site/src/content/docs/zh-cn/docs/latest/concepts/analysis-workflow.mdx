@@ -588,6 +588,14 @@ objectives 使用确定性 score order；本体 hypothesis 不打分，按确定
 | `cross_sectional_outliers` | `MetricFrame` segmented/面板 | — | `mad` | `peer_scope`、`value`、`threshold=3.0` |
 | `semantic_hypotheses` | 单一目录指标的 `MetricFrame` 或同指标 `DeltaFrame` | 就绪的可选本体 | 不打分 | `limit=50`（`1..200`） |
 
+`driver_axes` 会直接对 delta 已保留的轴评分，不执行 replay。如果请求的搜索轴缺失，
+Marivo 会自动恢复两侧已持久化的源 observation，加入当前目录中的缺失轴，并使用原始
+alignment 重新 compare 后评分。如果任一 observation、其精确 observe 参数、语义依赖
+authority 或 alignment 已不可恢复，请求会在 Run admission 前失败。返回的候选 metadata
+会区分 `not_required` 与 `expanded` 物化状态，并保留原始及展开后的 Artifact refs。每次
+replay observation 和 compare 都有独立、可恢复的 Run；`driver_axes` Run 只消费展开后的
+delta。
+
 每个有分数的 objective 各选一种策略；只有 `point_anomalies` 有公开的备选
 （`seasonal_robust_zscore`，适用于周周期明显、异常会污染全局 mean/std 的序列）。
 传入不支持的策略时，discovery 会以结构化 `SemanticKindMismatchError` 失败。

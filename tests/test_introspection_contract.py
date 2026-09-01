@@ -71,6 +71,7 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "compare",
         "attribute",
         "discover",
+        "discover.driver_axes",
         "correlate",
         "forecast",
         "MetricFrame.metric",

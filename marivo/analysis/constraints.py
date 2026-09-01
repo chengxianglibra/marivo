@@ -28,6 +28,7 @@ class ConstraintId(StrEnum):
     FRAME_KIND_COMPATIBLE = "frame_kind_compatible"
     SINGLE_METRIC_INPUT = "single_metric_input"
     DISCOVER_MINIMUM_EVIDENCE = "discover_minimum_evidence"
+    DISCOVER_AXIS_REPLAY_AVAILABLE = "discover_axis_replay_available"
     ALIGNMENT_POLICY_SHAPE = "alignment_policy_shape"
     CORRELATE_LAG_SEMANTICS = "correlate_lag_semantics"
     TRANSFORM_ARGUMENTS = "transform_arguments"
@@ -211,6 +212,21 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Candidate scoring needs a minimum evidence set; too few observations make rankings misleading.",
         "Use a wider time_scope or choose a discovery objective compatible with the source shape.",
         help_target="discover",
+    ),
+    ConstraintId.DISCOVER_AXIS_REPLAY_AVAILABLE: _constraint(
+        ConstraintId.DISCOVER_AXIS_REPLAY_AVAILABLE,
+        "DiscoverAxisNotMaterialized",
+        "runtime",
+        ("discover.driver_axes", "DeltaFrame", "CandidateSet"),
+        "Driver-axis discovery uses materialized axes or exact current replay authority with "
+        "independent replay Runs.",
+        "Missing axes can be introduced only by replaying both persisted source observations "
+        "with unchanged semantic dependencies and the original comparison alignment. Each "
+        "replayed observation and comparison has its own recoverable Run; driver_axes consumes "
+        "only the expanded delta.",
+        "Pass the requested current-catalog dimensions directly; Marivo replays them when "
+        "possible and otherwise returns a structured repair before admitting a Run.",
+        help_target="discover.driver_axes",
     ),
     ConstraintId.ALIGNMENT_POLICY_SHAPE: _constraint(
         ConstraintId.ALIGNMENT_POLICY_SHAPE,

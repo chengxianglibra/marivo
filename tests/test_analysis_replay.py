@@ -322,6 +322,15 @@ def test_observe_replay_with_dimensions_dedups_and_skips_time_dimension() -> Non
         ref_factory.dimension("sales.orders.platform"),
     )
 
+    driver_result = replay.with_dimensions(
+        [ref_factory.time_dimension("sales.orders.created_at")],
+        include_time_dimension=True,
+    )
+    assert driver_result.dimensions == (
+        ref_factory.dimension("sales.orders.region"),
+        ref_factory.time_dimension("sales.orders.created_at"),
+    )
+
 
 def test_replay_uses_exact_dependency_digest_not_whole_catalog_fingerprint(
     monkeypatch,
