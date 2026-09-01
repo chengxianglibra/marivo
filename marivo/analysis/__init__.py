@@ -184,6 +184,12 @@ def __getattr__(name: str) -> _Any:
             "module 'marivo.analysis' has no attribute 'help'; the single public "
             "help coordinator lives on the top-level namespace — use marivo.help(...)"
         )
+    if name == "catalog":
+        raise AttributeError(
+            "module 'marivo.analysis' has no attribute 'catalog'; catalog is session-bound — "
+            "use session = mv.session.get_or_create('<stable-session-name>', "
+            "question='<business question>'), then catalog = session.catalog"
+        )
     raise AttributeError(name)
 
 

@@ -2537,10 +2537,46 @@ def test_catalog_readiness_rejects_string_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.readiness(refs=["sales.revenue"])  # type: ignore[list-item]
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "RuntimeMetricExpr" in str(exc_info.value)
-    assert "mv.runtime_metric.aggregate" in str(exc_info.value)
-    assert "linear(...)" in str(exc_info.value)
+    error = exc_info.value
+    assert error.kind == ErrorKind.INVALID_REF
+    assert error.expected == "current CatalogEntry, exact Ref[kind], or closed RuntimeMetricExpr"
+    assert error.received == "str"
+    assert error.repair is not None
+    assert error.repair.help_target.surface == "semantic"
+    assert error.repair.help_target.canonical_id == "readiness"
+    assert error.repair.candidates == ("metric:sales.revenue",)
+    assert error.repair.snippet == (
+        "entry = catalog.metrics.get('sales.revenue')\nreport = catalog.readiness(refs=[entry])"
+    )
+    rendered = str(error)
+    assert "bare strings are not accepted" in rendered
+    assert "expected: current CatalogEntry" in rendered
+    assert "received: str" in rendered
+    assert "Help: marivo.help('semantic.readiness')" in rendered
+
+    with pytest.raises(SemanticRuntimeError) as unknown_exc_info:
+        catalog.readiness(refs=["sales.missing"])  # type: ignore[list-item]
+    unknown_repair = unknown_exc_info.value.repair
+    assert unknown_repair is not None
+    assert unknown_repair.candidates == ()
+    assert unknown_repair.snippet is None
+
+
+def test_catalog_readiness_non_string_error_does_not_claim_string_input(
+    semantic_project_factory,
+) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.readiness(refs=[42])  # type: ignore[list-item]
+
+    error = exc_info.value
+    assert error.received == "int"
+    assert "received int" in str(error)
+    assert "bare strings are not accepted" not in str(error)
+    assert error.repair is not None
+    assert error.repair.candidates == ()
+    assert error.repair.snippet is None
 
 
 def test_catalog_readiness_rejects_empty_or_duplicate_explicit_scope(

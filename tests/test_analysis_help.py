@@ -991,6 +991,8 @@ def test_catalog_collection_help_labels_properties_and_show_path() -> None:
     group = _text("catalog")
     focused = _text("catalog.dimensions")
 
+    assert 'session = mv.session.get_or_create("<stable-session-name>"' in group
+    assert "catalog = session.catalog" in group
     assert (
         "catalog.dimensions  (property -> CatalogCollection[DimensionKind]; inspect with .show())"
     ) in group
@@ -1026,6 +1028,8 @@ def test_analysis_catalog_collection_help_teaches_the_full_object_handoff() -> N
         text = _text(f"catalog.{member.property_name}")
         collection = f"catalog.{member.property_name}"
 
+        assert 'session = mv.session.get_or_create("<stable-session-name>"' in text
+        assert "catalog = session.catalog" in text
         assert f"{collection}.show()" in text
         assert f'{collection}.get("<full semantic path or typed key>")' in text
         assert f"{collection}.get(ref)" in text
@@ -1033,10 +1037,22 @@ def test_analysis_catalog_collection_help_teaches_the_full_object_handoff() -> N
         assert "entry.ref" in text
         assert 'marivo.help("semantic.CatalogEntry")' in text
 
+        session_index = text.index("session = mv.session.get_or_create")
+        catalog_index = text.index("catalog = session.catalog")
         show_index = text.index(f"{collection}.show()")
         get_index = text.index(f'{collection}.get("<full semantic path or typed key>")')
         details_index = text.index("entry.details().show()")
-        assert show_index < get_index < details_index
+        assert session_index < catalog_index < show_index < get_index < details_index
+
+
+def test_catalog_readiness_help_teaches_receiver_and_string_repair() -> None:
+    text = _text("catalog.readiness")
+
+    assert 'session = mv.session.get_or_create("<stable-session-name>"' in text
+    assert "catalog = session.catalog" in text
+    assert 'entry = catalog.metrics.get("<full semantic path>")' in text
+    assert "catalog.readiness(refs=[entry])" in text
+    assert 'marivo.help("semantic.readiness")' in text
 
 
 def test_analysis_consumers_advertise_catalog_entry_and_ref_handoff() -> None:

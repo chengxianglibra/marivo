@@ -165,6 +165,16 @@ def test_domain_help_attribute_raises_guiding_error() -> None:
         mv.help("analysis.observe")  # type: ignore[attr-defined]
 
 
+def test_analysis_catalog_attribute_raises_session_bound_guidance() -> None:
+    with pytest.raises(AttributeError) as exc_info:
+        mv.catalog.metrics.show()  # type: ignore[attr-defined]
+
+    message = str(exc_info.value)
+    assert "catalog is session-bound" in message
+    assert "session = mv.session.get_or_create" in message
+    assert "catalog = session.catalog" in message
+
+
 def test_root_help_introduces_marivo_and_routes_to_two_secondary_roots() -> None:
     text = _text()
 
@@ -296,18 +306,28 @@ def test_unregistered_multi_owner_target_never_uses_surface_order() -> None:
     assert len(error.candidates) <= SURFACE_LIMITS.help_suggestion_limit
 
 
-@pytest.mark.parametrize("target", ("catalog.require", "catalog.readiness"))
-def test_multi_owner_alias_never_prefers_a_canonical_owner(target: str) -> None:
-    with pytest.raises(MarivoHelpTargetError) as exc_info:
-        route_help_target(target)
+@pytest.mark.parametrize("canonical_target", ("catalog.require", "catalog.readiness"))
+@pytest.mark.parametrize("target_template", ("{}", " {} ", "analysis {}", "mv.{}"))
+def test_exact_canonical_target_wins_over_cross_surface_entrypoint_alias(
+    canonical_target: str,
+    target_template: str,
+) -> None:
+    route = route_help_target(target_template.format(canonical_target))
 
-    error = exc_info.value
-    assert error.outcome == "ambiguous"
-    semantic_id = {
-        "catalog.require": "SemanticCatalog.require",
-        "catalog.readiness": "readiness",
-    }[target]
-    assert error.candidates == (f"semantic.{semantic_id}", f"analysis.{target}")
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "analysis"
+    assert route.resolved.canonical_id == canonical_target
+
+
+def test_two_normalized_exact_canonical_targets_remain_ambiguous() -> None:
+    with pytest.raises(MarivoHelpTargetError) as exc_info:
+        route_help_target("mv.period_correspondence")
+
+    assert exc_info.value.outcome == "ambiguous"
+    assert exc_info.value.candidates == (
+        "semantic.period_correspondence",
+        "analysis.period_correspondence",
+    )
 
 
 def test_global_authoring_composition_topic_wins_over_native_duplicates() -> None:

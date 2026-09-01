@@ -3162,22 +3162,62 @@ def _require_readiness_input(
             allowed_kinds=_ALL_SEMANTIC_KINDS,
             location="catalog.readiness(refs=...)",
         )
+    candidates: tuple[Ref[SemanticKindTag], ...] = ()
+    repair_snippet: str | None = None
+    repair_action = (
+        "Inspect the relevant typed catalog collection, then pass its current entry or an "
+        "exact typed Ref."
+    )
+    if isinstance(value, str):
+        candidates = tuple(
+            item.ref
+            for item in catalog._require_index()._by_ref.values()
+            if value in {item.ref.path, item.ref.key}
+        )[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
+        if len(candidates) == 1:
+            candidate = candidates[0]
+            collection = _COLLECTION_PROPERTY_BY_KIND[candidate.kind]
+            repair_action = "Replace the string with this exact current CatalogEntry."
+            repair_snippet = (
+                f"entry = catalog.{collection}.get({candidate.path!r})\n"
+                "report = catalog.readiness(refs=[entry])"
+            )
+        elif candidates:
+            repair_action = (
+                "Choose the intended exact current CatalogEntry; this path exists in multiple "
+                "semantic kinds."
+            )
+    message = (
+        "catalog.readiness(refs=...) requires an exact current CatalogEntry, "
+        f"Ref[kind], or closed RuntimeMetricExpr; received {type(value).__name__}"
+    )
+    if isinstance(value, str):
+        message += "; bare strings are not accepted."
+    else:
+        message += "."
     _raise(
         ErrorKind.INVALID_REF,
-        "catalog.readiness(refs=...) requires an exact current CatalogEntry, "
-        f"Ref[kind], or closed RuntimeMetricExpr; received {type(value).__name__}.",
+        message,
         cls=SemanticRuntimeError,
         constraint_id=ConstraintId.REF_SHAPE,
         hint=(
-            "Pass a current catalog entry or exact ms.ref.<kind>(path). For "
-            "session-scoped metrics, "
-            "pass the closed value returned by mv.runtime_metric.aggregate(...), "
-            "weighted_mean(...), slice(...), ratio(...), or linear(...)."
+            "Pass a current catalog entry, exact ms.ref.<kind>(path), or a closed "
+            "session-scoped runtime metric expression."
+        ),
+        expected="current CatalogEntry, exact Ref[kind], or closed RuntimeMetricExpr",
+        received=type(value).__name__,
+        repair_value=repair(
+            kind="inspect",
+            canonical_id="readiness",
+            action=repair_action,
+            snippet=repair_snippet,
+            candidates=tuple(candidate.key for candidate in candidates),
         ),
         details={
             "operation": "catalog.readiness(refs=...)",
             "expected": "current CatalogEntry, exact Ref[kind], or RuntimeMetricExpr",
             "received_type": type(value).__name__,
+            "candidates": tuple(candidate.key for candidate in candidates),
         },
     )
 

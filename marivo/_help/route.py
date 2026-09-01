@@ -17,6 +17,7 @@ from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface, Resolva
 from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
+    _normalize_help_target,
     resolve_live_target,
     try_resolve_live_string_target,
 )
@@ -178,6 +179,13 @@ def route_help_target(target: object | None) -> HelpRoute:
     if len(routes) == 1:
         return routes[0]
     if len(routes) > 1:
+        if isinstance(target, str):
+            canonical_target = _normalize_help_target(target)
+            canonical_routes = tuple(
+                route for route in routes if route.resolved.canonical_id == canonical_target
+            )
+            if len(canonical_routes) == 1:
+                return canonical_routes[0]
         candidates = tuple(
             f"{route.owner}.{route.resolved.canonical_id or route.resolved.type_name or route.resolved.error_name}"
             for route in routes
