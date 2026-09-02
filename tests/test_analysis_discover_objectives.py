@@ -91,9 +91,11 @@ def _driver_axes_replay_case(
                 "import marivo.semantic as ms\n"
                 "warehouse = ms.ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-                "@ms.time_dimension(entity=orders, granularity='day')\n"
+                "@ms.time_dimension(\n"
+                "    entity=orders, granularity='day', parse=ms.timestamp(timezone='UTC')\n"
+                ")\n"
                 "def created_at(orders):\n"
-                "    return orders.created_at.cast('date')\n"
+                "    return orders.created_at\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -111,19 +113,20 @@ def _driver_axes_replay_case(
     connection = ibis.duckdb.connect(":memory:")
     connection.raw_sql(
         "CREATE TABLE orders ("
-        "id INTEGER, created_at DATE, region VARCHAR, platform VARCHAR, amount DOUBLE)"
+        "id INTEGER, created_at TIMESTAMP, region VARCHAR, platform VARCHAR, amount DOUBLE)"
     )
     connection.raw_sql(
         "INSERT INTO orders VALUES "
-        "(1, DATE '2026-07-01', 'US', 'mobile', 100.0),"
-        "(2, DATE '2026-07-02', 'CN', 'web', 20.0),"
-        "(3, DATE '2025-07-01', 'US', 'mobile', 70.0),"
-        "(4, DATE '2025-07-02', 'CN', 'web', 30.0)"
+        "(1, TIMESTAMP '2026-07-01 09:00:00', 'US', 'mobile', 100.0),"
+        "(2, TIMESTAMP '2026-07-02 09:00:00', 'CN', 'web', 20.0),"
+        "(3, TIMESTAMP '2025-07-01 09:00:00', 'US', 'mobile', 70.0),"
+        "(4, TIMESTAMP '2025-07-02 09:00:00', 'CN', 'web', 30.0)"
     )
     try:
         session = mv.session.get_or_create(
             name="demo",
             backends={"warehouse": lambda: connection},
+            report_timezone="Asia/Shanghai",
         )
         yield (
             session,
@@ -1264,6 +1267,59 @@ def test_driver_axes_replays_search_time_dimension_without_failed_driver_run(
         assert candidates.meta.params["missing_axes"] == ["sales.orders.created_at"]
         assert session.runs(status="failed", capability_id="discover.driver_axes").items == ()
         session.graph()
+
+
+def test_driver_axes_replays_dimensions_for_same_day_partial_window(
+    semantic_project_factory,
+) -> None:
+    with _driver_axes_replay_case(semantic_project_factory) as (
+        session,
+        revenue,
+        region,
+        platform,
+        created_at,
+        _connection,
+    ):
+        current = session.observe(
+            revenue,
+            time_scope=mv.time_scope(
+                start="2026-06-30T16:00:00Z",
+                end="2026-07-01T14:00:00Z",
+            ),
+            grain=mv.grain("day"),
+            time_dimension=created_at,
+        )
+        baseline = session.observe(
+            revenue,
+            time_scope=mv.time_scope(
+                start="2025-06-30T16:00:00Z",
+                end="2025-07-01T14:00:00Z",
+            ),
+            grain=mv.grain("day"),
+            time_dimension=created_at,
+        )
+        delta = session.compare(current, baseline)
+        assert len(delta.to_pandas()) == 1
+        assert delta.meta.alignment["coverage"]["current"]["missing_buckets"] == 0
+        assert delta.meta.alignment["coverage"]["baseline"]["missing_buckets"] == 0
+
+        candidates = session.discover.driver_axes(delta, search_space=[region, platform])
+
+        assert set(candidates.to_pandas()["axis"]) == {"region", "platform"}
+        assert candidates.meta.params["materialization_status"] == "expanded"
+        assert candidates.meta.params["original_delta_ref"] == delta.ref
+        expanded_delta_ref = candidates.meta.params["expanded_delta_ref"]
+        expanded_delta = session.artifact(expanded_delta_ref)
+        expanded_rows = expanded_delta.to_pandas()
+        assert expanded_rows["region"].tolist() == ["US"]
+        assert expanded_rows["platform"].tolist() == ["mobile"]
+        assert set(expanded_rows["presence_status"]) == {"matched"}
+        assert expanded_delta.meta.alignment["coverage"]["paired_buckets"] == 1
+        runs = session.runs(limit=100).items
+        assert [run.capability_id for run in runs].count("observe") == 4
+        assert [run.capability_id for run in runs].count("compare") == 2
+        assert [run.capability_id for run in runs].count("discover.driver_axes") == 1
+        assert session.runs(status="failed", capability_id="discover.driver_axes").items == ()
 
 
 def test_interesting_slices_rejects_partially_unmaterialized_search_space():

@@ -1115,6 +1115,109 @@ def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_pat
     assert delta.meta.alignment["strict_lengths"] is False
 
 
+@pytest.mark.parametrize(
+    ("current_bounds", "baseline_bounds"),
+    [
+        (
+            ("2026-09-01T00:00:00+08:00", "2026-09-01T22:00:00+08:00"),
+            ("2026-08-31T00:00:00+08:00", "2026-08-31T22:00:00+08:00"),
+        ),
+        (
+            ("2026-08-31T16:00:00Z", "2026-09-01T14:00:00Z"),
+            ("2026-08-30T16:00:00Z", "2026-08-31T14:00:00Z"),
+        ),
+    ],
+)
+def test_window_bucket_time_series_keeps_same_day_partial_bucket(current_bounds, baseline_bounds):
+    session = session_attach.get_or_create(name="demo", report_timezone="Asia/Shanghai")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "order_date",
+        }
+    }
+    current = make_metric_frame(
+        pd.DataFrame({"bucket_start": ["2026-09-01"], "value": [10.0]}),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={
+            "start": current_bounds[0],
+            "end": current_bounds[1],
+        },
+        report_tz="Asia/Shanghai",
+        session=session,
+    )
+    baseline = make_metric_frame(
+        pd.DataFrame({"bucket_start": ["2026-08-31"], "value": [7.0]}),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={
+            "start": baseline_bounds[0],
+            "end": baseline_bounds[1],
+        },
+        report_tz="Asia/Shanghai",
+        session=session,
+    )
+
+    delta = session.compare(current, baseline, alignment=window_bucket())
+
+    rows = delta.to_pandas()
+    assert rows[["current", "baseline", "delta"]].to_dict("records") == [
+        {"current": 10.0, "baseline": 7.0, "delta": 3.0}
+    ]
+    assert rows["bucket_start"].astype(str).tolist() == ["2026-09-01"]
+    assert rows["bucket_start_b"].astype(str).tolist() == ["2026-08-31"]
+    assert delta.meta.alignment["coverage"] == {
+        "current": {"expected_buckets": 1, "present_buckets": 1, "missing_buckets": 0},
+        "baseline": {"expected_buckets": 1, "present_buckets": 1, "missing_buckets": 0},
+        "paired_buckets": 1,
+        "current_unpaired_buckets": 0,
+        "baseline_unpaired_buckets": 0,
+    }
+
+
+def test_window_bucket_zero_expected_buckets_raises_alignment_error():
+    session = session_attach.get_or_create(name="demo")
+    axes = {"time": {"role": "time", "column": "bucket_start", "grain": "day"}}
+    current = make_metric_frame(
+        pd.DataFrame({"bucket_start": ["2026-09-01"], "value": [10.0]}),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-09-01", "end": "2026-09-02"},
+        session=session,
+    )
+    baseline = make_metric_frame(
+        pd.DataFrame({"bucket_start": ["2026-08-31"], "value": [7.0]}),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-08-31", "end": "2026-09-01"},
+        session=session,
+    )
+    current.meta = current.meta.model_copy(
+        update={"window": {"start": "2026-09-01", "end": "2026-09-01"}}
+    )
+    baseline.meta = baseline.meta.model_copy(
+        update={"window": {"start": "2026-08-31", "end": "2026-08-31"}}
+    )
+
+    with pytest.raises(AlignmentFailedError, match="produced no rows"):
+        session.compare(current, baseline, alignment=window_bucket())
+
+
 def test_window_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
     bootstrap_sales_project(tmp_path)
     s = session_attach.get_or_create(
