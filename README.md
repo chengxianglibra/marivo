@@ -189,5 +189,5 @@ make test
 make check
 ```
 
-Read [`agent-guide.md`](agent-guide.md) before contributing. See
+Read [`AGENTS.md`](AGENTS.md) before contributing. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.

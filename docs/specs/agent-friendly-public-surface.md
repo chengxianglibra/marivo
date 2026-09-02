@@ -59,7 +59,7 @@ Everything else in this document is an elaboration of that sentence.
 ## The core principles
 
 The public surface is governed by a small set of invariants (the "Agent-Facing
-Surface Principles" in [`agent-guide.md`](../../agent-guide.md), plus the result
+Surface Principles" in [`AGENTS.md`](../../AGENTS.md), plus the result
 contract from the
 [agent-friendly public API design](../superpowers/specs/2026-06-09-agent-friendly-public-api-design.md)).
 They are review criteria and, increasingly, test-enforced contracts:
@@ -512,4 +512,4 @@ snapshot-with-allowlist spirit throughout:
   [python analysis design](analysis/python-analysis-design.md)
 - The committed invariants: the "Agent-Facing Surface Principles",
   "Authoring Guidance Layering", and "Analysis Guidance Layering" sections of
-  [`agent-guide.md`](../../agent-guide.md).
+  [`AGENTS.md`](../../AGENTS.md).
