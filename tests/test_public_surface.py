@@ -1,7 +1,6 @@
 """Pin the public ``__all__`` of each marivo surface module.
 
 Any added or removed public symbol must be a deliberate edit here.
-See docs/superpowers/specs/2026-06-13-agent-result-surface-design.md.
 """
 
 from __future__ import annotations

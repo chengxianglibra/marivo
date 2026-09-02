@@ -97,6 +97,7 @@ docs/archive/
 # docs/superpowers/ is no longer fully ignored; active specs/plans are tracked
 docs/superpowers/plans/
 docs/superpowers/discussions/
+docs/superpowers/specs/archive/
 .superpowers/
 .gitnexus
 .worktrees/
