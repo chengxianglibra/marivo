@@ -41,22 +41,25 @@ class ProjectConfig:
 
     Args:
         name: Project name.
-        version: Optional project version string.
+        semantic_layer_paths: External authored ``models/`` roots.
+        telemetry_enabled: Whether local telemetry is enabled by default.
 
     Returns:
         ProjectConfig with project identity metadata.
 
     Example:
-        >>> config = load_project_config(Path("/my/project"))
+        >>> config = load_project_config(Path("/work/sales"))
         >>> config.name
-        'my-analytics'
+        'sales'
 
     Constraints:
-        ``name`` is required in ``marivo.toml``. ``version`` defaults to None.
+        Missing files and fields use deterministic project-local defaults.
+        Explicit invalid values fail closed.
     """
 
     name: str
-    version: str | None = None
+    semantic_layer_paths: tuple[Path, ...] = ()
+    telemetry_enabled: bool = True
 
 
 def load_project_config(project_root: Path) -> ProjectConfig:
@@ -66,39 +69,87 @@ def load_project_config(project_root: Path) -> ProjectConfig:
         project_root: Directory containing ``marivo.toml``.
 
     Returns:
-        ProjectConfig with project identity metadata.
+        Effective project configuration. Missing files and fields default to
+        the project directory name, no external semantic layers, and local
+        telemetry enabled.
 
     Raises:
-        FileNotFoundError: If ``marivo.toml`` does not exist in project_root.
-        ValueError: If ``marivo.toml`` is missing the required ``[project]``
-            table or ``name`` field.
+        ValueError: If a configured table or field has an invalid shape or
+            value. Invalid TOML propagates as ``TOMLDecodeError``.
 
     Example:
-        >>> config = load_project_config(Path.cwd())
+        >>> config = load_project_config(Path("/work/sales"))
         >>> config.name
-        'sales-analytics'
+        'sales'
 
     Constraints:
-        Only the ``[project]`` table is read. Unknown keys are silently
-        ignored so that future config additions remain backward-compatible.
+        Unknown keys are silently ignored. A missing manifest is not created.
     """
+    project_root = project_root.resolve()
     manifest_path = project_root / PROJECT_MANIFEST
+    default_name = project_root.name
     if not manifest_path.is_file():
-        raise FileNotFoundError(f"Project manifest {manifest_path} does not exist.")
+        return ProjectConfig(name=default_name)
     with open(manifest_path, "rb") as f:
         data = tomllib.load(f)
+
     project_table = data.get("project")
-    if not isinstance(project_table, dict):
-        raise ValueError("marivo.toml is missing the required [project] table.")
-    name = project_table.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("marivo.toml [project] table is missing the required 'name' field.")
-    version = project_table.get("version")
-    if version is not None and not isinstance(version, str):
-        raise ValueError(
-            f"marivo.toml [project] 'version' must be a string, got {type(version).__name__}."
-        )
-    return ProjectConfig(name=name, version=version if isinstance(version, str) else None)
+    if project_table is None:
+        name = default_name
+    elif not isinstance(project_table, dict):
+        raise ValueError("marivo.toml [project] must be a table.")
+    else:
+        raw_name = project_table.get("name")
+        if raw_name is None:
+            name = default_name
+        elif not isinstance(raw_name, str) or not raw_name:
+            raise ValueError("marivo.toml [project].name must be a non-empty string.")
+        else:
+            name = raw_name
+
+    semantic_table = data.get("semantic")
+    if semantic_table is None:
+        semantic_layer_paths: tuple[Path, ...] = ()
+    elif not isinstance(semantic_table, dict):
+        raise ValueError("marivo.toml [semantic] must be a table.")
+    else:
+        raw_paths = semantic_table.get("layer_paths")
+        if raw_paths is None:
+            semantic_layer_paths = ()
+        elif not isinstance(raw_paths, list):
+            raise ValueError("marivo.toml [semantic].layer_paths must be a list of strings.")
+        else:
+            resolved_paths: list[Path] = []
+            for index, raw_path in enumerate(raw_paths):
+                if not isinstance(raw_path, str):
+                    raise ValueError(
+                        f"marivo.toml [semantic].layer_paths[{index}] must be a string."
+                    )
+                path = Path(raw_path)
+                if not path.is_absolute():
+                    path = project_root / path
+                resolved_paths.append(path.resolve())
+            semantic_layer_paths = tuple(resolved_paths)
+
+    telemetry_table = data.get("telemetry")
+    if telemetry_table is None:
+        telemetry_enabled = True
+    elif not isinstance(telemetry_table, dict):
+        raise ValueError("marivo.toml [telemetry] must be a table.")
+    else:
+        raw_enabled = telemetry_table.get("enabled")
+        if raw_enabled is None:
+            telemetry_enabled = True
+        elif not isinstance(raw_enabled, str) or raw_enabled not in {"on", "off"}:
+            raise ValueError("marivo.toml [telemetry].enabled must be 'on' or 'off'.")
+        else:
+            telemetry_enabled = raw_enabled == "on"
+
+    return ProjectConfig(
+        name=name,
+        semantic_layer_paths=semantic_layer_paths,
+        telemetry_enabled=telemetry_enabled,
+    )
 
 
 def load_semantic_layer_paths(project_root: Path) -> tuple[Path, ...]:
@@ -113,8 +164,7 @@ def load_semantic_layer_paths(project_root: Path) -> tuple[Path, ...]:
         ``[semantic]`` config both return an empty tuple.
 
     Raises:
-        ValueError: If ``[semantic]`` is not a table, if ``layer_paths`` is not
-            a list, or if any item is not a string.
+        ValueError: If any explicit project configuration is invalid.
 
     Example:
         >>> paths = load_semantic_layer_paths(Path.cwd())
@@ -122,33 +172,10 @@ def load_semantic_layer_paths(project_root: Path) -> tuple[Path, ...]:
         ()
 
     Constraints:
-        Only ``[semantic].layer_paths`` is read. Other keys under
-        ``[semantic]`` are silently ignored for forward compatibility.
+        Delegates to the single effective project-configuration loader and
+        returns only its semantic-layer path projection.
     """
-    manifest_path = project_root / PROJECT_MANIFEST
-    if not manifest_path.is_file():
-        return ()
-    with open(manifest_path, "rb") as f:
-        data = tomllib.load(f)
-    semantic_table = data.get("semantic")
-    if semantic_table is None:
-        return ()
-    if not isinstance(semantic_table, dict):
-        raise ValueError("marivo.toml [semantic] must be a table.")
-    raw_paths = semantic_table.get("layer_paths")
-    if raw_paths is None:
-        return ()
-    if not isinstance(raw_paths, list):
-        raise ValueError("marivo.toml [semantic].layer_paths must be a list of strings.")
-    resolved: list[Path] = []
-    for index, raw_path in enumerate(raw_paths):
-        if not isinstance(raw_path, str):
-            raise ValueError(f"marivo.toml [semantic].layer_paths[{index}] must be a string.")
-        path = Path(raw_path)
-        if not path.is_absolute():
-            path = project_root / path
-        resolved.append(path.resolve())
-    return tuple(resolved)
+    return load_project_config(project_root).semantic_layer_paths
 
 
 # ---------------------------------------------------------------------------

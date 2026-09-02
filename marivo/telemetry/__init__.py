@@ -22,8 +22,8 @@ from time import monotonic
 from typing import Literal, ParamSpec, TypeVar, cast
 
 from marivo import __version__
-from marivo._compat import UTC, tomllib
-from marivo.config import PROJECT_MANIFEST, STATE_DIR
+from marivo._compat import UTC
+from marivo.config import STATE_DIR, load_project_config
 from marivo.project import resolve_project_root
 
 TelemetryScalar = str | int | float | bool
@@ -161,18 +161,12 @@ def _setting_enabled(raw: object) -> bool | None:
 
 
 def _project_setting(root: Path) -> bool | None:
-    manifest_path = root / PROJECT_MANIFEST
-    if not manifest_path.is_file():
-        return None
     try:
-        with open(manifest_path, "rb") as handle:
-            data = tomllib.load(handle)
+        return load_project_config(root).telemetry_enabled
     except Exception:
+        # Telemetry must remain non-interfering. Project-loading surfaces and
+        # doctor report explicit configuration errors through their own paths.
         return None
-    telemetry = data.get("telemetry")
-    if not isinstance(telemetry, dict):
-        return None
-    return _setting_enabled(telemetry.get("enabled"))
 
 
 def _enabled(root: Path) -> bool:

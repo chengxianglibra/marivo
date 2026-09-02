@@ -158,7 +158,7 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
 
 @tracked_capability(surface="cli", capability_id="init", capability_kind="command")
 def init_project(force: bool = False, project_dir: Path | None = None) -> None:
-    """Initialize a Marivo project and record local usage telemetry."""
+    """Materialize optional Marivo project scaffolding and record local usage telemetry."""
     _init_project_impl(force=force, project_dir=project_dir or Path.cwd())
 
 
@@ -198,7 +198,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
-    init_parser = subparsers.add_parser("init", help="Initialize a Marivo project")
+    init_parser = subparsers.add_parser(
+        "init", help="Materialize optional project scaffolding and agent skills"
+    )
     init_parser.add_argument(
         "--force",
         action="store_true",

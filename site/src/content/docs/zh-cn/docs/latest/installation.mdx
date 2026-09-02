@@ -54,7 +54,7 @@ source .venv/bin/activate
 marivo --version
 ```
 
-4. 在当前项目目录中执行一次初始化：
+4. 可选：固化项目配置并安装智能体技能链接：
 
 ```bash
 marivo init
@@ -62,7 +62,9 @@ marivo init
 
 如果当前工作目录不是项目根目录，可以使用 `marivo init --project-root <项目目录>`。
 
-只有选择手动安装时才需要单独执行 `marivo init`。
+Marivo 运行不依赖这个命令。未执行时，当前目录是默认项目根，项目名默认使用目录名，外部语义层
+路径默认为空，本地遥测默认为 `on`；authoring 和运行操作会按需创建所需的 `models/` 与
+`.marivo/` 子目录。
 
 `marivo init` 是幂等的：已存在的文件不会被改动，并会报告为已跳过，因此可以在升级后安全地
 重复运行。重复运行只会补齐缺失的内容。使用 `marivo init --force` 会删除生成的工件并从头
@@ -77,12 +79,14 @@ marivo init
 
 | 路径 | 用途 |
 | --- | --- |
-| `marivo.toml` | 项目清单。项目名默认使用目录名；本地遥测默认 `enabled = "on"`。 |
-| `models/` | 数据源和语义声明。 |
-| `.marivo/` | 项目本地的会话、证据和缓存元数据。 |
+| `marivo.toml` | 可选的项目清单，用于覆盖默认配置。 |
+| `models/` | 数据源和语义声明，首次编写时创建。 |
+| `.marivo/` | 项目本地的会话、证据、遥测和缓存元数据，首次写入状态时创建。 |
 | `.agents/skills/` | 为兼容的智能体提供 `marivo-semantic` 和 `marivo-analysis` 技能链接。 |
 | `.claude/skills/` | 为 Claude 代码提供同一组技能链接。 |
 | `.codex/skills/` | 为 Codex 提供同一组技能链接。 |
+
+执行 `marivo init` 后，可选脚手架如下：
 
 ```text
 your-project/
@@ -96,9 +100,9 @@ your-project/
 
 ## 确认安装结果
 
-初始化完成后，可以向智能体提出下面这项有明确边界的准备请求：
+安装完成后，可以向智能体提出下面这项有明确边界的准备请求：
 
-> 检查这个 Marivo 项目是否已经正确初始化，并告诉我开始使用现有语义层或新建语义层之前
+> 检查这个 Marivo 项目的有效配置，并告诉我开始使用现有语义层或新建语义层之前
 > 还缺少什么。凭据只检查环境变量名和配置状态，不要索取、显示或提交凭据值。
 
 这样可以把项目准备、读取业务数据和决定业务含义分成不同的步骤。
@@ -110,11 +114,11 @@ macOS、Linux 和 WSL 优先使用 `.venv/bin/python`，Windows 优先使用
 
 ## 继续之前需要检查什么
 
-选择项目路径前，请确认：
+继续之前，请确认：
 
-- `marivo.toml`、`models/` 和 `.marivo/` 已经存在；
-- `.agents/skills/`、`.claude/skills/` 和 `.codex/skills/` 下应有的技能路径已经存在；如果
-  符号链接未能创建，初始化警告已经说明原因；
+- 已选择预期的项目根；没有显式路径、环境变量或祖先 manifest 时，Marivo 使用当前目录；
+- 已存在的 `marivo.toml` 有效；缺少 manifest 时使用默认配置；
+- 所选宿主依赖文件系统技能发现时，所需技能路径可用；需要时运行 `marivo init` 安装；
 - 项目需要的数据源后端扩展已经安装；
 - 凭据通过经过批准、由环境变量提供的字段传入，而不是以明文形式提交到项目文件中。
 
@@ -122,7 +126,6 @@ macOS、Linux 和 WSL 优先使用 `.venv/bin/python`，Windows 优先使用
 新语义层。所选项目路径准备就绪且业务含义得到确认后，再进行
 [第一次分析](/zh-cn/docs/latest/first-analysis/)。
 
-如果项目已经有 `models/datasources/` 数据源声明，但还没有本地
-`models/semantic/` 目录，这是正常的起点。Doctor 会将其显示为
-`semantic modeling is pending` 信息，而不是 setup warning；manifest、layer path、后端和凭据等
-真实问题仍会保留为诊断 failure 或 warning。
+即使 `marivo.toml`、`models/` 和 `.marivo/` 都不存在，项目也是有效的空起点。Doctor 会把有效
+默认配置、缺少声明目录和尚无状态分别显示为 informational 或 skipped；显式非法配置、layer
+path、后端和凭据等真实问题仍会保留为诊断 failure 或 warning。

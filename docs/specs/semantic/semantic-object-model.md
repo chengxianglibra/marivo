@@ -67,10 +67,11 @@ content cannot leak into the semantic contract.
 
 ## Project and domain
 
-A **semantic project** is the one explicit boundary — a `models/semantic/` root
-with its own registry and load lock, loaded through `ms.load(...)`. An analysis
-session binds to a project root rather than inferring one from the current
-working directory.
+A **semantic project** is one workspace root loaded through `ms.load(...)`.
+Local declarations live under its `models/semantic/` directory, and configured
+external `models/` roots join the same registry and load lock. An analysis
+session binds to that resolved project root; omitted roots follow the shared
+environment, nearest-manifest, then current-directory resolution order.
 
 **`ms.domain(...)`** declares a business-domain boundary (`sales`, `marketing`,
 `subscription`). The domain name participates in downstream ids (`sales.revenue`).

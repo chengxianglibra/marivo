@@ -1519,8 +1519,9 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             kind="configure",
             help_target=_target("authoring"),
             action=(
-                "Point ms.load(workspace_dir=...) at a project root containing marivo.toml "
-                "and models/semantic/."
+                "Point ms.load(workspace_dir=...) at the intended project root and repair "
+                "any explicit invalid configuration or authored model files. Missing "
+                "marivo.toml and models/ are valid empty-project defaults."
             ),
             snippet="catalog = ms.load(workspace_dir='<project root>')",
             preserves_evidence=True,
