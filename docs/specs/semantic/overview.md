@@ -136,7 +136,7 @@ mechanical continuation facts. Those registries are not public APIs; the
 `marivo-semantic` skill owns workflow and routing only; the runtime has no
 canonical link to packaged skill files, so skill content is never read or
 executed by the library. This mirrors the ownership split stated in
-`agent-guide.md`.
+`AGENTS.md`.
 
 | Concern | Canonical owner |
 |---|---|

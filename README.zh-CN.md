@@ -150,4 +150,4 @@ make test
 make check
 ```
 
-贡献前请阅读 [`agent-guide.md`](agent-guide.md)。完整流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+贡献前请阅读 [`AGENTS.md`](AGENTS.md)。完整流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

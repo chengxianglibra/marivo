@@ -1,3 +1,1 @@
-# CLAUDE.md
-
-@agent-guide.md
+AGENTS.md
