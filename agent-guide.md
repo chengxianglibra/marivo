@@ -26,6 +26,11 @@ every coding task. Do not modify this file without explicit user approval.
 - Use repository entrypoints or explicit `.venv/bin/...` paths only. For
   targeted Python tests, prefer `make test TESTS='tests/test_file.py'` or
   `.venv/bin/pytest tests/test_file.py`.
+- During agent iteration, prefer the compact `make test-agent`,
+  `make typecheck-agent`, and `make lint-agent` entrypoints. Narrow them with
+  `TESTS`, `TYPECHECK_TARGETS`, or `LINT_TARGETS` before broadening the scope.
+  These targets preserve failures and exit status while reducing successful
+  output; they do not replace a required broad final check.
 - New or modified Python code must satisfy typing for the touched modules.
 - Do not introduce new implicit `Any`, broad `cast(...)`, or `# type: ignore`
   unless it is strictly necessary and locally justified.
@@ -133,6 +138,15 @@ These rules govern every public surface change:
   compatibility shapes unless explicitly required.
 - Run the narrowest useful test first, then broaden to `make test` when the
   change touches shared behavior.
+- `make test-agent` uses short tracebacks and stops after five failures so an
+  agent can repair several related problems without admitting unbounded test
+  output. When those diagnostics are insufficient, rerun only the failing
+  scope with `make test` or an explicit `.venv/bin/pytest` command and the
+  needed verbosity.
+- Use `make check-agent` for a compact broad gate. It covers the same lint,
+  typecheck, default-test, and API-documentation stages as `make check`; a
+  successful compact run is full-scope evidence, while a failed run still
+  requires repair and rerun.
 
 ## Documentation Routing
 
