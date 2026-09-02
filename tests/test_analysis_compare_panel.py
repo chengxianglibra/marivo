@@ -151,6 +151,7 @@ def _panel_metric(
     *,
     axes: dict[str, object] | None = None,
     window: dict[str, object] | None = None,
+    report_tz: str | None = None,
 ):
     return make_metric_frame(
         pd.DataFrame(rows),
@@ -169,6 +170,7 @@ def _panel_metric(
         semantic_kind="panel",
         semantic_model="sales",
         window=window,
+        report_tz=report_tz,
         session=session,
     )
 
@@ -228,6 +230,70 @@ def test_window_bucket_panel_sparse_segment_uses_window_spine():
     assert df.iloc[11]["pct_change_status"] == "from_zero_growth"
     assert out.meta.alignment["coverage"]["baseline"]["missing_buckets"] == 13
     assert out.meta.alignment["segment_info"]["coverage"]["baseline"]["missing_buckets"] == 13
+
+
+@pytest.mark.parametrize(
+    ("current_bounds", "baseline_bounds"),
+    [
+        (
+            ("2026-09-01T00:00:00+08:00", "2026-09-01T22:00:00+08:00"),
+            ("2026-08-31T00:00:00+08:00", "2026-08-31T22:00:00+08:00"),
+        ),
+        (
+            ("2026-08-31T16:00:00Z", "2026-09-01T14:00:00Z"),
+            ("2026-08-30T16:00:00Z", "2026-08-31T14:00:00Z"),
+        ),
+    ],
+)
+def test_window_bucket_panel_keeps_same_day_partial_bucket(current_bounds, baseline_bounds):
+    session = session_attach.get_or_create(name="demo", report_timezone="Asia/Shanghai")
+    current = _panel_metric(
+        session,
+        [{"bucket_start": "2026-09-01", "region": "NORTH", "value": 10.0}],
+        window={
+            "start": current_bounds[0],
+            "end": current_bounds[1],
+        },
+        report_tz="Asia/Shanghai",
+    )
+    baseline = _panel_metric(
+        session,
+        [{"bucket_start": "2026-08-31", "region": "NORTH", "value": 7.0}],
+        window={
+            "start": baseline_bounds[0],
+            "end": baseline_bounds[1],
+        },
+        report_tz="Asia/Shanghai",
+    )
+
+    delta = session.compare(current, baseline, alignment=window_bucket())
+
+    rows = delta.to_pandas()
+    assert rows[["region", "presence_status", "current", "baseline", "delta"]].to_dict(
+        "records"
+    ) == [
+        {
+            "region": "NORTH",
+            "presence_status": "matched",
+            "current": 10.0,
+            "baseline": 7.0,
+            "delta": 3.0,
+        }
+    ]
+    assert rows["bucket_start"].astype(str).tolist() == ["2026-09-01"]
+    assert rows["bucket_start_b"].astype(str).tolist() == ["2026-08-31"]
+    coverage = delta.meta.alignment["coverage"]
+    assert coverage["current"] == {
+        "expected_buckets": 1,
+        "present_buckets": 1,
+        "missing_buckets": 0,
+    }
+    assert coverage["baseline"] == {
+        "expected_buckets": 1,
+        "present_buckets": 1,
+        "missing_buckets": 0,
+    }
+    assert delta.meta.alignment["segment_info"]["coverage"] == coverage
 
 
 def test_window_bucket_panel_both_missing_spine_row_is_not_new_or_churned():

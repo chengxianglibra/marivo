@@ -172,15 +172,17 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
 
     start_raw = window["start"]
     end_raw = window["end"]
+    report_tz_raw = getattr(frame.meta, "report_tz", None)
+    report_tz = report_tz_raw if isinstance(report_tz_raw, str) and report_tz_raw else None
     if _grain_is_subday_token(grain):
         normalized = cast("_Grain", _normalize_grain(grain))
         current_dt = _truncate_bucket_datetime(
-            _parse_window_datetime(start_raw, field="start"), grain=normalized
+            _parse_window_datetime(start_raw, field="start", report_tz=report_tz), grain=normalized
         )
         if is_date_only(end_raw):
             stop = datetime.combine(date.fromisoformat(end_raw), time.min)
         else:
-            stop = _parse_window_datetime(end_raw, field="end")
+            stop = _parse_window_datetime(end_raw, field="end", report_tz=report_tz)
         buckets: list[object] = []
         while current_dt < stop:
             if len(buckets) >= _WINDOW_BUCKET_CAP:
@@ -199,7 +201,7 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
             current_dt = _advance_bucket_datetime(current_dt, grain=normalized)
         return buckets
     if grain == "hour":
-        current = _parse_window_datetime(start_raw, field="start").replace(
+        current = _parse_window_datetime(start_raw, field="start", report_tz=report_tz).replace(
             minute=0, second=0, microsecond=0
         )
         if is_date_only(end_raw):
@@ -209,7 +211,7 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
                 values.append(pd.Timestamp(current))
                 current += timedelta(hours=1)
             return values
-        stop = _parse_window_datetime(end_raw, field="end").replace(
+        stop = _parse_window_datetime(end_raw, field="end", report_tz=report_tz).replace(
             minute=0, second=0, microsecond=0
         )
         values = []
@@ -219,13 +221,15 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
         return values
 
     current_date = _truncate_bucket_date(
-        _parse_window_datetime(start_raw, field="start").date(), grain=grain
+        _parse_window_datetime(start_raw, field="start", report_tz=report_tz).date(), grain=grain
     )
-    stop_date = _truncate_bucket_date(
-        _parse_window_datetime(end_raw, field="end").date(), grain=grain
-    )
+    stop = _parse_window_datetime(end_raw, field="end", report_tz=report_tz)
     values = []
-    while current_date < stop_date:
+    # Keep every calendar bucket whose start precedes the precise exclusive
+    # window end.  Truncating ``end`` to its bucket start would discard an
+    # intersecting partial tail bucket (and collapse a same-day partial window
+    # to zero expected buckets), unlike observe's half-open bucket contract.
+    while datetime.combine(current_date, time.min) < stop:
         values.append(current_date)
         current_date = _advance_bucket_date(current_date, grain=grain)
     return values

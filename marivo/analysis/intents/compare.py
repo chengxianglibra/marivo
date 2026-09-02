@@ -2026,7 +2026,10 @@ def _align_calendar_window_bucket(
                 has_baseline=has_baseline,
             )
         rows.append(row)
-    result = _compute_delta_columns(pd.DataFrame(rows))
+    input_columns = [time_column, "current", "baseline"]
+    if track_presence_status:
+        input_columns.insert(1, PRESENCE_STATUS_COLUMN)
+    result = _compute_delta_columns(pd.DataFrame(rows, columns=input_columns))
     result_columns = [
         time_column,
         "current",
@@ -2092,7 +2095,15 @@ def _align_ordinal_window_bucket(
                 has_baseline=pair.b_present,
             )
         rows.append(row)
-    result = _compute_delta_columns(pd.DataFrame(rows))
+    input_columns = [
+        time_column,
+        f"{time_column}_b",
+        "current",
+        "baseline",
+    ]
+    if track_presence_status:
+        input_columns.insert(2, PRESENCE_STATUS_COLUMN)
+    result = _compute_delta_columns(pd.DataFrame(rows, columns=input_columns))
     coverage = {
         "current": {
             "expected_buckets": len(current_buckets),
