@@ -6690,10 +6690,11 @@ def load(
     re-using an already-loaded project, not for agent-facing browsing.
 
     Args:
-        workspace_dir: Path to the project root containing ``marivo.toml``.
-            Defaults to the current working directory when omitted. The local
-            ``models/`` root is always loaded; external models roots can be
-            added with ``marivo.toml [semantic].layer_paths``.
+        workspace_dir: Optional exact project root. When omitted, resolves
+            from ``MARIVO_PROJECT_ROOT``, the nearest ancestor manifest, or
+            the current directory. The local ``models/`` root is always
+            loaded; external roots can be added with
+            ``marivo.toml [semantic].layer_paths``.
         domains: When specified, only those domain directories are loaded.
             Pass a single domain name as a string or a list of names.
             Cross-domain references to filtered-out domains produce warnings
@@ -6715,13 +6716,7 @@ def load(
         Configured layer paths must point at authored ``models/`` roots that
         contain both ``datasources/`` and ``semantic/``.
     """
-    import os
-
     from marivo.semantic.reader import SemanticProject
-
-    if workspace_dir is None:
-        env = os.environ.get("MARIVO_PROJECT_ROOT")
-        workspace_dir = env if env else Path.cwd()
 
     project = SemanticProject(workspace_dir=workspace_dir)
     result = project.load(domains=domains)

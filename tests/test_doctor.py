@@ -297,14 +297,21 @@ def test_default_doctor_accepts_missing_local_models_when_layer_paths_are_valid(
     assert _check(report, "datasources", "datasource.warehouse").status == "ok"
 
 
-def test_default_doctor_fails_missing_project_manifest(tmp_path: Path) -> None:
+def test_default_doctor_accepts_zero_initialized_project(tmp_path: Path) -> None:
     report = run_doctor(DoctorOptions(project_root=tmp_path))
 
-    assert report.status == "fail"
+    assert report.status == "ok"
     check = _check(report, "project", "project.marivo_toml")
-    assert check.status == "fail"
-    assert "marivo.toml was not found" in check.summary
-    assert "marivo init" in "\n".join(check.fix)
+    assert check.status == "info"
+    assert "using defaults" in check.summary
+    assert check.details["name"] == tmp_path.name
+    assert check.details["semantic_layer_paths"] == []
+    assert check.details["telemetry_enabled"] is True
+    assert _check(report, "project", "project.models").status == "info"
+    assert _check(report, "project", "project.datasources").status == "info"
+    assert _check(report, "project", "project.semantic").status == "info"
+    assert _check(report, "state", "state.analysis_dir").status == "skipped"
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_scoped_doctor_finds_external_layer_datasource(tmp_path: Path) -> None:
@@ -331,10 +338,39 @@ def test_doctor_reports_invalid_layer_paths_config(tmp_path: Path) -> None:
     )
 
     report = run_doctor(DoctorOptions(project_root=tmp_path))
-    check = _check(report, "project", "project.semantic.layer_paths")
+    check = _check(report, "project", "project.marivo_toml")
 
     assert report.status == "fail"
     assert "marivo.toml [semantic].layer_paths must be a list of strings" in check.summary
+
+
+def test_doctor_reports_invalid_toml_without_crashing(tmp_path: Path) -> None:
+    tmp_path.joinpath("marivo.toml").write_text("invalid [[ toml", encoding="utf-8")
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path))
+
+    check = _check(report, "project", "project.marivo_toml")
+    assert report.status == "fail"
+    assert check.status == "fail"
+    assert "marivo.toml is invalid" in check.summary
+
+
+def test_doctor_owns_non_semantic_manifest_errors_in_project_section(tmp_path: Path) -> None:
+    tmp_path.joinpath("marivo.toml").write_text(
+        "[telemetry]\nenabled = true\n",
+        encoding="utf-8",
+    )
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path))
+
+    project_check = _check(report, "project", "project.marivo_toml")
+    assert project_check.status == "fail"
+    assert "[telemetry].enabled" in project_check.summary
+    assert all(
+        check.id != "project.semantic.layer_paths"
+        for section in report.sections
+        for check in section.checks
+    )
 
 
 def test_doctor_reports_duplicate_layer_datasource_names(tmp_path: Path) -> None:

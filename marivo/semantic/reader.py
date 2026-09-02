@@ -5,7 +5,6 @@ Agent-facing semantic reading goes through ``ms.load()`` and ``SemanticCatalog``
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.project import resolve_project_root
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
@@ -99,7 +99,7 @@ class SemanticProject:
 
     Usage::
 
-        project = SemanticProject()  # uses cwd or MARIVO_PROJECT_ROOT
+        project = SemanticProject()  # env, nearest manifest, or cwd
         # or:
         project = SemanticProject(workspace_dir="/path/to/project")
         result = project.load()
@@ -118,8 +118,7 @@ class SemanticProject:
             self._workspace_dir = self._semantic_root.parent.parent
         else:
             if workspace_dir is None:
-                env = os.environ.get("MARIVO_PROJECT_ROOT")
-                workspace_dir = env if env else "."
+                workspace_dir = resolve_project_root()
             self._workspace_dir = Path(workspace_dir).resolve()
             self._semantic_root = self._workspace_dir / SEMANTIC_DIR
         self._status: str = "unloaded"  # unloaded | ready | errored
@@ -198,7 +197,7 @@ class SemanticProject:
                     kind=ErrorKind.INVALID_PROJECT,
                     message=str(exc),
                     refs=(str(self._workspace_dir / "marivo.toml"),),
-                    hint="Fix marivo.toml [semantic].layer_paths and rerun ms.load().",
+                    hint="Fix the explicit marivo.toml configuration and rerun ms.load().",
                 )
             )
         if config_errors:

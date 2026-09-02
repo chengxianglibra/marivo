@@ -15,16 +15,18 @@ See also:
 
 ## Registry and loader
 
-A semantic project is one explicit boundary: a `models/semantic/` root with its
-own registry and load lock. `ms.load(...)` executes the trusted local Python
-files under that root, assembles the decorators' side effects into an in-memory
-registry, and returns a `SemanticCatalog`.
+A semantic project is one explicit workspace boundary. Its local declarations
+live under `models/semantic/`, while optional external authored `models/` roots
+come from `marivo.toml [semantic].layer_paths`. `ms.load(...)` executes the
+trusted local Python files in those semantic directories, assembles the
+decorators' side effects into an in-memory registry, and returns a
+`SemanticCatalog`.
 
 ```python
 import marivo.semantic as ms
 
-catalog = ms.load()  # locate the nearest models/semantic/ upward
-catalog = ms.load(workspace_dir="models/semantic", domains=["sales"])  # explicit root + filter
+catalog = ms.load()  # env, nearest ancestor manifest, or current directory
+catalog = ms.load(workspace_dir=".", domains=["sales"])  # exact workspace root + filter
 catalog.domains.show()
 ```
 
@@ -42,10 +44,12 @@ Loader rules:
   whether a valid model loads.
 - Model roots are **layered / multi-root**: a project can compose a shared base
   root with a local overlay.
-- Python files are trusted local code and are not sandboxed. `find_project()`
-  locates the nearest `models/semantic/` upward; an empty `models/semantic/` is a
-  valid (empty) project. If the path exists but is not a directory, the loader
-  fails closed.
+- Python files are trusted local code and are not sandboxed. With no explicit
+  workspace, `ms.load()` resolves `MARIVO_PROJECT_ROOT`, then the nearest
+  ancestor manifest, then the current directory. An absent or empty local
+  `models/semantic/` is a valid empty project. The low-level loader still
+  accepts an exact semantic directory and fails closed when that path exists but
+  is not a directory.
 - On success the registry is `ready`; on failure it becomes `errored` with
   structured `load_errors` retained for the fix loop.
 
@@ -447,7 +451,7 @@ style. The mapping from error kind to agent action is mechanical:
 | `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.linear(...)` components point to registered metrics. |
 | `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.linear`. |
 | `outside_loader_context` | Move the declaration fragment into `models/semantic/<domain>/_domain.py` or its domain module and follow `marivo.help("semantic.authoring")`. |
-| `invalid_project` | Create or select the exact `models/semantic/` project root shown by `marivo.help("semantic.authoring")`; do not guess a different root. |
+| `invalid_project` | Fix the explicit `marivo.toml` configuration or pass the exact workspace root shown by `marivo.help("semantic.authoring")`; do not pass `models/semantic/` as `workspace_dir`. |
 | `domain_file_missing` | Add `models/semantic/<domain>/_domain.py` and declare the matching domain there. |
 | `domain_file_mismatch` | Make the directory name and `ms.domain(name=...)` identity agree, then reload. |
 | organization errors | Restore the minimal datasource/domain layout reported by structured repair, then reload from the same project root. |

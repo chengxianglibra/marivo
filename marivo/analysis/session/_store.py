@@ -25,6 +25,7 @@ from marivo.analysis.errors import (
     SessionNotFoundError,
     SessionStateError,
 )
+from marivo.config import load_project_config
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
@@ -199,6 +200,20 @@ class SessionStore:
             self._project_root = resolve_project_root()
         else:
             self._project_root = Path(project_root).resolve()
+        try:
+            load_project_config(self._project_root)
+        except ValueError as exc:
+            raise SessionStateError(
+                message=f"project configuration is invalid: {exc}",
+                expected="a valid explicit marivo.toml or no project manifest",
+                received=str(exc),
+                location=str(self._project_root / "marivo.toml"),
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action="Fix the explicit marivo.toml configuration and retry the session operation.",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.sessions"),
+                ),
+            ) from exc
         self._busy_timeout_ms = busy_timeout_ms
         self._initialize_or_validate()
 

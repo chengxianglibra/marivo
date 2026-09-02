@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from marivo.semantic.loader import find_project
+from marivo.project import resolve_project_root
 from marivo.semantic.reader import SemanticProject
 
 
@@ -93,21 +93,7 @@ def run_check(
     format: Literal["json", "text"] = "text",
 ) -> dict[str, object]:
     if workspace_dir is None:
-        project = find_project()
-        if project is None:
-            return {
-                "status": "errored",
-                "errors": [
-                    {
-                        "kind": "invalid_project",
-                        "message": "Could not find .marivo project root.",
-                        "refs": [],
-                        "location": None,
-                        "hint": "Pass --workspace-dir with the project path, or set MARIVO_PROJECT_ROOT.",
-                    }
-                ],
-                "warnings": [],
-            }
+        project = SemanticProject(workspace_dir=resolve_project_root())
     else:
         project = SemanticProject(workspace_dir=workspace_dir)
 

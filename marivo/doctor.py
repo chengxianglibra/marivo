@@ -25,7 +25,7 @@ from marivo.config import (
     SEMANTIC_DIR,
     SKILL_ANALYSIS,
     SKILL_SEMANTIC,
-    load_semantic_layer_paths,
+    load_project_config,
 )
 from marivo.datasource.engines import ENGINE_PROFILES, SUPPORTED_BACKEND_TYPES
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
@@ -288,26 +288,7 @@ def _installation_section() -> DoctorSection:
     return DoctorSection(id="installation", label="Installation", checks=checks)
 
 
-def _inspect_layer_paths(root: Path) -> _LayerPathInspection:
-    manifest = root / PROJECT_MANIFEST
-    if not manifest.is_file():
-        return _LayerPathInspection(roots=(), checks=())
-    try:
-        roots = load_semantic_layer_paths(root)
-    except ValueError as exc:
-        return _LayerPathInspection(
-            roots=(),
-            checks=(
-                DoctorCheck(
-                    id="project.semantic.layer_paths",
-                    label="[semantic].layer_paths",
-                    status="fail",
-                    summary=str(exc),
-                    details={"path": str(manifest)},
-                    fix=("Fix marivo.toml [semantic].layer_paths, then run marivo doctor again",),
-                ),
-            ),
-        )
+def _inspect_layer_paths(root: Path, roots: Sequence[Path]) -> _LayerPathInspection:
     if not roots:
         return _LayerPathInspection(roots=(), checks=())
 
@@ -408,77 +389,71 @@ def _inspect_layer_paths(root: Path) -> _LayerPathInspection:
     return _LayerPathInspection(roots=tuple(valid_roots), checks=tuple(checks))
 
 
-def _project_section(root: Path) -> DoctorSection:
+def _project_section(root: Path) -> tuple[DoctorSection, _LayerPathInspection]:
     checks: list[DoctorCheck] = []
     manifest = root / PROJECT_MANIFEST
-    layer_inspection = _inspect_layer_paths(root)
     if not root.exists():
-        return DoctorSection(
-            id="project",
-            label="Project",
-            checks=(
-                DoctorCheck(
-                    id="project.root",
-                    label="Project root",
-                    status="fail",
-                    summary=f"project root does not exist: {root}",
-                    details={"project_root": str(root)},
-                    fix=(f"mkdir -p {root}", f"marivo doctor --project-root {root}"),
+        layer_inspection = _LayerPathInspection(roots=(), checks=())
+        return (
+            DoctorSection(
+                id="project",
+                label="Project",
+                checks=(
+                    DoctorCheck(
+                        id="project.root",
+                        label="Project root",
+                        status="fail",
+                        summary=f"project root does not exist: {root}",
+                        details={"project_root": str(root)},
+                        fix=(f"mkdir -p {root}", f"marivo doctor --project-root {root}"),
+                    ),
                 ),
             ),
+            layer_inspection,
         )
-    if not manifest.is_file():
+    try:
+        config = load_project_config(root)
+    except (ValueError, tomllib.TOMLDecodeError) as exc:
         checks.append(
             DoctorCheck(
                 id="project.marivo_toml",
                 label="marivo.toml",
                 status="fail",
-                summary=f"marivo.toml was not found in {root}",
+                summary=f"marivo.toml is invalid: {exc}",
                 details={"path": str(manifest)},
-                fix=(
-                    "cd <project-with-marivo.toml>",
-                    "export MARIVO_PROJECT_ROOT=<project-with-marivo.toml>",
-                    f"marivo doctor --project-root {root}",
-                    "marivo init",
-                ),
+                fix=("Fix marivo.toml, then run marivo doctor again",),
             )
         )
+        layer_inspection = _LayerPathInspection(roots=(), checks=())
     else:
-        try:
-            with manifest.open("rb") as handle:
-                parsed = tomllib.load(handle)
-            project_table = parsed.get("project")
-            name = project_table.get("name") if isinstance(project_table, dict) else None
-            if isinstance(name, str) and name:
-                checks.append(
-                    DoctorCheck(
-                        id="project.marivo_toml",
-                        label="marivo.toml",
-                        status="ok",
-                        summary=f"project {name!r}",
-                        details={"path": str(manifest), "name": name},
-                    )
-                )
-            else:
-                checks.append(
-                    DoctorCheck(
-                        id="project.marivo_toml",
-                        label="marivo.toml",
-                        status="fail",
-                        summary="marivo.toml is missing [project].name",
-                        details={"path": str(manifest)},
-                        fix=('Add [project] name = "<project-name>" to marivo.toml',),
-                    )
-                )
-        except tomllib.TOMLDecodeError as exc:
+        layer_inspection = _inspect_layer_paths(root, config.semantic_layer_paths)
+        details: dict[str, object] = {
+            "path": str(manifest),
+            "name": config.name,
+            "semantic_layer_paths": [str(path) for path in config.semantic_layer_paths],
+            "telemetry_enabled": config.telemetry_enabled,
+        }
+        if manifest.is_file():
             checks.append(
                 DoctorCheck(
                     id="project.marivo_toml",
                     label="marivo.toml",
-                    status="fail",
-                    summary=f"marivo.toml is invalid TOML: {exc}",
-                    details={"path": str(manifest)},
-                    fix=("Fix marivo.toml syntax, then run marivo doctor again",),
+                    status="ok",
+                    summary=f"project {config.name!r}",
+                    details=details,
+                )
+            )
+        else:
+            checks.append(
+                DoctorCheck(
+                    id="project.marivo_toml",
+                    label="marivo.toml",
+                    status="info",
+                    summary=(
+                        f"{manifest} is missing; using defaults "
+                        f"name={config.name!r}, semantic.layer_paths=[], telemetry.enabled='on'"
+                    ),
+                    details=details,
                 )
             )
     checks.extend(layer_inspection.checks)
@@ -494,12 +469,15 @@ def _project_section(root: Path) -> DoctorSection:
         elif using_valid_external_layers:
             status = "ok"
             summary = f"{path} is missing; using configured semantic layer paths"
-        elif check_id == "project.semantic":
+        elif check_id == "project.models":
+            status = "info"
+            summary = f"{path} is missing; local model declarations are empty"
+        elif check_id == "project.datasources":
+            status = "info"
+            summary = f"{path} is missing; no local datasources are declared"
+        else:
             status = "info"
             summary = f"{path} is missing; semantic modeling is pending"
-        else:
-            status = "warning"
-            summary = f"{path} is missing"
         checks.append(
             DoctorCheck(
                 id=check_id,
@@ -509,7 +487,7 @@ def _project_section(root: Path) -> DoctorSection:
                 details={"path": str(path)},
             )
         )
-    return DoctorSection(id="project", label="Project", checks=tuple(checks))
+    return DoctorSection(id="project", label="Project", checks=tuple(checks)), layer_inspection
 
 
 def _skills_section(root: Path) -> DoctorSection:
@@ -573,9 +551,12 @@ def _skills_section(root: Path) -> DoctorSection:
     return DoctorSection(id="skills", label="Agent skills", checks=tuple(checks))
 
 
-def _candidate_datasource_files(root: Path, only: str | None) -> tuple[Path, ...]:
+def _candidate_datasource_files(
+    root: Path,
+    only: str | None,
+    layer_inspection: _LayerPathInspection,
+) -> tuple[Path, ...]:
     datasource_roots = [root / DATASOURCES_DIR]
-    layer_inspection = _inspect_layer_paths(root)
     if layer_inspection.ok:
         datasource_roots.extend(
             models_root / "datasources" for models_root in layer_inspection.roots
@@ -769,13 +750,14 @@ def _static_datasources_from_file(filepath: Path) -> _StaticDatasourceLoadResult
     )
 
 
-def _load_project_datasources(root: Path, only: str | None) -> _StaticDatasourceLoadResult:
+def _load_project_datasources(
+    root: Path,
+    only: str | None,
+    layer_inspection: _LayerPathInspection,
+) -> _StaticDatasourceLoadResult:
     datasources: list[DatasourceIR] = []
-    layer_inspection = _inspect_layer_paths(root)
-    diagnostics: list[DoctorCheck] = [
-        check for check in layer_inspection.checks if check.status == "fail"
-    ]
-    for filepath in _candidate_datasource_files(root, only):
+    diagnostics: list[DoctorCheck] = []
+    for filepath in _candidate_datasource_files(root, only, layer_inspection):
         result = _static_datasources_from_file(filepath)
         if only is None:
             datasources.extend(result.datasources)
@@ -857,9 +839,11 @@ def _backend_extra_check(datasource: DatasourceIR) -> DoctorCheck:
 
 
 def _datasource_section(
-    root: Path, only: str | None
+    root: Path,
+    only: str | None,
+    layer_inspection: _LayerPathInspection,
 ) -> tuple[DoctorSection, tuple[DatasourceIR, ...]]:
-    result = _load_project_datasources(root, only)
+    result = _load_project_datasources(root, only, layer_inspection)
     datasources = result.datasources
     if only is not None:
         datasources = tuple(ds for ds in datasources if ds.name == only)
@@ -1335,12 +1319,13 @@ def exit_code(report: DoctorReport) -> int:
 def run_doctor(options: DoctorOptions | None = None) -> DoctorReport:
     opts = options or DoctorOptions()
     root = _resolve_project_root(opts.project_root)
+    project_section, layer_inspection = _project_section(root)
     sections: list[DoctorSection] = [
         _installation_section(),
-        _project_section(root),
+        project_section,
         _skills_section(root),
     ]
-    datasource_section, datasources = _datasource_section(root, opts.datasource)
+    datasource_section, datasources = _datasource_section(root, opts.datasource, layer_inspection)
     sections.append(datasource_section)
     sections.append(_secrets_section(datasources, project_root=root))
     if opts.semantic:

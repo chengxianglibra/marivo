@@ -118,6 +118,10 @@ MSYS2, or Cygwin.
 For manual installation, datasource extras, supported platforms, and troubleshooting,
 see [Installation](https://marivo.io/docs/latest/installation/).
 
+Marivo also works directly in an empty current directory after package installation.
+`marivo init` only materializes optional configuration, empty project directories,
+and agent skill links; it is not a runtime prerequisite.
+
 Verify the selected environment once:
 
 ```bash
@@ -146,8 +150,9 @@ disambiguation. Focused help also accepts registered public types, errors, and
 member targets when they are already known or obtained from a live result.
 
 If the project already contains `marivo.toml` and `models/`, reuse its semantic layer.
-For a new project, tell the agent which datasource and business outcome you need, then
-confirm the proposed metric meaning before analysis.
+For a new empty project, tell the agent which datasource and business outcome you need;
+Marivo creates authored and runtime directories when they are first needed. Confirm the
+proposed metric meaning before analysis.
 
 Once a metric is ready, ask a business question naturally:
 

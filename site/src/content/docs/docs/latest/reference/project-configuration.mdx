@@ -5,6 +5,11 @@ description: Configure a Marivo project and share a semantic layer across reposi
 
 ## Keep the project contract in version control
 
+`marivo.toml` is optional. Without it, the project name is the project-root directory
+name, `semantic.layer_paths` is empty, and local telemetry is enabled. Missing tables or
+fields use those defaults; an existing invalid TOML document or explicitly invalid field
+fails closed. There is no project `version` setting.
+
 Use `marivo.toml` to load semantic-layer packages that are maintained in other
 repositories. Add each authored `models/` directory to `[semantic].layer_paths`:
 
@@ -27,6 +32,6 @@ layer from loading. `marivo doctor`, semantic previews, verification, and
 analysis sessions all resolve semantic objects and layer datasources through
 these configured roots.
 
-Commit `marivo.toml` and `models/` so the project contract and its declarations
-travel together. Add `.marivo/` to `.gitignore`; it contains local sessions,
-evidence, and cached metadata rather than shared declarations.
+When configuration or declarations must travel with the project, commit `marivo.toml`
+and `models/`. Add `.marivo/` to `.gitignore`; it contains local sessions, evidence,
+telemetry, and cached metadata rather than shared declarations.

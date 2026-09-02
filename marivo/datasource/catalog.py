@@ -19,6 +19,7 @@ from marivo.datasource.manage import (
     describe,
     test,
 )
+from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
 
 
@@ -74,7 +75,8 @@ class DatasourceCatalog(RenderableResult):
     discovery.
 
     Args:
-        workspace_dir: Project root directory. Defaults to cwd.
+        workspace_dir: Project root directory resolved from the environment,
+            nearest ancestor manifest, or current directory when omitted.
 
     Returns:
         DatasourceCatalog with list(), get(), describe(), connect(), and
@@ -244,7 +246,9 @@ def load(
     project datasources, providing an ``ms.load()``-consistent entry point.
 
     Args:
-        workspace_dir: Optional project root directory; defaults to cwd.
+        workspace_dir: Optional exact project root directory. When omitted,
+            resolves from ``MARIVO_PROJECT_ROOT``, the nearest ancestor
+            manifest, or the current directory.
 
     Returns:
         A ``DatasourceCatalog`` for browsing configured datasources.
@@ -261,7 +265,9 @@ def load(
         to modify project datasources.
     """
     if workspace_dir is None:
-        workspace_dir = Path.cwd()
+        workspace_dir = resolve_project_root()
     elif isinstance(workspace_dir, str):
         workspace_dir = Path(workspace_dir)
-    return DatasourceCatalog(workspace_dir=workspace_dir)
+    resolved_workspace = workspace_dir.resolve()
+    _store.require_project_config(resolved_workspace)
+    return DatasourceCatalog(workspace_dir=resolved_workspace)

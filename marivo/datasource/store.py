@@ -6,7 +6,12 @@ from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import Any, cast
 
-from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, load_semantic_layer_paths
+from marivo.config import (
+    AUTHORED_DIR,
+    DATASOURCES_DIR,
+    ProjectConfig,
+    load_project_config,
+)
 from marivo.datasource.authoring import DatasourceSpec, _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
@@ -27,6 +32,24 @@ def datasource_dir(project_root: Path | None = None) -> Path:
 
 def datasource_path(name: str, project_root: Path | None = None) -> Path:
     return datasource_dir(project_root) / f"{_storage_name(name)}.py"
+
+
+def require_project_config(project_root: Path) -> ProjectConfig:
+    """Load project configuration through the datasource error boundary."""
+    try:
+        return load_project_config(project_root)
+    except ValueError as exc:
+        raise DatasourceLoadError(
+            message=f"project configuration is invalid: {exc}",
+            expected="a valid explicit marivo.toml or no project manifest",
+            received=str(exc),
+            location=str(project_root / "marivo.toml"),
+            repair=repair(
+                kind="configure",
+                canonical_id="load",
+                action="Fix the explicit marivo.toml configuration and reload datasources.",
+            ),
+        ) from exc
 
 
 def _literal(value: Any) -> str:
@@ -95,7 +118,9 @@ def _write_datasource_file(
 
 
 def load_all(project_root: Path | None = None) -> dict[str, DatasourceIR]:
-    result = load_datasources(datasource_dir(project_root))
+    root = project_root or resolve_project_root()
+    require_project_config(root)
+    result = load_datasources(datasource_dir(root))
     if result.errors:
         raise result.errors[0]
     return {datasource.name: datasource for datasource in result.datasources}
@@ -108,20 +133,7 @@ def load_one(name: str, project_root: Path | None = None) -> DatasourceIR | None
 def _layered_models_roots(project_root: Path | None = None) -> tuple[Path, ...]:
     root = project_root or resolve_project_root()
     local_models = root / AUTHORED_DIR
-    try:
-        external_roots = load_semantic_layer_paths(root)
-    except ValueError as exc:
-        raise DatasourceLoadError(
-            message=str(exc),
-            expected="a valid semantic layer configuration",
-            received=str(exc),
-            location=str(root / "marivo.toml"),
-            repair=repair(
-                kind="configure",
-                canonical_id="load",
-                action="Fix the semantic layer configuration and reload datasources.",
-            ),
-        ) from exc
+    external_roots = require_project_config(root).semantic_layer_paths
     errors: list[str] = []
     seen_external: set[Path] = set()
     for external_root in external_roots:
@@ -205,11 +217,13 @@ def load_one_layered(name: str, project_root: Path | None = None) -> DatasourceI
 
 
 def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> DatasourceIR:
+    root = project_root or resolve_project_root()
+    require_project_config(root)
     _write_datasource_file(
         spec=spec,
-        project_root=project_root,
+        project_root=root,
     )
-    datasource = load_one(spec.name, project_root)
+    datasource = load_one(spec.name, root)
     if datasource is None:
         raise DatasourceMissingError(
             message=f"datasource {spec.name!r} was not written",
@@ -220,14 +234,16 @@ def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> Datasour
                 kind="register",
                 canonical_id="register",
                 action="Register the datasource again.",
-                candidates=tuple(list_names(project_root)),
+                candidates=tuple(list_names(root)),
             ),
         )
     return datasource
 
 
 def delete_one(name: str, project_root: Path | None = None) -> bool:
-    path = datasource_path(name, project_root)
+    root = project_root or resolve_project_root()
+    require_project_config(root)
+    path = datasource_path(name, root)
     if not path.is_file():
         return False
     path.unlink()

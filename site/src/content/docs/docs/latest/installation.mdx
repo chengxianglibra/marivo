@@ -61,7 +61,7 @@ On Windows Bash shells, activate it with `source .venv/Scripts/activate`.
 marivo --version
 ```
 
-4. Initialize the current project directory once:
+4. Optionally materialize project configuration and agent skill links:
 
 ```bash
 marivo init
@@ -70,7 +70,10 @@ marivo init
 When the current working directory is not the project root, use
 `marivo init --project-root <project-directory>`.
 
-Run `marivo init` separately only for manual installation.
+Marivo does not require this command to run. Without it, the current directory is the
+default project root, the project name defaults to that directory name, external semantic
+layer paths default to empty, and local telemetry defaults to `on`. Authoring and runtime
+operations create the `models/` and `.marivo/` subdirectories they need.
 
 `marivo init` is idempotent: it leaves existing files untouched and reports them as
 skipped, so it is safe to re-run after an upgrade. Re-running adds only what is
@@ -87,12 +90,14 @@ cannot create a symlink, `init` prints a warning and continues.
 
 | Path | Purpose |
 | --- | --- |
-| `marivo.toml` | Project manifest. The project name defaults to the directory name; local telemetry defaults to `enabled = "on"`. |
-| `models/` | Datasource and semantic declarations. |
-| `.marivo/` | Project-local sessions, evidence, and cached metadata. |
+| `marivo.toml` | Optional manifest for overriding project defaults. |
+| `models/` | Datasource and semantic declarations, created when first authored. |
+| `.marivo/` | Project-local sessions, evidence, telemetry, and cached metadata, created on first state write. |
 | `.agents/skills/` | Links to the `marivo-semantic` and `marivo-analysis` skills for compatible agents. |
 | `.claude/skills/` | Links to the same skills for Claude Code. |
 | `.codex/skills/` | Links to the same skills for Codex. |
+
+After `marivo init`, the optional scaffold has this shape:
 
 ```text
 your-project/
@@ -106,10 +111,10 @@ your-project/
 
 ## Verify the installation
 
-After initialization, give the agent this bounded preparation request:
+After installation, give the agent this bounded preparation request:
 
-> Check whether this Marivo project is initialized correctly and tell me what
-> is missing before I use its existing semantic layer or create a new one.
+> Check this Marivo project's effective configuration and tell me what is
+> missing before I use its existing semantic layer or create a new one.
 > For credentials, check only environment-variable names and configuration
 > status. Do not request, display, or commit credential values.
 
@@ -124,12 +129,13 @@ execution.
 
 ## What to review before continuing
 
-Before choosing a project path, confirm that:
+Before continuing, confirm that:
 
-- `marivo.toml`, `models/`, and `.marivo/` are present;
-- the expected skill paths under `.agents/skills/`, `.claude/skills/`, and
-  `.codex/skills/` are present, or the initialization warning explains why a symlink
-  could not be created;
+- the intended project root is selected; without an explicit path, environment setting,
+  or ancestor manifest, Marivo uses the current directory;
+- any existing `marivo.toml` is valid; a missing manifest uses defaults;
+- agent skill paths are available when the selected host depends on filesystem skill
+  discovery; run `marivo init` to install them when needed;
 - the required datasource backend extra is installed; and
 - credentials are supplied through approved environment-backed fields, not committed
   as plaintext in project files.
@@ -139,8 +145,7 @@ choose whether to reuse an existing semantic layer or create one. After the
 selected project path is ready and its business meaning is approved, continue
 to the [first analysis](/docs/latest/first-analysis/).
 
-A project with existing `models/datasources/` declarations but no local
-`models/semantic/` directory is a normal starting point. Doctor reports this as
-an informational `semantic modeling is pending` note rather than a setup
-warning; actual manifest, layer-path, backend, and credential problems remain
-diagnostic failures or warnings.
+A project with none of `marivo.toml`, `models/`, or `.marivo/` is a valid empty starting
+point. Doctor reports the effective defaults and missing authored/state directories as
+informational or skipped checks. Explicit invalid configuration, layer-path, backend, and
+credential problems remain diagnostic failures or warnings.

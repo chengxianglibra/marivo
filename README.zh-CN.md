@@ -88,6 +88,9 @@ curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
 安装脚本会使用 `uv` 准备项目本地环境并初始化当前目录。它支持 macOS、Linux、WSL，以及
 Windows 上的 Git Bash、MSYS2 或 Cygwin。手动安装、数据源扩展、支持平台和故障排查请参阅[安装文档](https://marivo.io/zh-cn/docs/latest/installation/)。
 
+只安装软件包后，Marivo 也可以直接在空的当前目录中工作。`marivo init` 只用于固化可选配置、
+空项目目录和智能体技能链接，不是运行前置条件。
+
 先验证一次选定的运行环境：
 
 ```bash
@@ -111,7 +114,9 @@ marivo.help("analysis.observe")
 请统一使用其中的完整限定名，不要依赖短名称自动消歧。已知或从 live result 获得的
 public type、error 和 member target 仍可直接查询 focused help。
 
-如果项目已经包含 `marivo.toml` 和 `models/`，直接复用现有语义层。新项目只需告诉智能体要使用的数据源和业务目标，再在分析前确认智能体提出的指标含义。
+如果项目已经包含 `marivo.toml` 和 `models/`，直接复用现有语义层。空的新项目只需告诉智能体
+要使用的数据源和业务目标；Marivo 会在首次需要时创建声明目录和运行状态目录。分析前仍需确认
+智能体提出的指标含义。
 
 指标准备就绪后，可以直接提出业务问题：
 
