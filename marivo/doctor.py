@@ -261,11 +261,7 @@ def _resolve_project_root(value: str | Path | None) -> Path:
     env = os.environ.get("MARIVO_PROJECT_ROOT")
     if env:
         return Path(env).resolve()
-    current = Path.cwd().resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / PROJECT_MANIFEST).is_file():
-            return candidate
-    return current
+    return Path.cwd().resolve()
 
 
 def _installation_section() -> DoctorSection:

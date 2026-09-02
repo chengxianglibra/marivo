@@ -23,8 +23,10 @@ that cleanup. A legacy `.marivo/telemetry/events.jsonl` file from an earlier
 Marivo version is left untouched; archive or remove it explicitly after deciding
 whether its events are still needed.
 
-Telemetry schema v2 covers explicit public CLI, datasource, semantic, and
-analysis operations. Each operation writes a correlated pair:
+Telemetry schema v2 covers CLI init and help plus explicit public datasource,
+semantic, and analysis operations. The read-only `marivo doctor` command is
+deliberately not instrumented and never creates local state or telemetry. Each
+instrumented operation writes a correlated pair:
 
 - `marivo.operation.started`
 - `marivo.operation.completed`

@@ -350,6 +350,22 @@ def test_doctor_command_prints_json(
     assert payload["project_root"] == str(tmp_path)
 
 
+def test_doctor_command_leaves_empty_current_workspace_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("MARIVO_TELEMETRY", raising=False)
+
+    main(["doctor", "--format", "json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["project_root"] == str(tmp_path.resolve())
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_doctor_command_exits_one_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
