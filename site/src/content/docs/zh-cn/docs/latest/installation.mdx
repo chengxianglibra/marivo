@@ -116,7 +116,8 @@ macOS、Linux 和 WSL 优先使用 `.venv/bin/python`，Windows 优先使用
 
 继续之前，请确认：
 
-- 已选择预期的项目根；没有显式路径、环境变量或祖先 manifest 时，Marivo 使用当前目录；
+- 已选择预期的 Doctor 项目根；`--project-root` 优先于 `MARIVO_PROJECT_ROOT`，两者都没有时，
+  Doctor 直接使用当前目录，不搜索祖先 manifest；
 - 已存在的 `marivo.toml` 有效；缺少 manifest 时使用默认配置；
 - 所选宿主依赖文件系统技能发现时，所需技能路径可用；需要时运行 `marivo init` 安装；
 - 项目需要的数据源后端扩展已经安装；
@@ -127,5 +128,5 @@ macOS、Linux 和 WSL 优先使用 `.venv/bin/python`，Windows 优先使用
 [第一次分析](/zh-cn/docs/latest/first-analysis/)。
 
 即使 `marivo.toml`、`models/` 和 `.marivo/` 都不存在，项目也是有效的空起点。Doctor 会把有效
-默认配置、缺少声明目录和尚无状态分别显示为 informational 或 skipped；显式非法配置、layer
-path、后端和凭据等真实问题仍会保留为诊断 failure 或 warning。
+默认配置、缺少声明目录和尚无状态分别显示为 informational 或 skipped，且不会创建本地状态或
+遥测；显式非法配置、layer path、后端和凭据等真实问题仍会保留为诊断 failure 或 warning。

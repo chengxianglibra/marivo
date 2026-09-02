@@ -19,8 +19,9 @@ Marivo 保留 14 个 UTC 日历日内的受管事件文件。每个 UTC 日首�
 留下的 `.marivo/telemetry/events.jsonl` 不会被自动处理。确认其中的事件不再需要后，应
 显式归档或删除该文件。
 
-遥测结构 v2 覆盖显式调用的 CLI、数据源、语义和分析公开操作。
-每次操作会写入一对可关联事件：
+遥测结构 v2 覆盖 CLI init 和 help，以及显式调用的数据源、语义和分析公开操作。只读的
+`marivo doctor` 不接入遥测，也不会创建本地状态或遥测文件。每个接入遥测的操作会写入一对
+可关联事件：
 
 - `marivo.operation.started`
 - `marivo.operation.completed`

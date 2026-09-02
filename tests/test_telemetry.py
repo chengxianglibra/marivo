@@ -782,7 +782,7 @@ def test_cli_init_system_exit_writes_deferred_correlated_pair(telemetry_project:
     assert calls[0]["marivo.operation.id"] == calls[1]["marivo.operation.id"]
 
 
-def test_cli_help_and_doctor_commands_write_operation_pairs(
+def test_cli_help_is_tracked_but_read_only_doctor_is_not(
     telemetry_project: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -811,7 +811,7 @@ def test_cli_help_and_doctor_commands_write_operation_pairs(
         if _attrs(record)["marivo.surface"] == "cli"
     ]
     assert len(cli_help) == 2
-    assert len(_capability_records(path, "doctor")) == 2
+    assert _capability_records(path, "doctor") == []
 
 
 def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:

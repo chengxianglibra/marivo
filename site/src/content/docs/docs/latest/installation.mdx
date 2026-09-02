@@ -131,8 +131,9 @@ execution.
 
 Before continuing, confirm that:
 
-- the intended project root is selected; without an explicit path, environment setting,
-  or ancestor manifest, Marivo uses the current directory;
+- the intended Doctor project root is selected; `--project-root` takes precedence over
+  `MARIVO_PROJECT_ROOT`, and without either Doctor uses the current directory without
+  searching ancestor manifests;
 - any existing `marivo.toml` is valid; a missing manifest uses defaults;
 - agent skill paths are available when the selected host depends on filesystem skill
   discovery; run `marivo init` to install them when needed;
@@ -147,5 +148,6 @@ to the [first analysis](/docs/latest/first-analysis/).
 
 A project with none of `marivo.toml`, `models/`, or `.marivo/` is a valid empty starting
 point. Doctor reports the effective defaults and missing authored/state directories as
-informational or skipped checks. Explicit invalid configuration, layer-path, backend, and
-credential problems remain diagnostic failures or warnings.
+informational or skipped checks without creating local state or telemetry. Explicit invalid
+configuration, layer-path, backend, and credential problems remain diagnostic failures or
+warnings.

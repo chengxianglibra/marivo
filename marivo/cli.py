@@ -247,37 +247,25 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "doctor":
         from marivo.doctor import DoctorOptions, exit_code, render_fix_snap, render_text, run_doctor
 
-        with track_operation(
-            "marivo.cli.doctor",
-            family="command",
-            intent="doctor",
-            project_root=Path(args.project_root) if args.project_root else None,
-            attributes={
-                "marivo.input.format": args.format,
-                "marivo.input.fix_snap": args.fix_snap,
-                "marivo.input.semantic": args.semantic,
-                "marivo.input.connect": args.connect,
-            },
-        ):
-            report = run_doctor(
-                DoctorOptions(
-                    project_root=args.project_root,
-                    format=args.format,
-                    fix_snap=args.fix_snap,
-                    semantic=args.semantic,
-                    connect=args.connect,
-                    datasource=args.datasource,
-                )
+        report = run_doctor(
+            DoctorOptions(
+                project_root=args.project_root,
+                format=args.format,
+                fix_snap=args.fix_snap,
+                semantic=args.semantic,
+                connect=args.connect,
+                datasource=args.datasource,
             )
-            if args.fix_snap:
-                print(render_fix_snap(report))
-            elif args.format == "json":
-                print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
-            else:
-                print(render_text(report))
-            code = exit_code(report)
-            if code:
-                raise SystemExit(code)
+        )
+        if args.fix_snap:
+            print(render_fix_snap(report))
+        elif args.format == "json":
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(render_text(report))
+        code = exit_code(report)
+        if code:
+            raise SystemExit(code)
     elif args.command == "help":
         if args.extra:
             from marivo._help.bootstrap import render_focused_help_rejection

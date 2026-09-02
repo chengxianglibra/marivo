@@ -314,6 +314,50 @@ def test_default_doctor_accepts_zero_initialized_project(tmp_path: Path) -> None
     assert list(tmp_path.iterdir()) == []
 
 
+def test_default_doctor_prefers_environment_root_over_current_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment_root = tmp_path / "environment"
+    current = tmp_path / "current"
+    environment_root.mkdir()
+    current.mkdir()
+    monkeypatch.chdir(current)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(environment_root))
+
+    report = run_doctor()
+
+    assert report.project_root == str(environment_root.resolve())
+
+
+def test_explicit_doctor_root_takes_precedence_over_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    explicit_root = tmp_path / "explicit"
+    environment_root = tmp_path / "environment"
+    explicit_root.mkdir()
+    environment_root.mkdir()
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(environment_root))
+
+    report = run_doctor(DoctorOptions(project_root=explicit_root))
+
+    assert report.project_root == str(explicit_root.resolve())
+
+
+def test_default_doctor_does_not_discover_ancestor_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = tmp_path / "nested" / "current"
+    current.mkdir(parents=True)
+    _write_manifest(tmp_path)
+    monkeypatch.chdir(current)
+    monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
+
+    report = run_doctor()
+
+    assert report.project_root == str(current.resolve())
+    assert _check(report, "project", "project.marivo_toml").status == "info"
+
+
 def test_scoped_doctor_finds_external_layer_datasource(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     _write_external_layer_project(project_root)

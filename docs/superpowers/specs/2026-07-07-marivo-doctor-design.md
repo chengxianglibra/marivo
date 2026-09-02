@@ -162,8 +162,10 @@ Resolve project root from:
 
 1. `--project-root` when provided;
 2. `MARIVO_PROJECT_ROOT`;
-3. nearest ancestor containing `marivo.toml`;
-4. current directory if no project root is found.
+3. the current directory.
+
+Doctor never searches ancestor directories for `marivo.toml`; selecting an
+ancestor project requires an explicit flag or environment setting.
 
 Checks:
 
@@ -414,13 +416,14 @@ Add `tests/test_doctor.py` for module behavior:
 - DTO status derivation and JSON shape;
 - default text rendering;
 - `--fix-snap` fix extraction;
-- project root resolution with explicit path, env, cwd ancestor, and missing
-  project;
+- project root resolution with explicit path, env, direct cwd, and missing
+  project, including proof that ancestor manifests are ignored;
 - static datasource declaration checks;
 - backend extra missing diagnostics with current-interpreter pip fix;
 - secret env/cache missing diagnostics without secret leakage;
 - secret cache permission diagnostics;
 - existing state read-only inspection;
+- default doctor does not create telemetry state;
 - default doctor does not create `.marivo/analysis/session_store.db`;
 - default doctor does not write `~/.marivo/secrets.toml`.
 
