@@ -2,7 +2,9 @@
 
 Date: 2026-08-30
 
-Status: proposed
+Revised: 2026-09-04
+
+Status: accepted for the lazy Dataset v3 cutover
 
 ## Relationship to Existing Contracts
 
@@ -55,10 +57,333 @@ arbitrary caller-selected set of Findings is mechanically safe to combine.
 This is a clean public-surface cutover. The final release contains no aliases,
 deprecation wrappers, dual read paths, or two public vocabularies for the same
 capability. Internal persistence names such as `jobs`, `frames`, and
-`output_frame_ref` may remain implementation details until separately cleaned
-up; they must not leak into the new public contract.
+`output_frame_ref` may remain in the current eager implementation only until
+the atomic Slice 8 deletion; they do not leak into or survive the lazy public
+contract.
 
-## Summary
+## Accepted Lazy Dataset v3 Amendment
+
+The owner accepted this amendment on 2026-09-04. It is the sole target contract
+for the lazy Dataset cutover. Later sections retain useful current-state history
+and non-conflicting result-protocol guidance, but any eager Frame, v2 Store,
+query-text, reused-Run, or `reuses`-edge statement is superseded by this
+section. Slice 8 removes those paths; it does not preserve them as aliases.
+
+### Artifact identity, digest, and summary
+
+```text
+ArtifactRef
+  ref: non-empty opaque str
+
+ArtifactDigest
+  digest_version: Literal["v3"]
+  artifact_ref: ArtifactRef
+  evidence_schema: Literal["marivo.dataset_evidence/v1"]
+  quality_summary_digest: str
+  typed_issue_digest: str
+  evidence_digest: str
+  finding_count: non-negative int
+  finding_identity_digest: str
+  extractor_contract_versions: tuple[str, ...]
+
+ArtifactEvidenceSummary
+  quality_summary_digest: str
+  typed_issue_digest: str
+  evidence_digest: str
+  finding_count: non-negative int
+  finding_identity_digest: str
+
+ArtifactIssueCounts
+  warning: non-negative int
+  blocking: non-negative int
+
+ArtifactSummary
+  artifact_ref: ArtifactRef
+  family_id: registered non-empty str
+  shape_id: registered non-empty str
+  definition_fingerprint: str
+  committed_at: timezone-aware datetime
+  producing_run_ref: str
+  realized_row_count: non-negative int
+  realized_byte_count: DatasetByteCount
+  storage_kind_id: registered non-empty str
+  content_authority_digest: str
+  evidence: ArtifactEvidenceSummary
+  issue_counts: ArtifactIssueCounts
+```
+
+`ArtifactRef` is immutable and Session-local. It accepts one positional `ref`
+or exact `ref=` construction and has no `id` alias. `ArtifactDigest` is the
+exact v1 Evidence-envelope projection; it contains no old digest items,
+inference boundaries, fallback payload, Finding selection, or compatibility
+surface. `MaterializedDataset.evidence_digest` is its only producer.
+
+`ArtifactSummary` is constructed entirely from committed v3 Session Store and
+Artifact metadata. Graph reads do not open the Evidence Store to produce it.
+There is no nullable eager `semantic_shape`, `analysis_purpose`, `content_hash`,
+or materialization-mode field.
+
+### Revalidation
+
+```text
+ArtifactRevalidationIssue
+  axis: artifact_integrity | storage_authority | evidence_integrity |
+        semantic_authority | datasource_authority
+  kind: registered non-empty str
+  safe_message: bounded str
+  expected: str | None
+  received: str | None
+  repair: AnalysisRepair | None
+
+ArtifactRevalidation
+  revalidation_version: Literal["v2"]
+  artifact_ref: ArtifactRef
+  checked_at: timezone-aware datetime
+  artifact_integrity: valid | invalid | unverifiable
+  storage_authority: readable | unauthorized | missing | mutated | unknown
+  evidence_integrity: valid | invalid | unverifiable
+  semantic_authority: current | changed | missing | unverifiable
+  datasource_authority: current | changed | unverifiable | unknown
+  issues: tuple[ArtifactRevalidationIssue, ...]
+```
+
+The five axes remain independent. There is no overall status,
+`dependency_status`, or eager fingerprint compatibility field.
+
+### Finding records
+
+```text
+FindingCoordinateV1
+  field_id: DatasetFieldId
+  identity: DatasetFieldIdentity
+  value: str | int | finite float | bool | Decimal | date | datetime
+
+AssociationFindingSubjectV1
+  kind: Literal["association"]
+  metric_a: DatasetFieldIdentity
+  metric_b: DatasetFieldIdentity
+
+MetricFindingSubjectV1
+  kind: Literal["metric"]
+  metric: DatasetFieldIdentity
+
+FunnelFindingSubjectV1
+  kind: Literal["event_funnel"]
+  subject_entity_ref: RefPayloadV1
+  pattern_fingerprint: str
+
+FindingSubjectV1
+  = AssociationFindingSubjectV1 | MetricFindingSubjectV1 |
+    FunnelFindingSubjectV1, discriminated by kind
+
+FindingDerivationV1
+  producer_id: registered non-empty str
+  extractor_contract_id: registered non-empty str
+  extractor_contract_version: non-empty str
+  source_artifact_refs: ordered duplicate-free tuple[ArtifactRef, ...]
+  source_fields: ordered duplicate-free tuple[DatasetFieldId, ...]
+
+Finding
+  finding_id: non-empty str
+  artifact_ref: ArtifactRef
+  session_id: non-empty str
+  finding_type: association | delta | contribution | forecast_point |
+                funnel_delta
+  epistemic_kind: algebraic | estimated | predicted
+  subject: FindingSubjectV1
+  coordinates: tuple[FindingCoordinateV1, ...]
+  canonical_item_key: bounded canonical str
+  value: FindingValueV1
+  derivation: FindingDerivationV1
+  committed_at: timezone-aware datetime
+
+FindingPage
+  items: tuple[Finding, ...]
+  limit: int in [1, 100]
+  has_more: bool
+  next_cursor: str | None
+```
+
+Finding coordinates may contain only retained Dimension, time, or generated
+step fields. Entity/subject identity fields are rejected before extraction.
+Association Findings use `AssociationFindingSubjectV1`; Metric Delta, Metric
+Attribution, and Forecast use `MetricFindingSubjectV1`; Funnel Delta and Funnel
+Attribution use `FunnelFindingSubjectV1`.
+
+`FindingValueV1` is the closed discriminated union of
+`AssociationFindingValueV1`, `DeltaFindingValueV1`,
+`ContributionFindingValueV1`, `ForecastPointFindingValueV1`, and
+`FunnelDeltaFindingValueV1`. Typed Operators owns the first four exact field
+tables and Subject/Event/Lifecycle owns the fifth. No arbitrary mapping, `Any`,
+JSON fallback, identity-bearing coordinate, or unregistered Finding kind is
+admitted. `has_more` is true exactly when `next_cursor` is non-null, and page
+items never exceed `limit`.
+
+The derivation value is the sole owner of source Artifact and field facts. Old
+top-level `source_artifact_ref`, `source_fields`, `source_refs`, and
+`retained_digest_item_refs` fields are removed.
+
+### Run records
+
+Every variant carries this immutable common envelope:
+
+```text
+RunDatasetInput
+  definition_fingerprint: str
+  family_id: registered non-empty str
+  shape_id: registered non-empty str
+  row_contract_fingerprint: str
+  bounded_operator_ids: tuple[str, ...]
+  bounded_semantic_dependency_refs: tuple[str, ...]
+  materialized_input_refs: tuple[ArtifactRef, ...]
+  authority_requirement_summary: closed owner-nested value
+
+RunArgument
+  name: public parameter name
+  value: bounded secret-safe JsonValue
+
+common Run fields
+  run_id: non-empty str
+  session_id: non-empty str
+  action_kind: Literal["execute"]
+  admitted_at: timezone-aware datetime
+  dataset_input: RunDatasetInput
+  input_artifact_refs: tuple[ArtifactRef, ...]
+  arguments: tuple[RunArgument, ...]
+  omitted_argument_names: tuple[str, ...]
+```
+
+`IncompleteRun` adds no invented terminal field. The terminal variants add:
+
+```text
+SucceededRun
+  finished_at: timezone-aware datetime
+  authority_audit: RunAuthorityAudit
+  planning_audit: RunPlanningAudit
+  output_artifact_ref: ArtifactRef
+  output_mode: Literal["produced"]
+  materialization_receipt: RunMaterializationReceipt
+  cleanup_summary: RunCleanupSummary
+
+FailedRun
+  failed_at: timezone-aware datetime
+  authority_audit: RunAuthorityAudit
+  planning_audit: RunPlanningAudit
+  failure: RunFailure
+  cleanup_summary: RunCleanupSummary
+
+RunMaterializationReceipt
+  execution_key_digest: str
+  storage_receipt_digest: str
+  content_authority_digest: str
+  realized_row_count: non-negative int
+  realized_byte_count: DatasetByteCount
+  evidence_digest: str
+  finding_count: non-negative int
+
+RunCleanupSummary
+  status: complete | pending
+  cleaned_resource_count: non-negative int
+  pending_resource_count: non-negative int
+
+RunFailure
+  phase: closed RunFailurePhase
+  kind: registered non-empty str
+  safe_message: bounded str
+  safe_location: str | None
+  expected: bounded JsonValue | None
+  received: bounded JsonValue | None
+  repair: AnalysisRepair | None
+  backend_class: registered str | None
+  retry_disposition: retryable | not_retryable | recovery_pending
+  commit_decision: Literal["not_committed"]
+
+RunPage
+  items: tuple[IncompleteRun | SucceededRun | FailedRun, ...]
+  limit: int in [1, 100]
+  has_more: bool
+  next_cursor: str | None
+```
+
+`RunAuthorityAudit` is the exact public-safe projection of Module 4's
+`AuthorityAuditV1`; `RunPlanningAudit` is the corresponding projection of the
+compiler's `PlanningAuditV1`. Both remain owner-nested immutable types and
+exclude source values, SQL, plans, private nodes, and backend handles.
+
+There is no `RunQuery`, query collection, SQL text, `output_mode="reused"`,
+old `error_type`/`message` failure alias, or public owner lease. An exact
+execution-binding hit recovers the existing Materialized Dataset and creates no
+Run.
+
+### Session graph
+
+```text
+SessionGraphEdge
+  kind: consumes | produces
+  run_id: str
+  artifact_ref: ArtifactRef
+
+SessionGraph
+  session_id: str
+  artifacts: tuple[ArtifactSummary, ...]
+  runs: tuple[IncompleteRun | SucceededRun | FailedRun, ...]
+  edges: tuple[SessionGraphEdge, ...]
+  root_run_ids: tuple[str, ...]
+  head_artifact_refs: tuple[ArtifactRef, ...]
+  failed_run_ids: tuple[str, ...]
+  incomplete_run_ids: tuple[str, ...]
+  boundary_artifact_refs: tuple[ArtifactRef, ...]
+  boundary_run_ids: tuple[str, ...]
+  truncated: bool
+```
+
+Graph reuses the exact terminal Artifact and Run values; there is no graph-node
+copy. The `reuses` edge is removed because binding recovery admits no Run.
+
+### Export and Help ownership
+
+The top-level exported terminal type leaves are exactly `ArtifactRef`,
+`ArtifactDigest`, `ArtifactRevalidation`, `ArtifactSummary`, `Finding`,
+`FindingPage`, `IncompleteRun`, `SucceededRun`, `FailedRun`, `RunPage`, and
+`SessionGraph`. `EvidenceIntegrityError` remains the exported structured
+integrity failure. All nested types named above resolve through owner-nested
+focused Help leaves but do not join `mv.__all__` or root discovery.
+
+The exact owner-nested Help leaves are `ArtifactEvidenceSummary`,
+`ArtifactIssueCounts`, `ArtifactRevalidationIssue`, `FindingCoordinateV1`,
+`AssociationFindingSubjectV1`, `MetricFindingSubjectV1`,
+`FunnelFindingSubjectV1`, `FindingDerivationV1`,
+`AssociationFindingValueV1`, `DeltaFindingValueV1`,
+`ContributionFindingValueV1`, `ForecastPointFindingValueV1`,
+`FunnelDeltaFindingValueV1`, `RunDatasetInput`, `RunArgument`, `RunFailure`,
+`RunAuthorityAudit`, `RunPlanningAudit`, `RunMaterializationReceipt`,
+`RunCleanupSummary`, and `SessionGraphEdge`.
+
+Discovery ownership is exact:
+
+```text
+analysis.runtime
+  -> session.graph
+  -> session.artifact
+  -> runtime.runs
+
+analysis.runtime.runs
+  -> session.runs
+  -> session.get_run
+
+analysis.evidence
+  -> artifact.evidence_digest
+  -> artifact.findings
+  -> artifact.finding
+  -> session.revalidate
+```
+
+The `artifact.*` capability ids bind the corresponding Materialized Dataset
+members; they do not introduce an Artifact wrapper. There are no Help leaves
+for union aliases, page bases, persistence payloads, `RunQuery`, old Frame
+types, or reuse edges.
+
+## Pre-cutover Summary (superseded for lazy v3)
 
 Replace the storage-shaped Session recovery surface with one agent-shaped
 runtime model:
@@ -68,7 +393,8 @@ Session
   -> exposes typed analysis Capabilities
   -> each admitted materializing Capability execution becomes one Run
   -> Runs consume zero or more Artifacts
-  -> successful Runs produce or reuse one Artifact
+  -> successful Runs produce one Artifact
+  -> exact execution-binding recovery creates no Run
   -> Artifacts carry commit-time Evidence, quality, and Finding ownership
   -> each Finding provides one exact raw audit record and derivation trace
 ```
@@ -341,6 +667,14 @@ workflow plan or step, a backend queue job, an Artifact, or a business
 conclusion. Each retry creates a new Run. A successful attempt that reuses an
 existing Artifact is still a distinct Run because the attempt, inputs, safe
 arguments, time, and reuse outcome are facts of the current Session history.
+
+Lazy Dataset amendment, 2026-09-02: a same-Session
+`LogicalDataset.execute()` write-once execution-binding hit is exact Artifact
+recovery, not an admitted execution attempt. It performs no datasource work and
+creates no Run or graph edge. A binding miss elects one producer and only that
+producer admits a Run; concurrent waiters recover the binding without their own
+Runs. This narrow amendment does not change Run lifecycle for capabilities that
+actually admit a new execution attempt.
 
 This layer is necessary because failed and incomplete attempts have no output
 Artifact, while multiple attempts may return the same content-addressed
@@ -630,7 +964,7 @@ promise that multiple Findings are safe to combine.
 count persisted by the producing Artifact. Session browsing reads that metadata
 fact and never opens the Evidence ledger merely to fill the field.
 
-## Public Result Types
+## Pre-cutover Public Result Types (superseded for lazy v3)
 
 ### ArtifactSummary
 
@@ -835,7 +1169,7 @@ Public errors named by this design join the existing Analysis error family,
 `__all__` snapshot, API reference, and focused error Help. They do not implement
 the result protocol or enter root discovery.
 
-## SessionGraph Contract
+## Pre-cutover SessionGraph Contract (superseded for lazy v3)
 
 ### Entrypoint
 
@@ -1075,7 +1409,7 @@ when the next indexed adjacency would exceed `max_nodes`, marks the selected
 boundary, and returns `truncated=True`. This keeps focused reads bounded even
 when one Artifact has a very large downstream impact graph.
 
-## Run Lifecycle Persistence
+## Pre-cutover Run Lifecycle Persistence (superseded for lazy v3)
 
 ### Admission boundary
 
@@ -1258,7 +1592,7 @@ docs. There is no compatibility subclass or duplicate public error spelling.
 An empty `SessionGraph`, `RunPage`, or `FindingPage` means the healthy owning
 store matched no records. Store unavailability and corruption always raise.
 
-## Help and Disclosure Contract
+## Pre-cutover Help and Disclosure Contract (superseded for lazy v3)
 
 ### Progressive disclosure invariants
 
@@ -1452,7 +1786,7 @@ not teach both old and new public names. Current Session/runtime guidance states
 that pre-cutover state is incompatible, remains untouched, and must be replaced
 by a newly named Session rather than migrated or imported.
 
-## Persistence and Incompatible State
+## Pre-cutover Persistence and Incompatible State (superseded for lazy v3)
 
 ### Session Store
 
