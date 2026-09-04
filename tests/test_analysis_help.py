@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import hashlib
 import inspect
+import json
 import re
 
 import pytest
@@ -64,6 +66,16 @@ def _text(target: object = None, **kwargs: object) -> str:
 # ---------------------------------------------------------------------------
 # Fingerprint prefix (root help)
 # ---------------------------------------------------------------------------
+
+CURRENT_HELP_TARGETS_SHA256 = "781fd9757300b03f7e1c3d480a49d4080b0db7fe1ce76743b2412d238a8dcf38"
+
+
+def test_current_help_target_topology_is_pinned() -> None:
+    targets = REGISTRY.help_targets
+    payload = json.dumps(targets, ensure_ascii=True, separators=(",", ":"))
+
+    assert len(targets) == 169
+    assert hashlib.sha256(payload.encode("utf-8")).hexdigest() == CURRENT_HELP_TARGETS_SHA256
 
 
 def test_root_help_has_three_line_fingerprint() -> None:

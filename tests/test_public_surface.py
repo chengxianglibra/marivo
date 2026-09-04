@@ -5,6 +5,7 @@ Any added or removed public symbol must be a deliberate edit here.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import pydoc
 import subprocess
@@ -215,6 +216,8 @@ ANALYSIS_PUBLIC = {
     "time_scope",
 }
 
+ANALYSIS_PUBLIC_ORDER_SHA256 = "8acf27f434f7b02056e5ebe7af986b7908af2433687651f8e2d2b2584f7e8af1"
+
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",
     "DatasourceCatalog",
@@ -316,6 +319,12 @@ def test_semantic_all_is_pinned() -> None:
 
 def test_analysis_all_is_pinned() -> None:
     assert set(ma.__all__) == ANALYSIS_PUBLIC
+
+
+def test_analysis_all_order_is_pinned() -> None:
+    payload = json.dumps(ma.__all__, ensure_ascii=True, separators=(",", ":"))
+
+    assert hashlib.sha256(payload.encode("utf-8")).hexdigest() == ANALYSIS_PUBLIC_ORDER_SHA256
 
 
 def test_ontology_metric_candidate_has_no_legacy_alias() -> None:

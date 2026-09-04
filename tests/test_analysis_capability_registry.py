@@ -8,10 +8,12 @@ public ``marivo.analysis.__all__``, and the immutable capability registry.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 import re
 from collections.abc import Mapping
-from dataclasses import fields, is_dataclass, replace
+from dataclasses import asdict, fields, is_dataclass, replace
 from types import MappingProxyType
 from typing import get_args
 
@@ -56,6 +58,79 @@ EXPECTED_ROOT_TARGETS = (
     "runtime",
     "boundary.to_pandas",
 )
+
+CURRENT_CAPABILITY_CONTRACTS_SHA256 = (
+    "53f9ec9933c4a477489db76e78b9e6d67052c825136044953f241f8b30ca4ac9"
+)
+
+
+def _normalize_capability_snapshot_value(value: object) -> object:
+    if is_dataclass(value):
+        return _normalize_capability_snapshot_value(asdict(value))
+    if isinstance(value, Mapping):
+        return {
+            str(key): _normalize_capability_snapshot_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (set, frozenset)):
+        return sorted(_normalize_capability_snapshot_value(item) for item in value)
+    if isinstance(value, (list, tuple)):
+        return [_normalize_capability_snapshot_value(item) for item in value]
+    return value
+
+
+def _current_capability_contracts() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for descriptor in REGISTRY.descriptors:
+        inputs: dict[str, object] = {}
+        if hasattr(descriptor, "accepted_inputs"):
+            inputs["accepted_inputs"] = _normalize_capability_snapshot_value(
+                descriptor.accepted_inputs
+            )
+        if hasattr(descriptor, "receiver_family"):
+            inputs["receiver_family"] = descriptor.receiver_family
+        if hasattr(descriptor, "identity_input"):
+            inputs["identity_input"] = descriptor.identity_input
+
+        outputs: dict[str, object] = {}
+        for field_name in (
+            "output_contract",
+            "output_family",
+            "output_type",
+            "produced_input_family",
+            "artifact_output_by_shape",
+            "restored_family",
+        ):
+            if hasattr(descriptor, field_name):
+                outputs[field_name] = _normalize_capability_snapshot_value(
+                    getattr(descriptor, field_name)
+                )
+
+        rows.append(
+            {
+                "id": descriptor.id,
+                "kind": descriptor.kind,
+                "public_entrypoint": descriptor.public_entrypoint,
+                "help_target": descriptor.help_target,
+                "callable_path": descriptor.callable_path,
+                "additional_examples": _normalize_capability_snapshot_value(
+                    descriptor.additional_examples
+                ),
+                "inputs": inputs,
+                "outputs": outputs,
+            }
+        )
+    return rows
+
+
+def test_current_capability_contracts_are_pinned() -> None:
+    rows = _current_capability_contracts()
+    payload = json.dumps(rows, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+    assert len(rows) == 128
+    assert (
+        hashlib.sha256(payload.encode("utf-8")).hexdigest() == CURRENT_CAPABILITY_CONTRACTS_SHA256
+    )
 
 
 def test_exact_capabilities_do_not_own_root_placement() -> None:
