@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-04
+Revised: 2026-09-05
 
 Status: Slice 0 complete; Slices 1-9 require separate authorization
 
@@ -38,6 +38,18 @@ materialization authority, Event/Lifecycle behavior, or Evidence meaning. When
 implementation discovers an unresolved product contract, the owning design
 must be amended and accepted before this plan or a code slice proceeds.
 
+### Observation-model amendment consumed by this plan
+
+The 2026-09-05 amendment changes design targets only. Population is the sole
+membership family; Event/Lifecycle selections produce it under domain-owned
+completeness checks. Metric observation owns its own time window, supports
+explicit analysis-Entity mapping across safe component roots, and consumes
+registered unique identity-bearing shapes even with dependent coordinates.
+Row filtering preserves exact contribution keys and selected denominators.
+Basic ratio/mean/weighted-mean parts are required; time removal is an exact
+registered rollup fold. Slices 2, 3, 7, and 8 below include those contracts,
+acceptance fixtures, and the reduced 100-symbol target export manifest.
+
 ## Authority Boundary
 
 This plan owns:
@@ -54,14 +66,14 @@ This plan owns:
 
 This plan does not own:
 
-- common Dataset types, row contracts, state, selectors, or actions;
+- common Dataset types, row and row-set contracts, state, selectors, or actions;
 - Population inference, predicates, coordinate algebra, or aggregation meaning;
 - semantic graph nodes, Ibis lowering, stage formation, or boundary capability
   meaning;
-- Run, storage, Artifact, Evidence, binding, claim, cleanup, or recovery
+- Run, storage, Artifact, Evidence, binding, writer-lock, cleanup, or recovery
   semantics;
 - typed Metric operator inputs, outputs, numerical definitions, or statuses;
-- SubjectSet, Event, Lifecycle, identity, completeness, or privacy semantics.
+- subject selection into Population, Event, Lifecycle, identity, completeness, or privacy semantics.
 
 ## Frozen Contract Inputs
 
@@ -71,12 +83,12 @@ detailed signatures, schemas, state machines, or algorithms:
 | Contract area | Sole authority | Cutover use |
 | --- | --- | --- |
 | Product-wide invariants and clean replacement | `2026-09-01-lazy-analysis-dataset-dsl-design.md` | final product shape and global acceptance |
-| Dataset value, family, state, actions, row contracts, and selectors | `2026-09-01-lazy-analysis-dataset-core-design.md` | common implementation and exports |
+| Dataset value, family, state, actions, row and row-set contracts, and selectors | `2026-09-01-lazy-analysis-dataset-core-design.md` | common implementation and exports |
 | Population, filtering, observation, coordinates, and aggregation | `2026-09-01-lazy-analysis-observation-model-design.md` | source and Metric vertical slices |
 | Semantic compilation, Ibis lowering, placement, and bounded exchange | `2026-09-01-lazy-analysis-planner-and-pushdown-design.md` | compiler and execution-boundary slices |
-| Run, storage, Artifact, Evidence, execution binding, and recovery | `2026-09-01-lazy-analysis-materialization-runtime-design.md` | runtime and persistence slices |
+| Run, storage, Artifact, Evidence, execution-key Artifact lookup, and recovery | `2026-09-01-lazy-analysis-materialization-runtime-design.md` | runtime and persistence slices |
 | `correlate`, `rank`, `limit`, `rollup`, `compare`, `attribute`, `forecast`, and discovery | `2026-09-01-lazy-analysis-typed-operators-design.md` | typed operator slices |
-| SubjectSet, Event, Lifecycle, and cross-domain population loops | `2026-09-01-lazy-analysis-subject-event-lifecycle-design.md` | domain slices |
+| subject selection into Population, Event, Lifecycle, and cross-domain population loops | `2026-09-01-lazy-analysis-subject-event-lifecycle-design.md` | domain slices |
 | Repository-wide public-surface rules | `AGENTS.md` | tests, Help, typing, docs, and release gates |
 
 The current implemented analysis specs remain sources for the eager inventory
@@ -100,7 +112,7 @@ agree on these load-bearing seams:
    executable lineage;
 5. source construction remains Session-owned and downstream analysis becomes
    Dataset-owned;
-6. a complete row contract exists before execution;
+6. complete row and row-set contracts exist before execution;
 7. one successful exact execution binds once per Session;
 8. private Arrow, Parquet, DuckDB, and Python-kernel exchanges never become
    public Dataset authority;
@@ -116,7 +128,7 @@ designs were amended before this plan:
 | --- | --- | --- |
 | Parameterized source bindings | Retain `Session.source_bindings(...)` as an authoring-time scope. Every logical source captures its exact non-secret bindings; their digest enters definition/execution identity, `execute()` performs no ambient lookup, and raw values never persist or render. | Observation Model, Compiler, Materialization Runtime |
 | Event occurrence range inspection | Remove `session.events.occurrence_bounds(...)`, `EventOccurrenceBounds`, and their Help/test/doc surface with no first-cutover replacement. Event/Lifecycle windows stay explicit and completeness remains separately governed. | Subject/Event/Lifecycle |
-| Materialized time-grain rollup | Replace `frame.transform.rollup(...)` with registered `MetricDataset.rollup(drop_dimensions=..., grain=...)`. It folds current rows or exact retained sufficient state on Entity-reduced Metric shapes and never recomputes an origin graph. | Observation Model, Typed Operators |
+| Materialized time-grain rollup | Replace `frame.transform.rollup(...)` with registered `MetricDataset.rollup(drop_dimensions=..., grain=..., drop_time=...)`. It folds current rows or exact retained sufficient state on Entity-reduced Metric shapes and never recomputes an origin graph. | Observation Model, Typed Operators |
 
 The original owner-design clarification gate is satisfied. Implementation
 consumes these decisions exactly; it must not infer alternate behavior from
@@ -142,11 +154,11 @@ The following rules apply to every slice:
 6. Every public type has a concrete annotation, one export, and one focused Help
    leaf; private graph, receipt, and staging types never appear in public
    annotations.
-7. Every producing family registers its row contract, validation, quality,
+7. Every producing family registers its row contract, row-set contract, validation, quality,
    Evidence, Finding, retained-state, and materialization contracts before an
    execution Run can be admitted.
-8. Every source or operator constructs its complete logical row contract before
-   datasource access.
+8. Every source or operator constructs its complete logical row and row-set
+   contracts before datasource access.
 9. No row-dependent fact is promoted from preview, local process state, or
    generated SQL into durable authority.
 10. No unsupported engine operation triggers an unregistered local calculation,
@@ -231,7 +243,8 @@ persistence schema.
 The ten replacements are exact: `AlignmentPolicy` becomes
 `WindowBucketAlignment`; the nine row-bearing names become their paired
 `Logical*Dataset` and `Materialized*Dataset` classes, including
-`LogicalSubjectSet` and `MaterializedSubjectSet`. The 35 removals have no
+`LogicalPopulationDataset` and `MaterializedPopulationDataset` for the former
+`SubjectSet` selection output; no separate SubjectSet family remains. The 36 removals have no
 accepted target consumer. Retaining any removed Evidence item or Candidate
 selection type requires an owner-design amendment; existing export alone is not
 authority.
@@ -251,8 +264,8 @@ The following groups are exhaustive and non-overlapping; their counts total
 | retain Session display spelling | 2 | `Session.render`, `Session.show` |
 | retain constructor spelling | 16 | `grain`, `funnel_loss_rate`, `step`, `sequence`, `first_per_subject`, `every_start`, `dropped_before`, `from_inception`, `in_state`, `window_bucket`, `time_scope`, `runtime_metric.aggregate`, `runtime_metric.slice`, `runtime_metric.weighted_mean`, `runtime_metric.ratio`, `runtime_metric.linear` |
 | replace constructor | 2 | `SamplingPolicy`, `declared_complete_through` |
-| remove without replacement | 43 | `AbsoluteWindow`, `AttributionMode`, `SemanticShape`, `PointAnomalyStrategy`, `RankMethod`, `NormalizeKind`, `NormalizeBaseline`, `hypothesis_test`, `discover.interesting_slices`, `discover.semantic_hypotheses`, `transform.window`, `transform.normalize`, `MetricFrame.components`, `MetricFrame.coverage`, `DeltaFrame.components`, `CandidateSet.select`, `AttributionFrame.at_resolution`, `MetricFrame.as_scalar`, `MetricFrame.as_time_series`, `MetricFrame.as_segmented`, `MetricFrame.as_panel`, `DeltaFrame.as_scalar`, `DeltaFrame.as_time_series`, `DeltaFrame.as_segmented`, `DeltaFrame.as_panel`, `AttributionFrame.as_sum`, `AttributionFrame.as_ratio_mix`, `AttributionFrame.as_weighted_mix`, `CandidateSet.as_point_anomaly`, `CandidateSet.as_period_shift`, `CandidateSet.as_driver_axis`, `CandidateSet.as_slice`, `CandidateSet.as_window`, `CandidateSet.as_cross_sectional_outlier`, `CandidateSet.as_semantic_hypothesis`, `DeltaFrame.predicted_attribution_shape`, `events.watermark`, `events.occurrence_bounds`, `day_of_week`, `period_progress`, `period_correspondence`, `occurrence_progress`, `working_day_progress` |
-| retain runtime/read spelling and rebind persistence | 14 | `session.abandon_run`, `session.get_or_create`, `session.current`, `session.resume`, `session.recent`, `session.inspect`, `session.delete`, `session.runs`, `session.get_run`, `session.artifact`, `session.graph`, `session.revalidate`, `artifact.findings`, `artifact.finding` |
+| remove without replacement | 44 | `AbsoluteWindow`, `AttributionMode`, `SemanticShape`, `PointAnomalyStrategy`, `RankMethod`, `NormalizeKind`, `NormalizeBaseline`, `hypothesis_test`, `discover.interesting_slices`, `discover.semantic_hypotheses`, `transform.window`, `transform.normalize`, `MetricFrame.components`, `MetricFrame.coverage`, `DeltaFrame.components`, `CandidateSet.select`, `AttributionFrame.at_resolution`, `MetricFrame.as_scalar`, `MetricFrame.as_time_series`, `MetricFrame.as_segmented`, `MetricFrame.as_panel`, `DeltaFrame.as_scalar`, `DeltaFrame.as_time_series`, `DeltaFrame.as_segmented`, `DeltaFrame.as_panel`, `AttributionFrame.as_sum`, `AttributionFrame.as_ratio_mix`, `AttributionFrame.as_weighted_mix`, `CandidateSet.as_point_anomaly`, `CandidateSet.as_period_shift`, `CandidateSet.as_driver_axis`, `CandidateSet.as_slice`, `CandidateSet.as_window`, `CandidateSet.as_cross_sectional_outlier`, `CandidateSet.as_semantic_hypothesis`, `DeltaFrame.predicted_attribution_shape`, `events.watermark`, `events.occurrence_bounds`, `day_of_week`, `period_progress`, `period_correspondence`, `occurrence_progress`, `working_day_progress`, `session.delete` |
+| retain runtime/read spelling and rebind persistence | 13 | `session.abandon_run`, `session.get_or_create`, `session.current`, `session.resume`, `session.recent`, `session.inspect`, `session.runs`, `session.get_run`, `session.artifact`, `session.graph`, `session.revalidate`, `artifact.findings`, `artifact.finding` |
 | retain catalog read | 21 | `catalog.domains`, `catalog.datasources`, `catalog.entities`, `catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`, `catalog.metrics`, `catalog.relationships`, `catalog.events`, `catalog.state_models`, `catalog.period_calendars`, `catalog.temporal_sets`, `catalog.work_schedules`, `catalog.require`, `catalog.readiness`, `catalog.period_calendars.grain`, `catalog.period_calendars.period`, `catalog.period_calendars.period_on`, `catalog.period_calendars.periods`, `catalog.temporal_sets.occurrence`, `catalog.temporal_sets.occurrences` |
 
 The 41 non-capability Help targets are also classified exactly:
@@ -288,7 +301,7 @@ The 41 non-capability Help targets are also classified exactly:
 | `CandidateSet` | `LogicalCandidateDataset` / `MaterializedCandidateDataset` | Replace. |
 | `EventFrame` | `LogicalEventDataset` / `MaterializedEventDataset` | Replace. |
 | `LifecycleFrame` | `LogicalLifecycleDataset` / `MaterializedLifecycleDataset` | Replace. |
-| `SubjectSet` | `LogicalSubjectSet` / `MaterializedSubjectSet` | Replace eager shape while retaining the accepted domain family name. |
+| `SubjectSet` | `LogicalPopulationDataset` / `MaterializedPopulationDataset` | Remove the separate membership family; domain selections produce the common Population contract. |
 | `ComponentFrame` | no first-cutover Dataset family | Remove unless an owning design is amended before plan acceptance. Component semantics remain internal family contracts. |
 | `CoverageFrame` | no first-cutover Dataset family | Remove. Coverage becomes family/runtime authority and Evidence, not a detached row-bearing side result. |
 | `HypothesisTestResult` | no first-cutover family | Remove; no generic statistical test exists in the first cutover. |
@@ -321,7 +334,7 @@ The 41 non-capability Help targets are also classified exactly:
 | `frame.transform.rank(...)` | `dataset.rank(...)` | Replace namespace path and selector contract. |
 | `frame.transform.window(...)` | no first-cutover generic transform | Remove; time scope and Event/Lifecycle windows remain on their natural sources/contracts. |
 | `frame.transform.normalize(...)` | no first-cutover generic transform | Remove. Governed reusable calculations remain Metrics; no generic replacement is added. |
-| `frame.transform.rollup(...)` | `metric_dataset.rollup(drop_dimensions=..., grain=...)` | Replace with the registered current-row/retained-state fold; no `frame.transform` or `drop_axes` alias. |
+| `frame.transform.rollup(...)` | `metric_dataset.rollup(drop_dimensions=..., grain=..., drop_time=...)` | Replace with the registered current-row/retained-state fold; no `frame.transform` or `drop_axes` alias. |
 | `frame.metric(...)` | `metric_dataset.metric(metric_input)` | Replace string selection with exact Metric identity/field contract. |
 | `frame.components()` | no detached first-cutover read | Remove; component authority remains in Metric/operator contracts. |
 | `frame.coverage()` | no detached first-cutover read | Remove; expose exact coverage through Dataset contract, committed Evidence, and family status. |
@@ -390,8 +403,8 @@ absent from the registry.
 | Current path or value | Target | Action |
 | --- | --- | --- |
 | `CandidateSet.select(...)` and `CandidateSelection` variants | filtered or limited one-row `CandidateDataset` | Remove detached selection protocol. |
-| `MetricFrame.as_scalar/as_time_series/as_segmented/as_panel` | qualified `dataset.row_contract.shape` | Remove cast-like reads. |
-| `DeltaFrame.as_scalar/as_time_series/as_segmented/as_panel` | qualified `dataset.row_contract.shape` | Remove cast-like reads. |
+| `MetricFrame.as_scalar/as_time_series/as_segmented/as_panel` | exact `dataset.row_contract.shape_id` | Remove cast-like reads. |
+| `DeltaFrame.as_scalar/as_time_series/as_segmented/as_panel` | exact `dataset.row_contract.shape_id` | Remove cast-like reads. |
 | `AttributionFrame.as_sum/as_ratio_mix/as_weighted_mix` | exact Attribution family contract/method identity | Remove cast-like reads. |
 | `AttributionFrame.at_resolution(...)` | typed fields plus `where(...)` over the exact registered resolution representation | Remove detached projection read. |
 | `CandidateSet.as_*` methods | qualified Candidate Dataset shape | Remove cast-like reads. |
@@ -449,14 +462,15 @@ These are non-operator reads or Session management capabilities rather than
 eager analysis alternatives. They remain only after their implementations and
 return types are rebound to the new Store and Dataset generation:
 
-- `mv.session.get_or_create`, `current`, `resume`, `recent`, `inspect`, and
-  `delete`;
+- `mv.session.get_or_create`, `current`, `resume`, `recent`, and `inspect`;
 - `session.runs(...)` and `session.get_run(...)`;
 - `session.artifact(ref)` returning the exact recovered Materialized Dataset;
 - `session.graph(...)` over committed Run/Artifact edges;
-- `session.revalidate(...)` with independent integrity, storage, Evidence,
-  semantic, and datasource axes;
-- `mv.session.abandon_run(...)` only under the accepted owner-lock safety rule;
+- `session.revalidate(...)` with independent Artifact integrity, storage,
+  Evidence, and semantic-definition axes; no datasource freshness/reuse verdict;
+- `mv.session.abandon_run(...)` only through the same Session writer guard and
+  recovery protocol, requiring registered backend terminal/fencing proof; caller
+  confirmation alone cannot bypass recovery or rewrite committed success;
 - Materialized Dataset Finding reads if the Evidence access design retains
   their exact `findings(...)` and `finding(...)` contracts.
 
@@ -472,7 +486,7 @@ Artifact files, an unversioned Session sidecar, and a dormant Job JSON helper:
 | Current authority | Exact locator or schema | Tables or files | Writer, decoder, and recovery owners | Target action |
 | --- | --- | --- | --- | --- |
 | project Session Store | `.marivo/analysis/session_store.db`, `PRAGMA user_version = 2` | `sessions`, `runtime_state`, `artifacts`, `runs`, `run_inputs`; indexes `idx_sessions_updated_id`, `idx_runs_session_started`, `idx_run_inputs_artifact` | `session/_store.py`, `session/__init__.py`, `session/_runtime.py`, `session/_runs.py`, `session/_load.py`, `session/_runtime_reads.py`, `session/history.py`, `session/_resolve.py`, and the direct read in `frames/_component_contract.py` | Replace as a whole; never upgrade or dual-read. |
-| per-Session Evidence Store | `.marivo/analysis/sessions/<session_id>/judgment.db`, `PRAGMA user_version = 4` | `artifacts`, `findings`, `artifact_digests`, `artifact_issues`; indexes `idx_artifacts_session_commit`, `idx_findings_session_commit`, `idx_findings_artifact`, `idx_digests_session_commit`, `idx_artifact_issues_artifact` | `evidence/store.py`, `evidence/pipeline.py`, `evidence/audit.py`, `evidence/artifact_reads.py`, `_artifact_integrity.py`, `_artifact_revalidation.py`, `session/_load.py`, `session/_runs.py`, `session/_runtime_reads.py`, `session/core.py` | Replace as a whole. The mutable/upsert `artifacts` Evidence row is not a target commit marker. |
+| per-Session Evidence Store | `.marivo/analysis/sessions/<session_id>/judgment.db`, `PRAGMA user_version = 4` | `artifacts`, `findings`, `artifact_digests`, `artifact_issues`; indexes `idx_artifacts_session_commit`, `idx_findings_session_commit`, `idx_findings_artifact`, `idx_digests_session_commit`, `idx_artifact_issues_artifact` | `evidence/store.py`, `evidence/pipeline.py`, `evidence/audit.py`, `evidence/artifact_reads.py`, `_artifact_integrity.py`, `_artifact_revalidation.py`, `session/_load.py`, `session/_runs.py`, `session/_runtime_reads.py`, `session/core.py` | Remove the independent database. Target Evidence and Findings share the Session Store publication transaction; no mutable/upsert Artifact row or commit marker survives. |
 | Frame Artifact | `sessions/<id>/frames/<ref>/data.parquet`, `meta.json`, auxiliary Parquet; `analysis-artifact/v13` | Frame metadata and bytes | `session/_layout.py`, `session/_runtime.py`, `session/_load.py`, `session/_artifact_meta.py`, `evidence/pipeline.py`, all `frames/*Meta` | Remove writer, decoder, reuse, and fallback. Preserve old bytes without reading them as Dataset authority. |
 | Run payload | `marivo.analysis_run/v2` | `runs.payload_schema` | `session/_store.py` and runtime readers | Replace with `marivo.analysis_action_run/v2`. |
 | Job-to-Run adapter | `marivo.analysis_job/v2` | in-memory compatibility record; no authoritative Job Store generation | `session/_runtime.py:persist_job_record` and legacy success adapter | Remove the adapter, schema, names, and intent cleanup hooks. |
@@ -513,7 +527,7 @@ with no target consumer.
 
 ### Exact target public export manifest
 
-The owner accepted the following ordered 99-symbol `marivo.analysis.__all__`
+The owner accepted the following ordered 100-symbol `marivo.analysis.__all__`
 for the atomic Slice 8 switch. The ordering is part of the public-surface
 snapshot: Dataset Core, paired family states, authoring values, terminal reads,
 then constructors and namespaces.
@@ -522,6 +536,7 @@ then constructors and namespaces.
 Dataset
 LogicalDataset
 MaterializedDataset
+DatasetShapeId
 DatasetFieldId
 DatasetFieldIdentity
 DatasetPhysicalTypeState
@@ -531,7 +546,9 @@ DatasetCardinality
 DatasetOrderTerm
 DatasetOrdering
 DatasetByteCount
+DatasetFamilyRowSemantics
 DatasetRowContract
+DatasetRowSetContract
 DatasetSchema
 LogicalDatasetState
 MaterializedDatasetState
@@ -557,8 +574,6 @@ LogicalEventDataset
 MaterializedEventDataset
 LogicalLifecycleDataset
 MaterializedLifecycleDataset
-LogicalSubjectSet
-MaterializedSubjectSet
 
 AnalysisPredicate
 EntitySamplingPolicy
@@ -626,8 +641,7 @@ session
 
 There are no exported nominal aliases named `PopulationDataset`,
 `MetricDataset`, `DeltaDataset`, `AttributionDataset`, `AssociationDataset`,
-`ForecastDataset`, `CandidateDataset`, `EventDataset`, `LifecycleDataset`, or
-`SubjectSet`. Those phrases are family shorthand only; public annotations use
+`ForecastDataset`, `CandidateDataset`, `EventDataset`, or `LifecycleDataset`. Those phrases are family shorthand only; public annotations use
 the concrete Logical/Materialized classes directly. `ForecastModel` is the
 sealed helper-produced public base for the three private model variants.
 `CompletenessDeclaration` and every other annotation alias stay internal and
@@ -655,7 +669,7 @@ Cross-Slice Change Protocol before either slice edits the path.
 | Dataset Core | `marivo/analysis/datasets/__init__.py`<br>`marivo/analysis/datasets/base.py`<br>`marivo/analysis/datasets/descriptors.py`<br>`marivo/analysis/datasets/fields.py`<br>`marivo/analysis/datasets/state.py`<br>`marivo/analysis/datasets/contract.py`<br>`marivo/analysis/datasets/registry.py`<br>`marivo/analysis/datasets/handles.py`<br>`marivo/analysis/datasets/actions.py`<br>`marivo/analysis/datasets/errors.py` | Population meaning, physical plan, storage receipts |
 | Observation | `marivo/analysis/observation/__init__.py`<br>`marivo/analysis/observation/population.py`<br>`marivo/analysis/observation/predicates.py`<br>`marivo/analysis/observation/source_bindings.py`<br>`marivo/analysis/observation/metric.py`<br>`marivo/analysis/observation/coordinates.py`<br>`marivo/analysis/observation/aggregation.py`<br>`marivo/analysis/observation/rollup.py`<br>`marivo/analysis/observation/contracts.py`<br>`marivo/analysis/observation/errors.py` | Ibis placement, commit ordering |
 | Compiler | `marivo/analysis/compiler/__init__.py`<br>`marivo/analysis/compiler/nodes.py`<br>`marivo/analysis/compiler/normalize.py`<br>`marivo/analysis/compiler/manifest.py`<br>`marivo/analysis/compiler/lowering.py`<br>`marivo/analysis/compiler/placement.py`<br>`marivo/analysis/compiler/stages.py`<br>`marivo/analysis/compiler/exchange.py`<br>`marivo/analysis/compiler/errors.py` | public Dataset semantics, Run publication |
-| Materialization runtime | `marivo/analysis/materialization/__init__.py`<br>`marivo/analysis/materialization/contracts.py`<br>`marivo/analysis/materialization/execution_key.py`<br>`marivo/analysis/materialization/admission.py`<br>`marivo/analysis/materialization/claims.py`<br>`marivo/analysis/materialization/leases.py`<br>`marivo/analysis/materialization/resources.py`<br>`marivo/analysis/materialization/storage.py`<br>`marivo/analysis/materialization/publication.py`<br>`marivo/analysis/materialization/recovery.py`<br>`marivo/analysis/materialization/reconciliation.py`<br>`marivo/analysis/materialization/store.py`<br>`marivo/analysis/materialization/layout.py`<br>`marivo/analysis/materialization/errors.py` | operator algorithms, public row meaning |
+| Materialization runtime | `marivo/analysis/materialization/__init__.py`<br>`marivo/analysis/materialization/contracts.py`<br>`marivo/analysis/materialization/execution_key.py`<br>`marivo/analysis/materialization/admission.py`<br>`marivo/analysis/materialization/writer_guard.py`<br>`marivo/analysis/materialization/resources.py`<br>`marivo/analysis/materialization/storage.py`<br>`marivo/analysis/materialization/publication.py`<br>`marivo/analysis/materialization/recovery.py`<br>`marivo/analysis/materialization/reconciliation.py`<br>`marivo/analysis/materialization/store.py`<br>`marivo/analysis/materialization/layout.py`<br>`marivo/analysis/materialization/errors.py` | operator algorithms, public row meaning |
 | Typed operators | `marivo/analysis/operators/__init__.py`<br>`marivo/analysis/operators/registry.py`<br>`marivo/analysis/operators/row.py`<br>`marivo/analysis/operators/rollup.py`<br>`marivo/analysis/operators/compare.py`<br>`marivo/analysis/operators/attribute.py`<br>`marivo/analysis/operators/correlate.py`<br>`marivo/analysis/operators/forecast.py`<br>`marivo/analysis/operators/discovery.py`<br>`marivo/analysis/operators/contracts.py`<br>`marivo/analysis/operators/errors.py` | Session management, generic fallback execution |
 | Subject/Event/Lifecycle | `marivo/analysis/domains/__init__.py`<br>`marivo/analysis/domains/subject.py`<br>`marivo/analysis/domains/event.py`<br>`marivo/analysis/domains/lifecycle.py`<br>`marivo/analysis/domains/completeness.py`<br>`marivo/analysis/domains/contracts.py`<br>`marivo/analysis/domains/errors.py` | common Dataset state, generic planner/runtime state |
 | Session facade and reads | `marivo/analysis/session/__init__.py`<br>`marivo/analysis/session/core.py`<br>`marivo/analysis/session/history.py`<br>`marivo/analysis/session/_read_model.py`<br>`marivo/analysis/session/_runtime_reads.py`<br>`marivo/analysis/session/_resolve.py`<br>`marivo/analysis/session/_connections.py`<br>`marivo/analysis/session/_lazy_sources.py` | Dataset-owned downstream operators or captured-value execution lookup |
@@ -858,11 +872,12 @@ file was normalized or reverted.
 The owner accepted the three surfaced contracts on 2026-09-04, and their owning
 designs now freeze:
 
-1. the generation-scoped v3 Session Store, independent Evidence Store v1,
-   exact relations, keys, indexes, transaction owners, report-timezone
-   placement, and fail-closed old-generation boundary in Materialization
-   Runtime;
-2. the exact ordered 99-symbol target export manifest above, the paired-family
+1. the generation-scoped v3 Session Store and fail-closed old-generation
+   boundary in Materialization Runtime, amended on 2026-09-05 to colocate all
+   metadata and Evidence, commit the publication bundle once, and guard writes
+   per Session; exact relations, descriptors, indexes, and transaction owners
+   follow that revised owner;
+2. the exact ordered 100-symbol target export manifest above, the paired-family
    no-alias rule in Dataset Core, and the exact Artifact, Run, Finding,
    revalidation, graph, nested-value, and Help contracts in the accepted lazy
    v3 Session Runtime Read amendment and Module 5/6 Finding tables;
@@ -888,15 +903,16 @@ slice.
 ### Outcome
 
 Implement the private common Dataset value model, paired state types, exact row
-contracts, selectors, and family registration without datasource execution or
-public exposure.
+and row-set contracts, selectors, and family registration without datasource
+execution or public exposure.
 
 ### Owned implementation
 
 - `Dataset`, `LogicalDataset`, and `MaterializedDataset` internal bases;
 - closed paired-family registry;
-- `DatasetFieldId`, field identity, physical-type state, field, row-bound,
-  cardinality, ordering, byte-count, row-contract, and schema descriptors;
+- `DatasetShapeId`, `DatasetFieldId`, field identity, physical-type state,
+  field, row-bound, cardinality, ordering, byte-count, family-row-semantics,
+  row-contract, row-set-contract, and schema descriptors;
 - `LogicalDatasetState` and `MaterializedDatasetState`;
 - `DatasetFields` and Session-owned `DatasetFieldRef`;
 - immutable Dataset construction, equality, hashing, definition fingerprint,
@@ -917,7 +933,10 @@ public exposure.
 
 - family registry duplicate/missing/invalid-pair tests;
 - immutable value, equality, hashing, and deterministic fingerprint tests;
-- complete logical schema and row-contract construction without execution;
+- complete logical row-contract and row-set-contract construction without
+  execution, with `dataset.schema` identical to `row_contract.schema`;
+- one canonical schema field inventory, id-only coordinate/key/ordering/family
+  references, and derived value bindings;
 - field-id uniqueness and exact selector resolution;
 - missing, ambiguous, wrong-role, stale, and foreign-Session selector failures;
 - logical/materialized private-root mismatch corruption tests;
@@ -930,9 +949,9 @@ public exposure.
 
 ### Exit gate
 
-Every later family can register one paired state type and construct one complete
-logical row contract without importing compiler, runtime, pandas, or storage
-implementation.
+Every later family can register one paired state type and construct complete
+logical row and row-set contracts without importing compiler, runtime, pandas,
+or storage implementation.
 
 ## Slice 2: First Complete Metric Vertical
 
@@ -960,7 +979,8 @@ until Slice 8.
 - Population and Metric family contracts;
 - `Session.source_bindings(...)` validation plus immutable per-source
   construction-time capture;
-- exact default Population inference;
+- exact default Population inference and explicit analysis-Entity component mapping;
+- independent membership selection and Metric observation scopes;
 - Entity-grained shared Population spine;
 - initial `where`, `with_dimensions`, `with_time_axis`, `aggregate`, and
   `metric` definitions needed by the journey;
@@ -988,7 +1008,8 @@ until Slice 8.
   Evidence, Finding set, metadata, and marker succeed;
 - `show()` and `to_pandas()` perform no origin query and create no new analysis
   Run;
-- cold recovery returns the exact same materialized family and row contract;
+- cold recovery returns the exact same materialized family, row contract, and
+  row-set contract;
 - failure at every publication boundary yields one terminal failed Run and no
   partial Dataset authority;
 - a parameterized JSON source can construct inside a binding scope and execute
@@ -1011,11 +1032,13 @@ and extend Entity and aggregate Metric chains.
 ### Owned implementation
 
 - the complete shared `AnalysisPredicate` builder vocabulary;
-- family-specific `where(...)` effects and authority rules;
+- family-specific `where(...)` effects and input checks;
 - exact Population construction and sampling;
 - all accepted Metric coordinate shapes and aggregation admission;
 - logical versus materialized aggregate/fold matrix;
-- registered `MetricDataset.rollup(drop_dimensions=..., grain=...)` over
+- exact row-selection contribution keys and computational denominator semantics;
+- required ratio/mean/weighted-mean retained parts with atomic row/part selection;
+- registered `MetricDataset.rollup(drop_dimensions=..., grain=..., drop_time=...)` over
   Entity-reduced shapes;
 - `rank(...)` and `limit(...)`;
 - generated field ids and deterministic total ordering;
@@ -1024,19 +1047,30 @@ and extend Entity and aggregate Metric chains.
   Population input;
 - exact explicit checkpoint behavior for multiple downstream definitions.
 
+Population-input admission uses closed registered Entity-present shapes plus a
+proof of Entity-only uniqueness. Functionally dependent region/time coordinates
+may remain; true Entity-by-time rows require explicit owned subject selection.
+
 ### Required evidence
 
 - predicate literal/type/null/boolean normalization and adjacent invalid cases;
 - authored filter order around sampling and aggregation barriers;
+- selected-rate fixture A = 8/10, B = 1/10 yields 80% after selecting A;
+- customer-day selection never restores other days or an original denominator;
 - no unproved predicate reorder or push-through;
 - exact, semi-additive, component-aware, cumulative, and materialized fold
   admission matrices;
 - logical/materialized rollup parity, strict coarser-grain containment,
-  partial-period coverage, retained-state rejection, and no-origin-replay;
+  partial/selected-period coverage, `drop_time=True`, retained-state rejection,
+  and no-origin-replay;
 - deterministic rank ties and limit prefixes;
 - unordered preview canonicalization against a backend with deliberately varied
   natural order;
 - materialized leaf predicates do not traverse origin lineage;
+- January membership plus February observation works before and after recovery,
+  and omitting observation scope never inherits January;
+- two orders with two/three lines and revenue 100 produce order count 2 and
+  average order value 50 under an explicit governed customer Population;
 - logical and materialized population inputs preserve identity, scope,
   sampling, approximation, and Session authority;
 - a shared checkpoint feeds two downstream logical definitions without origin
@@ -1054,64 +1088,74 @@ materialization-barrier repairs.
 
 ### Outcome
 
-Complete the compiler/runtime infrastructure required by all remaining
-operators and storage topologies without creating another public execution
-path.
+Complete fixed-domain compilation, local Artifact reuse and one fixed forecast
+kernel before broadening complex method support. Runtime retains its reliability
+contracts without a generalized placement or storage-negotiation subsystem.
 
 ### Owned implementation
 
-- exhaustive semantic-node decoder and immutable lowerer manifest;
-- action canonicalization, authored occurrence map, and safe CSE;
-- deterministic boundary resolution;
-- portable and registered backend-specific Ibis lowerings;
-- federation admission;
-- direct materialized scan/import;
-- bounded Arrow stream and Run-staged Parquet exchange;
-- registered DuckDB relational and Python-kernel local stages;
-- fixed local execution limits and hard guards;
-- local, engine, and object final storage candidates/receipts;
-- runtime-ranked sink selection after compiler feasibility;
-- execution keys, write-once bindings, producer claims, owner leases, resource
-  journals, cleanup, and cold reconciliation;
+- typed graph validation and fixed per-method implementation dispatch;
+- same-domain Ibis construction, exact Marivo binding identity and immutable scans;
+- required shared-sample fences without general CSE or occurrence interning;
+- local Artifact DuckDB readers and one fixed Python forecast recipe;
+- actual Arrow batch validation and complete guarded kernel inputs;
+- Runtime-owned engine/kernel/storage budgets, worker cancellation and staging;
+- one configured local/engine/object target and exact writer/receipt protocol;
+- no federation discovery, import, route selection or sink-ranking handshake;
+- execution keys, unique Artifact lookup, Session writer guards, normalized
+  Artifact descriptors, one metadata publication transaction, external-resource
+  obligations, cleanup, and Session-scoped cold reconciliation;
 - captured source-binding validation, key digests, compiler adapter handoff,
   and exhaustive raw-value redaction;
-- explicit independent-axis Artifact revalidation;
+- explicit three-axis full integrity inspection without semantic/source comparison;
+- explicit same-Store foreign Artifact reads/inputs with preserved ownership,
+  consumer-scoped Run edges, and bounded external Graph nodes;
 - committed Session graph projection.
 
 ### Required evidence
 
-- exact private graph encode/decode and corruption rejection;
-- lowerer-manifest assembly-order fingerprint stability;
-- whole-expression one-stage compilation without a second Marivo optimizer;
-- portable, backend-specific, unsupported, and compile-rejected outcomes;
-- no SQL text postprocessing or execute-and-catch capability probing;
-- largest-prefix registered-local cuts selected before data work;
-- Arrow/Parquet parity for schema, null, timezone, decimal, dictionary,
-  ordering, rows, and decoded-byte guards;
-- exact boundary tests at 100,000 rows per local input, 67,108,864 combined
-  input bytes, 100,000 output rows, 67,108,864 output bytes, and 60 seconds;
-- no partial result for input, total-byte, output, or deadline overflow;
-- local, engine, and object receipt round trips and mutation detection;
-- deterministic sink feasibility/selection and no retry to another sink after
-  selected-sink failure;
-- one producer for concurrent same-key execution;
-- waiter success, producer failure, timeout, and takeover behavior;
+- typed graph/implementation coverage with Dataset Core definition identity;
+- one ordinary same-domain relation query, counting necessary fences/checks/writes
+  separately rather than imposing one SQL statement on every method;
+- portable, adapter-specific, unsupported and compile-rejected outcomes with
+  no local retry, SQL postprocessing or execute-and-catch capability probing;
+- rejection before data work of equal-argument independent DuckDB connections
+  with conflicting same-named tables;
+- actual Arrow integer-SUM widening, overflow, null/time/decimal/dictionary and
+  bounded variable-width reader tests;
+- Python complete-input, combined-input, output, method-size and hard-deadline
+  tests at and above the bound Runtime defaults/configuration;
+- a local Parquet scan above the Python row cap succeeds within DuckDB engine,
+  temporary-disk and final-output budgets;
+- late streaming failure discards private state with no partial publication;
+- fixed forecast invokes once after complete input validation and supports a
+  local relational continuation without uploading it to the source;
+- local, engine and object receipt round trips and mutation detection;
+- one configured target validates or fails without choosing another sink or
+  relocating computation;
+- immediate same-Session writer rejection for same/different keys, across
+  processes/threads and reentrant calls, with no new Run or contender queue;
+- overlapping backend work across Sessions and isolation of blocked recovery;
+- canonical name creation races and transactional current-pointer updates;
 - reservation-before-create and crash injection for every external resource;
-- no-marker cleanup/failure and marker-before-Store completion recovery;
-- surviving backend work retains its claim until terminal state is proven;
+- atomic metadata rollback, committed-bundle recovery without repair, and
+  lost-acknowledgement readback without guessed cleanup or failure;
+- surviving backend work blocks only its Session until terminal/fencing proof;
+  harmless leftover cleanup does not block publication or later work; a released local lock is not remote termination;
+- pure memory buffers create no durable obligations; spills and external work do;
 - exact execution-binding recovery with no new Run, SQL, quality extraction,
   storage copy, Evidence, or Artifact;
 - source binding execution after authoring-scope exit, changed-value key
   separation, same-value cold reconstruction recovery, and proof of no
   `ContextVar` or mutable Session lookup during execution;
-- revalidation reports integrity, storage, Evidence, semantic, and datasource
-  axes independently;
+- full inspection reports Artifact, storage, and Evidence integrity independently,
+  without current semantic/source comparison or reuse approval;
 - no credential, SQL, raw identity, private plan, locator, or staging path leaks
   into diagnostics.
 
 ### Exit gate
 
-Every execution topology ends with exactly one committed recoverable Dataset or
+Every admitted fixed execution recipe ends with exactly one committed recoverable Dataset or
 one terminal failed Run with no partial publication. No private exchange is
 visible as an Artifact, Dataset, Evidence owner, or graph node.
 
@@ -1129,11 +1173,11 @@ materialized = drivers.execute()
 
 ### Owned implementation
 
-- Metric `compare` variant and complete Delta row contracts;
+- Metric `compare` variant and complete Delta row and row-set contracts;
 - alignment policies retained by the accepted operator contract;
 - additive, component-mix, distinct-membership, and distribution-Shapley
   attribution variants;
-- joint and hierarchy row contracts;
+- joint and hierarchy row and row-set contracts;
 - logical missing-axis expansion;
 - materialized sufficient-statistic admission and barrier failure;
 - Top-K/Other mapping and reconciliation;
@@ -1152,7 +1196,7 @@ materialized = drivers.execute()
 - materialized missing-axis failure before a Run with a copyable logical repair;
 - no materialized-origin replay or current semantic join to recover a missing
   attribution axis;
-- cold recovery preserves family, row contract, sufficient statistics, and
+- cold recovery preserves family, row contract, row-set contract, sufficient statistics, and
   exact derived continuations.
 
 ### Exit gate
@@ -1180,9 +1224,9 @@ Complete the remaining first-cutover typed Metric operator families:
 For every exact variant:
 
 - invocation and output registration;
-- complete pre-execution row contract;
+- complete pre-execution row and row-set contracts;
 - action-time requirements;
-- exact Ibis, DuckDB, or registered Python-kernel lowerer;
+- exact fixed method recipe, inherited-domain Ibis builder or named Python kernel;
 - approximation/status semantics;
 - filterable generated fields;
 - quality, Evidence, Finding, and retained-state materialization registration;
@@ -1198,6 +1242,9 @@ For every exact variant:
 - correlation publishes typed unusable rows but fails when a Metric pair has no
   valid candidate;
 - forecast rejects uncertified/incomplete histories and never imputes silently;
+- Kendall consumes complete engine-aligned numeric pairs without raw Entity
+  identities and fails its bound kernel budget without sampling;
+- relational-method compile failure never invokes a Python implementation;
 - discovery distinguishes no candidate from not evaluated;
 - entity-outlier identity remains private but can be consumed explicitly as a
   Population input;
@@ -1214,7 +1261,7 @@ Every accepted Metric operator produces one recoverable Dataset family with
 exact status and Evidence authority, and every removed operator is absent from
 the private target registry.
 
-## Slice 7: SubjectSet, Event, Lifecycle, and Cross-Domain Loops
+## Slice 7: Subject Selection, Event, Lifecycle, and Cross-Domain Loops
 
 ### Outcome
 
@@ -1225,13 +1272,13 @@ Metric or entity-outlier Dataset
   -> explicit population= on Event/Lifecycle source
   -> Event journey or Lifecycle history Dataset
   -> typed select_subjects(...)
-  -> SubjectSet
+  -> PopulationDataset
   -> explicit population= on Metric/Event/Lifecycle source
 ```
 
 ### Owned implementation
 
-- Subject identity and SubjectSet paired family;
+- Subject identity and domain selection into Slice 2's sole Population family;
 - Event pattern, matching, completeness, journey, funnel, time-to-event,
   selection, comparison, and funnel-attribution variants;
 - Lifecycle replay, history, distribution, transitions, dwell, violations,
@@ -1256,16 +1303,21 @@ Metric or entity-outlier Dataset
 - reducer numerical and structural parity;
 - structural journey/history filtering rejection and generated-field filter
   registration;
-- logical same-plan SubjectSet semi-join with one membership evaluation;
-- materialized SubjectSet cold recovery with no origin graph;
+- logical same-plan Population semi-join with one membership evaluation;
+- selected Population region filtering uses Module 2's common membership rule
+  and cannot bypass an uncertain upstream selection;
+- materialized PopulationDataset cold recovery with no origin graph;
 - empty complete membership succeeds and uncertain membership publishes no
-  SubjectSet;
+  PopulationDataset;
 - high-cardinality Event/Lifecycle execution performs no unbounded local
   transfer;
 - adversarial identity scan across errors, logs, Runs, cards, Evidence,
   Findings, telemetry, object names, and recovery diagnostics;
 - raw identities appear only in authorized Dataset storage and explicit
   `show()`/`to_pandas()` row reads;
+- identity selections reused with current sources have a configured same-domain
+  engine target/reader; incompatible local/remote combinations fail before data
+  work without a misleading materialization repair;
 - Event/Lifecycle producer failure publishes no partial identity Artifact or
   Evidence.
 - no occurrence-bounds source/read node, Run kind, result type, capability, or
@@ -1295,7 +1347,7 @@ set.
    `SessionLifecycle.replay` to the lazy source contracts.
 4. Retain `Session.source_bindings(...)` with construction-time capture only.
 5. Add `Session.population` and publish
-   `MetricDataset.rollup(drop_dimensions=..., grain=...)`.
+   `MetricDataset.rollup(drop_dimensions=..., grain=..., drop_time=...)`.
 6. Remove every Session-owned downstream operator and reducer, including
    `session.events.occurrence_bounds(...)`.
 7. Remove `EventOccurrenceBounds`, `frame.transform`, old
@@ -1309,15 +1361,26 @@ set.
 
 ### Persistence switch
 
+Evidence modules retain typed extraction and reading responsibilities, but their
+Store access receives the caller-owned transaction. They cannot open another
+publication database or commit independently. Session writer guards and
+SQLite transaction ownership are defined only by Module 4.
+
 1. Set the replacement Session Store to exact `PRAGMA user_version = 3`.
-2. Write only:
+2. Use these exact value contracts; normalized terminal, input, Evidence, and
+   resource-obligation rows are versioned by Session Store v3 without redundant
+   row schema strings. Full Run, Artifact, and Evidence envelopes are assembled
+   from their owning relations; no duplicate full metadata payload is written:
    - `marivo.analysis_action_run/v2`;
    - `marivo.dataset_artifact/v1`;
+   - `marivo.dataset_artifact_descriptor/v1`;
    - `marivo.dataset_storage_receipt/v1`;
-   - `marivo.dataset_evidence/v1`;
-   - `marivo.dataset_artifact_commit/v1`;
-   - `marivo.dataset_execution_binding/v1`;
-   - `marivo.action_resource_journal/v1`.
+   - `marivo.dataset_evidence/v1`.
+   Store Artifact descriptors, Evidence, and Findings in the project Session
+   database. Remove separate Evidence databases, Artifact metadata sidecars,
+   commit markers, claims, leases, and independent Evidence commit ownership.
+   All writers for one Session share its guard; different Sessions remain
+   independently executable.
 3. Delete old Frame Artifact and analysis Run writers/readers.
 4. Reject v2, v0, and future Session Store generations before Session
    activation with a structured instruction to create a new named Session.
@@ -1425,19 +1488,20 @@ rerun; it is not waived because narrower tests passed.
 
 ### Backend matrix
 
-Run every backend affected by the cutover through its registered profile and
-supported contract. At minimum the matrix must explicitly classify DuckDB,
-SQLite, Trino, MySQL, PostgreSQL, and ClickHouse as:
+Report basic relational coverage separately from complex method support. For
+DuckDB, SQLite, Trino, MySQL, PostgreSQL and ClickHouse, classify each claimed
+method as tested Ibis support on that adapter or typed unsupported. Fixed Python
+methods have their own kernel tests plus actual input-reader support; they are
+not alternate backend implementations. There is no federation/import coverage
+category or six-backend all-method requirement.
 
-- portable Ibis supported;
-- exact backend-specific Ibis supported;
-- registered bounded local supported;
-- federated/materialized-boundary supported;
-- or typed unsupported.
-
-Do not claim support from compilation alone. Each supported path needs terminal
-row, authority, placement, receipt, and audit evidence against the real backend
-or the repository's designated live integration environment.
+Start with the repository's local DuckDB reference path and the real datasource
+adapter required by each vertical journey. Expand complex correlation,
+attribution and Event/Lifecycle methods individually. Every claimed path needs
+terminal rows, authority, reader/writer, receipt and Runtime evidence on the real
+backend or designated live integration environment. Compile success is insufficient.
+Missing supported-method coverage remains an explicit cutover limitation, not a
+license to advertise unverified methods on that backend.
 
 ### Performance and execution-economics gates
 
@@ -1456,7 +1520,8 @@ Required binary outcomes:
 4. a materialized downstream chain emits no origin-source query;
 5. a high-cardinality rank-and-limit journey does not collect the unbounded
    Entity relation into the Marivo process;
-6. every bounded-local guard fails atomically at one unit above its exact limit;
+6. each bound kernel, engine/disk and storage guard fails atomically beyond
+   its own limit; Python limits do not cap an existing local Artifact scan;
 7. no execution path inserts sampling to satisfy a resource limit;
 8. equal parameterized-source bindings recover without a request while one
    changed value produces a distinct execution key;
@@ -1477,7 +1542,8 @@ or dispatch record is supplementary, not acceptance.
 3. Add a Dimension and time coordinate, then aggregate.
 4. Inspect `contract()` before execution.
 5. Execute, inspect the Materialized Dataset, read Evidence, and verify one
-   backend query stage.
+   ordinary relation query, with required fence/validation/write statements
+   accounted separately.
 
 #### Journey B: checkpoint and cross-process reuse
 
@@ -1496,12 +1562,12 @@ or dispatch record is supplementary, not acceptance.
 4. Materialize the Delta before adding a missing axis and prove local
    construction failure with an exact rebuild-before-execute repair.
 
-#### Journey D: Metric to Event to SubjectSet to Metric
+#### Journey D: Metric to Event to PopulationDataset to Metric
 
 1. Select a governed identity-bearing Metric Dataset.
 2. Pass it explicitly as Event `population=`.
 3. Match a first-per-subject journey and select dropped subjects.
-4. Materialize and recover the SubjectSet in a fresh process.
+4. Materialize and recover the PopulationDataset in a fresh process.
 5. Pass it to a new Metric observation.
 6. Prove complete membership, no Event rematch, no local identity collection,
    and no identity leak outside authorized rows/storage.
@@ -1515,23 +1581,45 @@ or dispatch record is supplementary, not acceptance.
 4. Prove reducers do not query trigger Events and retain exact coverage and
    censoring semantics.
 
-#### Journey F: explicit execution-boundary failure and repair
+#### Journey F: fixed execution-domain failure and reachable repair
 
-1. Construct a cross-datasource operator graph with no federation or bounded
-   local route.
-2. Prove compilation fails before data work.
-3. Verify the repair names `.execute()` only when a reachable public Dataset
-   input is an independently placeable valid boundary.
-4. Materialize that exact input and rerun the downstream action.
-5. Prove immutable scan/import and no hidden intermediate Artifact.
+1. Construct a relation whose inputs have different exact Marivo domain bindings.
+2. Prove known conflicts fail construction and resolved conflicts fail after Run
+   admission but before any data statement; Ibis connection equality is irrelevant.
+3. Advertise `.execute()` only when reachable public inputs can be independently
+   written and subsequently read in a common configured domain within guards.
+4. With an explicitly configured common local target and small reduced inputs,
+   execute those inputs and perform the downstream relation through DuckDB.
+5. Prove only those explicitly requested Artifacts exist, with no automatic input
+   import, hidden checkpoint, origin replay or federation selection.
+6. Repeat with an incompatible engine-backed input for which no public relocation
+   exists; report unsupported without an unreachable `.execute()` repair.
 
 #### Journey G: failure atomicity and cold reconciliation
 
-1. Crash once before the Artifact commit marker and prove cleanup plus terminal
-   failed Run with no Artifact/Evidence authority.
-2. Crash once after the marker but before Session Store finalization and prove
-   recovery completes the same Run/Artifact without datasource re-execution.
-3. Run two concurrent exact executions and prove one producer and one Artifact.
+1. Crash before metadata commit and prove Session-guarded termination/cleanup
+   plus failed Run with no partial Artifact/Evidence/Finding authority.
+2. Crash after commit before return, and separately lose commit acknowledgement;
+   prove readback recovers the existing succeeded Run/Artifact without repair
+   or datasource re-execution.
+3. Overlap same-Session writes and prove immediate busy rejection with no Run;
+   explicitly retry after completion and recover the same-key Artifact.
+4. Execute different Sessions concurrently and prove a busy or recovery-blocked
+   Session cannot prevent another Session from producing its own result.
+
+#### Journey G2: explicit prior-Session result selection
+
+1. Produce an Artifact in A, record its ref, owner, producer times, and backing.
+2. Change origin rows or disable its query endpoint while preserving backing.
+3. Read it through B's `artifact(ref)` and prove no source query, age test, copy,
+   alias, registration, or approval; original owner/ref/Findings remain unchanged.
+4. Execute a downstream B-owned Dataset using the exact input and prove only B
+   creates a new Run/Artifact, with an input edge to A's original Artifact.
+5. Show B's external boundary and A's unchanged local Run/head membership.
+6. Reject a foreign Logical input, cross-Store Artifact, forged owner, corrupt
+   backing, or structurally invalid operator input with precise repairs.
+7. Check three-axis full integrity inspection and factual timestamp disclosure; no source
+   freshness status, equivalence verdict, or reusable flag exists.
 
 #### Journey H: captured parameterized source values
 
@@ -1548,13 +1636,19 @@ or dispatch record is supplementary, not acceptance.
 #### Journey I: materialized rollup without origin replay
 
 1. Materialize one additive daily-by-Dimension Metric Dataset.
-2. Roll it to a coarser grain and drop the Dimension in one request.
+2. Roll it to a coarser grain and drop the Dimension in one request; separately
+   remove time with `drop_time=True` and verify the registered temporal fold.
 3. Prove the canonical time-then-Dimension fold, singleton/empty behavior, and
    complete versus partial target-period coverage.
 4. Prove the action scans only the immutable Artifact and sends no origin
    query.
-5. Repeat with cumulative period-end and blocked non-additive fixtures; verify
-   exact `last` behavior and the direct-target-observation repair.
+5. Repeat with cumulative period-end, ratio, mean, weighted mean, and blocked
+   unregistered non-additive fixtures. Verify exact component merges and `last`
+   behavior; blocked folds name the direct-target-observation repair.
+6. Filter daily rows before time removal and prove only selected periods
+   contribute without claiming complete-window coverage.
+7. Corrupt a required retained part and prove dependency validation fails without
+   querying an origin or borrowing another visible Metric column.
 
 ### Negative cutover audit
 
@@ -1563,9 +1657,11 @@ and skill for every forbidden path. The audit must prove absence of:
 
 - public `BaseFrame`, `MetricFrame`, `DeltaFrame`, `AttributionFrame`,
   `EventFrame`, `LifecycleFrame`, `ForecastFrame`, `AssociationResult`,
-  `CandidateSet`, and `HypothesisTestResult`;
+  `CandidateSet`, `SubjectSet`, `LogicalSubjectSet`, `MaterializedSubjectSet`,
+  and `HypothesisTestResult`;
 - public `session.compare`, `session.attribute`, `session.correlate`,
-  `session.forecast`, `session.select_subjects`, and Session-owned reducers;
+  `session.forecast`, `session.select_subjects`, `session.delete`, and
+  Session-owned reducers;
 - public `session.events.occurrence_bounds`, `EventOccurrenceBounds`, and any
   observed-range window inference;
 - public `frame.transform`, `rollup(drop_axes=...)`, and detached
@@ -1575,10 +1671,13 @@ and skill for every forbidden path. The audit must prove absence of:
 - `analysis-artifact/v13`, `marivo.analysis_run/v2`,
   `marivo.analysis_job/v2`, old Store decoders,
   migration, backfill, and dual reads in live implementation;
-- public plan, SQL, Ibis, task, future, receipt, staging, claim, or lease types;
+- public plan, SQL, Ibis, task, future, receipt, staging, or writer-guard types;
 - execution-time lookup of parameterized source values from a `ContextVar`,
   mutable Session map, or `execute(...)` argument;
-- silent pandas/Polars fallback or unbounded local identity transfer.
+- silent pandas/Polars fallback or unbounded local identity transfer;
+- source-authority/replay certificates, datasource freshness/reusability verdicts,
+  automatic cross-Session matching, and blanket rejection of explicit same-Store
+  Materialized inputs.
 
 Historical release notes and intentionally archived design documents may name
 old paths as history. They must not be imported, linked as current guidance, or
@@ -1619,27 +1718,118 @@ recoverable deletion behavior.
 The implementation preserves the accepted order:
 
 ```text
-final immutable storage
-  -> exact Artifact metadata
-  -> Evidence + Findings + Artifact commit marker
-  -> Session Store Artifact row + execution binding + Run success
+final immutable storage + validated receipt
+  -> one Session Store transaction:
+     Artifact descriptor + Evidence + Findings + Run terminal success
+     + removal of resolved output obligations
 ```
 
-Before the marker, output is unpublished cleanup-eligible staging. After the
-marker, recovery must complete the same Artifact publication; it must not turn
-the Run into failure or delete the committed output.
+The Session writer guard covers recovery, binding lookup, execution, and
+publication. Before the metadata commit, output is unpublished and journaled.
+After commit, Artifact and Run success already exist together. A lost
+acknowledgement requires authoritative readback before cleanup or retry, never
+a second publication decision or a terminal rewrite. Other Sessions may run
+backend work concurrently; SQLite transactions remain short.
 
-### Execution-binding boundary
+### Concrete input checks without authority audit
 
-`DatasetExecutionKeyV1` is Session-local and binds the exact definition,
-captured parameterized-source binding digest, semantic dependencies, ordered
-logical/materialized input authority, family, row contract, and
-implementation/quality/Evidence versions. It does not claim global cache
+Remove the generic authority requirement record, mode enum, requirement summaries,
+and independent successful-check audit from Dataset state, Run admission,
+terminal storage, public Run values, Help, exports, and tests. Do not rename or
+replace them with an equivalent parallel registry. The operator contract owns
+required semantic dependencies, fields, identity, coverage, and alignment; the
+compiler binds the corresponding source, scan, join, and calculation nodes.
+Runtime executes their concrete checks without substituting inputs on failure.
+
+Successful terminal rows require only the output Artifact ref in addition to
+normal Run identity/outcome/timing. No compiler audit is required or persisted. Existing Artifact descriptors
+and normalized Run input rows retain dependency digests and exact provenance.
+Failures use structured errors; historical storage authorization classes are not
+persisted. Compiler diagnostics are opt-in execution-local output and never
+gate publication or create a public result type.
+
+Acceptance must cover retained-row work after catalog removal, explicitly admitted
+current Dimension enrichment, rejected implicit origin replay or missing fields,
+and mixed Logical/Materialized inputs. Persistence and public export tests must
+prove the removed audit and requirement fields/types are absent.
+
+### Explicit cross-Session Artifact boundary
+
+Use the existing `target_session.artifact(ref)` read for explicit same-Store
+selection. Materialized operands from another Session are legal under their
+operator's concrete structural contracts; foreign Logical graphs and cross-Store
+objects remain rejected. Preserve original Artifact ownership, backing, producer,
+and Findings. Only the consuming Session owns/locks new Runs and outputs.
+
+The Store input relation's Artifact foreign key is project-global, while its
+Run foreign key and every output remain scoped to the consuming Session.
+Do not create an alias registration, binding, copy, or reuse event merely for a
+read. Execution keys bind exact selected input refs; no cross-Session automatic
+matching by definition, content, or time exists.
+
+Update Dataset state, Artifact summaries, Finding ownership, Graph scope, and
+Help together. Materialized state adds `artifact_session_ref`; Artifact summaries
+show the original owner plus producer admission/finish times. Cross-Session graph
+inputs are boundary Artifacts; foreign Runs do not enter the local graph.
+Only budget truncation sets `truncated`. These are factual lineage/time fields,
+not datasource freshness or reuse certification.
+
+Remove generic source-authority variants, source-state digests, snapshot-capture
+and replay-comparability protocols, the datasource revalidation axis, and
+source-version capabilities used solely to certify future reuse. Preserve actual
+operator input checks, single-evaluation fences, immutable backing receipts,
+normal executor transactions, and source-origin/coverage inputs owned by Event
+and Lifecycle algorithms. These do not grant a general suitability promise.
+
+### Result storage, scoped reads, and harmless maintenance
+
+Artifact descriptors bind the primary receipt and `retained_parts[]` instances,
+each with a registered role, private contract/version, and concrete receipt.
+Metric components and Lifecycle trace data commit with the primary payload and
+transfer all output reservations in the same transaction. Parts have no separate
+Artifact identity, Run, graph node, or public columns. Align family registrations,
+writer output roles, receipt adapters, cold decoders, and consumer role requests.
+
+Opening an Artifact reads supported metadata only. Preview/collection validate
+primary data; operators add only required parts; Finding reads validate selected
+records. Full inspection validates all data/parts/Findings, including complete
+hashes/counts. No ordinary read silently performs that full audit or compares a
+semantic catalog. Remove stale semantic-revalidation examples and Help guidance.
+
+Streaming local Parquet persistence has an 8-MiB decoded-batch guard and a 64-MiB
+serialized Artifact budget covering primary, private parts, and manifests. Remove
+the local-storage row cap and pre-transfer worst-case string-width requirement.
+Keep local analytical calculation and complete DataFrame memory limits separate.
+Unknown total size is legal with bounded streaming; actual overflow fails without
+partial publication, truncation, or sink switching.
+
+Publication and failed-terminal insertion require execution termination/fencing
+and proof that surviving temporary resources are harmless, exactly owned, and
+unreferenced by committed results. Try cleanup; retain unresolved existing journal
+rows on either succeeded or failed Runs without blocking new work. Unknown remote
+termination still blocks its Session. Add no cleanup state table or scheduler.
+
+Acceptance includes cold component/trace recovery, part-publication crash points,
+no whole-Finding scan for a preview, no unused-part reads, explicit corruption
+inspection, variable-width streaming, and success followed by deferred cleanup.
+
+### Execution-key Artifact boundary
+
+`DatasetExecutionKeyV1` combines only Dataset Core's complete canonical
+`definition_fingerprint` with the common materialization protocol version.
+Core owns normalization of semantic/source/operand/row/producer dependencies
+once; the Store scopes lookup by Session rather than repeating that scope in
+the digest. Materialized input tokens name exact Artifact refs only. It does not claim global cache
 equivalence or datasource freshness.
 
-The public documentation and skill must state that a same-Session binding hit
-recovers the committed snapshot. A user who requires current source rows creates
-a new named Session or changes an explicit row-affecting definition input.
+The unique `(session_ref, execution_key_digest)` key on the committed Artifact
+relation is the whole lookup contract. It has no second Store relation or
+payload.
+
+The public documentation and skill must state that a same-Session execution-key
+hit recovers the committed snapshot. A user who requires current source rows
+creates a new named Session or changes an explicit row-affecting definition
+input.
 
 ## Disclosure Cutover Detail
 
@@ -1673,7 +1863,7 @@ according to the shared public Help rules.
 ### Dataset state disclosure
 
 - logical `repr` and `contract()` disclose definition, family, shape, row
-  contract, authority requirements, blockers, and legal continuations without
+  contract, concrete input requirements, blockers, and legal continuations without
   rows or execution;
 - materialized `repr`, `show()`, and `contract()` disclose committed state,
   bounded rows, Evidence, and legal continuations without origin replay;
@@ -1687,9 +1877,9 @@ according to the shared public Help rules.
 | Evidence family | Primary slice | Required independent consumer |
 | --- | --- | --- |
 | common Dataset descriptors and state pairs | 1 | every family registration |
-| Population/Metric row contracts and predicates | 2-3 | compiler and operator admission |
+| Population/Metric row and row-set contracts plus predicates | 2-3 | compiler and operator admission |
 | parameterized source capture, identity, lowering, and redaction | 2 and 4 | compiler plus cold-recovery/runtime audit |
-| semantic graph and lowerer manifest | 2-4 | runtime handoff and every operator |
+| typed graph and fixed implementation dispatch | 2-4 | runtime handoff and every operator |
 | stage/exchange guards | 4 | runtime failure injection |
 | Run/Artifact/binding/publication | 2 and 4 | every producing family |
 | Metric operator numerical parity | 5-6 | materialization/Evidence registration |
@@ -1700,7 +1890,7 @@ according to the shared public Help rules.
 
 Tests must avoid proving a registry with the renderer that consumes it or a
 schema with only the writer that produced it. Decoders, reachability checks,
-Help inventories, lowerer manifests, and publication records each need an
+Help inventories, implementation registries, and publication records each need an
 independent invariant.
 
 ## Slice Document Template
@@ -1776,13 +1966,14 @@ The plan can be marked implemented only when every item is true:
 - [x] All entry-gate owner clarifications are accepted and reflected here.
 - [ ] Every previous public export is classified and tested as retained,
       replaced, or absent.
-- [ ] Every target Dataset family has one paired registration and one complete
-      pre-execution row contract.
+- [ ] Every target Dataset family has one paired registration and complete
+      pre-execution row and row-set contracts.
 - [ ] Every downstream operator is Dataset-owned and returns Logical state.
 - [ ] Logical construction performs no datasource work and creates no Run.
 - [ ] `execute()` is the only public logical-to-materialized transition.
 - [ ] Materialized reads and downstream operations never replay origin graphs.
-- [ ] Exact same-Session execution bindings recover without a new Run or SQL.
+- [ ] Exact same-Session execution-key Artifact lookups recover without a new
+      Run or SQL.
 - [ ] Parameterized source bindings are captured at construction, separated by
       exact execution identity, redacted everywhere durable/visible, and never
       reread from ambient state by `execute()`.

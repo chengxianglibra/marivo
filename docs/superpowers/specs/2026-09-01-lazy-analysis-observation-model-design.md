@@ -2,9 +2,9 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-04
+Revised: 2026-09-05
 
-Status: accepted
+Status: accepted; amended 2026-09-05 following observation-model review
 
 ## Outcome
 
@@ -70,8 +70,8 @@ This document owns:
 
 It does not own:
 
-- public Dataset state, state-specific actions, or generic row-contract
-  mechanics;
+- public Dataset state, state-specific actions, or generic row-contract and
+  row-set-contract mechanics;
 - private logical node schemas, join order, relational lowering, or engine
   placement;
 - datasource capability negotiation or local-stage limits;
@@ -81,7 +81,7 @@ It does not own:
 - the exact filterable generated-field inventory of Candidate, Event,
   Lifecycle, and compact analytical Dataset families;
 - Event or Lifecycle subject matching;
-- the family-specific `SubjectSet` row contract.
+- Event/Lifecycle subject-selection predicates and completeness proofs.
 
 Those modules consume the exact logical authority defined here. They may not
 reinterpret Population membership or turn aggregation coordinates into a new
@@ -91,12 +91,14 @@ Population kind.
 
 The observation model accepts these Dataset Core decisions as fixed:
 
-1. `PopulationDataset` and `MetricDataset` are sealed nominal Dataset families;
+1. `PopulationDataset` is the sole Entity-membership Dataset family;
+   `MetricDataset` is the governed observation family;
 2. construction is lazy, immutable, Session-owned, and performs no datasource
    work;
-3. every output row contract and public schema is complete before execution;
+3. every output row contract and row-set contract is complete before execution,
+   and the public schema is the row contract's canonical field inventory;
 4. every analytical family has paired logical and materialized public state
-   types with the same family id and row contract;
+   types with the same family id, row contract, and row-set contract;
 5. a materialized Dataset is an immutable scan leaf and cannot be transparently
    rewritten through to its original semantic sources;
 6. `definition_fingerprint` identifies a normalized definition, not realized
@@ -153,16 +155,35 @@ Metric has one unique governed, fanout-safe semantic path to that Entity. The
 explicit Entity resolves the analytical question; it does not resolve an
 ambiguous Relationship path or authorize unsafe aggregation.
 
-### Keep membership scope separate from output coordinates
+### Separate membership, observation scope, and output coordinates
 
-Population scope determines which Entity instances and source facts are
-eligible. `with_dimensions(...)` and `with_time_axis(...)` determine how
-eligible Metric contributions are positioned in output rows. `aggregate()`
-removes the Entity coordinate but preserves the same Population and
-target-Population authority.
+Population answers which Entity identities are eligible and why. Its reference
+scope applies only to member selection. It never supplies or clips a downstream
+Metric observation window.
 
-A time scope therefore does not imply a time-series Dataset, and a time
-coordinate does not widen or replace the Population.
+`session.observe(..., time_scope=..., time_dimension=...)` owns the Metric
+observation scope and reference axis, with or without an explicit `population=`.
+Coordinates position contributions within that observation scope. `aggregate()`
+removes the Entity coordinate while preserving membership provenance and the
+exact selected-contribution authority.
+
+A January registration Population may therefore be observed over February
+payments. The windows may be disjoint; that alone is not a compatibility error.
+An omitted observation scope means all facts admitted by the Metric semantics,
+not an inherited cohort window. Operators never invent a window from lineage.
+
+### One membership family across analytical domains
+
+`PopulationDataset` is the only public membership family. Explicit Entity roots
+and Event/Lifecycle `select_subjects(...)` are different producers of the same
+`population/entity-membership@v1` row contract. Source-owned selection predicates,
+coverage proofs, and selection time stay in the producing definition and lineage.
+There is no `SubjectSet` family, class, shape, or compatibility alias.
+
+Module 2 owns Population rows, filtering, sampling, and source-input admission.
+Module 6 owns the meaning and completeness requirements of Event/Lifecycle
+selection producers. Every published selection Population has complete member
+truth; subsequent membership filtering cannot repair an uncertain source selection.
 
 ### Observe one shared Population spine
 
@@ -186,8 +207,9 @@ than grouping or reduction. `group_by(...)` and `by_time(...)` are not public
 names or compatibility aliases in the clean cutover.
 
 For a logical Dataset, aggregation is recomputed from the governed Metric graph
-at the requested coordinates. It is not a blind reduction over already
-projected Entity values. Ratio, weighted mean, count-distinct, percentile,
+at the requested coordinates over the exact contributions selected by its
+upstream row operators. It is not a blind reduction over already projected
+Entity values or an unrestricted replay of every original Population member. Ratio, weighted mean, count-distinct, percentile,
 cumulative, and other non-additive semantics retain their owning component or
 distribution contracts.
 
@@ -257,7 +279,7 @@ FilterAdmissionV1
   admitted_shapes[]
   admitted_field_roles[]
   admitted_predicate_kinds[]
-  authority_rules[]
+  field_rules[]
 ```
 
 Filtering preserves the owning family and qualified shape while producing a
@@ -265,40 +287,31 @@ new current-row definition. Its downstream continuations are derived by
 matching that resulting Dataset contract against source and operator consumer
 admission contracts; `FilterAdmissionV1` does not copy a continuation list.
 
-Each authority rule is a closed tuple:
+Each field rule is a closed tuple within the filter admission contract:
 
 ```text
-FilterAuthorityRuleV1
+FilterFieldRuleV1
   input_state
   field_resolution
   admitted_field_roles[]
-  authority_mode
 ```
 
 The initial `input_state` values are `logical` and `materialized`.
 `field_resolution` is either `retained_row` or `reachable_semantic`; the latter
-is available only to the Population specialization defined below. The
-authority-mode vocabulary is supplied by the Materialization Runtime contract.
-Filtering uses these two existing modes:
+is available only to the Population specialization defined below. These facts
+already determine the required input nodes; no additional authority mode exists.
 
-```text
-semantic_current   require exact current semantic authority beyond or within the logical input
-materialized_only  evaluate only fields retained by the immutable Artifact leaf
-```
-
-The complete shared matrix is:
-
-| Input state | Field resolution | Authority mode | Admission |
+| Input state | Field resolution | Calculation | Admission |
 | --- | --- | --- | --- |
-| logical | retained current-row field | `semantic_current` | registered families and shapes |
-| logical | reachable semantic field absent from rows | `semantic_current` | Population only |
-| materialized | retained current-row field | `materialized_only` | registered families and shapes |
-| materialized | reachable semantic field absent from rows | `semantic_current` | Population only |
+| logical | retained current-row field | filter the admitted logical input | registered families and shapes |
+| logical | reachable semantic field absent from rows | add the exact admitted Dimension path | Population only |
+| materialized | retained current-row field | scan and filter immutable rows | registered families and shapes |
+| materialized | reachable semantic field absent from rows | join the exact admitted Dimension path to retained identities | Population only |
 
-Family modules may remove a row from this matrix for a shape or field role. They
-may not add another authority mode or reinterpret one. `dataset.contract()`
-projects the one exact rule selected for the current Dataset state and operand;
-it never reports one mode merely from the field role.
+Family modules may narrow this matrix by shape or field role. They cannot add
+implicit enrichment or source replay. `dataset.contract()` projects the exact
+field rule and concrete requirements for the current Dataset and operand;
+field role alone never determines a legal calculation.
 
 The initial `effect` vocabulary is:
 
@@ -309,7 +322,7 @@ row_subset
 
 `PopulationDataset` uses `membership`. Ordinary Metric, Delta,
 Association, Candidate, Event, Lifecycle, and other analytical result families
-use `row_subset`. `SubjectSet` does not admit `where(...)` in the first cutover.
+use `row_subset`. Event/Lifecycle-selected Populations use the same membership filter contract.
 A family that has no sound filter semantics does not register `where(...)`.
 
 ### Closed predicate vocabulary
@@ -443,7 +456,7 @@ and path must resolve through current semantic authority.
 A recovered runtime-Metric binding has no live `RuntimeMetricExpr` object and no
 catalog ref. Its exact selector is reacquired from the current Dataset through
 `dataset.fields.get(field_id)`, using the stable id exposed by the retained
-schema or row contract. `get(name)` resolves an exact current public field name,
+row-contract schema. `get(name)` resolves an exact current public field name,
 including generated family/operator fields, but does not parse semantic paths or
 typed keys.
 
@@ -541,7 +554,7 @@ The shared operation has these initial effects:
 | Input family/stage | Filter effect | Authority preserved | Population-input consequence |
 | --- | --- | --- | --- |
 | `PopulationDataset` | narrow eligible Entity membership | unsampled target-Population lineage | directly admitted through `population=` |
-| `MetricDataset[metric/entity@v1]` | select current Entity observation rows | exact target Entity, identity signature, original Population lineage | directly admitted through `population=` by exact identity projection |
+| registered Entity-present `MetricDataset` with unique Entity identity | select current Entity observation rows | exact target Entity, identity signature, original Population lineage | directly admitted through `population=` by exact identity projection |
 | coordinate-bearing reduced `MetricDataset` / `DeltaDataset` | select aggregate coordinate rows | contributors and Population authority of each retained row | not admitted; aggregate coordinates are not members |
 | `CandidateDataset[candidate/entity-outlier@v1]` | shortlist exact Entity candidate rows | source Dataset, Entity identity, score, and reason authority | directly admitted through `population=` by exact identity projection |
 | other `CandidateDataset` shapes | shortlist candidate rows | source Dataset, score, and reason authority | not admitted; their current rows own no Entity membership coordinate |
@@ -590,7 +603,7 @@ instant/window is not a first-cutover Population predicate. `time_scope` plus
 collection condition is expressed on an observed row-bearing Dataset. It may
 constrain later membership only when the resulting exact identity-bearing shape
 is explicitly passed through `population=`.
-Logical execution may observe a newer source snapshot on a later action, but it
+Logical execution may read changed source rows on a later unbound action, but it
 never chooses between start, end, any-time, or all-time membership semantics.
 
 This exception does not widen other families into semantic-source query
@@ -615,8 +628,9 @@ session.observe(..., population=selected_features)
 
 On an Entity-axis Metric Dataset, a value predicate selects observations before
 Entity-axis reduction. A following `aggregate()` aggregates only the selected
-observation rows but retains the original Population as target/denominator
-lineage plus the exact selection predicate. On an already reduced,
+observation rows but retains the original Population only as target/selection provenance,
+plus the exact selected-contribution binding. It does not retain an original
+computational denominator implicitly. On an already reduced,
 coordinate-bearing Dataset, the same predicate shape filters completed
 aggregate rows and cannot change their contributors.
 
@@ -638,24 +652,24 @@ must not reorder a predicate across:
 - Lifecycle replay;
 - component composition or cumulative evaluation.
 
-Physical pushdown does not change the public operator order, filter effect, or
+Same-domain Ibis composition does not change the public operator order, filter effect, or
 lineage.
 
-### Materialized filtering authority
+### Filtering input resolution
 
-A predicate over fields present in a logical Dataset row contract is
-`semantic_current`: it evaluates as part of that exact logical input definition
-under the already admitted current semantic and datasource authority.
+A predicate over fields present in a logical Dataset row contract
+evaluates as part of that exact logical input definition
+under the admitted current semantic definitions and source execution configuration.
 
-A predicate over fields present in a materialized Dataset row contract is
-`materialized_only`: the new logical Dataset scans and filters the immutable
+For a predicate over fields present in a materialized Dataset row contract,
+the new logical Dataset scans and filters the immutable
 Artifact without requiring original semantic sources. An exact typed ref may
 match its retained field identity after catalog drift; a current catalog entry
 is not required. `dataset.fields.get(...)` remains the canonical selector
 for retained generated fields.
 
 A Population membership predicate that introduces one admitted current
-membership-stable Dimension is `semantic_current`: it starts from the immutable
+membership-stable Dimension starts from the immutable
 identity leaf, joins only the unique single-valued atemporal semantic path, and
 never re-evaluates the Population's original scope, predicates, or sampling.
 Current-authority drift, temporal/versioned behavior, cardinality change, or an
@@ -706,8 +720,8 @@ signature. Marivo never asks the caller to repeat physical key column names and
 never substitutes a Dimension for missing Entity identity.
 
 `time_scope` is an optional literal half-open interval `[start, end)`. Its end
-is excluded exactly as authored. The scope restricts eligible membership and
-facts; it does not add a time coordinate.
+is excluded exactly as authored. The scope restricts eligible membership only.
+It does not constrain downstream Metric facts or add a time coordinate.
 
 `time_dimension` is legal only with `time_scope`. It selects the exact governed
 reference axis used to apply that scope. If omitted, construction uses this
@@ -720,7 +734,7 @@ closed order:
 Marivo does not select the first Metric's time axis or infer temporal meaning
 from a physical type or column name.
 
-### Population family contract
+### Population row semantics
 
 `PopulationDataset` has one initial family-qualified shape:
 
@@ -728,21 +742,22 @@ from a physical type or column name.
 population/entity-membership@v1
 ```
 
-Its family payload contains:
+Its family-owned row-semantics payload contains only the facts required to
+interpret the identity field:
 
 ```text
-PopulationContractV1
-  entity_ref
-  identity_signature[]
-  reference_scope
-  reference_time_dimension_ref
-  predicates[]
-  sampling
-  target_population_definition_fingerprint
+DatasetFamilyRowSemantics.complete_from_schema
 ```
 
-The payload is immutable and complete before execution. `sampling` is a closed
-exact-or-approximate logical request, not an execution receipt.
+This variant has no additional payload fields: the canonical
+`entity_identity` binding already owns the exact Entity ref, identity signature,
+logical type, and nullability.
+
+Reference scope, reference-time identity, normalized predicates, sampling, and
+target-Population definition identity remain in the normalized Dataset
+definition and bounded lineage. They do not change the meaning or type of one
+`entity_identity` row and are not duplicated in row semantics. `sampling` is a
+closed exact-or-approximate logical request, not an execution receipt.
 
 Every Population operator returns a new logical `PopulationDataset`, including
 when its input is materialized. In that case the immutable membership Artifact
@@ -764,22 +779,26 @@ The public coordinate column is:
 entity_identity
 ```
 
+The shared registered field id is `identity.entity_identity@v1`. Every
+Population producer and admitted Metric/Candidate identity projection uses this
+role and the exact Entity/signature binding; no domain-specific identity alias
+is introduced.
+
 Its logical type is a fixed-arity tuple whose components follow the compiled
 primary-key signature in declaration order. A one-column primary key still
 uses a one-element tuple. Scalar-versus-tuple dual layouts are forbidden.
 
-The row contract requires:
+The row and row-set contracts require:
 
 - `entity_identity` is non-null;
 - every component is non-null and conforms to its governed logical type;
 - rows are unique by the complete tuple;
-- cardinality is zero-or-more and unknown before execution;
-- default analytical ordering is unordered;
+- row-set cardinality is `keyed(unknown)`;
+- default analytical row-set ordering is unordered;
 - canonical presentation ordering uses the tuple's registered component order.
 
 Composite components are not exploded into independently joinable public
-columns. This prevents partial-key membership and keeps `PopulationDataset`,
-`SubjectSet`, multi-Metric observation, and downstream Entity alignment bound
+columns. This prevents partial-key membership and keeps `PopulationDataset`, multi-Metric observation, and downstream Entity alignment bound
 to one exact identity signature.
 
 Raw identities may appear only in Dataset rows and at explicit terminal reads.
@@ -877,63 +896,87 @@ meaning because it is ambiguous whether the second policy targets the original
 Population or the first realized sample. A caller constructs a new branch from
 the unsampled Population instead.
 
-Sampling preserves the `PopulationDataset` family and row contract but changes
-the definition fingerprint and adds target-Population lineage.
+Sampling preserves the `PopulationDataset` family, row contract, and
+`keyed(unknown)` row-set contract but changes the definition fingerprint and
+adds target-Population lineage.
 
 ## Default Population Inference
 
-### Metric analysis-Entity resolution
+### Metric computation roots and analysis Entity resolution
 
-Every admitted Metric observation input resolves one exact analysis Entity:
+A Metric computation root identifies its governed fact grain and join authority.
+An analysis Entity identifies one observational unit. Output Dimension/time
+coordinates identify reporting grain. These are separate facts; selecting an
+analysis Entity never rewrites a Metric's compiled computation root.
 
-- a base Metric uses its compiled `root_entity`;
-- a derived Metric recursively requires a coherent governed root Entity across
-  all components;
-- a cumulative Metric retains the compatible root Entity of its base;
-- a Session-owned runtime Metric expression resolves the governed Entity
-  binding of its leaves and composition;
-- an unresolved, empty, or ambiguous Entity set is not an observation input.
+Normalize the complete Metric graph before resolving observation authority:
 
-For a multi-Metric call, the default Population is inferred only when all
-resolved analysis Entities are exactly equal. A Relationship-connected set of
-different Entities is not "close enough" for default inference.
+1. With an explicit Population input, take its Entity as the analysis Entity.
+   Validate every base/component occurrence against that Entity through its own
+   unique governed path and exact contribution/aggregation contract. Different
+   computation roots are legal when every branch can be evaluated safely at the
+   shared analysis Entity and requested coordinates. Do not first demand that
+   a derived Metric's leaves already share one computation root.
+2. Without an explicit Population input, infer only when all governed base
+   occurrences resolve to the same exact computation-root Entity. Runtime and
+   cumulative roots use the same recursive rule. Otherwise require an explicit
+   Population with real safe candidates or split the observations.
+3. A missing computation root or unresolved semantic component fails locally.
+   Graph proximity, display names, first-input order, and estimated cost never
+   select an analysis Entity or Relationship path.
 
-Inference performs no datasource work and produces a real private logical
-`PopulationDataset` input node. Although the node is implicit in user syntax,
-its complete contract contributes to the Metric Dataset definition
-fingerprint, lineage, contract, errors, and later materialization authority.
+Each branch aggregates its governed facts before joining one-to-one to the
+shared spine. A finer-grained revenue branch and an order-count branch may
+therefore share an explicitly selected customer Population without multiplying
+orders by order lines. Existence of a Relationship alone is insufficient:
+allocation, temporal compatibility, and component composition must be proven.
 
-Dimensions and time Dimensions participate as compatibility constraints, not
-late Population inference candidates. Because the canonical source call has no
-Dimension output arguments, Metric bindings determine the initial default
-Entity. A later `with_dimensions(...)` or `with_time_axis(...)` call validates
-its semantic Entity and Relationship binding against that already fixed
-Population. It never re-runs inference or replaces the Population with the
-Dimension's Entity.
+Inference performs no datasource work and produces a private logical
+`PopulationDataset` root. Its contract contributes to definition identity and
+lineage. Later coordinates validate the already selected analysis Entity; they
+never replace it or restart inference.
 
-### Default scope
+### Default membership and observation scope
 
-When `population=` is omitted, `time_scope` and `time_dimension` on
-`session.observe(...)` are applied to the inferred Population using the same
-rules as explicit `session.population(...)`.
+When `population=` is omitted, construct the inferred Entity's all-eligible,
+exact, unscoped Population. Observe-level `time_scope` and `time_dimension` apply
+only to Metric evaluation. For an Entity with a registration axis, observing
+February spending does not implicitly select February registrations.
 
-When both are omitted, the default means all semantically eligible Entity
-instances under current versioning and source authority. This may be logically
-unbounded. Construction remains legal, while action policy may later require a
-narrower scope or explicit sampling.
+When observation scope is absent, Metric evaluation is semantically unbounded
+unless its own contract provides an exact bound. Construction can remain legal;
+action admission may require an explicit window. Metric-local filters affect
+only their contributions and never narrow shared membership.
 
-Filters embedded in an authored Metric definition do not become Population
-predicates. They affect only that Metric value, leaving the shared membership
-spine intact.
+Observation `time_dimension` requires `time_scope`. An omitted reference axis
+resolves from the governed Metric graph: use its unique compatible declared
+default, otherwise its sole compatible reference axis, otherwise fail with exact
+candidates. Do not borrow the Population membership axis or arbitrarily choose
+the first Metric's axis. Distinct branch axes require an existing exact governed
+temporal alignment contract; equal physical types or names are not proof.
+
+### Logical Entity coordinates are not an execution prerequisite
+
+The first cutover keeps one `session.observe(...)` spelling and the existing
+lazy coordinate chain. It introduces no observation builder class or parallel
+aggregate-source API. An Entity-present row contract is a compositional analysis
+unit, not a requirement to enumerate, persist, transfer, or execute an Entity
+feature table before a grouped report. The compiler may lower a complete safe
+chain directly to the requested aggregate grain.
+
+For Entity correlation/outliers, Entity is the actual sample unit. For trends,
+comparison, and attribution, the caller declares reporting coordinates and
+reduces Entity in the same lazy chain. Cross-root observations use explicit
+membership authority; no independent result alignment is introduced.
 
 ### Inference failures
 
 Default inference fails before Dataset construction when:
 
 - a Metric has no exact analysis Entity;
-- derived or runtime components disagree on Entity authority;
+- no explicit Population was supplied and component computation roots differ;
 - ordered Metric roots resolve different Entities;
-- a scoped request has no compatible reference time axis;
+- a scoped observation has no compatible Metric reference time axis;
 - more than one compatible reference time axis remains after defaults;
 - semantic readiness cannot prove the required Entity or Relationship facts.
 
@@ -981,8 +1024,6 @@ The initial closed `PopulationInput` union is:
 PopulationInput = (
     LogicalPopulationDataset
     | MaterializedPopulationDataset
-    | LogicalSubjectSet
-    | MaterializedSubjectSet
     | LogicalMetricDataset
     | MaterializedMetricDataset
     | LogicalCandidateDataset
@@ -1010,9 +1051,10 @@ The signature deliberately removes eager-observe concerns:
 
 - no `grain=`; use `.with_time_axis(..., grain=...)`;
 - no `dimensions=`; use `.with_dimensions(...)`;
-- no `slice_by=`; filter Population membership before observation or use the
-  shared `MetricDataset.where(...)` operation after observation;
-- no `cohort=`; pass one exact `PopulationInput` through `population=`;
+- no `slice_by=`; filter Population membership before observation, or declare
+  the required coordinates and use `MetricDataset.where(...)` for current rows;
+- no `cohort=`; pass one exact `PopulationInput` through `population=`; its
+  selection scope is independent of observe-level `time_scope`/`time_dimension`;
 - no `expect_shape=`; the row contract is already available locally;
 - no `analysis_purpose=`; Session question and action records own execution
   purpose rather than changing a logical Dataset definition.
@@ -1103,24 +1145,21 @@ they do not define a second Event- or Lifecycle-specific binding mechanism.
 
 ### Explicit Population and scope matrix
 
-The argument matrix is exact:
-
-| `population` | `time_scope` / `time_dimension` | Result |
+| `population` | Observation scope | Result |
 | --- | --- | --- |
-| omitted | omitted | infer the all-eligible default Population |
-| omitted | supplied consistently | infer the default Entity and construct its scoped Population |
-| `PopulationDataset` | both omitted | consume that exact Population definition or Artifact authority |
-| `SubjectSet` | both omitted | consume that exact selected-subject membership authority |
-| `MetricDataset[metric/entity@v1]` | both omitted | consume the exact current Entity row set by identity projection |
-| `CandidateDataset[candidate/entity-outlier@v1]` | both omitted | consume the exact current Candidate row set by identity projection |
-| any explicit `PopulationInput` | either supplied | reject conflicting membership owners |
+| omitted | omitted | infer all-eligible membership; evaluate semantically unbounded Metrics |
+| omitted | supplied consistently | infer all-eligible membership; evaluate Metrics in the explicit observation window |
+| admitted logical or materialized Population input | omitted | consume its members; evaluate semantically unbounded Metrics without inheriting selection time |
+| admitted logical or materialized Population input | supplied consistently | consume its members; evaluate Metrics in the independent observation window |
+| any | `time_dimension` without `time_scope` | reject incomplete observation scope |
 
-There is no precedence rule, intersection fallback, or implicit rescoping. The
-repair for the last row is to construct the desired scope before the call and
-pass only `population=`.
+Disjoint membership and observation windows are legal. Compatibility checks
+validate governed identity, paths, time semantics, and sampling; they do not
+intersect or overwrite the two scopes. A finite scope or endpoint required by a
+Metric must be provided at observation construction, even when membership has a
+finite selection window.
 
-Every explicit value selects one immutable `PopulationInputContractV1` during
-source construction:
+Every explicit value resolves one immutable private input contract:
 
 ```text
 PopulationInputContractV1
@@ -1131,27 +1170,31 @@ PopulationInputContractV1
   identity_field_id
   identity_field_role = entity_identity
   identity_signature[]
+  identity_uniqueness_contract
   input_authority_token
-  scope_and_sampling_authority
+  membership_selection_authority
+  sampling_authority
 ```
 
-`PopulationDataset` and `SubjectSet` use `direct_membership`.
-`metric/entity@v1` and `candidate/entity-outlier@v1` use
-`identity_projection`. The selected contract and exact input Dataset definition
-fingerprint participate in the consuming source definition fingerprint. No mode
-creates or returns another public Dataset.
+`PopulationDataset` uses `direct_membership`, including Event/Lifecycle selection
+outputs. Registered Entity-present Metric shapes and Entity-outlier Candidates
+use `identity_projection`. Mode, exact input identity, and uniqueness proof bind
+the consuming definition. This consumption creates no intermediate public
+Dataset and does not mutate the input family.
 
 ### Explicit `PopulationDataset` admission
 
 An explicit Population is admitted only when:
 
-- it belongs to the same Session;
+- it is a Logical input in the consuming Session or an explicitly selected
+  Materialized Artifact from the same Store;
 - it has the exact current `population/entity-membership@v1` contract;
 - its Entity identity signature is complete;
 - every Metric is computable at that exact Entity under one unique governed
   semantic path;
-- all scope, time-axis, versioning, Relationship, and fanout requirements are
-  mutually compatible;
+- membership selection and Metric observation retain independent scopes;
+- observation time-axis, versioning, Relationship, and fanout requirements are
+  proven for every branch at the selected analysis Entity;
 - any sampling policy applies to the Entity spine before Metric evaluation.
 
 The explicit Entity may differ from a Metric's compiled root Entity. This is
@@ -1165,59 +1208,43 @@ leaf. Downstream Metric evaluation may join current governed facts to those
 identities, but it cannot reach through the leaf and re-evaluate its original
 membership predicates.
 
-### Explicit `SubjectSet` admission
-
-`SubjectSet` is a sibling Dataset family, not a Python subclass of
-`PopulationDataset`. It is admitted through `PopulationInputContractV1` with
-`mode = direct_membership`.
-
-Admission requires:
-
-- same Session ownership;
-- one exact subject Entity ref;
-- an ordered identity signature exactly equal to that Entity's primary key;
-- a ready logical identity-producing definition or an immutable materialized
-  identity Artifact;
-- scope and sampling authority compatible with every Metric;
-- one unique safe Metric path to the subject Entity.
-
-The observation preserves SubjectSet lineage and target-Population authority.
-It does not copy raw identities into metadata. A logical SubjectSet may lower
-as a same-plan semi-join; a materialized SubjectSet is consumed as an immutable
-identity scan leaf. Those lowering details belong to later modules.
-
 ### Explicit identity-bearing analysis Dataset admission
 
-Only `metric/entity@v1` and `candidate/entity-outlier@v1` are admitted with
-`mode = identity_projection`. Their row contracts must already bind:
+The closed registration includes:
 
-- one exact target Entity ref;
-- one non-null fixed-arity field registered with the stable field id and
-  `entity_identity` role required by the exact shape;
-- an identity signature exactly equal to that Entity's primary key;
-- uniqueness by the complete identity tuple;
-- complete current-row authority under the exact logical definition or
-  materialized Artifact.
+| Input shape | Additional identity-projection requirement |
+| --- | --- |
+| `metric/entity@v1` | exact unique Entity key |
+| `metric/entity-dimension@v1` | every retained Dimension functionally depends on Entity; exact unique Entity key |
+| `metric/entity-time@v1` | retained time coordinate functionally depends on Entity; exact unique Entity key |
+| `metric/entity-dimension-time@v1` | every retained coordinate functionally depends on Entity; exact unique Entity key |
+| `candidate/entity-outlier@v1` | exact unique Entity key under its source contract |
 
-The input Dataset remains a Metric or Candidate Dataset. Passing it through
-`population=` is the explicit user decision to consume its current row set as
-membership; `where(...)`, `rank(...)`, and `limit(...)` create ordinary new
-definitions in that same family and do not independently create a Population or
-`SubjectSet` authority.
+All rows must bind one exact analysis Entity, complete non-null tuple identity,
+and a registered uniqueness proof for Entity alone. A compound Entity/coordinate
+row key is insufficient. Uniqueness must follow from the semantic/row-set
+contract before execution; observed accidental uniqueness never establishes
+admission. Execution validates that proof against realized rows.
 
-A logical input contributes one same-plan identity projection and semi-join. A
-materialized input contributes one immutable scan-leaf projection of its
-retained identity field. The compiler may not collect identities, scan unrelated
-value fields, silently deduplicate rows, or reach through an Artifact to replay
-its origin. Null, duplicate, missing, stale, or signature-incompatible identity
-authority fails atomically. An empty but complete current row set is a valid
-empty membership input.
+A customer feature Dataset may add a to-one region coordinate, filter `region`,
+and still supply membership. Projection, filtering, ranking, and limiting retain
+the input's proven Entity uniqueness. They never infer uniqueness from a limit
+of one or a predicate that happens to leave one date per customer.
 
-Other Metric shapes have removed the Entity axis. Other Candidate shapes retain
-coordinates or analytical items rather than one exact Entity identity. They are
-rejected without source replay or inferred membership. Physical column names,
-display names, and merely similar identity-shaped fields never establish this
-role.
+A true customer-by-day Dataset is rejected. Module 2 does not invent `any`,
+`all`, latest-row, or deduplication semantics. The repair is to author selection
+at one row per Entity with a governed Metric or use a registered domain-owned
+subject selection. Entity-reduced shapes remain ineligible.
+
+The original Metric or Candidate family is preserved. Passing it through
+`population=` explicitly consumes its selected identity rows. Logical input
+contributes a same-plan identity projection and semi-join. Materialized input
+contributes an immutable retained-identity projection, never origin replay or
+local identity collection. Empty complete input is valid; null, duplicate, or
+signature-incompatible identity fails atomically.
+
+Its original observation window remains selection provenance. The consuming
+observe call independently binds its own Metric window and reference axis.
 
 ### Local construction sequence
 
@@ -1225,10 +1252,11 @@ Calling `session.observe(...)` performs only:
 
 1. normalize the ordered Metric inputs;
 2. normalize or infer one membership authority;
-3. validate Session, Entity, identity, scope, Relationship, and semantic
-   compatibility;
+3. validate Session, Entity, identity, independent membership/observation
+   scopes, Relationship, and component compatibility;
 4. construct one ordered Metric-binding set;
-5. derive the complete Entity-grained row contract and schema;
+5. derive the complete Entity-grained row contract and row-set contract; the
+   public schema is the row contract's canonical field inventory;
 6. capture row-dependent action-time requirements;
 7. derive the definition fingerprint and bounded lineage;
 8. return one immutable logical `MetricDataset`.
@@ -1238,7 +1266,7 @@ create a Run, publish an Artifact, or choose a physical plan.
 
 ## Entity-Grained Multi-Metric Observation
 
-### Family contract
+### Family row semantics
 
 The Entity observation shape is:
 
@@ -1246,41 +1274,47 @@ The Entity observation shape is:
 metric/entity@v1
 ```
 
-Its family payload is conceptually:
+Its family-owned row-semantics payload uses two closed variants so retained
+Entity context is present only after the Entity coordinate has been reduced:
 
 ```text
-MetricObservationContractV1
-  population_binding
-  target_entity_ref
-  identity_signature[]
+DatasetFamilyRowSemantics: metric/entity-present@v1
   metric_bindings[]
-  dimension_coordinates[]
-  time_coordinate
-  entity_axis = present
-  aggregation_contracts[]
+  coordinate_semantics[]
+
+DatasetFamilyRowSemantics: metric/entity-reduced@v1
+  reduced_entity_ref
+  reduced_identity_signature[]
+  metric_bindings[]
+  coordinate_semantics[]
 ```
 
 Every ordered Metric binding contains:
 
 ```text
-metric_key
-metric_identity
-value_field_id
-value_column
-semantic_type
-unit
-aggregation_contract
-nullable
+  value_field_id
+  unit
+  aggregation_contract
 ```
 
-`metric_key` is a stable semantic identity, not a display label. Catalog
-Metrics derive it from the exact Metric ref. Runtime expressions derive it from
-their governed expression fingerprint. Duplicate semantic identities are
+Every coordinate-semantics entry likewise references its canonical
+`DatasetFieldId` and adds only family-specific grain, path, or fold meaning not
+already present in the common `DatasetField`. Public name, role, identity,
+logical and physical type state, and nullability remain owned solely by
+`DatasetRowContract.schema`. Population binding, explicit input identity, and
+normalized observation parameters remain in the Dataset definition and lineage.
+For an Entity-present shape, the canonical Entity coordinate binding owns the
+target Entity ref and identity signature. The reduced variant retains them as
+independent row context only because that public field is no longer present.
+
+Each value field's `DatasetField.identity` is the stable semantic identity, not
+a display label. Catalog Metrics use the exact Metric ref; runtime expressions
+use their governed expression fingerprint. Duplicate semantic identities are
 rejected even if labels differ.
 
 Value columns preserve request order. Public names use the governed Metric name
 or runtime label and the Dataset Core's deterministic collision normalization.
-Display-name changes do not alter `metric_key` or value identity.
+Display-name changes do not alter the field id or value identity.
 
 ### Entity row meaning
 
@@ -1339,8 +1373,9 @@ Metric-local semantic filter.
 
 Filtering while the Entity axis is present selects current observation rows. A
 following `aggregate()` aggregates only those selected rows, preserves the
-original Population as target/denominator lineage, and records the selection
-predicate separately. Filtering after `aggregate()` selects completed
+original Population as target/selection provenance, and records the exact
+selected-contribution binding separately. No original computational denominator
+is inherited from Population lineage. Filtering after `aggregate()` selects completed
 Dimension, time, or Dimension-by-time result rows and cannot change their
 contributors. The exact singleton scalar shape rejects `where(...)` under the
 common family admission rule.
@@ -1354,13 +1389,43 @@ followup = session.observe(metrics=[lifetime_value], population=high_resource)
 ```
 
 The new source binds `high_resource` and its exact identity-projection contract;
-`high_resource` remains a Metric Dataset. No intermediate SubjectSet, detached
+`high_resource` remains a Metric Dataset. No intermediate selection Population, detached
 selection, or locally collected identity list is created.
 
 A materialized Metric Dataset may be filtered only by fields retained in its
 committed row contract. It produces a new logical Dataset over the immutable
 scan leaf and cannot regain an absent Dimension, Metric component, or source
 field from lineage.
+
+### Selected contributions and computational denominators
+
+`where`, `rank` followed by `limit`, and any admitted row-subset operation bind
+the exact upstream observation definition and complete
+Entity/Dimension/time coordinates at which the predicate was evaluated. Private
+component state is selected with those coordinates. The selection is not reduced
+to Entity identity unless the upstream grain was Entity-only.
+
+Logical `aggregate()` first establishes the selected upstream coordinates, then
+recomputes each Metric from only the governed contributions represented by those
+coordinates. It does not rerun the predicate at the coarser output grain, admit
+other dates/categories of a selected Entity, or evaluate selection and components
+against different source realizations. Coordinate introduction after selection
+must preserve this contribution boundary; an unprovable refinement fails locally.
+Registered distinct/distribution/cumulative contracts must prove the same bound
+or reject the transition; the availability of an origin graph is not enough.
+
+For components, the common selection applies to both numerator and denominator
+contributions; Metric-local semantic filters remain local to each component.
+The original Population remains selection/coverage provenance only. Computing a
+share against the original total requires an explicit governed denominator
+Metric, not a hidden effect of `where(...)`.
+
+Example: A has 8 conversions / 10 opportunities, B has 1 / 10. Selecting Entity
+rows with conversion rate above 50% and aggregating yields 8 / 10 = 80%, not
+8 / 20 = 40%. Selecting one customer-day never admits that customer's other days.
+The selected contribution keys, graph binding, and fold contract participate in
+definition identity and retained-state validation. No raw keys enter public
+metadata.
 
 ### Metric projection
 
@@ -1473,14 +1538,14 @@ Construction validates:
 
 - exact current-catalog time-Dimension identity;
 - unique reachability from the Population Entity and every Metric branch;
-- compatibility with the Population reference scope;
+- compatibility with the observation reference scope;
 - declared physical granularity and timezone/calendar authority;
 - requested grain is not finer than the semantic source permits;
 - semi-additive status-axis and cumulative-axis constraints;
 - one common time coordinate for all Metric roots.
 
 `with_time_axis(...)` partitions eligible contributions into governed buckets.
-It does not create or widen the Population scope. If the Population has a
+It does not change membership or the observation scope. If the observation has a
 finite `time_scope`, bucket membership is clipped to that exact half-open
 interval. A scope end is never advanced to create an inclusive last day.
 
@@ -1494,7 +1559,7 @@ Dimension and time coordinates are derived from one governed coordinate spine
 rooted at the Population Entity, independently of Metric non-nullness.
 
 The spine contains distinct coordinate tuples reachable for eligible members
-under the selected scope and semantic Relationships. It is not:
+under the observation scope and semantic Relationships. It is not:
 
 - the intersection or union of non-null Metric rows;
 - a full Dimension-by-time Cartesian product;
@@ -1505,8 +1570,9 @@ under the selected scope and semantic Relationships. It is not:
 Metric branches are evaluated at the exact spine coordinate and joined
 one-to-one. Missing Metric contributions stay null. A Population member with no
 reachable selected coordinate has no row in the coordinate-shaped Dataset, but
-the retained Population authority still owns its denominator and later coverage
-accounting.
+the retained Population authority still explains eligibility and coverage. It
+does not implicitly contribute to a Metric denominator without a governed
+component contribution at that coordinate.
 
 The planner module decides how to lower the admitted spine. It may not change
 its logical membership or coordinate domain.
@@ -1528,24 +1594,25 @@ The exact transitions are:
 
 | Input shape | Output shape | Output row key |
 | --- | --- | --- |
-| `metric/entity@v1` | `metric/scalar@v1` | explicit singleton contract |
+| `metric/entity@v1` | `metric/scalar@v1` | empty row key; singleton row-set contract |
 | `metric/entity-dimension@v1` | `metric/dimension@v1` | ordered Dimension tuple |
 | `metric/entity-time@v1` | `metric/time@v1` | exact time bucket |
 | `metric/entity-dimension-time@v1` | `metric/dimension-time@v1` | Dimension tuple + time bucket |
 
 The scalar shape has exactly one logical row for the Population definition,
-including an empty Population. It uses the Dataset Core singleton exception
+including an empty Population or empty selected contribution set. It uses the
+Dataset Core singleton row-set variant
 and adds no synthetic public `_scalar` column.
 
 All non-scalar reduced rows are unique by the exact ordered coordinate key.
-Default ordering remains unordered unless a later registered operator declares
-an order.
+Default row-set ordering remains unordered unless a later registered operator
+declares an order.
 
 `aggregate()` retains:
 
 - Population definition and target-Population lineage;
 - Entity identity authority as the reduced analytical unit;
-- reference scope and sampling intent;
+- membership-selection provenance, independent observation scope, and sampling intent;
 - exact Metric identities and value order;
 - Dimension/time coordinate identity;
 - approximation requirements and action-time checks.
@@ -1589,16 +1656,17 @@ def rollup(
     *,
     drop_dimensions: tuple[SemanticInput[DimensionKind], ...] = (),
     grain: TemporalGrain | None = None,
+    drop_time: bool = False,
 ) -> LogicalMetricDataset:
     ...
 ```
 
 `rollup(...)` is admitted only on Entity-reduced Metric shapes and requires at
-least one non-empty `drop_dimensions` tuple or `grain`. It may remove retained
-Dimension coordinates, replace one retained time grain with an exact coarser
-grain, or do both in one coordinate transition. It cannot remove the time
-coordinate, introduce a new Dimension or time axis, refine a grain, accept a
-generic axis selector, or change Population membership.
+least one non-empty `drop_dimensions` tuple, `grain`, or `drop_time=True`. It may
+remove Dimensions, coarsen time, or remove time under an exact registered temporal
+fold. `drop_time` is an exact bool; it requires a retained time coordinate and
+cannot be combined with `grain`. It cannot introduce coordinates, refine grain,
+accept a generic axis selector, or change Population membership.
 
 Its meaning is deliberately different from `aggregate()`:
 
@@ -1614,7 +1682,7 @@ rollup(...)
 
 The distinction is invariant across input states. A Logical input retains a
 fold node after its upstream logical relation and may receive an equivalent
-compiler pushdown. A Materialized input creates the same fold over its exact
+same-domain Ibis composition. A Materialized input creates the same fold over its exact
 immutable Artifact scan leaf. The Logical branch may not reinterpret rollup as
 a fresh Metric-graph recomputation, and the Materialized branch may not reach
 through origin lineage.
@@ -1625,20 +1693,23 @@ The admitted Entity-reduced transitions are:
 | --- | --- | --- |
 | `metric/dimension@v1` | drop one or more retained Dimensions | `metric/dimension@v1` or `metric/scalar@v1` |
 | `metric/time@v1` | coarsen the retained grain | `metric/time@v1` |
+| `metric/time@v1` | `drop_time=True` | `metric/scalar@v1` |
+| `metric/dimension-time@v1` | `drop_time=True`, optionally dropping Dimensions | `metric/dimension@v1` or `metric/scalar@v1` |
 | `metric/dimension-time@v1` | drop retained Dimensions | `metric/dimension-time@v1` or `metric/time@v1` |
 | `metric/dimension-time@v1` | coarsen grain, optionally dropping Dimensions | `metric/dimension-time@v1` or `metric/time@v1` |
 
-A request containing both arguments canonicalizes to time-grain folding within
+A request changing both coordinate kinds canonicalizes to time folding within
 the complete original Dimension tuple, followed by Dimension folding at the
-target grain. It is semantically equal to the corresponding two-call chain and
-uses the same normalized semantic nodes; authored occurrence paths remain
-available only for diagnostics. A Metric whose folds cannot compose in that
+retained output time grain, or with no time coordinate after time removal.
+It is semantically equal to the corresponding two-call chain and uses the same
+normalized semantic nodes; authored occurrence paths remain available only for
+diagnostics. A Metric whose folds cannot compose in that
 order is rejected. Cumulative Dimension folding additionally requires equal
 evaluation ends and compatible coverage across every combined row.
 
-Every named Dimension must be an exact distinct retained coordinate. The
-target grain must be strictly coarser than the current grain under one exact
-calendar/containment contract. All Metrics in an arity-N Dataset must admit the
+Every named Dimension must be an exact distinct retained coordinate. When
+`grain` is supplied, its target must be strictly coarser than the current grain
+under one exact calendar/containment contract. All Metrics in an arity-N Dataset must admit the
 same requested coordinate transition; no Metric column may be omitted or
 silently approximated.
 
@@ -1665,24 +1736,32 @@ calendar period. Dimension reduction of cumulative values requires a separate
 exact fold for that Dimension axis; the time `last` rule does not authorize a
 Dimension sum.
 
-When dropping the final Dimension produces `metric/scalar@v1`, the output keeps
-the common explicit singleton contract even when the current input has zero
-rows. Each Metric's fold registration must define its empty-input identity or
-null result. A missing empty-fold rule rejects the scalar transition rather
+When removing the final coordinate produces `metric/scalar@v1`, the output keeps
+the common explicit singleton row-set contract even when the current input has
+zero rows. Each Metric's fold registration must define its empty-input identity
+or null result. A missing empty-fold rule rejects the scalar transition rather
 than returning zero rows or inventing a default value.
 
-Construction derives the complete output coordinates, row key, schema,
+Construction derives the complete output row contract, row-set contract,
 coverage requirements, per-Metric fold ids, and action-time checks. Definition
 identity binds the exact input authority token, ordered dropped Dimension refs,
-target grain/calendar identity, fold-contract versions, and output row
+`drop_time`, target grain/calendar identity, fold-contract versions, and output row
 contract. Unsupported folds fail locally with a repair to author and execute a
 fresh observation at the target coordinates; no error suggests replaying a
 Materialized origin.
 
-Arbitrary time-axis deletion and whole-window scalarization are absent from the
-first-cutover rollup contract. A caller that needs a scalar over a governed
-window authors that scalar observation explicitly so its temporal aggregation
-meaning remains owned by the Metric graph.
+Time-axis removal folds only the current retained buckets and their compatible
+component state. Additive flow sums, extrema, and ratio/mean sufficient-state
+merges are admitted when their exact temporal fold is registered. Semi-additive
+and cumulative Metrics require their declared endpoint/fold and coverage proof;
+no generic sum or implicit latest timestamp is supplied.
+
+For a complete daily revenue series, `rollup(drop_time=True)` computes its
+window total without a new observation. If a prior `where(...)` selected only
+some days, the result is a total of those selected periods. It retains that
+selection and may not claim complete-window coverage. Disjoint, partial, empty,
+and null buckets follow the exact fold/coverage contract; missing authority
+rejects the transition instead of replaying the origin.
 
 ## Aggregation Admission
 
@@ -1782,7 +1861,7 @@ With a time coordinate:
 - all-history, grain-to-date, and trailing anchors remain distinct definitions.
 
 Without a time coordinate, the result means the cumulative value at one exact
-evaluation end. A finite Population reference-scope end is therefore required.
+evaluation end. A finite observation-scope end is therefore required.
 The scope clips eligible displayed facts but does not silently reset an
 all-history anchor.
 
@@ -1806,15 +1885,40 @@ The initial matrix is:
 | semi-additive value reduced only across a non-time Entity axis | `sum` |
 | additive linear composition | admitted only when the composed value is itself proven additive |
 | `count_distinct` | admitted only when the distinct identity is exactly the Population Entity key and disjointness is proven by the row contract |
-| mean, weighted mean, ratio | rejected without retained named sufficient-statistic value bindings |
+| mean, weighted mean, ratio | merge their required named sufficient state under exact component folds |
 | median, percentile, other distribution statistic | rejected |
 | cumulative | rejected in the first cutover |
 | opaque or unresolved composition | rejected |
 
-Public Metric value columns alone do not imply hidden component authority.
-Another selected Metric column is not silently borrowed as a numerator,
-denominator, count, or weight. A future retained-statistics contract would
-require an explicit amendment to this module and the Dataset row contract.
+### Required retained state in the first cutover
+
+Public values alone do not establish sufficient statistics. The first-cutover
+aggregation registry requires these private, row-keyed Artifact parts whenever
+the admitted Metric graph uses the corresponding contract:
+
+| Metric | Required retained state | Merge and finalize |
+| --- | --- | --- |
+| mean | sum and non-null count | sum both; divide under the Metric null/empty contract |
+| weighted mean | weighted numerator and additive weight sum | sum both; apply governed zero-weight policy |
+| ratio | named state for each component graph | merge each component by its own exact fold; divide under the governed denominator policy |
+
+A ratio does not make its components additive. A distinct, semi-additive,
+percentile, or cumulative component must independently provide an admitted exact
+state/fold for the requested axis; otherwise the parent transition is blocked.
+Exact distinct/distribution states are retained only for explicitly registered
+contracts. Generic quantile Entity-axis folding remains outside the first cutover.
+
+Filtering selects primary rows and the exact associated component-state records
+together. Projection retains the dependency closure of the selected Metric.
+Coordinate operations transform parts under the same allocation contract as
+values. Parts must reconcile with primary values and commit atomically; missing
+required parts block publication, and corrupt parts fail downstream dependency
+validation. No original datasource is queried to reconstruct missing parts.
+
+These bindings are private storage-authorized state, not extra public columns.
+Another selected Metric column is never silently borrowed as a numerator,
+denominator, count, or weight. `.contract()` derives legal folds from the exact
+registered and retained state, identically after cold recovery.
 
 When rejected, the structured repair is:
 
@@ -1833,6 +1937,13 @@ fold, or averages already aggregated ratios.
 
 ## Population and Coordinate Compatibility
 
+These are concrete observation-input constraints, not a verdict about freshness
+or suitability. The Agent may explicitly select a committed Population, selection Population,
+Metric, or Candidate from another Session in the same Store. Its immutable identity
+and producing Session remain intact; the consuming Session owns only the new Run
+and output. No source-version comparison or maximum-age policy is applied.
+A foreign Logical definition or unrelated field selector is still rejected.
+
 ### Exact compatibility checks
 
 Construction compares semantic identity, never display names. The complete
@@ -1841,10 +1952,9 @@ admission set is:
 | Input | Required compatibility |
 | --- | --- |
 | Metric roots | one exact inferred Entity, or one unique safe path to the explicit Population-input Entity |
-| `PopulationDataset` input | same Session, exact family contract, complete identity, compatible scope and sampling |
-| `SubjectSet` input | same Session, exact subject Entity and identity signature, ready complete membership authority |
-| exact Entity Metric input | same Session, exact `metric/entity@v1` shape, unique complete retained identity, compatible scope and sampling |
-| entity-outlier Candidate input | same Session, exact `candidate/entity-outlier@v1` shape, unique complete retained identity, compatible scope and sampling |
+| `PopulationDataset` input | same-Session Logical or explicit same-Store Materialized input; exact family, complete identity, compatible scope and sampling |
+| exact Entity Metric input | same-Session Logical or explicit same-Store Materialized input; registered Entity-present shape with proven Entity-only uniqueness, independent observation scope, and compatible sampling |
+| entity-outlier Candidate input | same-Session Logical or explicit same-Store Materialized input; exact `candidate/entity-outlier@v1` shape, unique complete identity, compatible scope and sampling |
 | Dimension | one unique governed path from Population Entity and safe Metric contribution semantics |
 | time Dimension | one unique governed path, compatible granularity/calendar/scope, common to all Metrics |
 | multiple Metrics | one shared Population and coordinate spine; no independent row-set alignment |
@@ -1855,60 +1965,39 @@ datasource ids, or display labels never establish compatibility.
 
 ### Population versus Metric scope
 
-The Population reference scope is the outer eligibility boundary. Metric
-definitions may own narrower semantic filters, cumulative history, status-time
-folds, or versioning behavior, but may not widen Population membership.
+The Population is the outer identity boundary, not a fact-time boundary.
 
-For each Metric:
+- Membership scope, predicates, and any source-owned subject selection determine
+  eligible identities and retain their own selection-time provenance.
+- Observation scope and reference axis constrain ordinary Metric facts.
+- Metric-local filters affect only their governed component contributions.
+- Cumulative history or status lookback may read outside the observation window
+  when its exact semantic contract requires it, without adding Population members.
+- Time coordinates partition observation contributions; they never select a new
+  cohort or change observation scope.
+- Row selection restricts exact upstream contributions. Original target lineage
+  does not become an implicit computational denominator.
+- Null values do not remove members or valid coordinates.
 
-- Population predicates determine which Entity identities are eligible;
-- the Population reference scope constrains ordinary eligible facts;
-- Metric-local filters determine contributing values only;
-- cumulative all-history lookback may read pre-scope facts to compute an
-  in-scope endpoint without adding pre-scope Entity members;
-- time coordinates partition eligible contributions and do not rescope them;
-- null Metric results do not remove members or coordinates.
-
-A Metric whose semantic evaluation necessarily requires a conflicting Entity
-membership or incompatible reference scope is rejected. Marivo does not merge
-scopes by union, intersection, earliest start, or latest end.
+An incompatible Entity mapping, missing temporal alignment, or unsupported
+component fold fails locally. A different membership window and observation
+window is not itself a conflict, and no consumer inherits selection time as an
+observation default.
 
 ### Structured repair matrix
 
-The observation model requires structured `AnalysisError` subclasses with
-expected, received, location, and a mechanically valid next action.
-
-| Failure | Required repair owner |
+| Conflict | Concrete repair |
 | --- | --- |
-| no exact default Entity | construct a specific explicit Population only when a real compatible candidate exists, otherwise repair Metric authoring |
-| different inferred Entities | split observations or pass a compatible explicit Population |
-| ambiguous Relationship path | repair or disambiguate semantic Relationships; explicit Population alone is insufficient |
-| explicit scope plus explicit `PopulationInput` | move scope construction before the source call and remove source-level scope args |
-| Population input Entity/signature mismatch | pass an input for the exact target Entity or repair the current semantic path |
-| Population input lacks an admitted identity-bearing shape | pass `PopulationDataset`, `SubjectSet`, `metric/entity@v1`, or `candidate/entity-outlier@v1` |
-| Population input identity is null, duplicate, missing, or stale | repair or reconstruct the exact input Dataset; never deduplicate or replay it |
-| unreachable predicate/Dimension | choose a real reachable ref or repair the semantic Relationship |
-| time Dimension passed to `with_dimensions` | use `with_time_axis(time_dimension, grain=...)` |
-| incompatible grain | use the bounded legal grains derived from the exact time-Dimension contract |
-| repeated time coordinate | reconstruct the chain with one exact `with_time_axis(...)` declaration |
-| aggregate after Entity axis removed | remove the repeated `aggregate()` or reconstruct from the Entity-grained Dataset |
-| unsupported Metric reaggregation | aggregate before materialization or repair the Metric's governed aggregation/components |
-| missing, extra, secret-like, or invalid parameterized source binding | rebuild the source inside `Session.source_bindings(...)` with the exact current Entity parameter contract |
-| rollup on an Entity-grained or unsupported shape | call `aggregate()` first or author the target observation directly |
-| missing retained rollup state or incompatible fold | author and execute a fresh observation at the target Dimensions/grain; never replay a Materialized origin |
-| filter after sampling | move all Population predicates before `.sample(...)` |
-| repeated sampling | branch from the unsampled Population and apply one policy |
-| bool, kwargs, string, lambda, SQL, or expression predicate | rebuild the condition with the focused `mv.*` predicate helpers |
-| field is absent from a non-Population row contract | add and retain the field before filtering, or select one exact current field from `dataset.fields` |
-| wrong field role or incompatible literal | choose an admitted current field and literal type shown by the row contract |
-| temporal, versioned, or collection-valued Population field | use `time_scope` for temporal eligibility, filter an observed Dataset, or choose a single-valued atemporal Dimension |
-| materialized filter requires an absent semantic field | reconstruct the logical chain or retain the field before materialization |
-| row selection passed through an unsupported consumer path | pass the exact admitted identity-bearing Dataset through `population=` |
-| cross-Session Dataset | reacquire or reconstruct the input in the owning Session |
+| ambiguous implicit analysis Entity | provide an explicit Population from real safe Entity candidates, or split observations |
+| unsafe component mapping to explicit Entity | inspect the named component and governed path/allocation contract |
+| missing observation scope/axis | supply the required observe-level window and exact Metric reference axis |
+| Population input lacks proven Entity uniqueness | select at Entity grain or use a registered domain selection; never deduplicate implicitly |
+| row selection lacks a contribution mapping for recomputation | retain exact component state or author the required coordinates before selection |
+| absent retained fold/state | author the observation before materialization at the desired grain; do not replay an Artifact origin |
+| unsupported time removal | use an exact registered temporal fold or author the requested window observation explicitly |
 
-Suggestions are derived from current catalog and row-contract facts. Errors do
-not hardcode refs, choose an analytical Entity, or claim that an action will fit
-runtime bounds.
+Repairs contain expected/received contracts and only real candidates, and never
+render identity literals or choose business meaning heuristically.
 
 ## Population and Metric Materialization Contracts
 
@@ -1917,7 +2006,11 @@ Every Population- or Metric-producing definition resolves the common
 admission. Module 2 owns the registrations and semantic checks below; Module 4
 owns their invocation, persistence, Evidence envelope, and atomic publication.
 
-The first-cutover registry is closed:
+The first-cutover registry below lists Module 2-owned producers. Module 6
+additionally registers Event/Lifecycle selection producers of this same
+Population family, using its own complete-selection checks and this module's
+identity/row contract. Producer ownership never creates a second membership
+family or duplicates the common filter/sample registrations.
 
 | Producing definition | Quality contract | Validation output | Evidence extractor | Finding extractor / policy | Retained private state |
 | --- | --- | --- | --- | --- | --- |
@@ -1956,6 +2049,13 @@ authorize origin replay. Missing, incompatible, or unreconciled retained state
 blocks publication rather than silently weakening later materialized
 reaggregation.
 
+Each required private component state is an actual Artifact-owned retained part,
+not only a registration id. Module 4's `retained_parts[]` maps its family-registered
+role and schema version to a concrete receipt. Primary rows and parts validate
+and commit together; original data is never replayed to recreate a missing part.
+A cold rollup reads the exact required roles, while `show()`/`to_pandas()` expose
+only primary rows. Parts have no independent public Artifact or graph identity.
+
 ## Definition Identity and Lineage
 
 ### Population definition identity
@@ -1972,7 +2072,7 @@ A Population definition fingerprint binds:
 - logical or materialized input authority token.
 
 It excludes realized members, row counts, sample realization, generated SQL,
-backend strategy, and source snapshot identity.
+backend strategy, and factual input/source lineage.
 
 ### Metric Dataset definition identity
 
@@ -1980,6 +2080,8 @@ A Metric Dataset definition fingerprint additionally binds:
 
 - ordered Metric identities and aggregation-contract versions;
 - exact Population input authority token;
+- independent observation scope and resolved Metric reference-time authority;
+- exact selected-contribution binding and component-state requirements;
 - exact captured source-binding value digest for every reachable parameterized
   Entity;
 - ordered Dimension coordinates;
@@ -1989,12 +2091,12 @@ A Metric Dataset definition fingerprint additionally binds:
 
 Every filtered Dataset fingerprint also binds the exact input authority token,
 family filter effect, canonical predicate tree, authored operator position, and
-predicate-contract version. Equivalent physical pushdown does not rewrite that
+predicate-contract version. Equivalent same-domain expression construction does not rewrite that
 public definition identity.
 
 Metric projection binds the selected identity. `aggregate()` binds the exact
 coordinate transition and each Metric's recomputation/fold mode. `rollup(...)`
-binds its ordered dropped Dimension refs, target grain/calendar identity, and
+binds its ordered dropped Dimension refs, `drop_time`, target grain/calendar identity, and
 per-Metric retained-state fold contracts.
 
 Two chains with identical public labels but different Entity, scope,
@@ -2008,6 +2110,7 @@ Public lineage may disclose:
 
 - target Entity ref and identity-signature field names without raw values;
 - Population definition fingerprint and target-Population fingerprint;
+- membership-selection scope and independent observation scope;
 - exact Metric, Dimension, and time-Dimension refs;
 - public operator ids and coordinate transitions;
 - filter effect, predicate-field identities, and a bounded redacted predicate
@@ -2047,6 +2150,7 @@ marivo.help("analysis.metric_dataset")
 marivo.help("analysis.metric_dataset.with_dimensions")
 marivo.help("analysis.metric_dataset.with_time_axis")
 marivo.help("analysis.metric_dataset.aggregate")
+marivo.help("analysis.metric_dataset.rollup")
 marivo.help("analysis.metric_dataset.metric")
 ```
 
@@ -2062,7 +2166,7 @@ navigation, input families, coordinate rules, and examples.
 Family Help owns filterable field roles and shape admission without redefining
 predicate syntax. `dataset.contract()` owns the current exact Population,
 coordinates, Metric arity, logical/materialized state, current filter effect,
-filterable fields, authority mode, legal continuations, approximation
+filterable fields, required input fields and semantic paths, legal continuations, approximation
 requirements, and materialization-barrier blockers. Structured errors own the
 repair for a failed exact call.
 
@@ -2075,7 +2179,8 @@ builder signatures or public-type contracts.
 
 A `PopulationDataset` card renders only bounded Entity, scope, predicate-count,
 sampling, state, and identity facts. A `MetricDataset` card renders bounded
-shape, Population Entity, Metric identities/count, coordinates, state, and
+shape, Population Entity, membership-selection and observation scopes,
+Metric identities/count, selected-contribution summary, coordinates, state, and
 continuation facts. Neither card renders raw identities, values, SQL, or the
 full capability matrix.
 
@@ -2084,13 +2189,14 @@ full capability matrix.
 ### Dataset Core supplies
 
 - nominal `PopulationDataset` and `MetricDataset` families;
-- row-contract and schema construction;
+- row-contract, row-set-contract, and canonical schema construction;
 - selector-only `DatasetFields` and public `DatasetFieldRef` values;
 - immutable logical/materialized Dataset state;
 - Session ownership and private authority tokens;
 - definition fingerprints, bounded lineage, actions, and scan-leaf behavior.
 
-This module supplies the family payloads, shapes, value/coordinate bindings,
+This module supplies the family row-semantics payloads, shapes,
+value/coordinate bindings,
 and exact transitions Dataset Core intentionally leaves family-specific.
 
 ### Planner and Pushdown consumes
@@ -2135,7 +2241,7 @@ not invent Population or Metric checks, extractors, or retained-state meaning.
 It declares the exact filterable generated fields, roles, and shapes for
 Candidate and compact analytical Dataset families, plus the consumer invocation
 contracts from which typed continuations are derived. It consumes the shared
-predicate syntax, authority-mode vocabulary, filter assignment matrix, and
+predicate syntax, field-resolution rules, filter assignment matrix, and
 `where(...)` lifecycle and may not create kwargs, string, callable, or
 family-specific predicate grammars.
 
@@ -2144,18 +2250,17 @@ bucket as an Entity sample or add another Metric source path.
 
 ### Subject, Event, and Lifecycle consumes
 
-- Entity identity compatibility;
-- Population reference scope and target lineage;
-- `SubjectSet` admission through the `population_input` role's direct-membership
-  mode;
-- the shared filter protocol and family-preserving `row_subset` effect;
+- Module 2's sole `PopulationDataset` family and Entity identity contract;
+- membership scope and target lineage, separate from every source window;
+- direct-membership and proven-unique identity-projection input admission;
+- Population `membership` filtering and Event/Lifecycle `row_subset` filtering;
 - raw-identity disclosure boundaries.
 
-That module owns SubjectSet production, whether SubjectSet filtering is
-admitted, and exact Event/Lifecycle filterable generated fields. It consumes the
-shared effect vocabulary, authority-mode vocabulary, and filter assignment
-matrix and may not redefine predicate syntax, add `SubjectSet.observe(...)`, or
-add another Population root spelling.
+Module 6 owns Event/Lifecycle `select_subjects(...)` producers, their exact
+selection predicates, source coverage checks, and producer quality registrations.
+They return Module 2's Population family. Module 6 does not register another
+membership family, redefine Population filtering, or add a Population-owned
+Metric/Event/Lifecycle source namespace.
 
 ## Rejected Alternatives
 
@@ -2214,16 +2319,18 @@ authority. Cross-Entity questions require one explicit Population Entity.
 Rejected because those concepts describe Metric output coordinates, not Entity
 membership.
 
-### `PopulationDataset.observe(...)` and `SubjectSet.observe(...)`
+### `PopulationDataset.observe(...)`
 
 Rejected because aliases create multiple source owners and duplicate Help,
 signature, and repair contracts.
 
-### Keep `grain`, `dimensions`, `slice_by`, and `cohort` on observe
+### Add a parallel aggregate-observation surface
 
-Rejected because they merge membership, coordinate declaration, filtering, and
-SubjectSet admission into one optional-field source call. Dataset operators make
-each transition explicit and typed.
+Not selected for this amendment. Direct output-coordinate parameters could be a
+coherent alternative, but keeping both them and the dedicated coordinate chain
+would create duplicate authoring paths. This cutover keeps the lazy chain and
+makes its non-materializing nature explicit. Membership and observation scopes
+are independent regardless of the chosen output-coordinate syntax.
 
 ### Treat identity as a Dimension
 
@@ -2259,7 +2366,7 @@ reaggregation must be authored before materialization.
 ### Explode composite identities into ordinary public key columns
 
 Rejected because consumers could accidentally join a partial key and because
-Population and SubjectSet identity would acquire parallel layouts.
+Population and selection Population identity would acquire parallel layouts.
 
 ### Infer sampling to satisfy action limits
 
@@ -2267,6 +2374,14 @@ Rejected because exact and approximate membership are different analytical
 definitions. Only an explicit policy authorizes approximation.
 
 ## Vertical Acceptance Journeys
+
+Journey fixtures must choose an explicit compatible execution/storage setup.
+A retained Population or identity selection later joined to current sources uses
+an engine target and reader in that same datasource domain. Local Artifact-only
+continuations use DuckDB. These are fixture configurations, not automatic
+placement or target switching. Include a conflicting-domain negative fixture;
+`.execute()` must not be advertised as a repair unless its configured writer
+and reader can actually establish the required common domain within bounds.
 
 ### Default same-Entity inference
 
@@ -2279,7 +2394,7 @@ features = session.observe(
 
 Acceptance must prove one exact inferred Entity, one implicit logical
 Population node, no datasource work, one Entity identity coordinate, ordered
-Metric values, and a complete pre-execution row contract.
+Metric values, and complete pre-execution row and row-set contracts.
 
 ### Explicit filtered sampled Population
 
@@ -2293,12 +2408,13 @@ queries = (
 features = session.observe(
     metrics=[scanned_bytes, peak_memory_bytes, cpu_seconds],
     population=queries,
+    time_scope=window,
 )
 ```
 
 Acceptance must prove predicate-before-sample ordering, one target-Population
-lineage edge, one Entity-safe sample shared by every Metric, and rejection of
-conflicting scope arguments on `observe`.
+lineage edge, one Entity-safe sample shared by every Metric, and independent
+observe-level scope without resampling or reselection.
 
 ### Coordinate transitions
 
@@ -2320,8 +2436,9 @@ metric/entity@v1
   -> metric/dimension-time@v1
 ```
 
-The final Dataset must retain Population authority while removing the public
-Entity coordinate.
+For this journey both Metrics have the same order computation root and a
+governed common time axis. The final Dataset retains Population authority while
+removing the public Entity coordinate, with no intermediate Entity execution.
 
 ### Filter phase and membership boundary
 
@@ -2358,7 +2475,7 @@ and filter effects.
 
 Acceptance must also prove that kwargs, Python comparisons, raw strings, and a
 field absent from the current row contract fail before datasource work; an
-equivalent physical pushdown must preserve the public definition fingerprint
+same-domain expression construction must preserve the public definition fingerprint
 and lineage.
 
 ### Component-aware logical aggregation
@@ -2377,12 +2494,12 @@ coordinates, not a sum or average of per-Entity ratios.
 ### Materialization barrier rejection
 
 ```python
-features = session.observe(metrics=[conversion_rate]).execute()
+features = session.observe(metrics=[p90_latency], time_scope=window).execute()
 features.aggregate()
 ```
 
-Acceptance must prove a local structured failure when the materialized rows do
-not retain sufficient statistics, with a repair to aggregate before
+Acceptance must prove a local structured failure for the unregistered
+Entity-axis quantile fold, with a repair to aggregate before
 materialization. No datasource connection, Run, or reach-through execution may
 occur for the rejected construction.
 
@@ -2407,7 +2524,7 @@ followup = session.observe(metrics=[lifetime_value], population=selected)
 Acceptance must prove exact Session, Entity, and identity-signature matching;
 same-plan identity projection and semi-join consumption for logical selection;
 immutable retained-identity projection after materialization; no intermediate
-SubjectSet; and no Dataset-owned `observe(...)` alias.
+selection Population; and no Dataset-owned `observe(...)` alias.
 
 ### Ambiguous Entity failure
 
@@ -2419,178 +2536,216 @@ Acceptance must prove a no-I/O structured failure when roots resolve different
 Entities. The error must name exact inputs and only real repair candidates; it
 must not select an Entity or Relationship path heuristically.
 
+### Independent cohort and observation periods
+
+```python
+january_users = session.population(
+    users, time_scope=january, time_dimension=registered_at,
+)
+february_spend = session.observe(
+    revenue, population=january_users,
+    time_scope=february, time_dimension=paid_at,
+)
+```
+
+Fixtures include a January registrant with February purchases, a February
+registrant, and a January registrant with no February facts. Acceptance keeps
+only January identities, measures only February contributions, and retains the
+all-null member. Repeat with a recovered Population and an Event-selected
+Population. Omitting observation scope must not silently inherit January;
+missing required cumulative endpoints fail before execution.
+
+### Explicit analysis Entity across different computation roots
+
+```python
+customers = session.population(customer)
+features = session.observe(
+    metrics=[line_revenue, order_count, average_order_value],
+    population=customers,
+    time_scope=window,
+)
+```
+
+Use one customer, two orders with line counts two and three, and total line
+revenue 100. With a governed shared order-time alignment, expect order count 2
+and average order value 50. Compare each branch against an independent reference
+aggregation. The same roots without explicit Population must fail inference;
+ambiguous paths, missing allocation, or unsafe fanout also fail locally.
+
+### Coordinate-bearing membership refinement
+
+```python
+selected = features.with_dimensions(region).where(mv.eq(region, "EU"))
+next_period = session.observe(
+    revenue, population=selected, time_scope=next_window,
+)
+```
+
+Prove admission for a governed to-one region and rejection for a one-to-many
+category or true customer-by-day relation. Run logical and recovered-materialized
+variants. A coincidentally unique observed sample must not establish a new proof.
+Also select Event dropouts, filter their resulting Population by region, and
+observe a separately authored follow-up window without rematching a materialized
+journey or bypassing its completeness gate.
+
+### Selection keeps exact contributions and denominators
+
+Use A = 8/10 and B = 1/10. Filtering Entity conversion rate above 50% followed by
+logical aggregation must return 80%. Repeat after materialization using retained
+components, including a zero-denominator Entity and an empty selection with the
+Metric's exact null/empty rule.
+
+For customer-by-day rows, select only one day's threshold-passing observation.
+A following reduction must not restore other dates or reevaluate the threshold
+at the reduced grain. Test a later coordinate refinement with a valid mapping
+and a locally rejected ambiguous mapping. Public metadata must expose no raw
+selected keys. Original Population provenance is unchanged in every case.
+
+### Read, recover, and fold sufficient state
+
+```python
+by_region = (
+    session.observe(conversion_rate, time_scope=window)
+    .with_dimensions(region)
+    .aggregate()
+    .execute()
+)
+overall = by_region.rollup(drop_dimensions=(region,)).execute()
+```
+
+Use unequal region denominators so averaging projected rates yields a different
+answer. After fresh-process recovery, the exact component merge must equal the
+independent whole-population reference. Repeat for mean and weighted mean,
+projection and filtering. Missing required parts block publication; corruption
+of a committed required part fails consumption without any origin query.
+
+### Time removal preserves selected-period coverage
+
+```python
+daily = (
+    session.observe(revenue, time_scope=window)
+    .with_time_axis(paid_at, grain=mv.grain("day"))
+    .aggregate()
+    .execute()
+)
+window_total = daily.rollup(drop_time=True).execute()
+```
+
+Verify complete additive totals, ratio component merges, empty singleton folds,
+and partial-period coverage. Filter daily rows before time removal and verify
+only selected periods contribute, with no complete-window claim. Reject
+`grain=...` together with `drop_time=True`, missing time coordinates, and a
+Metric without the exact required temporal fold. Cold execution reads only
+primary rows and registered parts.
+
 ## Acceptance Criteria
 
-This design is complete when all of the following are reviewable and later
-testable:
+The amendment is complete when these contracts are reviewable and later tested:
 
-1. a Population always owns one exact Entity and ordered primary-key signature;
-2. one Population row is one non-null unique `entity_identity` tuple;
-3. Population scope and aggregation coordinates are distinct contracts;
-4. default inference selects only one exact common Metric Entity or fails;
-5. explicit Population can change Entity only through one unique safe semantic
-   path for every Metric;
-6. `session.population(...)` and `session.observe(...)` have exact minimal
-   signatures;
-7. `PopulationInput` is the sole explicit `population=` union and admits only
-   `PopulationDataset`, `SubjectSet`, `metric/entity@v1`, and
-   `candidate/entity-outlier@v1` under their exact direct or projection modes;
-8. explicit Population scope cannot be silently combined with observe scope;
-9. Population predicates are closed, typed, and applied before sampling;
-10. exact membership is default and sampling is never inferred;
-11. one approximate Entity policy samples identities before Metric facts;
-12. multi-Metric observation uses one shared Population spine;
-13. Metric-local nulls and filters do not remove Population members;
-14. every Entity-grained row owns exact identity plus ordered Metric values;
-15. Dimension and time coordinates have stable semantic identity and canonical
-    order;
-16. `with_dimensions(...)` and `with_time_axis(...)` retain the Entity axis;
-17. `aggregate()` removes the Entity axis exactly once;
-18. all eight Metric shapes have complete pre-execution row contracts;
-19. scalar output has one explicit singleton row contract without a synthetic
-    public key column;
-20. coordinate spines are governed and independent of Metric non-nullness;
-21. aggregate semantics are derived per Metric and never default to sum;
-22. ratio, weighted, non-additive, and cumulative Metrics recompute from owning
-    authority while logical;
-23. materialized reaggregation uses only exact retained sufficient statistics
-    or fails locally;
-24. a materialized scan leaf is never transparently re-evaluated through its
-    source graph;
-25. Entity, Relationship, Dimension, time, scope, and aggregation conflicts
-    produce structured repairs;
-26. raw Entity identities remain out of metadata, errors, Evidence, and cards;
-27. definition identity binds Population, Metric order, coordinates,
-    aggregation decisions, and logical/materialized input authority;
-28. no source aliases, shape flags, eager overloads, or compatibility paths are
-    introduced;
-29. every filterable Dataset family uses one `where(*AnalysisPredicate)`
-    spelling and lazy family-preserving lifecycle;
-30. predicate construction uses one sealed comparison, membership, null, and
-    boolean vocabulary;
-31. semantic refs and exact `DatasetFieldRef` selectors are the only predicate
-    field inputs;
-32. kwargs, Python comparisons, strings, callables, SQL, Ibis, and arbitrary
-    expression inputs are absent;
-33. Population filtering changes membership while non-Population filtering
-    defaults to row-subset semantics;
-34. Metric row filtering never changes membership authority; only a later
-    explicit `population=` source boundary may consume its exact Entity rows;
-35. non-Population predicates reference only the current row contract, while
-    Population owns the one reachable-membership-field specialization;
-36. filter position participates in definition identity and cannot move across
-    sampling, aggregation, materialization, population-input projection, Event
-    matching, or Lifecycle replay without an equivalence proof;
-37. materialized filtering reads retained fields only, except for the explicit
-    semantic-current Population membership specialization;
-38. exact singleton scalar Metric Datasets reject `where(...)` rather than
-    weakening cardinality;
-39. semantic-authoring `ms.where(...)` and analysis `dataset.where(...)` remain
-    separate authority surfaces;
-40. Help, `contract()`, errors, fingerprints, and lineage expose the current
-    filter effect, admitted fields, authority mode, and bounded redacted
-    predicate facts;
-41. every field logical type has one closed operator/literal compatibility and
-    canonical normalization rule before datasource work;
-42. Population reachable-field filtering admits only unique single-valued,
-    non-versioned, atemporal non-time Dimensions and never invents an `as_of`,
-    window, or collection-membership rule;
-43. filter authority is selected by Dataset state and field resolution, not by
-    field role alone;
-44. direct semantic refs resolve exactly one current row binding or require an
-    exact `DatasetFieldRef` repair;
-45. every public predicate builder and the `AnalysisPredicate` type have one
-    independently resolvable canonical Help leaf and pinned export;
-46. helper-produced predicates remain unbound, while `where(...)` resolves one
-    private canonical bound tree against the exact input Dataset without
-    mutating or Session-binding the public value;
-47. parameterized non-secret source values are captured into immutable source
-    definitions, participate in exact identity, and are never looked up from
-    ambient Session state by `execute()`;
-48. `rollup(...)` has one fold-current-rows meaning across Logical and
-    Materialized inputs, admits only exact registered retained-state folds, and
-    never recomputes through origin lineage.
+1. Population has one exact Entity, complete non-null tuple identity, proven
+   uniqueness, complete selection truth, and one common family across producers.
+2. Membership selection scope and Metric observation scope are independent;
+   disjoint windows work, omitted observation scope never inherits selection time.
+3. Default Entity inference is exact and local. Explicit membership resolves the
+   analysis Entity before validating different component computation roots.
+4. One shared membership/coordinate spine prevents fanout and Metric-local nulls
+   from removing other observations; all-null members remain eligible.
+5. Registered Entity-present inputs retain membership admission after safe to-one
+   coordinate enrichment. True Entity-by-time/many-valued inputs fail locally.
+6. One sealed unbound predicate vocabulary, exact bound fields, literal/null
+   rules, and family-specific effects apply consistently before any datasource work.
+7. Selection binds full upstream coordinates and component contributions. Ratios
+   use selected component denominators; original Population is provenance only.
+8. Selection cannot move across aggregation, sampling, materialization, coordinate
+   repartition, or a population-input boundary without exact equivalence.
+9. Event/Lifecycle selection Populations admit the same governed Dimension filter
+   as explicit Populations; filtering cannot bypass uncertain selection truth.
+10. Coordinate chains retain one canonical observe source and need no intermediate
+    Entity execution. All eight Metric shapes remain completely typed before execution.
+11. Ratio, mean, and weighted-mean parts are required by the exact supported graph,
+    filtered/projected consistently, reconciled, committed atomically, and recoverable.
+12. Materialized consumers use retained rows/parts only. Missing states fail without
+    origin queries. Logical recomputation preserves exact selected contributions.
+13. `rollup` has one current-row fold meaning for both states; `drop_time=True`
+    requires an exact temporal fold and preserves partial/selected-period coverage.
+14. Empty scalar outputs retain singleton row-set semantics and exact empty-fold rules.
+15. Sampling remains explicit, Entity-safe, shared per action, and ordered after
+    membership predicates; downstream source windows do not change sampling units.
+16. Identity, source binding, scopes, selection, coordinates, component state, and
+    fold decisions participate in definition identity and bounded disclosure.
+17. Raw identities and sensitive predicate/source literals remain outside metadata,
+    errors, Evidence, cards, and public fingerprints over realized membership.
+18. All affected Help, registration, runtime, cold-recovery, drift, and acceptance
+    inventories use the amended contracts with no legacy aliases or dual paths.
 
 ## Frozen Module Decisions
 
-On 2026-09-04 the owner retained construction-scoped source bindings and added
-the strict current-row rollup contract. These decisions resolve the two Module
-2 questions raised by the Public Cutover Plan.
+The 2026-09-05 amendment supersedes earlier choices that coupled membership and
+observation time, required equal computation roots before explicit-Population
+admission, restricted identity projection to Entity-only Metric shape, retained
+a separate SubjectSet family, deferred basic sufficient state, or prohibited all
+time-axis removal.
 
-This accepted design freezes these choices:
+The frozen choices are:
 
-1. a Population is one Entity membership set, never an output-shape variant;
-2. Population rows expose one tuple-valued `entity_identity` coordinate;
-3. default inference requires exact equality of all Metric analysis Entities;
-4. explicit Population may select another Entity only through unique governed
-   paths;
-5. `session.observe(...)` owns the sole Metric source spelling;
-6. observe accepts only Metrics, optional `PopulationInput` authority, and
-   default Population scope inputs;
-7. Dimensions and time grain use their dedicated Dataset operators, every
-   analysis row filter uses `dataset.where(...)`, and only explicit
-   `population=` consumes current rows as membership;
-8. one sealed `AnalysisPredicate` vocabulary owns comparisons, membership,
-   null checks, and explicit `all_of` / `any_of` / `not_` composition;
-9. Population predicates must precede one optional `engine_sample(...)`
-   request;
-10. `with_dimensions(...)` appends ordered Dimensions,
-    `with_time_axis(...)` adds one final time coordinate, and `aggregate()`
-    removes Entity exactly once;
-11. logical aggregation recomputes governed Metric semantics at the output
-    coordinates;
-12. materialized aggregation is admitted only through an exact retained-value
-    fold;
-13. ratio, weighted mean, distribution, cumulative, and opaque values do not
-    acquire a silent materialized fold;
-14. Population and coordinate spines are defined independently of Metric
-    non-nullness;
-15. explicit Population plus observe-level scope is an error, not an
-    intersection rule;
-16. filtering a Population changes membership, while filtering any other
-    initially admitted family changes only its current rows;
-17. `DatasetFieldRef` is selector-only and generated fields use
-    `dataset.fields.get(...)` rather than kwargs;
-18. filter operator position is semantic and planner pushdown requires exact
-    equivalence;
-19. only an explicit `population=` source boundary may consume an admitted
-    identity-bearing Dataset's current rows as membership; no intermediate
-    public conversion Dataset is created;
-20. semantic-authoring and analysis filtering remain separate public
-    contracts;
-21. logical type compatibility and literal coercion use one backend-independent
-    construction-time matrix;
-22. Population hidden-field membership is limited to single-valued atemporal
-    Dimensions in the first cutover;
-23. `materialized_only` and `semantic_current` are selected for filtering by one
-    state-and-resolution matrix owned by this module, while their global runtime
-    meaning remains owned by Materialization Runtime;
-24. all twelve predicate builders and `AnalysisPredicate` are pinned public
-    exports with one registry-owned Help route each;
-25. public predicates are reusable unbound authoring values and only
-    `where(...)` creates the private Dataset-bound canonical predicate tree;
-26. every Population and Metric producer resolves one Module 2-owned quality,
-    validation, Evidence, zero-Finding, and retained-state registration through
-    Module 4's common materialization envelope before Run admission;
-27. `Session.source_bindings(...)` remains the sole parameterized JSON source
-    input path, captures exact non-secret values at logical source construction,
-    and contributes an exact digest to definition and execution identity;
-28. `rollup(drop_dimensions=..., grain=...)` is the sole post-definition
-    coordinate-coarsening path, is limited to Entity-reduced Metric shapes, and
-    folds only current rows or registered retained sufficient state;
-29. arbitrary axis deletion, time-axis removal, origin replay, and silent
-    non-additive rollup are absent from the first cutover.
+1. `PopulationDataset` is the sole governed Entity-membership family.
+2. Population selection and Metric observation own independent temporal scopes.
+3. `session.observe(...)` remains the sole lazy Metric source; dedicated coordinate
+   operators remain the only output-grain declaration path in this cutover.
+4. Explicit Population determines analysis Entity; per-component governed roots
+   remain distinct and must each prove a safe contribution path to that Entity.
+5. Default inference requires one exact common root; there is no heuristic anchor.
+6. Population input uses direct membership or registered unique Entity projection,
+   never inferred distinct, Python identity collection, or a conversion artifact.
+7. One `where(...)` syntax has membership or current-row effects. Row selection
+   binds complete observation coordinates and component contributions, not a
+   hidden new denominator or an implicit member projection.
+8. Population reachable-field filtering remains single-valued, atemporal, and
+   governed; temporal/collection selection requires an owned observation contract.
+9. Sampling remains one optional explicit Entity sample after membership predicates.
+10. Logical aggregation recomputes only selected governed contributions; materialized
+    aggregation and every rollup use exact retained state without origin replay.
+11. Basic ratio/mean/weighted-mean state is part of v1; heavier distinct/distribution
+    folds require explicit registrations and never arise from projected values alone.
+12. `rollup(drop_dimensions=..., grain=..., drop_time=...)` changes only retained
+    coordinates under exact per-axis folds and preserved coverage.
+13. Predicate values remain reusable and unbound; Dataset binding and every
+    parameterized source value are immutable construction-time definition facts.
+14. Every producer resolves exact quality, validation, Evidence, and retained-part
+    contracts before execution; Population and Metric production creates zero Findings.
 
-Changing one of these decisions requires an explicit amendment to this module
-before downstream planner, runtime, or operator designs rely on a replacement.
+Future changes require an amendment to this owning module before downstream
+compiler, runtime, or operator designs depend on them. This amendment authorizes
+design synchronization only, not runtime implementation.
 
 ## Final Boundary
 
-Population answers who is eligible. Coordinates answer where a Metric value is
-positioned. Aggregation answers how governed Metric contributions are recomputed
-after the Entity axis is removed.
+Population answers who is eligible and why. Observation scope answers which
+Metric facts are measured. Coordinates answer where values are positioned.
+Row selection determines the exact contributions retained; aggregation applies
+the governed Metric equation to those contributions at the requested grain.
 
-These are three different authorities. Keeping them separate lets the public
-DSL infer the common case, express an explicit cohort when needed, and remain
-correct for non-additive Metrics without exposing a plan or hiding execution in
-`session.observe(...)`.
+Membership provenance, selected contributions, and computational denominators
+remain separate authorities. Logical fusion avoids unnecessary Entity execution;
+retained sufficient state supports continued analysis after an explicit read.
+
+## 2026-09-05 Fixed Execution Boundary Amendment
+
+The accepted Module 3 replacement preserves every Population, coordinate,
+filter-phase, contribution, sampling and retained-state rule in this document.
+It narrows execution compatibility: relational sources, Materialized readers
+and explicit current Dimension enrichment must already share one Marivo-owned
+domain. Logical/Materialized semantic admission does not authorize import,
+federation, local identity collection or replay of an Artifact's origin.
+
+Known domain conflicts are construction failures; reader or connection facts
+requiring live resolution are checked after Run admission and before data work.
+A Materialized Population combined with current Dimensions therefore needs a
+compatible reader/source binding. A local Artifact and remote source are not
+made compatible merely by calling `execute()` again. A suggested independent
+materialization must be reachable and writable/readable in the required domain
+under the configured storage policy; otherwise the exact path is unsupported.
+
+Explicitly shared Population and contribution handles retain their semantic
+sharing. Required volatile realizations still need an exact engine fence;
+general compiler CSE and a global one-query guarantee are not prerequisites.

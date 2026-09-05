@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-04
+Revised: 2026-09-05
 
 Status: accepted
 
@@ -15,8 +15,7 @@ Lifecycle analysis in the lazy Dataset algebra.
 
 This document is the sole authority for:
 
-- `SubjectSet` as a nominal Dataset family and an admitted refinement of Entity
-  membership;
+- domain selection into Module 2's sole Population membership family;
 - logical subject-selection authority and materialized identity-row authority;
 - exact subject identity, scope, sampling, completeness, privacy, and recovery
   contracts;
@@ -50,10 +49,10 @@ an agent can determine before execution:
 
 ### This module owns
 
-- nominal registrations and row contracts for `SubjectSet`, `EventDataset`, and
+- nominal registrations plus row and row-set contracts for `EventDataset` and
   `LifecycleDataset`;
-- the `SubjectSet` direct-membership implementation of the shared
-  `population_input` contract;
+- domain selection producers of Module 2's Population family, including their
+  selection-time and completeness authority;
 - Event/Lifecycle source application of the shared `PopulationInput`
   compatibility and input-mode contract;
 - identity-preserving selection and completeness requirements;
@@ -74,10 +73,10 @@ an agent can determine before execution:
 - generic Population inference for Metrics, Population predicate semantics, or
   Metric coordinates and aggregation;
 - the shared `AnalysisPredicate` grammar, literal compatibility, filter effects,
-  filter ordering, or global authority-mode meaning;
+  filter ordering, or shared filter field-resolution rules;
 - private semantic nodes, semi-join lowering, Ibis construction, execution
-  placement, federation, or bounded-local policy;
-- Run, Artifact, storage-receipt, Evidence-envelope, claim, commit, cleanup, or
+  fixed-domain binding or Runtime resource policy;
+- Run, Artifact, storage-receipt, Evidence-envelope, writer-lock, commit, cleanup, or
   recovery state machines;
 - ordinary Metric operator admission or Candidate scoring;
 - public removals, Help rollout, documentation cutover, or implementation
@@ -87,7 +86,7 @@ The owning upstream sources are:
 
 - [Dataset Core](2026-09-01-lazy-analysis-dataset-core-design.md);
 - [Observation Model](2026-09-01-lazy-analysis-observation-model-design.md);
-- [Ibis Compiler and Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md);
+- [Direct Compiler and Fixed Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md);
 - [Materialization Runtime](2026-09-01-lazy-analysis-materialization-runtime-design.md);
 - [Typed Operators](2026-09-01-lazy-analysis-typed-operators-design.md).
 
@@ -99,7 +98,7 @@ alignment of Help, skills, tests, and current English/Chinese documentation.
 This module consumes the following contracts without redefining them:
 
 1. Every public analysis value is one nominal `Dataset` family with one exact
-   family-qualified shape, row contract, ordered schema, Session owner,
+   family-qualified shape, row contract, row-set contract, Session owner,
    definition fingerprint, lineage summary, and logical or materialized input
    authority token.
 2. A Dataset operator performs deterministic local construction only and always
@@ -109,18 +108,18 @@ This module consumes the following contracts without redefining them:
    Every downstream operator accepts either state and returns a new Logical
    Dataset; a materialized input enters that lazy DAG only as an immutable scan
    leaf and never exposes or replays an origin plan.
-4. One Population row and one SubjectSet row use the same complete tuple-valued
-   `entity_identity` coordinate layout. Admission is registry-based semantic
-   refinement, not Python subclassing.
+4. Every selection producer returns Module 2's Population family with the same
+   complete tuple-valued `entity_identity` coordinate. No separate membership
+   family or Python refinement is introduced.
 5. `Dataset.where(...)` is the sole row-filter spelling. The Observation Model
    owns `membership` and `row_subset`, predicate binding, field resolution,
    authored position, and the prohibition on unproved reordering.
 6. Raw Entity identities may appear only in Dataset rows and explicit terminal
    reads. They are forbidden in bounded metadata, errors, lineage, Run
    arguments, Evidence subjects, Findings, cards, and `repr`.
-7. `semantic_current`, `materialized_only`, and
-   `semantic_or_materialized` are selected requirements, never runtime
-   fallbacks.
+7. Each operator binds exact Logical or Materialized inputs and any explicitly
+   requested semantic enrichment. Concrete input checks belong to that operator;
+   runtime never substitutes another input or replays an Artifact origin.
 8. The compiler may lower an admitted logical Population input as direct
    membership or an identity projection followed by a semi-join, and a
    materialized input as an immutable identity scan leaf. This document defines
@@ -133,27 +132,26 @@ This module consumes the following contracts without redefining them:
 
 ## Decision Summary
 
-The owner confirmed the following coherent first-cutover choices on
-2026-09-02:
+The first-cutover choices include the 2026-09-05 observation-model amendment:
 
-1. `SubjectSet` is a sibling Dataset family admitted through the shared
-   `population_input` contract's direct-membership mode. It is not a Python
-   subclass of `PopulationDataset`.
-2. A logical SubjectSet owns one exact identity-producing Dataset definition. A
-   materialized SubjectSet owns the exact immutable selected identity rows.
+1. `PopulationDataset` is the sole membership family, owned by Module 2.
+   Domain-owned `select_subjects(...)` producers return this family; no separate
+   SubjectSet class, shape, or alias survives.
+2. A logical PopulationDataset owns one exact identity-producing Dataset definition. A
+   materialized PopulationDataset owns the exact immutable selected identity rows.
    Materialized Entity Metric and entity-outlier Candidate Datasets may also be
    reused as Population inputs through their retained identity coordinate; they
-   do not become SubjectSets.
-3. Every published SubjectSet has complete membership truth. Unknown or
+   do not become selection Populations.
+3. Every published PopulationDataset has complete membership truth. Unknown or
    coverage-censored selection fails the action atomically instead of
    publishing a non-consumable cohort. Empty-but-complete membership is valid.
 4. Entity Metric and entity-outlier Candidate inputs are passed directly through
    `population=`. Event journey and Lifecycle history inputs use
    `.select_subjects(selection)` because those operations add typed
    Event/Lifecycle selection semantics and censoring requirements.
-5. `SubjectSet.where(...)` is not admitted in the first cutover. The public row
-   contains only governed identity, and identity literals are deliberately not
-   part of the shared predicate vocabulary.
+5. Selected Populations use Module 2's `where(...)` membership specialization,
+   including governed reachable atemporal Dimensions. Identity literals remain
+   excluded. Filtering never bypasses the source selection's completeness gate.
 6. Event journey and Lifecycle history are structural row sets and reject
    `where(...)`. Compact or independently meaningful owned shapes register an
    exact row-subset filter matrix below.
@@ -185,7 +183,7 @@ The owner confirmed the following coherent first-cutover choices on
 
 ### One governed Entity identity
 
-Every SubjectSet, Event Dataset, and Lifecycle Dataset binds one exact subject
+Every PopulationDataset, Event Dataset, and Lifecycle Dataset binds one exact subject
 contract:
 
 ```text
@@ -224,10 +222,11 @@ The contract rejects:
 
 ### Identity compatibility is exact
 
-An explicit `PopulationDataset` or `SubjectSet` is admitted to an Event or
+An explicit `PopulationDataset` is admitted to an Event or
 Lifecycle source only when it has:
 
-- the same owning Session;
+- a Logical definition in the consuming Session or an explicitly selected
+  Materialized Artifact in the same Store with its original owner preserved;
 - the exact source subject Entity;
 - the exact ordered primary-key signature;
 - compatible membership scope and sampling authority;
@@ -238,6 +237,13 @@ Population of another Entity through a Relationship. Pattern participant and
 StateModel trigger subject identity is normative. The repair is to select or
 construct subjects at that exact Entity, not to add an implicit cross-Entity
 projection.
+
+Explicit cross-Session Materialized membership uses the same structural Entity,
+primary-key, scope, and sampling checks as a local input. There is no Artifact
+age, source-version equivalence, or reuse-approval check. Source-origin coverage,
+follow-up windows, and completeness declarations below remain concrete Event/
+Lifecycle algorithm inputs; they do not form a generic datasource freshness
+certificate or guarantee suitability for a different question.
 
 ### Population and source-time authority remain separate
 
@@ -266,64 +272,22 @@ window silently overwrites, intersects, widens, or relabels another authority.
 Compatibility validation may reject a contradictory combination, but it does
 not choose one as precedent.
 
-## SubjectSet Family
+## Domain Selection Produces Population
 
-### Nominal refinement, not inheritance
+### One common membership contract
 
-`SubjectSet` has one initial family-qualified shape:
+Every `select_subjects(...)` returns `LogicalPopulationDataset` with Module 2's
+`population/entity-membership@v1` contract: one complete non-null tuple identity
+per row, exact Entity/signature, unique identity key, unordered `keyed(unknown)`
+rows, and `DatasetFamilyRowSemantics.complete_from_schema`. Module 2 owns this
+schema, filter/sample behavior, and its paired materialized type. This module
+registers domain selection producers rather than another family or shape.
 
-```text
-subject-set/entity-membership@v1
-```
-
-It is a sibling of `PopulationDataset`, not a Python subclass. The capability
-registry admits it to the shared source-input role:
-
-```text
-population_input
-```
-
-This prevents accidental substitutability from `isinstance` while allowing a
-source signature to consume the exact closed annotation alias owned by the
-Observation Model:
+Selection has stronger production requirements than simple identity projection:
+Event/Lifecycle truth and completeness must be evaluated under the owned source
+contract. The resulting Population definition retains:
 
 ```text
-PopulationInput
-```
-
-Population and SubjectSet inputs use direct-membership mode. Admitted Metric and
-Candidate inputs remain their original families and use exact current-row
-identity-projection mode only at the consuming source boundary. This module
-applies those modes to Event/Lifecycle sources; it does not redefine the union
-or shape admission.
-
-`SubjectSet` owns no source namespace and exposes no `observe`, `events`, or
-`lifecycle` methods. It enters another domain only through an explicit
-`population=subjects` argument on the canonical Session source.
-
-### Row contract
-
-One SubjectSet row means:
-
-> one exact governed Entity identity whose owned selection predicate is true
-> under complete selection authority.
-
-The ordered public schema is exactly:
-
-| Field | Role | Logical type | Nullable | Filterable |
-| --- | --- | --- | --- | --- |
-| `entity_identity` | Entity coordinate | fixed-arity governed tuple | no | no |
-
-The row key is `entity_identity`. Rows are unique. Cardinality is zero-or-more
-and unknown before execution. Default logical order is unordered; canonical
-presentation uses the registered tuple-component order without disclosing
-components outside explicit row reads.
-
-The complete family payload is:
-
-```text
-SubjectSetContractV1
-  subject_identity
   source_family
   source_shape
   selection_operator_id
@@ -336,13 +300,22 @@ SubjectSetContractV1
   membership_requirement = complete
 ```
 
-It contains definition and authority facts, never realized identities, example
-identities, identity min/max values, partition keys, or a public membership
-digest.
+These are producer-specific definition/lineage facts, not additional public rows
+or a parallel membership protocol. Raw identities and membership-derived public
+digests remain prohibited.
+
+Population inputs use direct membership. Registered Entity-present Metric and
+Entity-outlier Candidate inputs use Module 2's identity projection when Entity
+uniqueness is proven, including functionally dependent coordinates. Sources own
+their independent Metric/Event/Lifecycle windows. Selection time is never copied
+as a consuming source's observation window.
+
+The Population has no `observe`, `events`, or `lifecycle` namespace. It is reused
+only through the canonical Session source's explicit `population=` argument.
 
 ### Logical authority
 
-A logical SubjectSet owns one exact identity-producing definition from an
+A logical PopulationDataset owns one exact identity-producing definition from an
 admitted source Dataset:
 
 ```text
@@ -356,15 +329,16 @@ receipt, Evidence, or Findings. Same-plan consumers may use its private root as
 an admitted membership input. They do not collect identities or convert them to
 Python values.
 
-Calling an Event, Lifecycle, or Metric source with a logical SubjectSet returns
-a new logical Dataset. The consuming definition binds the SubjectSet's exact
-input authority and lineage. It does not persist the SubjectSet, memoize it
+Calling an Event, Lifecycle, or Metric source with a logical PopulationDataset returns
+a new logical Dataset. The consuming definition binds the PopulationDataset's exact
+input authority and lineage. It does not persist the PopulationDataset, memoize it
 across actions, or claim stable membership between independent actions.
 
 ### Materialized authority
 
-Executing a Logical SubjectSet returns its paired Materialized SubjectSet with
-the same family id and row contract and one immutable Artifact-backed state.
+Executing a Logical Population returns its paired Materialized Population with
+the same family id, row contract, and row-set contract and one immutable
+Artifact-backed state.
 Its stored public rows contain only
 `entity_identity` tuples. The committed family authority additionally proves:
 
@@ -376,14 +350,15 @@ Its stored public rows contain only
 - source temporal and completeness authority;
 - storage integrity and Evidence publication through Module 4.
 
-The Artifact is the only cold-recoverable SubjectSet. Recovery reconstructs the
-same family, row contract, identity signature, scope, sampling lineage, and
+The Artifact is the only cold-recoverable PopulationDataset. Recovery reconstructs the
+same family, row contract, row-set contract, identity signature, scope, sampling
+lineage, and
 selection contract, and therefore yields the same mechanically derived
 continuations without restoring a logical origin graph or requiring current
 catalog membership.
 
 A downstream current Metric, Event, or Lifecycle source must still validate its
-own current semantic inputs. A recovered SubjectSet authorizes only immutable
+own current semantic inputs. A recovered PopulationDataset authorizes only immutable
 membership rows; it does not authorize current Metrics, Events, Relationships,
 or StateModels by association.
 
@@ -395,37 +370,44 @@ The confirmed first-cutover contract has one publishable membership status:
 complete
 ```
 
-An empty result under complete source coverage is a valid SubjectSet with zero
+An empty result under complete source coverage is a valid PopulationDataset with zero
 rows. It may be materialized, recovered, and passed as `population=`. Consumers
 produce their exact empty or dense-zero result according to their own family
 contract.
 
 If any candidate subject's selected/not-selected truth depends on unknown or
-coverage-censored follow-up, selection cannot publish a SubjectSet. Inspection,
+coverage-censored follow-up, selection cannot publish a PopulationDataset. Inspection,
 collection, or materialization fails with a structured coverage repair; no
 partial known-positive cohort is returned. The source Event or Lifecycle
 Dataset remains available for censored-row diagnosis.
 
 This decision deliberately removes the eager surface's
 `SubjectSet[coverage_censored]` state. A Dataset that looks like governed
-membership but cannot enter another source would make `SubjectSet` admission
+membership but cannot enter another source would make `PopulationDataset` admission
 stateful and error-prone.
 
-### SubjectSet filtering
+### Filtering a selected Population
 
-`SubjectSet` does not register `where(...)` in the first cutover.
+Selected Populations register the same Module 2-owned `where(...)` as explicit
+Entity Populations. A ready selection can be refined by a unique single-valued,
+non-versioned, atemporal Dimension without exposing identity literals:
 
-Its only public row field is governed identity. The shared predicate literal
-union deliberately has no tuple identity or arbitrary identifier object, and
-component fields are not public. Adding identity-literal filtering would create
-a disclosure and injection surface rather than a governed analytical filter.
+```python
+eu_dropouts = dropouts.where(mv.eq(region, "EU"))
+```
 
-Membership is narrowed by producing another SubjectSet from an admitted typed
-source selection. Set algebra, uploaded identifier lists, manual inclusion or
-exclusion, and identity-component predicates require a separate future privacy
-and authorization design.
+A materialized selection remains an immutable identity leaf. The explicit filter
+may join the exact current governed Dimension path, but cannot rematch Events,
+replay Lifecycle history, or reconstruct original membership. Such enrichment
+adds its own current semantic authority while retaining original selection time
+and proof. An upstream unknown selection still fails before any filtered output
+can publish. Sampling restrictions and predicate order follow Module 2 unchanged.
 
-### SubjectSet action behavior
+Set algebra, uploaded identities, identity-component predicates, temporal
+Dimension evaluation, and implicit collection-membership rules remain outside
+this filter contract.
+
+### PopulationDataset action behavior
 
 - `repr` and `contract()` never execute and never render identity values.
 - Materialized `show()` may render a bounded identity preview only because the caller
@@ -433,11 +415,11 @@ and authorization design.
   arguments, cards, errors, Evidence, or lineage.
 - Materialized `to_pandas()` is a guarded complete terminal identity export;
   its returned pandas value cannot re-enter typed analysis.
-- Logical `execute()` is the durable transition to a Materialized SubjectSet.
-- Reconstructing the same Logical SubjectSet in the same named Session and
+- Logical `execute()` is the durable transition to a Materialized PopulationDataset.
+- Reconstructing the same Logical PopulationDataset in the same named Session and
   calling `execute()` recovers its write-once bound Artifact without refreshing
   identities or creating a new Run.
-- Both SubjectSet states admit registered downstream operators. Those operators
+- Both PopulationDataset states admit registered downstream operators. Those operators
   always return a Logical Dataset and therefore preserve lazy DAG construction.
 
 ## Subject Selection Matrix
@@ -451,7 +433,7 @@ The first cutover registers these exact bridges:
 | `EventDataset[event/journey@v1]` | `.select_subjects(selection)` | `DroppedBefore` | complete journey assignment |
 | `LifecycleDataset[lifecycle/history@v1]` | `.select_subjects(selection)` | `InState` | complete replayed state at one instant |
 
-Every operation returns `SubjectSet[subject-set/entity-membership@v1]`.
+Every operation returns `PopulationDataset[population/entity-membership@v1]`.
 
 Event and Lifecycle selection is not equivalent to projecting visible rows: it
 evaluates a closed source-owned selection against complete journey or interval
@@ -464,7 +446,7 @@ The shared public method contract is:
 def select_subjects(
     self,
     selection: DroppedBefore | InState,
-) -> LogicalSubjectSet:
+) -> LogicalPopulationDataset:
     ...
 ```
 
@@ -478,7 +460,7 @@ There is no generic:
 ```text
 session.select_subjects(dataset, selection=...)
 dataset.select_subjects(predicate=None, state=None, step=None)
-SubjectSet.from_rows(...)
+PopulationDataset.from_rows(...)
 ```
 
 and no detached `Selection`, `Cohort`, or list-of-identities return value.
@@ -512,7 +494,7 @@ For a `first_per_subject` journey, it selects the subject when:
 
 It therefore selects the exact resolved-loss population used by the same
 target step's funnel row. Coverage-censored loss truth makes the complete
-SubjectSet action fail. `every_start` journey inputs reject `DroppedBefore`
+PopulationDataset action fail. `every_start` journey inputs reject `DroppedBefore`
 because several attempts can map to one subject and the first cutover defines
 no any-attempt/all-attempt subject policy.
 
@@ -540,7 +522,7 @@ locally.
 
 One subject is selected when its replayed interval establishes the exact model
 state at `at`. A gap, missing inception, or insufficient Event coverage cannot
-be interpreted as another state. Any membership uncertainty makes SubjectSet
+be interpreted as another state. Any membership uncertainty makes PopulationDataset
 publication fail atomically under the confirmed complete-only contract.
 
 ## Event Source Contract
@@ -573,8 +555,9 @@ definition and later Evidence authority. The optional `population` narrows
 eligible subjects but does not replace `cohort_window`.
 
 Construction performs no datasource work. It resolves exact semantic identity,
-validates local compatibility, constructs the complete journey row contract,
-selects action-time requirements and authority mode, and returns a logical
+validates local compatibility, constructs the complete journey row and row-set
+contracts,
+binds concrete input checks and semantic dependencies, and returns a logical
 Event Dataset.
 
 ### Pattern and subject inference
@@ -600,7 +583,7 @@ compatibility contract above. A materialized admitted input is consumed through
 an immutable identity scan leaf. A logical input contributes an identity
 projection or direct membership relation to the same lazy graph. Neither path
 exposes identities to Python, changes the input Dataset family, or creates a
-`SubjectSet`.
+`PopulationDataset`.
 
 ### Event temporal authority
 
@@ -759,7 +742,7 @@ Help leaf. There is no `bounded_completeness`,
 `source_origin_completeness`, watermark alias, mapping shorthand, string Ref,
 or unversioned constructor.
 
-A declaration is an explicit assumption, not observed source authority. It may
+A declaration is an explicit assumption, not observed Event/source-origin evidence. It may
 classify missing follow-up only for its exact inputs and bound. It does not
 change semantic readiness, source rows, future actions, or datasource state.
 
@@ -795,15 +778,16 @@ basis, and source definition lineage required by their meaning. Compact
 reducers do not retain raw identities unless their public row contract requires
 them.
 
-### Owned row-contract closure
+### Owned row-contract and row-set-contract closure
 
 The schema blocks in this document are ordered public schemas, not name-only
 sketches. They combine with the following rules to form the complete
-construction-time `DatasetRowContractV1` for every owned shape.
+construction-time `DatasetRowContract` and `DatasetRowSetContract` for every
+owned shape.
 
-The SubjectSet identity field has the stable id
-`identity.subject.entity_identity@v1` and binds the exact
-`SubjectIdentityContractV1`. Every other Module 6-native field has the stable id
+The Population identity field uses Module 2's canonical field id and exact
+Entity/signature binding. `SubjectIdentityContractV1` references that same
+binding for Event/Lifecycle consumption; it does not define a second field id. Every other Module 6-native field has the stable id
 `generated.<producer_id>.<public_name>@v1`, where `producer_id` is exactly one of
 `events.match`, `events.funnel`, `events.time_to_event`, `lifecycle.replay`,
 `lifecycle.distribution`, `lifecycle.transitions`, `lifecycle.dwell`, or
@@ -867,7 +851,7 @@ Coordinate and row-key ownership is exact:
 
 | Shape | Coordinate fields | Ordered row key |
 | --- | --- | --- |
-| `subject-set/entity-membership@v1` | `entity_identity` | `entity_identity` |
+| `population/entity-membership@v1` | `entity_identity` | `entity_identity` |
 | `event/journey@v1` | `journey_id`, `entity_identity`, `step_key` | `journey_id`, `step_key` |
 | `event/funnel@v1` | declared axes, `step_key` | declared axes, `step_key` |
 | `event/time-to-event@v1` | `journey_id`, `entity_identity` | `journey_id` |
@@ -907,7 +891,7 @@ Nullability is closed by shape:
 Governed funnel/distribution axes retain source nullability because null is an
 explicit group. No other field becomes nullable from a backend outer join.
 
-Canonical presentation ordering is also part of each row contract: journey and
+Canonical presentation ordering is part of each row-set contract: journey and
 time-to-event rows use subject identity, anchor time, anchor Event identity, then
 Pattern order where applicable; funnel and funnel Delta use canonical axis tuple
 then Pattern order; history uses subject identity then `valid_from`;
@@ -916,7 +900,7 @@ transitions and dwell use StateModel declaration order; violations use subject,
 occurrence time, Event ref, then Event identity; attribution uses resolution
 prefix order, canonical axis tuple, `other_mask`, then `contribution_kind`.
 Storage has no incidental ordering authority; actions reconstruct this ordering
-from the row contract.
+from the row-set contract.
 
 ### Journey row contract
 
@@ -1012,9 +996,8 @@ Zero denominators yield null rates. Grouped additive counts, including the null
 axis group, must reconcile exactly to the ungrouped funnel. Rates are recomputed
 from components and never summed or averaged.
 
-With no axes, the reducer uses the source's state-selected
-`semantic_or_materialized` authority. Adding axes requires
-`semantic_current` for the exact current Dimension paths even when the journey
+With no axes, the reducer consumes the exact source journey rows. Adding axes
+explicitly joins the exact current Dimension paths even when the journey
 input is materialized; the source journey remains an immutable input leaf and
 is never rematched.
 
@@ -1053,8 +1036,8 @@ One row means one admitted journey attempt between the two exact steps.
 `duration` is non-negative and present only for complete rows. Incomplete rows
 require complete follow-up; coverage-censored rows retain unknown truth.
 
-The reducer is state-selected `semantic_or_materialized` and never rematches
-Events or replaces the source matching policy.
+The reducer consumes exact journey rows supplied by the Logical input or
+immutable Artifact. It never rematches Events or replaces the source matching policy.
 
 ### Event filtering matrix
 
@@ -1069,12 +1052,12 @@ Event filtering consumes the shared `AnalysisPredicate` contract and always has
 
 `journey_id`, `entity_identity`, and Event identity tuples are not filter
 operands. Row filtering never changes Pattern meaning, matching assignment, or
-subject membership. No Event shape turns filtered rows into SubjectSet without
+subject membership. No Event shape turns filtered rows into PopulationDataset without
 an explicit registered bridge; the first cutover admits only the
 `DroppedBefore` bridge on the unfiltered structural journey contract.
 
-Materialized filters consume retained fields under `materialized_only`.
-Logical filters use `semantic_current`. No Event filter may reach through a
+Materialized filters consume retained fields. Logical filters follow their
+admitted upstream graph. No Event filter may reach through a
 materialized input to recover an absent field or rematch the Pattern.
 
 Generated Event fields use this exact predicate-kind registration:
@@ -1174,7 +1157,7 @@ The confirmed subject classification is:
 | inception truth cannot be established | one or more triggers lack compatible source-origin coverage | `coverage_censored`; no invented initial interval |
 
 Coverage-censored subjects contribute to bounded diagnostics and Evidence inputs
-but cannot enter an `InState` SubjectSet. Pre-inception modeled occurrences do
+but cannot enter an `InState` PopulationDataset. Pre-inception modeled occurrences do
 not silently seed state. The fixed replay contract records or rejects them only
 according to the exact row below; callers do not choose an `on_missing_history`
 policy.
@@ -1327,10 +1310,9 @@ and instant. `coverage_censored_subject_count` is kept separate. Subjects not
 yet incepted are outside the StateModel distribution and are not assigned to
 the initial state. A zero known denominator yields null share.
 
-With no axes, distribution is state-selected
-`semantic_or_materialized`. Adding axes selects `semantic_current` for current
-Dimension enrichment while retaining the source history as its exact logical
-or immutable input.
+With no axes, distribution consumes the exact input history rows. Adding axes
+explicitly joins current Dimension paths while retaining the source history as
+its exact logical or immutable input.
 
 ### `transitions`
 
@@ -1356,9 +1338,8 @@ therefore contribute to one pair row. Illegal triggers are not transitions;
 they remain in the violation trace. The share denominator is the count of all
 legal modeled transitions. A zero denominator yields null.
 
-The reducer is state-selected `semantic_or_materialized` and uses no current
-semantic expansion beyond the exact logical source or retained materialized
-history contract.
+The reducer consumes the exact logical source or retained materialized history
+and trace. It adds no current semantic expansion.
 
 ### `dwell`
 
@@ -1442,7 +1423,7 @@ fingerprints, Artifact refs, completeness basis, and audit-only trace facts are
 not filter operands.
 
 Filtering does not rewrite the StateModel, replay history, transition graph, or
-subject membership. No filtered Lifecycle summary becomes a SubjectSet. The
+subject membership. No filtered Lifecycle summary becomes a PopulationDataset. The
 only first-cutover Lifecycle bridge is typed `InState` selection on the
 structurally complete history.
 
@@ -1477,7 +1458,7 @@ producer-owned continuation list stored on each family or operator result.
 
 | Qualified shape | Admitted continuations |
 | --- | --- |
-| `subject-set/entity-membership@v1` | `population=` input to `session.observe`, `session.events.match`, or `session.lifecycle.replay`; state actions |
+| `population/entity-membership@v1` | Module 2 membership `where`/`sample`; `population=` on Metric/Event/Lifecycle sources; state actions |
 | `event/journey@v1` from `first_per_subject` | `funnel`, `time_to_event`, `select_subjects(DroppedBefore)`, state actions |
 | `event/journey@v1` from `every_start` | `time_to_event`, state actions |
 | `event/funnel@v1` | `where`, compatible Event-funnel `compare`, state actions |
@@ -1490,7 +1471,7 @@ producer-owned continuation list stored on each family or operator result.
 | `delta/funnel@v1` | `where`, Event-funnel `attribute`, state actions |
 | `attribution/funnel-loss-rate@v1` | state actions |
 
-SubjectSet and structural journey/history shapes do not admit `where`, `rank`,
+Structural journey/history shapes do not admit `where`, `rank`,
 or `limit`. No v1 `rank` or `limit` consumer invocation pattern matches those
 shapes. Metric, Candidate, ordinary Delta, and ordinary Attribution shapes are
 admitted only by the separate Module 5 consumer variants matching their exact
@@ -1648,27 +1629,27 @@ Module 5's Metric-only Python signature remains valid as one overload. Its
 consumed-seam section, operator matrix, and Help inventory point to this Event
 overload without restating these Event rows or arithmetic rules.
 
-## Authority Assignment Matrix
+## Operator Input Matrix
 
-Every occurrence selects one requirement during local construction:
+Each operator binds the following inputs and concrete checks during construction:
 
 | Occurrence | Logical input | Materialized input | Selected rule |
 | --- | --- | --- | --- |
 | exact Metric/Candidate `population=` input | project exact current input identities | project retained identity field | input-state-selected identity projection; no reach-through |
-| journey `.select_subjects(DroppedBefore)` | execute exact Pattern assignment | consume retained dense journey rows | state-selected `semantic_or_materialized`; complete coverage required |
-| history `.select_subjects(InState)` | execute exact replay intervals | consume retained complete history rows | state-selected `semantic_or_materialized`; complete at-instant truth required |
-| `events.match` | current Pattern Events plus membership input | current Pattern Events plus immutable membership leaf | `semantic_current` source execution |
-| `journeys.funnel(axes=())` | consume journey definition | consume retained journey rows | state-selected `semantic_or_materialized` |
-| `journeys.funnel(axes=...)` | consume journey plus current axes | retain journey leaf plus current axes | `semantic_current` enrichment |
-| `journeys.time_to_event` | consume journey definition | consume retained journey rows | state-selected `semantic_or_materialized` |
-| `lifecycle.replay` | current StateModel Events plus membership input | current StateModel Events plus immutable membership leaf | `semantic_current` source execution |
-| `history.distribution(axes=())` | consume replay history | consume retained history rows | state-selected `semantic_or_materialized` |
-| `history.distribution(axes=...)` | consume history plus current axes | retain history leaf plus current axes | `semantic_current` enrichment |
-| transitions/dwell/violations | consume exact logical history and trace | consume retained history and committed trace | state-selected `semantic_or_materialized` |
+| journey `.select_subjects(DroppedBefore)` | execute exact Pattern assignment | consume retained dense journey rows | exact input rows; no origin replay; complete coverage required |
+| history `.select_subjects(InState)` | execute exact replay intervals | consume retained complete history rows | exact input rows; no origin replay; complete at-instant truth required |
+| `events.match` | current Pattern Events plus membership input | current Pattern Events plus immutable membership leaf | explicit current Event source execution |
+| `journeys.funnel(axes=())` | consume journey definition | consume retained journey rows | exact input rows; no origin replay |
+| `journeys.funnel(axes=...)` | consume journey plus current axes | retain journey leaf plus current axes | explicit current Dimension joins |
+| `journeys.time_to_event` | consume journey definition | consume retained journey rows | exact input rows; no origin replay |
+| `lifecycle.replay` | current StateModel Events plus membership input | current StateModel Events plus immutable membership leaf | explicit current Event source execution |
+| `history.distribution(axes=())` | consume replay history | consume retained history rows | exact input rows; no origin replay |
+| `history.distribution(axes=...)` | consume history plus current axes | retain history leaf plus current axes | explicit current Dimension joins |
+| transitions/dwell/violations | consume exact logical history and trace | consume retained history and committed trace | exact input rows; no origin replay |
 | owned row filter | current logical rows | retained current rows | shared logical/materialized filter matrix |
 
-`semantic_or_materialized` means equivalent calculation over the exact rows
-owned by the selected input token. It never means fallback from failed current
+Equivalent lowering preserves the calculation over the exact rows owned by
+each bound input token. It never means fallback from failed current
 semantics to historical rows or fallback from an unreadable Artifact to
 re-execution.
 
@@ -1685,7 +1666,7 @@ eligible Entity Metric or Candidate rows
 
 complete Event journey or Lifecycle history
   -> explicit typed subject selection
-  -> another SubjectSet
+  -> another PopulationDataset
   -> explicit population= on Metric, Event, or Lifecycle source
   -> owned Dataset analysis
 ```
@@ -1698,7 +1679,7 @@ Every population-input boundary preserves:
 - sampling authority and approximation disclosure;
 - source temporal and completeness authority;
 - source definition and family, including a selection definition for
-  `SubjectSet` inputs;
+  `PopulationDataset` inputs;
 - logical or materialized input authority.
 
 The consumer adds its own source-time and semantic authority. It does not
@@ -1728,7 +1709,7 @@ exists.
 
 A materialized admitted `PopulationInput` may be recovered and reused by ref
 across actions or processes. The consumer reads the exact retained immutable
-identity field and never re-runs the origin definition. `SubjectSet` remains the
+identity field and never re-runs the origin definition. `PopulationDataset` remains the
 only family produced by Event/Lifecycle semantic subject selection; it is not
 the only materialized Dataset that can provide population input.
 
@@ -1762,26 +1743,27 @@ authority because they do not contain realized membership. They must use the
 shared bounded redaction rules for predicate literals.
 
 An integrity hash over stored identity rows may exist in Module 4's private
-receipt and commit-marker authority. It is not public family metadata, a
+receipt and atomic Store publication authority. It is not public family metadata, a
 membership id, an Evidence digest, or a card field. This matters especially for
 small cohorts whose raw row hash could be dictionary-tested.
 
-No public digest may allow equality testing of two realized SubjectSets beyond
+No public digest may allow equality testing of two realized selection Populations beyond
 their explicit Artifact refs. Equal logical definitions and equal row counts do
 not prove equal realized membership.
 
 ### Storage constraints
 
-A SubjectSet, Event journey, Event time-to-event, Lifecycle history, or
+A PopulationDataset, Event journey, Event time-to-event, Lifecycle history, or
 Lifecycle violation Artifact may contain identity rows only when the selected
-Module 4 storage candidate:
+Module 4 configured storage target:
 
 - provides the ordinary Session-authorized access boundary;
 - uses opaque runtime-owned locators;
 - does not partition, name, or index storage with raw identity values;
 - can validate exact schema, row count, non-nullness, and tuple uniqueness where
   required;
-- keeps temporary resources private until the Artifact commit marker;
+- keeps temporary resources private, proves execution terminal/fenced, and
+  journals harmless deletion leftovers without blocking atomic publication;
 - supports exact cleanup without logging row payloads.
 
 Failure to meet those requirements is storage-selection failure, not permission
@@ -1821,7 +1803,7 @@ The exact first-cutover registrations are:
 
 | Producing operator | Quality contract | Validation output | Evidence extractor | Finding extractor / policy | Retained private contract |
 | --- | --- | --- | --- | --- | --- |
-| Event/Lifecycle `select_subjects` | `subject_set_quality@v1` | `subject_set_validation@v1` | `subject_set_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
+| Event/Lifecycle `select_subjects` | `subject_selection_quality@v1` | `subject_selection_validation@v1` | `subject_selection_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
 | `session.events.match` | `event_journey_quality@v1` | `event_journey_validation@v1` | `event_journey_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
 | `journeys.funnel` | `event_funnel_quality@v1` | `event_funnel_validation@v1` | `event_funnel_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
 | `journeys.time_to_event` | `event_time_to_event_quality@v1` | `event_time_to_event_validation@v1` | `event_time_to_event_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
@@ -1840,7 +1822,7 @@ then run over the same staged rows and bounded validation outputs:
 
 | Quality contract | Blocking checks | Canonical bounded Evidence projection |
 | --- | --- | --- |
-| `subject_set_quality@v1` | non-null exact identity tuples; row-key uniqueness; complete membership authority; no censored member | source family/shape, subject Entity/signature refs, selection kind, row count, coverage basis |
+| `subject_selection_quality@v1` | non-null exact identity tuples; row-key uniqueness; complete membership authority; no censored member | source family/shape, subject Entity/signature refs, selection kind, row count, coverage basis |
 | `event_journey_quality@v1` | dense exact Pattern steps per journey; matching algorithm/version; within-journey occurrence uniqueness; time monotonicity; status/null coherence; coverage classification | Pattern/matching ids, journey/subject/step counts, completion-status counts, coverage basis; no journey or identity values |
 | `event_funnel_quality@v1` | dense steps/groups; count equations; zero-denominator nulls; grouped-to-ungrouped reconciliation | axes/step refs, group count, count ranges, status totals, reconciliation maxima |
 | `event_time_to_event_quality@v1` | one row per source journey; selected-step identity; non-negative complete duration; status/null and coverage coherence | selected step refs, row/status counts, duration range for defined aggregate values, coverage basis |
@@ -1890,11 +1872,20 @@ contains the identity-bearing violation rows needed by `history.violations()`
 under the same authorization boundary as history storage. Cold reads validate
 it and fail if absent or corrupt; they never replay Events to rebuild it.
 
+The trace is an actual `retained_parts[]` instance under the history Artifact,
+using role `lifecycle_violation_trace` with the registered version and its own
+receipt. Its schema/count/content and locator are committed with the primary
+history receipt; both reservations transfer in one Store transaction. It is not
+temporary exchange garbage or a separately published Artifact. Ordinary history
+row reads do not open the trace; `violations()` and full integrity inspection do.
+The same physical ownership and authorization rules apply across local, engine,
+and object backing, with no Event replay when the trace is missing or corrupt.
+
 ## Definition Identity and Lineage
 
-### SubjectSet definition identity
+### PopulationDataset definition identity
 
-The logical SubjectSet fingerprint binds:
+The logical PopulationDataset fingerprint binds:
 
 - source Dataset definition fingerprint and input authority token;
 - source family and shape;
@@ -1902,7 +1893,7 @@ The logical SubjectSet fingerprint binds:
 - Population, target-Population, scope, and sampling lineage;
 - selection operator and complete typed selection payload;
 - source temporal and completeness requirements;
-- SubjectSet row-contract and operator versions.
+- PopulationDataset row-contract and operator versions.
 
 It does not bind realized identities, row count, physical plan, engine choice,
 storage candidate, or execution diagnostics.
@@ -1914,12 +1905,13 @@ An Event Dataset source fingerprint additionally binds:
 - exact Pattern and resolved Event/role semantic fingerprints;
 - matching policy;
 - cohort window and completion-through bound;
-- optional Population/SubjectSet authority;
+- optional Population authority;
 - completeness declarations and required coverage identities;
-- exact output row-contract version.
+- exact output row-contract and row-set-contract fingerprints.
 
 Reducer fingerprints bind the exact source input authority, reducer parameters,
-PatternStep handles, axes and anchor semantics, and output row contract.
+PatternStep handles, axes and anchor semantics, and output row and row-set
+contracts.
 
 ### Lifecycle definition identity
 
@@ -1927,18 +1919,19 @@ A Lifecycle replay fingerprint binds:
 
 - exact StateModel, state, trigger, Event, and participant-role fingerprints;
 - replay window and seed;
-- optional Population/SubjectSet authority;
+- optional Population authority;
 - completeness declarations and prior-history requirements;
 - fixed violation behavior version;
-- exact output row-contract version.
+- exact output row-contract and row-set-contract fingerprints.
 
 Reducer fingerprints bind requested instants, axes and temporal anchors, exact
-source authority, reduction version, and output row contract.
+input Artifact or logical-definition identity, reduction version, and output
+row and row-set contracts.
 
 ### Bounded lineage
 
 Lineage discloses semantic refs, family/shape transitions, window identities,
-matching/seed/selection kinds, coverage class, authority mode, and input
+matching/seed/selection kinds, coverage class, field requirements, and input
 Artifact refs within the common budget. Predicate values remain redacted and
 identity rows never appear.
 
@@ -1951,8 +1944,8 @@ contract state.
 | Failure | Phase | Repair source |
 | --- | --- | --- |
 | Pattern steps resolve different subject Entities | construction | exact resolved step/Entity bindings |
-| explicit Population/SubjectSet Entity mismatch | construction | required source subject Entity/signature |
-| cross-Session membership input | construction | owning Session identity |
+| explicit Population Entity mismatch | construction | required source subject Entity/signature |
+| foreign Logical membership or cross-Store Artifact | construction | materialize in the owner Session, then explicitly select its same-Store Artifact |
 | bare or foreign step/state selector | construction | exact retained PatternSteps or ModelStateHandles |
 | missing Event cohort or Lifecycle replay window | construction | canonical source signature |
 | invalid follow-up bound | construction | exact cohort-window end |
@@ -1980,8 +1973,11 @@ failure may disclose aggregate counts and safe semantic identities only.
 Coverage failure is not repaired by silently dropping uncertain subjects.
 Identity mismatch is not repaired by a join on similarly named columns.
 Unsupported compilation is not repaired by a post-failure pandas, Polars, or
-DuckDB fallback. Any bounded local implementation must be pre-registered by the
-compiler and preserve this module's identity/privacy contract.
+DuckDB fallback. The 2026-09-05 amendment fixes matching, replay and
+identity-bearing reducers to their registered engine implementation. Local
+Artifact relations may use their fixed DuckDB reader when that exact method is
+supported; remote identities are not collected to make an unsupported method
+work. Complex methods are admitted per tested engine, not universally.
 
 ## Contract and Help Disclosure
 
@@ -2025,7 +2021,7 @@ Owned Dataset contracts disclose, within the common budget:
 - subject Entity and identity-signature shape without identity values;
 - Population, target-Population, scope, sampling, and source-time authority;
 - Pattern/matching/follow-up or StateModel/seed/window identity;
-- logical/materialized state and selected authority requirement;
+- logical/materialized state and concrete input checks;
 - coverage and censoring requirements;
 - exact filterable fields and effect;
 - exact typed reducers, selectors, and state-specific actions;
@@ -2043,7 +2039,7 @@ family, and generated-field contract introduced here. The canonical inventory
 is:
 
 ```text
-analysis.SubjectSet
+analysis.PopulationDataset
 analysis.EventDataset
 analysis.LifecycleDataset
 analysis.events.match
@@ -2096,19 +2092,20 @@ drift-tested. Neither renderer maintains a shadow family/operator inventory.
 
 ## Rejected Alternatives
 
-### Make `SubjectSet` a `PopulationDataset` Python subclass
+### Keep a separate SubjectSet family or subclass
 
-Rejected because capability admission and exact row contracts, not inheritance,
-must define substitutability. A subclass would also tempt duplicate Population
-operators and source methods.
+Rejected by the 2026-09-05 amendment because the published row contract and
+member-consumption meaning are identical to Population. Domain selection owns
+its predicates, completeness, and source time; those production requirements do
+not need another membership family or a different filter surface.
 
-### Allow a coverage-censored SubjectSet as `population=`
+### Allow a coverage-censored PopulationDataset as `population=`
 
 Rejected because it would present uncertain membership as a
 governed cohort and make every consumer rediscover readiness state. Event and
 Lifecycle source Datasets already retain censored diagnostics.
 
-### Add `SubjectSet.where(...)` over identity values
+### Add `PopulationDataset.where(...)` over identity values
 
 Rejected because identity tuples are not ordinary analysis literals, composite
 components are deliberately not public, and manual identifier membership needs
@@ -2156,7 +2153,7 @@ questions over the complete structure.
 Rejected because a materialized Dataset is an immutable scan leaf. Lineage is
 bounded audit context, not executable identity authority.
 
-### Build SubjectSet from pandas, files, SQL, or Python collections
+### Build PopulationDataset from pandas, files, SQL, or Python collections
 
 Rejected because it bypasses governed Entity identity, Session ownership,
 privacy, scope, sampling, Evidence, and cold-recovery authority.
@@ -2180,6 +2177,14 @@ requirements. Missing backend capability produces a structured failure or an
 explicit durable-boundary repair.
 
 ## Vertical Acceptance Journeys
+
+Journey fixtures must choose an explicit compatible execution/storage setup.
+A retained Population or identity selection later joined to current sources uses
+an engine target and reader in that same datasource domain. Local Artifact-only
+continuations use DuckDB. These are fixture configurations, not automatic
+placement or target switching. Include a conflicting-domain negative fixture;
+`.execute()` must not be advertised as a repair unless its configured writer
+and reader can actually establish the required common domain within bounds.
 
 ### Metric population input into Event analysis
 
@@ -2218,8 +2223,10 @@ dropouts = failure_journeys.select_subjects(
 ).execute()
 
 dropout_metrics = session.observe(
-    metrics=[lifetime_value, support_ticket_count],
+    metrics=[support_ticket_count],
     population=dropouts,
+    time_scope=followup_window,
+    time_dimension=ticket_created_at,
 )
 ```
 
@@ -2276,7 +2283,7 @@ family/shape contracts in a fresh process.
 ### Empty complete cohort
 
 1. Construct an admitted selection whose complete result is empty.
-2. Materialize and cold-recover the zero-row SubjectSet.
+2. Materialize and cold-recover the zero-row PopulationDataset.
 3. Pass it to Event and Metric sources.
 4. Assert exact empty journey/Metric outputs and dense zero funnel rows where
    the family contract requires them.
@@ -2290,12 +2297,12 @@ family/shape contracts in a fresh process.
 2. Inspect coverage-censored journey rows.
 3. Attempt `DroppedBefore` selection.
 4. Assert the action fails atomically with a bounded coverage repair.
-5. Assert no SubjectSet Artifact, partial identity storage, Evidence, or Finding
+5. Assert no PopulationDataset Artifact, partial identity storage, Evidence, or Finding
    is published.
 
 ### Identity privacy adversary
 
-1. Use one single-member and one composite-key SubjectSet.
+1. Use one single-member and one composite-key PopulationDataset.
 2. Execute success, failure, cancellation, cleanup, materialization, recovery,
    `show`, and `to_pandas` paths.
 3. Assert identities appear only in the two explicit terminal row reads and
@@ -2314,8 +2321,9 @@ port, or a successful backend query alone. The public-cutover plan must require:
    contract, plus derived-continuation reachability tests;
 2. method-signature and Help-resolution tests for every canonical path and every
    removed Session duplicate;
-3. row-contract builder tests proving field order, ids, roles, logical types,
-   nullability, row keys, cardinality, and definition fingerprints before
+3. row-contract and row-set-contract builder tests proving field order, ids,
+   roles, logical types, nullability, row keys, cardinality, ordering, and
+   definition fingerprints before
    execution;
 4. exact Session, Entity, composite-key, Population, sampling, scope, Pattern,
    StateModel, step, state, and axis admission matrices;
@@ -2336,7 +2344,7 @@ port, or a successful backend query alone. The public-cutover plan must require:
     enter predicates;
 11. subject-selection tests for logical and materialized inputs, empty complete
     membership, duplicates, coverage failure, and no local collection;
-12. same-plan compiler tests proving logical SubjectSet semi-join consumption
+12. same-plan compiler tests proving logical PopulationDataset semi-join consumption
     and one evaluation of shared membership;
 13. materialized scan-leaf tests proving cold membership recovery without an
     origin graph and no re-execution across independent actions;
@@ -2363,14 +2371,15 @@ compiled query, local preview, AM dispatch, or healthy process is not acceptance
 
 - nominal Dataset registration, common state, actions, field selectors,
   fingerprints, lineage, `repr`, `show`, `contract`, and scan leaves;
-- `SubjectSet`, `EventDataset`, and `LifecycleDataset` family slots;
-- registry-based refinement rather than Python inheritance.
+- `EventDataset` and `LifecycleDataset` family slots;
+- registry-based admission rather than Python inheritance.
 
 This module supplies family row meanings, shapes, fields, and identity/privacy
 requirements without changing the common Dataset protocol.
 
 ### Observation Model supplies
 
+- the sole Population family, row contract, filtering, and sampling;
 - Population and target-Population authority;
 - exact Entity identity signature and shared `population_input` seam;
 - Population scope and sampling authority;
@@ -2379,7 +2388,7 @@ requirements without changing the common Dataset protocol.
 
 This module registers owned filterable fields and exact subject selection. It
 does not add predicate syntax, reinterpret Population scope, or add
-`SubjectSet.observe(...)`.
+`PopulationDataset.observe(...)`.
 
 ### Typed Operators supplies
 
@@ -2388,36 +2397,44 @@ does not add predicate syntax, reinterpret Population scope, or add
 - common operator ids and Dataset-to-Dataset registration protocol;
 - common Delta/Attribution family behavior used by Event funnel specialization.
 
-This module supplies the SubjectSet output contract and Event-specific
+This module supplies the PopulationDataset output contract and Event-specific
 selection/comparison registrations. Neither module creates a second identity
 authority.
 
-### Compiler and Execution Boundaries consumes
+### Direct Compiler and Fixed Execution Boundaries consumes
 
-- source and reducer semantic node ids and exact row-contract versions;
+- source and reducer semantic node ids plus exact row-contract and
+  row-set-contract fingerprints;
 - same-plan logical population-input requirements;
 - materialized population-input identity scan-leaf requirements;
 - matching, replay, ordering, completeness, reconciliation, and exact reduction
   requirements;
 - identity-safe boundary and diagnostic constraints;
-- the requirement that any admitted DuckDB or Python local implementation uses
-  exact Arrow/Run-staged Parquet exchanges without exposing raw identities in
-  audit, metadata, errors, or a hidden Dataset.
+- one fixed engine recipe for each matching/replay/identity-bearing method,
+  with precise support on tested adapters and no kernel collection fallback;
+- same-domain validation for source, Population and explicit current-semantic
+  inputs, independently of their Logical/Materialized authority.
 
-The compiler chooses only admitted equivalent implementations and placements.
-It does not select matching policy, seed, censoring interpretation, subject
-membership, or local fallback.
+The compiler binds that recipe in the inherited domain. It cannot import a
+materialized membership set into another engine, discover federation routes,
+select a new matching policy, seed, censoring interpretation or subject set.
+Materialized selection followed by current-source observation is executable
+only when its fixed reader and the source share an admitted domain. Otherwise
+it fails with a real storage/configuration repair or a typed unsupported reason.
+Module 5's Event funnel compare and attribution variants remain fixed Ibis
+recipes over the exact Event-owned additive components.
 
 ### Materialization Runtime consumes
 
 - privacy-safe storage and metadata requirements;
-- selected authority mode for every occurrence;
-- SubjectSet complete-membership publication gate;
+- concrete input checks for every occurrence;
+- PopulationDataset complete-membership publication gate;
 - family-specific schema, uniqueness, coverage, reconciliation, violation-trace,
   quality, Evidence, and Finding inputs;
 - exact cold-recovery privacy invariants;
-- cleanup of every identity-bearing Arrow batch, Run-staged Parquet exchange,
-  DuckDB workspace, and Python-kernel buffer before Artifact publication.
+- cleanup of every authorized identity-bearing reader/writer batch, Runtime
+  staging file and DuckDB workspace; harmless surviving files remain
+  journaled without blocking valid publication after termination/fencing.
 
 The runtime commits those requirements through its one Artifact publication
 decision. It does not reinterpret selection, expose identity rows in audit, or
@@ -2442,15 +2459,16 @@ recover a logical origin plan.
 The owner decision and design-review gates are satisfied. Implementation and
 cutover acceptance must prove:
 
-1. SubjectSet has one exact nominal/refinement relationship and row contract;
+1. every subject-selection producer returns the sole Module 2 Population
+   family with exact common row and row-set contracts;
 2. logical and materialized membership authority is unambiguous;
 3. complete, empty, and uncertain selection behavior is exact;
 4. Event/Lifecycle membership and time windows have distinct owners;
-5. every source and reducer has one exact signature and complete construction-time
-   row contract, including field ids, roles, types, nullability, row key, and
-   ordering;
+5. every source and reducer has one exact signature and complete
+   construction-time row and row-set contracts, including field ids, roles,
+   types, nullability, row key, cardinality, and ordering;
 6. every owned shape has a closed filter and continuation matrix;
-7. every bridge names exact identity, coverage, and authority requirements;
+7. every bridge names exact identity, coverage, and semantic dependency requirements;
 8. raw identities have one exhaustive allowed-location contract;
 9. cold recovery reconstructs authority without logical replay;
 10. cross-domain loops require explicit `population=PopulationInput` and no
@@ -2465,9 +2483,9 @@ cutover acceptance must prove:
     one backend-independent conformance contract;
 15. implementation evidence includes terminal Runtime proof, not transport or
     harness evidence alone;
-16. any admitted partial-SQL path preserves the exhaustive identity-location
-    contract through Arrow/Parquet exchange and pre-bound DuckDB/Python local
-    execution, with no hidden Materialized Dataset or post-failure fallback;
+16. every method uses its fixed admitted engine recipe; materialized readers
+    preserve identity location and same-domain requirements without automatic
+    import, local identity collection, hidden Artifacts or failure fallback;
 17. no observed occurrence-range read performs datasource work outside
     `execute()`, and Event/Lifecycle windows remain explicit authored inputs.
 
@@ -2475,20 +2493,20 @@ cutover acceptance must prove:
 
 This module freezes:
 
-1. `SubjectSet` is a sibling Dataset admitted through `population_input` in
-   direct-membership mode;
-2. one SubjectSet row is one exact complete tuple-valued Entity identity;
-3. logical SubjectSet authority is same-plan only;
+1. Module 2 owns the sole `PopulationDataset` family; domain selections
+   produce it and sources admit it in direct-membership mode;
+2. one PopulationDataset row is one exact complete tuple-valued Entity identity;
+3. logical PopulationDataset authority is same-plan only;
 4. a materialized admitted `PopulationInput` is the cold-recoverable population
    boundary; materialization never converts its Dataset family;
-5. every published SubjectSet has complete membership truth and empty complete
+5. every published PopulationDataset has complete membership truth and empty complete
    membership is legal;
-6. SubjectSet does not admit `where(...)` in v1;
+6. PopulationDataset uses Module 2's membership `where(...)` in v1;
 7. exact Entity Metric and entity-outlier Candidate rows enter sources directly
    through explicit `population=`, while Event/Lifecycle use typed
    `.select_subjects(selection)` when domain selection semantics are required;
-8. only first-per-subject journey and replay history shapes produce SubjectSet
-   in v1;
+8. the v1 domain selection producers accept first-per-subject journey and
+   replay history; explicit Population roots remain owned by Module 2;
 9. `events.match` is the sole Event source and requires an explicit matching
    policy, cohort window, and completion-through bound;
 10. Population membership scope and Event/Lifecycle source windows remain
@@ -2537,12 +2555,16 @@ before the public-cutover plan or implementation depends on a replacement.
 
 ## Owner Confirmation
 
+The 2026-09-05 amendment replaces the former separate membership family with
+Population and enables its common Dimension filters. Domain matching, replay,
+selection truth, and completeness choices below remain unchanged.
+
 On 2026-09-02 the owner accepted all six surfaced choices:
 
 1. explicit Event matching policy;
 2. direct Entity identity projection at the population-input boundary and
    separate Event/Lifecycle semantic selection methods;
-3. complete-only SubjectSet publication with legal empty membership;
+3. complete-only PopulationDataset publication with legal empty membership;
 4. distinct no-trigger, missing-inception, and unknown-coverage Lifecycle
    outcomes;
 5. independent Population membership and Event/Lifecycle source-time windows;
@@ -2565,7 +2587,7 @@ replace one of these product choices.
 ## Final Boundary
 
 Module 6 decides how Event/Lifecycle domain semantics produce an exact governed
-`SubjectSet`; what every Event and Lifecycle Dataset row means; and when
+`PopulationDataset`; what every Event and Lifecycle Dataset row means; and when
 coverage, privacy, temporal, and materialized authority are sufficient for
 those operations. Module 2 owns admission of that set and other exact
 identity-bearing Datasets through the shared population-input boundary.

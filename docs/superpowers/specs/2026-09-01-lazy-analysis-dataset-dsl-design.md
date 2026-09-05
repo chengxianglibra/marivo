@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-03
+Revised: 2026-09-05
 
 Status: accepted
 
@@ -48,25 +48,32 @@ logical definition in a later process and calling `execute()` recovers that
 Artifact without rerunning datasource SQL. This write-once binding, not Python
 object identity or a mutable cache, is the durable execution identity.
 
+The execution key adds only the common materialization protocol version to the
+canonical definition fingerprint; the Store supplies Session scope. Artifact
+selection opens metadata only. Row reads and operators validate their actual
+payload dependencies, and `session.revalidate(ref)` explicitly inspects the full
+Artifact/parts/Findings without comparing source or semantic freshness. Compiler
+diagnostics and harmless garbage deletion do not gate successful publication.
+
 ## Product-Wide Invariants
 
 ### Dataset is the analysis value
 
 - `Dataset` is the common public abstraction name.
 - Every row-bearing public analysis value belongs to a sealed nominal Dataset
-  family with a complete row contract before execution.
+  family with complete row and row-set contracts before execution.
 - Every family registers paired logical and materialized public state types.
-  Both are immutable, share one family and row contract, and are owned by one
+  Both are immutable, share one family, row contract, and row-set contract, and are owned by one
   Session; their method surfaces are state-specific.
 - Operators compose only governed Dataset values and typed inputs. They do not
   accept arbitrary pandas, SQL, Ibis, callables, or physical columns.
 - Selector-only field references may name a field already present in the
-  current row contract. They are not columns, expressions, or values.
+  current row-contract schema. They are not columns, expressions, or values.
 - Policy values, semantic refs, predicates, contracts, audit reads, structured
   errors, bounded previews, and terminal pandas objects are supporting values,
   not analysis-operator outputs.
 
-The exact value, family, row-contract, state, action, and selector contracts are
+The exact value, family, row-contract, row-set-contract, state, action, and selector contracts are
 owned by the
 [`Dataset Core design`](2026-09-01-lazy-analysis-dataset-core-design.md).
 
@@ -76,14 +83,23 @@ Marivo's governed Entity is already the target of a Metric or Dimension. An
 Entity Population therefore means the eligible instances of that Entity; it is
 not a separate abstraction at the same level as scalar, Dimension, or time.
 
-`session.observe(...)` infers the default Entity Population from the requested
-Metric and Dimension bindings. The caller supplies an explicit Population only
-to change membership, scope, cohort, or sampling. Ambiguous or incompatible
-Entity anchors fail locally with a structured repair.
+`session.observe(...)` infers an all-eligible, unscoped Population only when the
+Metric graph has one exact common computation-root Entity. An explicit Population
+selects the analysis Entity before each component's safe path is validated;
+computation roots, analysis unit, and reporting coordinates remain distinct.
 
-Scalar, Dimension, time, and Dimension-by-time describe aggregation
-coordinates over a Population. They never create a different Population. The
-Entity axis remains present until explicit `aggregate()` removes it.
+Membership selection time and Metric observation time have independent owners.
+Explicit `population=` may be combined with observe-level `time_scope` and
+`time_dimension`, including disjoint cohort and behavior windows. No source
+inherits a membership window as its observation window.
+
+Scalar, Dimension, time, and Dimension-by-time describe coordinates over members.
+The lazy coordinate chain retains Entity until `aggregate()` removes it, but
+requires no intermediate Entity execution. Row filtering binds exact coordinate
+contributions; original Population lineage is never an implicit denominator.
+Ratio/mean/weighted-mean state enables continued exact aggregation after reads.
+`rollup(drop_time=True)` may remove time only under a registered temporal fold
+and must preserve selected/partial-period coverage.
 
 The exact Population, filtering, observation, coordinate, aggregation, and
 compatibility contracts are owned by the
@@ -103,75 +119,70 @@ does not expose a general expression language. `rank(...)` establishes a
 governed deterministic order; `limit(...)` consumes an already governed order
 and never authorizes an unordered backend limit.
 
-### Laziness exists to preserve datasource execution
+### Laziness preserves semantic order and engine execution
 
-A complete Dataset chain is available before execution, allowing Marivo to:
+A complete Dataset chain preserves Population, coordinates, aggregation,
+filtering and retained-state meaning until explicit execution. Adjacent
+relational operations in the same input domain compose through Ibis. This
+keeps high-cardinality Entity work in its engine without a general placement
+optimizer or a requirement to translate every statistical method into SQL.
 
-- lower semantic joins, filtering, coordinates, aggregation, ranking, windows,
-  and statistical operations into the capable datasource;
-- share one Population spine and avoid independently observed Metric frames;
-- keep high-cardinality Entity rows and identities inside governed engines;
-- select bounded execution boundaries only when a single engine cannot execute
-  the whole chain;
-- fail closed instead of silently collecting unsupported work into pandas.
+The accepted [Direct Compiler and Fixed Execution Boundaries design](2026-09-01-lazy-analysis-planner-and-pushdown-design.md)
+owns the exact execution rules. The 2026-09-05 amendment supersedes the earlier
+universal fusion, partial-SQL routing, automatic import and sink-ranking
+contracts throughout this design set.
 
-Marivo does not expose or build a public query planner, and it does not become a
-general cost-based optimizer. The accepted semantic graph, Ibis lowering,
-capability, boundary, and guarded-transfer contracts are owned by the
-[`Planner and Pushdown design`](2026-09-01-lazy-analysis-planner-and-pushdown-design.md).
+### Authority admission and execution-domain compatibility are separate
 
-### Every operator supports logical fusion and explicit checkpoint reuse
+Every operator has one analytical meaning over its admitted Logical and
+Materialized inputs. Partial materialization is not another public overload.
+A Materialized operand always contributes its exact immutable rows and required
+parts; origin lineage is never executable, and a logical input is never silently
+replaced by a similar stored Artifact.
 
-Every operator has one analytical contract but must be executable from both
-input topologies:
+Relational execution additionally requires all inputs and current semantic
+dependencies to share one Marivo-owned execution domain. Logical sources inherit
+their datasource binding; Artifact readers fix the domain from their backing.
+Local Parquet is read by DuckDB, and engine Artifacts stay in their engine.
+The compiler does not import, upload, download, federate or relocate an input
+to make a mixed-domain relation executable.
 
-1. when all of its inputs are logical and one execution domain can address the
-   complete upstream closure, Marivo lowers the operator and that closure into
-   one lazy Ibis expression and gives the datasource one complete SQL query;
-2. when one or more inputs are materialized Datasets, each such input is a
-   mandatory immutable scan leaf. Marivo reuses those exact rows, then fuses
-   the operator, remaining logical inputs, and downstream work into one Ibis
-   expression wherever one admitted domain can scan or import every input.
+An unsupported combination fails with its exact input-role/domain reason.
+Independent materialization is a repair only when reachable public inputs can
+actually be written and subsequently read in a common configured domain within
+bounds. Calling `execute()` does not itself promise that domain change.
 
-For a multi-input operator, partial materialization is ordinary rather than a
-special API: its ordered input-authority vector may contain any admitted mix of
-logical definitions and materialized Artifact refs. The operator does not own
-two calculation implementations. Its semantic owner defines one row meaning
-and the compiler binds each input from its authority token before applying one
-equivalent lowerer.
+### Fixed numerical methods remain one private execution
 
-"Already materialized" means that the caller constructed the downstream chain
-from the returned or recovered Materialized Dataset. The planner does not
-search the Session for a similar Artifact and replace an explicitly logical
-input. Such substitution could silently change source snapshot and semantic
-authority. Once a Materialized Dataset is an input, however, its origin graph
-is never replayed merely because the current datasource could regenerate it.
-
-### Partial SQL execution remains one private execution
-
-When one admitted operator cannot execute in the datasource but has an exact
-registered local implementation, one `execute()` may contain several private
-stages:
+Each exact method has one fixed execution category: an Ibis relation in its
+inherited domain or a named Python kernel with an explicit input recipe. Backend
+compilation failure never changes that category. Current forecast methods use
+Python over complete governed time series; high-cardinality Entity and
+Event/Lifecycle calculations require their registered engine implementation.
 
 ```text
-maximal Ibis expression per upstream execution domain
-  -> bounded private exchange
-  -> registered local calculation
-  -> final Dataset validation and publication
+same-domain Ibis relation -> selected writer -> final Artifact
+local Artifact -> DuckDB/Ibis relation -> selected writer -> final Artifact
+complete governed series -> guarded Arrow -> fixed Python kernel
+                         -> selected writer -> final Artifact
 ```
 
-The exchange is not a Dataset value. Its authority is the exact physical-stage
-schema and input projection, not an Artifact ref. Arrow is the canonical
-in-process data contract. A rewindable or engine-exported exchange may use
-Run-scoped Parquet staging, but that file is unpublished, has no Evidence or
-reuse authority, and is cleaned on every terminal path. Only the complete root
-output of `execute()` may become the paired Materialized Dataset.
+Ibis is the relational expression language, DuckDB the local relational engine,
+and Python the numerical algorithm boundary. Kernel output belongs to the local
+DuckDB domain for subsequent relation operations; it is not uploaded to a source
+engine. Python/pandas objects remain inside kernels, never public Dataset inputs.
 
-DuckDB is the first-cutover local relational executor over Arrow or Parquet.
-Algorithms that are not relational use only an operator-registered Python
-kernel with Arrow inputs and outputs; pandas may be an internal library adapter
-inside that kernel, never a generic execution fallback. Polars is not a
-first-cutover execution domain.
+One `execute()` may contain the method's explicit query, kernel, fence,
+validation and write steps. There is no maximal-prefix search, general CSE,
+route alternative or one-SQL global guarantee. Required shared-sample realization
+remains mandatory even though general common-subexpression optimization is removed.
+
+Arrow has an exact actual-batch schema and bounded kernel collection. Runtime
+owns private staging, DuckDB memory/disk limits, kernel budgets and cancellation.
+Temporary buffers/files never acquire an Artifact ref, Evidence or reuse identity.
+Runtime supplies one configured storage target; the writer validates it or fails
+without selecting another sink. Only the complete root output and its registered
+retained parts become the Materialized Dataset.
 
 ### Execution is explicit reuse and durable authority
 
@@ -230,12 +241,13 @@ decision to treat the current rows as membership.
 Event journey and Lifecycle history datasets instead use typed
 `.select_subjects(selection)` because their membership semantics depend on
 domain structure, temporal completeness, and censoring. Those operations
-produce `SubjectSet`, a sibling Dataset family admitted directly through the
-same `PopulationInput` contract. Logical inputs stay in the same plan;
+produce the same `PopulationDataset` family as explicit Entity roots. Selection
+truth belongs to the domain producer; common membership filtering and input
+admission belong to the Observation Model. Logical inputs stay in the same plan;
 materialized inputs are immutable identity scan leaves. Identity rows are never
 collected locally merely to connect domains.
 
-The exact SubjectSet, Event, Lifecycle, privacy, matching, selection, and
+The exact domain selection, Event, Lifecycle, privacy, matching, and
 cross-domain contracts are owned by the
 [`Subject, Event, and Lifecycle design`](2026-09-01-lazy-analysis-subject-event-lifecycle-design.md).
 
@@ -259,7 +271,7 @@ The canonical source roots are:
 - `session.lifecycle.replay(...)` for Lifecycle histories;
 - materialized Dataset recovery through the Session runtime.
 
-There is no duplicate source method on PopulationDataset or SubjectSet and no
+There is no duplicate source method on PopulationDataset and no
 Session-level version of a Dataset-owned downstream operator.
 
 The main chain is:
@@ -309,6 +321,21 @@ outliers.show()
 Re-executing this script in the same Session recovers `checkpoint`,
 `association`, and `outliers` from their persisted execution bindings. Appending
 a new downstream computation executes only the new definition.
+
+### Explicit prior-Session Artifact selection
+
+```python
+prior = prior_session.observe(metrics=[scanned_bytes, cpu_seconds]).execute()
+selected = current_session.artifact(prior.state.artifact_ref)
+association = selected.correlate(method="spearman").execute()
+```
+
+The Agent chooses `prior` by its exact Artifact ref. Its original Session,
+producer, storage, and Findings remain unchanged; only the new association is
+produced in `current_session`, with an input edge to the original Artifact.
+Selection performs no copy, local registration, age limit, source freshness
+query, or reuse approval. Execution-key matching stays Session-local; foreign
+Logical Datasets are not carried into another Session's computation.
 
 ### Explicit Population, ranking, and population reuse
 
@@ -384,12 +411,12 @@ result remains an Event Dataset.
 
 | Module | Sole detailed authority |
 | --- | --- |
-| [1. Dataset Core](2026-09-01-lazy-analysis-dataset-core-design.md) | Dataset value, family, row contract, state, actions, selectors |
+| [1. Dataset Core](2026-09-01-lazy-analysis-dataset-core-design.md) | Dataset value, family, row and row-set contracts, state, actions, selectors |
 | [2. Observation Model](2026-09-01-lazy-analysis-observation-model-design.md) | Population, predicates, observation, coordinates, aggregation |
-| [3. Planner and Pushdown](2026-09-01-lazy-analysis-planner-and-pushdown-design.md) | private semantic graph, Ibis lowering, Arrow/Parquet exchanges, DuckDB/Python local boundaries |
+| [3. Direct Compiler and Fixed Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md) | private semantic graph, fixed-domain Ibis, exact Python recipes and Arrow boundaries |
 | [4. Materialization Runtime](2026-09-01-lazy-analysis-materialization-runtime-design.md) | Runs, private exchange staging, durable receipts, Artifacts, Evidence, recovery |
 | [5. Typed Operators](2026-09-01-lazy-analysis-typed-operators-design.md) | operator registry, admissions, output rows, statistical semantics |
-| [6. Subject, Event, and Lifecycle](2026-09-01-lazy-analysis-subject-event-lifecycle-design.md) | SubjectSet, domain analysis, identity authority and privacy |
+| [6. Subject, Event, and Lifecycle](2026-09-01-lazy-analysis-subject-event-lifecycle-design.md) | domain selection into Population, identity authority and privacy |
 
 The
 [`Design Decomposition Plan`](2026-09-01-lazy-analysis-design-decomposition-plan.md)
@@ -410,7 +437,7 @@ leave:
 - no silent local fallback for high-cardinality or identity-bearing work.
 
 The earlier
-[`Unified Correlation and Cross-Entity Population design`](2026-08-31-cross-entity-correlation-design.md)
+`Unified Correlation and Cross-Entity Population` proposal
 is superseded and non-normative. Its old `session.correlate(...)`,
 `MetricFrame[cross_section]`, `entity_grain=`, and `CorrelationPopulation`
 surfaces must not be implemented.
@@ -421,15 +448,15 @@ The architecture is internally complete when all of the following are true:
 
 1. every row-bearing analysis operator accepts the registered Logical and
    Materialized input states and returns one registered Logical Dataset family,
-   so arbitrary lazy DAGs remain constructible;
-2. every Dataset exposes its complete logical row contract before execution;
+   with semantic admission separate from fixed-domain execution compatibility;
+2. every Dataset exposes complete logical row and row-set contracts before execution;
 3. default observation infers one exact Entity Population, while explicit
    Population changes membership rather than coordinate meaning;
 4. among state-specific actions, Logical Datasets expose only `execute()` and
    Materialized Datasets expose `show()` plus `to_pandas()`; both states still
    expose registered downstream operators, and reads never replay the logical
    origin;
-5. logical and materialized inputs have explicit, non-replay authority rules;
+5. logical and materialized inputs have concrete input checks with no origin replay;
 6. one admitted single-engine chain lowers to datasource work or fails with a
    structured capability reason; it never silently collects locally;
 7. a materialized Dataset can become a scan leaf without exposing private
@@ -445,15 +472,15 @@ The architecture is internally complete when all of the following are true:
     binding across process and script reruns without datasource execution;
 12. execution-binding hits create no duplicate Run, while a changed analytical
     definition receives a different execution key and Artifact;
-13. a registered partial-SQL graph executes as one maximal Ibis stage per
-    upstream execution domain plus exact bounded Arrow/Parquet exchanges and a
-    pre-bound DuckDB or Python tail, never as a failure fallback;
+13. relational methods inherit one input domain, Python methods use one fixed
+    exact input recipe, and cross-domain relational combinations fail without
+    automatic import, federation, local retry or maximal-prefix search;
 14. private exchanges and local workspaces never become Dataset authority, and
-    only the complete root output can receive a durable Parquet or engine
+    only root primary data and registered retained parts can receive durable Parquet or engine
     receipt and become Materialized;
 15. the Public Cutover Plan covers removals, code ownership, tests, disclosure
     surfaces, persisted clean replacement, and end-to-end agent acceptance.
 
-All six module designs satisfy the design-level consistency gate. This document
-does not authorize implementation; implementation begins only after the Public
-Cutover Plan is accepted.
+The 2026-09-05 fixed-boundary amendment is accepted at design level. Its
+implementation remains subject to the Public Cutover Plan's slice and evidence
+gates; documentation acceptance is not Runtime implementation evidence.

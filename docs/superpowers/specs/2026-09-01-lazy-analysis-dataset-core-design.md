@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-04
+Revised: 2026-09-05
 
 Status: accepted
 
@@ -42,11 +42,12 @@ This document owns:
 - nominal Dataset families and their closed registration mechanism;
 - the common immutable Dataset value contract and paired logical/materialized
   state-type surface;
-- the closed public field, type-state, row-bound, cardinality, ordering,
-  row-contract, shape, coordinate, and ordered-schema descriptors;
+- the closed public field, type-state, shape, row-contract, row-set,
+  row-bound, cardinality, ordering, coordinate, and ordered-schema descriptors;
 - the selector-only `DatasetFields` and `DatasetFieldRef` seam over those
   descriptors;
-- Session ownership and cross-Session rejection;
+- execution-Session context, original Artifact ownership, and explicit
+  cross-Session Materialized inputs;
 - logical definition identity and deterministic lineage boundaries;
 - the logical/materialized public state types;
 - the generic operator construction protocol;
@@ -84,7 +85,7 @@ The Dataset core accepts these north-star decisions as fixed:
 3. plans, expressions, SQL, tasks, futures, and receipts remain private;
 4. `execute()` is the only public logical execution action;
 5. execution returns the paired Materialized Dataset while preserving family,
-   row contract, shape, and public schema;
+   shape, row contract, row-set contract, and public schema;
 6. arbitrary pandas, SQL, or Ibis values cannot re-enter typed analysis;
 7. every Dataset is owned by exactly one Session;
 8. no eager aliases, lazy/eager overloads, or duplicate Session and Dataset
@@ -130,8 +131,8 @@ association: mv.AssociationDataset
 journeys: mv.EventDataset
 ```
 
-The exact family-specific shape is a closed runtime value in
-`dataset.row_contract.shape`. This is deliberate:
+The exact family-specific shape is the closed `DatasetShapeId` value in
+`dataset.row_contract.shape_id`. This is deliberate:
 
 - semantic Entity and Dimension identities are catalog values, not Python
   classes suitable for generic parameters;
@@ -157,6 +158,7 @@ checkpoint = logical.execute()
 assert isinstance(logical, mv.LogicalMetricDataset)
 assert isinstance(checkpoint, mv.MaterializedMetricDataset)
 assert logical.row_contract == checkpoint.row_contract
+assert logical.row_set_contract == checkpoint.row_set_contract
 assert logical.kind == checkpoint.kind == "metric"
 ```
 
@@ -171,7 +173,7 @@ output family. Only `execute()` crosses from logical to materialized. This
 makes invalid reads absent from the public type surface rather than late
 runtime errors.
 
-### Every Dataset has a complete logical row contract before execution
+### Every Dataset has complete logical row and row-set contracts before execution
 
 Dataset construction must determine, without datasource execution:
 
@@ -180,7 +182,7 @@ Dataset construction must determine, without datasource execution:
 - ordered public column identities and names;
 - semantic role of every public column;
 - the coordinate fields that define one row;
-- row uniqueness and ordering promises;
+- row identity, cardinality, and ordering promises;
 - semantic type constraints needed for later operator admission.
 
 A physical dtype may remain deferred only when the semantic contract narrows it
@@ -262,9 +264,9 @@ The lazy cutover makes one deliberate amendment to the existing
 - `DatasetContract` is a non-executing terminal audit value and therefore does
   implement the full `AgentResult` floor: bounded `repr`, `render() -> str`, and
   `show() -> None`, with `show()` printing exactly `render()` plus a newline;
-- `DatasetRowContract`, `DatasetSchema`, Dataset state values, field descriptors,
-  and selector values are inspectable descriptors with bounded `repr`, not
-  terminal result cards.
+- `DatasetShapeId`, `DatasetRowContract`, `DatasetRowSetContract`,
+  `DatasetSchema`, Dataset state values, field descriptors, and selector values
+  are inspectable descriptors with bounded `repr`, not terminal result cards.
 
 The Public Cutover Plan must update the shared `AgentResult` documentation and
 contract tests atomically with the Dataset replacement. Until that cutover, the
@@ -278,10 +280,10 @@ the lazy exception is already implemented.
 Every Dataset family is registered once with an internal family registry. One
 registration binds:
 
-- a stable family id and contract version;
+- a stable family id and closed shape ids with semantic versions;
 - one public logical class and one paired public materialized class;
 - the closed set of family-qualified shapes;
-- its row-contract validator;
+- its row-contract and row-set-contract validators;
 - its common operators and state-specific action/read surfaces;
 - its bounded representation renderer;
 - its materialized-state decoder;
@@ -302,28 +304,26 @@ LogicalDataset                     MaterializedDataset
 |- LogicalForecastDataset          |- MaterializedForecastDataset
 |- LogicalCandidateDataset         |- MaterializedCandidateDataset
 |- LogicalEventDataset             |- MaterializedEventDataset
-|- LogicalLifecycleDataset         |- MaterializedLifecycleDataset
-`- LogicalSubjectSet               `- MaterializedSubjectSet
+`- LogicalLifecycleDataset         `- MaterializedLifecycleDataset
 ```
 
-The tree above shows common Dataset inheritance only. It does not declare
-substitutability between sibling families. In particular, `SubjectSet` may be a
-semantic refinement accepted where a Population input is allowed, but it is not
-implemented as a Python subclass of `PopulationDataset`. Admission comes from
-the capability registry and exact row contracts, never an accidental
-`isinstance` relationship.
+The tree shows common Dataset inheritance only. Source-input admission follows
+closed family/shape registrations plus exact row and row-set proofs, never
+accidental Python substitutability. Module 2 owns the sole Population family;
+Module 6's subject-selection operators produce that family after proving their
+source-owned selection and completeness requirements.
 
-All twenty concrete class names in the tree are exact public exports. Nominal
+All eighteen concrete class names in the tree are exact public exports. Nominal
 phrases such as `PopulationDataset`, `MetricDataset`, `DeltaDataset`,
 `AttributionDataset`, `AssociationDataset`, `ForecastDataset`,
-`CandidateDataset`, `EventDataset`, `LifecycleDataset`, and `SubjectSet` are
-family shorthand in prose and annotations only; they are not Python symbols,
-aliases, unions, exports, or Help leaves. Public signatures spell the admitted
-`Logical*` and `Materialized*` classes directly. The old eager `SubjectSet`
-class does not survive as a compatibility alias.
+`CandidateDataset`, `EventDataset`, and `LifecycleDataset` are family shorthand
+only; they are not Python symbols, aliases, exports, or Help leaves. Public
+signatures spell admitted `Logical*` and `Materialized*` classes directly.
+The old eager `SubjectSet` class has no paired successor family or compatibility
+alias; its domain selection producers return Population Datasets.
 
 Names ending in `Frame`, `Result`, `Artifact`, or `Set` do not define alternate
-value categories. `SubjectSet` retains its domain name but remains a Dataset.
+value categories.
 
 ### Common Dataset surface
 
@@ -333,7 +333,8 @@ Every Dataset exposes this common read-only surface:
 | --- | --- | --- |
 | `kind` | stable nominal family id | no |
 | `row_contract` | exact logical meaning of one row | no |
-| `schema` | ordered public logical schema | no |
+| `row_set_contract` | cardinality and deterministic logical ordering promises | no |
+| `schema` | direct projection of `row_contract.schema` | no |
 | `fields` | selector-only access to exact current row-contract fields | no |
 | `state` | state-matched backing facts | no |
 | `definition_fingerprint` | deterministic analytical definition identity | no |
@@ -354,6 +355,10 @@ Materialized Datasets additionally expose:
 
 Family-specific properties and operators extend this surface. They may not
 weaken its immutability, collection bounds, ownership, or authority rules.
+`dataset.kind` is the direct projection of
+`dataset.row_contract.shape_id.family_id`, and `dataset.schema` is the direct
+projection of `dataset.row_contract.schema`; neither is independently authored
+or persisted as a second authority.
 
 Dataset does not imitate a pandas DataFrame. The following current Frame
 conveniences are removed from the common public contract:
@@ -384,7 +389,7 @@ dataset.fields: DatasetFields
 ```
 
 `DatasetFields` resolves only bindings already present in the Dataset's current
-row contract:
+row-contract schema:
 
 ```python
 metric_field = features.fields.metric(cpu_seconds)
@@ -418,16 +423,18 @@ class DatasetFields:
 `DatasetFields.get(...)` follows the scoped collection lookup style established
 by `CatalogCollection.get(...)`: it resolves one member already visible in the
 owning object and returns that owner's bound result. It accepts either an exact
-`DatasetFieldId` or one exact public field name visible in the current row
-contract. The string form does not parse semantic paths or displayed typed keys;
+`DatasetFieldId` or one exact public field name visible in the current
+row-contract schema. The string form does not parse semantic paths or displayed
+typed keys;
 callers starting from semantic identity use the focused `metric(...)` or
 `dimension(...)` method. `DatasetFields` does not reuse `catalog.require(ref)`:
 that verb remains the strict, cross-kind global semantic-membership operation
 and stays ref-only.
 
 `DatasetFields` is not a second browseable field catalog. It does not expose
-`items`, `refs`, `render()`, `show()`, length, or iteration; `dataset.schema.columns`
-and `dataset.row_contract` remain the only public field-inventory authorities.
+`items`, `refs`, `render()`, `show()`, length, or iteration.
+`dataset.row_contract.schema.columns` is the one public field-inventory
+authority; `dataset.schema` is a direct projection of that same immutable value.
 
 These are the concrete public semantic input types, not an analysis-only alias.
 `Ref`, its closed kind markers, `MetricEntry`, `DimensionEntry`,
@@ -446,7 +453,7 @@ field name, including family-owned generated fields such as Candidate `item_id`,
 score, reason code, Event step, or statistical output fields that have no
 catalog ref. The id form also reacquires a recovered runtime-Metric binding whose
 original `RuntimeMetricExpr` object no longer exists. Field ids and public names
-come from `dataset.schema.columns` or `dataset.row_contract`; an id is stable
+come from `dataset.row_contract.schema.columns`; an id is stable
 across family-preserving transforms only while that exact binding is retained.
 Neither form searches semantic paths, lineage, hidden components, source
 columns, or a materialized Artifact's original physical schema. Missing or
@@ -456,28 +463,32 @@ ambiguous keys fail with bounded present-field repairs.
 
 ```text
 owning_session_id
-field: DatasetField
-row_contract_family
-row_contract_version
+field_id: DatasetFieldId
+field_binding_fingerprint: str
 ```
 
-It identifies a current row-contract binding owned by one exact Session.
+It identifies a current row-contract binding in one exact handle execution Session,
+which may differ from a materialized Artifact's original producing Session.
 `owning_session_id` is copied from the Dataset that produced the selector; it is
 not inferred from a later consumer and cannot be rewritten. The selector does
 not contain rows, a Series, an Ibis expression, SQL, a callable, or a private
 root handle. Reading or constructing one performs no datasource work and does
 not create a Run.
 
-An operator accepts a `DatasetFieldRef` only when the input Dataset contains the
-same exact owning Session and `DatasetField` binding under a compatible
-row-contract version. That equality covers field id, role, field identity,
-public name, derivation identity, logical type, physical type-state constraint,
-and nullability. Session ownership is checked
-before predicate or policy admission and before any datasource work or Run
-creation. A selector may therefore survive a family-preserving transform in the
-same Session that retains the field, but cannot be applied across Sessions or to
-an unrelated Dataset merely because a display name or deterministic semantic
-identity matches.
+`field_binding_fingerprint` is the canonical digest of the one `DatasetField`
+binding resolved from the producing Dataset's row-contract schema. It is a
+comparison guard, not a copied field inventory or an independent source of
+name, role, identity, type, derivation, or nullability facts.
+
+An operator accepts a `DatasetFieldRef` only when the corresponding input Dataset
+has the selector's exact execution Session, resolves `field_id` in its current row-contract schema,
+and obtains the same canonical binding fingerprint. The fingerprint comparison
+covers field id, role, field identity, public name, derivation identity, logical
+type, physical type-state constraint, and nullability. Session ownership is
+checked before predicate or policy admission and before any datasource work or
+Run creation. A selector may therefore survive a family-preserving transform in
+the same Session that retains the exact binding, but cannot be applied across
+Sessions or when only a display name or deterministic semantic identity matches.
 
 `owning_session_id` is an admission guard, not a second semantic field identity.
 After the ownership check succeeds, predicate and policy normalization bind the
@@ -502,37 +513,52 @@ contract field for another Marivo operator but cannot read or calculate a
 value. `__getitem__`, attribute-per-column access, and arbitrary expression
 composition remain absent.
 
-## Row Contract
+## Row And Row-Set Contracts
 
 ### Purpose
 
 `DatasetRowContract` is the public, immutable description of what one Dataset
-row means. It is available before execution and is identical across
-materialization.
+row means. `DatasetRowSetContract` separately describes promises about the
+collection of those rows. Both are available before execution and are identical
+across materialization.
 
 It is not inferred from pandas columns and not reconstructed from generated
-SQL. The source or operator that creates the Dataset constructs the row contract
+SQL. The source or operator that creates the Dataset constructs both contracts
 at the same time.
 
 Conceptually it contains:
 
 ```text
 DatasetRowContract
-  version
-  family
-  shape
-  coordinates[]
-  values[]
-  key[]
-  ordering
-  cardinality
+  schema_version
+  shape_id
   schema
-  family_contract
+  coordinate_field_ids[]
+  key_field_ids[]
+  family_semantics
+
+DatasetRowSetContract
+  schema_version
+  cardinality
+  ordering
 ```
 
-`family_contract` is a closed discriminated payload owned by the specific
-family module. The Dataset core validates its family and version but does not
-interpret Population, Metric, Event, Lifecycle, or statistical semantics.
+`family_semantics` is one closed `DatasetFamilyRowSemantics` variant registered
+by the specific family module. Dataset Core validates that the variant's
+registration admits `shape_id`, but does not interpret Population, Metric, Event,
+Lifecycle, or statistical semantics.
+
+The payload contains only family-specific facts required to interpret a row or
+admit a row-consuming operator. It references public fields only by
+`DatasetFieldId`. It does not repeat names, roles, identities, logical or
+physical types, nullability, coordinates, row keys, cardinality, or ordering.
+Normalized predicates, sampling requests, source/input lineage, definition
+fingerprints, and lineage remain owned by the Dataset definition and are not row
+semantics.
+
+`complete_from_schema` is admitted only when the owning family registration
+proves that `shape_id`, the canonical field bindings, coordinates, and row key
+fully describe one-row meaning. It carries no family or shape field of its own.
 
 ### Closed public descriptor vocabulary
 
@@ -541,6 +567,11 @@ helper-produced values. Each is a sealed kind-dispatched value with no public
 constructor and no nullable field whose meaning changes by kind.
 
 ```text
+DatasetShapeId
+  family_id: str
+  local_shape_id: str
+  semantic_version: int
+
 DatasetFieldId
   value: str
 
@@ -569,9 +600,8 @@ DatasetRowBound
   runtime_policy(policy_id: str)
 
 DatasetCardinality
-  row_presence: exactly_one | zero_or_more
-  uniqueness: singleton | row_key
-  row_bound: DatasetRowBound
+  singleton
+  keyed(row_bound: DatasetRowBound)
 
 DatasetOrderTerm
   field_id: DatasetFieldId
@@ -583,14 +613,20 @@ DatasetOrdering
   unordered
   ordered(terms: tuple[DatasetOrderTerm, ...])
 
+DatasetFamilyRowSemantics
+  complete_from_schema
+  sealed family-registered variants
+
 DatasetByteCount
   exact(byte_count: int)
   unavailable(reason_id: str)
 ```
 
+`DatasetShapeId` is the one shape discriminator. Its validated fields replace
+independent family, shape, and semantic-version strings that could disagree.
 `DatasetFieldId` validates one bounded canonical field-id value and prevents
-display names or numeric positions from entering exact-id APIs. `identity_id`,
-`producer_field_id`, `role_id`, `logical_type_id`,
+display names or numeric positions from entering exact-id APIs. `family_id`,
+`local_shape_id`, `identity_id`, `producer_field_id`, `role_id`, `logical_type_id`,
 `physical_type_id`, `admitted_type_class_id`, `policy_id`,
 `value_order_contract_id`, and `reason_id` are validated stable registry ids,
 not display labels or caller-authored policy strings. The discriminant and
@@ -600,39 +636,55 @@ must not flatten the variants into optional-field records.
 `DatasetRowContract` has the exact public field graph:
 
 ```text
-version: int
-family: str
-shape: str
-coordinates: tuple[DatasetField, ...]
-values: tuple[DatasetField, ...]
-key: tuple[DatasetField, ...]
-ordering: DatasetOrdering
-cardinality: DatasetCardinality
+schema_version: int
+shape_id: DatasetShapeId
 schema: DatasetSchema
-family_contract: one family-owned public contract value
+coordinate_field_ids: tuple[DatasetFieldId, ...]
+key_field_ids: tuple[DatasetFieldId, ...]
+family_semantics: DatasetFamilyRowSemantics
+
+DatasetRowSetContract
+  schema_version: int
+  cardinality: DatasetCardinality
+  ordering: DatasetOrdering
 ```
 
-`DatasetSchema.columns` is the exact ordered tuple of the same logical
-`DatasetField` bindings. A materialized state's realized schema uses the same
-type with every physical type state resolved; it does not replace or mutate the
-Dataset's logical schema.
+`DatasetSchema.columns` is the one complete, ordered tuple of logical
+`DatasetField` bindings. `dataset.schema` returns this exact immutable value; it
+is not separately constructed. A materialized state's realized schema uses the
+same type with every physical type state resolved; it does not replace or mutate
+the Dataset's logical schema.
 
-Field ids are unique within one row contract. Every key entry and order term
-must resolve exactly one current field id; duplicated, missing, or stale ids are
-construction errors.
+Field ids are unique within one row-contract schema. Every coordinate id, key
+id, and order term must resolve exactly one current field id. Coordinate and key
+ids are duplicate-free, and key ids are an ordered subset of coordinate ids.
+Duplicated, missing, or stale ids are construction errors.
 
-The field, ordering, and cardinality values are public reads, not authoring
-inputs. Operators accept only the specific typed semantic inputs,
+The row-set contract is validated against that exact row contract in the same
+construction step. `singleton` requires empty coordinate and key tuples;
+`keyed(...)` requires a non-empty key tuple; every ordering term resolves
+through the canonical schema; and an ordered variant proves a total order using
+the key or another family-registered unique tie-breaker. Neither contract may be
+paired later with a different counterpart.
+
+The canonical `row_contract_fingerprint` binds exactly `schema_version`,
+`shape_id`, the ordered schema bindings, coordinate and key field-id tuples, and
+the complete family-semantics variant. The canonical
+`row_set_contract_fingerprint` separately binds the row-set `schema_version`,
+cardinality variant, and ordering terms. Neither fingerprint includes Dataset
+definition, source/input lineage, predicates, sampling, realized rows, or
+storage facts.
+
+The descriptor values are public reads, not authoring inputs. Operators accept
+only the specific typed semantic inputs,
 `DatasetFieldRef` selectors, policies, and literals declared by their owning
 contracts.
 
 ### Family-qualified shape
 
-A shape id is always qualified by family and contract version. Bare strings
-such as `"entity"`, `"scalar"`, or `"history"` do not form a globally shared
-enum.
-
-For example:
+`DatasetShapeId` always binds a family-local shape to one semantic version. Bare
+strings such as `"entity"`, `"scalar"`, or `"history"` do not form a globally
+shared enum. Its canonical rendering is, for example:
 
 ```text
 metric/entity@v1
@@ -644,30 +696,36 @@ candidate/entity-outlier@v1
 
 This prevents unrelated families from acquiring accidental compatibility merely
 because they use the same short word. Help may render a short label, while
-admission compares the exact qualified identity.
+admission compares the exact `DatasetShapeId`. `schema_version` independently
+versions the common `DatasetRowContract` serialization graph; it is not a family
+or shape semantic version.
 
 ### Coordinates and values
 
 Coordinates identify the analytical position of a row. Values are facts
 measured, calculated, scored, or classified at that position.
 
-Every coordinate and value binding is one `DatasetField`. Its identity variant
+Every public binding appears exactly once in `DatasetSchema.columns`. Coordinate
+membership is the ordered `coordinate_field_ids` projection. Value bindings are
+derived deterministically as the schema columns not named by that projection;
+they are not stored as a second field inventory. Every field's identity variant
 is selected exactly once:
 
 - `catalog_ref` for an exact governed catalog identity;
 - `runtime_metric` for a governed runtime Metric expression fingerprint;
 - `generated` for a family/operator-owned field id.
 
-The row key is an ordered non-empty subset of coordinates for every
-non-singleton shape. An exact singleton instead has `coordinates=()`, `key=()`,
-and `DatasetCardinality(row_presence=exactly_one, uniqueness=singleton,
-row_bound=static(1))`. A scalar Metric Dataset therefore adds no synthetic
-public coordinate column while its row identity and cardinality remain exact.
+The row key is an ordered non-empty subset of coordinate field ids for every
+non-singleton shape. An exact singleton instead has
+`coordinate_field_ids=()`, `key_field_ids=()`, and
+`DatasetCardinality.singleton`. A scalar Metric Dataset therefore adds no
+synthetic public coordinate column while its row identity and cardinality remain
+exact.
 
 ### Ordered public schema
 
-`DatasetSchema` is an ordered projection of the row contract. Its `columns`
-tuple contains one `DatasetField` per public column in exact output order.
+`DatasetSchema.columns` is the canonical field inventory and contains one
+`DatasetField` per public column in exact output order.
 Logical Dataset schemas may contain either physical type-state variant:
 
 ```text
@@ -682,20 +740,20 @@ Column names are unique after public export normalization. Duplicate display
 names are resolved deterministically during Dataset construction or cause a
 typed construction error; they are not repaired after execution.
 
-### Cardinality and ordering
+### Row-set cardinality and ordering
 
-Cardinality before execution is a logical promise, not a realized count. Its
-three independent axes prevent uniqueness and boundedness from being collapsed
-into one mutually exclusive label:
+Cardinality before execution is a row-set promise, not a realized count. Its
+closed variants make invalid presence/uniqueness products unrepresentable:
 
-- `row_presence` is `exactly_one` or `zero_or_more`;
-- `uniqueness` is `singleton` or `row_key`;
-- `row_bound` is unknown, a positive static maximum, or one exact registered
-  runtime-policy id.
+- `singleton` means exactly one row, an empty row key, and an implicit static
+  bound of one;
+- `keyed(row_bound)` means zero or more rows unique by the non-empty
+  `key_field_ids`; its bound is unknown, a positive static maximum, or one exact
+  registered runtime-policy id.
 
-For example, `limit(100)` preserves `uniqueness=row_key` while replacing the
-row bound with `static(100)`. The product informs action admission but does not
-claim an exact realized row count except for the singleton contract.
+For example, `limit(100)` preserves the row contract and replaces only the
+row-set contract's keyed bound with `static(100)`. Cardinality informs action
+admission but does not claim an exact realized row count except for `singleton`.
 
 Ordering is either `unordered` or one non-empty ordered tuple of
 `DatasetOrderTerm` values. An order term may name any exact current public field
@@ -706,8 +764,8 @@ collation, timestamp, binary, and composite-value rules.
 
 A declared ordered Dataset must supply a total deterministic order. Its terms
 therefore include the row key or another owner-proven unique tie-breaker after
-the business ordering terms. Partial orders such as score alone are invalid row
-contracts rather than datasource-natural tie behavior.
+the business ordering terms. Partial orders such as score alone are invalid
+row-set contracts rather than datasource-natural tie behavior.
 
 Datasource-natural ordering is never a Dataset promise. `show()` and
 `to_pandas()` must add a deterministic presentation order where required or
@@ -720,9 +778,10 @@ reject a request whose contract cannot be rendered deterministically.
 Each source or operator constructs a Dataset from:
 
 ```text
-owning Session identity
+execution Session identity
 + nominal family registration
 + exact row contract
++ exact row-set contract
 + definition fingerprint
 + deterministic bounded lineage summary
 + state-matched private root handle
@@ -751,6 +810,7 @@ node, or a backend relation from a Dataset.
 Every operator returns a new Dataset value. It never mutates:
 
 - the input row contract;
+- the input row-set contract;
 - logical state;
 - materialized backing;
 - Session ownership;
@@ -758,10 +818,9 @@ Every operator returns a new Dataset value. It never mutates:
 - cached previews;
 - Evidence or quality state.
 
-`show()` and `to_pandas()` may create bounded operational read-audit records and
-ephemeral storage-read state owned by the Session runtime, but they create no
-analysis Run and do not attach preview rows or a pandas object to the Dataset as
-new analytical authority.
+`show()` and `to_pandas()` create no persisted Runtime record or analysis Run
+and do not attach preview rows or a pandas object to the Dataset as new
+analytical authority.
 
 `execute()` returns a new paired Materialized Dataset. The logical input remains
 logical and can still be composed. Reconstructing that same exact logical
@@ -782,33 +841,65 @@ Callers that need deterministic definition identity read
 This avoids collapsing three different questions:
 
 1. were these values constructed from the same normalized definition;
-2. were they evaluated against the same source authority;
+2. do they refer to the same committed Artifact;
 3. do their realized rows happen to be equal.
 
 ## Session Ownership
 
-Every Dataset is owned by exactly one Session from construction and, for a
-materialized Dataset, through cold recovery.
+A Dataset handle has one execution Session, fixed at construction. That Session
+supplies planning services, current semantic definitions when required, execution
+bounds, policy, and ownership of any new Run/output. An Artifact separately keeps
+its immutable original producing Session and Run. Reading it in a different
+Session does not transfer that ownership.
 
-The owner supplies:
+### Explicit Materialized inputs
 
-- semantic and datasource authority;
-- private planning and execution services;
-- action bounds;
-- runtime and Artifact persistence;
-- capability and Help context;
-- recovery and revalidation.
+Within the same project Store, `target_session.artifact(ref)` reads an exact
+committed Artifact from any Session. It constructs a new Materialized Dataset
+handle in the target execution context with unchanged Artifact ref, descriptor,
+producer, storage, and Findings. `state.artifact_session_ref` identifies the
+original owning Session. The read writes no state, creates no local alias or
+execution binding, and never asks whether the result is fresh or reusable.
 
-Operators reject Dataset inputs from different Sessions during local
-construction, before datasource work. Matching project paths, names,
-fingerprints, or Artifact content do not relax this rule.
+A receiver-style operator produces its new Logical Dataset in the receiver's
+execution Session. A Session source constructor uses its explicit Session.
+Other Materialized operands from the same Store may be supplied directly, even
+if their handles were read through another Session. Input validation uses exact
+Artifact identity and the operator's structural contracts; it does not use
+matching names, result age, or source-state equivalence to approve reuse.
 
-A recovered materialized Dataset is rebound to the recovering Session only
-after the runtime validates that the Artifact belongs to that Session. There is
-no detached public Dataset that can later be attached to an arbitrary Session.
+Only the consuming Session admits/locks its Run and owns its new Artifact.
+Materialized input tokens and persisted input edges keep original refs; their
+owning Sessions remain factual provenance. No originating Session lock,
+activation, recovery, or new registration is needed to read an immutable input.
+The shared current pointer never selects the execution Session of a handle.
 
-Policy objects and catalog refs may be Session-neutral according to their own
-contracts. Dataset values never are.
+### Logical and selector boundaries
+
+Foreign Logical inputs remain invalid: they carry another Session's live graph
+and execution context. Materialize in the originating Session first, then choose
+the exact Artifact. Cross-project/Store inputs require a separate import contract
+and remain unsupported; project paths, names, or equal rows cannot substitute
+for a resolved identity in the same Store.
+
+Field selectors retain their input execution Session and exact field binding;
+validation uses the corresponding operand, not the output's execution Session.
+Reacquiring an
+Artifact through the target Session also allows reacquiring its selectors there;
+old selectors are never silently rewritten or accepted because names match.
+Policy objects and catalog refs retain their existing Session-neutral rules.
+Every requested operator still enforces types, identities, units, row contracts,
+and alignment; none emits a general suitability or freshness verdict.
+
+```python
+prior = session_a.observe(metrics=[revenue]).execute()
+selected = session_b.artifact(prior.state.artifact_ref)
+next_result = selected.limit(100).execute()
+```
+
+`selected` reads A's original Artifact; only `next_result` is produced in B.
+The Agent explicitly chose that result and remains responsible for whether it
+fits B's question. No data copy or reuse certification occurs.
 
 ### Logical lifetime and recovery
 
@@ -839,8 +930,9 @@ There is no pickle handoff, mutable logical cache, call-site identity, script
 registry, or inference from a Python variable name. The script reconstructs
 the definition; the Session Store owns the durable binding.
 
-This boundary is required for `execute()` to remain the only durable reuse
-mechanism.
+Only `execute()` can publish new durable rows. Same-Session execution-key
+lookup and explicit `session.artifact(ref)` reads reuse existing rows without
+new publication or a suitability guarantee.
 
 ## Logical Definition Identity and Lineage
 
@@ -849,12 +941,14 @@ mechanism.
 `definition_fingerprint` is a deterministic digest of the normalized analytical
 definition. It binds:
 
-- family and row-contract versions;
+- exact row-contract and row-set-contract fingerprints; the row-contract
+  fingerprint already binds the typed shape id;
 - normalized source and operator identities;
-- exact semantic refs and governed policy values;
-- normalized literal parameters;
+- exact bound semantic dependency digests, refs, and governed policy values;
+- normalized literal parameters and captured source-parameter value digests;
 - ordered private input authority tokens;
-- implementation contract versions that can change rows.
+- producer implementation, quality, Evidence, Finding, and retained-state
+  contract versions that affect the committed result contract.
 
 It excludes:
 
@@ -868,8 +962,9 @@ It excludes:
 
 For a logical Dataset, the fingerprint identifies a definition, not realized
 membership, rows, or datasource snapshot. It is not an Artifact ref. The
-runtime combines it with exact semantic, ordered-input, family, row-contract,
-and implementation identities to derive the Session-local execution key.
+runtime combines only this canonical fingerprint with the common materialization
+protocol version to derive the execution-key digest; the Store scopes lookup by
+Session. It does not normalize those dependencies again in a parallel key schema.
 
 Executing a Dataset preserves the fingerprint recorded as the Dataset's
 origin definition. The definition fingerprint therefore answers what was
@@ -883,16 +978,13 @@ downstream operator definition:
 ```text
 LogicalInputToken
   definition_fingerprint
-  required_current_authority
 
 MaterializedInputToken
   artifact_ref
-  content_authority
-  row_contract_version
 ```
 
 A logical input token requires the later action to evaluate the definition
-against admitted current source authority. A materialized input token fixes the
+using the consuming Session's admitted semantic/execution contracts. A materialized input token fixes the
 immutable committed rows and forbids transparent reach-through to the original
 semantic source graph.
 
@@ -920,7 +1012,7 @@ Before materialization, lineage is a deterministic, bounded projection of:
 - semantic dependency identities;
 - public operator ids;
 - materialized input Artifact refs;
-- row-contract transitions.
+- row-contract and row-set-contract transitions.
 
 It does not expose private nodes, Ibis expressions, SQL, physical stages,
 secrets, or unbounded parameter payloads.
@@ -937,15 +1029,14 @@ runtime module.
 
 ```text
 kind: Literal["logical"]
-authority_requirement_ids: tuple[str, ...]
 ```
 
-The ids are closed registered requirement ids already present in the logical
-definition. They are not current-authority observations or free-form repairs.
+The logical state is only a discriminator. Input requirements belong to the
+operator contract and bound graph; the state carries no duplicated requirement ids.
 
-The common Dataset and row contract already carry the definition fingerprint,
-family, shape, schema, coordinates, semantic dependencies, and lineage; state
-does not duplicate them.
+The common Dataset, row contract, and row-set contract already carry the
+definition fingerprint, shape, schema, coordinates, cardinality, ordering,
+semantic dependencies, and lineage; state does not duplicate them.
 
 Logical state must not contain:
 
@@ -967,6 +1058,7 @@ committed and can be used as the current immutable backing:
 ```text
 kind: Literal["materialized"]
 artifact_ref: ArtifactRef
+artifact_session_ref: str
 content_authority_digest: str
 storage_kind_id: str
 realized_schema: DatasetSchema
@@ -977,7 +1069,9 @@ quality_authority_digest: str
 evidence_authority_digest: str
 ```
 
-The stable ids and digests are bounded committed projections. Storage receipts,
+`artifact_session_ref` is the original owner read from the Artifact row and
+never changes with execution context. The stable ids and digests are bounded
+committed projections. Storage receipts,
 Evidence payloads, Findings, and Run records remain on their runtime-owned audit
 surfaces rather than becoming nested public state descriptors.
 
@@ -1017,19 +1111,21 @@ A public Dataset is never `executing`, `failed`, `partially materialized`, or
 - execution belongs to a Run, not to the immutable input Dataset;
 - an action failure returns a typed error and leaves the Dataset unchanged;
 - incomplete publication is recoverable runtime state, not a public Dataset;
-- authority drift is reported by an action or explicit revalidation read and
-  does not mutate the Dataset into a new state.
+- a concrete input or integrity failure is reported by the operation that
+  observes it; no current-catalog drift or freshness state is introduced.
 
 ### Materialized read authority
 
-A Materialized Dataset is a self-contained governed snapshot. Its reads—
-`show()` and `to_pandas()`—and Logical `execute()` binding recovery validate:
+A Materialized handle refers to one committed Artifact. Recovery and Logical
+`execute()` binding hits validate only selected metadata, original ownership,
+execution context, and supported contract/receipt structure. They do not open
+backing, scan Findings, or verify unused private parts.
 
-- Session ownership;
-- committed Artifact and metadata integrity;
-- storage readability and current authorization;
-- row-contract and realized-schema agreement;
-- exact content authority required by the storage receipt.
+`show()` checks accessed primary storage identity/access and schema under its
+preview bound. `to_pandas()` checks and collects complete primary rows under its
+memory guard. Operators additionally read only the retained roles they require.
+Complete content/count/Finding-set checks belong to explicit full inspection;
+partial reads never claim that full integrity has been checked.
 
 `contract()` remains non-executing. It projects the committed integrity,
 storage, schema, quality, and Evidence facts already attached to the Dataset; it
@@ -1039,19 +1135,23 @@ They do not require the current semantic catalog still to contain or approve
 the original Metrics, Dimensions, Entities, Relationships, or source bindings.
 Catalog drift or removal cannot make committed snapshot rows unreadable.
 
-Current semantic authority is a separate operator-admission concern. An
-operator declared `semantic_current` may require an explicit authority
-comparison before executing over a materialized Dataset. An operator declared
-`materialized_only` relies on the retained Artifact contract. Dataset Core owns
-neither the vocabulary nor the assignment: the Observation Model owns the
-shared filtering authority matrix, Typed Operators and Subject/Event/Lifecycle
-own authority assignment for their non-filter operators, and Materialization
-Runtime owns the shared vocabulary and its execution/revalidation mechanics.
-Common Dataset reads do not silently choose a stricter mode.
+Each operator owns its concrete semantic dependencies, retained-field checks,
+and any explicitly admitted enrichment. Observation Model owns filtering;
+Typed Operators and Subject/Event/Lifecycle own their calculations. The compiler
+binds source, scan, join, and calculation nodes from those contracts, and Runtime
+executes their checks. There is no shared authority-mode vocabulary or separate
+requirement record. Ordinary materialized reads need no current-catalog approval.
 
-`session.revalidate(...)` remains the explicit read for comparing committed
-authority with current semantic state. It does not mutate Dataset state, and
-ordinary materialized reads do not invoke it implicitly.
+`session.revalidate(...)` performs explicit full integrity inspection of metadata,
+primary data, retained parts, and Findings. It does not compare current semantic
+definitions, mutate Dataset state, or run implicitly during ordinary reads.
+
+A Materialized handle is a reference to committed data, not an eagerly verified
+copy. Handle recovery validates selected metadata only. Row reads check primary
+backing; operators check only the private parts their contracts consume; Finding
+reads check their selected records. Full content/Finding scans belong to explicit
+integrity inspection. Public row/byte counts and schemas describe primary data;
+private parts belong to the same Artifact without entering public columns.
 
 ## Generic Operator Protocol
 
@@ -1063,11 +1163,13 @@ Dataset[A] x Typed Inputs -> Dataset[B]
 
 Calling one performs only deterministic local work:
 
-1. validate exact Session ownership of every Dataset input and every
-   `DatasetFieldRef` reachable through typed inputs;
+1. validate that Logical inputs belong to the consuming Session, Materialized
+   inputs resolve exact committed Artifacts in the same Store, and every
+   `DatasetFieldRef` matches its corresponding input's execution Session and binding;
 2. normalize public semantic refs, policies, and literals;
-3. validate nominal family and family-qualified shape admission;
-4. derive the complete output row contract and logical schema;
+3. validate nominal family and exact `DatasetShapeId` admission;
+4. derive the complete output row contract and row-set contract; the Dataset's
+   logical schema is the row contract's exact schema;
 5. derive the deterministic definition fingerprint and bounded lineage;
 6. create a new immutable logical Dataset with a private root handle.
 
@@ -1144,7 +1246,7 @@ ranked next step.
 For every Dataset it reports:
 
 - nominal family and qualified shape;
-- logical row contract and ordered schema;
+- logical row contract, row-set contract, and ordered schema;
 - logical or materialized state;
 - Session ownership identity;
 - bounded semantic dependency and lineage facts;
@@ -1180,7 +1282,7 @@ readability, and never runs datasource SQL or the origin semantic definition.
 
 The preview order is exact:
 
-1. if the row contract has ordered `DatasetOrdering`, preserve its complete
+1. if the row-set contract has ordered `DatasetOrdering`, preserve its complete
    ordered terms, including its registered business order and unique tie-breaker;
 2. otherwise, for a non-singleton Dataset, order by the declared row-key fields
    in contract order using their registered ascending value-order contracts;
@@ -1208,7 +1310,7 @@ lazy Dataset operator before calling `show()`.
 Preview truncation is allowed because `show()` labels the configured preview
 bound and uses the Artifact's exact realized row count for omitted-row facts.
 Sampling is never implicit: approximation must already be part of the executed
-Dataset definition and committed row contract.
+Dataset definition and committed authority.
 
 ### `MaterializedDataset.to_pandas()`
 
@@ -1218,7 +1320,7 @@ Logical Datasets do not expose this method.
 
 It:
 
-- validates static cardinality and configured collection limits before work;
+- validates static row-set cardinality and configured collection limits before work;
 - enforces row, byte, and timeout limits during execution;
 - applies the same canonical row ordering used by `show()` when the Dataset has
   no declared order;
@@ -1248,7 +1350,7 @@ the existing Materialized Dataset remains valid and reusable.
 paired materialized class for the same family, with:
 
 - the same nominal analytical family id;
-- the same row contract and logical public schema;
+- the same row contract, row-set contract, and logical public schema;
 - the same origin `definition_fingerprint`;
 - `MaterializedDatasetState`;
 - a private immutable materialized scan-leaf root.
@@ -1262,14 +1364,15 @@ observable behavior:
 3. failure returns no partially materialized Dataset;
 4. private engine stages, Arrow/Parquet exchanges, DuckDB workspaces, and local
    kernel outputs never construct a public Dataset or Materialized state;
-5. realized root schema must satisfy the pre-execution row contract;
+5. realized root schema must satisfy the pre-execution row contract and its
+   realized row count must satisfy the row-set contract;
 6. downstream operators read the materialized backing as a leaf;
 7. downstream planning cannot transparently reach through the leaf to rewrite
    its original semantic sources;
 8. recovery of the Artifact reconstructs the paired Materialized Dataset class
-   and same row contract;
-9. a matching write-once Session execution binding is resolved before any
-   datasource connection or Run admission.
+   with the same row contract and row-set contract;
+9. a matching Session execution binding resolves before origin-source work or
+   Run admission; reading its backing may require storage access/credentials.
 
 The first-cutover signature is deliberately zero-argument:
 
@@ -1279,9 +1382,10 @@ checkpoint = dataset.execute()
 
 It accepts no Artifact name, storage location, engine relation, retention,
 format, partitioning, or placement parameter. The owning Session's typed runtime
-policy determines eligible storage strategies and retention. If no eligible
-strategy can satisfy durable recovery and bounds, materialization fails rather
-than asking the Dataset action to become a storage-management API.
+policy supplies one configured storage target and retention policy. Runtime
+validates that target's exact writer and bounds; it does not rank alternative
+sinks. An unsupported target fails without moving the calculation to another
+engine or making the Dataset action a storage-management API.
 
 The returned `MaterializedDatasetState.artifact_ref` is the recovery identity.
 Changing Session policy before a later action does not relocate an already
@@ -1326,12 +1430,21 @@ This is architectural notation, not a public class contract.
 
 The materialized variant supplies the planner only:
 
-- exact Session ownership;
-- Artifact/content authority identity;
-- family and row-contract versions;
+- consuming execution Session and original Artifact owning Session;
+- exact same-Store Artifact/content identity;
+- exact row-contract and row-set-contract fingerprints;
 - immutable storage admission handle;
 - realized schema validation facts;
-- bounded capability facts required to scan the backing.
+- bounded capability facts and the fixed execution domain of its reader.
+
+Semantic acceptance of Logical/Materialized operands does not promise they can
+execute together. Relational inputs must already share an admitted domain;
+known conflicts fail construction, and live reader/binding checks happen after
+Run admission and before data work. Local Artifact rows use DuckDB; engine
+Artifact rows stay in their owning engine. There is no automatic input import,
+relocation or origin replay. A reachable `.execute()` repair is valid only when
+the configured writer and fixed readers can establish a common domain within
+bounds. Fixed numerical recipes and their guarded inputs are owned by Module 3.
 
 It does not supply the original source graph as a rewrite target. Origin lineage
 may remain available for audit, but audit lineage is not executable lineage.
@@ -1348,6 +1461,12 @@ surface with `plan`, `sql`, `ibis`, `relation`, `future`, or `receipt`
 properties.
 
 ## Common-Dependency Reuse
+
+Same-Session exact execution-key hits choose the existing committed Artifact.
+Across Sessions the Agent explicitly selects an Artifact ref, using producer
+admission/finish times, source/input lineage, schema, and quality as context.
+Marivo supplies no freshness, source-equivalence, expiry, or reusable verdict.
+These facts do not relax the structural input contract of an operator.
 
 Downstream operators are legal on both states and always return a new Logical
 Dataset, so a complete lazy DAG may be built before any execution:
@@ -1418,6 +1537,7 @@ marivo.help("analysis.datasets")
 marivo.help("analysis.datasets.dataset")
 marivo.help("analysis.datasets.logical")
 marivo.help("analysis.datasets.materialized")
+marivo.help("analysis.datasets.shape_id")
 marivo.help("analysis.datasets.field_id")
 marivo.help("analysis.datasets.field_identity")
 marivo.help("analysis.datasets.physical_type_state")
@@ -1427,7 +1547,9 @@ marivo.help("analysis.datasets.cardinality")
 marivo.help("analysis.datasets.order_term")
 marivo.help("analysis.datasets.ordering")
 marivo.help("analysis.datasets.byte_count")
+marivo.help("analysis.datasets.family_row_semantics")
 marivo.help("analysis.datasets.row_contract")
+marivo.help("analysis.datasets.row_set_contract")
 marivo.help("analysis.datasets.schema")
 marivo.help("analysis.datasets.logical_state")
 marivo.help("analysis.datasets.materialized_state")
@@ -1468,16 +1590,19 @@ contract:
 | `LogicalDataset` | accepted | `analysis.datasets.logical` | abstract logical-state base; downstream operators return this state; owns `execute()` |
 | `MaterializedDataset` | accepted | `analysis.datasets.materialized` | abstract Artifact-backed state base; owns `show()` and `to_pandas()`; downstream operators return Logical state |
 | paired concrete Dataset family classes | accepted when its owning family design freezes them | one registry-owned `analysis.<family>` leaf | sealed Logical/Materialized pair with one family id and identical operator admission |
+| `DatasetShapeId` | accepted | `analysis.datasets.shape_id` | immutable validated family-local shape and semantic-version identity; bounded `repr` |
 | `DatasetFieldId` | accepted | `analysis.datasets.field_id` | immutable validated stable field identity used by schemas, selectors, keys, and ordering; bounded `repr` |
 | `DatasetFieldIdentity` | accepted | `analysis.datasets.field_identity` | sealed catalog-ref, runtime-Metric, or generated identity value; bounded `repr` |
 | `DatasetPhysicalTypeState` | accepted | `analysis.datasets.physical_type_state` | sealed resolved or deferred type-state value; bounded `repr` |
-| `DatasetField` | accepted | `analysis.datasets.field` | immutable logical field binding reused by row contract, schema, key, ordering, and selectors; bounded `repr` |
+| `DatasetField` | accepted | `analysis.datasets.field` | immutable logical field binding stored once in the row-contract schema and referenced by ids from coordinates, keys, ordering, family semantics, and selectors; bounded `repr` |
 | `DatasetRowBound` | accepted | `analysis.datasets.row_bound` | sealed unknown, static, or runtime-policy row-bound value; bounded `repr` |
-| `DatasetCardinality` | accepted | `analysis.datasets.cardinality` | immutable presence, uniqueness, and row-bound product; bounded `repr` |
+| `DatasetCardinality` | accepted | `analysis.datasets.cardinality` | sealed singleton or keyed row-set cardinality; bounded `repr` |
 | `DatasetOrderTerm` | accepted | `analysis.datasets.order_term` | exact field, direction, null, and value-order contract; bounded `repr` |
 | `DatasetOrdering` | accepted | `analysis.datasets.ordering` | sealed unordered or total ordered-term value; bounded `repr` |
 | `DatasetByteCount` | accepted | `analysis.datasets.byte_count` | sealed exact or typed-unavailable byte-count value; bounded `repr` |
+| `DatasetFamilyRowSemantics` | accepted | `analysis.datasets.family_row_semantics` | sealed kind-dispatched value whose complete variants are registered and documented by the owning family; bounded `repr` |
 | `DatasetRowContract` | accepted | `analysis.datasets.row_contract` | immutable value returned by `dataset.row_contract`; bounded `repr` |
+| `DatasetRowSetContract` | accepted | `analysis.datasets.row_set_contract` | immutable cardinality and ordering value returned by `dataset.row_set_contract`; bounded `repr` |
 | `DatasetSchema` | accepted | `analysis.datasets.schema` | immutable ordered value returned by `dataset.schema`; bounded `repr` |
 | `LogicalDatasetState` | accepted | `analysis.datasets.logical_state` | helper-produced logical-state descriptor; bounded `repr` |
 | `MaterializedDatasetState` | accepted | `analysis.datasets.materialized_state` | helper-produced materialized-state descriptor; bounded `repr` |
@@ -1495,9 +1620,12 @@ these exact type leaves.
 No private descriptor type may appear in a public property or callable
 annotation. Nested fields of these descriptors use closed built-in values,
 public enums and refs, or another explicitly exported public type with its own
-focused Help leaf. A family-specific `family_contract` payload remains owned by
-its family module, but that module must freeze its public type/export/Help
-contract before registering the family.
+focused Help leaf. A family-specific `DatasetFamilyRowSemantics` variant remains
+owned by its family module, but that module must freeze the variant's complete
+fields and family Help contract before registration. Concrete variant
+implementation classes are not additional public types or exports. Field
+references are `DatasetFieldId` values, and a variant must not duplicate common
+field bindings or Dataset definition and lineage facts.
 
 Every concrete Dataset class and common action must likewise be reachable from
 one canonical Help target. Public construction remains closed: export and Help
@@ -1596,21 +1724,21 @@ state and Session Runs.
 ### Observation Model consumes
 
 - nominal `PopulationDataset` and `MetricDataset` families;
-- the row-contract construction protocol;
+- the row-contract and row-set-contract construction protocols;
 - selector-only `DatasetFieldRef` values resolved from current row contracts;
 - complete pre-execution schema requirements;
 - immutable operator construction;
 - Session ownership, definition fingerprints, and private input authority
   tokens.
 
-It supplies family-specific Population and Metric row contracts and coordinate
-transitions.
+It supplies family-specific Population and Metric row semantics, row contracts,
+row-set contracts, and coordinate transitions.
 
 ### Planner and Pushdown consumes
 
 - opaque logical and materialized root handles;
 - private logical and materialized input authority tokens;
-- exact row contracts;
+- exact row contracts and row-set contracts;
 - action-time requirements;
 - canonical presentation-order requirements;
 - materialized scan-leaf non-rewriteability.
@@ -1635,15 +1763,17 @@ producer action records.
 
 - nominal family ids;
 - family-qualified shapes;
-- runtime row-contract admission;
+- runtime row-contract and row-set-contract admission;
 - output Dataset construction;
 - logical versus materialized backing facts without transparent reach-through.
 
-It supplies operator-specific input/output and row-contract rules.
+It supplies operator-specific input/output, row-contract, and row-set-contract
+rules.
 
 ### Subject, Event, and Lifecycle consumes
 
-- `SubjectSet`, `EventDataset`, and `LifecycleDataset` nominal families;
+- `EventDataset` and `LifecycleDataset` nominal families, plus source-owned
+  selection producers of Module 2's Population family;
 - the common state and action contracts;
 - registry-declared semantic refinement rather than accidental Python
   inheritance.
@@ -1651,6 +1781,14 @@ It supplies operator-specific input/output and row-contract rules.
 It supplies family-specific subject identity and row meanings.
 
 ## Vertical Acceptance Journeys
+
+Journey fixtures must choose an explicit compatible execution/storage setup.
+A retained Population or identity selection later joined to current sources uses
+an engine target and reader in that same datasource domain. Local Artifact-only
+continuations use DuckDB. These are fixture configurations, not automatic
+placement or target switching. Include a conflicting-domain negative fixture;
+`.execute()` must not be advertised as a repair unless its configured writer
+and reader can actually establish the required common domain within bounds.
 
 ### Logical DAG construction and governed execution
 
@@ -1695,6 +1833,7 @@ checkpoint = features.execute()
 assert isinstance(features, mv.LogicalMetricDataset)
 assert isinstance(checkpoint, mv.MaterializedMetricDataset)
 assert checkpoint.row_contract == features.row_contract
+assert checkpoint.row_set_contract == features.row_set_contract
 assert checkpoint.state.kind == "materialized"
 
 association = checkpoint.correlate(method="spearman").execute()
@@ -1737,7 +1876,7 @@ typed action error rather than arbitrary rows.
 ### Generated-value logical ordering
 
 Acceptance evidence must construct one ranked Dataset and one Candidate Dataset
-without execution and prove that their `DatasetOrdering` values name generated
+without execution and prove that their row-set `DatasetOrdering` values name generated
 `rank`, `score`, and `item_id` fields with exact direction, null placement,
 value-order contracts, and unique tie-breakers. Materialization and cold
 recovery must preserve the identical logical ordering value, and a following
@@ -1768,29 +1907,33 @@ implementation contract must derive another execution key. A different Session
 must not see the binding. Exact ref-based `session.artifact(...)` recovery
 remains available when the logical definition is not reconstructed.
 
-### Cross-Session rejection
+### Cross-Session Materialized reuse and Logical rejection
+
+```python
+prior = session_a.observe(metrics=[revenue]).execute()
+selected = session_b.artifact(prior.state.artifact_ref)
+next_result = selected.limit(100).execute()
+```
+
+Prove unchanged original owner/ref/producer/storage/Findings; the read creates
+no Run, Artifact, local binding, copy, or graph edge. `next_result` belongs to B
+and records A's Artifact as an input. No age, origin-state, or suitability check
+occurs. A busy or recovery-blocked A does not block reading its committed result.
+Also pass A's Materialized operand directly to a B-owned operator whose concrete
+row contract permits it and prove B remains the consuming Session.
+
+Foreign Logical inputs still fail before datasource work or Run admission:
 
 ```python
 left = session_a.observe(metrics=[revenue])
 right = session_b.observe(metrics=[revenue])
-
 left.compare(right)
 ```
 
-Acceptance evidence must prove a structured local ownership error before any
-datasource connection or Run creation.
-
-The filter-selector amendment adds the corresponding nested-input case:
-
-```python
-foreign_field = left.fields.metric(revenue)
-right.where(mv.gt(foreign_field, 100))
-```
-
-The predicate may be constructed, but `where(...)` must reject the foreign
-selector from its retained `owning_session_id` before family, field, literal, or
-datasource admission. Recreating an equivalent Dataset definition or catalog in
-the second Session does not make the selector portable.
+Selector identity is independently enforced. A foreign selector is not accepted
+because its display name matches; the caller reacquires fields from the actual
+input handle, including a handle read with `session_b.artifact(ref)`. A
+cross-Store Artifact fails without implicit import or owner rewriting.
 
 ### Recovered runtime-Metric selection
 
@@ -1820,8 +1963,8 @@ testable:
 
 1. `Dataset` is the one public abstract common type;
 2. every public analysis result belongs to one registered nominal family;
-3. family-specific shape is a runtime row-contract identity, not a fake Python
-   generic promise;
+3. family-specific shape is a runtime `DatasetShapeId`, not a fake Python generic
+   promise or an independently authored family/version tuple;
 4. every Dataset has complete public columns, row identity, and semantic type
    constraints before execution;
 5. every family owns paired logical and materialized public classes;
@@ -1841,7 +1984,8 @@ testable:
 13. Python object identity, script path, line number, and variable name do not
     define execution reuse;
 14. DataFrame-like implicit reads and inbound pandas re-entry are absent;
-15. cross-Session inputs fail locally;
+15. explicit same-Store Materialized inputs may cross Sessions without copying
+    or ownership changes; foreign Logical inputs and selectors fail locally;
 16. no public plan, SQL, Ibis, task, future, or receipt abstraction is exposed;
 17. logical definition, committed execution, preview, and collection authority
     are never conflated;
@@ -1855,7 +1999,8 @@ testable:
 22. common materialized reads depend on retained Artifact authority rather than
     current catalog authority;
 23. every materialized Dataset owns an exact realized row count;
-24. logical ordering is a typed total order over admitted current fields, while
+24. the row-set contract owns cardinality and a typed total order over admitted
+    current fields, while
     unordered inspection and collection derive canonical row-key order or fail;
 25. every first-cutover execution and read is synchronous and returns no task
     or future;
@@ -1874,7 +2019,7 @@ testable:
 The accepted amendment is complete because all of the following are
 independently reviewable and later testable:
 
-1. `dataset.fields` resolves only exact fields in the current row contract;
+1. `dataset.fields` resolves only exact fields in the current row-contract schema;
 2. semantic Metric and Dimension selectors resolve by exact semantic identity;
 3. `get(field_id)` reacquires any exact current binding, including a recovered
    runtime-Metric field;
@@ -1945,8 +2090,9 @@ The following choices are accepted:
     leaf, and no private descriptor appears in a public annotation;
 15. logical and materialized classes pair only with their matching private root
     variant, and a materialized Dataset retains no executable logical root;
-16. field, type-state, row-bound, cardinality, ordering, and byte-count facts use
-    the closed public descriptors frozen by this module;
+16. shape, field, type-state, row-contract, row-set, row-bound, cardinality,
+    ordering, and byte-count facts use the closed public descriptors frozen by
+    this module;
 17. declared logical ordering is a total sequence of typed current-field terms,
     not a coordinate-only or backend-natural order;
 18. executable Dataset values are outside `AgentResult`, while the non-executing
@@ -1954,7 +2100,7 @@ The following choices are accepted:
 19. every registered downstream operator is available on both state classes and
     always returns the Logical class of its output family, preserving arbitrary
     lazy Dataset DAG construction.
-20. the twenty paired concrete class names are the only family-class exports;
+20. the eighteen paired concrete class names are the only family-class exports;
     unqualified nominal family names remain prose shorthand and never become
     public aliases.
 21. `MaterializedDataset.evidence_digest` is the canonical producer of the
@@ -1974,6 +2120,8 @@ meaning are known before execution.
 
 Laziness changes when rows are computed, not what kind of public value flows
 through the DSL. Materialization changes reusable backing authority, not the
-Dataset's analytical family. Everything needed to plan and validate that value
-is carried by its closed row contract; everything related to SQL, execution,
-storage, and publication stays behind the Dataset boundary.
+Dataset's analytical family. The closed row contract owns one-row meaning, the
+closed row-set contract owns cardinality and ordering, and the normalized
+Dataset definition owns predicates, sampling, source/input lineage, fingerprints,
+and lineage. Everything related to SQL, execution, storage, and publication
+stays behind the Dataset boundary.

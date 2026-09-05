@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-04
+Revised: 2026-09-05
 
 Status: accepted
 
@@ -33,7 +33,7 @@ The north-star currently covers:
 - private semantic-to-Ibis compilation and execution-boundary resolution;
 - materialization, Runs, Artifacts, Evidence, and recovery;
 - typed statistical operators;
-- SubjectSet, Event, and Lifecycle flows;
+- PopulationDataset, Event, and Lifecycle flows;
 - Help, docs, skills, persistence cutover, and acceptance.
 
 These areas do not share one implementation authority or one review audience.
@@ -109,7 +109,7 @@ Accepted design with accepted filter-selector amendment:
 
 - the common public Dataset abstraction, paired logical/materialized state
   types, and closed family mechanism;
-- public schema, row-contract, shape, and coordinate identity;
+- public schema, row-contract, row-set-contract, shape, and coordinate identity;
 - lineage and logical fingerprint boundaries;
 - Dataset ownership by one Session;
 - the generic Dataset operator protocol shared by logical and materialized
@@ -161,7 +161,7 @@ Accepted design:
 ### Owns
 
 - Entity Population meaning and primary-key authority;
-- default Population inference from Metric and Dimension Entity bindings;
+- default Population inference from exact Metric computation roots;
 - explicit `session.population(...)` construction;
 - the shared `AnalysisPredicate` vocabulary and family-preserving
   `Dataset.where(...)` lifecycle;
@@ -173,15 +173,18 @@ Accepted design:
 - `Session.source_bindings(...)` as construction-time capture of exact
   parameterized non-secret source values;
 - the closed `PopulationInput` contract and explicit `population=` admission
-  for PopulationDataset, SubjectSet, exact Entity Metric, and entity-outlier
-  Candidate shapes;
+  for the sole Population family and registered Entity-present Metric/Candidate
+  shapes with proven Entity uniqueness;
 - direct-membership versus identity-projection input modes, including exact
   identity, uniqueness, completeness, Session, scope, and sampling validation;
-- the Entity-grained multi-Metric observation contract;
+- independent membership-selection and Metric-observation scope;
+- analysis Entity resolution before explicit-Population component validation;
+- the Entity-grained multi-Metric observation contract and exact row-selection
+  contribution/denominator binding;
 - `with_dimensions(...)`, `with_time_axis(...)`, `aggregate(...)`, and the
   coordinate/fold meaning consumed by registered `rollup(...)`;
 - scalar, Dimension, time, and Dimension-by-time Metric Dataset shapes;
-- Population scope versus aggregation-coordinate scope;
+- independent membership-selection, Metric-observation, and coordinate contracts;
 - Metric and Dimension compatibility, alignment, and structured repair.
 
 ### Does not own
@@ -202,10 +205,10 @@ Accepted design:
 5. Dimension and time-coordinate ordering and identity;
 6. non-additive, semi-additive, ratio, cumulative, and component-aware
    aggregation admission;
-7. inferred/explicit Population scope conflicts and repairs;
+7. independent membership/observation scope and exact temporal alignment repairs;
 8. one filtering interface with explicit membership-versus-row-subset effects,
    logical type/literal compatibility, field admission, operator ordering, and
-   state-by-resolution authority rules across materialization boundaries;
+   state-by-resolution input checks across materialization boundaries;
 9. exact source-binding capture/identity/redaction semantics and exact
    retained-state rollup admission.
 
@@ -218,81 +221,53 @@ requested semantic combination is admissible. The reviewer can also determine
 what a filter changes at each stage and which fields, predicate forms, and
 operator reorderings are legal.
 
-## Module 3: Ibis Compilation and Execution Boundaries
+## Module 3: Direct Compiler and Fixed Execution Boundaries
 
-Accepted design with owner-confirmed module choices:
+Accepted design, replaced by the owner's 2026-09-05 fixed-boundary amendment:
 
-- [`2026-09-01-lazy-analysis-planner-and-pushdown-design.md`](2026-09-01-lazy-analysis-planner-and-pushdown-design.md)
+- [Direct Compiler and Fixed Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md)
 
 ### Owns
 
-- the private semantic Dataset graph;
-- normalization from public Dataset operators into private nodes;
-- direct semantic-to-Ibis lowering with no second relational IR;
-- filter, projection, join, semi-join, aggregation, rollup, window, rank, limit,
-  lag, and statistical-reduction lowering;
-- binding of parameterized sources from exact values captured in logical
-  source definitions rather than ambient Session state;
-- Relationship traversal and fanout-proof consumption;
-- common-subexpression elimination within one action;
-- the immutable semantic-node lowerer manifest and shared lowerer conformance
-  suite;
-- deterministic complete-expression Ibis/backend compilation;
-- execution-boundary profiles for federation, materialized scan/import,
-  single-evaluation fences, writes, snapshots, cancellation, and guarded
-  transfer;
-- fixed execution-boundary resolution and materialized scan leaves;
-- rank-independent feasibility and final physical write placement for
-  runtime-ranked materialization sink candidates;
-- cross-datasource federation and durable-boundary rules;
-- bounded local stages, the fixed first-cutover local execution policy, and safe
-  execution diagnostics;
-- canonical Arrow exchange schemas, bounded Arrow streaming, and Run-staged
-  Parquet exchange placement;
-- the closed DuckDB-relational and Python-kernel local implementation registry.
+- one private typed semantic graph and direct Ibis relation construction;
+- exact input-domain binding independent of Ibis backend equality;
+- immutable scan leaves through their fixed local/object/engine readers;
+- fixed per-method dispatch to an inherited-domain Ibis builder or an exact
+  Python recipe; no engine/local alternatives;
+- exact captured source parameters and their redaction boundary;
+- Population/coordinate spines, semantic barriers and required single realization;
+- actual-schema Arrow kernel boundaries and a small in-process execution recipe;
+- typed compile/placement failures, reachable repairs and bounded diagnostics.
 
 ### Does not own
 
-- public Dataset family semantics or Population inference;
-- public predicate syntax, family filter effects, or filterable-field
-  admission;
-- Artifact publication order or Evidence meaning;
-- statistical-method product admission.
+- analytical meaning, method admission or Population inference;
+- Runtime resource-policy values, storage target selection or publication;
+- federation discovery, automatic imports or input relocation;
+- general CSE, maximal partial-SQL placement or separately fingerprinted graphs.
 
 ### Required decisions
 
-1. the exact private semantic-node union, owning semantic lowering
-   registrations with Ibis/local routes, and boundary capability vocabulary;
-2. normalization and fingerprint stability boundaries;
-3. direct Ibis compiler construction, lowerer-manifest assembly, output-contract
-   validation, and deterministic compile outcomes;
-4. semantic barriers and required backend fences without Marivo query-rewrite
-   rules;
-5. Population-preserving spine lowering;
-6. capability absence versus execution failure;
-7. cross-datasource and bounded-local boundaries;
-8. safe explain/error/Run projections;
-9. single-evaluation placement for sampled Population spines;
-10. the no-silent-local-fallback guarantee;
-11. the two-phase materialization sink feasibility and final-placement seam;
-12. operator compilation from ordered logical/materialized input-authority
-    vectors, including maximal single-domain Ibis fusion after mandatory
-    materialized scan-leaf substitution;
-13. deterministic partial-SQL boundaries, Arrow/Parquet exchange modes, and the
-    DuckDB/Python local implementation union with no post-failure fallback.
+1. Keep Dataset Core as the sole owner of analytical definition identity.
+2. Compose adjacent relations only within one existing input domain.
+3. Read Materialized inputs through their fixed backing without origin replay.
+4. Fix numerical recipes by exact method before execution, including explicit
+   engine preparation when the method requires it; no fallback route selection.
+5. Retain shared-sample fences, fanout authority and exact retained-state semantics.
+6. Give Runtime exact outputs for one configured writer, with no sink candidates.
+7. Enforce separate engine, complete-kernel-input and storage-stream contracts.
+8. Validate actual Arrow batches and explicit domain conflicts with adversarial
+   dependency fixtures, not only successful Ibis compilation.
 
 ### Exit gate
 
-One admitted single-engine Dataset chain, including one whose explicit inputs
-contain materialized scan leaves, lowers deterministically to one lazy Ibis
-expression and one engine query stage, or fails with one bounded structured
-reason. Cross-engine graphs use only explicit boundary routes. Every
-materialized input is reused without origin replay. No public plan, future,
-task, Ibis, or SQL value is introduced, and no Marivo pushdown optimizer or SQL
-rewrite registry exists. A registered partial-SQL graph retains one maximal
-Ibis prefix per upstream execution domain, crosses only guarded Arrow or
-Run-staged Parquet exchanges, and executes only its pre-bound local
-implementation.
+One ordinary same-domain relation chain compiles and executes through Ibis;
+local Artifact rollup uses DuckDB; a governed forecast crosses its fixed Arrow
+boundary into Python. Each action publishes only its complete final Dataset or
+fails. Required fences, validations and writes may add statements. Unsupported
+multi-domain relations never import, federate, collect locally or replay an
+Artifact origin. No public execution machinery or generalized placement system
+is introduced.
 
 ## Module 4: Materialization Runtime and Authority
 
@@ -304,27 +279,36 @@ Accepted design with owner-confirmed module choices:
 
 - the `execute()` execution and publication state machine;
 - incomplete Run admission before datasource execution;
-- execution Runs plus optional inspection and collection read-audit records;
+- execution Runs;
 - local, engine, and object Dataset storage receipts;
-- materialization sink candidate ranking and final selection after compiler
-  feasibility;
-- Artifact identity, datasource snapshot authority, and the write-once
+- one configured storage target, exact writer validation, executor-specific
+  resource budgets and kernel worker cancellation;
+- Artifact identity, factual source/input lineage, and the write-once
   `DatasetExecutionKeyV1 -> artifact_ref` Session binding;
 - parameterized-source binding digests in execution identity and exhaustive
   raw-value redaction;
 - commit ordering for storage, quality, Evidence, Artifact, and Run success;
 - recovery after process restart;
-- crash, retry, and concurrent materialization behavior;
+- crash recovery, explicit retry, Session writer exclusion, and cross-Session
+  concurrent execution;
 - cleanup of compiler-declared action-scoped temporary engine resources;
-- execution, journaling, and cleanup of bounded Arrow exchanges, Run-staged
-  Parquet, DuckDB workspaces, and Python-kernel buffers;
+- execution and cleanup of fixed Arrow kernel boundaries, Runtime staging, DuckDB
+  workspaces, and Python-kernel buffers; journal only recoverable external
+  resources, not pure process-local memory;
 - immutable scan-leaf recovery;
 - the common `DatasetMaterializationContractV1` envelope, resolution,
   invocation, and persistence protocol;
 - quality, Evidence, and Finding publication timing;
-- the semantic-current, materialized-only, and semantic-or-materialized
-  authority-mode vocabulary plus runtime enforcement and revalidation;
+- runtime execution of concrete operator/compiled-node input checks and
+  explicit factual revalidation;
 - multi-downstream reuse through explicit common materialization.
+
+Artifact descriptors own primary data and required private parts together.
+Only execution termination/fencing is a correctness gate; harmless garbage may
+remain journaled after success. Local persistence streams under distinct batch
+and disk limits. Detailed compiler diagnostics are not persistent Run state.
+Dataset Core owns the canonical definition fingerprint; Runtime adds only the
+common materialization protocol version to its Session-scoped lookup key.
 
 ### Does not own
 
@@ -338,20 +322,23 @@ Accepted design with owner-confirmed module choices:
 1. Dataset Artifact and Run schemas;
 2. durable receipt requirements for each storage family;
 3. publication and rollback ordering;
-4. write-once execution binding and same-Session recovery;
-5. stale semantic and datasource authority handling;
-6. materialized-read audit versus committed Evidence;
-7. cold recovery and revalidation;
-8. immutable engine-managed relation requirements;
-9. cleanup and failure recording for compiler-declared action-scoped temporary
+4. write-once same-Session execution binding plus explicit same-Store
+   cross-Session Artifact inputs with original ownership and lineage;
+5. operation-scoped checks and explicit full Artifact/storage/Evidence integrity
+   inspection without semantic/source comparison or reuse certification;
+6. cold recovery and revalidation;
+7. immutable engine-managed relation requirements;
+8. cleanup and failure recording for compiler-declared action-scoped temporary
    engine resources;
-10. strict Evidence atomicity and the cross-store commit marker;
-11. same-key concurrency, contender timeout, and single-producer binding
-    coordination;
-12. process-owner lock, advisory lease, and automatic crash recovery;
-13. one common materialization envelope whose family-specific semantic
+9. one SQLite transaction for Artifact descriptor, Evidence, Findings, Run
+   success, and output-obligation removal; no independent metadata store;
+10. one non-blocking writer lock per Session, same-Session serial binding lookup
+    and execution, and independent execution across Sessions;
+11. Session-scoped crash recovery, external termination/cleanup proof, and
+    commit-acknowledgement readback; no claims, leases, or contender protocol;
+12. one common materialization envelope whose family-specific semantic
     registrations are supplied by Modules 2, 5, and 6;
-14. the non-authoritative exchange-staging boundary and exact first-cutover
+13. the non-authoritative exchange-staging boundary and exact first-cutover
     Parquet receipt contract for local and object Dataset storage.
 
 ### Exit gate
@@ -375,8 +362,8 @@ Accepted design with owner-confirmed module choices:
   Dataset methods and Help;
 - structured receiver and operand admission patterns that keep roles, families,
   shapes, coordinates, arity, and value types correlated;
-- output Dataset families and row contracts;
-- authority-mode assignment for non-filter typed operators;
+- output Dataset families plus row and row-set contracts;
+- concrete input checks for non-filter typed operators;
 - exact filterable generated fields and shapes for Candidate and compact
   analytical Dataset families;
 - approximation and sample-count disclosure;
@@ -403,7 +390,7 @@ discover.*
 ### Does not own
 
 - generic Dataset state or Population construction;
-- shared predicate syntax, filter effects, ordering, or authority-mode meaning;
+- shared predicate syntax, filter effects, ordering, or filter field-resolution rules;
 - physical lowering implementation;
 - Artifact transaction mechanics;
 - Event and Lifecycle-specific reducers;
@@ -422,7 +409,7 @@ For every operator variant, freeze:
 7. bounded result contracts and enough consumer admission authority to derive
    downstream continuations;
 8. family-specific `where(...)` field and shape admission without redefining
-   the shared predicate syntax, effect, or authority-mode vocabulary;
+   the shared predicate syntax, effect, or field-resolution rules;
 9. versioned quality, Evidence, Finding extraction, zero-Finding, and retained
    sufficient-statistic contracts for every producing operator;
 10. the boundary between explicitly authored reusable Metrics, quality/Evidence
@@ -438,7 +425,7 @@ input/output/admission contract plus one materialization contract that Module 4
 can invoke without inventing statistical meaning. No operator returns a
 detached result or selection object.
 
-## Module 6: SubjectSet, Event, and Lifecycle
+## Module 6: Subject Selection, Event, and Lifecycle
 
 Accepted design with owner-confirmed module choices:
 
@@ -446,8 +433,7 @@ Accepted design with owner-confirmed module choices:
 
 ### Owns
 
-- SubjectSet as a sibling Dataset family admitted through the shared
-  `population_input` contract's direct-membership mode;
+- Event/Lifecycle selection producers of Module 2's sole Population family;
 - logical identity-producing definitions and materialized identity rows;
 - same-plan semi-join consumption;
 - identity privacy in metadata, logs, cards, Evidence, and errors;
@@ -455,38 +441,38 @@ Accepted design with owner-confirmed module choices:
 - Event journey, funnel, and time-to-event Dataset families;
 - `session.lifecycle.replay(..., population=None)`;
 - Lifecycle history, distribution, transition, dwell, and violation families;
-- SubjectSet output authority and Event/Lifecycle-owned typed
+- PopulationDataset output authority and Event/Lifecycle-owned typed
   `select_subjects` registrations;
 - exact `where(...)` admission or rejection and filterable generated fields for
-  SubjectSet, Event, and Lifecycle Dataset families;
+  Event and Lifecycle Dataset families; Population filtering stays in Module 2;
 - exact matching assignment and source-origin completeness authority;
 - explicit removal of observed occurrence-range inspection from the public
   Event surface;
 - family-specific quality, validation-output, Evidence, Finding, and retained
   private-state materialization contracts consumed by Module 4;
 - cross-domain loops through explicit `population=PopulationInput`;
-- SubjectSet-specific cold-recoverable selection authority.
+- domain-selection-specific cold-recoverable selection authority.
 
 ### Does not own
 
 - generic Population inference for Metrics;
 - generic Dataset materialization mechanics;
 - ordinary Metric operator admission;
-- shared predicate syntax, filter effects, ordering, or authority-mode meaning;
+- shared predicate syntax, filter effects, ordering, or filter field-resolution rules;
 - private semi-join implementation details.
 
 ### Required decisions
 
-1. the exact SubjectSet subtype/refinement relationship;
+1. selection production into the common Population row and row-set contract;
 2. which Event/Lifecycle shapes retain sufficient Entity identity for typed
    subject selection;
 3. logical versus materialized cohort authority;
 4. Event/Lifecycle source inference and shared `PopulationInput` admission;
-5. row contracts for each Event and Lifecycle Dataset family;
+5. row and row-set contracts for each Event and Lifecycle Dataset family;
 6. follow-up scope and temporal authority;
 7. privacy-preserving persistence and recovery;
 8. legal Metric/Candidate population-input and
-   Event/Lifecycle-to-SubjectSet loops;
+   Event/Lifecycle-to-PopulationDataset loops;
 9. family-preserving row filters versus explicit source population admission.
 
 ### Exit gate
@@ -537,23 +523,24 @@ acceptance evidence.
 | Entity Population and default inference | Observation Model |
 | Metric Dataset coordinate algebra | Observation Model |
 | parameterized source binding capture and logical definition identity | Observation Model |
-| parameterized source lowering from captured typed values | Ibis Compiler and Execution Boundaries |
+| parameterized source lowering from captured typed values | Direct Compiler and Fixed Execution Boundaries |
 | parameterized source digest, execution identity, and redaction | Materialization Runtime |
-| shared predicate syntax, filter effects, ordering, and filter authority assignment | Observation Model |
-| private semantic/physical nodes, semantic lowering manifest, boundary capability ids, boundary resolution, Arrow/Parquet exchange placement, DuckDB/Python local registry, and fixed bounded-local policy | Ibis Compiler and Execution Boundaries |
-| private exchange execution, staging-resource journals, and cleanup | Materialization Runtime |
+| shared predicate syntax, filter effects, ordering, and filter field-resolution rules | Observation Model |
+| private typed graph, fixed-domain Ibis builders, exact Python recipes, Arrow schemas and input-domain checks | Direct Compiler and Fixed Execution Boundaries |
+| executor-specific budgets, one configured storage target, private exchange execution, staging journals and cleanup | Materialization Runtime |
 | `ParquetDataContractV1` writer/reader semantics shared by private staging and durable file receipts | Materialization Runtime |
 | final local/object Parquet receipts and Artifact publication | Materialization Runtime |
-| authority-mode vocabulary and runtime enforcement | Materialization Runtime |
+| execution of operator-owned input checks | Materialization Runtime |
 | `DatasetMaterializationContractV1` envelope, invocation, and persistence timing | Materialization Runtime |
 | Population and Metric materialization registrations | Observation Model |
 | statistical and Candidate materialization registrations | Typed Operators |
-| SubjectSet, Event, and Lifecycle materialization registrations | Subject/Event/Lifecycle |
+| Domain selection, Event, and Lifecycle materialization registrations | Subject/Event/Lifecycle |
 | Run, Artifact, receipts, recovery, and Evidence timing | Materialization Runtime |
 | non-filter typed operator admission and output rows | Typed Operators |
 | Metric Dataset `rollup(...)` public registration and invocation | Typed Operators |
 | Metric rollup coordinate and retained-fold semantics | Observation Model |
-| SubjectSet identity and Event/Lifecycle families | Subject/Event/Lifecycle |
+| Population identity/family/filtering | Observation Model |
+| Domain selection truth and Event/Lifecycle families | Subject/Event/Lifecycle |
 | removal of observed Event occurrence-range inspection | Subject/Event/Lifecycle |
 | removals, Help, skills, docs, and rollout order | Public Cutover Plan |
 
@@ -572,7 +559,7 @@ Dataset Core
 Observation Model
         |
         v
-Ibis Compiler and Execution Boundaries
+Direct Compiler and Fixed Execution Boundaries
         |
         +-------------------+
         |                   |
@@ -620,26 +607,25 @@ Exit: every later design can reference one stable Dataset protocol.
 
 Exit: compiler and operators receive one stable logical input model.
 
-### Phase 3: Freeze Compiler and Materialization seams
+### Phase 3: Freeze fixed compilation and Runtime seams
 
-- define the private semantic-node input from public Datasets;
-- define executable output consumed by actions;
-- freeze direct Ibis lowering, lowerer registration, deterministic compile
-  outcomes, boundary resolution, and invariant validation;
-- define materialization barriers and scan-leaf receipts;
-- freeze the compiler-owned bounded-local policy and runtime guard enforcement;
-- freeze Arrow as the exchange schema, bounded Arrow as the one-pass transport,
-  Run-staged Parquet as the rewindable private representation, and DuckDB plus
-  registered Python kernels as the first-cutover local implementation union;
-- define cleanup for compiler-declared action-scoped temporary resources;
-- divide failure ownership across admission, lowering, execution, and commit.
+- define private typed nodes and the small execution recipe;
+- freeze same-domain Ibis composition and fixed Artifact readers;
+- register exact method recipes without route alternatives or manifest identity;
+- preserve semantic barriers and dedicated single-evaluation fences;
+- assign Arrow validation to adapters and complete-input kernel invocation to Runtime;
+- give Runtime one configured storage target and its exact writer validation;
+- separate engine memory/disk/deadline, kernel problem size and storage budgets;
+- retain cancellation, staging cleanup and atomic publication ownership.
 
-Exit: no runtime state is ambiguously owned by compiler and Session Store.
+Exit: basic single-domain relations, local Artifact reuse and one fixed forecast
+kernel can be implemented before complex method/backend coverage. No generic
+placement, import, federation or sink-negotiation subsystem is required.
 
 ### Phase 4: Freeze operator and cross-domain matrices
 
 - complete the ordinary analysis operator matrix;
-- complete SubjectSet, Event, and Lifecycle family matrices;
+- complete Population-production, Event, and Lifecycle family matrices;
 - prove all outputs remain Datasets;
 - prove logical/materialized authority at every operator seam.
 
@@ -674,11 +660,13 @@ collection-scoped, or committed materialized authority.
 
 ### Engine-execution gate
 
-Every high-cardinality intermediate stays in the datasource, crosses an
-explicit durable materialization boundary, or fails before an unbounded local
-transfer. Every admitted bounded local path has one maximal Ibis prefix per
-upstream execution domain, exact Arrow-compatible exchange contracts, one
-pre-bound DuckDB or Python implementation, and no hidden Materialized Dataset.
+High-cardinality relations stay in their input engine or fixed Artifact reader.
+No method silently transfers an Entity relation into a Python kernel. Numerical
+methods use their explicit complete-input recipe and fail on resource overflow.
+Known relational domain conflicts fail before data work with a reachable repair.
+Local Artifact computation uses DuckDB under engine budgets, not the kernel
+row cap. One configured writer publishes complete root output; no compiler
+route search or private intermediate Artifact is introduced.
 
 ### Vertical-journey gate
 
@@ -720,9 +708,9 @@ The decomposition is complete only when:
    operators that return Logical Datasets;
 8. compiler and runtime agree on materialized scan-leaf authority;
 9. typed operators and cross-domain flows return only Dataset families;
-10. compiler and runtime agree that Arrow/Run-staged Parquet exchanges are
-    private, while only the complete root output can receive a durable Parquet
-    or engine receipt and become a Materialized Dataset;
+10. compiler and runtime agree that fixed kernel Arrow boundaries and Runtime
+    staging are private; only root primary data and registered retained parts
+    receive durable file/engine receipts and become a Materialized Dataset;
 11. DuckDB is the first-cutover local relational executor, Python kernels are
     exact registered non-relational implementations, and pandas/Polars are not
     generic fallback domains;
