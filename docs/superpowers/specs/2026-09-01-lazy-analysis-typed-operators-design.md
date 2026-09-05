@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-04
+Revised: 2026-09-05
 
 Status: accepted
 
@@ -20,7 +20,7 @@ This document is the sole authority for:
 - exact input families, qualified shapes, coordinates, arity, and value types;
 - the registered `MetricDataset.rollup(...)` coordinate-coarsening operator;
 - output Dataset families, qualified shapes, row meanings, and ordered schemas;
-- state- and operand-dependent authority-mode assignment;
+- state- and operand-dependent input checks;
 - generated fields and filter admission for Candidate and compact analytical
   Dataset families, plus consumer admission contracts from which their typed
   continuations are derived;
@@ -60,8 +60,8 @@ continuations remain legal.
 - operator-specific parameters and closed policy values;
 - operator-specific input compatibility beyond the shared Dataset and
   Population rules;
-- complete output row contracts known before datasource work;
-- operator-specific authority branch selection;
+- complete output row and row-set contracts known before datasource work;
+- operator-specific input binding and enrichment checks;
 - operator-specific data-dependent statuses and publication gates;
 - operator-specific quality, Evidence, Finding extraction, and retained-state
   meaning supplied to the runtime;
@@ -76,10 +76,10 @@ continuations remain legal.
 - common Dataset construction, state, actions, fingerprints, or scan leaves;
 - Population inference, observation, aggregation coordinates, predicate syntax,
   common filter effects, or filter ordering;
-- Ibis expression construction, physical placement, federation, transfer, or
+- Ibis expression construction, fixed-domain binding, Arrow transfer, or
   local-execution policy;
 - Run, Artifact, Evidence, recovery, or commit ordering;
-- SubjectSet identity authority or its output row contract;
+- Population identity authority or domain selection truth;
 - Event and Lifecycle source construction, reducers, or family-specific
   operator registrations or population-input admission;
 - public removals, compatibility behavior, Help rollout, or implementation
@@ -89,7 +89,7 @@ The owning sources are:
 
 - [Dataset Core](2026-09-01-lazy-analysis-dataset-core-design.md);
 - [Observation Model](2026-09-01-lazy-analysis-observation-model-design.md);
-- [Ibis Compiler and Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md);
+- [Direct Compiler and Fixed Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md);
 - [Materialization Runtime](2026-09-01-lazy-analysis-materialization-runtime-design.md);
 - [Subject, Event, and Lifecycle](2026-09-01-lazy-analysis-subject-event-lifecycle-design.md);
 - the planned public-cutover plan.
@@ -105,10 +105,10 @@ This module consumes the following frozen contracts without redefining them:
    selection, future, task, DataFrame, Ibis expression, SQL value, or planner
    handle.
 2. Every Dataset has one nominal family, one family-qualified shape, one exact
-   row contract, one owning Session, and one logical or materialized input
-   authority token.
+   row contract, one row-set contract, one owning Session, and one logical or
+   materialized input authority token.
 3. Operator construction performs deterministic local admission and constructs
-   the complete output row contract before datasource work.
+   the complete output row and row-set contracts before datasource work.
 4. Row-dependent requirements remain typed action-time requirements. A preview
    never upgrades them into reusable authority.
 5. Materialized inputs are immutable scan leaves. An operator may consume their
@@ -121,9 +121,9 @@ This module consumes the following frozen contracts without redefining them:
    shared `row_subset` effect for Candidate and compact analytical rows. This
    document registers fields and shapes; it does not create another predicate
    grammar.
-8. Every occurrence selects exactly one of `semantic_current`,
-   `materialized_only`, or `semantic_or_materialized` before execution. A mode
-   is a requirement, never runtime fallback.
+8. Every occurrence binds exact input definitions or Artifact refs before
+   execution. Its concrete input checks belong to the operator contract; a
+   failed check never substitutes another input or replays an Artifact origin.
 9. The compiler implements only a registered semantic node and exact admitted
    lowering. It does not decide product admission, statistical method,
    approximation, or output meaning.
@@ -213,7 +213,7 @@ text, Help prose, examples, or renderer defaults; drift tests validate those
 public facts against the linked capability and callable.
 
 The registered variant is the semantic construction authority. Public Help,
-`dataset.contract()`, structured errors, the compiler lowerer manifest, and
+`dataset.contract()`, structured errors, the compiler implementation registry, and
 tests consume its owned contracts or independently validate their seam. A
 renderer-local or compiler-local shadow admission/output matrix is invalid.
 
@@ -239,26 +239,45 @@ The variant must declare enough information to decide this before execution:
 The operator registry selects authority and validates semantics; it does not
 choose placement or duplicate implementation ids. The compiler binds logical
 inputs to their semantic subgraphs and materialized inputs to immutable scan
-leaves, then applies the one exact lowerer for the variant. Backend inability to
-scan, import, or combine those leaves is an execution-boundary failure, not
-permission to switch to the logical origin or another operator algorithm.
+leaves, then applies the exact method's fixed implementation. Relational
+inputs and any explicit semantic enrichment must already share one execution
+domain; authority admission does not guarantee placement compatibility. There
+is no automatic scan import, federation or input relocation. A mismatch fails
+with a reachable repair, never origin replay or another algorithm.
 
-### Local execution is registered equivalence, not a second product branch
+### Each exact method has one fixed execution recipe
 
-An operator may admit one compiler-owned DuckDB relational implementation or
-one exact Python kernel when its semantics cannot remain in the source engine.
-That placement does not create another public overload, authority rule, output
-contract, approximation, or Dataset fingerprint. The operator owner supplies
-the same reference semantics, exact input/output contracts, minimum-data rules,
-null and non-finite behavior, and any stricter local bounds used by every
-implementation.
+The 2026-09-05 amendment fixes a method's implementation category before backend
+work. Module 3 dispatches the exact invocation/method to an Ibis builder in the
+inherited domain or a named Python kernel with an explicit input recipe. It does
+not choose engine versus local execution from backend support or a failed compile.
+The implementation registry owns callables; this module owns the numerical
+reference semantics and required preparation. No second public overload is added.
 
-The compiler registry owns implementation ids, dependency fingerprints, Arrow
-or Parquet exchange modes, and DuckDB/Python placement. pandas, NumPy, SciPy, or
-statsmodels may be dependencies of one registered Python kernel but never
-operator inputs or outputs. Polars is not a first-cutover implementation kind.
-Any future additional engine must prove differential equivalence to the same
-operator reference contract; it cannot widen product admission.
+The first-cutover method assignments are:
+
+| Exact method or family | Fixed recipe |
+| --- | --- |
+| rank, limit, compare and retained-state rollup | Ibis in the common input domain |
+| Pearson/Spearman, including Entity shape | Exact Ibis in the inherited domain on tested engines; no Entity table collection |
+| Kendall tau-b | Fixed Python kernel over complete numeric pairs prepared by the inherited engine, within kernel bounds |
+| additive_difference, component_mix, distinct_membership attribution | Ibis in the common input domain; distinct membership keys stay there |
+| distribution_shapley attribution | Engine computes exact bounded coalition values; fixed Python kernel combines those scalar values |
+| naive, drift, seasonal-naive forecast | Fixed Python kernel over complete governed series |
+| point_zscore, global_zscore_runs, entity_mad, delta_window_zscore, axis_concentration | Exact Ibis in the inherited domain on tested engines |
+
+Backend-specific Ibis implementations must preserve the same method and domain.
+An unsupported relational method fails instead of acquiring a Python route.
+A Python result is local; subsequent relation operations use DuckDB and cannot
+combine with remote inputs by automatic upload. DuckDB also reads local Artifacts
+using the same relation builders, not a second fallback algorithm.
+
+Kernel inputs/outputs use exact Arrow schemas. NumPy, SciPy, statsmodels or
+pandas objects remain private implementation dependencies. Runtime owns complete
+input/output limits, numerical problem-size budgets, cancellation and cleanup;
+spilling does not widen kernel admission. Polars is absent from this cutover.
+The public row contract, approximation and retained-state semantics remain
+identical across admitted Logical/Materialized input authority.
 
 ### Output contracts are complete before execution
 
@@ -322,13 +341,13 @@ facts between them:
 AnalysisCapability              <- capability_id
 OperatorVariantRegistrationV1   <- invocation, output, semantic node,
                                    action requirement, materialization link
-LowererManifest                 <- semantic_node_kind
+ImplementationRegistry                 <- semantic_node_kind
 DatasetMaterializationContractV1 <- materialization_contract_id
 ```
 
 `InvocationContractV1` owns local receiver and operand patterns, normalized
-parameter semantics, ownership and Population alignment, and authority-branch
-selection. `DatasetInputPatternV1` keeps family, qualified shapes, coordinates,
+parameter semantics, ownership and Population alignment, and explicit semantic
+enrichment admission. `DatasetInputPatternV1` keeps family, qualified shapes, coordinates,
 Metric arity, and value types together. `OperandContractV1` keeps each role with
 its own admitted patterns; no positional parallel arrays exist.
 
@@ -341,11 +360,12 @@ construction instantiates for the exact normalized inputs and parameters.
 Construction- and action-time constraint rules own their own structured repair;
 there is no entry-level repair catalog.
 
-`semantic_node_kind` is the only compiler-facing semantic link. Module 3's
-immutable lowerer manifest independently maps that kind to its portable,
-backend-specific, or admitted bounded-local implementations. Equivalent
-implementation additions do not change the operator contract version or
-Dataset definition fingerprint.
+`semantic_node_kind` links to Module 3's typed graph. For a registered-operator
+node, its closed invocation and exact method contract select the fixed recipe
+above. The implementation registry resolves that dispatch without route arrays,
+per-action manifest fingerprints or backend/local selection. A behavior-preserving
+implementation change does not alter Dataset definition identity; a change to
+method meaning requires its semantic contract version to change.
 
 `DatasetMaterializationContractV1` names the exact quality, Evidence, Finding,
 validation-output, and retained-sufficient-statistic contracts that Module 4
@@ -362,7 +382,7 @@ The former flat-field proposal is resolved as follows:
 | `parameter_contract`, `authority_rule` | `InvocationContractV1` |
 | output family/shape, row builder, generated fields, filter registration | `OutputContractV1` |
 | `action_time_requirements[]` | one typed rule set reached through `action_requirement_contract_id` |
-| `implementation_ids[]` | compiler-owned `LowererManifest`, keyed by `semantic_node_kind` |
+| `implementation_ids[]` | compiler-owned `ImplementationRegistry`, dispatched by semantic node and exact invocation/method |
 | `materialization_contract_id` | retained as the link to the Module 4 materialization contract |
 | `continuations[]` | removed; derived by matching current Dataset facts to consumer admission |
 | `repair_contracts[]` | removed; each failing constraint rule owns its exact repair |
@@ -429,7 +449,7 @@ The owner confirmed decisions 1-10 on 2026-09-01 and the rollup decision 11 on
 10. generic `hypothesis_test`, `HypothesisDataset`, and paired-t behavior are
     outside the first cutover. A future theory-valid test is an exact named
     Delta affordance, never a method selector over arbitrary Metric rows.
-11. `rollup(drop_dimensions=..., grain=...)` is retained as one Dataset-owned
+11. `rollup(drop_dimensions=..., grain=..., drop_time=...)` is retained as one Dataset-owned
     current-row fold, not a Metric-graph recomputation; it accepts only
     Entity-reduced Metric shapes and exact Observation-owned fold authority.
 
@@ -512,28 +532,28 @@ columns.
 
 ## Complete Operator Matrix
 
-| Operator id | Variant id | Receiver shapes | Arity | Output shape | Authority rule |
-| --- | --- | --- | --- | --- | --- |
-| `correlate` | `metric` | `metric/entity@v1`, `metric/dimension@v1`, `metric/time@v1`, `metric/dimension-time@v1` | 2-16 Metrics | coordinate-derived Association shape | `semantic_or_materialized` |
-| `rank` | `registered_rows` | registered non-singleton row shapes | one numeric field | same family and shape | `semantic_or_materialized` |
-| `limit` | `ordered_rows` | registered deterministically ordered non-singleton row shapes | one bounded count | same family and shape | `semantic_or_materialized` |
-| `rollup` | `metric_coordinates` | `metric/dimension@v1`, `metric/time@v1`, `metric/dimension-time@v1` | 1-16 Metrics | coordinate-derived Entity-reduced Metric shape | `semantic_or_materialized` |
-| `compare` | `metric` | compatible arity-one Metric pair | one Metric per input | coordinate-derived Delta shape | branch per logical/materialized operand |
-| `compare` | `event_funnel` | compatible `event/funnel@v1` pair | one funnel per input | `delta/funnel@v1` | Module 6-owned registration and authority rule |
-| `attribute` | `metric_delta` | all arity-one Delta shapes | one Delta Metric | `attribution/joint@v1` or `attribution/hierarchy@v1` | retained-row or logical semantic-expansion branch |
-| `attribute` | `event_funnel_delta` | ungrouped logical `delta/funnel@v1` | one typed funnel-loss-rate target | `attribution/funnel-loss-rate@v1` | Module 6-owned registration and authority rule |
-| `forecast` | `metric_time` | `metric/time@v1`, `metric/dimension-time@v1` | one Metric | `forecast/time@v1` or `forecast/dimension-time@v1` | `semantic_or_materialized` |
-| `discover.point_anomalies` | `metric_time` | arity-one time-bearing Metric | one Metric | `candidate/point-anomaly@v1` | `semantic_or_materialized` |
-| `discover.interesting_windows` | `metric_time` | arity-one time-bearing Metric | one Metric | `candidate/interesting-window@v1` | `semantic_or_materialized` |
-| `discover.entity_outliers` | `metric_entity` | `metric/entity@v1` | one Metric | `candidate/entity-outlier@v1` | `semantic_or_materialized` |
-| `discover.period_shifts` | `delta_time` | time-bearing Delta | one Metric | `candidate/period-shift@v1` | `semantic_or_materialized` |
-| `discover.driver_axes` | `delta` | any Delta shape | one Metric | `candidate/driver-axis@v1` | retained-row or logical semantic-expansion branch |
+| Operator id | Variant id | Receiver shapes | Arity | Output shape |
+| --- | --- | --- | --- | --- |
+| `correlate` | `metric` | `metric/entity@v1`, `metric/dimension@v1`, `metric/time@v1`, `metric/dimension-time@v1` | 2-16 Metrics | coordinate-derived Association shape |
+| `rank` | `registered_rows` | registered non-singleton row shapes | one numeric field | same family and shape |
+| `limit` | `ordered_rows` | registered deterministically ordered non-singleton row shapes | one bounded count | same family and shape |
+| `rollup` | `metric_coordinates` | `metric/dimension@v1`, `metric/time@v1`, `metric/dimension-time@v1` | 1-16 Metrics | coordinate-derived Entity-reduced Metric shape |
+| `compare` | `metric` | compatible arity-one Metric pair | one Metric per input | coordinate-derived Delta shape |
+| `compare` | `event_funnel` | compatible `event/funnel@v1` pair | one funnel per input | `delta/funnel@v1` |
+| `attribute` | `metric_delta` | all arity-one Delta shapes | one Delta Metric | `attribution/joint@v1` or `attribution/hierarchy@v1` |
+| `attribute` | `event_funnel_delta` | ungrouped logical `delta/funnel@v1` | one typed funnel-loss-rate target | `attribution/funnel-loss-rate@v1` |
+| `forecast` | `metric_time` | `metric/time@v1`, `metric/dimension-time@v1` | one Metric | `forecast/time@v1` or `forecast/dimension-time@v1` |
+| `discover.point_anomalies` | `metric_time` | arity-one time-bearing Metric | one Metric | `candidate/point-anomaly@v1` |
+| `discover.interesting_windows` | `metric_time` | arity-one time-bearing Metric | one Metric | `candidate/interesting-window@v1` |
+| `discover.entity_outliers` | `metric_entity` | `metric/entity@v1` | one Metric | `candidate/entity-outlier@v1` |
+| `discover.period_shifts` | `delta_time` | time-bearing Delta | one Metric | `candidate/period-shift@v1` |
+| `discover.driver_axes` | `delta` | any Delta shape | one Metric | `candidate/driver-axis@v1` |
 
-`semantic_or_materialized` means the registry contains two proven-equivalent
-branches and selects one from the exact input state during construction. For a
-two-input operator, the selected branch vector is one of logical/logical,
-logical/materialized, materialized/logical, or materialized/materialized. A
-failure in one selected branch never retries another vector.
+Each operator consumes the exact rows or retained state represented by its bound
+inputs. Logical inputs contribute their admitted upstream graph; Materialized
+inputs contribute immutable scan leaves. A mixed-input operator resolves each
+operand independently. Enrichment or logical expansion is legal only where the
+operator's own contract explicitly defines it; failures never change inputs.
 
 The strings in the Operator id column are the exact `operator_id` values. Every
 row is one independently versioned registration key and initially uses
@@ -550,6 +570,7 @@ def rollup(
     *,
     drop_dimensions: tuple[SemanticInput[DimensionKind], ...] = (),
     grain: TemporalGrain | None = None,
+    drop_time: bool = False,
 ) -> LogicalMetricDataset:
     ...
 ```
@@ -560,7 +581,9 @@ Dimension is an exact distinct retained coordinate, and `grain` is admitted
 only when the receiver retains one time coordinate whose current grain has one
 exact strictly-coarser containment path to the target.
 
-When both arguments are present, the invocation canonicalizes to the
+`drop_time=True` removes a retained time axis under Module 2's exact temporal
+fold and coverage contract. It cannot be combined with `grain`, and is an exact
+bool rather than a truthy value. When both coordinate kinds change, the invocation canonicalizes to the
 Observation-owned time-fold-then-Dimension-fold order and the same semantic
 nodes as the equivalent two-call chain. The registry admits the combined call
 only when every Metric's fold composition, evaluation-end alignment, coverage,
@@ -580,7 +603,10 @@ MetricRollupInvocationV1
   input_shape
   ordered_dropped_dimension_refs[]
   source_time_coordinate
-  target_grain_and_calendar
+  time_transition:
+    RetainTimeV1
+    | CoarsenTimeV1(target_grain_and_calendar)
+    | RemoveTimeV1(temporal_fold_contracts, retained_period_coverage)
   metric_fold_contracts[]
   coverage_requirements[]
   output_row_contract
@@ -594,13 +620,12 @@ Metric column as sufficient state, or changes exactness.
 ### One meaning across input states
 
 `rollup` means fold the receiver's current rows or registered retained
-sufficient state. The registry selects one of two equivalent authority
-branches:
+sufficient state. The input node determines how those rows are supplied:
 
-| Input state | Selected authority | Required behavior |
-| --- | --- | --- |
-| Logical Metric Dataset | `semantic_current` for the admitted upstream logical relation | retain a rollup node after that relation; an equivalent engine fold may be pushed down |
-| Materialized Metric Dataset | `materialized_only` | scan only the immutable Artifact and its retained state |
+| Input state | Required behavior |
+| --- | --- |
+| Logical Metric Dataset | retain a rollup node after the admitted upstream relation; an equivalent engine fold may be pushed down |
+| Materialized Metric Dataset | scan only the immutable Artifact and its retained state |
 
 The Logical branch does not recompute the original Metric graph at the target
 coordinates. The Materialized branch does not resolve origin semantic sources.
@@ -612,14 +637,15 @@ target-coordinate observation for that meaning.
 ### Output contract
 
 The output remains a Metric Dataset with the same ordered Metric identities,
-Population and target-Population authority, scope, sampling, approximation,
+Population provenance, independent observation scope, selected-contribution
+authority, sampling, approximation,
 units, and value meaning. It removes only the requested Dimension coordinates,
-replaces only the requested time grain, and carries the Observation-owned
+coarsens or removes only the requested time coordinate, and carries the Observation-owned
 coverage transition.
 
 The output row key is the canonical retained Dimension tuple followed by time
 when present. Dropping every Dimension from `metric/dimension@v1` produces the
-explicit `metric/scalar@v1` singleton contract, including for zero input rows;
+explicit `metric/scalar@v1` singleton row-set contract, including for zero input rows;
 each Metric uses its registered empty-fold result. Time is never removed:
 `metric/time@v1` remains time-shaped, and dropping every Dimension from
 `metric/dimension-time@v1` produces `metric/time@v1`.
@@ -749,9 +775,19 @@ Invalid lag rows remain published beside the selected row so boundary loss,
 null loss, and constant inputs remain auditable.
 
 Pearson, Spearman, and Kendall retain their standard definitions. Spearman rank
-ties use average rank. Kendall is tau-b. An engine implementation must match the
-registered independent reference tolerance; unsupported exact compilation does
-not fall back to pandas or another method.
+ties use average rank. Kendall is tau-b. Every fixed implementation must match
+the independent reference tolerance. Pearson/Spearman use their exact Ibis
+builder or fail; they do not fall back to Kendall, pandas or Python.
+
+Kendall's fixed Python recipe receives complete numeric pair inputs after the
+engine performs exact coordinate/lag alignment and pairwise null accounting.
+Input descriptors preserve pair, series and lag coordinates and counts, including
+empty/invalid candidates; raw Entity identities are projected away before
+transfer. The kernel calculates tau-b, constant/insufficient statuses and the
+same candidate-selection rule above. Total pairs and bytes across all requested
+Metrics, lags and Dimension series must fit the Runtime kernel budget. Oversized
+Entity inputs fail without sampling or another method. There is no quadratic
+SQL-pair-join implementation or runtime engine/kernel selection.
 
 ### Filtering and continuations
 
@@ -800,8 +836,8 @@ Forecast:     time, dimension-time
 Candidate:    all five first-cutover objectives
 ```
 
-Metric scalar and Delta scalar shapes reject rank because their row contract is
-an explicit singleton. Module 6 may add exact Event, Lifecycle, or Subject
+Metric scalar and Delta scalar shapes reject rank because their row-set contract
+is `singleton`. Module 6 may add exact Event, Lifecycle, or Subject
 registrations without widening the Module 5 list.
 
 ### Output contract
@@ -830,10 +866,10 @@ one. Rank is therefore nullable even when the selected input field has a
 non-nullable logical schema: a non-nullable floating field may still contain a
 non-finite value, and the output contract must be valid before execution.
 
-The output ordering contract is the partition tuple in canonical coordinate
-order, followed by non-null rank ascending, null rank last, followed by the
-original row key. `rank()` does not drop rows and accepts no limit. A caller
-uses the separate semantic `limit(...)` operator after ranking.
+The output row-set ordering contract is the partition tuple in canonical
+coordinate order, followed by non-null rank ascending, null rank last, followed
+by the original row key. `rank()` does not drop rows and accepts no limit. A
+caller uses the separate semantic `limit(...)` operator after ranking.
 
 The generated `rank` field is filterable and may be selected by later generic
 row operators. Rank consumes only current rows, so logical and materialized
@@ -849,31 +885,31 @@ def limit(self, count: int) -> LogicalDataset:
 ```
 
 `count` must be an exact integer in `[1, 100_000]`; booleans are rejected.
-`limit()` is admitted only when the receiver already owns a deterministic
-logical ordering. Registered ordered inputs include Candidate objective order,
-Forecast coordinate order, authored Association order, and the output
-of `rank()`. An unordered Metric, Delta, Event, Lifecycle, or SubjectSet shape
+`limit()` is admitted only when the receiver's row-set contract already owns a
+deterministic logical ordering. Registered ordered inputs include Candidate
+objective order, Forecast coordinate order, authored Association order, and the output
+of `rank()`. An unordered Metric, Delta, Event, Lifecycle, or PopulationDataset shape
 rejects `limit()` with a repair to establish a registered order, normally by
 calling `rank(...)` on an admitted numeric field. Datasource-natural order,
 preview order, and materialized file order are never promoted into logical
 ordering authority.
 
 The output is a Logical Dataset that retains the input analytical family id,
-qualified shape, row meaning,
-coordinates, value bindings, Population, approximation, and ordering contract.
-It adds no field, but it returns a new row contract whose
-`DatasetCardinality.row_bound` is the smaller of the input static bound, when
-present, and `static(count)`. The result retains at most the first `count` rows
-under the exact input order. Limiting an already limited Dataset is legal and
-normalizes to the smaller bound without changing authored occurrence
-diagnostics.
+qualified shape, row contract, Population, approximation, and row-set ordering.
+It adds no field and preserves the exact row contract. It returns a new row-set
+contract whose `DatasetCardinality.keyed(row_bound=...)` bound is the smaller of
+the input static bound, when present, and `static(count)`. The result retains at
+most the first `count` rows under the exact input order. Limiting an already
+limited Dataset is legal and normalizes to the smaller bound without changing
+authored occurrence diagnostics.
 
-Logical and materialized inputs use the state-selected
-`semantic_or_materialized` branches over their exact current rows. The compiler
+Logical and materialized inputs use the same limiting operation over their
+exact current rows. The compiler
 may push the bound only together with the complete registered ordering. It may
 not apply an unordered backend limit and sort afterward. `limit()` has
 `row_subset` effect and never changes Population membership by itself. An exact
-`metric/entity@v1` result may be supplied later through `population=`; Module 2
+registered Entity-present result with proven Entity-only uniqueness may be
+supplied later through `population=`; Module 2
 then consumes only its retained Entity identity coordinate under the registered
 population-input contract.
 
@@ -909,9 +945,17 @@ owns the common operator id and Delta protocol. Static dispatch and the two
 capability links must expose the overloads without widening either one into a
 union-heavy runtime signature.
 
+All operator families follow Dataset Core's explicit Artifact rule: immutable
+inputs may come from another Session in the same Store while preserving their
+original refs and owner. The receiver/source constructor selects the consuming
+Session. Foreign Logical graphs remain rejected. The compatibility checks below
+are algorithmic type, identity, scope, and alignment requirements; none certifies
+source freshness or the Agent's decision to use older results.
+
 The receiver is the current side. Both inputs must:
 
-- belong to the same Session;
+- be Logical inputs in the consuming Session or explicitly selected Materialized
+  inputs from the same Store; the receiver determines the output Session;
 - contain exactly one Metric binding with the same metric identity, value type,
   unit, aggregation contract, and approximation method;
 - have the same qualified Metric shape;
@@ -1036,18 +1080,18 @@ each parent resolution before attribution arithmetic. The remainder is
 represented by a typed Other cell plus an `other_mask`; no string sentinel is
 inserted into the Dimension value.
 
-### Authority branches
+### Retained inputs and logical expansion
 
 Admission chooses one of two branches:
 
 ```text
 retained_axes
   -> every requested axis and required sufficient statistic is present
-  -> semantic_or_materialized
+  -> consume the exact input rows or retained state
 
 logical_axis_expansion
   -> the Delta is logical and one or more axes are absent
-  -> semantic_current
+  -> resolve the exact required current Dimension paths
   -> extend both logical Metric branches before compare lowering
 ```
 
@@ -1075,7 +1119,7 @@ Opaque non-additive Metrics, `min`, `max`, an unbound mean, an unsupported
 distribution basis, or a semi-additive status-time axis fail before execution.
 Attribution never guesses additivity from observed rows.
 
-The selected versioned method is stored once in the Attribution family contract
+The selected versioned method is stored once in the Attribution row semantics
 and is not a compiler choice.
 
 ### Exact attribution arithmetic
@@ -1134,6 +1178,22 @@ explicitly approximate semantic percentile replays only its authored backend
 method and parameters for every coalition; the inherited semantic approximation
 is disclosed, but runtime cost never introduces another approximation.
 
+The fixed execution recipe keeps partition mapping and distribution state in
+one input engine. That engine evaluates the registered Metric for every exact
+coalition and emits one value per `(resolution, scope, coalition)` plus player
+coordinates and independent endpoints. For at most eight players there are at
+most 256 coalition values per scope/resolution; total scopes and resolutions
+still obey the Runtime kernel input and method-size guards. No raw distribution
+or membership key crosses into Python. The engine evaluation must use one
+required action realization or exact immutable input, including for approximate
+backend methods; inability to provide it is an explicit unsupported failure.
+
+A fixed Python kernel verifies complete coalition coverage and endpoints,
+calculates the exact weights above, and applies the existing reconciliation
+gate. It does not recalculate percentiles, approximate Shapley values or select
+players. This exact preparation is method-owned, not a compiler-inferred SQL
+prefix. Its local output cannot be uploaded back to the source implicitly.
+
 ### Top-K and reconciliation
 
 Top-K membership is selected once over the complete current-plus-baseline scope
@@ -1160,8 +1220,8 @@ abs(D - S) <= max(1e-12, 1e-9 * max(abs(D), abs(S), 1))
 ```
 
 Endpoint mismatch, incomplete players, invalid component state, resource-limit
-failure, or reconciliation failure aborts the whole action. The compiler may
-choose only lowerings proven equivalent to these formulas and ceilings.
+failure, or reconciliation failure aborts the whole action. The fixed method recipe must preserve these formulas and ceilings. There is
+no alternative implementation selected after a compile or resource failure.
 
 ### Row contracts
 
@@ -1175,8 +1235,9 @@ attribution/hierarchy@v1
 Joint rows are keyed by the full ordered axis tuple. Hierarchy rows are keyed by
 the closed `active_axis_mask` plus the full typed axis tuple. Inactive typed axis
 cells are null and the mask distinguishes them from real null members. The
-family contract stores the ordered authored resolution prefixes once; no public
-row uses a numeric resolution position as identity.
+family row semantics stores the ordered authored resolution prefixes as exact
+axis field-id tuples once; no public row uses a numeric resolution position as
+identity.
 
 Every row contains:
 
@@ -1194,16 +1255,18 @@ contribution_rank
 status
 ```
 
-The ordered resolution-prefix contract, selected method id, approximation
-binding, Top-K definition and mapped membership digest, numeric tolerance, and
-sufficient-statistic contract are stored once in the Attribution family contract
-and committed Artifact metadata. That contract also carries
+The Attribution row semantics stores the ordered resolution-prefix field-id
+tuples, selected method id, interpretation-relevant approximation class, and
 `resolution_semantics = rollup, rollup_safe = true` for additive/component
 methods or `resolution_semantics = independent, rollup_safe = false` for
-distinct/distribution methods; these definition facts are not repeated per row.
+distinct/distribution methods. The normalized Dataset definition and committed
+Artifact metadata separately own the Top-K definition, mapped membership
+digest, numeric tolerance, requested approximation parameters, and retained
+sufficient-statistic authority. None of these facts is repeated per row or as a
+second field binding.
 
-`active_axis_mask` is all-active for joint mode. Only a Dataset whose family
-contract declares `rollup_safe = true` may be summed across child members, and
+`active_axis_mask` is all-active for joint mode. Only a Dataset whose family row
+semantics declares `rollup_safe = true` may be summed across child members, and
 even then callers select one resolution before summing.
 
 Positive- and negative-pool shares are non-negative within their same-sign
@@ -1433,10 +1496,13 @@ must be unique before `limit` is applied. `item_id` is then calculated from the
 canonical typed key encoding plus definition authority; the runtime validates
 both key uniqueness and item-id uniqueness before publication.
 
-`source_authority_kind`, the matching logical-definition fingerprint or
+`input_state_kind` (`logical` or `materialized`), the exact logical-definition fingerprint or
 Artifact ref, normalized objective parameters, method version, and the inherited
-approximation binding are stored once in the Candidate family contract and
-committed Artifact metadata. They are never repeated as row columns.
+approximation binding are stored once in the normalized Candidate Dataset
+definition and committed Artifact metadata. Family row semantics retains only
+the objective/method and approximation facts required to interpret one
+candidate row; it references candidate fields by `DatasetFieldId` and never
+duplicates field bindings. None of these facts is repeated as a row column.
 
 `score` ranks candidates only within one Candidate Dataset definition. Scores
 from different objectives, methods, sources, or parameterizations are not
@@ -1633,10 +1699,10 @@ concentration_share
 One row means one governed axis whose Delta is concentrated in relatively few
 members. It is a search lead, not causal attribution.
 
-Authority follows the same clean barrier as `attribute`:
+Input handling follows `attribute`:
 
-- retained axes use `semantic_or_materialized`;
-- missing axes on a logical Delta use one `semantic_current` expansion of both
+- retained axes use the exact input rows and sufficient statistics;
+- missing axes on a logical Delta use one explicit semantic expansion of both
   upstream branches before compare lowering;
 - a missing axis on a materialized Delta is rejected with no replay.
 
@@ -1663,30 +1729,46 @@ candidate = candidates.where(
 )
 ```
 
-## Authority Assignment Matrix
+## Operator Input Matrix
 
 The exact first-cutover assignment is:
 
-| Operator occurrence | Logical input | Materialized input | Selected requirement |
+| Operator occurrence | Logical input | Materialized input | Additional constraint |
 | --- | --- | --- | --- |
-| `correlate`, `rank`, `limit`, `forecast` | consume logical rows | consume retained rows | state-selected `semantic_or_materialized` branch |
-| `compare` | evaluate each logical operand | scan each materialized operand | fixed ordered branch vector |
-| `attribute`, axes retained | consume admitted row/sufficient-statistic contract | consume retained row/sufficient-statistic contract | state-selected `semantic_or_materialized` branch |
-| `attribute`, axis missing | expand logical branches under current semantics | rejected | `semantic_current` only for logical Delta |
-| row-only discovery | consume logical rows | consume retained rows | state-selected `semantic_or_materialized` branch |
-| `driver_axes`, axes retained | consume admitted rows | consume retained rows | state-selected `semantic_or_materialized` branch |
-| `driver_axes`, axis missing | expand logical branches under current semantics | rejected | `semantic_current` only for logical Delta |
+| `correlate`, `rank`, `limit`, `forecast` | consume logical rows | consume retained rows | no origin replay or extra semantic lookup |
+| `compare` | evaluate each logical operand | scan each materialized operand | exact ordered input nodes; no substitution |
+| `attribute`, axes retained | consume admitted row/sufficient-statistic contract | consume retained row/sufficient-statistic contract | no origin replay or extra semantic lookup |
+| `attribute`, axis missing | expand logical branches under current semantics | rejected | explicit current Dimension paths; Logical Delta only |
+| row-only discovery | consume logical rows | consume retained rows | no origin replay or extra semantic lookup |
+| `driver_axes`, axes retained | consume admitted rows | consume retained rows | no origin replay or extra semantic lookup |
+| `driver_axes`, axis missing | expand logical branches under current semantics | rejected | explicit current Dimension paths; Logical Delta only |
 
-For `semantic_or_materialized`, equivalence means the same operator over the
-exact rows represented by the selected input authority token. It does not mean
+Equivalent lowering preserves the same operator over the exact rows represented
+by each bound input token. It does not mean
 a logical definition and one historical Artifact are interchangeable cache
 keys or expected to contain equal rows.
 
-Materialized selected branches validate retained fields, row-contract version,
-sufficient statistics, Artifact integrity, and storage readability. They do
+Materialized inputs validate retained fields, row-contract and row-set-contract
+fingerprints, sufficient statistics, Artifact integrity, and storage readability. They do
 not require the current catalog to retain the original semantic definitions.
-Semantic-current expansion binds the new dependency digest and compatibility
-contract into definition identity.
+Explicit semantic expansion binds the required paths, mappings, and new
+dependency digest into the normal definition identity.
+
+### Observation selection and retained-state seam
+
+Module 2 supplies independent membership/observation scopes, exact selected
+coordinate contributions, and mandatory basic ratio/mean/weighted-mean state.
+Row-only operators consume that authority without adding original members back
+into computational denominators. Rank, limit, and where select compatible state
+records with their primary rows; projection preserves each retained Metric's
+state dependency closure. Compare/attribute/rollup admission validates the exact
+parts it consumes and never borrows another visible Metric column implicitly.
+
+Population input admission follows Module 2's closed registrations plus proven
+Entity-only uniqueness, including functionally dependent coordinates. True
+Entity-by-time rows remain ineligible even when a realized sample is unique.
+Time removal folds only current periods; a filtered history cannot acquire a
+complete-window claim merely by becoming scalar.
 
 ## Approximation and Sample Disclosure
 
@@ -1708,8 +1790,10 @@ ApproximationKindV1 =
 It binds the inherited Population sampling receipt requirement, Metric
 approximation method and parameters, and operator method exactness. Bounded
 Metric- and pair-level projections are derived from this map for cards and
-Evidence. They remain in the family contract and committed Artifact metadata;
-no output repeats an `approximation_kind` column per row. A pair projection is
+Evidence. The interpretation-relevant approximation class remains in family row
+semantics, while requested/realized parameters remain in the definition or
+committed Artifact metadata; no output repeats an `approximation_kind` column
+per row. A pair projection is
 the closed union of its two Metric entries and Population sampling state. A
 projection is disclosure, not authority.
 
@@ -1737,8 +1821,7 @@ Every Module 5 operator registration names one immutable
 DatasetMaterializationContractV1
   producer_id
   producer_contract_version
-  family_id
-  qualified_shape_id
+  shape_id
   quality_contract_id
   quality_contract_version
   evidence_extractor_id
@@ -1764,6 +1847,13 @@ ordering, realized row count, action bound, and family/shape identity. Family
 checks then run against the same staged rows and registered bounded validation
 outputs.
 
+Required private state resolves to actual Artifact-owned parts under Module 4's
+receipt protocol. The registration owns roles and schemas; the descriptor owns
+instances and locators. The runtime validates all required parts at publication,
+while each downstream operator reads only the roles it consumes. An unrelated
+Finding or unused-part scan is not an input admission requirement. No private
+state gets a separate Run or Artifact, and missing state never causes origin replay.
+
 ### Family quality and Evidence matrix
 
 | Producing operator | Quality contract | Required family checks | Canonical Evidence projection |
@@ -1781,7 +1871,7 @@ counts, numeric ranges, and reconciliation summaries only. They never contain
 raw Entity identities, raw distinct keys, source rows, typed coordinate samples,
 SQL, private nodes, or per-row Candidate reasons. For an identity-bearing
 `metric/entity@v1`, `delta/entity@v1`, or `candidate/entity-outlier@v1`, Evidence
-records only aggregate counts and the Module 6 identity-contract ref.
+records only aggregate counts and Module 2's exact Entity identity binding.
 
 Typed issues are emitted in `(severity, check_id, canonical_scope_key)` order.
 Warnings disclose usable null/constant/insufficient subrows already authorized
@@ -1856,14 +1946,14 @@ canonical Help target. The initial repair matrix is:
 | --- | --- | --- |
 | wrong Dataset family or shape | construction | construct/project the named admitted Dataset shape |
 | wrong Metric arity | construction | call `dataset.metric(metric_ref)` or observe the required Metric set |
-| foreign Session Dataset or field ref | construction | reconstruct all inputs in the receiving Session |
+| foreign Logical Dataset, cross-Store Materialized input, or mismatched field selector | construction | materialize foreign Logical work first, select an exact same-Store Artifact, and acquire selectors from the corresponding input |
 | incompatible Population/coordinates | construction | rebuild current and baseline from one compatible Population and coordinate definition |
 | non-numeric selected field | construction | select one listed numeric field |
-| stale or absent `DatasetFieldRef` | construction | read the retained `field_id` from the current schema/row contract and call `dataset.fields.get(field_id)` |
+| stale or absent `DatasetFieldRef` | construction | read the retained `field_id` from the current row-contract schema and call `dataset.fields.get(field_id)` |
 | invalid method, threshold, horizon, limit, or tie policy | construction | use the bounded closed values rendered by focused Help |
-| invalid rollup coordinate or target grain | construction | choose retained Dimensions and one strictly coarser compatible grain shown by the Dataset contract |
+| invalid rollup coordinate or target grain | construction | choose a retained Dimension or time transition whose exact fold is shown by the Dataset contract |
 | Metric lacks an exact retained rollup fold | construction | author and execute a fresh observation at the target coordinates |
-| missing attribution/driver axis on logical Delta | construction | admitted semantic-current expansion occurs automatically |
+| missing attribution/driver axis on logical Delta | construction | admitted current-semantic expansion occurs automatically |
 | missing attribution/driver axis on materialized Delta | construction | rebuild the logical comparison with the axis before materialization |
 | distribution attribution has more than eight mapped players | action | lower `top_k` or choose a coarser attribution axis |
 | correlation pair has no valid candidate | action | narrow Metrics/lags, repair constants/nulls, or provide more observations |
@@ -1933,7 +2023,7 @@ raw Entity identities, or a recommended decision.
 Independent seam tests verify that every `capability_id` resolves to one live
 Help target and reflected method, every output contract resolves its family and
 filter fields, and every `semantic_node_kind` resolves through the compiler's
-exhaustive lowerer manifest. A derived continuation index is rebuilt from
+exhaustive implementation registry. A derived continuation index is rebuilt from
 source and operator consumer admission contracts and tested for exact
 reachability; it is not a second producer-owned inventory. No renderer owns or
 copies any of these facts.
@@ -1999,6 +2089,14 @@ the governed Entity analysis required by `entity_outliers`.
 
 ## Vertical Acceptance Journeys
 
+Journey fixtures must choose an explicit compatible execution/storage setup.
+A retained Population or identity selection later joined to current sources uses
+an engine target and reader in that same datasource domain. Local Artifact-only
+continuations use DuckDB. These are fixture configurations, not automatic
+placement or target switching. Include a conflicting-domain negative fixture;
+`.execute()` must not be advertised as a repair unless its configured writer
+and reader can actually establish the required common domain within bounds.
+
 ### Reuse one materialized daily regional checkpoint
 
 ```python
@@ -2029,6 +2127,7 @@ during construction with a repair to author the target observation directly.
 features = session.observe(
     metrics=[scanned_bytes, peak_memory_bytes, cpu_seconds],
     population=queries,
+    time_scope=window,
 ).execute()
 
 association = features.correlate(method="spearman")
@@ -2062,7 +2161,7 @@ drivers.execute().show()
 ```
 
 Acceptance proves arity-one admission, ordinal time alignment, one
-semantic-current expansion of both still-logical branches, exact axis order,
+current-semantic expansion of both still-logical branches, exact axis order,
 and reconciliation before publication.
 
 ### Materialization barrier repair
@@ -2132,7 +2231,8 @@ healthy local runtime alone. It requires:
    semantic-node kind, action-requirement contract, and materialization link;
 2. method-signature and Help-resolution tests for every canonical path and
    removed Session duplicate;
-3. row-contract builder tests proving deterministic field ids, order, row keys,
+3. row-contract and row-set-contract builder tests proving deterministic field
+   ids, order, row keys,
    nullability, cardinality, and definition fingerprints before execution;
 4. local admission matrices covering every accepted and adjacent rejected
    family, shape, arity, logical type, coordinate, and Session combination;
@@ -2150,14 +2250,12 @@ healthy local runtime alone. It requires:
    models, and discovery scorers;
 9. null, constant, empty, insufficient, non-finite, tie, one-sided, and
    approximation cases for every relevant operator;
-10. compiler conformance proving every registered `semantic_node_kind` resolves
-   through the compiler-owned lowerer manifest to one exact portable,
-   backend-specific, or admitted bounded-local implementation and no silent
-   fallback;
-11. local implementation differential tests proving Ibis-to-DuckDB and every
-   Python kernel match the owner-defined rows, statuses, null/time/decimal,
-   ordering, approximation, and failure semantics over equivalent Arrow and
-   Run-staged Parquet inputs;
+10. compiler conformance proving every exact node/invocation/method resolves
+   through the implementation registry to its fixed recipe; no remote compile
+   failure invokes a local alternative and no cross-domain relation is imported;
+11. numerical and actual-Arrow-batch tests for fixed forecast/Kendall/Shapley kernels,
+   same-domain Ibis/DuckDB semantic conformance, complete-input and output guards,
+   cancellation, null/time/decimal/ordering, and typed unsupported backends;
 12. runtime tests proving incomplete Run admission precedes execution and
    failed publication exposes no partial Dataset, Artifact, Evidence, or
    Finding;
@@ -2166,7 +2264,7 @@ healthy local runtime alone. It requires:
    ordering and the 1,000-Finding cap are deterministic, identity-bearing rows
    leak no identity, and every `none@v1` path commits the canonical empty set;
 14. cold recovery tests proving every materialized output reconstructs the same
-   nominal family, shape, row contract, and authority, and yields the same
+   nominal family, shape, row contract, row-set contract, and authority, and yields the same
    mechanically derived continuations;
 15. filter drift tests proving every generated filterable field is registered
    once and audit-only fields cannot enter predicates;
@@ -2179,7 +2277,7 @@ healthy local runtime alone. It requires:
 ### Dataset Core supplies
 
 - nominal Dataset families and qualified shapes;
-- exact row contracts, selector-only fields, state, ownership, fingerprints,
+- exact row and row-set contracts, selector-only fields, state, ownership, fingerprints,
   lineage, actions, and materialized scan leaves;
 - the generic local operator-construction protocol.
 
@@ -2193,7 +2291,7 @@ operators. It does not change the common Dataset protocol.
   approximation intent;
 - Entity, Dimension, and time coordinates and compatibility;
 - shared predicate syntax, filter effect, field-resolution lifecycle, and
-  filter authority assignment;
+  filter field-resolution rules;
 - direct `population=` admission for `metric/entity@v1` and
   `candidate/entity-outlier@v1` under one exact identity-projection contract.
 
@@ -2201,35 +2299,34 @@ This module may restrict an accepted Metric shape or value type. It may not
 reinterpret a Dimension bucket as an Entity sample or create another Metric
 source path.
 
-### Compiler and Execution Boundaries consumes
+### Direct Compiler and Fixed Execution Boundaries consumes
 
-- exact operator-variant contract versions and private semantic-node kinds;
-- deterministic input and output contracts;
-- null, tie, ordering, status, approximation, and instantiated minimum-data
-  requirements.
+- exact operator-variant, invocation and method contract versions;
+- deterministic input/output, ordering, null, status and approximation contracts;
+- the fixed method assignment and any explicit relational kernel preparation;
+- reference results, complete-input shape and method-size requirements;
+- exact same-domain enrichment requirements and immutable-input restrictions.
 
-The compiler-owned lowerer manifest maps each semantic-node kind to the
-portable, backend-specific, or bounded-local implementations already proven
-equivalent. The operator registry does not enumerate implementation ids.
-Unsupported expression compilation, absent boundary capability, and runtime
-failure remain distinct compiler/runtime failures.
+Module 3's implementation registry binds those recipes to actual builders and
+kernels. Module 5 does not enumerate implementation callables, choose engines
+or duplicate datasource support matrices. A fixed Ibis method may be unsupported
+on an engine without making its analytical meaning ambiguous.
 
-For a local implementation, this module additionally supplies the exact
-reference semantics, Arrow-compatible input/output contracts, dependency-free
-numerical oracle, and any operator-specific stricter bounds. Module 3 owns
-DuckDB/Python registration and Arrow/Parquet placement; Module 4 owns exchange
-execution and cleanup. No owner promotes the private exchange to a Dataset.
+Runtime owns Arrow collection, actual-batch validation, worker cancellation,
+executor budgets, private staging and cleanup. No owner promotes a kernel input
+or engine intermediate to a Dataset, changes the method for resource pressure,
+or imports an incompatible Artifact to another domain.
 
 ### Materialization Runtime consumes
 
-- the authority requirement selected for every operator occurrence;
-- output row-contract and realized-schema validation requirements;
+- the concrete input checks for every operator occurrence;
+- output row-contract, row-set-contract, and realized-schema validation requirements;
 - approximation and sample-count disclosures;
 - the exact `DatasetMaterializationContractV1`, including family quality,
   Evidence, Finding, validation-output, and retained-statistic contract ids.
 
 The runtime validates and records those contracts. It does not choose another
-operator method or authority branch after failure.
+operator method or bound input after failure.
 
 ### Subject, Event, and Lifecycle supplies
 
@@ -2253,11 +2350,11 @@ Implementation and cutover acceptance must prove all of the following:
    families, qualified shapes, coordinates, arity, and value types correlated;
 3. Metric arity, value types, coordinates, Population alignment, and Session
    ownership are closed for every admitted path;
-4. every output family has a complete pre-execution row contract and one-row
-   meaning;
+4. every output family has complete pre-execution row and row-set contracts and
+   one-row meaning;
 5. null, constant, insufficient-data, tie, approximation, and publication
    behavior are deterministic;
-6. every logical/materialized input topology selects one authority branch, and
+6. every logical/materialized input topology binds exact input nodes, and
    all-logical, all-materialized, and role-distinct mixed cases preserve one
    operator meaning while every materialized operand remains a scan leaf;
 7. Candidate and compact analytical filterable fields are exact, and bounded
@@ -2265,27 +2362,27 @@ Implementation and cutover acceptance must prove all of the following:
    contracts;
 8. every rejection rule owns an expected/received/repair contract that points
    to a mechanically valid next step;
-9. the compiler lowerer manifest covers every registered semantic-node kind,
+9. the compiler implementation registry covers every registered semantic-node kind,
    no implementation id is copied into the operator registry, and no
    unregistered operator node exists;
 10. one logical-input and one materialized-input vertical journey prove the
     public, compiler, runtime, and disclosure seams;
 11. no detached Result or Selection object and no eager Session-level duplicate
     survives the public cutover plan;
-12. Module 2 consumes the exact Entity identity binding of the two admitted
-    population-input shapes without creating a second Dataset or identity
+12. Module 2 consumes the exact Entity identity binding and uniqueness proof
+    of its registered population-input shapes without creating a second Dataset or identity
     authority;
 13. every operator occurrence resolves one registered quality, Evidence, and
     Finding extraction contract before Run admission;
-14. every local placement reuses the same operator reference semantics through
-    one compiler-owned DuckDB or Python registration, with Arrow/Parquet parity
-    and no pandas or Polars execution fallback;
+14. every exact method uses its fixed recipe; actual Arrow boundaries and
+    numerical outputs match the owner reference, local Artifact relations use
+    DuckDB, and no pandas/Polars/DuckDB fallback or automatic upload occurs;
 15. rollup differential tests prove identical current-row fold meaning for
     Logical and Materialized inputs, including additive, extremum,
     sufficient-state, cumulative period-end, partial coverage, and rejected
     non-additive cases;
-16. rollup never removes time, admits Entity-grained input, recomputes an origin
-    Metric graph, or changes one blocked Metric while retaining others.
+16. rollup removes time only under an exact registered fold; it never admits
+    Entity-grained input, recomputes an origin Metric graph, or changes one blocked Metric while retaining others.
 
 ## Frozen Module Decisions
 
@@ -2311,7 +2408,8 @@ This accepted design freezes all of the following:
 11. naive, drift, and seasonal-naive are the sole v1 forecast models;
 12. discovery methods and thresholds are objective-specific and Candidate
     scores never imply causal or statistical acceptance;
-13. only `metric/entity@v1` and `candidate/entity-outlier@v1` may enter another
+13. only Module 2-registered Entity-present Metric and Entity-outlier Candidate
+    shapes with proven Entity-only uniqueness may enter another
     source directly through Module 2's `population=` identity projection;
 14. unusable calculations use typed null/status rows only where the owning
     publication contract explicitly permits them;
@@ -2328,16 +2426,16 @@ This accepted design freezes all of the following:
     quality/Evidence owns null/non-null completeness diagnostics;
 20. eager Session duplicates, Frame/Result outputs, detached selections,
     aliases, and legacy recovery do not survive cutover;
-21. local placement reuses one operator reference contract; Module 3 may bind
-    only DuckDB relational or exact Python-kernel implementations over
-    Arrow/Run-staged Parquet, with pandas internal and Polars absent from the
-    first-cutover execution union;
+21. the 2026-09-05 fixed method table assigns Ibis relations, Python forecast,
+    engine-pair/Python Kendall and engine-coalition/Python-weight Shapley recipes; Module 3 binds them without
+    alternative placements. Runtime guards Arrow and local resources; pandas
+    remains kernel-private and Polars is absent;
 22. `MetricDataset.rollup(...)` is the sole coordinate-coarsening transform,
-    uses `drop_dimensions` plus optional exact coarser `grain`, and returns a
-    Logical Metric Dataset under one current-row fold meaning;
+    uses `drop_dimensions`, exact coarser `grain`, or explicit `drop_time`, and
+    returns a Logical Metric Dataset under one current-row fold meaning;
 23. rollup is limited to Entity-reduced Metric shapes and registered retained
-    folds; arbitrary axis deletion, time removal, silent sum, and origin
-    recomputation do not survive cutover.
+    folds, including explicit time removal; arbitrary axis deletion, silent sum,
+    and origin recomputation do not survive cutover.
 
 ## Final Boundary
 

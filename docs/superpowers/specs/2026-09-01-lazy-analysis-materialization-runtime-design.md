@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-04
+Revised: 2026-09-05
 
 Status: accepted
 
@@ -18,14 +18,14 @@ private Ibis compiler internals:
 - when an action becomes a persisted Run;
 - which work is forbidden before incomplete Run admission;
 - how Logical execution differs from Materialized inspection and collection;
-- how datasource and semantic authority are captured and enforced;
+- how source execution and semantic contracts work without reuse verdicts;
 - which storage receipts can back a materialized Dataset;
 - when quality, Evidence, Findings, Artifact identity, and Run success become
   authoritative;
 - how write-once execution bindings and concurrent calls behave;
 - which state is recoverable after process loss;
 - how action-scoped engine resources are cleaned up;
-- why bounded Arrow, Run-staged Parquet, DuckDB workspaces, and kernel buffers
+- why Arrow batches, Runtime staging, DuckDB workspaces, and numerical buffers
   remain private exchange resources rather than Materialized Datasets;
 - how a committed Artifact becomes one immutable scan leaf after cold recovery;
 - why no partial Artifact, Evidence authority, pandas value, or preview survives
@@ -35,14 +35,35 @@ This document is the Module 4 authority named by
 [`2026-09-01-lazy-analysis-design-decomposition-plan.md`](2026-09-01-lazy-analysis-design-decomposition-plan.md).
 It consumes the Dataset value contract in
 [`2026-09-01-lazy-analysis-dataset-core-design.md`](2026-09-01-lazy-analysis-dataset-core-design.md),
-the observation and authority requirements in
+the observation and operator input requirements in
 [`2026-09-01-lazy-analysis-observation-model-design.md`](2026-09-01-lazy-analysis-observation-model-design.md),
 and the execution handoff in
 [`2026-09-01-lazy-analysis-planner-and-pushdown-design.md`](2026-09-01-lazy-analysis-planner-and-pushdown-design.md).
 
 The Observation Model and compiler designs are accepted. This design consumes
-their frozen filter, bounded-local, invocation, sink-feasibility, and
-hidden-durable-stage contracts without redefining them.
+their filter, exact invocation, fixed execution-domain and hidden-durable-stage
+contracts. The 2026-09-05 amendment replaces ranked sink negotiation and general
+local placement with one configured target and executor-specific budgets.
+
+### Observation amendment dependencies
+
+The 2026-09-05 Observation Model amendment supplies one Population family for
+explicit Entity roots and Event/Lifecycle subject selections. Runtime retains
+producer-owned selection time/completeness separately from a consuming Metric's
+observation scope; materialization never relabels one as the other.
+
+Basic ratio, mean, and weighted-mean contracts require row-keyed sufficient-state
+parts. Primary rows and required parts validate and commit atomically. Filtering,
+projection, ranking, and limiting preserve the exact selected-state dependency
+closure. The runtime stores family-owned proofs and receipts; it does not invent
+folds or reinterpret original Population lineage as a computational denominator.
+
+Cold aggregation and time-removing rollup read only the exact retained rows and
+parts required by their registered fold. Missing/corrupt required parts fail
+publication or consumption at the owning phase, without origin replay. Selected
+or incomplete periods retain their coverage facts after scalarization. Identity
+projection admission follows Module 2's proven-unique Entity contract even when
+functionally dependent coordinates remain in the primary schema.
 
 ## Ownership Boundary
 
@@ -51,28 +72,28 @@ This document owns:
 - synchronous execution of `LogicalDataset.execute()` and immutable backing
   reads by `MaterializedDataset.show()` and `to_pandas()`;
 - the exact point at which an execution-binding miss admits an incomplete Run;
-- execution Run kinds and optional bounded read-audit receipts;
-- runtime resolution and validation of semantic, datasource, materialized, and
-  storage authority;
-- datasource snapshot capture and the source-authority vocabulary;
-- deterministic storage-sink selection from compiler-admitted choices;
+- execution Run kinds;
+- runtime resolution of semantic contracts, datasource execution configuration,
+  and materialized storage integrity;
+- factual source lineage and Agent-selected Artifact reuse;
+- one configured storage target and its exact writer validation;
 - local, engine, and object Dataset storage receipts;
-- Dataset Artifact metadata, identity, commit markers, and the write-once
+- Dataset Artifact metadata, identity, atomic publication, and the write-once
   Session execution binding;
-- execution claims and concurrent same-key coordination;
-- execution of compiler-declared bounded Arrow and Run-staged Parquet exchanges;
-- journaling and cleanup of DuckDB workspaces, Python-kernel buffers, and
-  private exchange files;
-- staging, validation, quality, Evidence, Finding, Artifact, and Run commit
+- Session-scoped writer exclusion and independent cross-Session execution;
+- execution of fixed kernel Arrow boundaries and Runtime-owned staging;
+- journaling of recoverable external resources and action-local cleanup of
+  DuckDB workspaces, Python-kernel buffers, and private exchanges;
+- primary and retained-part storage, validation, quality, Evidence, Finding,
+  Artifact, and Run commit
   ordering;
-- process-owner leases and cold reconciliation of incomplete Runs;
+- Session writer locks and cold reconciliation of incomplete Runs;
 - cleanup of compiler-declared action-scoped temporary resources and unpublished
   storage;
 - immutable scan-leaf decoding and storage-admission validation;
-- runtime meaning and enforcement of `semantic_current`,
-  `materialized_only`, and `semantic_or_materialized`;
-- explicit Artifact revalidation across independent integrity, semantic,
-  datasource, and storage axes;
+- execution of the concrete input checks owned by operators and compiled nodes;
+- explicit Artifact, Evidence, and storage integrity inspection without
+  semantic comparison, source freshness, or reuse certification;
 - multi-downstream reuse through an explicit materialized Dataset.
 
 It does not own:
@@ -80,13 +101,13 @@ It does not own:
 - public Dataset family, shape, schema, row meaning, actions, or state fields;
 - Population inference, predicate semantics, filter effects, or aggregate
   coordinate algebra;
-- private semantic nodes, bound Ibis expressions, lowerer manifests, boundary
+- private semantic nodes, bound Ibis expressions, implementation registrations, boundary
   capabilities, or stage formation;
 - operator-specific statistical calculations, quality rules, Evidence
   extractors, or Finding value schemas;
 - public multi-sink scheduling, background tasks, cancellation handles, storage
   parameters, or retention parameters;
-- SubjectSet identity, Event matching, or Lifecycle replay semantics;
+- PopulationDataset identity, Event matching, or Lifecycle replay semantics;
 - a migration or compatibility path from eager Frame Artifacts and their
   persistence generation.
 
@@ -101,12 +122,13 @@ The runtime accepts these Dataset Core decisions as fixed:
 
 1. Dataset construction does not query a datasource, create a Run, or publish
    reusable authority.
-2. Every Dataset belongs to one exact Session.
+2. Each Dataset handle has one execution Session; an Artifact retains its original
+   producing Session even when explicitly read in another Session.
 3. A logical Dataset has no durable public locator, but its exact definition
    can resolve a private same-Session execution binding.
 4. Every analytical family has paired Logical and Materialized Dataset classes
-   with the same family id, row contract, public schema, shape, and definition
-   fingerprint.
+   with the same typed shape id, row contract, row-set contract, public schema,
+   and definition fingerprint.
 5. `execute()` returns the paired immutable Materialized Dataset and does not
    mutate the Logical input.
 6. Only Materialized Datasets expose `show()` and `to_pandas()`; both read the
@@ -133,21 +155,23 @@ The runtime consumes these compiler decisions:
    execution happen only after incomplete Run admission;
 3. one action receives one immutable `PhysicalStageGraphV1` or one bounded
    compilation failure;
-4. the graph names exact output schema, key, validation, transfer, snapshot,
-   placement, and temporary-resource requirements;
-5. local execution is a registered hard-bounded placement, not fallback;
+4. the graph names exact output schema, key, validation, transfer, placement,
+   and temporary-resource requirements; execution details produce no source
+   snapshot certificate for later reuse;
+5. relational work inherits its domain; numerical methods use a fixed kernel
+   recipe, never a backend-failure fallback;
 6. action-scoped temporary relations are private, non-durable, and never
    Artifacts;
 7. no private stage may create a hidden durable intermediate Dataset;
 8. materialized inputs are non-rewriteable scan leaves;
 9. compilation and execution failures retain distinct phases;
-10. safe compiler audit is a bounded projection, never a persisted expression;
-11. bound Ibis expressions and private lowerer records remain compiler-owned;
-    runtime persists only safe compiler/lowerer, Ibis/backend, boundary-profile,
-    stage, and applied-lowerer fingerprints or bounded counts.
+10. compiler diagnostics are optional, bounded, and execution-local;
+11. bound expressions and lowerer records remain compiler-owned. No compiler
+    fingerprint/count inventory is a persisted Run field or publication gate.
 
-If the compiler rejects bounded-local stages or permits hidden durable stages,
-that module must change first. This runtime does not define both alternatives.
+Runtime enforces separate engine, kernel and storage budgets. It cannot add
+an input relocation or an alternative implementation absent from the fixed
+recipe, and it never promotes private staging into durable Dataset authority.
 
 ## Decision Summary
 
@@ -163,20 +187,16 @@ The lifecycle never moves backward. A failed producer retry is a new Run.
 Recovering an existing Artifact through an execution binding is a read and
 creates no Run.
 
-The producing action kind is closed:
-
-```text
-execute    logical_dataset.execute()
-```
+Only `logical_dataset.execute()` creates a Run. Because there is one legal
+producer action, the Run does not persist a one-value `action_kind` field.
 
 An incomplete Run exists before live authority resolution, backend compilation,
 datasource data work, transfer, temporary-resource creation, or storage writes.
 Only deterministic in-process validation that cannot consult live external
 state may precede admission.
 
-`MaterializedDataset.show()` and `to_pandas()` may emit bounded operational
-read audit, but that audit is not an analysis Run, creates no graph node, and
-does not own or duplicate rows.
+`MaterializedDataset.show()` and `to_pandas()` read the committed Artifact and
+create no analysis Run, graph node, receipt, or other durable Runtime state.
 
 ### Separate execution, storage, and publication decisions
 
@@ -196,28 +216,31 @@ metadata, and Session graph identity agree.
 None of the first two boundaries creates a public Dataset. Only the third may
 produce `MaterializedDatasetState`.
 
-### Use one commit marker to bridge independent durable stores
+### Commit all result metadata in one Store transaction
 
-The Session Store is canonical for Run lifecycle and graph relationships. The
-Evidence Store owns Findings, the commit-time Evidence envelope, and one narrow
-Artifact commit marker.
-
-The commit marker is the publication decision when filesystem or external
-storage, the Evidence Store, and the Session Store cannot share one database
-transaction. It is not a second Artifact browse index.
+The Session Store owns Session facts, Run history, Artifact descriptors,
+Evidence envelopes, Findings, and outstanding external-resource obligations in
+one SQLite database. Evidence modules own calculation and typed reading, but
+participate in the caller-owned Store transaction; they own no independent
+connection commit or database file.
 
 Publication order is:
 
 ```text
-final immutable storage
-    -> exact Artifact metadata
-    -> Evidence + Findings + Artifact commit marker
-    -> Session Store Artifact row + Run success
+final immutable storage + validated receipt
+    -> one Session Store transaction:
+       Artifact + Evidence + Findings + Run success
+       + removal of resolved output resource obligations
 ```
 
-Before the marker, all output is unpublished and may be cleaned up. After the
-marker, the Artifact is commit-decided and must be completed by recovery; it
-must never be converted to a failed Run or deleted as staging.
+The database commit is the only publication decision. Before it, output storage
+is unpublished and remains a cleanup obligation. After it, the Artifact and its
+succeeded Run are visible together. There is no separately committed Artifact
+metadata file, Evidence commit marker, or marker-to-Store repair gap. Large
+immutable data stays outside SQLite under its storage receipt.
+
+A lost commit acknowledgement is resolved by reading the Store, never by
+assuming rollback, deleting output, or repeating datasource work.
 
 ### Make every committed Dataset Artifact Evidence-complete
 
@@ -226,7 +249,7 @@ operator with no domain Findings publishes a valid zero-Finding envelope; it
 does not use `unavailable` as a substitute for a failed extractor.
 
 Quality, Evidence, or Finding construction failure fails the execute action
-before the commit marker. The first lazy cutover therefore has no committed
+before the publication transaction commits. The first lazy cutover therefore has no committed
 Dataset Artifact with partial Evidence authority.
 
 This is stricter than preserving a successful Artifact with a partial or
@@ -236,209 +259,324 @@ amendment and a new Evidence-envelope variant.
 ### Bind each exact logical execution once per Session
 
 A logical definition fingerprint alone is not an Artifact identity, but the
-runtime can derive one exact Session-local `DatasetExecutionKeyV1` before live
-datasource work. The key binds the normalized logical definition, semantic
-dependencies, captured parameterized-source binding digest, ordered
-logical/materialized input-authority tokens, family and row contracts, and
-implementation, quality, and Evidence contract versions.
+runtime derives `DatasetExecutionKeyV1` from the complete canonical definition
+fingerprint and common materialization protocol version before live datasource
+work. Dataset Core owns dependency normalization once; Runtime adds no duplicate
+input, schema, semantic, sampling, or extractor-version vector.
 It deliberately excludes current datasource row state, realized sample rows,
 storage placement, and process or script identity.
 
-The Session Store maintains one write-once
-`DatasetExecutionKeyV1 -> artifact_ref` binding. A binding miss elects one
-producer, admits one execution Run, and publishes one Artifact before filling
-the binding. A binding hit validates and recovers that exact Artifact without a
-new Run, datasource access, quality extraction, storage copy, or Evidence
-publication.
+The Session Store permits at most one Artifact row for
+`(session_ref, DatasetExecutionKeyV1)`. A key miss elects one producer and
+admits one execution Run; successful publication inserts that Artifact row. A
+key hit validates and recovers the Artifact without a new Run, datasource
+access, quality extraction, storage copy, or Evidence publication. “Execution
+binding” is only shorthand for this unique Artifact key, not another value or
+relation.
 
 This is Session snapshot semantics, not a global cache-equivalence claim. Once
 bound, later datasource changes do not redirect the key. A caller that requires
 fresh rows creates a new named Session or changes an explicit definition input
-that participates in the key. Non-replayable sources and action-scoped samples
-therefore remain reusable through their same-Session binding even though their
-Artifacts cannot prove equivalence to an independently executed definition in
-another Session.
+that participates in the key. Source version support and sampling do not affect this lookup. Marivo makes
+no freshness, source-equivalence, or reuse-suitability judgment. Another Session
+uses an old result only through an explicit Artifact reference, never through an
+automatic definition/time-based search.
 
-### Coordinate concurrent exact materializations without duplicate authority
+### Serialize writers within each Session
 
-Concurrent `execute()` calls with the same exact execution key do not race to
-publish two canonical Artifacts. A private durable materialization claim elects
-one producer before Run admission. Other synchronous callers wait under a fixed
-internal deadline for the producer to commit the write-once binding, then
-validate and recover its Artifact without admitting contender Runs.
+One Agent writes each Session serially. The first cutover uses one reliable,
+non-blocking exclusive lock per `session_ref`. Separate scripts and processes
+may use the same Session sequentially; overlapping top-level writes to that
+Session fail with a structured Session-busy error before Run admission.
+Different Sessions may execute concurrently while sharing short SQLite write
+transactions in the project-level Store.
 
-The accepted first-cutover coordination policy is:
+An execute action holds its Session lock from preflight recovery and binding
+lookup through execution, terminal publication or safe failure handling. No
+producer election, claim row, owner lease, heartbeat, contender queue, timed
+waiting, or automatic contender retry is needed. The Artifact unique execution
+key remains the same-Session reuse authority.
 
-```text
-MaterializationClaimPolicyV1
-  schema = "marivo.materialization_claim_policy/v1"
-  contender_wait_timeout_seconds = 30
-```
+Acquiring the lock proves exclusive local writing for that Session, not
+termination of an old remote query. Each writer first reconciles incomplete
+Runs and outstanding obligations in its own Session. Unresolved work blocks
+only that Session. Read-only history and committed Artifact reads do not take
+the writer lock.
 
-When the deadline expires while the producer still owns its process-lifetime
-lock, the contender Run fails with one retryable concurrency error. The
-producer continues; the runtime does not cancel it or start speculative work.
+### Separate factual validation from reuse judgment
 
-If the producer fails before commit, one waiter may atomically acquire a new
-claim and execute. If the producer loses its process ownership, cold recovery
-first reconciles its publication or proves its backend execution terminal before
-marking it failed. If terminal state cannot be proved, the existing claim stays
-bound and no new producer is admitted.
+Same-Session execution-key hits and explicitly selected cross-Session Artifacts
+recover exact committed results after mechanical integrity/access checks. Result
+age, changed source rows, and business relevance never authorize or veto a read.
 
-The claim is coordination state, not Artifact identity, execution reuse, a
-public task, or a cross-Session cache.
+`session.revalidate(artifact_or_ref)` reports Artifact, storage, and Evidence
+integrity independently through explicit full inspection. Ordinary operations check only the dependencies they consume; no
+path compares the Artifact against the current semantic catalog. There is no datasource
+freshness axis, source-equivalence verdict, reusable flag, or overall approval.
 
-### Treat revalidation as a read across independent axes
-
-`session.revalidate(artifact_or_ref)` is explicit, read-only, and does not
-change Dataset state. It projects independent current observations:
-
-```text
-artifact_integrity
-storage_authority
-evidence_integrity
-semantic_authority
-datasource_authority
-```
-
-Datasource authority may be `current`, `changed`, `unverifiable`, or `unknown`
-according to the receipt and datasource profile. A changed source does not make
-an immutable Artifact unreadable and does not mutate it into a stale Dataset.
-
-Ordinary materialized `show()` and `to_pandas()` validate Artifact, Evidence,
-storage, and authorization integrity. Reconstructed logical `execute()` does
-the same validation on a binding hit. None compares the committed semantic or
-datasource snapshot to current live sources.
+Marivo preserves identity, schema, lineage, quality, and producer/commit times.
+The Agent decides whether a result fits a new question. A downstream operator
+validates its concrete input contract, not a general reuse certificate.
 
 ## Runtime Schema Generation
 
 The lazy Dataset cutover introduces one clean persistence generation. It does
 not decode eager Frame Artifacts as Datasets and does not migrate old Runs.
-
-The exact top-level schemas are:
+The exact versioned value contracts are:
 
 ```text
 marivo.analysis_action_run/v2
 marivo.dataset_artifact/v1
+marivo.dataset_artifact_descriptor/v1
 marivo.dataset_storage_receipt/v1
 marivo.dataset_evidence/v1
-marivo.dataset_artifact_commit/v1
-marivo.dataset_execution_binding/v1
-marivo.action_resource_journal/v1
 ```
 
-The replacement Session Store uses exact `PRAGMA user_version = 3`. A fresh v3
-Store creates the action Run, Artifact, execution-binding, claim, owner-lease,
-and resource-journal relations and their stated uniqueness and foreign-key
-invariants atomically.
-An existing v2 Store is not upgraded in place. A Store or record from an older
-or future generation fails closed before Session activation with guidance to
-create a new named Session and rerun authoring code.
+The replacement Session Store uses exact `PRAGMA user_version = 3`. Its schema,
+constraints, indexes, and version are created in one short SQLite schema
+transaction before Session resolution; initialization never admits analysis.
+No released v3 schema is being migrated by this design amendment. Existing older
+or future Store generations fail closed; no compatibility decoder,
+in-place upgrade, dual read, or import exists.
 
 ### Generation-scoped layout
 
-The accepted clean cutover uses one generation-scoped root:
-
 ```text
 .marivo/analysis/generations/v3/session_store.db
-.marivo/analysis/generations/v3/sessions/<session_ref>/evidence_store.db
+.marivo/analysis/generations/v3/sessions/<session_ref>/session.lock
 .marivo/analysis/generations/v3/sessions/<session_ref>/artifacts/<artifact_ref>/...
 .marivo/analysis/generations/v3/sessions/<session_ref>/runs/<run_ref>/...
 ```
 
-`session_store.db` is exact `PRAGMA user_version = 3`.
-`evidence_store.db` is a new independent Evidence generation with exact
-`PRAGMA user_version = 1`. Run directories contain only private staging and
-journaled recovery resources. Artifact directories contain only committed
-metadata and an admitted local immutable backing; engine/object receipts keep
-their own immutable locators in metadata.
+One project-level Store contains all Sessions and all durable analytical
+metadata. Artifact directories hold only admitted local immutable data and its
+file manifests; engine/object receipts retain their immutable locators in the
+Store. Run directories hold private staging and recoverable external resources.
+There is no Session sidecar, Artifact metadata sidecar, separate Evidence
+database, durable lock-owner record, or process-state file. SQLite-managed WAL
+and shared-memory files are database internals, not application authority.
+
+Each Session lock file has a stable identity for the lifetime of that Session.
+Its presence is not ownership; the held OS lock is. It is never unlinked or replaced during
+normal use. All entrypoints resolve the same canonical Store, Session ref, and
+Session lock path.
 
 The lazy runtime never opens `.marivo/analysis/session_store.db` as v3
-authority. `get_or_create(name)` operates only in the generation-scoped v3
-Store and may create a new Session even when an eager v2 Store exists.
-`resume(...)`, `current()`, and Artifact reads resolve only v3 identities. If a
-caller supplies an old Store, Run, or Artifact identity, activation fails with
-one structured legacy-generation error directing the caller to create a new
-named Session. It does not inspect old application rows, copy a Session name,
-or decode old payloads.
+authority. `get_or_create(name)` operates only in the generation-scoped Store
+and may create a Session even when an eager v2 Store exists. `resume(...)`,
+`current()`, and Artifact reads resolve only v3 identities. Old identities fail
+with a structured generation error; no old rows, names, or payloads are copied.
 
 ### Exact Store relations
 
-The v3 Session Store owns these relations and no generic key/value or JSON
-compatibility table:
+Every payload below is bounded canonical UTF-8 JSON with one named closed
+schema, not an open map. The Store owns exactly these relations:
 
-| Relation | Primary and unique keys | Required foreign keys and purpose |
-| --- | --- | --- |
-| `sessions` | primary `session_ref`; unique `name` | Owns question, report timezone name/resolution/warning, created time, and updated time. |
-| `runtime_state` | singleton primary key constrained to `1` | Nullable `current_session_ref -> sessions.session_ref ON DELETE SET NULL`; owns only the current-Session pointer and update time. |
-| `analysis_action_runs` | primary `run_ref`; unique `(session_ref, run_ref)`; no uniqueness by execution key | `session_ref -> sessions`; nullable composite `(session_ref, output_artifact_ref) -> dataset_artifacts`; owns the exact versioned lifecycle envelope and terminal phase facts. Failed retries may share an execution key; the claim and successful binding, not Run history, enforce one active producer and one committed result. |
-| `analysis_action_run_inputs` | primary `(run_ref, input_ordinal)`; unique `(run_ref, artifact_ref)` | Composite `(session_ref, run_ref) -> analysis_action_runs ON DELETE CASCADE`; composite `(session_ref, artifact_ref) -> dataset_artifacts`; owns ordered same-Session Materialized Dataset inputs only. |
-| `dataset_artifacts` | primary `artifact_ref`; unique `(session_ref, artifact_ref)`; unique `(session_ref, producing_run_ref)`; unique `(session_ref, execution_key)` | `session_ref -> sessions`; composite `(session_ref, producing_run_ref) -> analysis_action_runs`; owns exact metadata locator/digest, receipt/content/Evidence digests, row/byte authority, and commit time. |
-| `dataset_execution_bindings` | primary `(session_ref, execution_key)`; unique `(session_ref, artifact_ref)`; unique `(session_ref, producer_run_ref)` | Composite Artifact and producer-Run foreign keys force all three identities into one Session; immutable binding from one execution key to one committed Artifact. |
-| `materialization_claims` | primary `(session_ref, execution_key)`; unique `(session_ref, producer_run_ref)` | `session_ref -> sessions`; composite `(session_ref, producer_run_ref) -> analysis_action_runs`; owns producer nonce and claim timestamps until terminal publication/failure. |
-| `run_owner_leases` | primary `run_ref` | `run_ref -> analysis_action_runs ON DELETE CASCADE`; owns one required process-lock nonce plus advisory heartbeat/expiry facts. |
-| `action_resource_journal` | primary `(run_ref, resource_ordinal)`; unique `(run_ref, resource_kind, resource_locator_digest)` | `run_ref -> analysis_action_runs ON DELETE CASCADE`; owns secret-safe reserved/created/terminal/cleaned resource state. |
+```text
+sessions
+  session_ref primary key
+  name unique, non-empty
+  question nullable
+  report_timezone_name non-empty
+  report_timezone_resolution = iana | fixed_offset
+  created_at
+  updated_at
 
-Every foreign key includes `session_ref` in either the key or a composite
-agreement check so no cross-Session input, claim, binding, Run output, or
-Artifact can be represented. Raw parameterized-source values are forbidden in
-every relation; only their opaque execution-identity digest is stored.
+runtime_state
+  singleton_key primary key, constrained to 1
+  current_session_ref nullable -> sessions.session_ref ON DELETE SET NULL
 
-The v3 Store creates exact indexes for Session recency, Run recency and
-lifecycle within Session, Run lookup by input Artifact, Artifact commit
-recency within Session, execution binding by Artifact, claims by producer Run,
-live owner leases by expiry, and resource journal entries by cleanup state.
-Primary/unique indexes are reused rather than duplicated.
+analysis_action_runs
+  run_ref primary key
+  session_ref -> sessions.session_ref ON DELETE RESTRICT
+  execution_key_digest non-empty
+  admitted_at
+  dataset_input_payload = RunDatasetInputV1
+  unique (session_ref, run_ref)
 
-The per-Session Evidence Store owns exactly:
+analysis_action_run_terminals
+  run_ref primary key
+  session_ref
+  outcome = succeeded | failed
+  terminal_at
+  output_artifact_ref nullable
+  failure_payload nullable = RunFailureV2
+  (session_ref, run_ref) -> analysis_action_runs ON DELETE RESTRICT
+  (session_ref, output_artifact_ref) -> dataset_artifacts ON DELETE RESTRICT
+  unique (session_ref, output_artifact_ref)
+  succeeded requires output_artifact_ref
+  succeeded forbids failure_payload
+  failed requires failure_payload
+  failed forbids output_artifact_ref
 
-| Relation | Primary and unique keys | Required foreign keys and purpose |
-| --- | --- | --- |
-| `dataset_evidence` | primary `artifact_ref`; unique `evidence_digest` | Owns one `marivo.dataset_evidence/v1` envelope and its canonical digest. |
-| `dataset_artifact_commits` | primary `artifact_ref`; unique `producing_run_ref`; unique `marker_digest` | `artifact_ref -> dataset_evidence.artifact_ref`; owns the immutable `marivo.dataset_artifact_commit/v1` publication decision. |
-| `findings` | primary `finding_ref`; unique `(artifact_ref, finding_ordinal)`; unique `(artifact_ref, finding_identity_digest)` | `artifact_ref -> dataset_evidence.artifact_ref ON DELETE CASCADE`; owns one ordered immutable typed Finding payload. |
+analysis_action_run_inputs
+  run_ref
+  session_ref
+  input_ordinal non-negative
+  artifact_ref
+  primary key (run_ref, input_ordinal)
+  (session_ref, run_ref) -> analysis_action_runs ON DELETE RESTRICT
+  artifact_ref -> dataset_artifacts.artifact_ref ON DELETE RESTRICT
 
-The Evidence Store indexes Findings by `(artifact_ref, finding_ordinal)` and
-commit markers by `committed_at`; it contains no mutable Artifact upsert row,
-Run lifecycle, execution binding, receipt, claim, or compatibility payload.
+dataset_artifacts
+  artifact_ref primary key
+  session_ref -> sessions.session_ref ON DELETE RESTRICT
+  execution_key_digest non-empty
+  descriptor_payload = DatasetArtifactDescriptorV1
+  committed_at
+  unique (session_ref, artifact_ref)
+  unique (session_ref, execution_key_digest)
 
-Transaction ownership is exact:
+dataset_evidence
+  artifact_ref primary key -> dataset_artifacts.artifact_ref ON DELETE RESTRICT
+  evidence_digest non-empty
+  finding_count non-negative
+  finding_set_digest non-empty
+  extractor_contract_versions_payload = ordered registered versions[]
 
-1. Session creation/update and the singleton current pointer are one Session
-   Store transaction.
-2. Producer election, incomplete Run admission, ordered input rows, initial
-   owner lease, and claim creation are one Session Store transaction; a losing
-   uniqueness race rolls back all five and admits no Run.
-3. Resource-journal state changes are short Session Store transactions owned
-   by the active Run and committed before the external state they authorize.
-4. Findings, Evidence envelope, and the commit marker are one Evidence Store
-   transaction with the marker inserted last.
-5. After that marker, Artifact row insertion, immutable execution binding, Run
-   success, claim release, and lease terminalization are one Session Store
-   transaction. Recovery may replay only this exact transaction after proving
-   the marker-before-Store gap.
-6. Pre-marker failure terminalizes the Run, releases its claim/lease, and
-   records cleanup status in one Session Store transaction after external
-   resources are proved terminal or explicitly recovery-pending.
+findings
+  finding_ref primary key
+  artifact_ref -> dataset_evidence.artifact_ref ON DELETE RESTRICT
+  finding_ordinal non-negative
+  finding_identity_digest non-empty
+  finding_body_payload = one exact registered Finding body variant
+  unique (artifact_ref, finding_ordinal)
+  unique (artifact_ref, finding_identity_digest)
 
-There is no cross-database SQLite transaction. The Evidence marker remains the
-publication decision, and the ordered two-transaction protocol above is the
-only accepted cross-Store atomicity model.
+action_resource_journal
+  run_ref
+  resource_kind registered
+  execution_domain_id registered
+  ownership_nonce non-empty
+  cleanup_capability_id registered
+  safe_locator non-empty, secret-safe
+  primary key (run_ref, resource_kind, execution_domain_id, safe_locator)
+  run_ref -> analysis_action_runs.run_ref ON DELETE RESTRICT
+```
 
-There is no:
+All tables are SQLite `STRICT` tables with foreign-key enforcement enabled on
+every connection. Refs, registered ids, digests, locators, enums, timestamps,
+and payloads are `TEXT`; counts and ordinals are `INTEGER`. Timestamps use
+canonical UTC RFC 3339 encoding. Fields are `NOT NULL` unless marked nullable;
+each stated constant, enum, non-empty value, and non-negative count has a
+`CHECK`. Raw parameterized-source values never persist.
 
-- old-schema decoder;
-- Frame-to-Dataset adapter;
-- Run backfill;
-- Artifact import;
-- Evidence migration;
-- dual-read graph;
-- fallback to `analysis-artifact/v13`, `marivo.analysis_run/v2`, or the
-  `marivo.analysis_job/v2` Job-to-Run adapter;
-- alias that lets one persisted value enter both eager and lazy execution.
+Absence of a terminal row is the only persisted `incomplete` Run state.
+Admission, inputs, terminal rows, Artifacts, Evidence, and Findings are immutable
+after insertion. Failed retries may share an execution key; the Artifact unique
+key alone enforces one committed result. The unique non-null terminal output
+owns the Run-to-Artifact edge. Input refs may belong to other Sessions in this
+Store; their original owner derives from the Artifact row. Output publication
+validates that its producer admission has the same Session and execution key;
+each committed Artifact must have one succeeded producer and one complete
+Evidence envelope.
 
-The Public Cutover Plan owns the exact deletion and rollout sequence. This
-module owns the replacement schemas and fail-closed boundary.
+### Artifact descriptor and derived values
+
+`DatasetArtifactDescriptorV1` is the persisted closed value:
+
+```text
+  schema = "marivo.dataset_artifact_descriptor/v1"
+  definition_fingerprint
+  row_contract
+  row_contract_fingerprint
+  row_set_contract
+  row_set_contract_fingerprint
+  realized_schema
+  realized_schema_fingerprint
+  bounded_lineage
+  semantic_dependency_digest
+  population_authority
+  sampling_execution
+  operator_implementation_versions[]
+  dataset_materialization_contract
+  storage_receipt
+  retained_parts[]
+  quality_summary
+  typed_issues[]
+```
+
+Family payloads stay closed and versioned. Contract fingerprints are computed
+from their named canonical values and verified on decode, never independently
+authored semantic facts. Artifact identity, Session, execution key, and commit
+time come from relation columns. `producing_run_ref` comes from the terminal
+edge. Public content authority and realized row/byte counts derive from the
+primary receipt; private parts retain their own receipts and counts; `DatasetArtifactV1` exposes them as derived projections. The full
+Artifact envelope is assembled from these owners and is not stored a second
+time. There is no `metadata_locator` or cross-Store metadata digest.
+
+The Evidence envelope derives quality-summary and typed-issue digests from the
+Artifact descriptor. Its stored `evidence_digest` binds those digests, Finding
+count, ordered Finding-set digest, and extractor contract versions; readers
+verify the digest against the assembled envelope. It excludes `artifact_ref`
+and itself and is not unique across Artifacts. There is no separately stored
+full envelope or duplicate quality payload.
+
+Finding bodies exclude relation-owned refs, Session identity, and commit time.
+Those facts derive from the owning Artifact. Ordinals are the contiguous
+zero-based projection of canonical Finding identity order. Summary reads use
+the descriptor and envelope without scanning Finding bodies; exact Finding
+validation reads the bounded or complete owning records required by its API.
+
+### Mutation, indexes, and transaction ownership
+
+Only `sessions.question`, `sessions.updated_at`, and the current Session pointer
+are updated in place. Session recency changes only on explicit activation or
+question update. Timezone warning text is derived from its resolution enum.
+Resource rows are inserted and deleted as outstanding obligations; they carry
+no mirrored resource lifecycle or recovery-progress state.
+
+Indexes cover Session recency, Run admission recency within Session, terminal
+outcome/time, Run lookup by input Artifact, and Artifact commit recency within
+Session. Finding reads reuse the unique `(artifact_ref, finding_ordinal)` index;
+Run-output and execution-key lookups reuse their unique indexes. Resource scans
+reuse the primary-key `run_ref` prefix. Session-scoped incomplete lookup uses the
+admission/terminal anti-join. No second graph, binding, claim, or owner index is
+stored.
+
+All mutations of an existing Session, activation/recovery, and maintenance use
+its Session writer guard. Schema initialization and Session-name uniqueness
+use short SQLite transactions as described under Session Writer Guard. The
+guard's in-memory operation context can be passed to internal helpers; it is not a persisted or public handle. The lock covers whole actions,
+while database transactions cover only these short state changes:
+
+1. Session creation/update and current-pointer change form one transaction.
+2. After recovery and binding lookup under the guard, Run admission and ordered
+   input rows form one transaction. A binding hit inserts nothing.
+3. External-resource reservation is committed before creation/submission.
+   Deletion follows exact cleanup, terminal proof, or output authority transfer.
+4. Publication inserts Artifact, Evidence, Findings, and the succeeded terminal
+   row and deletes resolved output obligations in one transaction. It validates
+   the complete same-Session bundle and producer execution key before commit.
+5. Proven pre-publication failure inserts its failed terminal and deletes
+   resolved obligations in one transaction after external execution is terminal.
+   Terminal Runs may retain harmless garbage obligations; later guarded
+   maintenance retries them without changing history or blocking new work.
+
+No Evidence helper commits independently. No external call or file write occurs
+inside these transactions. Uniqueness, foreign keys, closed-payload validation,
+and transaction-wide invariant checks apply before public visibility. A read
+transaction sees either the entire published bundle or none of it.
+
+Use SQLite WAL and `synchronous=FULL` for durable metadata commits on the
+supported local filesystem; every connection enables foreign keys. A lock or
+filesystem without the required reliable local locking/durability primitives
+fails closed rather than enabling a lease-based fallback. Immutable local bytes,
+file manifests, and the final rename must satisfy the platform's file and
+parent-directory durability protocol before metadata commit. External receipts
+must prove their registered finalized-storage guarantee. This ordering protects
+against process interruption and, on supported storage, host restart; arbitrary
+media loss or external deletion is detected as loss of storage integrity.
+
+The first cutover does not retain public `session.delete`. Even with one
+metadata transaction, safe removal of external immutable data requires a
+separately accepted recoverable deletion protocol. Removal of an entire
+preserved generation remains an out-of-band user-owned operation, never an
+automatic repair or a writer-lock bypass.
+
+The Public Cutover Plan owns removal of old implementations. No old-schema
+decoder, Frame-to-Dataset adapter, Run backfill, Artifact import, Evidence
+migration, dual-read graph, or eager/lazy alias survives.
 
 ## Action Run Contract
 
@@ -451,43 +589,45 @@ AnalysisActionRunEnvelopeV2
   schema = "marivo.analysis_action_run/v2"
   run_ref
   session_ref
-  action_kind
   admitted_at
   dataset_input: RunDatasetInputV1
   input_artifact_refs[]
-  safe_arguments[]
-  omitted_argument_names[]
-  owner_lease_ref
 ```
 
 `RunDatasetInputV1` contains only:
 
 ```text
-definition_fingerprint
-family_id
-shape_id
-row_contract_fingerprint
-bounded_operator_ids[]
-bounded_semantic_dependency_refs[]
-materialized_input_refs[]
-authority_requirement_summary
+  definition_fingerprint
+  shape_id
+  row_contract_fingerprint
+  row_set_contract_fingerprint
+  bounded_operator_ids[]
+  bounded_semantic_dependency_refs[]
 ```
+
+Ordered Materialized input refs have one owner: the normalized
+`analysis_action_run_inputs` relation. Its `session_ref` identifies the consuming
+Run; the referenced Artifact retains its producing Session. The global Artifact
+key resolves that owner without a duplicated source-Session column. Cross-Store
+references and implicit imports are not admitted. `input_artifact_refs[]` is its Run-read
+projection and is not copied into `RunDatasetInputV1`. Repeated Artifact refs
+are legal operand occurrences and retain distinct ordinals; the Session graph
+may deduplicate them only when projecting dependency edges.
+
+`shape_id` is a bounded audit projection derived from the row contract named by
+`row_contract_fingerprint`; it is never authored or decoded as a second shape
+authority.
 
 It cannot reconstruct a logical Dataset. Raw predicates, SQL, credentials,
 identity values, Ibis expressions, backend objects, Python callables, and
-unbounded plan payloads are forbidden.
+unbounded plan payloads are forbidden. `execute()` has no arguments, so the Run
+contract has no generic safe-argument payload or omitted-argument bookkeeping.
 
-The existing bounded argument projection principles remain:
+### Discriminated lifecycle projection
 
-- secret-like names and values are omitted or redacted;
-- URL credentials, bearer tokens, SQL/query strings, backend objects, and raw
-  identities never persist;
-- depth, collection length, string length, and total payload size are bounded;
-- omission is explicit through stable argument names, not silent truncation.
-
-### Discriminated lifecycle records
-
-The persisted payload is one exact variant:
+Run reads project one exact variant from the immutable admission row and its
+optional terminal row. `incomplete` is derived from terminal-row absence; it is
+not a mutable state field:
 
 ```text
 IncompleteActionRunV2
@@ -498,21 +638,13 @@ SucceededExecuteRunV2
   envelope
   lifecycle = succeeded
   finished_at
-  authority_audit
-  planning_audit
   output_artifact_ref
-  output_mode = produced
-  materialization_receipt
-  cleanup_summary
 
 FailedActionRunV2
   envelope
   lifecycle = failed
   failed_at
-  authority_audit
-  planning_audit
   failure: RunFailureV2
-  cleanup_summary
 ```
 
 Terminal-only fields cannot appear on an incomplete Run. Output Artifact fields
@@ -520,54 +652,9 @@ cannot appear on failed Runs. An execute success must name exactly one
 same-Session committed Artifact. Binding recovery has no succeeded-Run variant
 because it is not a new execution attempt.
 
-### Materialized read audit and execution receipts
-
-If enabled, operational read audit for `show()` contains only bounded access
-facts:
-
-```text
-InspectionExecutionReceiptV1
-  presented_row_count
-  preview_limit
-  has_more
-  presentation_order_fingerprint
-  realized_schema_fingerprint
-  artifact_ref
-```
-
-It contains no preview rows, source query, or new authority and is not an
-analysis Run.
-
-Operational read audit for `to_pandas()` may contain:
-
-```text
-CollectionExecutionReceiptV1
-  collected_row_count
-  collected_byte_count: ExactBytesV1 | UnavailableBytesV1
-  presentation_order_fingerprint
-  realized_schema_fingerprint
-  artifact_ref
-```
-
-It contains no pandas bytes or replay handle and is not an analysis Run. The
-method returns only after the complete isolated pandas value exists; on failure
-no partial DataFrame is returned.
-
-Materialization persists:
-
-```text
-MaterializationExecutionReceiptV1
-  execution_key_digest
-  storage_receipt_digest
-  content_authority_digest
-  realized_row_count
-  realized_byte_count: ExactBytesV1 | UnavailableBytesV1
-  evidence_digest
-  finding_count
-```
-
-The Artifact owns the full committed facts; the Run receipt is a bounded audit
-projection.
+Failed Runs persist only their structured failure. Successful Runs retain their
+output ref and terminal time. Compiler diagnostics are optional execution-local
+output, not a mandatory or partial persisted audit object.
 
 ### Failure contract
 
@@ -582,23 +669,24 @@ expected
 received
 repair
 backend_class
-retry_disposition
-commit_decision = not_committed
+retry_disposition = retryable | not_retryable
 ```
+
+`recovery_pending` is an action error while the Run remains incomplete; it is
+not a persisted failed-Run disposition. `commit_decision` is also absent: the
+failed terminal variant already proves that no output publication committed.
 
 The phase vocabulary preserves compiler distinctions and adds runtime phases:
 
 ```text
 authority_resolution
 semantic_validation
-source_snapshot
 graph_validation
-compiler_manifest
+implementation_registration
 execution_boundary
 source_binding
 ibis_expression_construction
 storage_selection
-physical_formation
 ibis_backend_compile
 stage_execution
 transfer_guard
@@ -617,174 +705,163 @@ Backend exception class may be retained only when safe. Error messages, SQL,
 query text, credentials, raw identities, and unbounded nested causes are never
 persisted.
 
-A Run with a committed Artifact marker is never represented by
-`FailedActionRunV2`. If Session Store finalization is temporarily unavailable
-after the marker, the Run remains incomplete and the caller receives a typed
-commit-pending error until recovery completes it.
+A Run with a committed Artifact is already succeeded and never represented by
+`FailedActionRunV2`. If commit acknowledgement is uncertain, authoritative
+Store readback determines its existing outcome before any cleanup or retry.
+An unreadable Store returns a recovery-pending action error; it does not create
+a second persisted lifecycle.
 
 ## Admission and Execution Lifecycle
 
 ### Work allowed before Run admission
 
-Only these deterministic local checks may occur before admission:
+Pure in-process checks may validate Dataset ownership, graph closure, paired
+state, exact contract versions, shape, zero-argument action signature, and the
+execution key without taking a writer lock or doing live source work.
 
-1. Dataset object and Session ownership validation;
-2. root/state pairing validation;
-3. private graph closure;
-4. exact contract-version and schema-shape validation;
-5. zero-argument `execute()` signature and local bound-shape validation;
-6. derivation of `DatasetExecutionKeyV1`;
-7. lookup and integrity validation of an existing execution binding;
-8. acquisition or observation of the same-key producer claim;
-9. construction of the bounded safe Run input projection by the elected
-   producer.
+`execute()` then acquires the Session writer guard, reconciles this Session's
+prior obligations, and looks up the exact execution key under that same guard. A
+metadata-valid binding returns its Materialized Dataset without admitting a Run.
+Otherwise admission and ordered input rows commit before any new computation.
+There is no unlocked miss followed by unguarded producer admission.
 
-These checks must not:
+Three distinct paths apply before a new Run exists:
 
-- open a datasource or storage connection;
-- resolve live credentials;
-- refresh an execution-boundary profile;
-- compile against an engine;
-- query metadata or data;
-- validate current relation existence;
-- create a temporary or staging resource.
+- pure definition checks cannot open connections, resolve live credentials,
+  compile against a backend, query sources, or create resources;
+- recovery may contact an already recorded external execution or owned resource
+  to prove termination and clean up; it never restarts analysis;
+- an existing Artifact read may resolve storage credentials and validate its
+  immutable backing, authorization, and content. It may query that backing, but
+  never read current origin data or replay the origin plan.
 
-A binding hit returns the paired Materialized Dataset here and creates no Run.
-A claim waiter also admits no Run; it waits for the producer to publish the
-binding or fail. Only the claim winner crosses into execution admission. A
-failure before that point creates no Run because no execution attempt has begun.
+A new computation's live semantic/source resolution, credential resolution,
+compilation, datasource statements, transfer, and resource creation require a
+durably admitted incomplete Run. Read-side storage validation is not a producing
+execution and creates no Run or read-audit record.
 
 ### Work after incomplete Run admission
 
-After the incomplete Run and owner lease are durably recorded, the runtime:
+While continuing to hold the Session writer guard, the runtime:
 
-1. resolves current semantic requirements;
-2. resolves credentials without persisting secret values;
-3. captures datasource execution profiles and source authority;
-4. validates all referenced materialized leaves;
-5. asks the compiler to canonicalize, bind, lower to Ibis, and compile;
-6. executes the stage graph while journaling resource handles;
-7. validates transfer guards, output schema, key, row count, and action-time
-   requirements;
-8. completes action-specific cleanup and publication;
-9. writes exactly one terminal Run transition.
+1. resolves current semantic requirements and credentials without storing secrets;
+2. resolves datasource execution profiles without source-version certification;
+3. validates materialized input leaves;
+4. supplies fixed input bindings, executor budgets and one configured storage
+   target; the compiler builds the fixed recipe, the writer validates the target,
+   and all engine expressions compile using schema-declared references before
+   data statements; Runtime later creates and binds the exact temporary relations;
+5. executes steps, reserving durable external obligations before side effects;
+6. validates transfer guards, schema, keys, counts, bounds, and family checks;
+7. completes quality, Evidence, Findings, and primary/part storage; proves
+   execution terminal/fenced and attempts cleanup of harmless leftovers;
+8. commits the entire publication bundle or records a proven failed outcome.
 
-Every failure after admission attempts cleanup and terminal failure unless an
-Artifact commit marker already exists. A process crash is reconciled by the
-owner-lease protocol rather than guessed from an in-memory exception path.
+Exceptions do not prove database rollback or backend termination. Uncertain
+commit acknowledgement follows Store readback; surviving external work follows
+reconciliation before another execution is admitted.
 
 ### Materialized read lifecycle
 
-`MaterializedDataset.show()` validates the Artifact, Evidence marker, storage
-receipt, authorization, realized schema, and deterministic presentation order,
-then reads only a bounded preview from the immutable backing. The limit protects
-agent context; it is not an alternate execution plan and cannot reach the
-origin datasource.
+`MaterializedDataset.show()` validates selected metadata and accessed primary
+storage, schema, and deterministic ordering while reading a bounded preview.
+It does not scan Findings, unused parts, or all data to recompute row counts or
+hashes. `to_pandas()` reads and validates complete primary data under collection
+guards, returning an isolated DataFrame or no partial value. Parts and Findings
+are checked only by consumers that require them or explicit full inspection.
 
-`MaterializedDataset.to_pandas()` performs the same validation and then reads
-the complete immutable backing under the guarded transfer contract. It returns
-one isolated DataFrame or fails without a partial return. The DataFrame has no
-Artifact ref and cannot re-enter typed analysis; the Materialized Dataset can.
+These reads, exact `session.artifact(ref)` recovery, history, Graph, and explicit
+revalidation take no writer lock and create no persisted state. Metadata is
+read from one Store snapshot. External storage validation happens outside that
+SQLite snapshot using the selected immutable receipt; it never mutates metadata
+or rereads the origin dataset. The DataFrame cannot re-enter typed analysis;
+the Materialized Dataset remains a reusable scan leaf.
 
 ### Execution lifecycle
 
-An execution-binding miss follows:
-
 ```text
-derive DatasetExecutionKeyV1
-  -> miss the write-once Session binding
-  -> acquire the producer claim
-  -> admit incomplete Run
-  -> resolve semantic and source authority
-  -> validate materialized inputs
-  -> plan and compile
-  -> execute into private staged output
-  -> validate schema, key, counts, bounds, and action requirements
+pure validation + derive DatasetExecutionKeyV1
+  -> acquire Session writer guard
+  -> reconcile old incomplete Runs and resource obligations in this Session
+  -> lookup binding; on metadata-valid hit return the existing Materialized Dataset
+  -> on miss admit incomplete Run with ordered inputs
+  -> resolve authority, compile, execute, and validate
   -> compute quality, Evidence, and Findings
-  -> finalize immutable storage and exact receipt
-  -> clean all non-output resources
-  -> write exact Artifact metadata
-  -> commit Evidence, Findings, and Artifact commit marker atomically
-  -> register Artifact, fill the write-once execution binding, and succeed Run
-     atomically in Session Store
-  -> construct one MaterializedScanLeafHandle
-  -> return the paired Materialized Dataset with MaterializedDatasetState
+  -> finalize primary/retained storage and validate all required receipts
+  -> prove execution terminal and garbage harmless; attempt cleanup
+  -> one Store transaction publishes Artifact + Evidence + Findings + Run success
+     and removes resolved output obligations
+  -> construct the immutable scan leaf and return the Materialized Dataset
+  -> release the guard on every exit
 ```
 
-The logical input Dataset remains unchanged. No step reads its origin graph
-after the materialized leaf is constructed.
+The lock is never a long SQLite transaction. The Logical Dataset remains
+unchanged, and the materialized leaf cannot reach through to its origin plan.
 
-## Source and Datasource Authority
+## Source Execution and Reuse Responsibility
 
-### Closed source-authority variants
+### Factual provenance only
 
-Every live source stage binds one exact authority variant:
+The runtime records the definition, explicit input refs, bounded source identities
+in lineage, producer Run, admission/finish times, and commit time. Execution times
+are not event-time coverage, update watermarks, or freshness guarantees. Source
+identities come from the bound definition; there is no generic version capture.
 
-```text
-VersionedSourceSnapshotV1
-  datasource_ref
-  source_ref
-  version_token
-  consistency_scope
-  captured_at
+There are no source-authority variants, replay-comparability classes, source-state
+digests, freshness checks, or automatic cross-Session equivalence matching. A
+source without version metadata needs no special execution-authority record.
+Changed source rows cannot invalidate an Artifact or redirect its Session binding.
 
-TransactionSourceSnapshotV1
-  datasource_ref
-  transaction_snapshot_token
-  source_refs[]
-  consistency_scope
-  captured_at
+### Executor-local correctness
 
-ImmutableSourceObjectV1
-  datasource_ref
-  object_ref
-  object_version_or_hash
-  captured_at
+After Run admission, adapters execute the expression using their normal statement
+and transaction semantics. The compiler still preserves required single
+evaluation, sampling, keys, types, and arithmetic. Required transactions or
+single-evaluation fences remain execution details rather than persisted source
+certificates. Do not query source freshness, capture a version token, or reject
+an otherwise supported operation merely to certify future reuse.
 
-NonReplayableExecutionAuthorityV1
-  datasource_ref
-  source_refs[]
-  action_nonce
-  observed_window
-  reason
-```
+The Session lock makes no guarantee about concurrent source-system writes or a
+common snapshot across independent statements. Nearby execution timestamps
+imply no cross-source consistency. Concrete operator algorithms and input
+contracts remain mandatory; no generic source-certification layer is needed.
 
-The first three are replay-comparable. The last is exact for audit but cannot
-prove equality with an independent execution, so it forbids cross-Session
-equivalence matching. It does not disable recovery through an already committed
-same-Session execution binding.
+### Explicit Artifact use across Sessions
 
-`consistency_scope` distinguishes one-source, one-datasource transaction, and
-registered federated snapshot guarantees. Separate source tokens do not become
-an atomic cross-source snapshot merely because their capture timestamps are
-close.
+Artifact refs are unique in one project Store and retain an immutable producing
+Session. `target_session.artifact(ref)` reads any exact committed Artifact there,
+including another Session's result. It returns a Materialized Dataset handle
+using the target Session as execution context. `state.artifact_session_ref` and
+producer metadata retain the original owner; the original handle is unchanged.
 
-Raw credentials, source query text, and backend connection handles never enter
-source authority.
+This read creates no Run, Artifact, binding, copy, owner change, or reuse approval.
+It validates selected metadata and supported decoding without opening payloads.
+The consuming operation checks the storage/parts it accesses. Known corruption
+in those dependencies fails without origin-source checks or silent recomputation.
 
-### Capture rules
+The receiver or source constructor determines the consuming Session. Explicit
+Materialized operands from other Sessions in the same Store are legal when they
+satisfy the operator's structural input contract. Foreign Logical Datasets remain
+invalid because they carry another Session's live execution context. To make an
+old Artifact the receiver of new work in a chosen Session, use that Session's
+`artifact(ref)` read. Never infer the destination from the global current pointer.
 
-Source authority is captured after incomplete Run admission and before the
-first data statement that depends on it. A backend may open a read transaction
-and expose its token as part of this step. If the backend cannot expose a stable
-token, the runtime uses `NonReplayableExecutionAuthorityV1`; it does not invent
-one from wall-clock time or SQL text.
+Only the consuming Session admits and locks the new Run and owns its output.
+Input rows reference the original Artifact, and the execution key binds that
+exact identity. No local alias or second registration is created. Reading an
+immutable input never activates, locks, or reconciles its producing Session;
+a busy/blocked producer Session does not block its already committed results.
+Cross-project/Store imports and deletion of externally referenced data remain
+outside this cutover.
 
-A replay-comparable variant is admitted only when every dependent data statement
-is bound to the exact captured version or pinned transaction. Reading mutable
-current rows after separately observing a version token is not a snapshot. If
-the adapter cannot address that version, hold the matching snapshot transaction,
-or prove that the source cannot change through statement completion, the runtime
-uses `NonReplayableExecutionAuthorityV1`.
-
-The physical plan binds required source-authority classes per stage. Runtime
-may reject a backend whose available snapshot semantics are weaker than the
-operator or federation contract.
+Agent judgment owns freshness and suitability. Explicit selection waives no
+concrete type, identity, unit, row-contract, or alignment requirement of the
+requested operator, but needs no general Artifact-reuse certificate.
 
 ### Parameterized source values are definition-bound
 
-Parameterized non-secret JSON source values are not live source authority and
-are not action-time Session state. The Observation owner validates and captures
+Parameterized non-secret JSON source values are definition inputs, not
+action-time Session state or Artifact-reuse certificates. The Observation owner validates and captures
 them into the immutable logical source definition under
 `BoundSourceParametersV1`. Before Run admission, this runtime consumes the
 definition's exact canonical value digest while the compiler receives the
@@ -795,8 +872,8 @@ process environment for a replacement value during `execute()`. Missing
 captured values are a corrupt/incomplete logical definition and fail before
 Run admission. A caller cannot override them through `execute(...)`.
 
-The exact captured value digest participates in both the logical definition
-fingerprint and `DatasetExecutionKeyV1`. Therefore:
+The exact captured value digest enters the canonical definition fingerprint
+once; the execution key inherits it through that fingerprint. Therefore:
 
 - equal reconstructed definitions with equal bindings may recover one existing
   same-Session Artifact before datasource work;
@@ -806,10 +883,10 @@ fingerprint and `DatasetExecutionKeyV1`. Therefore:
 
 Raw binding values are process-local execution inputs. They do not appear in a
 Run envelope, Artifact metadata, Evidence, Finding, graph edge, card, contract,
-error, telemetry record, source-authority record, or persisted Dataset
+error, telemetry record, or persisted Dataset
 definition. User-visible and audit surfaces may contain only exact
 Entity/parameter identities and a bounded redacted projection. The internal
-definition and execution-binding records may contain the opaque digest but
+definition and Artifact execution-key row may contain the opaque digest but
 never the values. Credentials remain in the datasource credential contract and
 are never accepted as source bindings.
 
@@ -824,225 +901,227 @@ Display labels, Help text, source locations, and non-semantic documentation do
 not change this digest. Any field that can change rows, null behavior,
 Population membership, coordinates, aggregation, or authority does.
 
-Materialized-only execution reads the committed digest for audit but does not
-require the current catalog to reproduce it.
+Execution over retained Artifact rows preserves the committed dependency digest
+in provenance but does not require the current catalog to reproduce it.
 
-## Authority Modes
+## Operator Input Validation
 
-### Runtime requirement record
+Operator contracts and the compiled nodes that implement them own the required
+checks. There is no separate generic requirement record, mode enum, selected
+branch certificate, or successful-check audit payload.
 
-Every operator occurrence carries one selected requirement:
+### Logical sources and explicit semantic enrichment
 
-```text
-AuthorityRequirementV1
-  occurrence_path
-  operator_contract_id
-  mode = semantic_current | materialized_only | semantic_or_materialized
-  selected_branch
-  semantic_dependency_requirements[]
-  materialized_field_requirements[]
-  compatibility_contract_id
-```
+A Logical input retains its admitted upstream graph and semantic dependencies.
+Source nodes resolve those exact definitions for compilation; a missing or
+incompatible dependency fails before the affected data statement. The dependency
+digest remains part of execution identity and the output Artifact descriptor.
 
-`selected_branch` is fixed before execution. `semantic_or_materialized` does not
-mean try semantic execution and fall back after an error.
+When an operator explicitly admits current semantic enrichment, such as adding
+Dimension axes to a retained journey, its contract names the required paths,
+identity mappings, cardinality, and fields. Compilation adds those source/join
+nodes beside the immutable input. It never reopens that input's origin graph
+or silently reconstructs missing historical values. No blanket comparison with
+the historical Artifact's semantic digest is a precondition for reuse.
 
-### `semantic_current`
+### Materialized inputs
 
-The runtime resolves the exact current semantic dependencies and supplies their
-digest to compilation and Artifact identity. Missing, changed, or incompatible
-current authority fails before the affected data statement.
+An Artifact scan validates exact identity and original ownership in the same
+Store, selected metadata, and the accessed payload's storage identity/access,
+schema, and row contracts. It does not scan unrelated parts or Findings. Each consuming
+operator checks only the fields, sufficient statistics, types, identities, units,
+coverage, and alignment that its own calculation requires.
 
-When a semantic-current operator consumes a materialized leaf beside new
-current semantic input, the runtime validates the owner-defined compatibility
-contract. It never reopens the leaf's origin graph or silently reconstructs a
-missing axis, filter, Population, or Metric definition.
+A calculation over retained rows does not need the original catalog or source.
+Catalog drift cannot redirect the scan or cause the original analysis to rerun.
+Missing required fields fail with the owning operator's concrete repair; only an
+explicitly admitted enrichment can add current semantic data.
 
-### `materialized_only`
+### Fixed inputs, no fallback
 
-The runtime validates only:
+Construction binds exact logical definitions or Artifact refs to operator inputs.
+The compiler lowers those inputs into source, scan, join, and calculation nodes.
+The same row algorithm may consume either kind of input without two separately
+registered authority branches. Mixed inputs retain their separate authority;
+relational composition additionally requires one common execution domain. No
+input is imported, relocated or replayed to satisfy that check.
 
-- same-Session ownership;
-- committed Artifact and Evidence marker integrity;
-- exact row-contract and realized-schema agreement;
-- immutable storage content authority;
-- current storage readability and authorization;
-- retained fields and sufficient statistics named by the operator contract.
+A failure never substitutes another input, switches from a scan to origin
+execution, or changes the requested calculation. Every execution-relevant choice
+remains in the normal definition, input tokens, and operator version; there is
+no duplicated requirement summary in Dataset state or Run admission.
 
-It does not consult current semantic state to reinterpret values. Catalog
-removal or drift does not block the action.
+### Existing facts and structured failures
 
-### `semantic_or_materialized`
-
-The owner supplies two proven-equivalent admission branches. Dataset
-construction selects the branch from exact input state and binds it into the
-definition fingerprint. Runtime enforces that branch only.
-
-If its authority validation fails, the action fails with the repair declared by
-the owner. It does not switch branches inside the same Run.
-
-### Authority audit
-
-Every terminal Run may persist one bounded `AuthorityAuditV1`:
-
-```text
-semantic_dependency_digest
-source_authority_digest
-source_authority_classes[]
-materialized_input_refs[]
-authority_mode_counts
-compatibility_contract_ids[]
-storage_authorization_classes[]
-```
-
-It contains digests and safe classes, not raw source tokens when those tokens
-are secret-like or operationally sensitive.
+Successful Runs retain their output ref and terminal time. Artifact descriptors
+own semantic dependency digests; normalized Run input rows own ordered Artifact
+refs. Readers use those existing facts for provenance without a new authority
+audit object, mode counts, compatibility-id inventory, or historical access class.
+Current storage access is checked when needed; past success grants no future
+permission. Failed checks use structured errors naming the expected contract,
+received input, and concrete repair. They do not create a partial audit object.
 
 ## Private Exchange Staging
 
 ### Exchange authority is not Dataset authority
 
-When a physical graph has a datasource stage followed by a bounded local stage,
-the runtime moves rows under the compiler-owned `PhysicalExchangeV1` contract.
-That contract's exact Arrow-compatible schema and authority projection are the
-only authority for the intermediate rows.
+A fixed Python recipe exchanges exact Arrow inputs/outputs under Module 3's
+`PhysicalExchangeV1` contract. The schema, producer identity and admitted privacy
+projection are the only authority for those private rows. Same-domain Ibis
+relations compose without a generic transfer edge; Artifact readers and final
+writers have their own exact storage protocols.
 
-An exchange is never registered as a Dataset, Artifact, execution binding,
-storage receipt, Evidence source, or Session graph node. It may contain private
-accumulators, ordering keys, or sufficient statistics that do not satisfy any
-public Dataset row contract. Only the complete primary output proceeds to
-the selected durable sink and publication; private exchanges are never sink
-candidates.
+An exchange is never a Dataset, Artifact, binding, receipt, Evidence source or
+Session graph node. Only the root primary output and registered retained parts
+proceed to publication. There is no compiler-selected Parquet transport mode.
 
-### Bounded Arrow streaming
+### Complete kernel input and validated streaming
 
-`bounded_arrow_stream` is process-private and one-pass. The runtime validates
-every RecordBatch against the exact field order, logical types, nullability,
-timezone, decimal, dictionary, and nested-value contract before forwarding it.
-It increments row and decoded Arrow-buffer byte counters before consumer
-admission and stops the producer as soon as either guard is violated.
+Runtime validates actual RecordBatches for ordered fields, types, nullability,
+timezone, decimal and nested values. Adapters must bound fetching and individual
+variable-width allocations before admitting a batch. Declaration-only schema
+checks are insufficient; normalization is permitted only when lossless under
+the owning row contract, with explicit overflow failure.
 
-A registered Python kernel may assemble accepted batches into one Arrow Table
-only after the aggregate local-input guards remain satisfied. Any pandas or
-numerical object derived from that Table is kernel-private and is discarded
-before stage completion.
+Kernel input is collected completely under all per-input and combined guards
+before invocation. Input overflow prevents invocation. The numerical library's
+internal objects never cross the Arrow boundary. Kernel output is validated
+and becomes an explicitly local relation for any later DuckDB calculation.
 
-### Run-staged Parquet
+Streaming engine/writer work may create private partial state before a late
+overflow is detected. It stops and discards that state without publishing rows.
+It does not claim that all streaming input was known before calculation began.
 
-`run_staged_parquet` exists only for rewindable local input or an admitted
-engine-managed Parquet export. The runtime reserves a Run-scoped exchange
-directory and ownership nonce before creation, journals its exact locator, and
-accepts only the first-cutover Parquet writer/reader contract. Its manifest
-binds relative files, sizes, and hashes for cleanup and validation but is not a
-`DatasetStorageReceiptV1`.
+### Executor-specific resource budgets
 
-Both total file bytes and canonical decoded Arrow bytes must satisfy the
-exchange byte guard. The runtime validates Parquet schema before the local
-consumer opens it. Exchange files are cleaned before Artifact publication and
-on every failed, cancelled, or cold-recovered no-marker path. They cannot be
-recovered as analysis output or reused by another action.
+Runtime binds positive budgets from its private execution configuration before
+starting work. They are operational settings, not compiler-schema constants or
+Dataset definition identity. An operator may require stricter limits; it cannot
+weaken a runtime guard or change analytical meaning to fit one.
 
-### Local executor resources
+| Executor | Bound resources and enforcement |
+| --- | --- |
+| Python kernel | complete input/output rows and decoded bytes, combined inputs, method-specific problem size, intermediate-memory allowance and deadline |
+| DuckDB relation | engine memory, Run-scoped temporary disk, elapsed time and output writer limits |
+| Remote engine | statement deadline, exact cancellation/fencing, bounded result reader and selected output writer |
+| Storage writer | in-flight batch memory, stored bytes for all parts, exact counts and atomic visibility |
 
-A DuckDB local stage receives only validated Arrow streams or Run-staged
-Parquet relations. Any DuckDB database, temporary directory, or spill file is a
-Run-scoped journaled workspace and never an engine storage receipt. A Python
-kernel receives only the exact Arrow inputs named by its bound implementation
-registration. The runtime invokes neither an unregistered callable nor a
-generic pandas, Polars, or DuckDB fallback after another stage fails.
+The initial private Python defaults retain 100,000 rows per input, 64 MiB
+combined decoded input, 100,000 output rows, 64 MiB decoded output and a
+60-second transfer-plus-kernel deadline. These are runtime defaults, not a
+universal local-computation contract. Methods also bind their own scale facts
+such as series/history length, Metric-pair count or coalition count. Decoded
+bytes do not bound peak process RSS; numerical allocation and cancellation
+require separate implementation evidence.
+
+Hard-deadline kernels run behind a terminable worker boundary with cleanup and
+terminal-state proof. Checking the clock only after a blocking library call
+returns is insufficient. DuckDB receives explicit engine memory/temp/time
+settings; a large existing Parquet scan is not limited by the Python input row
+cap. Resource overflow never changes algorithm, inserts sampling or switches
+execution domains.
+
+### Runtime staging and cleanup
+
+Arrow buffers normally remain in memory under the admitted budget. Kernels may
+reread their complete admitted Arrow Table. DuckDB temporary files, output
+staging and any necessary private spill are Runtime resources, not selectable
+compiler exchanges. Spill cannot widen a kernel's complete-input admission.
+
+Before creating any surviving resource, Runtime reserves its exact Run-scoped
+locator and ownership nonce. Files use the common Parquet contract where
+applicable. Staging is validated before reuse inside the action and cleaned on
+all terminal paths; harmless leftovers stay journaled under the existing
+cleanup protocol. Pure in-process buffers require no durable journal row.
+
+No staging resource can be recovered as an analysis output or supplied to a
+later action. The runtime invokes only the fixed registered kernel and reader;
+there is no generic pandas, Polars or DuckDB retry path.
 
 ## Storage Selection
 
-### Runtime-owned deterministic policy
+### One Runtime-owned configured target
 
-The compiler declares admissible output domains and transfer properties. The
-runtime chooses one storage receipt deterministically from configured and
-authorized durable sinks.
-
-The first-cutover order is:
-
-1. project-local storage for a result proven within
-   `LocalMaterializationPolicyV1`;
-2. an immutable engine-managed relation in an execution domain already holding
-   the final rows;
-3. an immutable object Dataset written without an unbounded local transfer;
-4. failure when none can provide exact recovery and row-count authority.
-
-This order is a storage policy, not an Ibis or datasource query-plan decision.
-`execute()` accepts no `storage`, `name`, `retention`, or path parameter.
-
-### Accepted compiler sink-admission seam
-
-Module 3 carries the accepted private two-phase sink seam. It prevents the
-runtime from selecting storage that the physical graph cannot write without an
-unbounded transfer while keeping storage policy out of the compiler.
-
-The runtime-owned candidate is:
+The Session's typed runtime policy resolves exactly one storage target before
+compilation. Project-local Parquet remains the default when no different target
+is configured. Local, engine and object remain supported receipt kinds, but
+there is no ranked candidate list or automatic size-based switch among them.
+`execute()` remains zero-argument. This amendment does not invent a second
+Dataset or operator API for configuring storage.
 
 ```text
-MaterializationSinkCandidateV1
-  candidate_id
+ConfiguredMaterializationTargetV1
   storage_kind = local | engine | object
-  execution_domain_id
+  target_binding
   receipt_protocol_id
-  local_row_guard
-  local_byte_guard
-  authorization_profile_fingerprint
-  runtime_policy_rank
+  write_policy_id
 ```
 
-Module 3 owns the corresponding `MaterializationSinkFeasibilityV1` result,
-including disposition, required capabilities, transfer guards, and one bounded
-blocker for each candidate. Module 4 consumes that result without redefining
-its compiler semantics.
+Runtime resolves configuration and authorization after incomplete Run admission,
+without putting credentials or raw locators in public state. Missing or ambiguous
+configuration is a `storage_selection` failure. The compiler receives the chosen
+target as an opaque private value, never alternatives or policy ranks.
 
-After semantic and relational lowering but before final physical placement or
-compilation:
+An engine target must be writable from the exact domain already producing the
+output. Local/object writers may use their admitted bounded storage stream or
+exact export protocol; a writer cannot upload an input, relocate computation,
+or conceal a local reduction. A kernel's local output is not automatically
+uploaded to a remote engine target. Unsupported targets fail before data work
+when known, and late write/size failures abort without trying another target.
 
-1. the runtime supplies the ordered candidates admitted by current Session
-   configuration, authorization, receipt protocols, and storage policy;
-2. the compiler evaluates physical feasibility and exact transfer requirements
-   without executing data work;
-3. the runtime selects the lowest `runtime_policy_rank` candidate whose
-   disposition is admitted;
-4. the compiler emits and compiles one final physical graph bound to that exact
-   candidate;
-5. compile or execution failure of the selected graph does not silently switch
-   to a lower-ranked sink inside the action.
+The selected target handles root primary rows and all required retained parts
+as one Artifact. Writer validation accounts for every payload and their combined
+budget. A new target setting affects only a later binding miss; existing binding
+recovery returns the exact Artifact without a write or relocation.
 
-Module 4 owns candidate construction, policy order, authorization, final
-selection, receipt creation, and publication. Module 3 owns feasibility,
-transfer proof, stage placement, and the final physical write path. Neither
-module owns both halves, and the feasibility list remains private audit input
-rather than a public plan.
+### One writer-validation handoff
 
-An exact execution-binding recovery completes before this seam and needs no new sink
-selection. Materialized inspection and collection are backing reads and do not
-provide durable sink candidates.
+The compiler builds the final output contract and fixed producer domain. Runtime's
+writer validates the one configured target against that output and returns an
+exact write binding or one bounded failure. `BoundMaterializationOutputV1`
+connects the writer to primary/retained producer handles and schemas; it is not
+a receipt, candidate-selection token or prepared-plan callback.
+
+The compiler then completes engine compilation and hands Runtime the fixed
+recipe. Runtime executes it, creates receipts and performs the existing atomic
+publication protocol. Storage validation cannot change input domains, request a
+second calculation implementation, or select a second target. Materialized reads
+and execution-binding hits never enter this writer handoff.
 
 ### Local materialization policy
 
-The fixed first-cutover policy is:
+Local persistence streams rows into Parquet; it is not a bounded-local analytical
+calculation. Its fixed first-cutover limits are:
 
 ```text
 LocalMaterializationPolicyV1
-  schema = "marivo.local_materialization_policy/v1"
-  max_rows = 100_000
-  max_bytes = 67_108_864
+  max_stored_bytes_per_artifact = 67_108_864
+  max_decoded_bytes_per_batch = 8_388_608
 ```
 
-It is independent of `LocalExecutionPolicyV1`, even though the first values are
-equal. One controls durable output placement; the other controls private local
-calculation and transfer.
+The 64-MiB disk budget counts actual files/manifests for the primary output and
+all retained parts together. The 8-MiB batch budget bounds decoded batches,
+with a bounded number of in-flight batches and bounded writer buffers. There is
+no total decoded-row or decoded-byte limit for this storage-only stream and no
+pre-transfer worst-case schema-width proof. Row counts accumulate exactly while
+writing. Python and DuckDB calculation obey their separate Runtime execution budgets;
+`to_pandas()` still obeys its complete-collection memory limit.
 
-Local placement is admitted only when the row contract or an owner-registered
-action bound proves the row maximum and a schema-aware worst-case byte bound is
-within both limits before transfer begins. An exact count without a safe byte
-bound is insufficient. The runtime does not issue an extra full count or
-download an unknown or high-cardinality Dataset merely to discover that it was
-too large.
+The writer checks actual serialized bytes as it writes, before accepting bytes
+beyond the disk budget. The source adapter must enforce bounded fetching and
+individual variable-width values before unbounded allocation; an oversized
+single value or unsupported bounded reader fails explicitly. Compression never
+waives the decoded-batch guard. An enforceable streaming writer is enough for
+sink admission even when total size is unknown; known-over-budget outputs are
+rejected for the configured local target without scanning; no engine or object
+target is tried automatically.
 
-### Sink choice is bound into audit, not Dataset definition
+Crossing a guard stops execution and publishes nothing. It never truncates the
+Artifact, collects the whole result to measure it, or switches sinks after partial
+execution. Unpublished files remain exactly journaled until cleaned. No public
+storage parameter or new policy variant is introduced.
+
+### Storage choice does not change definition identity
 
 Storage choice and receipt identity affect Artifact identity but not the
 Logical Dataset definition fingerprint. Equal definitions executed in
@@ -1057,7 +1136,7 @@ explicit capability; it is not another `execute()` mode.
 
 ### First-cutover Parquet contract
 
-Private Parquet exchanges and durable local/object Dataset storage use the same
+Runtime Parquet staging and durable local/object Dataset storage use the same
 closed logical-format contract but different authority envelopes:
 
 ```text
@@ -1071,12 +1150,10 @@ ParquetDataContractV1
   dictionary_normalization_protocol
   compression_profile
   row_group_profile
-  reader_compatibility_fingerprint
-  writer_dependency_fingerprint
 ```
 
-The contract fixes logical round-trip behavior and the compatible pinned
-reader/writer profile. A Run-staged exchange references it only through its
+The contract fixes logical round-trip behavior and supported format decoding.
+Writer dependency/tuning details are optional diagnostics, not stored reuse gates. A Run-staged temporary file references it only through its
 physical representation and cleanup manifest. A committed local or object
 Dataset receipt additionally binds immutable files, exact row and byte counts,
 content authority, and Artifact publication. Equal Parquet syntax therefore
@@ -1084,28 +1161,20 @@ does not make exchange staging a Dataset.
 
 ### Common receipt envelope
 
-Every receipt uses:
+Each primary output or retained part has one closed local, engine, or object
+receipt with its locator, format/decoder version, schema fingerprint, exact row
+count, byte-count availability, and immutable content identity. The concrete
+variant below is the canonical stored value; common fields are not serialized
+a second time. Receipt identity is a digest derived from that value.
 
-```text
-DatasetStorageReceiptV1
-  schema = "marivo.dataset_storage_receipt/v1"
-  kind = local | engine | object
-  locator
-  immutable_authority
-  schema_fingerprint
-  realized_row_count
-  realized_byte_count
-  content_authority
-  authorization_summary
-  scan_admission
-```
-
-The concrete variant is closed. Receipt identity is a canonical digest of the
-entire secret-safe variant. A receipt is immutable after Artifact commit.
-
-`authorization_summary` names credential-reference and capability classes, not
-secret values. `scan_admission` names registered direct-scan, import, or bounded
-transfer capabilities; it is not an executable plan.
+Storage references identify the configured adapter and credential reference
+needed for access, never historical permission grants. The fixed reader's current
+access, binding and schema support are checked for the actual consumer; they are
+not persisted as a promised future `scan_admission`. No input import or placement
+alternative is inferred from a receipt. No credential values or executable plans
+enter receipts. Supported format/decoder versions govern cold reads; writer
+library fingerprints and compression tuning are diagnostics, not compatibility
+or Artifact-reuse gates.
 
 ### Local receipt
 
@@ -1121,12 +1190,10 @@ LocalDatasetReceiptV1
   schema_fingerprint
   realized_row_count
   realized_byte_count: ExactBytesV1
-  content_authority
-  authorization_summary
-  scan_admission
 ```
 
-The path is under the owning Session's immutable Artifact directory and cannot
+The primary or role-specific path is under the owning Session's immutable Artifact
+directory and cannot
 contain `..`, an absolute path, symlinks escaping the project, or a mutable
 shared filename. Manifest entries have canonical relative paths, sizes, and
 hashes. Publication uses same-filesystem atomic rename from a Run-scoped
@@ -1152,9 +1219,6 @@ EngineDatasetReceiptV1
   schema_fingerprint
   realized_row_count
   realized_byte_count: ExactBytesV1 | UnavailableBytesV1
-  content_authority
-  authorization_summary
-  scan_admission
 ```
 
 `immutable_relation_protocol` is one registered strategy:
@@ -1189,9 +1253,6 @@ ObjectDatasetReceiptV1
   schema_fingerprint
   realized_row_count
   realized_byte_count: ExactBytesV1
-  content_authority
-  authorization_summary
-  scan_admission
 ```
 
 The manifest binds every immutable object version, size, and content hash while
@@ -1205,51 +1266,52 @@ exact receipt remain mandatory.
 The engine may write directly to object storage. Rows do not pass through local
 memory unless the compiler and runtime separately admit the bounded transfer.
 
-### Content authority
+### Content integrity
 
-`content_authority` proves the exact committed rows under the receipt protocol:
+Each receipt binds the exact stored payload using a canonical manifest, immutable
+relation version, or a registered row/file hash. This value is part of that receipt,
+not a second `CanonicalContentAuthorityV1` payload duplicating schema, row-set,
+and row-count fields. Public content-digest projections derive from the receipt.
 
-```text
-CanonicalContentAuthorityV1
-  row_contract_fingerprint
-  realized_schema_fingerprint
-  realized_row_count
-  canonical_content_hash_or_version
-  hash_or_version_protocol
-```
+The primary receipt must agree with the Artifact's public row and row-set
+contracts. A retained-part receipt instead agrees with its exact private contract
+and schema; it need not satisfy the public Dataset shape. Validation covers every
+column, row multiplicity, null, type, and ordering fact required by that payload.
+A checksum whose meaning is insufficient is not accepted as full integrity proof.
 
-The protocol may be a canonical manifest hash, exact immutable relation
-version, or canonical row/file hash. A backend-generated checksum is accepted
-only when its registered semantics bind every public column, row multiplicity,
-null, type, and ordering fact required by the Dataset contract.
+Full publication validation computes these facts once. Normal operations validate
+only the accessed immutable versions/files; a complete hash/count scan belongs
+to explicit integrity inspection, not to opening a handle or showing a preview.
 
 ## Dataset Artifact Contract
 
 ### Artifact metadata
 
-Every committed Artifact decodes exactly as:
+Every committed Artifact is assembled from one Store snapshot and decodes
+exactly as this read value. Only its normalized relation fields and
+`DatasetArtifactDescriptorV1` are stored; this full envelope has no sidecar:
 
 ```text
 DatasetArtifactV1
   schema = "marivo.dataset_artifact/v1"
   artifact_ref
   session_ref
-  family_id
-  shape_id
   definition_fingerprint
   execution_key_digest
   row_contract
   row_contract_fingerprint
+  row_set_contract
+  row_set_contract_fingerprint
   realized_schema
   realized_schema_fingerprint
   bounded_lineage
   semantic_dependency_digest
   population_authority
   sampling_execution
-  source_authority_set
   operator_implementation_versions[]
   dataset_materialization_contract
   storage_receipt
+  retained_parts[]
   content_authority
   realized_row_count
   realized_byte_count
@@ -1262,15 +1324,16 @@ DatasetArtifactV1
 
 Family-owned payloads remain closed discriminated contracts. The runtime
 validates their schema ids but does not reinterpret Metric, Candidate, Event,
-Lifecycle, or SubjectSet meanings.
+Lifecycle, or PopulationDataset meanings.
 
 The metadata contains no executable logical root, semantic graph, relational
 plan, physical plan, SQL, backend connection, or current-catalog resolver.
 
 ### Artifact ref and identity
 
-`artifact_ref` is one opaque immutable Session-owned locator. It need not be
-the content digest and must not be used as a definition cache key.
+`artifact_ref` is one opaque immutable locator unique within the project Store.
+Its original producing Session remains its owner. It need not be the content
+digest and must not be used as a definition cache key.
 
 Artifact identity binds:
 
@@ -1278,89 +1341,64 @@ Artifact identity binds:
 - definition fingerprint and input authority tokens;
 - exact semantic dependency digest;
 - exact Population and realized sampling authority;
-- source authority set;
 - family, shape, row, schema, and implementation contract versions;
 - storage receipt identity;
 - canonical content authority;
 - quality and Evidence digests.
 
-Two Artifacts with equal rows but different source authority, receipt identity,
-quality contract, or implementation version are not the same Artifact.
+Separately committed Artifacts retain distinct identities even when rows are
+equal. Receipt, contracts, and lineage explain the exact result; matching these
+facts does not certify suitability for another analysis.
 
 ### Session-local execution key and binding
 
-`DatasetExecutionKeyV1` deliberately excludes current datasource row state,
-realized sample membership, the chosen storage locator, commit-time Artifact
-ref, Python object identity, variable name, script path, and source location:
+Dataset Core owns one canonical `definition_fingerprint`. It includes exact bound
+semantic dependency versions, captured source-parameter digests, ordered Logical
+or Materialized input tokens, row/row-set contracts, Population and sampling
+intent, and producer implementation/quality/Evidence/retained-state registrations.
+Runtime never independently normalizes or re-lists that dependency closure.
 
 ```text
 DatasetExecutionKeyV1
-  schema = "marivo.dataset_execution_key/v1"
-  session_ref
   definition_fingerprint
-  source_parameter_binding_digest
-  ordered_input_authority_tokens[]
-  semantic_dependency_digest
-  population_definition_digest
-  sampling_definition_digest
-  family_id
-  shape_id
-  row_contract_fingerprint
-  operator_implementation_versions[]
-  quality_contract_versions[]
-  evidence_contract_versions[]
+  materialization_protocol_version = 1
 ```
 
-Logical input tokens bind their normalized upstream definitions; Materialized
-input tokens bind exact same-Session Artifact refs and content authority. Thus a
-new downstream operator over a recovered checkpoint derives a new key while
-still scanning the checkpoint rather than replaying its origin.
+The digest is domain-separated by `marivo.dataset_execution_key/v1`. The protocol
+version changes only when common materialization behavior changes the committed
+result contract, not for diagnostics, placement, writer-library updates, or
+current storage access. The Session is the lookup scope, not a duplicated hash
+input: the Store uses unique `(session_ref, execution_key_digest)`.
 
-The Session Store persists exactly one binding:
+Logical tokens bind exact upstream definitions; Materialized tokens bind exact
+same-Store Artifact refs. Immutable Artifact identity already resolves contracts
+and backing; it needs no second content/row-contract identity vector. A downstream
+definition over a selected Artifact therefore differs from one over its original
+Logical definition. Equal rows or current source state never substitute inputs.
 
-```text
-DatasetExecutionBindingV1
-  schema = "marivo.dataset_execution_binding/v1"
-  session_ref
-  execution_key_digest
-  artifact_ref
-  producing_run_ref
-  bound_at
-```
+There is no binding payload/table, duplicate producer ref, or bound timestamp.
+Artifact and succeeded terminal insertion share one transaction. The terminal
+owns the producer edge; Artifact `committed_at` is the binding time. The Artifact
+row cannot be redirected, refreshed, or deleted independently of the Session.
 
-`(session_ref, execution_key_digest)` is unique and write-once. The binding is
-inserted only in the same Store transaction that registers the committed
-Artifact and succeeds its producer Run. It cannot be redirected, refreshed, or
-deleted independently of the Session. A hit must validate exact Artifact,
-marker, storage, Evidence, Session ownership, family, shape, row contract, and
-content integrity before constructing a Materialized Dataset.
-
-Source authority and realized sampling remain committed Artifact facts because
-they describe what the producer actually observed. They do not participate in
-the execution key: querying them would defeat pre-execution lookup, and changing
-them later must not silently refresh an established Session snapshot. This does
-not authorize cross-Session cache matching by definition.
-
-`source_parameter_binding_digest` is absent only when the complete logical
-graph reaches no parameterized source. Otherwise it is the canonical digest of
-the ordered per-source `BoundSourceParametersV1.exact_value_digest` values.
-Only the digest persists. It does not authorize source replay or disclose a
-request payload.
+A hit performs the operation-scoped recovery checks below and constructs a new
+handle for the exact Artifact. It does not query source rows, recalculate sampling,
+compare the current catalog, choose another sink, or create a Run. A missing or
+invalid selected result fails without origin replay.
 
 ### Materialized public state construction
 
-`MaterializedDatasetState` is constructed only from the conjunction of:
+A Materialized handle is constructed from one Store snapshot containing exact
+Artifact identity, a succeeded producer, the supported descriptor and main row
+contract, and the commit-time Evidence summary. It is a handle to committed data,
+not a certificate that every file and Finding has just been scanned.
 
-1. exact Artifact metadata;
-2. matching Evidence commit marker;
-3. matching Session Store Artifact row;
-4. validated storage receipt and content authority;
-5. same-Session ownership;
-6. exact family, row-contract, and schema registrations.
-
-The resulting private root is one `MaterializedScanLeafHandleV1` carrying only
-the Artifact ref and validated scan admission. Origin lineage remains audit
-metadata and cannot become an executable second root.
+Construction validates the required metadata and receipt structure. Backing and
+private-part access are checked by the operation that consumes them. A row-only
+operation does not load Findings or unrelated private parts. The private scan
+handle names the Artifact and the explicitly selected execution Session; it
+cannot replay origin lineage. Known contradictions in the selected metadata fail
+explicitly, rather than being silently omitted.
 
 ## Quality, Evidence, and Findings
 
@@ -1373,8 +1411,7 @@ before Run admission:
 DatasetMaterializationContractV1
   producer_id
   producer_contract_version
-  family_id
-  qualified_shape_id
+  shape_id
   quality_contract_id
   quality_contract_version
   evidence_extractor_id
@@ -1394,12 +1431,49 @@ definition identity, Artifact metadata, and the exact execution key. It is not a
 generic extractor: an absent registration, unknown id, family/shape mismatch,
 or producer-version mismatch fails before Run admission.
 
+### Artifact-owned retained parts
+
+`retained_parts[]` in the descriptor contains only instances required by the
+producer's registered retained-state contracts:
+
+```text
+ArtifactRetainedPartV1
+  role
+  contract_id
+  contract_version
+  storage_receipt
+```
+
+The family registration defines unique roles, private schemas, and which
+operations require each role. Missing, duplicate, unexpected, or incompatible
+required parts fail publication. The empty list is valid when none is required.
+Each part is actual data, not just a contract id: for example Metric numerator/
+denominator state or `lifecycle_violation_trace@v1`. Its receipt supplies exact
+location, schema, counts, and content identity. Raw identities remain in governed
+storage, not descriptor JSON or diagnostics.
+
+Primary rows and parts belong to one Artifact and one producer. Parts have no
+independent Artifact ref, Run, execution binding, graph node, or publication state.
+They use the same selected sink kind/domain and access boundary, with separate
+physical relations/files for each role;
+the descriptor binds all receipts in the same metadata commit. All locations are
+Run-owned reservations before commit and transfer together to Artifact ownership.
+A crash before commit leaves all of them unpublished cleanup obligations.
+
+The manifest/directory layout separates primary rows from each private role.
+Public scans and `to_pandas()` select primary rows only. A consuming operator
+requests its registered parts explicitly, validates their receipts, and fails if
+required state is absent or corrupt; it never reconstructs state from origin data.
+A row-only read does not validate unrelated parts. Explicit full integrity
+inspection covers primary data, every declared part, and all Findings. Any future
+deletion must treat the complete Artifact bundle as one ownership unit.
+
 ### Staged calculation
 
 Quality checks and Evidence extraction execute before immutable output
 publication is commit-decided. They may be pushed into engine stages or consume
 registered bounded validation outputs, but their results remain private staging
-until the Artifact commit marker.
+until the publication transaction commits.
 
 The runtime requires:
 
@@ -1421,402 +1495,371 @@ DatasetEvidenceEnvelopeV1
   typed_issue_digest
   evidence_digest
   finding_count
-  finding_identity_digest
+  finding_set_digest
   extractor_contract_versions[]
 ```
 
 An empty Finding set is represented by `finding_count = 0` and the canonical
 empty-set digest. It is complete Evidence, not unavailable Evidence.
 
-### Commit marker
+### Publication bundle
 
-The Evidence transaction writes Findings, the Evidence envelope, and exactly
-one marker:
-
-```text
-DatasetArtifactCommitMarkerV1
-  schema = "marivo.dataset_artifact_commit/v1"
-  session_ref
-  artifact_ref
-  producing_run_ref
-  artifact_metadata_digest
-  storage_receipt_digest
-  content_authority_digest
-  evidence_digest
-  finding_count
-  committed_at
-```
-
-All fields must match Artifact metadata byte-for-byte under canonical encoding.
-The marker is immutable and unique by `(session_ref, artifact_ref)`.
-
-Materialized `show()` and `to_pandas()` never write this envelope or marker.
+Artifact descriptor, relation-owned identity and commit time, complete Evidence,
+ordered Findings, and one succeeded Run terminal form the publication bundle.
+The Store transaction validates their digests, counts, producer identity,
+execution key, consuming Run/output ownership, and exact same-Store input refs
+before committing. Input Artifact owners may differ from the Run owner.
+There is no additional marker value or publication-state row. Materialized
+reads never write any part of this bundle.
 
 ## Publication Protocol
 
 ### Pre-commit staging
 
-Before publication, every mutable resource is Run-scoped:
+Output files, immutable engine versions, object manifests, validation streams,
+and calculated quality/Findings are private until the metadata transaction
+commits. Recoverable external resources have exact reservations before creation
+or submission. Pure in-process values use action-local cleanup only. Artifact
+descriptors remain typed values in memory until their transactional insertion;
+there is no metadata file to rename, reserve, or reconcile.
 
-- bounded Parquet exchanges, DuckDB workspaces, kernel buffers, and local
-  primary-output files live under distinct Run staging directories;
-- engine relations use an unpublished generated locator and ownership nonce;
-- object writes use an unpublished staging manifest or version set;
-- quality and Finding records remain in memory or a Run-scoped staging area;
-- Artifact metadata is written to a temporary file and fsynced where the
-  platform contract requires it.
-
-No public lookup, graph read, Dataset state, or reuse index may expose staging.
+Primary/part final locators are known and journaled before any rename or remote
+finalization. Reservation covers both staging and final locations through exact
+Run-owned paths; a crash during that transition cannot leave an unrecorded final
+file. The publication transaction transfers every committed payload reservation,
+never an unrelated temporary-resource row.
 
 ### Commit ordering
 
-For a newly produced Artifact:
+While holding the Session writer guard:
 
-1. Finish every primary-output and validation stage.
-2. Validate exact schema, row key, row count, action bounds, and family checks.
-3. Build quality, typed issues, Evidence, and Findings.
-4. Finalize the immutable storage object and obtain its exact receipt.
-5. Revalidate the finalized receipt and content authority.
-6. Clean every compiler-declared non-output temporary resource.
-7. Write and atomically publish exact Artifact metadata.
-8. In one Evidence Store transaction, write Findings, Evidence envelope, and
-   the Artifact commit marker last.
-9. In one Session Store transaction, insert the Artifact row, fill the
-   write-once execution binding, attach input Artifact edges, release the
-   materialization claim, and transition the Run from incomplete to succeeded
-   with `output_mode = produced`.
-10. Decode the just-committed scan leaf and return the materialized Dataset.
+1. Finish primary-output and validation stages.
+2. Validate schema, row keys, counts, action bounds, and family checks.
+3. Build quality, typed issues, complete Evidence, and ordered Findings.
+4. Finalize primary and retained-part storage, establish durability, and obtain
+   all receipts.
+5. Validate every finalized receipt, required private part, and content identity.
+6. Prove all started executions terminal/fenced and remaining non-output
+   resources harmless; attempt cleanup without making deletion a success gate.
+7. In one Store transaction insert Artifact, Evidence, Findings, and succeeded
+   terminal; validate the complete bundle and delete all output/part obligations.
+   Retain unresolved harmless non-output rows without another status field.
+8. Commit once, decode the committed scan leaf, and return the Materialized Dataset.
 
-Steps 1–7 are reversible staging. Step 8 decides Artifact publication. Step 9
-makes the decision visible through canonical Run and graph reads.
+Steps 1-6 do not publish a result. The commit in step 8 makes every metadata
+fact visible together; immutable data written earlier is unreachable as an
+Artifact until that commit. A reader never observes a committed Artifact with
+an incomplete producer or partial Evidence.
 
-### Execution-binding recovery ordering
+### Execution-key recovery ordering
 
-For an exact binding hit:
+Within the writer guard, after recovery of that Session, `execute()` derives or
+reuses its key and validates the selected Artifact metadata as for an exact
+handle lookup. It does not inspect all backing, private parts, or Findings. On a metadata-valid hit it returns the same scan leaf
+without a Run, metadata write, new Findings, storage copy, or origin execution.
+Ordinary `session.artifact(ref)` recovery is read-only and needs no writer guard.
 
-1. derive `DatasetExecutionKeyV1` from the reconstructed Logical Dataset;
-2. locate the unique same-Session binding;
-3. validate metadata, marker, Store row, storage, authorization, content,
-   schema, row count, quality, Evidence, and key agreement;
-4. return the paired Materialized Dataset backed by the same scan leaf.
+### Proven failure before commit
 
-Recovery admits no Run and does not rewrite Artifact metadata, recompute
-Findings, refresh Evidence, attach graph edges, relocate storage, or create a
-second Artifact.
+First establish that the publication transaction did not commit. Then prove
+all started backend executions terminal or safely fenced before cleaning their
+dependent resources. If terminal proof is unavailable, leave the Run incomplete
+and return a typed recovery-pending error naming the Run. Every later writer in
+that Session must retry reconciliation before admitting work.
 
-### Failure before commit decision
+After terminal proof, discard buffers and attempt exact cleanup of unpublished
+storage and temporary resources. Insert the failed terminal and delete resolved
+obligations in one transaction. Failed Runs may retain unresolved cleanup rows;
+guarded maintenance retries them without re-executing analysis. Failure to
+record a terminal leaves the admission incomplete for later recovery.
 
-Before the marker, any failure:
+### Uncertain commit acknowledgement or failed delivery
 
-1. proves every started stage terminal through its declared process-loss
-   recovery mode;
-2. if that proof is unavailable, keeps the Run incomplete and its claim bound,
-   then returns a typed recovery-pending error and no public result;
-3. otherwise discards private buffers;
-4. cleans compiler-declared temporary resources, Artifact metadata, and
-   unpublished storage;
-5. releases the materialization claim;
-6. transitions the Run to failed with bounded phase and cleanup facts;
-7. returns a typed action error and no public result.
+An exception from commit or from returning a result does not establish failure.
+While holding the guard, finish/close the transaction connection and inspect a
+fresh authoritative Store snapshot:
 
-Cleanup failure does not publish the primary output. The Run may be terminal
-failed with `cleanup_summary.status = pending`; cold maintenance retries the
-exact journaled cleanup without re-executing analysis.
+- a matching complete succeeded bundle means success already committed; preserve
+  storage and return or recover the same Artifact;
+- a failed terminal remains failed and is never rewritten;
+- terminal absence after SQLite has resolved the transaction means publication
+  did not commit; perform the proven pre-commit failure path;
+- if the Store cannot be read, return a typed recovery-pending error without
+  deleting resources, rewriting history, or admitting another computation;
+- contradictory partial metadata is an integrity violation, not a repair gap.
 
-### Failure after commit decision
-
-After the marker, storage and Evidence are authoritative. The runtime must not:
-
-- delete the storage;
-- delete metadata or Findings;
-- mark the Run failed;
-- publish a second Artifact;
-- rerun the datasource computation.
-
-It retries the Session Store transaction. If that remains unavailable, the Run
-stays incomplete, the materialization claim stays bound to it, and the caller
-receives a commit-pending error naming the Run ref. Cold reconciliation later
-validates the unique marker and completes the same Run.
+If the process exits, the next guarded recovery performs the same check. There
+is no durable commit-pending state and no protocol that completes a separately
+committed Evidence decision. A result-delivery failure cannot turn a committed
+succeeded Run into failed.
 
 ### Store invariants
 
-The following states fail closed as integrity violations:
+The following states fail closed:
 
-- succeeded execute Run without one committed output Artifact and binding;
-- failed Run with an output Artifact ref;
-- Store Artifact row without matching exact metadata and commit marker;
-- marker without exact metadata or immutable storage;
-- more than one marker candidate for one producing Run;
-- binding whose canonical producer Run is not succeeded;
-- receipt row count different from Artifact or Evidence row authority;
-- claim committed to an Artifact with a different execution key;
-- binding redirected to a different Artifact;
-- one Artifact owned by more than one Session.
+- a succeeded Run without its one complete Artifact/Evidence/Finding bundle;
+- a failed Run with an output Artifact;
+- an Artifact without exactly one same-Session succeeded producer;
+- producer and Artifact execution keys that disagree;
+- duplicate same-Session execution-key Artifacts;
+- Evidence digests or Finding counts/order that disagree with their exact values;
+- receipt/schema/row-contract counts or content authority that disagree;
+- committed output still recorded as an outstanding cleanup obligation;
+- multiple incomplete Runs within one Session governed by the serial protocol.
 
-Recovery may repair only the explicitly recoverable marker-before-Store gap. It
-does not guess through contradictory authority.
+The Store validates relational invariants without querying external storage.
+Payload-consuming operations validate their selected backing; full inspection
+checks all declared payloads and Findings. Metadata-only handle recovery does not. Recovery never
+manufactures missing committed metadata, chooses the newest candidate, or
+reconstructs Evidence from abandoned staging.
 
-## Concurrent Materialization
+## Session Writer Guard
 
-### Materialization claim
+### Scope and acquisition
 
-Before Run admission, the Session Store admits:
+One stable `sessions/<session_ref>/session.lock` protects all mutations of that
+Session across execution keys, processes, and threads. The guard combines a
+reliable OS-released exclusive lock with in-process exclusion keyed by canonical
+Store identity and `session_ref`. Another thread or reentrant top-level action
+cannot bypass a process-scoped OS lock. Unsupported locking platforms fail
+closed; there is no time-based fallback.
 
-```text
-MaterializationClaimV1
-  execution_key_digest
-  session_ref
-  producer_run_ref: absent | admitted_ref
-  owner_lease_ref: absent | admitted_ref
-  state = producing | commit_decided
-  artifact_ref: absent | committed_ref
-  acquired_at
-  updated_at
-```
+Acquire non-blockingly before an existing Session's top-level writer operation.
+Contention returns a structured Session-busy error with the safe Session
+identity, expected exclusive access, and repair to finish its current writer
+and retry serially. It creates no Run, cancels no writer, and waits in no queue.
+Internal helpers share the already-held operation context; callbacks cannot
+start nested top-level writes. Child processes do not inherit mutation authority
+and cannot keep the owner's lock alive after its exit.
 
-There is at most one active claim per `(session_ref, execution_key_digest)`. The
-record is internal and absent from public Run, Artifact, Graph, Help, and Dataset
-contracts.
+Hold the guard through that Session's recovery, binding lookup, execution,
+publication, and failure handling. Release it in a guaranteed exit path. Never
+delete/replace the lock file, use PID/mtime as ownership proof, or hold a SQLite
+write transaction across external work. Read-only operations need no guard.
 
-### Contender behavior
+### Session identity and shared registry
 
-A contender proceeds in stable order:
+Session names and refs still live in one project-level database. Resolve an
+existing name/ref before acquiring its lock, then recheck its exact identity
+inside the guarded operation. A new named Session reserves a candidate ref and
+acquires that candidate's lock before a short SQLite transaction rechecks name
+uniqueness and creates the Session with its initial current-pointer update.
+If another creator already committed the name, roll back, release the candidate
+lock, and resolve/acquire the winning Session's lock. Never hold two Session
+locks during this retry or admit a Run against the discarded candidate. An
+unused lock file carries no Session authority and is not a resource obligation.
 
-1. prefer an already bound healthy Artifact;
-2. otherwise attempt to acquire the claim;
-3. if another live producer owns it, wait for at most 30 seconds under
-   `MaterializationClaimPolicyV1` while observing only terminal Store
-   transitions;
-4. if the producer succeeds, validate and recover its bound Artifact without a
-   contender Run;
-5. if it fails, atomically acquire a new claim and admit a new producer Run;
-6. if its lease expires and the exact owner lock can be acquired, invoke cold
-   reconciliation; takeover proceeds only if reconciliation commits or releases
-   the old claim;
-7. if the wait deadline expires while the producer remains live, return a typed
-   retryable concurrency error without a contender Run.
+Creation, explicit question update, activation recency, and current-pointer
+change remain transactional. The shared `runtime_state.current_session_ref`
+is only a last-successful-activation convenience. Concurrent activation of
+different Sessions serializes those short transactions; it cannot redirect an
+already acquired Session handle, which always uses its explicit `session_ref`.
+Schema initialization is similarly one short SQLite transaction, not a project
+execution lock. SQLite busy handling is bounded and separate from non-blocking
+Session-lock contention; it cannot elect or retry an analysis producer.
 
-The runtime does not cancel the producer, run a speculative duplicate, or
-return a future.
+### All Session writers use one boundary
 
-### Different keys
+Activation, current-pointer updates on behalf of a Session, explicit recovery,
+producer admission, resource reservation/cleanup, publication, and maintenance
+use that Session's guard. `current()` and other routes performing reconciliation
+resolve one Session then use its guard even if no rows ultimately change.
+Metadata-only discovery and exact Artifact reads remain separate read paths.
 
-Different execution keys may execute concurrently subject to Session Store
-locking, datasource limits, and backend capabilities.
-They cannot share private action stages, temporary relations, sampled
-Population spines, or execution buffers.
+Each writer first reconciles prior incomplete Runs and resource obligations
+only in its own Session. Unresolved execution that can still write blocks new
+computation; terminal harmless cleanup does not block normal mutations; recovery/maintenance may still write the facts needed to discharge the
+obligation. Maintenance covering several Sessions handles each independently,
+never holds multiple Session locks, and does not stop healthy Sessions because
+another Session is busy or blocked.
 
-Explicit reuse across actions begins only after one Artifact commits and its
-write-once execution binding is visible.
+Different Sessions may run backend work concurrently. Their short metadata
+transactions serialize through SQLite, and every query, write, and resource
+lookup is scoped to its exact Session. Private resources and buffers are never
+shared across actions. No project/Store execution lock, claim table, producer
+election, lease table, heartbeat, per-Run lock, automatic wait-and-reuse, or
+concurrent same-Session execution exists.
 
-## Process Ownership and Cold Recovery
-
-### Owner lease
-
-Every incomplete Run has one private renewable owner lease:
-
-```text
-RunOwnerLeaseV1
-  lease_ref
-  run_ref
-  process_nonce
-  host_fingerprint
-  owner_lock_ref
-  acquired_at
-  expires_at
-  heartbeat_at
-```
-
-The runtime renews the advisory lease independently of long backend statements.
-A process-lifetime exclusive owner lock is held for the same Run. A recoverer
-never treats elapsed wall time alone as proof that another active process is
-dead. Safe takeover requires successful non-blocking acquisition of the exact
-owner lock, matching the persisted owner nonce, and atomic replacement under
-the Session Store lock. Lease expiry may trigger that check but neither proves
-death nor authorizes takeover.
-
-The lease contains no public PID promise. Host and process values are bounded
-operational fingerprints, not user identity. The lock target is one exact
-Run-scoped file or equivalent Store-backed primitive; it is not a broad Session
-or project lock. A platform that cannot provide a reliable process-lifetime
-ownership lock does not enable automatic takeover from lease expiry alone.
+## Cold Recovery
 
 ### Recovery order
 
-On Session activation or explicit runtime recovery, after acquiring recovery
-ownership, each exclusively lockable incomplete Run is examined in stable
-admission order:
+After acquiring the target Session's writer guard and letting SQLite resolve
+its own transaction recovery:
 
-1. read its exact Run and resource journal from one Store snapshot;
-2. locate commit markers by exact producing Run ref;
-3. if exactly one valid marker, validate metadata and immutable storage,
-   reconstruct the missing Artifact row if needed, complete the same Run, and
-   release its claim;
-4. if no marker, prove every started backend execution is terminal and cannot
-   write further using its registered process-loss recovery capability;
-5. after that proof, clean journaled temporary, metadata, and unpublished
-   storage resources, mark the Run failed with `process_lost`, and release its
-   claim;
-6. if backend termination or fencing cannot be proved, stop activation with a
-   typed recovery-pending error, leave the Run incomplete, and retain its claim;
-7. if marker, metadata, storage, or candidate cardinality contradict, stop
-   activation with a typed integrity error and do not mutate the conflicting
-   records.
+1. Read that Session's admissions, terminals, and outstanding resource obligations
+   from one Store snapshot. Multiple incomplete Runs in this Session violate
+   serial admission; incomplete Runs in other Sessions are independent.
+2. For a succeeded Run being inspected, require the complete matching metadata
+   bundle and preserve its output. It needs no terminal rewrite or index repair.
+3. For an incomplete Run, verify there is no committed output bundle, then use
+   its recorded execution recovery capability to prove external executions
+   terminal or fenced against further writes. Lock acquisition alone proves no
+   remote termination.
+4. If terminal proof is unavailable, leave the Run incomplete and return a typed
+   recovery-pending error. Reads and other Sessions remain available; this
+   Session admits no new work.
+5. After proof, clean exact unpublished resources, insert the failed terminal
+   with `process_lost` once leftovers are proven harmless, and delete resolved
+   obligations transactionally. Remaining
+   harmless garbage obligations do not block new work in this Session.
+6. Retry cleanup for terminal Runs, succeeded or failed, using exact locators
+   and ownership nonces. Leave unresolved harmless rows and continue; delete a
+   row only after its obligation is discharged.
+7. Contradictory selected metadata stops this Session's recovery with an integrity
+   error and no guessed repair. No scan of old generations or other Sessions'
+   execution resources occurs.
 
-Recovery never re-executes a Dataset, reconstructs a logical graph, publishes
-Evidence from staging, selects the newest candidate, or converts an incomplete
-Run into a new Run.
+Recovery never resumes an execution stage, serializes a Logical graph, publishes
+staging, replays a query, or converts an old Run into a new one. Retry after
+reconciliation admits a new Run only when its key is unbound. Committed results
+are recovered unchanged. No lease expiry or caller-confirmed `abandon_run(...)`
+is required for normal Session-guarded recovery. If the cutover retains an
+explicit `abandon_run(...)` entrypoint, it invokes this same guarded protocol
+and requires registered terminal/fencing proof; caller assertion cannot bypass
+the guard, publication readback, or external obligations.
 
-### Live owner behavior
+### Read availability
 
-If an unexpired owner lease exists, a second process may perform read-only
-history or graph reads under their existing snapshot contracts, but it cannot
-recover, fail, abandon, or take over the live Run. A same-key `execute()` call
-with a conflicting claim follows contender behavior.
-
-### Historical terminal Runs
-
-Recovery and cleanup never delete or rewrite succeeded or failed Run history.
-A retry after failure creates a new producer Run only if the key remains
-unbound. If another producer committed the binding first, the retry recovers
-that Artifact without a Run.
+A busy Session writer or unresolved remote execution does not by itself block
+read-only browsing of committed history, Artifacts, and Findings. Readers select
+one SQLite snapshot and never reconcile. Database unavailability or inconsistent
+selected metadata fails explicitly; there is no empty-page fallback or second
+metadata store. Database-level corruption/unavailability may affect all Sessions;
+Session execution contention or unresolved cleanup does not.
 
 ## Temporary Resources and Cleanup
 
-### Resource journal
+### Outstanding external obligations
 
-Every external resource or recoverable backend execution is reserved durably
-before creation or submission and before it may be consumed:
+Persist a resource obligation only when an operation can leave a resource or
+backend execution that outlives the owning process. Reserve it durably before
+creation/submission and before consumption:
 
 ```text
 ActionResourceJournalEntryV1
-  schema = "marivo.action_resource_journal/v1"
   run_ref
-  resource_ref
   resource_kind
   execution_domain_id
   ownership_nonce
-  lifecycle = reserved | created | finalized_output | cleaned | cleanup_pending
   cleanup_capability_id
   safe_locator
-  expires_at
-  last_cleanup_attempt_at
-  cleanup_attempt_count
 ```
 
-`safe_locator` and `ownership_nonce` are chosen before creation or submission and
-are sufficient for the registered adapter to find or target exactly one owned
-resource or execution. `reserved` means the external operation may not have
-started, may be in flight, or may have succeeded before the lifecycle update;
-cleanup therefore treats absence and exact owned presence idempotently. An
-adapter that cannot accept or recover an exact pre-reserved locator is not
-admitted in the first cutover. The locator cannot contain credentials, SQL,
-broad prefixes, unresolved patterns, or a parent directory.
+The owning Session is derived through the Run. Every lookup and mutation is
+performed under that Session's writer guard. `safe_locator` and the resource
+ownership nonce are chosen before creation and let the registered adapter find
+exactly one owned resource/execution. They are not process-owner identities.
+Presence means only that reconciliation remains necessary, not that creation
+succeeded or that the backend is still running. No progress/state column exists.
 
-### Resource classes
+An adapter unable to reserve or recover an exact locator is not admitted.
+Locators contain no credentials, SQL, broad prefixes, or unresolved patterns.
+An exact Run-owned workspace directory is allowed only when the registered
+adapter proves exclusive ownership of its entire subtree; a shared parent is
+never a cleanup target. Retries must not reuse old resource locators.
 
-The journal distinguishes:
+### Durable resource classes
 
 ```text
 planner_temporary_relation
 backend_execution
-bounded_arrow_exchange
-bounded_parquet_exchange
+private_parquet_staging
 duckdb_workspace
-python_kernel_buffer
-guarded_local_result
 local_storage_staging
 engine_storage_staging
 object_storage_staging
-artifact_metadata
 ```
 
-Before starting a backend execution, the selected stage must declare either a
-registered process/connection-lifetime proof or a recovery capability that can
-use the reserved locator to cancel the execution and observe a terminal state.
-No-marker recovery does not clean dependent resources or release the claim until
-that proof succeeds.
+Every started external stage declares a registered process/connection-lifetime
+termination proof or a recovery capability able to cancel/fence its reserved
+execution and observe terminal status. Recovery must prove no further writes
+before cleaning dependent resources or admitting another Run in that Session.
+Connection-lifetime resources can use their registered proof without persisting
+an unusable connection handle.
 
-Only the primary output storage and its exact Artifact metadata may transition
-to `finalized_output`. Before the Artifact marker both remain eligible for exact
-cleanup. After the marker, storage is governed by the receipt and metadata by
-the marker digest; neither remains cleanup-eligible even if a journal lifecycle
-update was interrupted.
+Pure in-process Arrow batches, Python-kernel buffers, and guarded in-memory
+results are never journal rows. Their counters, resource limits, and cleanup
+remain action-local; process termination discharges their memory lifetime.
+If an executor spills to files, those files belong to an exactly reserved
+workspace or exchange obligation. There is no Artifact metadata-file resource.
 
-### Cleanup rules
+### Cleanup and output ownership transfer
 
-The runtime attempts cleanup on:
+Primary output and all retained parts remain outstanding reservations before
+publication, even after finalization. One metadata transaction inserts the
+Artifact and succeeded terminal and deletes precisely those output reservations.
+Their receipts then own the complete committed bundle. Cleanup cannot delete a
+committed payload or infer ownership by scanning shared directories.
 
-- success before terminal Run publication;
-- ordinary failure;
-- cooperative cancellation;
-- transfer or output-bound violation;
-- compilation failure after a temporary compile resource was created;
-- expired-owner cold recovery.
+All started executions must be terminal or fenced against further writes before
+publication or a failed terminal. Only after that proof can remaining non-output
+resources be treated as harmless garbage: exact independently owned locations,
+no dependency from a committed output, no shared mutable state, and no ability
+to affect later Runs. Otherwise the operation remains incomplete and blocks new
+computation until reconciled. Unknown termination is never a cleanup-only issue.
 
-Cleanup uses exact resource ref plus ownership nonce and is idempotent. Missing
-already-cleaned resources count as success only when the adapter can prove the
-locator belonged to this Run. Broad prefix deletion and guessed temporary names
-are forbidden.
+Attempt immediate idempotent cleanup of harmless garbage, but its deletion failure
+does not veto valid output, turn success into failure, or block another Run.
+Keep the existing journal rows and retry under the Session guard on later writes
+or explicit maintenance. Succeeded and failed Runs may both retain such rows.
+Their terminal state is unchanged. No extra cleanup status, progress table,
+background scheduler, or lease is introduced.
 
-Connection-scoped temporary resources that the backend guarantees to destroy
-on disconnect may use a registered `connection_lifetime` cleanup proof. The
-runtime still records the resource class and proof; it does not persist an
-unusable connection handle.
-
-### Cleanup and action outcome
-
-Before Artifact commit, unresolved cleanup prevents success. The primary output
-remains unpublished and the Run fails with a cleanup summary. A background or
-later cold maintenance pass may retry cleanup, but cannot change the failed Run
-to succeeded.
-
-After the commit marker, all non-output cleanup must already be complete. A
-design that requires best-effort temporary cleanup after publication is not
-admitted in the first cutover.
+A terminal Run proves all surviving journal entries are harmless cleanup
+obligations unreferenced by committed Artifacts, including discarded output
+reservations of a failed Run. Incomplete Runs still require exact termination/fencing
+reconciliation. Delete each garbage row only after exact cleanup is confirmed;
+terminal proof alone discharges a backend-execution obligation, not file deletion.
+Missing resources count as resolved only under the registered ownership protocol.
+If maintenance cannot clean a terminal Run's garbage, it leaves the row and
+continues without blocking unrelated work. Real quota exhaustion may still fail
+a new allocation on its own merits.
 
 ## Artifact Recovery and Immutable Scan Leaves
 
 ### `session.artifact(ref)` validation
 
-Exact recovery validates:
+An exact lookup validates only its selected Store metadata: ref/owner, supported
+descriptor/receipt formats, producer output edge, and required public contracts.
+It reads the commit-time Evidence envelope as summary facts without loading or
+re-hashing Findings. No external file, row count, or complete content scan is
+required merely to construct the handle.
 
-1. the ref exists in the owning Session Store;
-2. Artifact metadata is exact `marivo.dataset_artifact/v1`;
-3. the producing Run exists and succeeded with `output_mode = produced`;
-4. the Evidence marker and envelope match metadata;
-5. Finding count and identity digest match;
-6. the storage receipt variant and digest match;
-7. storage is readable under current authorization;
-8. the immutable version, manifest, or content authority still matches;
-9. realized schema and exact row count match the public row contract;
-10. the registered family and scan adapter versions are supported.
+Operations then validate their actual dependencies:
 
-Failure is typed as absent, incompatible generation, authorization unavailable,
-storage missing, storage mutated, Evidence corrupt, row-contract incompatible,
-or Session ownership mismatch. No failure causes logical replay.
+- `show()` reads primary data under its preview bound, checking accessed storage
+  identity/access, schema and ordering; it does not re-count the entire Artifact;
+- `to_pandas()` validates and reads all primary rows under collection guards;
+- operators validate primary data and only the private roles they consume;
+- Finding reads validate the selected Finding bodies and their stored identities;
+- explicit `revalidate(ref)` checks the entire Artifact, all parts and Findings,
+  including full content/count/digest verification when the receipt requires it.
+
+A committed manifest/version is a lightweight identity check, not a claim that
+all payload bytes were just re-hashed. Normal access checks metadata/version identity, format decoding, and checksums
+available for the accessed blocks; they do not claim a complete file hash was
+recomputed. An operation must fail on known corruption in a dependency it uses,
+rather than silently substituting another value. Missing
+unrelated private data does not prevent a primary-row preview, but is reported by
+full inspection and blocks any operation that needs that part.
+
+Errors distinguish absent metadata, unsupported formats, access failure, missing
+or mutated selected backing, corrupt selected Evidence, incompatible row contracts,
+and foreign-Store identity. No failure causes logical replay.
 
 ### Scan-leaf decoding
 
-Successful recovery constructs:
+The private immutable handle carries the exact Artifact ref, canonical Store
+identity, and explicit execution Session. Contract/receipt values are resolved
+from that immutable Artifact and current adapter capabilities when needed; the
+handle duplicates no persisted receipt or content hash inventory.
 
-```text
-MaterializedScanLeafHandleV1
-  artifact_ref
-  receipt_kind
-  receipt_identity_digest
-  content_authority_digest
-  row_contract_fingerprint
-  realized_schema_fingerprint
-  scan_admission
-```
-
-The handle is private, immutable, and bound to the recovering Session. It is
-not serializable as a public value and cannot be attached to another Session.
-
-The compiler may include admitted projection, predicate, ordering, or
-retained-value fold operations in the scan's Ibis expression. It may not inspect Artifact lineage to
-recover the origin graph.
+A consumer's scan admission is operation-local and may include projection,
+predicate, ordering, or retained-state fold operations. It validates that
+operation's actual inputs without inspecting lineage for executable rewrites.
+Cross-Session recovery creates a new handle, preserving the original Artifact
+owner and original handle. No public serialization or registration is introduced.
 
 ### No Materialized `execute()` method
 
@@ -1828,69 +1871,32 @@ same-Session binding without a new Run.
 
 ## Revalidation
 
-### Result axes
-
-The exact public result family remains owned by the Session read design, while
-this module owns the facts it may contain:
+`session.revalidate(ref)` is explicit full integrity inspection. Its read-only
+result has exactly three independent axes:
 
 ```text
 ArtifactRevalidationV2
   artifact_ref
   checked_at
-  artifact_integrity
-  storage_authority
-  evidence_integrity
-  semantic_authority
-  datasource_authority
+  artifact_integrity = valid | invalid | unverifiable
+  storage_authority = readable | unauthorized | missing | mutated | unknown
+  evidence_integrity = valid | invalid | unverifiable
   issues[]
 ```
 
-`ArtifactRevalidationV2` is the private persisted/projection schema name. The
-public immutable result spelling is the retained `ArtifactRevalidation` frozen
-by the accepted lazy v3 Session Runtime Read amendment; it has no versioned
-public alias or second result class.
+Artifact checks include the descriptor/producer relation, primary and retained-part
+contracts. Storage checks cover all declared receipts and required full content,
+row-count and ordering verification. Evidence checks validate the complete Finding
+set against the committed digest. Issues identify the exact affected part or
+Finding using safe identities. Unavailable checks are `unverifiable`/`unknown`,
+not proof of corruption. This potentially expensive operation is never implicit
+in handle recovery, a preview, or execution-key lookup.
 
-Each axis is closed and independent:
-
-```text
-artifact_integrity = valid | invalid | unverifiable
-storage_authority = readable | unauthorized | missing | mutated | unknown
-evidence_integrity = valid | invalid | unverifiable
-semantic_authority = current | changed | missing | unverifiable
-datasource_authority = current | changed | unverifiable | unknown
-```
-
-`valid` Artifact integrity does not imply current semantics or datasource
-freshness. `changed` datasource authority does not imply corrupt storage.
-`invalid` means a completed check proved a contradiction. `unverifiable` means
-the required metadata or Evidence authority could not be read or checked; its
-bounded issue identifies the unavailable check without pretending corruption.
-
-### Read-only behavior
-
-Revalidation may query current semantic state, datasource metadata, immutable
-storage metadata, and Evidence records. It does not:
-
-- execute the original Dataset;
-- mutate Artifact metadata or Dataset state;
-- refresh Evidence or Findings;
-- publish a new Run or Artifact;
-- replace source authority;
-- bless an unverifiable source as current;
-- combine several Artifacts into one compatibility verdict.
-
-The result states exactly which checks were not possible and why. Missing
-credentials, unsupported snapshot comparison, and a changed source are
-different outcomes.
-
-### Runtime use of revalidation logic
-
-Ordinary reads reuse only the Artifact, storage, Evidence, and authorization
-validators. Operator execution invokes semantic or datasource comparison only
-when its selected authority requirement demands it.
-
-The public revalidation action is not itself a Dataset action and does not
-replace the action-specific Run admission contract.
+There is no semantic-catalog comparison, source freshness check, equivalence
+verdict, expiry policy, reusable flag, or overall approval. Producer versions and
+times remain factual provenance. New operators validate only current semantic
+inputs they explicitly request. Inspection never contacts origin sources, changes
+metadata, repairs Evidence, reruns analysis, or creates a Run.
 
 ## Multi-Downstream Reuse
 
@@ -1916,12 +1922,12 @@ Input reuse and execution-binding recovery are separate runtime contracts:
   its scan admission; it performs no definition-equivalence lookup and never replaces it
   with current semantic execution;
 - execution-binding recovery applies only to a Logical Dataset `execute()` call
-  whose complete execution key names one healthy committed Artifact binding.
+  whose complete execution key names one metadata-valid committed Artifact binding.
 
 The first rule covers partial and complete materialization of multi-input
-operators. The compiler may directly scan, engine-import, or guarded-transfer
-the Artifact according to its boundary contracts, but a temporary import is
-action-scoped and cannot become a second durable checkpoint. A committed
+operators. Their fixed Artifact readers must already share the required
+relational domain; no temporary import or guarded relocation is introduced.
+Calling `execute()` is not automatically a domain-repair capability. A committed
 Artifact that is not named by an input or its exact write-once execution binding
 is not an implicit cache candidate.
 
@@ -1929,8 +1935,9 @@ Holding one Logical Dataset in a Python variable is not the reuse mechanism.
 The named Session binding is durable: another script or process may reconstruct
 the same exact logical definition and call `execute()` to recover the Artifact.
 Python variable names, script paths, and line numbers are irrelevant.
-Action-local compiler CSE remains private and disappears when its producer
-action ends.
+Explicitly shared producer handles may share expression construction inside
+an action. Required single evaluation has a dedicated fence; general compiler
+CSE and separately fingerprinted execution graphs are absent.
 
 There is no public multi-sink action, execution bundle, shared future, or
 automatic common materialization.
@@ -1957,41 +1964,51 @@ The existing Run-first Session graph model consumes these runtime facts:
 - every produced execute Run has one output Artifact edge;
 - execution-binding recovery creates no Run or graph edge;
 - every materialized input creates an ordered Artifact-to-Run input edge;
+- a foreign input retains its original owner and appears as an external Artifact
+  boundary in the consuming Session graph; its producer Run is not expanded;
+- only locally produced Artifacts are candidates for that Session's head set,
+  and only succeeded consumers in that Session remove them from it;
+- root Runs have no Artifact inputs, including external inputs; reading an
+  Artifact alone creates no membership or graph edge;
 - failed and incomplete Runs remain visible without partial Artifact nodes;
 - a downstream chain over a scan leaf records the exact Artifact input even
   when its public definition fingerprint resembles a logical chain;
-- claims, owner leases, staging resources, cleanup journals, and commit-pending
-  repair mechanics remain private operational state.
+- Session writer locks, staging resources, cleanup obligations, and recovery
+  mechanics remain private operational concerns.
 
-Graph reads use only committed Session Store facts plus exact immutable Artifact
-metadata. They never query a datasource, run revalidation, perform recovery, or
-include uncommitted staging.
+Graph reads project committed Run, Artifact descriptor, and Evidence-envelope
+facts from one Session Store snapshot without scanning Finding bodies. Artifact
+summaries derive original owner and producer admission/finish times from their
+canonical rows. Reads never query a datasource, run revalidation, perform recovery,
+or include uncommitted staging. External scope boundaries alone do not indicate
+truncation; budget omissions still do.
 
 ## Failure and Repair Matrix
 
 | Condition | Run outcome | Public output | Repair |
 | --- | --- | --- | --- |
-| deterministic Dataset or graph contract invalid before admission | no Run | none | fix Dataset construction or incompatible runtime |
-| semantic dependency missing after admission | failed `semantic_validation` | none | repair current semantic authoring or use an admitted materialized-only path |
-| datasource snapshot weaker than required | failed `source_snapshot` | none | use a capable datasource path or explicit materialized input |
-| execution boundary unavailable | failed `execution_boundary` | none | use one registered source, federation engine, or reachable explicit boundary |
-| Ibis/backend compile rejection | failed `ibis_backend_compile` | none | repair Ibis/lowerer/adapter conformance or choose a supported registered method |
-| transfer or local guard exceeded | failed `transfer_guard` | none | narrow scope, use engine execution, or use an admitted explicit boundary |
-| output schema, key, or count mismatch | failed `output_validation` | none | repair backend lowering or operator contract |
-| no durable sink for result bounds | failed `storage_selection` | none | configure an admitted immutable engine/object sink or reduce the result |
-| quality or Evidence extraction fails | failed before marker | none | repair the check/extractor and retry as a new Run |
-| temporary cleanup fails before marker | failed `cleanup` | none | retry exact journal cleanup, then rerun as a new Run |
-| marker commits but Store finalization fails | remains incomplete, commit pending | none in current call | resume/recover the Session; never rerun blindly |
-| process dies before marker | incomplete until owner-lock recovery; failed only after old execution is terminal | none | complete recovery; retry only after the old claim is released |
-| process dies after marker | incomplete until recovery, then succeeded | recover exact Artifact | resume/recover the Session |
-| exact healthy execution binding already exists | no Run; validated recovery | Materialized Dataset | none |
-| candidate Artifact storage is missing or mutated | failed integrity check | none | restore exact immutable storage or recompute as a new Artifact |
-| current datasource changed after Artifact commit | Artifact stays readable | revalidation reports changed | use the bound Session snapshot knowingly or execute in a new Session |
+| deterministic Dataset/graph contract invalid | no Run | none | repair construction or incompatible runtime |
+| Session writer lock busy | no Run | none | finish the writer in this Session, then retry serially |
+| prior execution may still write | prior Run incomplete | no new computation | prove exact termination or fencing in this Session |
+| semantic dependency missing after admission | failed `semantic_validation` | none | repair the required semantic definition or explicitly select retained inputs |
+| execution boundary unavailable | failed `execution_boundary` | none | configure a registered reachable boundary |
+| Ibis/backend compile rejection | failed `ibis_backend_compile` | none | repair lowerer/adapter conformance or use a supported method |
+| transfer or local guard exceeded | failed `transfer_guard` | none | narrow scope or use an admitted execution boundary |
+| output schema/key/count mismatch | failed `output_validation` | none | repair lowering or operator contract |
+| no durable sink for result bounds | failed `storage_selection` | none | configure immutable storage or reduce the result |
+| quality or Evidence construction fails | failed before publication | none | repair check/extractor and retry after execution termination |
+| harmless temporary deletion fails after terminal proof | computation outcome unchanged | publish/recover valid output | retain journal entry and retry cleanup later; new work remains allowed |
+| commit acknowledgement uncertain | read existing terminal; no inferred transition | same Artifact only if commit is proved | read authoritative Store before deleting output or retrying |
+| process dies before metadata commit | incomplete until guarded recovery proves termination, then failed | none | reconcile this Session, then retry explicitly |
+| process dies after metadata commit | already succeeded | recover exact Artifact | read the committed bundle; no index repair or re-execution |
+| exact metadata-valid binding exists | no Run | same Materialized Dataset | none |
+| selected backing missing/mutated when accessed | existing producer unchanged | dependent read/operator fails | restore exact backing or explicitly author new work; never replay implicitly |
+| source rows changed after commit | no automatic check/state change | exact selected Artifact | Agent chooses the existing result or a new computation |
 
-Repairs are derived from actual registered capabilities, storage configuration,
-Artifact state, and operator authority contracts. They never suggest a hidden
-local fallback, logical recovery by fingerprint, or an internal graph boundary
-the caller cannot materialize.
+Failed terminal insertion requires proven absence of publication and terminal
+external execution. If either cannot be established, return recovery-pending
+without guessing an outcome. Repairs use actual capabilities and exact owned
+resources, never hidden fallback, broad cleanup, or origin-plan replay.
 
 ## Safe Diagnostics
 
@@ -2002,33 +2019,27 @@ Before execution, Dataset surfaces may disclose:
 - logical or materialized state;
 - exact state-specific actions;
 - materialized input refs;
-- authority requirement classes;
+- concrete operator input requirements;
 - possible storage kinds;
 - fixed local materialization bounds;
 - action-time blockers known without live work;
-- whether this exact definition already has a same-Session execution binding.
 
 An unexecuted Logical Dataset does not claim a selected sink, current snapshot,
 Artifact ref, row count, quality, or Evidence. Binding lookup is performed only
 by `execute()`.
 
-### Run audit
+### Run facts and optional diagnostics
 
-Terminal Run reads may disclose:
+Run reads expose lifecycle, bounded definition/source/input identity, admission
+and terminal times, output ref, or structured failure. Storage kind and counts
+come from the output Artifact. There is no mandatory compiler-audit payload,
+physical-plan fingerprint inventory, CSE count, or sink-feasibility certificate.
 
-- action kind and lifecycle;
-- safe Dataset definition projection;
-- materialized input refs;
-- source authority classes and safe digests;
-- compiler audit fingerprints and counts;
-- Ibis semantic compiler version, lowerer-manifest fingerprint, Ibis/compiler
-  fingerprints, boundary-profile fingerprints, and safe applied lowerer ids;
-- stage, placement, transfer, and bound summaries;
-- produced output Artifact ref for execute Runs;
-- failure phase, kind, retry disposition, and cleanup status.
-
-They do not expose raw source tokens when sensitive, query text, SQL, raw
-identities, credentials, private plans, temporary locators, or staging paths.
+Opt-in compiler diagnostics may report bounded stage/placement/transfer facts
+and implementation versions during an invocation. They create no Store state,
+public result type, or success prerequisite. Formatting or emitting diagnostics
+cannot invalidate a committed result. Safe output excludes SQL, credentials,
+raw identities, complete plans, temporary locators, and private buffers.
 
 ### Artifact cards and contracts
 
@@ -2037,7 +2048,7 @@ A materialized Dataset may disclose committed:
 - Artifact ref, family, shape, definition fingerprint, and producing Run;
 - storage kind, realized schema, exact row count, and byte-count availability;
 - quality summary, typed issues, Evidence digest, and Finding count;
-- bounded lineage and source-authority class;
+- bounded source/input lineage, original owning Session, and producer timing;
 - mechanically valid reads, revalidation, and downstream continuations.
 
 It does not expose storage credentials, raw object manifests, engine SQL,
@@ -2047,8 +2058,8 @@ identity rows, or origin executable plans.
 
 ### Dataset Core supplies
 
-- exact Dataset owner, family, row contract, schema, state, and definition
-  fingerprint;
+- exact Dataset owner, shape, row contract, row-set contract, schema, state, and
+  definition fingerprint;
 - logical root or materialized scan-leaf handle;
 - ordered input authority tokens and bounded lineage;
 - state-specific action surface, preview bound, collection contract, and paired
@@ -2065,7 +2076,7 @@ leaf. It does not widen the public Dataset type.
 - exact per-source `BoundSourceParametersV1` values captured at logical source
   construction plus their canonical digests and safe projections;
 - semantic dependency set;
-- filter occurrence authority requirements;
+- filter field resolution and input checks;
 - realized Population, sampling, construction, and reconciliation validation
   requirements;
 - exact quality facts needed for Population and observation Evidence.
@@ -2073,29 +2084,24 @@ leaf. It does not widen the public Dataset type.
 This runtime captures realized authority and publishes it only with the
 Artifact.
 
-### Ibis Compiler and Execution Boundaries supplies
+### Direct Compiler and Fixed Execution Boundaries supplies
 
-- immutable executable stage graph;
-- Ibis/backend compiler requirements and resolved safe boundary-profile
-  fingerprints;
-- source snapshot requirements per stage;
-- process-loss recovery mode for every executable stage;
-- primary output, validation output, schema, key, and ordering contracts;
-- action-scoped temporary-resource declarations;
-- exact Arrow or Run-staged Parquet exchange contracts, bound guards, and the
-  selected DuckDB/Python local implementation registration;
-- storage-domain and transfer admissions;
-- compiler audit projection and failure phase.
+- a small immutable in-process execution recipe over fixed input domains;
+- exact Ibis builders, fixed Python recipes and output/retained contracts;
+- Marivo-owned domain identity checks independent of Ibis connection equality;
+- required single-evaluation fences and process-loss behavior;
+- exact Arrow kernel boundaries and safe optional execution diagnostics;
+- configured-target writer inputs, with no sink candidates or selection callback.
 
-This runtime admits the Run, supplies live authority, executes stages, validates
-Arrow/Parquet exchanges, invokes only the bound local implementation, journals
-and cleans resources, enforces bounds, chooses storage, commits publication,
-and records the outcome.
+Runtime admits the Run and supplies bindings, operational budgets and one storage
+target. It validates the writer, executes the fixed steps, checks actual batches,
+invokes complete-input kernels, journals resources and commits the Artifact.
+No compiler graph, implementation manifest or fingerprint is recovery authority.
 
 ### Typed Operators supplies
 
 - operator implementation and quality-contract versions;
-- selected authority mode for every non-filter occurrence;
+- concrete input checks for every non-filter occurrence;
 - action-time validation requirements;
 - family-specific quality, Evidence, and Finding extraction contracts;
 - retained sufficient-statistic and materialized-read requirements.
@@ -2106,7 +2112,7 @@ it does not invent statistical meaning.
 ### Subject, Event, and Lifecycle supplies
 
 - privacy-safe identity authority and storage constraints;
-- subject-selection, Event, and Lifecycle authority modes;
+- subject-selection, Event, and Lifecycle input contracts;
 - family-specific validation, Evidence, and Finding contracts;
 - exact cold-recovery privacy invariants.
 
@@ -2116,8 +2122,8 @@ under the family-owned privacy and authorization contract.
 
 ### Public Cutover consumes
 
-- replacement Store, Run, Artifact, execution-binding, Evidence, receipt,
-  claim, lease, and resource-journal schemas;
+- the unified Store, Run, Artifact descriptor, Evidence, receipt, and external
+  obligation schemas, Session writer guard, and Artifact execution-key constraint;
 - removal of eager Frame persistence, old schema readers, and dual execution;
 - implementation order for action admission, execution, storage, publication,
   recovery, reads, Help, docs, skills, and tests;
@@ -2132,16 +2138,17 @@ the eager public operator algebra.
 ### Persist logical Datasets for recovery
 
 Rejected. Scripts remain authoring references and reconstruct Logical Datasets;
-the runtime persists only the execution-key binding to the resulting Artifact.
+the runtime stores execution identity on the admitted Run and resulting Artifact,
+without persisting an executable definition.
 Persisted Run projections cannot reconstruct a private graph or become operator
 inputs.
 
 ### Use definition fingerprint as an Artifact cache key
 
-Rejected as an Artifact identity. The Session-local execution key includes the
-definition fingerprint plus semantic, input-authority, family, row, operator,
-quality, and Evidence contracts, while the bound Artifact separately records
-realized source, sampling, receipt, content, quality, and Evidence authority.
+Rejected as an Artifact identity. The canonical definition fingerprint names
+exact authored meaning and input identity; the Session-scoped execution key adds
+only the common publication protocol version. The Artifact ref separately names
+one immutable realized result. None of these identities replaces the other.
 
 ### Publish storage before Evidence and call it an Artifact
 
@@ -2153,21 +2160,33 @@ unpublished storage, not a Dataset Artifact.
 Rejected for the first cutover. A zero-Finding complete envelope is valid;
 extractor or Evidence publication failure is not.
 
-### Make the Session Store row the first commit decision
+### Split Artifact metadata and Evidence into independent stores
 
-Rejected. A Store row cannot prove that independently persisted Findings,
-Evidence, metadata, and storage committed. The marker is written only after all
-of those facts exist and authorizes the one recoverable Store gap.
+Rejected. Artifact descriptors, complete Evidence/Findings, and Run success have
+one publication lifetime and fit in one metadata transaction. Module ownership
+does not require separate SQLite databases or metadata sidecars. External data
+is finalized before the transaction and remains a journaled obligation until
+commit. A separate marker and cross-Store completion protocol add no required
+capability.
 
-### Mark a post-marker Run failed
+### Treat a commit exception as a failed Run
 
-Rejected. Once the commit marker exists, cleanup and retry semantics reverse:
-the runtime must preserve storage and complete the same Run.
+Rejected. An acknowledgement can be lost after commit. Read the authoritative
+Store before cleanup, failure insertion, or retry. A complete committed bundle
+already includes success and cannot be rewritten as failed.
 
-### Allow duplicate concurrent Artifacts and deduplicate later
+### Elect concurrent producers within one Session
 
-Rejected. It spends datasource work twice and creates ambiguous canonical
-producers. Claims coordinate before publication.
+Rejected. Same-Session writes are serial by product contract, enforced by one
+Session writer guard across the complete action. Claim/lease records, waiting
+queues, heartbeats, and speculative duplicate work are unnecessary. Different
+Sessions may execute independently with short shared-database transactions.
+
+### Serialize every Session with one Store execution lock
+
+Rejected for this cutover. The lock scope is `session_ref`: a busy or blocked
+Session must not prevent another Session from executing. Only short metadata
+writes and shared-registry updates serialize through SQLite.
 
 ### Automatically relocate a materialized Dataset
 
@@ -2175,37 +2194,48 @@ Rejected. A Materialized Dataset has no `execute()` method. Relocation would
 need a separately named capability, new Artifact identity, and new Run
 semantics.
 
-### Treat datasource freshness as Artifact integrity
+### Certify source freshness or Artifact reusability
 
-Rejected. An immutable snapshot remains valid when its origin changes. Current
-freshness is a separate revalidation observation.
+Rejected. Marivo reports factual lineage, timing, and integrity. The Agent
+chooses suitability. Source snapshot certificates, freshness axes, maximum-age
+admission, and automatic cross-Session equivalence matching have no runtime role.
 
 ### Require current semantic state for ordinary Artifact reads
 
-Rejected. Materialized-only reads use committed row and Evidence authority.
+Rejected. Artifact reads use committed row and Evidence contracts.
 Catalog drift cannot reinterpret or hide committed rows.
 
-### Fall back from semantic-current to materialized-only
+### Substitute historical rows or origin execution after failure
 
-Rejected. Authority branch selection is explicit and fingerprinted before
-execution. Failure does not change meaning.
+Rejected. Exact input definitions and Artifact refs are bound before execution.
+A failed semantic dependency or unreadable Artifact cannot change those inputs.
 
 ### Store temporary-resource names only in process memory
 
 Rejected. Process loss would make durable engine or object staging
 unrecoverable and leak resources without an auditable owner.
 
-### Run best-effort cleanup after successful publication
+### Make harmless garbage deletion a publication gate
 
-Rejected in the first cutover. All non-output resources must be clean before
-the commit marker.
+Rejected. Once executions are terminal/fenced and leftovers are exactly owned,
+unreferenced garbage, deletion does not affect result correctness. Persist the
+existing cleanup obligation and allow valid publication/new work. Unknown remote
+termination still blocks computation; it is not garbage-only maintenance.
 
-### Expose claims, leases, receipts, or commit-pending handles publicly
+### Expose writer guards, receipts, or recovery coordination publicly
 
 Rejected. These are runtime coordination facts, not analysis values or public
 continuations.
 
 ## Vertical Acceptance Journeys
+
+Journey fixtures must choose an explicit compatible execution/storage setup.
+A retained Population or identity selection later joined to current sources uses
+an engine target and reader in that same datasource domain. Local Artifact-only
+continuations use DuckDB. These are fixture configurations, not automatic
+placement or target switching. Include a conflicting-domain negative fixture;
+`.execute()` must not be advertised as a repair unless its configured writer
+and reader can actually establish the required common domain within bounds.
 
 ### Execute and inspect one logical definition
 
@@ -2232,27 +2262,54 @@ continuations.
 1. Materialize a statically bounded result under the local policy.
 2. Assert staged files are invisible before commit.
 3. Assert exact manifest, bytes hash, schema, row count, byte count, quality,
-   Evidence, Findings, metadata, marker, Artifact row, and Run success agree.
+   Evidence, Findings, descriptor, Artifact row, and Run success agree.
 4. Recover the Artifact in a cold process and read it as the same Dataset family.
 5. Prove the recovered handle contains no logical root.
 
-### SQL prefix followed by local execution
+### Local Artifact and fixed Python execution
 
-1. Execute a definition whose maximal upstream closure is one datasource Ibis
-   stage and whose registered tail is a DuckDB relational stage.
-2. Prove the Arrow exchange is schema- and guard-validated, the DuckDB workspace
-   is Run-scoped, and only the root output enters local Parquet Artifact staging.
-3. Execute a second definition whose registered Python kernel requires
-   rewindable input and prove the Run-staged Parquet exchange has no storage
-   receipt, Artifact ref, Evidence, or graph node.
-4. Inject DuckDB, kernel, Arrow, Parquet, and cleanup failures and prove no
-   exchange survives as reusable authority and no partial Artifact is visible.
-5. Complete both paths and prove every non-output exchange and workspace is
-   cleaned before the commit marker.
+1. Execute a rollup over an existing local Parquet Artifact using DuckDB/Ibis;
+   prove that only its fixed reader is used and no origin source is queried.
+2. Execute forecast over a governed logical daily series; prove the source query
+   feeds the exact guarded Arrow input and the Python kernel starts only after
+   complete validation. No compiler route search or Parquet mode selection occurs.
+3. Verify local kernel output can feed a local relational continuation without
+   upload to its origin datasource, and only the root result becomes an Artifact.
+4. Inject input overflow, kernel/engine/output failure, timeout and cleanup failure;
+   prove no private buffer, spill or workspace becomes reusable authority.
+5. Use an existing local Artifact exceeding the Python row cap to prove DuckDB
+   scans are governed by engine/disk/output budgets rather than kernel limits.
+
+### Retained parts and scoped reads
+
+1. Materialize Metric component state and a Lifecycle history with a violation
+   trace. Assert concrete role/contract/receipt entries, complete payload data,
+   one Artifact/Run per producer, and no separate part graph nodes.
+2. Restart and execute a registered component fold or `violations()` using only
+   the required part; original sources may be unavailable.
+3. Instrument reads: handle lookup touches only Store metadata; preview touches
+   no Findings or unused parts; selected Finding reads do not scan the full set.
+4. Remove an unused private part. Primary preview still works, its consumer fails
+   without replay, and explicit full inspection identifies the missing role.
+5. Crash during part finalization and publication. No partial Artifact is visible;
+   staging and final locations remain journaled, or all receipts transfer together.
+
+### Variable-width streaming persistence
+
+1. Write a small string-bearing result whose schema has no maximum text width.
+   It succeeds without a full count query or static worst-case byte proof.
+2. Stream more than 100,000 rows that fit the serialized budget; verify bounded
+   batches/buffers and exact counts with no local analytical stage or DataFrame.
+3. Test exactly-at/over limits for stored Artifact bytes including parts/manifests,
+   decoded batches, and an oversized individual value. Overflow returns no partial
+   Artifact, stops transfer, and never retries another sink inside the Run.
+4. Prove Python kernels and full collection retain their own complete-input
+   limits while DuckDB Artifact scans use separate engine and disk budgets.
 
 ### High-cardinality engine materialization
 
-1. Materialize a Dataset whose output is not admitted for local storage.
+1. Configure an engine target for a Dataset whose output is not admitted for
+   local storage; its final relation must already belong to that engine.
 2. Assert no unbounded local transfer occurs.
 3. Assert the engine relation uses an admitted immutable protocol.
 4. Assert exact row count and version-pinned receipt are committed.
@@ -2261,11 +2318,11 @@ continuations.
 
 ### Object materialization
 
-1. Use an engine that cannot retain an immutable relation but can write an
-   admitted immutable object Dataset.
-2. Assert manifest and objects commit before the Artifact marker.
+1. Configure an object target and use its exact admitted immutable export
+   protocol; no local/engine target is attempted first.
+2. Assert manifest and objects finalize durably before metadata publication.
 3. Assert local memory never receives the unbounded rows.
-4. Recover through an admitted scan/import path.
+4. Recover through the fixed authorized object Parquet reader, with no engine import.
 
 ### Repeated exact logical execution
 
@@ -2276,14 +2333,27 @@ continuations.
 4. Assert no new Run, datasource calculation, quality extraction, Finding
    publication, storage copy, or Artifact occurs.
 
-### Non-replayable source materialization
+### Source-independent same-Session recovery
 
-1. Materialize against a datasource that cannot expose comparable snapshot
-   authority.
-2. Assert the Artifact is recoverable by ref.
-3. Reconstruct the logical definition in the same named Session.
-4. Assert the established binding recovers the same Artifact without claiming
-   cross-Session source equivalence.
+1. Materialize a source without version metadata.
+2. Change its rows and make its original query endpoint unavailable.
+3. Recover its same-Session binding with no Run, origin connection, or freshness
+   check, provided the Artifact backing remains readable.
+4. Prove no source-authority record or reuse verdict is stored or disclosed.
+
+### Explicit cross-Session Artifact input
+
+1. Produce an Artifact in A and record its exact ref and producer times.
+2. Read it through `session_b.artifact(ref)`; verify execution context B with
+   unchanged Artifact owner A, ref, producer, storage, and Findings.
+3. Derive/execute from the handle: only B creates a Run/output, whose input edge
+   points to A's original Artifact. No copy or local binding is created by the read.
+4. Verify no source query, automatic match, or approval; a busy/blocked A does
+   not block this read or B's new execution.
+5. Admit explicitly passed foreign Materialized operands, reject foreign Logical
+   and cross-Store objects locally, and enforce normal operator input contracts.
+6. B's graph shows A's input as a boundary with the actual owner; A's graph does
+   not acquire B's Run or producer edge.
 
 ### Action-scoped sample materialization
 
@@ -2295,136 +2365,161 @@ continuations.
 4. Reconstruct it in a new Session and assert a new execution occurs; an equal
    policy or seed does not prove cross-Session realized-membership equivalence.
 
-### Concurrent same-key materialization
+### Same-Session write exclusion
 
-1. Start two `execute()` calls for the same exact execution key.
-2. Assert one producer claim exists and only one Run is admitted.
-3. Assert only one datasource execution runs.
-4. Assert the producer commits one Artifact.
-5. Assert the contender returns the bound Artifact without a contender Run.
+1. Start an `execute()` and hold its Session guard through backend execution.
+2. Start a second top-level write in the same Session, testing both the same and
+   a different execution key, another process, another thread, and reentrancy.
+3. Assert immediate Session-busy failure, no new Run, no wait queue, and no second
+   datasource execution. Metadata-only history and Artifact reads still work.
+4. After the first action finishes, explicitly retry the same key and prove it
+   returns the bound Artifact with no new Run.
 
-### Producer failure and claim takeover
+### Cross-Session independence
 
-1. Fail the elected producer before its commit marker.
-2. Assert cleanup completes and the producer Run fails.
-3. Assert one waiter atomically acquires a new claim.
-4. Assert it produces one Artifact under its own Run without rewriting history.
+1. Start long backend work in Session A and execute another key in Session B.
+2. Prove backend work overlaps while each publication is a short complete SQLite
+   transaction. No project execution lock or cross-Session resource reuse occurs.
+3. Leave A with an unresolved remote execution; B admits work while A waits for
+   termination/fencing proof. Then leave only harmless garbage in A and prove
+   A also admits new work without losing its cleanup obligation.
+4. Race creation/activation by name and verify one canonical Session per name,
+   transactional current-pointer updates, and stable ownership of existing handles.
 
-### Crash before commit marker
+### Failed execution and explicit retry
 
-1. Crash after immutable staging exists but before the marker.
-2. Lose the owner process, acquire the exact owner lock, and replace the matching
-   persisted nonce under the Store lock.
-3. Assert recovery finds no marker, cleans exact journaled resources, fails the
-   same Run with `process_lost`, and releases the claim.
-4. Assert no Artifact or Evidence authority becomes visible.
+1. Fail an execute action before publication and prove external execution terminal.
+2. Assert cleanup and the failed terminal, with no published Artifact/Evidence.
+3. After releasing the Session guard, retry explicitly and obtain a new Run.
+4. Assert no failed Run is rewritten and the key binds at most one Artifact.
 
-### Crash after commit marker
+### Crash before metadata commit
 
-1. Crash after marker commit but before Session Store finalization.
-2. Assert storage, metadata, Evidence, and Findings remain intact.
-3. Resume the Session.
-4. Assert recovery validates the unique marker, registers the Artifact,
-   succeeds the same Run, and returns the recoverable Dataset by ref.
-5. Assert no datasource execution or second Artifact occurs.
+1. Crash after finalized immutable storage exists but before publication commits.
+2. Acquire that Session's lock in a fresh process; no persisted lease is needed.
+3. Prove surviving external work terminal before cleanup; unavailable proof keeps
+   the Run incomplete and blocks only its own Session.
+4. Clean the exact obligations and fail the same Run with `process_lost`.
+5. Assert no partial Artifact, Evidence, or Finding becomes visible.
+
+### Crash after commit and lost acknowledgement
+
+1. Crash immediately after metadata commit but before returning the Dataset.
+2. Assert Artifact, descriptor, Evidence, Findings, and Run success already exist
+   together, and no output cleanup obligation remains.
+3. Read the same Artifact in a fresh process without terminal rewrite, index
+   repair, datasource execution, or a second Artifact.
+4. Inject a commit acknowledgement error and prove readback detects success.
+5. Make readback unavailable and prove no output deletion or guessed failed
+   terminal occurs; a later reader resolves the existing database outcome.
 
 ### Temporary-resource cleanup
 
 1. Force a sampled Population plan to use a single-evaluation temporary
    relation fence.
 2. Validate cleanup on success, execution failure, guard failure, cooperative
-   cancellation, and expired-owner recovery.
-3. Inject cleanup failure and assert no Artifact marker commits.
+   cancellation, and Session-guarded process-loss recovery.
+3. Inject harmless deletion failure after terminal proof; assert valid output
+   commits, its Run succeeds, journal rows remain, and another Run can execute.
 4. Assert later cleanup targets only the exact journaled locator and nonce.
 
-### Semantic-current over a materialized leaf
+### Retained rows and explicit semantic enrichment
 
-1. Materialize a Dataset.
-2. Change one current semantic dependency.
-3. Execute one materialized-only retained-field operator and assert it reads the
-   fixed leaf without catalog reinterpretation.
-4. Execute one semantic-current operator whose compatibility contract depends
-   on the changed dependency and assert a typed authority failure.
-5. Assert neither path replays the leaf's origin graph.
+1. Materialize a Dataset, then remove an original semantic definition.
+2. Execute a retained-field operator and assert it reads the fixed leaf without
+   catalog reinterpretation or a current-dependency comparison.
+3. Request one admitted current Dimension enrichment and verify only its exact
+   source/path is joined to the retained input; the changed historical catalog
+   alone does not veto the operation.
+4. Make that requested path missing, multi-valued, or type-incompatible and
+   assert a structured input-check failure, with no implicit alternate path.
+5. Assert neither operation replays the leaf's origin graph and no requirement
+   record, mode count, or successful-check audit is stored or exposed.
 
-### Datasource freshness revalidation
+### Agent-owned reuse judgment
 
-1. Materialize against a versioned source.
-2. Change the live source version.
-3. Recover and read the Artifact successfully.
-4. Call `session.revalidate(...)` and assert Artifact, storage, and Evidence
-   remain valid while datasource authority reports changed.
-5. Rerun the logical definition in the same Session and assert its binding still
-   recovers the committed snapshot; use a new Session to observe changed rows.
+1. Change origin rows after materialization while preserving Artifact backing.
+2. Read the exact result in the same Session and explicitly in another; neither
+   checks source state or treats age as an admission rule.
+3. Full inspection exposes exactly three integrity axes and no semantic/source
+   comparison, source token request, or reuse verdict.
+4. Show original Session, producer admission/finish times, commit time, schema,
+   and lineage as facts; no timestamp label implies data coverage or freshness.
+5. Missing/mutated backing and invalid operator input shapes still fail explicitly
+   without silent recomputation or a general reuse score.
 
 ### Strict Evidence atomicity
 
-1. Inject failure in quality, Finding extraction, Evidence envelope write, and
-   marker write separately.
+1. Inject failure in quality, Finding extraction, Artifact insertion, Evidence
+   insertion, Finding insertion, terminal insertion, and metadata commit separately.
 2. Assert each action returns no materialized Dataset.
 3. Assert no committed Artifact row or partial Evidence is visible.
-4. Assert pre-marker storage and Artifact metadata are cleaned from their exact
-   journal reservations.
+4. Assert unpublished storage is cleaned from exact journal reservations;
+   descriptor/Evidence/Finding/terminal rows roll back together with no sidecar.
 
 ## Implementation Evidence Required
 
 The Public Cutover Plan must require at least:
 
 - exact schema decode and future/old-generation rejection tests;
-- bounded compiler-audit round trips proving that no Ibis expression, generated
-  SQL, lowerer result payload, or private graph enters Run state;
+- optional diagnostics tests proving no compiler-audit type/payload, Ibis
+  expression, generated SQL, or private graph enters Run state or gates success;
 - Run variant and illegal-transition property tests;
 - proof that incomplete Run admission precedes live profile resolution,
   compilation, datasource statements, transfers, and resource creation;
 - local, engine, and object receipt round trips and mutation detection;
 - exact row-count validation for every receipt family;
 - publication failure injection at every ordered boundary;
-- a mutation-between-capture-and-read test proving that only a version-bound
-  statement remains replay-comparable;
-- marker-before-Store cold recovery tests;
-- no-marker process-loss cleanup and terminal failure tests;
-- ambiguous marker, mismatched metadata, missing storage, and corrupt Evidence
+- changed source rows and absent version metadata trigger no reuse check,
+  snapshot capture, or automatic recomputation;
+- atomic bundle visibility and lost-acknowledgement readback tests;
+- uncommitted process-loss cleanup and terminal failure tests;
+- contradictory committed metadata, missing storage, and corrupt Evidence
   fail-closed tests;
 - exact execution-key and write-once binding tests, including action-scoped
-  sampling and non-replayable sources;
+  sampling and sources without version metadata;
 - source-binding tests proving construction-time capture, execution after scope
   exit, changed-value key separation, same-value cold reconstruction recovery,
   no action-time ambient lookup, and exhaustive raw-value redaction;
-- same-key concurrent producer, waiter, failure, timeout, and takeover tests;
-- process owner-lock, lease renewal, and stale-owner takeover tests;
-- reservation-before-create crash injection, including Artifact metadata, plus
-  idempotent cleanup tests;
-- backend-work-survives-owner tests proving recovery retains the claim until the
-  old execution is terminal;
+- same-Session different/same-key, cross-process/thread, and reentrant writer
+  rejection tests, plus lock release on failure and child-process isolation;
+- cross-Session concurrent execution and blocked-Session isolation tests;
+- raced Session creation/activation and stable current-pointer/handle tests;
+- reservation-before-create crash injection and idempotent cleanup tests;
+- pure memory buffers create no journal rows; spilled resources do;
+- backend-work-survives-owner tests proving new work is blocked in that Session
+  until old execution is terminal/fenced; harmless garbage alone never blocks;
 - Materialized Dataset `show()` and `to_pandas()` no-origin-replay and no-new-Run
   tests;
 - strict zero-Finding Evidence and extractor-failure atomicity tests;
-- authority-mode branch enforcement and no-fallback tests;
+- exact input/node validation and no-fallback tests;
 - revalidation axis independence tests, including unreadable Artifact metadata
   and Evidence authority as `unverifiable` rather than `invalid`;
 - cold scan-leaf recovery without logical origin tests;
 - Session graph produced/binding-recovery/input-edge tests;
 - redaction and bounded-payload adversarial tests;
-- local policy boundary tests at exactly and above row and byte limits;
+- streaming-persistence batch/disk budget tests, variable-width values without
+  static total-size proof, exact streamed counts, and no whole-result buffering;
 - bounded Arrow exchange tests that reject a bad batch before consumer
   admission and account decoded Arrow-buffer bytes deterministically;
-- Run-staged Parquet tests for manifest/file/decoded-byte guards, schema drift,
+- Runtime Parquet staging tests for file/resource guards, schema drift,
   reservation-before-create, cleanup, and proof that no receipt, Artifact,
-  Evidence, execution binding, or graph node is created;
+  Evidence, execution-key Artifact row, or graph node is created;
 - DuckDB-workspace and Python-kernel-buffer crash/cleanup tests proving only the
-  guarded root output may enter durable storage selection;
+  validated root output may enter the configured durable target;
 - local and object receipt tests proving first-cutover durable file storage uses
   the exact versioned Parquet contract and cannot alias exchange staging;
-- engine/object high-cardinality journeys proving no unbounded local transfer;
-- deterministic audit and receipt identity tests;
+- explicitly configured engine/object high-cardinality journeys proving no
+  unbounded in-memory transfer and no automatic target switching;
+- deterministic receipt identity and optional diagnostic redaction tests;
 - current English/Chinese Help, docs, skill, and card drift tests owned by the
   cutover module;
 - real-agent journeys that execute, recover in a fresh process, inspect
-  Run/Artifact authority, revalidate drift, and continue analysis from the
+  Run/Artifact facts, inspect full integrity, and continue analysis from the
   immutable leaf.
 
 Local process health, a successful backend query, a staged file, an Evidence
-row without a marker, or a Run transcript is not acceptance. The terminal proof
+row without its complete publication bundle, or a Run transcript is not acceptance. The terminal proof
 is a recoverable same-family Dataset backed by one exact committed Artifact, or
 one terminal failed Run with no partial publication.
 
@@ -2435,51 +2530,58 @@ consulting implementation guesses:
 
 1. every producing execution kind and lifecycle transition is exact;
 2. pre-admission and post-admission work are distinguishable;
-3. Run, Artifact, execution-binding, receipt, Evidence, commit-marker, claim,
-   lease, and resource-journal schemas are closed and versioned;
-4. source authority is exact without inventing replayability;
+3. Run, Artifact descriptor, receipt, Evidence, and external-obligation
+   schemas are closed and versioned, and the Artifact
+   execution-key uniqueness contract is exact;
+4. source lineage and execution timing carry no freshness, equivalence, or
+   reuse-suitability guarantee;
 5. local, engine, and object storage have durable immutable receipt contracts;
 6. exact row count is mandatory for every materialized Artifact;
 7. commit ordering identifies one irreversible publication decision;
-8. pre-marker failure publishes nothing;
-9. post-marker failure remains recoverable and never becomes failed;
-10. repeated and concurrent exact execution produce one canonical Artifact and
-    one producer Run per binding;
+8. pre-commit failure publishes nothing;
+9. committed success survives process loss or lost acknowledgement unchanged;
+10. repeated exact execution reuses one Artifact per Session execution key;
+    overlapping writes are rejected within a Session and permitted across Sessions;
 11. unversioned sources and action-scoped stochastic samples remain pinned by
     their same-Session binding without claiming cross-Session equivalence;
 12. Materialized `show()` and `to_pandas()` read only the committed Artifact and
     create no analysis Run;
 13. every committed Artifact has complete quality and Evidence authority;
-14. temporary resources are journaled and cleaned on every terminal path;
+14. recoverable external resources are journaled before creation; each row is
+    deleted only after exact obligation discharge or atomic output transfer;
+    succeeded/failed Runs may retain harmless maintenance obligations;
 15. recovery never re-executes analysis or guesses through conflicting state;
 16. materialized scan leaves cannot reach through to origin plans;
-17. authority modes are selected once and never used as runtime fallback;
-18. revalidation keeps integrity, storage, semantic, and datasource facts
-    independent;
+17. exact inputs and calculation nodes are fixed without runtime substitution;
+18. full inspection keeps Artifact, storage, and Evidence integrity independent
+    with no semantic/source comparison or reuse verdict;
 19. Session graphs expose committed causality without operational coordination
     state;
 20. the persistence cutover has no migration, alias, or dual-read path;
-21. replay-comparable source authority is bound to the statements that read it;
+21. explicit same-Store cross-Session inputs preserve original Artifact identity
+    while only the consuming Session owns and locks its new computation;
 22. external resources and recoverable executions are reserved before creation
     or submission;
-23. cold recovery releases no claim while old backend writes remain possible;
+23. cold recovery admits no new work in its Session while old backend writes
+    remain possible; harmless garbage does not block work in any Session;
 24. Store v3, `storage_selection`, and unverifiable integrity states are exact
     closed contracts;
 25. every producing definition resolves one exact
     `DatasetMaterializationContractV1` before Run admission, while family owners
     define its semantic checks and Module 4 alone owns invocation and atomic
     publication;
-26. bounded Arrow streams and Run-staged Parquet are private exchange
+26. fixed kernel Arrow boundaries and Runtime staging are private execution
     representations governed by exact physical schemas, not Dataset authority;
 27. no exchange file, DuckDB workspace, or Python-kernel buffer can receive a
     storage receipt, Artifact ref, Evidence envelope, execution binding, or
     Session graph node;
 28. every private local-execution resource is reserved, journaled where
-    applicable, and cleaned before the Artifact marker or on no-marker recovery;
+    applicable; harmless deletion failure leaves exact obligations without
+    blocking valid output or later work;
 29. first-cutover local and object Dataset file receipts use one exact versioned
     Parquet contract, while engine receipts remain immutable relations;
-30. only the complete primary output is eligible for durable sink selection and
-    publication, regardless of how many SQL and local stages produce it;
+30. the complete root Artifact includes primary output and all required retained
+    parts; private intermediate exchanges are never independently published;
 31. parameterized source bindings are immutable logical-definition inputs,
     participate in `DatasetExecutionKeyV1` by exact digest, and are never
     resolved from ambient Session state at action time;
@@ -2488,127 +2590,107 @@ consulting implementation guesses:
 
 ## Owner-Confirmed Module Decisions
 
-The owner confirmed the original runtime decisions on 2026-09-01, revised the
-Dataset action and reuse boundary on 2026-09-02, revised private local exchange
-and Parquet storage on 2026-09-03, and froze parameterized-source execution
-identity on 2026-09-04:
+The following is the current decision set after the owner's 2026-09-05
+single-writer amendment, correction to Session-level locking and fixed-execution
+boundary replacement:
 
-1. only an `execute()` binding miss that wins the producer claim admits one Run
-   with `absent -> incomplete -> succeeded|failed`;
-2. pure graph/schema validation, execution-key derivation, binding lookup, and
-   producer-claim election precede Run admission;
-3. use `marivo.analysis_action_run/v2` and
-   `marivo.dataset_artifact/v1` as a clean persistence generation;
-4. the Session Store owns canonical Run lifecycle and graph edges;
-5. one Evidence Store commit marker is the cross-store Artifact publication
-   decision;
-6. a post-marker Run can only recover to succeeded, never failed;
-7. every committed Dataset Artifact has complete quality and Evidence authority,
-   including a valid zero-Finding envelope;
-8. local, engine, and object receipts form the only storage family;
-9. local materialization uses a fixed 100,000-row and 64-MiB policy separate
-   from bounded-local execution policy;
-10. immutable engine storage requires a registered version-addressed,
-    write-once, or snapshot-pinned relation protocol;
-11. one exact `DatasetExecutionKeyV1` binds normalized logical definition,
-    semantic dependencies, ordered input authority, and contract versions;
-12. source rows and realized samples do not enter the key; the bound Artifact
-    records those realized facts and remains the Session snapshot;
-13. repeated same-Session execution-binding recovery creates no new Run and
-    reuses one exact healthy Artifact;
-14. same-key concurrent calls elect one producer and wait for at most 30
-    seconds under `MaterializationClaimPolicyV1`; only the producer admits a
-    Run, and waiters recover its binding on success;
-15. owner locks, advisory leases, and resource journals make process-loss
-    recovery deterministic without time-only takeover;
-16. all non-output temporary resources are cleaned before the Artifact marker;
-17. cold recovery may repair only the unique valid marker-before-Store gap;
-18. `semantic_current`, `materialized_only`, and
-    `semantic_or_materialized` are selected requirements, never fallbacks;
-19. revalidation includes datasource authority when comparable and reports
-    unknown or unverifiable otherwise;
-20. datasource drift never invalidates immutable Artifact readability;
-21. Materialized Datasets expose no `execute()`; all registered downstream
-    operators remain available and return new Logical Datasets;
-22. Materialized `show()` and `to_pandas()` may persist bounded operational read
-    audit but create no analysis Run or new authority;
-23. operational claims, leases, receipts, journals, and commit-pending state
-    remain private;
-24. no old eager persistence schema is migrated or dual-read;
-25. Module 4 ranks durable sink candidates and selects the lowest-ranked
-    compiler-admitted candidate; Module 3 owns feasibility and the final physical
-    write path;
-26. a process-lifetime owner lock plus matching persisted nonce authorizes
-    takeover; lease expiry is advisory and cannot authorize takeover alone;
-27. ordinary crash recovery no longer requires caller-confirmed
-    `abandon_run(...)` once exact owner-lock takeover is safe;
-28. replay-comparable source authority requires version-bound or
-    transaction-pinned reads;
-29. every external resource, backend execution, and Artifact metadata path is
-    reserved before creation or submission;
-30. no-marker recovery keeps the Run incomplete and retains its claim until old
-    backend execution is terminal;
-31. the clean replacement Session Store is exact `user_version = 3` with no v2
-    in-place upgrade;
-32. sink-admission absence is `storage_selection`, not storage staging;
-33. Artifact and Evidence integrity distinguish proved invalidity from an
-    unverifiable check.
-34. Arrow is the canonical local exchange schema and bounded Arrow streaming is
-    the default one-pass transport;
-35. rewindable private input uses only Run-staged Parquet with exact guards and
-    cleanup, never Artifact, Evidence, receipt, binding, or graph authority;
-36. DuckDB workspaces and Python-kernel buffers are Run-owned non-output
-    resources and must be cleaned before publication;
-37. first-cutover local and object Dataset file storage uses the exact versioned
-    Parquet contract, distinct from exchange staging;
-38. only the complete Dataset root output may become a durable sink candidate
-    and enter atomic Artifact publication;
-39. parameterized non-secret JSON values are captured by the logical source
-    definition, represented in the execution key by an exact opaque digest,
-    and never reread from a dynamic Session scope during `execute()`;
-40. raw captured source-binding values remain process-local compiler inputs and
-    are absent from every persisted or user-visible runtime surface.
-41. all lazy runtime state lives under the generation-scoped v3 root; the eager
-    fixed-path v2 Store is neither upgraded nor decoded;
-42. the Session Store relations, Evidence Store v1 relations, keys, indexes,
-    and transaction owners are exactly those frozen under Runtime Schema
-    Generation;
-43. report-timezone facts live in the v3 `sessions` relation and no Session
-    metadata sidecar survives.
+1. One Agent writes each Session serially. A non-blocking Session writer guard
+   covers each whole action; different Sessions can execute concurrently.
+2. The project-level v3 SQLite Store owns all Session, Run, Artifact descriptor,
+   Evidence, Finding, and external-obligation metadata. No metadata sidecar or
+   independent Evidence database participates in publication.
+3. Immutable external storage is finalized before one metadata transaction
+   publishes Artifact, Evidence, Findings, succeeded terminal, and output
+   obligation removal. The transaction commit is the publication decision.
+4. There are no claims, leases, heartbeats, per-Run locks, contender queues,
+   timed wait-and-reuse, independent markers, or cross-Store repair gaps.
+5. Only a binding miss under the Session guard admits a Run. Immutable admission
+   and optional immutable terminal project `incomplete -> succeeded|failed`;
+   retry after failure creates a new Run.
+6. The Artifact unique `(session_ref, execution_key_digest)` key is the only
+   binding. It cannot redirect, refresh, or be deleted independently.
+7. The key adds only common materialization protocol version to Core's canonical
+   definition fingerprint; Store lookup supplies Session scope. Core normalizes
+   source/semantic/input/producer dependencies once. Live source rows, realized
+   samples, placement, and script identity do not enter reuse lookup.
+8. Only process-local pure checks precede guarded recovery and binding lookup.
+   Read-side validation may access committed storage without a Run; a new
+   computation requires admission before live authority resolution or execution.
+9. All committed Artifacts have complete quality and Evidence, including a valid
+   zero-Finding envelope. Family-owned contracts define checks and extraction;
+   Module 4 owns invocation and atomic publication.
+10. Local, engine, and object receipts are the only durable storage family.
+    Local storage streams under separate batch-memory and total-disk guards; engine
+    storage requires a registered immutable relation protocol.
+11. Module 4 supplies one configured storage target and validates its writer
+    against the fixed output domain. There are no candidate ranks or two-phase
+    selection callbacks. Primary data and required parts publish as one Artifact.
+12. Complete kernel inputs use exact guarded Arrow; DuckDB has separate engine
+    budgets. Runtime owns private staging, cancellation and cleanup. Local/object
+    storage retains its exact Parquet contract independently of temporary files.
+13. Temporary exchanges and workspaces never acquire Dataset, receipt, Evidence,
+    binding, or Graph authority. Pure memory buffers have no journal rows;
+    resources that survive process loss have exact durable reservations.
+14. Resource locators and ownership nonces are reserved before external side
+    effects. All executions must be terminal/fenced before publication; harmless
+    garbage can remain journaled after success without blocking new work.
+15. Every writer reconciles only its own Session's prior incomplete execution
+    and cleanup obligations. Session-lock acquisition proves no remote query
+    termination; inability to prove termination blocks that Session alone.
+16. Proven uncommitted interruption becomes failed after termination/fencing;
+    harmless uncleaned resources remain journaled.
+    Committed success needs no index repair or terminal rewrite. Uncertain
+    acknowledgement is resolved through authoritative Store readback.
+17. Recovery never resumes stages or reconstructs the Logical graph. Scripts
+    rebuild definitions; Artifact reads recover exact immutable scan leaves.
+18. Materialized `show()` and `to_pandas()` are read-only, create no Run, and
+    never replay origin SQL. All registered downstream operators create new
+    Logical Datasets over the immutable leaf.
+19. Operator contracts and compiled nodes own input checks without generic
+    requirement records or authority audits. No input fallback is allowed.
+    Full inspection keeps Artifact, Evidence, and storage checks independent;
+    no semantic/source comparison or reusability axis remains.
+20. Source lineage and execution times are factual only. Source changes never
+    redirect bindings; Agent judgment owns reuse suitability. Source-authority
+    variants and reusable snapshot certificates are removed.
+21. Raw source-binding values stay process-local; no Run, metadata, Evidence,
+    Finding, graph, error, or disclosure persists them. Only exact opaque binding
+    digests enter execution identity.
+22. Session timezone facts live in `sessions`; warning text is derived. The shared
+    current pointer is transactional navigation state, never execution authority.
+23. Graph reads project one Store snapshot without recovery or Finding-body scans.
+    External inputs are boundary Artifacts with their actual owners; only local
+    Runs enter the Session graph. Coordination remains private.
+24. The clean Store generation stays `user_version = 3`; eager state is neither
+    decoded nor migrated. Public deletion waits for a recoverable metadata and
+    external-storage deletion contract.
 
-Changing one of these decisions requires an explicit amendment to this module
-before Typed Operators, Subject/Event/Lifecycle, or Public Cutover relies on a
-replacement contract.
+Changes require an explicit amendment before downstream modules rely on them.
 
 ## Owner Confirmation
 
-On 2026-09-01 the owner accepted all recommended choices: strict Evidence
-atomicity, the Evidence-side commit marker, 30-second wait-and-reuse
-coordination, datasource-aware revalidation, the separate 100,000-row/64-MiB
-local storage policy, process-lock-authoritative crash recovery, and the
-runtime-ranked/compiler-proven durable sink seam. The owner also accepted the
-review corrections above as minimal amendments to those choices.
+The 2026-09-01 through 2026-09-04 decisions established the Dataset action,
+storage, Evidence-completeness, exchange, and generation contracts retained
+above. On 2026-09-05 the owner first removed duplicated Run
+and binding state, then approved a single-writer design and unified metadata
+publication. The owner subsequently selected Session-level locking instead of
+Store-level locking.
 
-On 2026-09-02 the owner replaced the prior action/reuse semantics with paired
-Logical and Materialized Dataset states, Logical-only zero-argument
-`execute()`, Materialized-only reads, downstream operators on both states, and
-the write-once same-Session execution binding defined above. Those later
-decisions supersede any older reuse wording in predecessor plans.
+This revision records that final scope: one lock per Session across its whole
+write action, independent execution/recovery across Sessions, and short shared
+SQLite transactions. It supersedes the earlier independent Evidence database,
+Artifact metadata file, cross-Store marker, claims, leases, and contender
+protocols. Those superseded choices are not implementation alternatives.
 
-On 2026-09-04 the owner retained `Session.source_bindings(...)` as an
-authoring-time scope whose exact non-secret values are captured by each logical
-source definition. The owner rejected execution-time ambient lookup and bound
-the exact value digest into same-Session execution identity under the redaction
-rules above.
+The owner then assigned freshness and reuse suitability to the Agent. This
+revision removes generic source-authority certificates and datasource freshness
+revalidation, and permits explicit same-Store cross-Session Artifact reads and
+inputs with original ownership and lineage. Foreign Logical Datasets remain
+Session-bound; no copying, reparenting, or automatic matching is introduced.
 
-On 2026-09-04 the owner also accepted the generation-scoped v3 layout, the
-independent Evidence Store `user_version = 1`, the exact relations and
-transaction owners above, and removal of the Session metadata sidecar. These
-decisions make creation of a new lazy named Session independent of an existing
-eager v2 Store without migration, decoding, or dual reads.
-
-No Module 4 owner-choice question remains open. Its consumed Observation Model
-contract and family-owned materialization registrations are accepted.
+This is an accepted design amendment, not evidence that the lazy runtime or
+its acceptance journeys are implemented. No runtime code changes or release
+operations are authorized by this document revision alone.
 
 ## Final Boundary
 
@@ -2616,11 +2698,19 @@ The runtime does not make a Logical Dataset durable by serializing its plan. A
 script reconstructs the definition; the named Session resolves its exact
 execution key to one realized Dataset. The runtime makes that result durable by
 committing exact immutable storage, quality, Evidence, Findings, metadata,
-Session causality, and the write-once execution binding as one recoverable
-authority decision.
+Session causality, and one unique execution-key Artifact registration as one
+recoverable authority decision.
 
-Before that decision, every row and resource is private staging and failure
-publishes nothing. After that decision, recovery completes the same Run and
+Before that decision, new output is private staging and failure publishes
+nothing. After that decision, the same Run is already succeeded and recovery
 preserves the same Artifact. A downstream action consumes only the immutable
 scan leaf or explicitly selected current semantic authority; it never reaches
 through a committed Dataset to replay its origin.
+
+## 2026-09-05 Review Amendment
+
+The owner approved operation-scoped reads, Artifact-owned retained parts, streaming
+local persistence, and non-blocking harmless cleanup. This amendment removes
+mandatory planning audits and semantic revalidation, gives Dataset Core one
+canonical execution-definition fingerprint, and removes pre-execution binding
+status from cards. All acceptance criteria above use these final contracts.
