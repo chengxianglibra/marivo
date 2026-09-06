@@ -11,7 +11,7 @@ import math
 import textwrap
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import CellType, FunctionType, MappingProxyType
 from typing import Literal, TypeAlias, cast
 
@@ -20,12 +20,15 @@ import ibis.expr.types as ir
 from marivo.refs import (
     EntityKind,
     FieldKind,
+    MetricKind,
     Ref,
     RefPayloadV1,
     SemanticKind,
     SemanticKindTag,
     _decode_ref_payload,
 )
+from marivo.semantic._definition_expression import describe_expression
+from marivo.semantic.definition import ExpressionDescription, _UnsupportedExpression
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -73,6 +76,9 @@ class ExpressionBody:
     bindings: tuple[ExpressionBindingV1, ...]
     source_column: str | None = None
     source_columns: tuple[str, ...] = ()
+    description: ExpressionDescription = field(
+        default_factory=lambda: _UnsupportedExpression("description_unavailable")
+    )
 
     def __post_init__(self) -> None:
         if not callable(self.callable):
@@ -128,6 +134,7 @@ class CompiledExpressionSidecar:
     bodies: Mapping[Ref[SemanticKindTag], ExpressionBody]
     field_owners: Mapping[Ref[FieldKind], Ref[EntityKind]]
     catalog_refs: frozenset[Ref[SemanticKindTag]]
+    default_cumulative_axes: frozenset[Ref[MetricKind]] = frozenset()
 
     def __post_init__(self) -> None:
         bodies = dict(self.bodies)
@@ -687,6 +694,34 @@ def compile_expression_body(
         owning_ref=owning,
     )
     collector.visit(function)
+    description_bindings: dict[int, tuple[Ref[FieldKind], Ref[EntityKind]]] = {}
+    for node in ast.walk(function):
+        if (
+            isinstance(node, ast.Call)
+            and _is_bind_target(node.func, symbols)
+            and (
+                len(node.args) == 2
+                and isinstance(node.args[0], ast.Name)
+                and isinstance(node.args[1], ast.Name)
+            )
+        ):
+            position = parameter_positions[node.args[1].id]
+            for binding in collector.bindings:
+                if (
+                    binding.to_ref() == symbols[node.args[0].id]
+                    and binding.entity_position == position
+                ):
+                    description_bindings[id(node)] = (
+                        binding.to_ref(),
+                        ordered_entity_refs[position],
+                    )
+    description = describe_expression(
+        function,
+        entities={
+            name: ordered_entity_refs[position] for name, position in parameter_positions.items()
+        },
+        bindings=description_bindings,
+    )
     if body_kind == "event":
         invalid = tuple(
             binding.to_ref()
@@ -702,6 +737,7 @@ def compile_expression_body(
                 received=", ".join(ref.kind.value for ref in invalid),
             )
     return ExpressionBody(
+        description=description,
         callable=_freeze_event_callable(fn, event_constants) if body_kind == "event" else fn,
         body_ast_hash=_normalized_body_hash(
             function,

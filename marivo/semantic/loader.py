@@ -674,6 +674,11 @@ def _build_registry(
             if expression_body is not None:
                 bodies[ref] = expression_body
 
+    default_cumulative_axes = frozenset(
+        ref_factory.metric(metric.semantic_id)
+        for metric in registry.metrics.values()
+        if isinstance(metric.composition, CumulativeComposition) and metric.composition.over is None
+    )
     _resolve_cumulative_over_axes(registry)
     _resolve_metric_additivity(registry)
     _resolve_metric_unit(registry)
@@ -681,6 +686,7 @@ def _build_registry(
         bodies=bodies,
         field_owners=field_owners,
         catalog_refs=frozenset(catalog_refs),
+        default_cumulative_axes=default_cumulative_axes,
     )
     state_model_errors = canonicalize_state_models(
         registry,

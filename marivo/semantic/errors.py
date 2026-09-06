@@ -29,6 +29,7 @@ __all__ = [
     "ErrorKind",
     "SemanticContractScopeError",
     "SemanticDecoratorError",
+    "SemanticDefinitionReadError",
     "SemanticError",
     "SemanticHelpTargetError",
     "SemanticLoadError",
@@ -156,6 +157,7 @@ class ErrorKind(StrEnum):
     MATERIALIZE_FAILED = "materialize_failed"
     BACKEND_MISMATCH = "backend_mismatch"
     COMPILE_ERROR = "compile_error"
+    DEFINITION_READ_FAILED = "definition_read_failed"
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
     CROSS_DATASOURCE_NOT_SUPPORTED = "cross_datasource_not_supported"
     BACKEND_FACTORY_REQUIRED = "backend_factory_required"
@@ -301,6 +303,35 @@ class SemanticError(Exception):
 
 class SemanticDecoratorError(SemanticError):
     """Error raised during decorator-time validation."""
+
+
+class SemanticDefinitionReadError(SemanticError):
+    """A loaded definition cannot be faithfully projected to the public schema."""
+
+    def __init__(self, *, ref: str, location: SourceLocation, received: str) -> None:
+        """Report the owning ref, declaration location and safe failure category.
+
+        Returns an error carrying expected/received facts and a reauthor repair.
+        Example: ``raise SemanticDefinitionReadError(ref=key, location=loc,
+        received="unknown metric composition")``. Never pass raw source or secrets.
+        """
+        super().__init__(
+            kind=ErrorKind.DEFINITION_READ_FAILED,
+            message="The loaded semantic definition cannot be described safely.",
+            refs=(ref,),
+            location=location,
+            expected="a supported loaded declaration with JSON-safe parameters",
+            received=received,
+            hint="Inspect the named declaration and replace unsupported or non-JSON-safe parameters.",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="authoring",
+                action=(
+                    "Inspect the declaration at the reported location, replace unsupported or "
+                    "non-JSON-safe parameters, reload the Catalog, and retry definition reading."
+                ),
+            ),
+        )
 
 
 class SemanticLoadError(SemanticError):

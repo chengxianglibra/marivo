@@ -120,7 +120,9 @@ from marivo.semantic.catalog import (
     WorkScheduleEntry,
     load,
 )
+from marivo.semantic.definition import SemanticDefinition
 from marivo.semantic.dtos import PreviewBatchResult
+from marivo.semantic.errors import SemanticDefinitionReadError
 from marivo.semantic.event import Participant, ParticipantRoleHandle
 from marivo.semantic.ir import (
     AggregateFoldInput,
@@ -264,6 +266,8 @@ __all__ = [
     "RelationshipEntry",
     "RichnessReport",
     "SemanticCatalog",
+    "SemanticDefinition",
+    "SemanticDefinitionReadError",
     "SemanticKind",
     "SimpleMetricDetails",
     "SourceCheck",

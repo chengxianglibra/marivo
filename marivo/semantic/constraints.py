@@ -235,7 +235,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("where", "count", "aggregate", "weighted_mean"),
         (
             "Metric filters use declared local semantic dimension names with either "
-            "one scalar equality value or a non-empty tuple/list of membership values."
+            "one finite scalar equality value or a non-empty tuple/list of finite "
+            "membership values."
         ),
         (
             "A filtered metric must resolve every condition to a dimension on its target "

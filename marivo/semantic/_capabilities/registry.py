@@ -1489,7 +1489,8 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             help_target=_target("where"),
             action=(
                 "Declare every filter dimension on the metric's target entity, then use "
-                "one scalar equality value or a non-empty tuple/list of membership values."
+                "one finite scalar equality value or a non-empty tuple/list of finite "
+                "membership values."
             ),
             snippet=(
                 "status = ms.dimension_column(\n"
@@ -3260,6 +3261,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         WorkScheduleDetails,
         WorkScheduleEntry,
     )
+    from marivo.semantic.definition import SemanticDefinition
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.ir import JoinKey, SqlProvenance
     from marivo.semantic.parity import ParityResult
@@ -3286,6 +3288,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
         consumers: tuple[str | LiveHelpTarget, ...] = (),
+        notes: tuple[str, ...] = (),
+        example: str | None = None,
     ) -> None:
         def targets(values: tuple[str | LiveHelpTarget, ...]) -> tuple[LiveHelpTarget, ...]:
             return tuple(
@@ -3298,6 +3302,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             public_properties=properties,
             public_methods=methods,
             consumers=targets(consumers),
+            notes=notes,
+            example=example,
         )
 
     def factory_methods(canonical_id: str) -> tuple[str, ...]:
@@ -3308,6 +3314,24 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             (target.canonical_id or "").rsplit(".", 1)[-1] for target in descriptor.see_also
         )
 
+    add(
+        SemanticDefinition,
+        "SemanticDefinition",
+        (),
+        properties=("ref", "catalog_definition_fingerprint", "node", "source_location", "temporal"),
+        methods=("show", "render", "to_dict"),
+        notes=(
+            "Read entry.details().definition on a loaded metric, measure, dimension or time dimension; no data access, source read, or expression execution.",
+            "node.kind selects aggregate (operation, target, filter), weighted_mean (value, weight, filter), ratio (numerator, denominator), linear (ordered signed terms), cumulative (base, over, anchor), or expression (status).",
+            "to_dict() returns marivo.semantic_definition/v1 with exact RefPayloadV1 references; follow each direct Ref through the same catalog.require(ref). It does not export a closure.",
+            "Cumulative over is explicit or default/context_required in the payload; default is preserved even when loading resolves an axis. Anchors retain all_history, grain_to_date (builtin or semantic calendar/level), or trailing count/unit.",
+            "Expression status is supported or unsupported with a reason and source_location. Supported syntax: column, field binding, cast, overloaded operator tokens, comparisons, and ifelse. Maximum 256 nodes and depth 32.",
+            "Expression literals are redacted to their type. Only column names and fixed cast type tokens are public structural strings. Unsupported syntax is never a guessed formula; TimeDimension parse remains on Details.",
+            "temporal separates declared rules, metric override, and effective rules with source; not_applicable and context_required make no query reaggregation promise.",
+            "The fingerprint identifies the existing compiled definition snapshot, not data freshness, readiness, or author approval. Declaration-only display metadata does not change calculation identity.",
+        ),
+        example="catalog = ms.load()\ndefinition = catalog.metrics.get('sales.revenue').details().definition\npayload = definition.to_dict()",
+    )
     add(
         GrainToDate,
         "GrainToDate",
@@ -3380,7 +3404,9 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         DimensionDetails,
         "DimensionDetails",
         (),
+        properties=("definition",),
         methods=show_render,
+        consumers=("SemanticDefinition",),
     )
     add(
         TimeDimensionEntry,
@@ -3392,7 +3418,9 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         TimeDimensionDetails,
         "TimeDimensionDetails",
         (),
+        properties=("definition",),
         methods=show_render,
+        consumers=("SemanticDefinition",),
     )
     add(
         MeasureEntry,
@@ -3404,7 +3432,9 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         MeasureDetails,
         "MeasureDetails",
         (),
+        properties=("definition",),
         methods=show_render,
+        consumers=("SemanticDefinition",),
     )
     add(
         MetricEntry,
@@ -3416,13 +3446,17 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SimpleMetricDetails,
         "SimpleMetricDetails",
         (),
+        properties=("definition",),
         methods=show_render,
+        consumers=("SemanticDefinition",),
     )
     add(
         DerivedMetricDetails,
         "DerivedMetricDetails",
         (),
+        properties=("definition",),
         methods=show_render,
+        consumers=("SemanticDefinition",),
     )
     add(
         RelationshipEntry,
@@ -3853,6 +3887,7 @@ def _error_types() -> Mapping[str, type]:
     from marivo.semantic.errors import (
         SemanticContractScopeError,
         SemanticDecoratorError,
+        SemanticDefinitionReadError,
         SemanticError,
         SemanticHelpTargetError,
         SemanticLoadError,
@@ -3865,6 +3900,7 @@ def _error_types() -> Mapping[str, type]:
         {
             "SemanticError": SemanticError,
             "SemanticDecoratorError": SemanticDecoratorError,
+            "SemanticDefinitionReadError": SemanticDefinitionReadError,
             "SemanticLoadError": SemanticLoadError,
             "SemanticRuntimeError": SemanticRuntimeError,
             "SemanticParityError": SemanticParityError,
