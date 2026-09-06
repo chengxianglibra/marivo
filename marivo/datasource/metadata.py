@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
 import ibis
 
-from marivo.datasource import backends as _backends
 from marivo.datasource import credentials as cr
-from marivo.datasource import store as _store
 from marivo.datasource.errors import (
+    DatasourceConnectionError,
     DatasourceCredentialError,
     DatasourceCredentialScopeError,
     DatasourceMetadataError,
@@ -29,6 +27,7 @@ from marivo.datasource.ir import (
     TableSourceIR,
     source_name,
 )
+from marivo.datasource.runtime import DatasourceConnectionService, load_datasource
 from marivo.render import Card, RenderableResult
 
 MetadataWarningKind = Literal[
@@ -539,21 +538,19 @@ def inspect_table(
     database: str | tuple[str, ...] | None = None,
     include_partitions: bool = True,
     project_root: Path | None = None,
+    connections: DatasourceConnectionService | None = None,
 ) -> TableMetadata:
-    datasource_ir = _store.load_one(datasource, project_root=project_root)
-    if datasource_ir is None:
-        raise DatasourceMetadataError(
-            message=f"datasource {datasource!r} is not configured",
-            expected="a registered project datasource",
-            received=datasource,
-            location="models/datasources/",
-            repair=repair(
-                kind="register",
-                canonical_id="register",
-                action="Register the datasource before inspecting it.",
-                candidates=tuple(_store.list_names()),
-            ),
-        )
+    if connections is None:
+        with DatasourceConnectionService(project_root).operation() as owned:
+            return inspect_table(
+                datasource,
+                table=table,
+                database=database,
+                include_partitions=include_partitions,
+                project_root=project_root,
+                connections=owned,
+            )
+    datasource_ir = load_datasource(datasource, project_root)
 
     from marivo.datasource.engines import require_profile_for_backend_type
     from marivo.datasource.engines.base import MetadataInspectRequest
@@ -561,101 +558,87 @@ def inspect_table(
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
     backend: Any = None
     try:
-        try:
-            with cr.operation_context(project_root=project_root):
-                backend = _backends.build_backend(datasource_ir)
-        except (DatasourceCredentialError, DatasourceCredentialScopeError):
-            raise
-        except Exception as exc:
-            exc = cr.safe_backend_exception(exc, backend)
-            failure = _backend_failure_summary(exc)
-            raise DatasourceMetadataError(
-                message=(
-                    f"failed to connect while inspecting datasource table "
-                    f"{datasource!r}.{table!r}: {failure.message}"
-                ),
-                expected="an inspectable datasource table",
-                received=failure.identity,
-                location=f"md.inspect({datasource!r}, {table!r})",
-                repair=repair(
-                    kind="reconnect",
-                    canonical_id="inspect",
-                    action="Verify the datasource connection and table name before retrying.",
-                ),
-            ) from exc
+        backend = connections.backend_for(datasource_ir)
+    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
+        raise
+    except Exception as exc:
+        exc = cr.safe_backend_exception(exc, backend)
+        failure = _backend_failure_summary(exc)
+        raise DatasourceMetadataError(
+            message=(
+                f"failed to connect while inspecting datasource table "
+                f"{datasource!r}.{table!r}: {failure.message}"
+            ),
+            expected="an inspectable datasource table",
+            received=failure.identity,
+            location=f"md.inspect({datasource!r}, {table!r})",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="inspect",
+                action="Verify the datasource connection and table name before retrying.",
+            ),
+        ) from exc
 
-        try:
-            table_expr = (
-                backend.table(table)
-                if database is None
-                else backend.table(table, database=database)
-            )
-        except (DatasourceCredentialError, DatasourceCredentialScopeError):
-            raise
-        except Exception as exc:
-            resolution_failure = profile.metadata.classify_table_resolution_failure(exc)
-            exc = cr.safe_backend_exception(exc, backend)
-            failure = _backend_failure_summary(exc)
-            if resolution_failure == "metadata_unavailable":
-                raise _TableMetadataUnavailableError(
-                    identity=failure.identity,
-                    message=failure.message,
-                ) from exc
-            raise DatasourceMetadataError(
-                message=(
-                    f"failed to resolve datasource table {datasource!r}.{table!r}: "
-                    f"{failure.message}"
-                ),
-                expected="an inspectable datasource table",
-                received=failure.identity,
-                location=f"md.inspect({datasource!r}, {table!r})",
-                repair=repair(
-                    kind="reconnect",
-                    canonical_id="inspect",
-                    action="Verify the datasource connection and table name before retrying.",
-                ),
+    try:
+        table_expr = (
+            backend.table(table) if database is None else backend.table(table, database=database)
+        )
+    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
+        raise
+    except Exception as exc:
+        resolution_failure = profile.metadata.classify_table_resolution_failure(exc)
+        exc = cr.safe_backend_exception(exc, backend)
+        failure = _backend_failure_summary(exc)
+        if resolution_failure == "metadata_unavailable":
+            raise _TableMetadataUnavailableError(
+                identity=failure.identity,
+                message=failure.message,
             ) from exc
+        raise DatasourceMetadataError(
+            message=(
+                f"failed to resolve datasource table {datasource!r}.{table!r}: {failure.message}"
+            ),
+            expected="an inspectable datasource table",
+            received=failure.identity,
+            location=f"md.inspect({datasource!r}, {table!r})",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="inspect",
+                action="Verify the datasource connection and table name before retrying.",
+            ),
+        ) from exc
 
-        try:
-            metadata = profile.metadata.inspect_table(
-                MetadataInspectRequest(
-                    datasource=datasource,
-                    backend=backend,
-                    table=table,
-                    database=database,
-                    table_expr=table_expr,
-                    include_partitions=include_partitions,
-                    datasource_ir=datasource_ir,
-                )
-            )
-        except DatasourceMetadataError:
-            raise
-        except (DatasourceCredentialError, DatasourceCredentialScopeError):
-            raise
-        except Exception as exc:
-            exc = cr.safe_backend_exception(exc, backend)
-            metadata = _schema_only(
+    try:
+        metadata = profile.metadata.inspect_table(
+            MetadataInspectRequest(
                 datasource=datasource,
+                backend=backend,
                 table=table,
                 database=database,
-                backend_type=datasource_ir.backend_type,
                 table_expr=table_expr,
-                warnings=(
-                    MetadataWarning(
-                        kind="metadata_query_failed",
-                        message=f"{datasource_ir.backend_type} metadata query failed: {exc}",
-                    ),
-                ),
+                include_partitions=include_partitions,
+                datasource_ir=datasource_ir,
             )
-    finally:
-        # The backend is an internal handle owned by this function; release it
-        # so it does not outlive the inspection. A lingering read-write handle
-        # would block read-only opens to the same DuckDB file from raw_sql in a
-        # later call.
-        disconnect = getattr(backend, "disconnect", None)
-        if callable(disconnect):
-            with suppress(Exception):
-                disconnect()
+        )
+    except DatasourceMetadataError:
+        raise
+    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
+        raise
+    except Exception as exc:
+        exc = cr.safe_backend_exception(exc, backend)
+        metadata = _schema_only(
+            datasource=datasource,
+            table=table,
+            database=database,
+            backend_type=datasource_ir.backend_type,
+            table_expr=table_expr,
+            warnings=(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"{datasource_ir.backend_type} metadata query failed: {exc}",
+                ),
+            ),
+        )
     return _with_primary_key_capability_warning(metadata)
 
 
@@ -665,7 +648,17 @@ def _inspect_source(
     source: EntitySourceIR,
     include_partitions: bool = True,
     project_root: Path | None = None,
+    connections: DatasourceConnectionService | None = None,
 ) -> TableMetadata:
+    if connections is None:
+        with DatasourceConnectionService(project_root).operation() as owned:
+            return _inspect_source(
+                datasource,
+                source=source,
+                include_partitions=include_partitions,
+                project_root=project_root,
+                connections=owned,
+            )
     if isinstance(source, TableSourceIR):
         return inspect_table(
             datasource,
@@ -673,6 +666,7 @@ def _inspect_source(
             database=source.database,
             include_partitions=include_partitions,
             project_root=project_root,
+            connections=connections,
         )
     if not isinstance(source, (ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         raise DatasourceMetadataError(
@@ -687,25 +681,12 @@ def _inspect_source(
             ),
         )
 
-    datasource_ir = _store.load_one(datasource, project_root=project_root)
-    if datasource_ir is None:
-        raise DatasourceMetadataError(
-            message=f"datasource {datasource!r} is not configured",
-            expected="a registered project datasource",
-            received=datasource,
-            location="models/datasources/",
-            repair=repair(
-                kind="register",
-                canonical_id="register",
-                action="Register the datasource before inspecting it.",
-                candidates=tuple(_store.list_names()),
-            ),
-        )
+    datasource_ir = load_datasource(datasource, project_root)
+    backend = None
     try:
-        with cr.operation_context(project_root=project_root):
-            backend = _backends.build_backend(datasource_ir)
         kwargs: dict[str, object] = {}
         if isinstance(source, ParquetSourceIR):
+            backend = connections.backend_for(datasource_ir)
             reader = getattr(backend, "read_parquet", None)
             if reader is None:
                 raise AttributeError("backend has no read_parquet()")
@@ -714,21 +695,10 @@ def _inspect_source(
             if source.columns is not None:
                 kwargs["columns"] = list(source.columns)
             table_expr = reader(source.path, **kwargs)
-        elif isinstance(source, CsvSourceIR):
-            reader = getattr(backend, "read_csv", None)
-            if reader is None:
-                raise AttributeError("backend has no read_csv()")
-            if not source.header:
-                kwargs["header"] = source.header
-            if source.delimiter != ",":
-                kwargs["delimiter"] = source.delimiter
-            table_expr = reader(source.path, **kwargs)
-        elif isinstance(source, JsonSourceIR):
-            # JSON sources carry a required physical schema. Inspection is
-            # metadata-only, so parameterized API URLs do not need runtime
-            # bindings and are never fetched merely to rediscover that schema.
+        elif isinstance(source, CsvSourceIR | JsonSourceIR):
+            # Declared schemas do not require physical acquisition.
             table_expr = ibis.table(dict(source.schema), name=source_name(source))
-    except (DatasourceCredentialError, DatasourceCredentialScopeError):
+    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
         raise
     except Exception as exc:
         exc = cr.safe_backend_exception(exc, backend)

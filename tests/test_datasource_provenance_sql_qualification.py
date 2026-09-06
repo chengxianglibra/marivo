@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import textwrap
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from unittest.mock import patch
 
 import ibis
@@ -107,11 +107,7 @@ class _FakeConnectionService:
 @contextmanager
 def _patch_project_backends(project, backend_factory):
     fake_service = _FakeConnectionService(backend_factory)
-    project._connection_service_instance = fake_service
-    with patch(
-        "marivo.datasource.runtime.DatasourceConnectionService",
-        return_value=fake_service,
-    ):
+    with patch.object(project, "_connection_operation", return_value=nullcontext(fake_service)):
         yield
 
 

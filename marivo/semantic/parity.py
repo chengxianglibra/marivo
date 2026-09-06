@@ -10,6 +10,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from marivo.datasource import credentials as cr
 from marivo.datasource.ir import TableSourceIR, qualify_provenance_sql
 from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import ErrorKind, SemanticParityError, _raise
@@ -185,98 +186,99 @@ def parity_check(
 
     datasource_id = next(iter(datasource_ids))
 
-    # Execute the ibis metric -> single scalar
-    try:
-        resolver = catalog._semantic_resolver()
-        metric_expr = resolver.metric(ref_factory.metric(metric_id))
-        actual_result = metric_expr.to_pandas()
-        actual_val = _extract_scalar(actual_result, metric_id, "Metric")
-    except SemanticParityError:
-        raise
-    except Exception as exc:
-        return ParityResult(
-            ok=False,
-            expected=None,
-            actual=None,
-            rel_tol=rel_tol,
-            abs_tol=abs_tol,
-            error=SemanticParityError(
-                kind=ErrorKind.MATERIALIZE_FAILED,
-                message=f"Failed to materialize metric {metric_id!r}: {exc}",
-                refs=(metric_id,),
-            ),
+    with cache_project._connection_operation() as connections:
+        # Execute the ibis metric -> single scalar
+        try:
+            resolver = catalog._semantic_resolver(connections=connections)
+            metric_expr = resolver.metric(ref_factory.metric(metric_id))
+            actual_result = metric_expr.to_pandas()
+            actual_val = _extract_scalar(actual_result, metric_id, "Metric")
+        except SemanticParityError:
+            raise
+        except Exception as exc:
+            return ParityResult(
+                ok=False,
+                expected=None,
+                actual=None,
+                rel_tol=rel_tol,
+                abs_tol=abs_tol,
+                error=SemanticParityError(
+                    kind=ErrorKind.MATERIALIZE_FAILED,
+                    message=f"Failed to materialize metric {metric_id!r}: {exc}",
+                    refs=(metric_id,),
+                ),
+            )
+
+        # Build table qualifiers from entity sources for automatic qualification.
+        # When source.database is set on the entity, use it directly.
+        # When source.database is absent, fall back to the datasource's database
+        # field (e.g. MySQL/ClickHouse datasources declare database at the
+        # connection level).
+        table_qualifiers: dict[str, str] = {}
+        for ds_ref in metric_ir.entities:
+            entity_ir = reg.entities.get(ds_ref)
+            if entity_ir is None:
+                continue
+            source = entity_ir.source
+            if not isinstance(source, TableSourceIR):
+                continue
+            db: str | tuple[str, ...] | None = source.database
+            if db is None:
+                # Fall back to the datasource's database field.
+                datasource_ir = reg.datasources.get(entity_ir.datasource)
+                if datasource_ir is not None:
+                    ds_db = datasource_ir.fields.get("database")
+                    if isinstance(ds_db, str):
+                        db = ds_db
+            if db is not None:
+                if isinstance(db, tuple):
+                    db = ".".join(db)
+                table_qualifiers[source.table] = f"{db}.{source.table}"
+
+        qualified_sql = qualify_provenance_sql(
+            metric_ir.provenance.sql,
+            table_qualifiers,
+            dialect=metric_ir.provenance.dialect,
         )
 
-    # Build table qualifiers from entity sources for automatic qualification.
-    # When source.database is set on the entity, use it directly.
-    # When source.database is absent, fall back to the datasource's database
-    # field (e.g. MySQL/ClickHouse datasources declare database at the
-    # connection level).
-    table_qualifiers: dict[str, str] = {}
-    for ds_ref in metric_ir.entities:
-        entity_ir = reg.entities.get(ds_ref)
-        if entity_ir is None:
-            continue
-        source = entity_ir.source
-        if not isinstance(source, TableSourceIR):
-            continue
-        db: str | tuple[str, ...] | None = source.database
-        if db is None:
-            # Fall back to the datasource's database field.
-            datasource_ir = reg.datasources.get(entity_ir.datasource)
-            if datasource_ir is not None:
-                ds_db = datasource_ir.fields.get("database")
-                if isinstance(ds_db, str):
-                    db = ds_db
-        if db is not None:
-            if isinstance(db, tuple):
-                db = ".".join(db)
-            table_qualifiers[source.table] = f"{db}.{source.table}"
+        # Execute the source SQL -> single scalar
+        try:
+            backend = connections.session_backend(datasource_id)
+            with cr.backend_errors(backend):
+                sql_result = backend.sql(qualified_sql)
+                sql_pandas = sql_result.to_pandas()
+            expected_val = _extract_scalar(sql_pandas, metric_id, "Source SQL")
+        except SemanticParityError:
+            raise
+        except Exception as exc:
+            return ParityResult(
+                ok=False,
+                expected=None,
+                actual=actual_val,
+                rel_tol=rel_tol,
+                abs_tol=abs_tol,
+                error=SemanticParityError(
+                    kind=ErrorKind.COMPILE_ERROR,
+                    message=f"Failed to execute source SQL for metric {metric_id!r}: {exc}",
+                    refs=(metric_id,),
+                ),
+            )
 
-    qualified_sql = qualify_provenance_sql(
-        metric_ir.provenance.sql,
-        table_qualifiers,
-        dialect=metric_ir.provenance.dialect,
-    )
+        # Compare values
+        ok = _values_match(actual_val, expected_val, rel_tol=rel_tol, abs_tol=abs_tol)
 
-    # Execute the source SQL -> single scalar
-    try:
-        service = cache_project._connection_service()
-        with service.use_backend(datasource_id) as backend:
-            sql_result = backend.sql(qualified_sql)
-            sql_pandas = sql_result.to_pandas()
-        expected_val = _extract_scalar(sql_pandas, metric_id, "Source SQL")
-    except SemanticParityError:
-        raise
-    except Exception as exc:
-        return ParityResult(
-            ok=False,
-            expected=None,
+        result = ParityResult(
+            ok=ok,
+            expected=expected_val,
             actual=actual_val,
             rel_tol=rel_tol,
             abs_tol=abs_tol,
-            error=SemanticParityError(
-                kind=ErrorKind.COMPILE_ERROR,
-                message=f"Failed to execute source SQL for metric {metric_id!r}: {exc}",
-                refs=(metric_id,),
-            ),
         )
 
-    # Compare values
-    ok = _values_match(actual_val, expected_val, rel_tol=rel_tol, abs_tol=abs_tol)
+        # Cache the result
+        cache_project._parity_results[metric_id] = result
 
-    result = ParityResult(
-        ok=ok,
-        expected=expected_val,
-        actual=actual_val,
-        rel_tol=rel_tol,
-        abs_tol=abs_tol,
-    )
-
-    # Cache the result
-    cache_project._parity_results[metric_id] = result
-
-    return result
+        return result
 
 
 def _values_match(

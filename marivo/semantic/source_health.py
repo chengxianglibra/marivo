@@ -982,246 +982,249 @@ def run_source_health(
     scope: PreviewScope | None,
 ) -> SourceHealthReport:
     """Run metadata checks and explicitly requested bounded data checks."""
-    registry = catalog._reg
-    selected_entities = tuple(
-        dict.fromkeys(
-            entity_id
-            for ref in refs
-            for entity_id in dependency_entities(ref.path, ref.kind, registry)
-        )
-    )
-    if not selected_entities:
-        _raise(
-            ErrorKind.INVALID_REF,
-            "catalog.source_health(refs=...) requires refs grounded in at least one Entity.",
-            cls=SemanticRuntimeError,
-            refs=tuple(ref.key for ref in refs),
-            details={"query_executed": False},
-        )
-    normalized_checks = _normalize_checks(
-        checks,
-        registry=registry,
-        selected_entities=frozenset(selected_entities),
-    )
-    checked_entities = tuple(
-        dict.fromkeys(
-            entity_id
-            for check in normalized_checks
-            for entity_id in _check_entities(check, registry)
-        )
-    )
-    if normalized_checks and scope is None:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "catalog.source_health(..., checks=...) requires one explicit AuthoringScope or exact Entity mapping.",
-            cls=SemanticRuntimeError,
-            refs=tuple(ref.key for ref in refs),
-            details={"query_executed": False},
-        )
-    if not normalized_checks and scope is not None:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "catalog.source_health(..., scope=...) requires at least one explicit data check.",
-            cls=SemanticRuntimeError,
-            refs=tuple(ref.key for ref in refs),
-            details={"query_executed": False},
-        )
-    normalized_scopes = (
-        dict(
-            _normalize_scopes(
-                checked_entities,
-                scope,
-                preview_ref=refs[0].path,
-                operation="catalog.source_health",
+    with catalog._project._connection_operation() as connections:
+        registry = catalog._reg
+        selected_entities = tuple(
+            dict.fromkeys(
+                entity_id
+                for ref in refs
+                for entity_id in dependency_entities(ref.path, ref.kind, registry)
             )
         )
-        if scope is not None
-        else {}
-    )
-    checked_at = datetime.now(tz=UTC).isoformat()
-    results: list[SourceHealthCheckResult] = []
-    inspections: dict[str, SourceInspection | None] = {}
-    connections = catalog._project._connection_service()
-    connectivity: dict[str, tuple[SourceHealthStatus, Mapping[str, object]]] = {}
-    for entity_id in selected_entities:
-        entity = registry.entities[entity_id]
-        exact_datasource_ref = ref_factory.datasource(entity.datasource)
-        if entity.datasource not in connectivity:
-            try:
-                backend = connections.session_backend(entity.datasource)
-                with cr.backend_errors(backend):
-                    backend.raw_sql("SELECT 1")
-            except (DatasourceCredentialError, DatasourceCredentialScopeError):
-                raise
-            except Exception as exc:
-                connectivity[entity.datasource] = (
-                    "unavailable",
-                    _unavailable_observed(exc),
+        if not selected_entities:
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.source_health(refs=...) requires refs grounded in at least one Entity.",
+                cls=SemanticRuntimeError,
+                refs=tuple(ref.key for ref in refs),
+                details={"query_executed": False},
+            )
+        normalized_checks = _normalize_checks(
+            checks,
+            registry=registry,
+            selected_entities=frozenset(selected_entities),
+        )
+        checked_entities = tuple(
+            dict.fromkeys(
+                entity_id
+                for check in normalized_checks
+                for entity_id in _check_entities(check, registry)
+            )
+        )
+        if normalized_checks and scope is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "catalog.source_health(..., checks=...) requires one explicit AuthoringScope or exact Entity mapping.",
+                cls=SemanticRuntimeError,
+                refs=tuple(ref.key for ref in refs),
+                details={"query_executed": False},
+            )
+        if not normalized_checks and scope is not None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "catalog.source_health(..., scope=...) requires at least one explicit data check.",
+                cls=SemanticRuntimeError,
+                refs=tuple(ref.key for ref in refs),
+                details={"query_executed": False},
+            )
+        normalized_scopes = (
+            dict(
+                _normalize_scopes(
+                    checked_entities,
+                    scope,
+                    preview_ref=refs[0].path,
+                    operation="catalog.source_health",
                 )
-            else:
-                connectivity[entity.datasource] = ("current", {"roundtrip": "SELECT 1"})
-        connection_status, connection_observed = connectivity[entity.datasource]
-        entity_ref = cast("Ref[SemanticKindTag]", ref_factory.entity(entity_id))
-        affected = _reverse_affected(catalog, (entity_ref,))
-        results.append(
-            _result(
-                kind="connectivity",
-                status=connection_status,
-                datasource=exact_datasource_ref,
-                source=entity.source,
-                target_refs=(entity_ref,),
-                affected_refs=affected,
-                checked_at=checked_at,
-                inspection=None,
-                observed=connection_observed,
-                repair_value=(
-                    None
-                    if connection_status == "current"
-                    else repair(
-                        kind="reconnect",
-                        canonical_id="source_health",
-                        action="Restore datasource connectivity or permissions, then rerun source health.",
+            )
+            if scope is not None
+            else {}
+        )
+        checked_at = datetime.now(tz=UTC).isoformat()
+        results: list[SourceHealthCheckResult] = []
+        inspections: dict[str, SourceInspection | None] = {}
+        connectivity: dict[str, tuple[SourceHealthStatus, Mapping[str, object]]] = {}
+        for entity_id in selected_entities:
+            entity = registry.entities[entity_id]
+            exact_datasource_ref = ref_factory.datasource(entity.datasource)
+            if entity.datasource not in connectivity:
+                try:
+                    backend = connections.session_backend(entity.datasource)
+                    with cr.backend_errors(backend):
+                        backend.raw_sql("SELECT 1")
+                except (DatasourceCredentialError, DatasourceCredentialScopeError):
+                    raise
+                except Exception as exc:
+                    connectivity[entity.datasource] = (
+                        "unavailable",
+                        _unavailable_observed(exc),
                     )
-                ),
-                user_data_queried=False,
-            )
-        )
-        try:
-            with connections.resolution_context():
-                inspection = _inspect_in_project(
-                    exact_datasource_ref,
-                    entity.source,
-                    project_root=catalog._project.workspace_dir,
-                )
-        except (DatasourceCredentialError, DatasourceCredentialScopeError):
-            raise
-        except DatasourceAuthoringError as exc:
-            inspections[entity_id] = None
-            authoring_status: SourceHealthStatus = (
-                "unavailable" if exc.code == "datasource_missing" else "failed"
-            )
+                else:
+                    connectivity[entity.datasource] = ("current", {"roundtrip": "SELECT 1"})
+            connection_status, connection_observed = connectivity[entity.datasource]
+            entity_ref = cast("Ref[SemanticKindTag]", ref_factory.entity(entity_id))
+            affected = _reverse_affected(catalog, (entity_ref,))
             results.append(
                 _result(
-                    kind="schema",
-                    status=authoring_status,
+                    kind="connectivity",
+                    status=connection_status,
                     datasource=exact_datasource_ref,
                     source=entity.source,
                     target_refs=(entity_ref,),
                     affected_refs=affected,
                     checked_at=checked_at,
                     inspection=None,
-                    observed=_authoring_failure_observed(exc),
-                    repair_value=exc.repair,
-                    user_data_queried=False,
-                )
-            )
-            continue
-        except Exception as exc:
-            inspections[entity_id] = None
-            results.append(
-                _result(
-                    kind="schema",
-                    status="unavailable",
-                    datasource=exact_datasource_ref,
-                    source=entity.source,
-                    target_refs=(entity_ref,),
-                    affected_refs=affected,
-                    checked_at=checked_at,
-                    inspection=None,
-                    observed=_unavailable_observed(exc),
-                    repair_value=repair(
-                        kind="inspect",
-                        canonical_id="source_health",
-                        action="Restore metadata access or the physical source, then rerun source health.",
+                    observed=connection_observed,
+                    repair_value=(
+                        None
+                        if connection_status == "current"
+                        else repair(
+                            kind="reconnect",
+                            canonical_id="source_health",
+                            action="Restore datasource connectivity or permissions, then rerun source health.",
+                        )
                     ),
                     user_data_queried=False,
                 )
             )
-            continue
-        inspections[entity_id] = inspection
-        missing_fields = _schema_missing_fields(
-            catalog,
-            entity_id=entity_id,
-            inspection=inspection,
-        )
-        declared_only = isinstance(entity.source, CsvSourceIR | JsonSourceIR) or any(
-            "declared" in warning.lower() or "metadata_unavailable" in warning.lower()
-            for warning in inspection.warnings
-        )
-        schema_status: SourceHealthStatus = (
-            "failed" if missing_fields else "unknown" if declared_only else "current"
-        )
-        schema_affected = _reverse_affected(catalog, missing_fields) if missing_fields else affected
-        results.append(
-            _result(
-                kind="schema",
-                status=schema_status,
-                datasource=exact_datasource_ref,
-                source=entity.source,
-                target_refs=(entity_ref,),
-                affected_refs=schema_affected,
-                checked_at=checked_at,
+            try:
+                with connections.resolution_context():
+                    inspection = _inspect_in_project(
+                        exact_datasource_ref,
+                        entity.source,
+                        project_root=catalog._project.workspace_dir,
+                        connections=connections,
+                    )
+            except (DatasourceCredentialError, DatasourceCredentialScopeError):
+                raise
+            except DatasourceAuthoringError as exc:
+                inspections[entity_id] = None
+                authoring_status: SourceHealthStatus = (
+                    "unavailable" if exc.code == "datasource_missing" else "failed"
+                )
+                results.append(
+                    _result(
+                        kind="schema",
+                        status=authoring_status,
+                        datasource=exact_datasource_ref,
+                        source=entity.source,
+                        target_refs=(entity_ref,),
+                        affected_refs=affected,
+                        checked_at=checked_at,
+                        inspection=None,
+                        observed=_authoring_failure_observed(exc),
+                        repair_value=exc.repair,
+                        user_data_queried=False,
+                    )
+                )
+                continue
+            except Exception as exc:
+                inspections[entity_id] = None
+                results.append(
+                    _result(
+                        kind="schema",
+                        status="unavailable",
+                        datasource=exact_datasource_ref,
+                        source=entity.source,
+                        target_refs=(entity_ref,),
+                        affected_refs=affected,
+                        checked_at=checked_at,
+                        inspection=None,
+                        observed=_unavailable_observed(exc),
+                        repair_value=repair(
+                            kind="inspect",
+                            canonical_id="source_health",
+                            action="Restore metadata access or the physical source, then rerun source health.",
+                        ),
+                        user_data_queried=False,
+                    )
+                )
+                continue
+            inspections[entity_id] = inspection
+            missing_fields = _schema_missing_fields(
+                catalog,
+                entity_id=entity_id,
                 inspection=inspection,
-                observed={
-                    "column_count": len(inspection.schema),
-                    "missing_field_refs": [ref.key for ref in missing_fields],
-                    "metadata_authority": "declared" if declared_only else "authoritative",
-                    "metadata_warnings": list(inspection.warnings),
-                    "execution_capabilities": asdict(inspection.execution_capabilities),
-                },
-                repair_value=(
-                    None
-                    if schema_status == "current"
-                    else (
-                        repair(
-                            kind="reauthor",
-                            canonical_id="source_health",
-                            action="Restore the missing physical columns or update the affected semantic field bindings.",
-                        )
-                        if schema_status == "failed"
-                        else repair(
-                            kind="rescope",
-                            canonical_id="source_health",
-                            action="Run only the explicit scoped data checks needed to prove the declared-only source contract.",
-                        )
-                    )
-                ),
-                user_data_queried=False,
             )
-        )
-    if normalized_checks:
-        resolver = catalog._semantic_resolver(
-            connections=connections,
-            entity_scopes=normalized_scopes,
-        )
-        for check in normalized_checks:
-            if isinstance(
-                check, RelationshipMatchesSourceCheck | RelationshipCardinalitySourceCheck
-            ):
-                results.append(
-                    _execute_relationship_check(
-                        catalog=catalog,
-                        check=check,
-                        scopes=normalized_scopes,
-                        inspections=inspections,
-                        resolver=resolver,
-                        checked_at=checked_at,
-                    )
+            declared_only = isinstance(entity.source, CsvSourceIR | JsonSourceIR) or any(
+                "declared" in warning.lower() or "metadata_unavailable" in warning.lower()
+                for warning in inspection.warnings
+            )
+            schema_status: SourceHealthStatus = (
+                "failed" if missing_fields else "unknown" if declared_only else "current"
+            )
+            schema_affected = (
+                _reverse_affected(catalog, missing_fields) if missing_fields else affected
+            )
+            results.append(
+                _result(
+                    kind="schema",
+                    status=schema_status,
+                    datasource=exact_datasource_ref,
+                    source=entity.source,
+                    target_refs=(entity_ref,),
+                    affected_refs=schema_affected,
+                    checked_at=checked_at,
+                    inspection=inspection,
+                    observed={
+                        "column_count": len(inspection.schema),
+                        "missing_field_refs": [ref.key for ref in missing_fields],
+                        "metadata_authority": "declared" if declared_only else "authoritative",
+                        "metadata_warnings": list(inspection.warnings),
+                        "execution_capabilities": asdict(inspection.execution_capabilities),
+                    },
+                    repair_value=(
+                        None
+                        if schema_status == "current"
+                        else (
+                            repair(
+                                kind="reauthor",
+                                canonical_id="source_health",
+                                action="Restore the missing physical columns or update the affected semantic field bindings.",
+                            )
+                            if schema_status == "failed"
+                            else repair(
+                                kind="rescope",
+                                canonical_id="source_health",
+                                action="Run only the explicit scoped data checks needed to prove the declared-only source contract.",
+                            )
+                        )
+                    ),
+                    user_data_queried=False,
                 )
-            else:
-                results.append(
-                    _execute_field_check(
-                        catalog=catalog,
-                        check=check,
-                        scopes=normalized_scopes,
-                        inspections=inspections,
-                        resolver=resolver,
-                        checked_at=checked_at,
+            )
+        if normalized_checks:
+            resolver = catalog._semantic_resolver(
+                connections=connections,
+                entity_scopes=normalized_scopes,
+            )
+            for check in normalized_checks:
+                if isinstance(
+                    check, RelationshipMatchesSourceCheck | RelationshipCardinalitySourceCheck
+                ):
+                    results.append(
+                        _execute_relationship_check(
+                            catalog=catalog,
+                            check=check,
+                            scopes=normalized_scopes,
+                            inspections=inspections,
+                            resolver=resolver,
+                            checked_at=checked_at,
+                        )
                     )
-                )
-    return SourceHealthReport(
-        status=_overall_status(results),
-        checks=tuple(results),
-        checked_at=checked_at,
-        catalog_definition_fingerprint=catalog.definition_fingerprint,
-    )
+                else:
+                    results.append(
+                        _execute_field_check(
+                            catalog=catalog,
+                            check=check,
+                            scopes=normalized_scopes,
+                            inspections=inspections,
+                            resolver=resolver,
+                            checked_at=checked_at,
+                        )
+                    )
+        return SourceHealthReport(
+            status=_overall_status(results),
+            checks=tuple(results),
+            checked_at=checked_at,
+            catalog_definition_fingerprint=catalog.definition_fingerprint,
+        )

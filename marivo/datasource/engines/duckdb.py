@@ -35,6 +35,13 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     return ibis.duckdb.connect(**connect_kwargs)
 
 
+def connection_conflict(exc: Exception) -> bool:
+    return (
+        type(exc).__name__ == "ConnectionException"
+        and "different configuration than existing connections" in str(exc)
+    )
+
+
 def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
     out = dict(kwargs)
     out["read_only"] = True
@@ -295,6 +302,7 @@ PROFILE = EngineProfile(
     authoring_func="duckdb",
     required_modules=("ibis.backends.duckdb",),
     connect=connect,
+    connection_conflict=connection_conflict,
     apply_read_only_kwargs=apply_read_only_kwargs,
     timezone_probe_sql="select current_setting('TimeZone') as timezone",
     identifier_quote='"',

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
@@ -12,7 +11,6 @@ from typing import Literal
 import ibis
 
 from marivo.config import find_project_root
-from marivo.datasource import backends as _backends
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
@@ -21,6 +19,7 @@ from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import EngineProfile, PartitionProbeRequest
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
+    DatasourceConnectionError,
     DatasourceCredentialError,
     DatasourceCredentialScopeError,
     DatasourceFieldInvalidError,
@@ -47,6 +46,7 @@ from marivo.datasource.metadata import (
     _schema_columns,
     _TableMetadataUnavailableError,
 )
+from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.snapshot import DiscoverySnapshot, acquire_snapshot
 from marivo.datasource.source import (
     AuthoringScope,
@@ -1019,8 +1019,9 @@ def _project_partitioning(
 def _parquet_metadata(
     datasource_ir: DatasourceIR,
     source: ParquetSourceIR,
+    connections: DatasourceConnectionService,
 ) -> TableMetadata:
-    backend = _backends.build_backend(datasource_ir)
+    backend = connections.backend_for(datasource_ir)
     try:
         reader = getattr(backend, "read_parquet", None)
         if not callable(reader):
@@ -1053,11 +1054,6 @@ def _parquet_metadata(
         if cr.injected_values(backend):
             raise cr.safe_backend_exception(exc, backend) from None
         raise
-    finally:
-        disconnect = getattr(backend, "disconnect", None)
-        if callable(disconnect):
-            with suppress(Exception):
-                disconnect()
 
 
 def _captured_partitioning(
@@ -1066,6 +1062,7 @@ def _captured_partitioning(
     datasource_ir: DatasourceIR,
     source: TableSource,
     profile: EngineProfile,
+    connections: DatasourceConnectionService,
     limit: int = _PARTITION_VALUE_LIMIT,
     order: Literal["asc", "desc"] = "desc",
 ) -> tuple[Partitioning, tuple[MetadataWarning, ...]]:
@@ -1075,6 +1072,7 @@ def _captured_partitioning(
         datasource_ir=datasource_ir,
         source=source,
         profile=profile,
+        connections=connections,
         limit=limit,
         order=order,
     )
@@ -1087,6 +1085,7 @@ def _captured_partitioning_for_fields(
     datasource_ir: DatasourceIR,
     source: TableSource,
     profile: EngineProfile,
+    connections: DatasourceConnectionService,
     limit: int,
     order: Literal["asc", "desc"],
 ) -> tuple[Partitioning, tuple[MetadataWarning, ...]]:
@@ -1158,7 +1157,7 @@ def _captured_partitioning_for_fields(
 
     backend = None
     try:
-        backend = _backends.build_backend(datasource_ir)
+        backend = connections.backend_for(datasource_ir)
         result = hook(
             PartitionProbeRequest(
                 backend=backend,
@@ -1198,7 +1197,7 @@ def _captured_partitioning_for_fields(
             ),
             warnings,
         )
-    except (DatasourceCredentialError, DatasourceCredentialScopeError):
+    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
         raise
     except Exception as exc:
         exc = cr.safe_backend_exception(exc, backend)
@@ -1219,11 +1218,6 @@ def _captured_partitioning_for_fields(
                 ),
             ),
         )
-    finally:
-        disconnect = getattr(backend, "disconnect", None)
-        if callable(disconnect):
-            with suppress(Exception):
-                disconnect()
 
 
 def _listed_partitioning(
@@ -1269,13 +1263,14 @@ def _listed_partitioning(
         source_to_output = {source: output for output, source in output_to_source.items()}
         physical_source = _unprojected_table(inspection.source)
 
-    with cr.operation_context(project_root=inspection._project_root):
+    with DatasourceConnectionService(inspection._project_root).operation() as connections:
         partitioning, warnings = _captured_partitioning_for_fields(
             state=inspection.partitioning.state,
             fields=physical_fields,
             datasource_ir=datasource_ir,
             source=physical_source,
             profile=profile,
+            connections=connections,
             limit=limit,
             order=order,
         )
@@ -1346,9 +1341,17 @@ def _inspect_in_project(
     source: TableSource,
     *,
     project_root: Path,
+    connections: DatasourceConnectionService | None = None,
 ) -> SourceInspection:
-    with cr.operation_context(project_root=project_root):
-        return _inspect_bound_source(datasource, source, project_root=project_root)
+    if connections is None:
+        with DatasourceConnectionService(project_root).operation() as owned:
+            return _inspect_in_project(
+                datasource, source, project_root=project_root, connections=owned
+            )
+    with connections.resolution_context(), cr.operation_context(project_root=project_root):
+        return _inspect_bound_source(
+            datasource, source, project_root=project_root, connections=connections
+        )
 
 
 def _inspect_bound_source(
@@ -1356,6 +1359,7 @@ def _inspect_bound_source(
     source: TableSource,
     *,
     project_root: Path,
+    connections: DatasourceConnectionService,
 ) -> SourceInspection:
     """Inspect one source against an already-resolved project root."""
     if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:
@@ -1426,7 +1430,7 @@ def _inspect_bound_source(
                 reason="Parquet source descriptors require a DuckDB datasource",
                 scope_state=None,
             )
-        metadata = _parquet_metadata(datasource_ir, source)
+        metadata = _parquet_metadata(datasource_ir, source, connections)
     else:
         try:
             base_metadata = _inspect_source(
@@ -1434,6 +1438,7 @@ def _inspect_bound_source(
                 source=_unprojected_table(source),
                 include_partitions=True,
                 project_root=project_root,
+                connections=connections,
             )
         except _TableMetadataUnavailableError as exc:
             if not source.columns:
@@ -1467,6 +1472,7 @@ def _inspect_bound_source(
                 datasource_ir=datasource_ir,
                 source=_unprojected_table(source),
                 profile=profile,
+                connections=connections,
             )
 
     if base_partitioning is None:
@@ -1475,6 +1481,7 @@ def _inspect_bound_source(
             datasource_ir=datasource_ir,
             source=source,
             profile=profile,
+            connections=connections,
         )
     elif isinstance(source, TableSourceIR) and source.columns:
         partitioning = _project_partitioning(base_partitioning, source, metadata)

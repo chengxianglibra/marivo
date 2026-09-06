@@ -480,7 +480,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "inspect",
             "marivo.datasource.inspection.inspect",
-            "Read live datasource metadata for one physical source.",
+            "Read physical metadata with operation-owned connections and a separate 30s handshake limit.",
             output="SourceInspection",
             inputs=_inputs(("subject", "Ref[datasource]"), ("dependency", "TableSource")),
             effects=_effects("live_metadata_read", "opens_connection"),
@@ -497,7 +497,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "raw_sql",
             "marivo.datasource.manage.raw_sql",
             "Run governed read-only SQL exploration with bounded returned rows and an "
-            "enforced timeout. Results are terminal evidence and cannot enter typed analysis; "
+            "execution timeout, plus a separate 30s connection handshake limit. Results are terminal evidence and cannot enter typed analysis; "
             "always check is_truncated before drawing conclusions.",
             output="RawSqlResult",
             inputs=_inputs(
@@ -607,7 +607,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "SourceInspection.sample",
             "marivo.datasource.inspection.SourceInspection.sample",
-            "Acquire scoped bounded evidence from an inspected source.",
+            "Acquire scoped evidence; the execution timeout excludes the separate 30s connection handshake.",
             kind="method",
             output="DiscoverySnapshot",
             inputs=(

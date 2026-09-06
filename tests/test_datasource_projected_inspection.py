@@ -10,6 +10,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.datasource.engines.clickhouse import (
     classify_table_resolution_failure as classify_clickhouse_resolution,
@@ -425,8 +426,8 @@ def test_only_classified_projected_resolution_failure_degrades_to_declared_only(
         ),
     )
     monkeypatch.setattr(
-        "marivo.datasource.metadata._backends.build_backend",
-        lambda *_args, **_kwargs: backend,
+        "marivo.datasource.backends.build_backend",
+        lambda *_args, **_kwargs: BuiltDatasourceBackend(backend, ()),
     )
     monkeypatch.setattr(
         "marivo.datasource.engines.require_profile_for_backend_type",
@@ -453,8 +454,8 @@ def test_unclassified_resolution_failure_remains_closed(
 ) -> None:
     backend = _ResolutionBackend(516)
     monkeypatch.setattr(
-        "marivo.datasource.metadata._backends.build_backend",
-        lambda *_args, **_kwargs: backend,
+        "marivo.datasource.backends.build_backend",
+        lambda *_args, **_kwargs: BuiltDatasourceBackend(backend, ()),
     )
 
     with pytest.raises(DatasourceMetadataError) as exc_info:

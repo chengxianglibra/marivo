@@ -44,6 +44,16 @@ backend acquisition requires a new runtime. Existing backend overrides and
 Session cleanup remain unchanged. See `marivo.help("datasource.credential_scope")`
 for the owning credential contract.
 
+Session connections retain environment-secret provenance through the shared
+backend construction path. The first successful analysis execution attempts
+best-effort caching; failed execution and injected credentials do not write the
+cache. Each Marivo-owned connection has an independent default 30-second handshake
+budget. Session connections retain their declared open mode and live until
+`Session.close()`; semantic preview and source-health operations release their
+own connections independently. A DuckDB read/write mode conflict requires closing
+the existing owner or matching declared settings; diagnostics never close an
+active Session implicitly.
+
 ### Lifecycle
 
 The public session surface is intentionally small (`mv.session.__all__` is exactly

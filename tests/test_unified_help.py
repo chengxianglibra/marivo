@@ -625,7 +625,7 @@ def test_ref_briefing_is_identity_only_and_performs_no_io(
     monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", fail)
     monkeypatch.setattr("marivo.config.load_project_config", fail)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend_with_secrets", fail)
+    monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", fail)
 
     text = _text(ms.ref.metric("sales.revenue"))
@@ -648,7 +648,7 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
 
     monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", fail)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend_with_secrets", fail)
+    monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", fail)
 
     text = _text(entry)

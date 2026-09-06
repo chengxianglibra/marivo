@@ -87,7 +87,6 @@ class Materializer:
         self._source_bindings = {
             entity_id: dict(params) for entity_id, params in (source_bindings or {}).items()
         }
-        self._backend_by_datasource: dict[str, IbisBackend] = {}
         self._entity_cache: dict[str, ibis.Table] = {}
         self._dimension_cache: dict[str, ir.Value] = {}
         self._measure_cache: dict[str, ir.Value] = {}
@@ -97,11 +96,7 @@ class Materializer:
 
     def _get_backend(self, datasource_semantic_id: str) -> IbisBackend:
         """Get or create a backend for the given datasource."""
-        if datasource_semantic_id not in self._backend_by_datasource:
-            self._backend_by_datasource[datasource_semantic_id] = self._backend_factory(
-                datasource_semantic_id
-            )
-        return self._backend_by_datasource[datasource_semantic_id]
+        return self._backend_factory(datasource_semantic_id)
 
     def _get_registry_and_sidecar(self) -> tuple[Registry, CompiledExpressionSidecar]:
         """Get registry and sidecar, raising if project is not loaded."""

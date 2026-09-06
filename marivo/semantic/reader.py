@@ -5,14 +5,16 @@ Agent-facing semantic reading goes through ``ms.load()`` and ``SemanticCatalog``
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
+from marivo.datasource import credentials as cr
 from marivo.datasource.ir import DatasourceIR
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
 from marivo.project import resolve_project_root
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.semantic._compiled_state import CompiledSemanticState
@@ -131,8 +133,9 @@ class SemanticProject:
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
-        self._connection_service_instance = DatasourceConnectionService(
+        self._connection_config = DatasourceConnectionConfig(
             project_root=self._workspace_dir,
+            resolver=cr.current_resolver(),
             include_semantic_layers=True,
         )
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
@@ -412,22 +415,9 @@ class SemanticProject:
 
     # -- readiness ----------------------------------------------------------
 
-    def _connection_service(self) -> DatasourceConnectionService:
-        """Return the connection service that captured this reader's resolver."""
-        return self._connection_service_instance
-
-    def _session_backend_factory(self) -> Callable[[str], Any]:
-        """Return a factory callable backed by the internal connection service.
-
-        This is used by Materializer and other callers that expect a
-        ``Callable[[str], Any]`` backend factory.
-        """
-        service = self._connection_service()
-
-        def _factory(name: str) -> Any:
-            return service.session_backend(name)
-
-        return _factory
+    def _connection_operation(self) -> AbstractContextManager[DatasourceConnectionService]:
+        """Create an operation owner using this reader's captured resolver."""
+        return self._connection_config.operation()
 
     def readiness(
         self,

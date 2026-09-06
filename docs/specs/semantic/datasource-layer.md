@@ -161,6 +161,40 @@ rejected — the exact ref is the contract. Renaming a legacy datasource changes
 its semantic identity. Explicit `*_env` references remain unchanged unless the
 author edits them.
 
+## Connection ownership and budgets
+
+All Marivo-owned connections use the same datasource lookup, credential
+resolution, engine construction, and cleanup path. The completed build retains
+both environment-secret provenance and injected credential information without
+rendering or serializing either. Only a successful `md.test(...)` or the first
+successful analysis execution in a Session triggers best-effort default caching;
+injected credentials are never cached.
+
+`md.connect(...)` hands ownership to its caller: use its context manager or
+`disconnect()`. Inspection and sampling own temporary connections. A single
+inspection shares one connection between table metadata and partition probes;
+CSV/JSON declared-schema inspection does not open a connection. Semantic preview,
+batch preview, source health, and parity share connections within their operation
+and release them on success or failure. Readers retain configuration and the
+selected credential resolver, not a live backend cache. Analysis alone keeps its
+Session cache until `Session.close()`; materializers borrow from their caller.
+
+Internal connection handshakes have an independent default 30-second deadline,
+including credential resolution and post-connect initialization. `md.connect`
+uses its explicit `timeout_seconds`; `md.test` retains one deadline for its whole
+connect-and-roundtrip operation. Query `timeout_seconds` on raw SQL, sampling,
+and preview remains an execution budget, not an end-to-end limit. SQLite
+connections are opened and used on their owning thread; its synchronous local
+open cannot be forcibly interrupted. A timed-out roundtrip releases its SQLite
+connection on the original worker when the driver returns. Other late connections
+are discarded and never enter a runtime cache.
+
+Declared read/write settings and external backend overrides retain their meaning.
+Marivo does not silently change an open mode or close another owner to resolve a
+DuckDB configuration conflict. A conflicting live connection produces a structured
+repair: close its Session or explicit connection, or use matching declared
+`read_only` settings, then retry. There is no global connection pool.
+
 ## Credentials and secret persistence
 
 Secrets never live in project state. Instead a spec records env-var names, and

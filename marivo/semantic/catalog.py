@@ -5774,7 +5774,7 @@ class SemanticCatalog(RenderableResult):
     def _semantic_resolver(
         self,
         *,
-        connections: object | None = None,
+        connections: object,
         sample_size: int | None = None,
         entity_scopes: Mapping[str, AuthoringScope] | None = None,
         source_bindings: (
@@ -5783,8 +5783,6 @@ class SemanticCatalog(RenderableResult):
     ) -> SemanticResolver:
         """Return an internal resolver backed by Materializer."""
         self._require_ready()
-        if connections is None:
-            connections = self._project._connection_service()
         if source_bindings is None:
             binding_provider = getattr(connections, "source_bindings", None)
             if callable(binding_provider):
@@ -5838,19 +5836,21 @@ class SemanticCatalog(RenderableResult):
             rows; metric previews independently aggregate at most 10,000 scoped
             input rows and must be treated as approximate.
         """
-        return self._preview_one(
-            _normalize_semantic_input(
-                self,
-                ref,
-                allowed_kinds=_ALL_SEMANTIC_KINDS,
-                location="catalog.preview(ref)",
-            ),
-            scope=scope,
-            source_bindings=source_bindings,
-            limit=limit,
-            include_types=include_types,
-            context_columns=context_columns,
-        )
+        with self._project._connection_operation() as connections:
+            return self._preview_one(
+                _normalize_semantic_input(
+                    self,
+                    ref,
+                    allowed_kinds=_ALL_SEMANTIC_KINDS,
+                    location="catalog.preview(ref)",
+                ),
+                scope=scope,
+                connections=connections,
+                source_bindings=source_bindings,
+                limit=limit,
+                include_types=include_types,
+                context_columns=context_columns,
+            )
 
     def preview_many(
         self,
@@ -5899,19 +5899,22 @@ class SemanticCatalog(RenderableResult):
             )
             for index, value in enumerate(refs)
         )
-        return self._preview_batch(
-            normalized_refs,
-            scope=scope,
-            source_bindings=source_bindings,
-            limit=limit,
-            include_types=include_types,
-        )
+        with self._project._connection_operation() as connections:
+            return self._preview_batch(
+                normalized_refs,
+                scope=scope,
+                connections=connections,
+                source_bindings=source_bindings,
+                limit=limit,
+                include_types=include_types,
+            )
 
     def _preview_one(
         self,
         ref: Ref[SemanticKindTag],
         *,
         scope: PreviewScope,
+        connections: DatasourceConnectionService,
         source_bindings: PreviewSourceBindings | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
@@ -5948,7 +5951,7 @@ class SemanticCatalog(RenderableResult):
             from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
             resolver = self._semantic_resolver(
-                connections=self._project._connection_service(),
+                connections=connections,
                 entity_scopes=bindings.entity_scopes,
                 source_bindings=bindings.source_bindings,
             )
@@ -5976,7 +5979,7 @@ class SemanticCatalog(RenderableResult):
             from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
             resolver = self._semantic_resolver(
-                connections=self._project._connection_service(),
+                connections=connections,
                 entity_scopes=bindings.entity_scopes,
                 source_bindings=bindings.source_bindings,
             )
@@ -6004,7 +6007,7 @@ class SemanticCatalog(RenderableResult):
             from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
             resolver = self._semantic_resolver(
-                connections=self._project._connection_service(),
+                connections=connections,
                 entity_scopes=bindings.entity_scopes,
                 source_bindings=bindings.source_bindings,
             )
@@ -6058,7 +6061,6 @@ class SemanticCatalog(RenderableResult):
                 refs=(ref_str,),
                 details={"query_executed": False, "backend": bindings.backend},
             )
-        connections = self._project._connection_service()
         backend = connections.session_backend(bindings.datasource_id)
 
         def execute_preview() -> PreviewResult:
@@ -6353,6 +6355,7 @@ class SemanticCatalog(RenderableResult):
         refs: Sequence[Ref[SemanticKindTag]],
         *,
         scope: PreviewScope,
+        connections: DatasourceConnectionService,
         source_bindings: PreviewSourceBindings | None,
         limit: int,
         include_types: bool,
@@ -6458,7 +6461,6 @@ class SemanticCatalog(RenderableResult):
                 key = ("relationship", item.order)
             groups.setdefault(key, []).append(item)
 
-        connections = self._project._connection_service()
         by_order: dict[int, PreviewResult] = {}
         for group_key, group_items in groups.items():
             try:
@@ -6493,6 +6495,7 @@ class SemanticCatalog(RenderableResult):
                     results = (
                         self._preview_one(
                             item.ref,
+                            connections=connections,
                             scope=(
                                 item.bindings.scopes[0][1]
                                 if len(item.bindings.entity_ids) == 1

@@ -98,6 +98,15 @@ empty collections into one summary.
 | `catalog.readiness(refs=[entry_or_ref_or_runtime_expr])` | Zero-query readiness gate over current entries, exact refs, or closed runtime metric expressions. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
+Preview, preview batches, source health, and parity own operation-scoped
+connections: helpers in the same operation borrow its cache, and all connections
+are released before returning, including failure paths. The catalog's reader
+captures the resolver and project configuration without retaining live backends.
+Each connection handshake has an independent default 30-second budget; explicit
+preview scopes retain their existing execution timeout. Analysis materialization
+instead borrows the owning Session's connection runtime. See
+[datasource-layer.md](datasource-layer.md#connection-ownership-and-budgets).
+
 Ordinary preview returns current execution results and never persists an
 authoring checkpoint. Dedicated period-calendar, temporal-set, and work-schedule
 preview may publish their immutable certified artifact after an exhaustive

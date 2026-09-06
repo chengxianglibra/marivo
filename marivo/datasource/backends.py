@@ -4,19 +4,26 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn, SupportsIndex
 from urllib.parse import urlsplit
+
+from ibis.backends import BaseBackend
 
 from marivo.datasource import credentials as cr
 from marivo.datasource import secrets
+from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.engines import (
     SUPPORTED_BACKEND_TYPES as SUPPORTED_BACKEND_TYPES,
 )
 from marivo.datasource.engines import (
     require_profile_for_backend_type,
 )
-from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMetadataError, repair
+from marivo.datasource.errors import (
+    DatasourceConnectionError,
+    DatasourceFieldInvalidError,
+    DatasourceMetadataError,
+    repair,
+)
 from marivo.datasource.ir import DatasourceIR, JsonSourceIR
 
 
@@ -77,8 +84,22 @@ def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
 
 @dataclass(frozen=True)
 class BuiltDatasourceBackend:
-    backend: Any
-    env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
+    backend: BaseBackend = field(repr=False)
+    env_sourced_secrets: tuple[secrets.ResolvedSecret, ...] = field(repr=False)
+    injected: tuple[cr.SecretValue, ...] = field(default=(), repr=False)
+    thread_affine: bool = field(default=False, repr=False)
+    lease: BackendLease = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "lease", BackendLease(self.backend, thread_affine=self.thread_affine)
+        )
+
+    def disconnect(self) -> None:
+        self.lease.close()
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
+        raise TypeError("Live datasource backends cannot be serialized.")
 
 
 @dataclass(frozen=True)
@@ -202,7 +223,7 @@ def apply_json_http_settings(backend: object, source: object) -> None:
     raw_sql("SET force_download=true")
 
 
-def _build_backend_with_secrets(
+def build_backend(
     datasource: DatasourceIR,
     *,
     read_only: bool = False,
@@ -225,9 +246,28 @@ def _build_backend_with_secrets(
     try:
         backend = profile.connect(datasource.name, kwargs)
     except Exception as exc:
+        if profile.connection_conflict(exc):
+            raise DatasourceConnectionError(
+                message="DuckDB already has a connection with an incompatible open mode.",
+                expected="a connection compatible with the declared datasource configuration",
+                received="conflicting live DuckDB connection",
+                location=f"datasource {datasource.name!r}",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="connect",
+                    action="Close the Session or explicit connection holding this DuckDB file, or use matching declared read_only settings, then retry.",
+                ),
+            ) from None
         if effective.injected:
             raise cr.connection_error(exc, effective.injected) from None
         raise
+    built = BuiltDatasourceBackend(
+        backend=backend,
+        env_sourced_secrets=effective.env_sourced_secrets,
+        injected=effective.injected,
+        thread_affine=profile.connection_thread == "caller",
+    )
+    lease = built.lease
     try:
         if datasource.backend_type == "duckdb":
             http_auth = _configure_duckdb_http_auth(
@@ -239,33 +279,18 @@ def _build_backend_with_secrets(
             if http_auth is not None:
                 backend._marivo_duckdb_http_auth = http_auth
     except BaseException as exc:
-        disconnect = getattr(backend, "disconnect", None)
-        if callable(disconnect):
-            disconnect()
+        lease.close()
         if effective.injected and isinstance(exc, Exception):
             raise cr.connection_error(exc, effective.injected) from None
         raise
-    cr.remember_injected(backend, effective.injected)
-    with cr.operation_context() as operation:
-        if operation.cancelled:
-            backend.disconnect()
-            raise TimeoutError("Datasource connection operation was cancelled.")
-    return BuiltDatasourceBackend(
-        backend=backend,
-        env_sourced_secrets=effective.env_sourced_secrets,
-    )
-
-
-def build_backend_with_secrets(
-    datasource: DatasourceIR,
-    *,
-    read_only: bool = False,
-    project_root: Path | None = None,
-) -> BuiltDatasourceBackend:
-    with cr.operation_context(project_root=project_root):
-        return _build_backend_with_secrets(datasource, read_only=read_only)
-
-
-def build_backend(datasource: DatasourceIR, *, read_only: bool = False) -> Any:
-    """Open and return a live ibis backend for the given datasource."""
-    return build_backend_with_secrets(datasource, read_only=read_only).backend
+    try:
+        cr.remember_injected(backend, effective.injected)
+        secrets.remember_env_sourced(backend, effective.env_sourced_secrets)
+        with cr.operation_context() as operation:
+            if operation.cancelled:
+                lease.close()
+                raise TimeoutError("Datasource connection operation was cancelled.")
+    except BaseException:
+        lease.close()
+        raise
+    return built

@@ -184,7 +184,7 @@ def test_sqlite_raw_sql_timeout_remains_armed_during_cursor_fetch(
     md.register(spec)
     datasource_ir = store.load_one("app", project_root=tmp_path)
     assert datasource_ir is not None
-    backend = backends.build_backend(datasource_ir)
+    backend = backends.build_backend(datasource_ir).backend
     backend.con.create_function(
         "pause",
         1,
@@ -241,7 +241,7 @@ def test_sqlite_explicit_and_internal_read_only_connections(
     md.register(md.sqlite(name="app", path=str(database_path)))
     datasource_ir = store.load_one("app", project_root=tmp_path)
     assert datasource_ir is not None
-    backend = backends.build_backend(datasource_ir, read_only=True)
+    backend = backends.build_backend(datasource_ir, read_only=True).backend
     try:
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             backend.raw_sql("DELETE FROM orders")

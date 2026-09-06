@@ -28,6 +28,20 @@ Registration & lifecycle
    remove
    test
 
+Connection ownership
+--------------------
+
+``connect()`` returns a caller-owned connection; prefer ``with md.connect(...)``.
+Inspection, sampling, semantic preview, source health, and parity release their
+operation-owned connections before returning. Analysis caches connections until
+``Session.close()``. Connections retain validated environment-secret provenance;
+host-injected secrets are never cached.
+
+Internal handshakes have an independent 30-second deadline. ``raw_sql`` and
+sampling/preview scopes retain their execution timeout, rather than an end-to-end
+budget. ``test()`` retains its whole-roundtrip deadline. SQLite opens locally on
+its caller's thread and cannot be forcibly interrupted during synchronous open.
+
 Credential injection
 --------------------
 

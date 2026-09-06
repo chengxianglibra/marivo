@@ -14,6 +14,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.inspection import SourceInspection
@@ -266,8 +267,8 @@ def test_projected_sample_missing_sql_capability_is_structured_before_execution(
 
     backend = LookupOnlyBackend()
     monkeypatch.setattr(
-        "marivo.datasource.snapshot._backends.build_backend",
-        lambda *_args, **_kwargs: backend,
+        "marivo.datasource.backends.build_backend",
+        lambda *_args, **_kwargs: BuiltDatasourceBackend(backend, ()),
     )
 
     with pytest.raises(DatasourceAuthoringError) as exc_info:
@@ -348,7 +349,7 @@ def test_unknown_column_blocks_before_backend_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.snapshot._backends.build_backend",
+        "marivo.datasource.backends.build_backend",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -380,7 +381,7 @@ def test_columns_must_be_exact_tuple_of_strings_before_connection(
     columns: object,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.snapshot._backends.build_backend",
+        "marivo.datasource.backends.build_backend",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -414,7 +415,7 @@ def test_direct_scope_values_are_revalidated_before_connection(
     scope: AuthoringScope,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.snapshot._backends.build_backend",
+        "marivo.datasource.backends.build_backend",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -441,7 +442,7 @@ def test_any_transformed_partition_blocks_even_when_capability_claims_support(
         ),
     )
     monkeypatch.setattr(
-        "marivo.datasource.snapshot._backends.build_backend",
+        "marivo.datasource.backends.build_backend",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -579,7 +580,7 @@ def test_time_range_rejects_non_temporal_or_unexposed_column_before_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.snapshot._backends.build_backend",
+        "marivo.datasource.backends.build_backend",
         lambda *_args, **_kwargs: pytest.fail("backend opened"),
     )
 
@@ -641,7 +642,7 @@ def test_backend_open_failure_is_structured_and_redacted(
         code = 115
 
     monkeypatch.setattr(
-        "marivo.datasource.snapshot._backends.build_backend",
+        "marivo.datasource.backends.build_backend",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             BackendOpenError(
                 "Code: 115. Unknown setting access_mode (UNKNOWN_SETTING); password=super-secret"
@@ -682,8 +683,8 @@ def test_source_resolution_failure_is_structured_and_disconnects(
 
     backend = Backend()
     monkeypatch.setattr(
-        "marivo.datasource.snapshot._backends.build_backend",
-        lambda *_args, **_kwargs: backend,
+        "marivo.datasource.backends.build_backend",
+        lambda *_args, **_kwargs: BuiltDatasourceBackend(backend, ()),
     )
 
     with pytest.raises(DatasourceAuthoringError) as exc_info:

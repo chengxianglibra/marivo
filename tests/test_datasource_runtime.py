@@ -5,6 +5,7 @@ import pytest
 
 import marivo.datasource as md
 from marivo.datasource import runtime, store
+from marivo.datasource.backends import BuiltDatasourceBackend
 
 
 class FakeBackend:
@@ -20,7 +21,9 @@ def test_use_backend_disconnects_after_success(
 ) -> None:
     backend = FakeBackend()
     monkeypatch.setattr(
-        runtime, "_build_backend_from_store", lambda name, project_root, read_only=False: backend
+        runtime,
+        "_build_backend_from_store",
+        lambda name, project_root, read_only=False: BuiltDatasourceBackend(backend, ()),
     )
 
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
@@ -36,7 +39,9 @@ def test_use_backend_disconnects_after_error(
 ) -> None:
     backend = FakeBackend()
     monkeypatch.setattr(
-        runtime, "_build_backend_from_store", lambda name, project_root, read_only=False: backend
+        runtime,
+        "_build_backend_from_store",
+        lambda name, project_root, read_only=False: BuiltDatasourceBackend(backend, ()),
     )
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
 
@@ -51,10 +56,10 @@ def test_session_backend_is_reused_until_close(
 ) -> None:
     created: list[FakeBackend] = []
 
-    def build(name: str, project_root: Path | None) -> FakeBackend:
+    def build(name: str, project_root: Path | None, **kwargs: object) -> BuiltDatasourceBackend:
         backend = FakeBackend()
         created.append(backend)
-        return backend
+        return BuiltDatasourceBackend(backend, ())
 
     monkeypatch.setattr(runtime, "_build_backend_from_store", build)
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
@@ -73,7 +78,7 @@ def test_session_backend_rejects_legacy_kind_prefixed_string(
 ) -> None:
     seen: list[str] = []
 
-    def build(name: str, project_root: Path | None) -> FakeBackend:
+    def build(name: str, project_root: Path | None, **kwargs: object) -> BuiltDatasourceBackend:
         seen.append(name)
         return FakeBackend()
 
