@@ -201,6 +201,7 @@ PROFILE = EngineProfile(
     authoring_func="sqlite",
     required_modules=("ibis.backends.sqlite",),
     connect=connect,
+    connection_thread="caller",
     apply_read_only_kwargs=apply_read_only_kwargs,
     timezone_probe_sql=None,
     identifier_quote='"',

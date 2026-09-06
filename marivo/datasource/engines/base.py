@@ -117,6 +117,10 @@ class AuthoringCapabilities:
     byte_estimate_supported: bool
 
 
+def no_connection_conflict(exc: Exception) -> bool:
+    return False
+
+
 @dataclass(frozen=True)
 class EngineProfile:
     name: str
@@ -138,6 +142,8 @@ class EngineProfile:
     quantile: QuantileCapability | None
     percentile_uses_approx_quantile: bool
     authoring_timeout: AuthoringTimeout | None
+    connection_thread: Literal["caller", "worker"] = "worker"
+    connection_conflict: Callable[[Exception], bool] = no_connection_conflict
 
     def __post_init__(self) -> None:
         timeout_enforced = self.authoring_timeout is not None

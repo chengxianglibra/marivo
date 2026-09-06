@@ -7,7 +7,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import Callable, Mapping
-from contextlib import suppress
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -17,7 +17,6 @@ from urllib.parse import urlparse
 import ibis.expr.types as ir
 import pandas as pd
 
-from marivo.datasource import backends as _backends
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
@@ -25,6 +24,8 @@ from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
+    DatasourceConnectionError,
+    DatasourceConnectionTimeoutError,
     DatasourceCredentialError,
     DatasourceCredentialScopeError,
     DatasourceObservedEffects,
@@ -40,6 +41,7 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.json_source import normalize_json_source_params, read_json_source
 from marivo.datasource.metadata import ColumnMetadata
+from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
 from marivo.datasource.table_source import table_source_expression
 from marivo.preview import normalize_preview_cell
@@ -548,6 +550,7 @@ def acquire_snapshot(
     persist_values: bool,
     refresh: bool,
     source_params: Mapping[str, QueryParamScalar | QueryParamScalarList] | None = None,
+    connections: DatasourceConnectionService | None = None,
 ) -> DiscoverySnapshot:
     """Acquire and locally profile one selected-column, limit-plus-one sample."""
     from marivo.datasource.authoring_store import (
@@ -615,16 +618,29 @@ def acquire_snapshot(
         )
 
     backend: BaseBackend | None = None
+    connections = connections or DatasourceConnectionService(inspection._project_root)
+    lifetime = ExitStack()
     timeout_entered = False
     execute_attempted = False
     try:
         try:
-            with cr.operation_context(
-                project_root=inspection._project_root, timeout_seconds=scope.timeout_seconds
-            ):
-                backend = _backends.build_backend(datasource_ir, read_only=True)
-        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            backend = lifetime.enter_context(connections.use_backend(datasource_ir, read_only=True))
+        except (
+            DatasourceConnectionTimeoutError,
+            DatasourceCredentialError,
+            DatasourceCredentialScopeError,
+        ):
             raise
+        except DatasourceConnectionError as exc:
+            error = _acquisition_error(
+                code="acquisition_connection_failed",
+                reason=exc.message,
+                received=exc.received or type(exc).__name__,
+                scope_state=inspection.partitioning.state,
+            )
+            if exc.repair is not None:
+                error.repair = exc.repair.model_copy(update={"preserves_evidence": True})
+            raise error from exc
         except Exception as exc:
             exc = cr.safe_backend_exception(exc, backend)
             failure = _backend_failure_summary(exc)
@@ -640,7 +656,11 @@ def acquire_snapshot(
                 inspection.source,
                 source_params=normalized_source_params,
             )
-        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+        except (
+            DatasourceConnectionTimeoutError,
+            DatasourceCredentialError,
+            DatasourceCredentialScopeError,
+        ):
             raise
         except Exception as exc:
             exc = cr.safe_backend_exception(exc, backend)
@@ -678,7 +698,11 @@ def acquire_snapshot(
                 timeout_entered = True
                 execute_attempted = True
                 frame = expression.execute()
-        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+        except (
+            DatasourceConnectionTimeoutError,
+            DatasourceCredentialError,
+            DatasourceCredentialScopeError,
+        ):
             raise
         except Exception as exc:
             exc = cr.safe_backend_exception(exc, backend)
@@ -711,11 +735,7 @@ def acquire_snapshot(
                 query_executed=True,
             ) from exc
     finally:
-        if backend is not None:
-            disconnect = getattr(backend, "disconnect", None)
-            if callable(disconnect):
-                with suppress(Exception):
-                    disconnect()
+        lifetime.close()
 
     observed_row_count = len(frame)
     retained = frame.iloc[: scope.max_rows].copy()

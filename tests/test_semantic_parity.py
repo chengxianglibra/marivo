@@ -23,7 +23,7 @@ Tests cover:
 from __future__ import annotations
 
 import textwrap
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from unittest.mock import patch
 
 import ibis
@@ -92,16 +92,10 @@ class _FakeConnectionService:
 def _patch_project_backends(project, backend_factory):
     """Patch project backend resolution so parity_check uses a test backend.
 
-    Patches two resolution paths:
-    - ``project._connection_service_instance`` for internal backend resolution
-    - ``DatasourceConnectionService`` constructor inside parity_check()
+    The injected backend remains owned by the test fixture.
     """
     fake_service = _FakeConnectionService(backend_factory)
-    project._connection_service_instance = fake_service
-    with patch(
-        "marivo.datasource.runtime.DatasourceConnectionService",
-        return_value=fake_service,
-    ):
+    with patch.object(project, "_connection_operation", return_value=nullcontext(fake_service)):
         yield
 
 

@@ -252,11 +252,11 @@ def test_late_connection_is_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         def disconnect(self) -> None:
             closed.set()
 
-    def build(datasource: object) -> backends.BuiltDatasourceBackend:
+    def build(datasource: object, **kwargs: object) -> backends.BuiltDatasourceBackend:
         assert release.wait(5)
         return backends.BuiltDatasourceBackend(Backend(), ())
 
-    monkeypatch.setattr(backends, "build_backend_with_secrets", build)
+    monkeypatch.setattr(backends, "build_backend", build)
     try:
         with (
             md.credential_scope(resolver=HostResolver()),
@@ -546,7 +546,6 @@ def test_public_semantic_analysis_and_resume(
             assert resolver.value not in "".join(traceback.format_exception(failed.value))
     finally:
         session.close()
-        catalog._project._connection_service().close_all()
     other = HostResolver("resumed-fixture-token")
     with md.credential_scope(resolver=other):
         resumed = mv.session.resume(session_id)

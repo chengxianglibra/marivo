@@ -9,6 +9,7 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+from marivo.datasource import backends as datasource_backends
 from marivo.datasource.authoring import (
     ClickHouseSpec,
     DatasourceSpec,
@@ -17,7 +18,8 @@ from marivo.datasource.authoring import (
     PostgresSpec,
     TrinoSpec,
 )
-from marivo.datasource.errors import DatasourceMetadataError
+from marivo.datasource.backends import BuiltDatasourceBackend
+from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.metadata import (
     ColumnMetadata,
     MetadataWarning,
@@ -336,7 +338,7 @@ def test_inspect_table_duckdb_unqualified_uses_default_schema_for_view_detection
 
 
 def test_inspect_table_missing_datasource_raises(project_root: Path) -> None:
-    with pytest.raises(DatasourceMetadataError) as exc_info:
+    with pytest.raises(DatasourceMissingError) as exc_info:
         _inspect_table("missing", table="orders")
 
     assert exc_info.value.received == "missing"
@@ -448,9 +450,11 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("mysql_wh", table="mart.orders")
 
@@ -494,9 +498,11 @@ def test_inspect_table_mysql_populates_physical_profile(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("mysql_wh", table="mart.orders")
 
@@ -542,9 +548,11 @@ def test_inspect_table_postgres_populates_physical_profile(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("pg_wh", table="orders", database="analytics")
 
@@ -586,9 +594,11 @@ def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
         ],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("mysql_wh", table="v_orders")
 
@@ -615,9 +625,11 @@ def test_inspect_source_file_derives_table_name_from_path(
     md.register(_spec("duck_wh", backend_type="duckdb", path=":memory:"))
     backend = _FakeFileBackend()
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_source(
         "duck_wh",
@@ -670,9 +682,11 @@ def test_inspect_table_trino_adapter_uses_information_schema(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table(
         "trino_wh",
@@ -738,9 +752,11 @@ def test_inspect_table_trino_splits_dotted_database_for_metadata_sql(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table(
         "trino_wh",
@@ -803,9 +819,11 @@ def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     _inspect_table(
         "trino_wh",
@@ -859,9 +877,11 @@ def test_inspect_table_trino_populates_physical_profile_from_show_stats(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("trino_wh", table="orders")
 
@@ -908,9 +928,11 @@ def test_inspect_table_trino_stats_failure_is_warning_only(
         raise_on_tokens=["SHOW STATS FOR"],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("trino_wh", table="orders")
 
@@ -956,9 +978,11 @@ def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailab
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("trino_wh", table="orders")
 
@@ -1002,9 +1026,11 @@ def test_inspect_table_trino_detects_view_definition(
         ],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("trino_wh", table="v_orders")
 
@@ -1055,9 +1081,11 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("trino_wh", table="orders")
 
@@ -1098,9 +1126,11 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
         raise_on_tokens=["SHOW COLUMNS FROM"],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("trino_wh", table="orders")
 
@@ -1161,9 +1191,11 @@ def test_inspect_table_trino_hive_partitioned_by_from_show_create(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("trino_wh", table="orders")
 
@@ -1216,9 +1248,11 @@ def test_inspect_table_trino_iceberg_partitioning_from_show_create(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("iceberg_wh", table="events")
 
@@ -1244,9 +1278,11 @@ def test_inspect_table_trino_without_schema_returns_schema_only(
     )
     backend = _FakeBackend({"order_id": "int64"}, {})
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("trino_wh", table="orders")
 
@@ -1288,9 +1324,11 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_wh", table="analytics.orders")
 
@@ -1337,9 +1375,11 @@ def test_inspect_table_clickhouse_populates_physical_profile_from_system_parts(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_profile", table="analytics.events")
 
@@ -1384,9 +1424,11 @@ def test_clickhouse_discovers_adapter_only_projectable_columns_from_active_parts
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_mapv2", table="analytics.events")
 
@@ -1434,9 +1476,11 @@ def test_clickhouse_projectable_column_discovery_accepts_empty_active_parts(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
     metadata = _inspect_table("ch_empty_parts", table="analytics.events")
 
     assert metadata.projectable_columns == ()
@@ -1472,9 +1516,11 @@ def test_clickhouse_projectable_columns_omit_type_conflicts_and_unparsed_types(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
     metadata = _inspect_table("ch_drift", table="analytics.events")
 
     assert metadata.projectable_columns == ()
@@ -1515,9 +1561,11 @@ def test_clickhouse_projectable_column_discovery_uses_distributed_local_table(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
     metadata = _inspect_table("ch_dist_keys", table="analytics.events_dist")
 
     assert metadata.projectable_columns[0].type == "string"
@@ -1548,9 +1596,11 @@ def test_clickhouse_projectable_column_discovery_permission_failure_is_warning(
         raise_on_tokens=["system.parts_columns"],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
     metadata = _inspect_table("ch_locked", table="analytics.events")
 
     assert metadata.projectable_columns == ()
@@ -1584,9 +1634,11 @@ def test_clickhouse_projectable_columns_exclude_schema_columns_when_catalog_is_u
         raise_on_tokens=["system.columns"],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
     metadata = _inspect_table("ch_partial_catalog", table="analytics.events")
 
     assert tuple(column.name for column in metadata.columns) == ("timestamp",)
@@ -1621,9 +1673,11 @@ def test_inspect_table_clickhouse_detects_view_definition(
         ],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_view", table="v_orders")
 
@@ -1664,9 +1718,11 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_old", table="default.orders")
 
@@ -1707,9 +1763,11 @@ def test_inspect_table_clickhouse_query_result(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_qr", table="analytics.orders")
 
@@ -1753,9 +1811,11 @@ def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_22_3", table="sample_web_monitor.ads_web_main_box_rt")
 
@@ -1795,9 +1855,11 @@ def test_inspect_table_clickhouse_partition_key_parsed(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_pk", table="analytics.events")
 
@@ -1829,9 +1891,11 @@ def test_inspect_table_clickhouse_partition_key_bare_column(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_bare", table="analytics.events")
 
@@ -1866,9 +1930,11 @@ def test_inspect_table_clickhouse_partition_key_composite(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_comp", table="analytics.events")
 
@@ -1904,10 +1970,10 @@ def test_inspect_table_clickhouse_partition_key_empty_and_tuple(
             },
         )
 
-        import marivo.datasource.metadata as metadata_mod
-
         monkeypatch.setattr(
-            metadata_mod._backends, "build_backend", lambda _datasource, b=backend: b
+            datasource_backends,
+            "build_backend",
+            lambda _datasource, b=backend, **_kwargs: BuiltDatasourceBackend(b, ()),
         )
 
         metadata = _inspect_table(f"ch_{label}", table="analytics.events")
@@ -1934,9 +2000,11 @@ def test_inspect_table_clickhouse_partition_key_unparseable(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_unp", table="analytics.events")
 
@@ -1987,9 +2055,11 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
         ],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_dist", table="analytics.events")
 
@@ -2030,9 +2100,11 @@ def test_inspect_table_clickhouse_distributed_profile_notes_local_metadata(
         ],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_dist_profile", table="analytics.events_dist")
 
@@ -2086,9 +2158,11 @@ def test_inspect_table_clickhouse_distributed_dereference_failure(
         },
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_dist_fail", table="analytics.events")
 
@@ -2123,9 +2197,11 @@ def test_inspect_table_clickhouse_system_tables_fallback(
         raise_on_tokens=["partition_key"],
     )
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("ch_fallback", table="analytics.orders")
 
@@ -2148,9 +2224,11 @@ def test_inspect_table_trino_short_name_is_not_rejected(
     )
     backend = _FakeBackend({"order_id": "int64"}, {})
 
-    import marivo.datasource.metadata as metadata_mod
-
-    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    monkeypatch.setattr(
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
+    )
 
     metadata = _inspect_table("wh", table="orders")
 

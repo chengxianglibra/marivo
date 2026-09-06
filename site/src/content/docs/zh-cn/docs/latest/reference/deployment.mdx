@@ -33,3 +33,20 @@ marivo.help("analysis.<target>")
 对于使用已发布版本的项目，请按[安装](/zh-cn/docs/latest/installation/)说明安装所需的后端扩展，
 `marivo init` 是可选命令；只有部署需要固化 manifest 或让宿主从文件系统发现智能体技能时才
 运行。将已提交的语义层保留在代理可访问的位置，以便每次运行都解析同一组声明。
+
+## 连接生命周期与超时
+
+显式连接使用 `with md.connect("warehouse") as connection:`。检查、采样、语义预览、
+source health 和 parity 在操作成功或失败后释放连接；批量预览在批次内复用连接。
+分析连接保留到 `session.close()`，catalog 无需额外关闭。
+
+Marivo 内部建连具有独立的 30 秒握手上限。raw SQL 与采样、预览 scope 的
+`timeout_seconds` 仍是查询执行预算。`md.connect` 使用调用方指定的握手超时，
+`md.test` 的单一时限覆盖建连和验证。SQLite 在调用线程内同步打开，
+本地打开过程无法被强制中断。
+
+如果 DuckDB 文件已有读写模式不兼容的连接，请关闭持有它的 Session 或显式连接，
+或统一声明的读写设置。Marivo 返回结构化修复提示，不会自动关闭现有持有者。
+
+连接测试成功或 Session 首次分析成功后，可将环境变量来源的凭据缓存到用户全局缓存。
+缓存写入失败不影响操作结果，宿主注入的凭据不会写入缓存。

@@ -11,6 +11,7 @@ from marivo.analysis.errors import (
     DatasourceFieldInvalidError,
     DatasourceMissingError,
 )
+from marivo.datasource import backends as datasource_backends
 from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource.authoring import (
     ClickHouseSpec,
@@ -20,6 +21,7 @@ from marivo.datasource.authoring import (
     PostgresSpec,
     TrinoSpec,
 )
+from marivo.datasource.backends import BuiltDatasourceBackend
 
 
 @pytest.fixture
@@ -140,13 +142,13 @@ def test_connect_context_manager_yields_backend_and_disconnects(
             self.disconnect_calls += 1
 
     backend = _FakeBackend()
-    import marivo.datasource.manage as registry_mod
-    from marivo.datasource.backends import BuiltDatasourceBackend
 
     monkeypatch.setattr(
-        registry_mod._backends,
-        "build_backend_with_secrets",
-        lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets=()
+        ),
     )
 
     connection = md.connect("wh")
@@ -174,13 +176,13 @@ def test_connect_context_manager_disconnects_after_error(
             self.disconnect_calls += 1
 
     backend = _FakeBackend()
-    import marivo.datasource.manage as registry_mod
-    from marivo.datasource.backends import BuiltDatasourceBackend
 
     monkeypatch.setattr(
-        registry_mod._backends,
-        "build_backend_with_secrets",
-        lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets=()
+        ),
     )
 
     with pytest.raises(RuntimeError, match="boom"), md.connect("wh"):
@@ -202,13 +204,13 @@ def test_connect_manual_disconnect_is_idempotent(
             self.disconnect_calls += 1
 
     backend = _FakeBackend()
-    import marivo.datasource.manage as registry_mod
-    from marivo.datasource.backends import BuiltDatasourceBackend
 
     monkeypatch.setattr(
-        registry_mod._backends,
-        "build_backend_with_secrets",
-        lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
+        datasource_backends,
+        "build_backend",
+        lambda _datasource, **_kwargs: BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets=()
+        ),
     )
 
     connection = md.connect("wh")

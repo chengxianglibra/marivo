@@ -17,7 +17,7 @@ Tests cover:
 from __future__ import annotations
 
 import textwrap
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from unittest.mock import patch
 
 import ibis
@@ -88,29 +88,40 @@ class _FakeConnectionService:
 
 
 def _patch_connection_service(project, factory):
-    """Return a context manager that patches project._connection_service to use *factory*."""
+    """Return a context manager that patches project._connection_operation to use *factory*."""
     fake = _FakeConnectionService(factory)
-    return patch.object(project, "_connection_service", return_value=fake)
+    return patch.object(project, "_connection_operation", return_value=nullcontext(fake))
 
 
 def _materialize_dataset(project, ref: str, *, source_bindings=None):
-    return (
-        SemanticCatalog(project)
-        ._semantic_resolver(source_bindings=source_bindings)
-        .table(make_ref(ref, SemanticKind.ENTITY))
-    )
+    with project._connection_operation() as connections:
+        return (
+            SemanticCatalog(project)
+            ._semantic_resolver(connections=connections, source_bindings=source_bindings)
+            .table(make_ref(ref, SemanticKind.ENTITY))
+        )
 
 
 def _materialize_field(project, ref: str):
-    return (
-        SemanticCatalog(project)
-        ._semantic_resolver()
-        .dimension(make_ref(ref, SemanticKind.DIMENSION))
-    )
+    with project._connection_operation() as connections:
+        return (
+            SemanticCatalog(project)
+            ._semantic_resolver(
+                connections=connections,
+            )
+            .dimension(make_ref(ref, SemanticKind.DIMENSION))
+        )
 
 
 def _materialize_metric(project, ref: str):
-    return SemanticCatalog(project)._semantic_resolver().metric(make_ref(ref, SemanticKind.METRIC))
+    with project._connection_operation() as connections:
+        return (
+            SemanticCatalog(project)
+            ._semantic_resolver(
+                connections=connections,
+            )
+            .metric(make_ref(ref, SemanticKind.METRIC))
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1415,7 +1426,10 @@ def test_weighted_mean_pairs_nulls_and_inherits_value_unit(semantic_project_fact
     with _patch_connection_service(project, lambda _: backend):
         catalog = SemanticCatalog(project)
         details = catalog.require(ms.ref.metric("sales.avg_latency")).details()
-        result = catalog._semantic_resolver().metric(ms.ref.metric("sales.avg_latency"))
+        with project._connection_operation() as connections:
+            result = catalog._semantic_resolver(connections=connections).metric(
+                ms.ref.metric("sales.avg_latency")
+            )
 
     assert details.unit == "ms"
     assert result.to_pandas() == pytest.approx(50.0 / 3.0)

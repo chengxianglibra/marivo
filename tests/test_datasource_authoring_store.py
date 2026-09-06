@@ -22,6 +22,8 @@ from marivo._temporal import (
     certify_period_calendar_rows,
 )
 from marivo.cli import init_project
+from marivo.datasource import backends as datasource_backends
+from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.inspection import SourceInspection
 from marivo.refs import ref
 
@@ -246,9 +248,11 @@ def test_snapshot_cache_omits_values_and_credentials_by_default(
         ),
     )
     monkeypatch.setattr(
-        snapshot_module._backends,
+        datasource_backends,
         "build_backend",
-        lambda *_args, **_kwargs: ibis.duckdb.connect(str(project_root / "warehouse.duckdb")),
+        lambda *_args, **_kwargs: BuiltDatasourceBackend(
+            ibis.duckdb.connect(str(project_root / "warehouse.duckdb")), ()
+        ),
     )
 
     snapshot = inspection.sample(

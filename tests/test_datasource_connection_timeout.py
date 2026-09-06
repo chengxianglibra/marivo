@@ -17,7 +17,9 @@ from types import SimpleNamespace
 import pytest
 
 import marivo.datasource as md
+from marivo.datasource import backends as datasource_backends
 from marivo.datasource import manage as manage_mod
+from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.errors import DatasourceConnectionTimeoutError
 from marivo.datasource.manage import DEFAULT_CONNECTION_TIMEOUT_SECONDS
 
@@ -27,18 +29,18 @@ def _patch_load_one(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         manage_mod._store,
         "load_one",
-        lambda name, project_root=None: SimpleNamespace(name=name),
+        lambda name, project_root=None: SimpleNamespace(name=name, backend_type="duckdb"),
     )
 
 
 def _patch_blocking_build(monkeypatch: pytest.MonkeyPatch, block_event: threading.Event) -> None:
     """Make backend build block until *block_event* is set."""
 
-    def blocking_build(datasource):  # type: ignore[no-untyped-def]
+    def blocking_build(datasource, **_kwargs):  # type: ignore[no-untyped-def]
         block_event.wait()
         raise AssertionError("unreachable: blocking build was released")
 
-    monkeypatch.setattr(manage_mod._backends, "build_backend_with_secrets", blocking_build)
+    monkeypatch.setattr(datasource_backends, "build_backend", blocking_build)
 
 
 class BlockingSelectBackend:
@@ -48,6 +50,7 @@ class BlockingSelectBackend:
         self._block_event = block_event
         self.queries: list[str] = []
         self.disconnect_calls = 0
+        self.closed = threading.Event()
 
     def raw_sql(self, sql: str) -> None:
         self.queries.append(sql)
@@ -55,15 +58,16 @@ class BlockingSelectBackend:
 
     def disconnect(self) -> None:
         self.disconnect_calls += 1
+        self.closed.set()
 
 
 def _patch_blocking_select_backend(
     monkeypatch: pytest.MonkeyPatch, backend: BlockingSelectBackend
 ) -> None:
     monkeypatch.setattr(
-        manage_mod._backends,
-        "build_backend_with_secrets",
-        lambda datasource: SimpleNamespace(backend=backend, env_sourced_secrets=()),
+        datasource_backends,
+        "build_backend",
+        lambda datasource, **_kwargs: BuiltDatasourceBackend(backend, ()),
     )
 
 
@@ -149,7 +153,8 @@ def test_test_returns_roundtrip_timeout_when_select_1_blocks(
     assert backend.queries == ["SELECT 1"]
     # The caller disconnects on timeout; the abandoned worker's own `finally`
     # may disconnect again before it is descheduled, so require at least one.
-    assert backend.disconnect_calls >= 1
+    assert backend.closed.wait(5)
+    assert backend.disconnect_calls == 1
 
 
 def test_test_no_persist_returns_roundtrip_timeout_when_select_1_blocks(
@@ -169,7 +174,8 @@ def test_test_no_persist_returns_roundtrip_timeout_when_select_1_blocks(
     assert result.failure.code == "connection_roundtrip_timeout"
     # Caller disconnect races with the abandoned worker's `finally` disconnect;
     # at least one is guaranteed by the timeout path.
-    assert backend.disconnect_calls >= 1
+    assert backend.closed.wait(5)
+    assert backend.disconnect_calls == 1
 
 
 def test_test_reports_normal_backend_error_as_open_failed(
@@ -178,10 +184,10 @@ def test_test_reports_normal_backend_error_as_open_failed(
     """A non-timeout connect failure still surfaces as ``connection_open_failed``."""
     _patch_load_one(monkeypatch)
 
-    def failing_build(datasource):  # type: ignore[no-untyped-def]
+    def failing_build(datasource, **_kwargs):  # type: ignore[no-untyped-def]
         raise RuntimeError("gateway refused connection")
 
-    monkeypatch.setattr(manage_mod._backends, "build_backend_with_secrets", failing_build)
+    monkeypatch.setattr(datasource_backends, "build_backend", failing_build)
 
     result = md.test("warehouse", timeout_seconds=1)
 

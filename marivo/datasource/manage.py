@@ -18,10 +18,10 @@ import pandas as pd
 from pandas.api.types import is_object_dtype
 
 from marivo._authoring.model import AuthoringRepair
-from marivo.datasource import backends as _backends
 from marivo.datasource import credentials as cr
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
+from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.authoring import (
     DatasourceSpec,
     _storage_name,
@@ -39,30 +39,20 @@ from marivo.datasource.errors import (
     _backend_failure_summary,
     repair,
 )
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime import (
+    DEFAULT_CONNECTION_TIMEOUT_SECONDS as DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+)
+from marivo.datasource.runtime import (
+    DatasourceConnectionService,
+    deadline_worker,
+    load_datasource,
+    open_backend,
+)
 from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult, result_repr
 
 RAW_SQL_DEFAULT_LIMIT = 100
 """Default row bound for ``md.raw_sql`` when the caller omits ``limit``."""
-
-DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
-"""Default wall-clock deadline for ``md.connect`` and ``md.test``.
-
-Bounds both the backend-connect handshake and the ``SELECT 1`` round-trip.
-Callers may override it with a keyword ``timeout_seconds``; a non-positive
-value is rejected before any connection is attempted.
-"""
-
-_THREAD_AFFINE_BACKEND_TYPES = frozenset({"sqlite"})
-"""Backend types whose connection object is bound to its creating thread.
-
-SQLite (opened via ``sqlite3.connect`` with the default ``check_same_thread``)
-raises if the connection is used from a thread other than the one that opened
-it. Such backends also open a local file or in-memory database synchronously
-and cannot block on a network handshake, so ``md.connect`` opens them inline on
-the caller's thread instead of on a deadline worker thread.
-"""
 
 
 def _truncation_warning(limit: int) -> str:
@@ -358,7 +348,7 @@ class DatasourceConnection:
 
     def __init__(self, backend: Any) -> None:
         self._backend = backend
-        self._closed = False
+        self._lease = BackendLease(backend)
 
     @property
     def backend(self) -> Any:
@@ -381,26 +371,14 @@ class DatasourceConnection:
         return False
 
     def _disconnect(self, *, suppress_errors: bool) -> None:
-        if self._closed:
-            return
-        disconnect = getattr(self._backend, "disconnect", None)
-        if not callable(disconnect):
-            self._closed = True
-            return
-        try:
-            disconnect()
-        except Exception:
-            if not suppress_errors:
-                raise
-        finally:
-            self._closed = True
+        self._lease.close(suppress_errors=suppress_errors)
 
     def disconnect(self) -> None:
         """Disconnect the backend once; repeated calls are no-ops."""
         self._disconnect(suppress_errors=False)
 
     def __repr__(self) -> str:
-        state = "closed" if self._closed else "open"
+        state = "closed" if self._lease.closed else "open"
         return result_repr(f"DatasourceConnection backend={type(self._backend).__name__} {state}")
 
 
@@ -554,106 +532,7 @@ def connect(
         opened on a deadline worker thread so a hanging gateway fails closed
         rather than blocking indefinitely.
     """
-    if timeout_seconds < 1:
-        raise ValueError("timeout_seconds must be positive.")
-    if _connect_runs_inline(name):
-        # SQLite opens a local file/in-memory database synchronously and cannot
-        # block on a network handshake; running it on a worker thread would hand
-        # back a connection bound to that thread, unusable from the caller.
-        return _connect_internal(name)
-    return cast(
-        "DatasourceConnection",
-        _run_with_deadline(
-            lambda: _connect_internal(name),
-            timeout_seconds=timeout_seconds,
-            stage="connection_timeout",
-            datasource_name=name,
-        ),
-    )
-
-
-def _run_with_deadline(
-    fn: Callable[[], Any],
-    *,
-    timeout_seconds: int,
-    stage: Literal["connection_timeout", "connection_roundtrip_timeout"],
-    datasource_name: str,
-) -> Any:
-    with cr.operation_context(timeout_seconds=timeout_seconds) as operation:
-        return _run_with_deadline_bound(
-            fn,
-            timeout_seconds=timeout_seconds,
-            datasource_name=datasource_name,
-            operation=operation,
-            stage=stage,
-        )
-
-
-def _run_with_deadline_bound(
-    fn: Callable[[], Any],
-    *,
-    operation: cr.CredentialOperation,
-    timeout_seconds: int,
-    stage: Literal["connection_timeout", "connection_roundtrip_timeout"],
-    datasource_name: str,
-) -> Any:
-    """Run *fn* on a worker thread and fail closed past ``timeout_seconds``.
-
-    The worker is a daemon thread, so a backend that blocks indefinitely in its
-    own connect/query call cannot keep the process alive. When the deadline is
-    exceeded the helper raises ``DatasourceConnectionTimeoutError`` rather than
-    blocking the caller. Late results are disconnected and never published.
-    Blocking third-party worker code cannot be forcibly stopped.
-    """
-    outcome: dict[str, Any] = {}
-    lock = threading.Lock()
-
-    def _target() -> None:
-        try:
-            value = fn()
-            with lock:
-                late = operation.cancelled
-                if not late:
-                    outcome["value"] = value
-            if late:
-                disconnect = getattr(value, "disconnect", None)
-                if callable(disconnect):
-                    with suppress(Exception):
-                        disconnect()
-        except BaseException as exc:
-            outcome["error"] = exc
-
-    context = copy_context()
-    worker = threading.Thread(target=lambda: context.run(_target), daemon=True)
-    started = time.monotonic()
-    worker.start()
-    worker.join(max(0.0, (operation.deadline or started + timeout_seconds) - time.monotonic()))
-    elapsed_ms = int((time.monotonic() - started) * 1000)
-    if worker.is_alive() or operation.cancelled:
-        with lock:
-            credential_error = operation.timeout_error()
-            if credential_error is None and isinstance(
-                outcome.get("error"), DatasourceCredentialError
-            ):
-                credential_error = outcome["error"]
-            operation.cancel.set()
-            value = outcome.pop("value", None)
-        disconnect = getattr(value, "disconnect", None)
-        if callable(disconnect):
-            with suppress(Exception):
-                disconnect()
-        if credential_error is not None:
-            raise credential_error
-        raise DatasourceConnectionTimeoutError(
-            stage=stage,
-            timeout_seconds=timeout_seconds,
-            elapsed_ms=elapsed_ms,
-            datasource_name=datasource_name,
-            location=f"md.connect({datasource_name!r})",
-        )
-    if "error" in outcome:
-        raise outcome["error"]
-    return outcome.get("value")
+    return _connect_internal(name, timeout_seconds=timeout_seconds)
 
 
 def _connect_internal(
@@ -661,47 +540,18 @@ def _connect_internal(
     *,
     project_root: Path | None = None,
     include_semantic_layers: bool = False,
+    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
 ) -> DatasourceConnection:
+    if timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be positive.")
     project_root = cr.operation_root(project_root)
-    datasource = (
-        _store.load_one_layered(name, project_root=project_root)
-        if include_semantic_layers
-        else _store.load_one(name, project_root=project_root)
+    datasource = load_datasource(
+        name, project_root, include_semantic_layers=include_semantic_layers
     )
-    if datasource is None:
-        available = (
-            _store.list_names_layered(project_root)
-            if include_semantic_layers
-            else _store.list_names(project_root)
-        )
-        raise DatasourceMissingError(
-            message=f"datasource {name!r} is not configured",
-            expected="a registered project datasource",
-            received=name,
-            location="models/datasources/",
-            repair=repair(
-                kind="register",
-                canonical_id="register",
-                action="Register the datasource before retrying.",
-                snippet=f'md.register(md.duckdb(name={name!r}, path=":memory:"))',
-                candidates=tuple(available),
-            ),
-        )
-    with cr.operation_context(project_root=project_root):
-        built = _backends.build_backend_with_secrets(datasource)
+    built = open_backend(datasource, project_root=project_root, timeout_seconds=timeout_seconds)
     connection = DatasourceConnection(built.backend)
-    _secrets.remember_env_sourced(built.backend, built.env_sourced_secrets)
-    _secrets.remember_env_sourced(connection, built.env_sourced_secrets)
+    connection._lease = built.lease
     return connection
-
-
-def _connect_runs_inline(name: str) -> bool:
-    """Return True when the backend must be opened on the caller's thread."""
-    datasource = _store.load_one(name, project_root=cr.operation_root(None))
-    return (
-        datasource is not None
-        and getattr(datasource, "backend_type", None) in _THREAD_AFFINE_BACKEND_TYPES
-    )
 
 
 def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
@@ -776,6 +626,16 @@ def _failure_code_for_phase(phase: str) -> DatasourceFailureCode:
     return "connection_open_failed"
 
 
+def _release_connection(connection: object) -> None:
+    if isinstance(connection, DatasourceConnection):
+        connection._disconnect(suppress_errors=True)
+        return
+    disconnect = getattr(connection, "disconnect", None)
+    if callable(disconnect):
+        with suppress(Exception):
+            disconnect()
+
+
 def _run_roundtrip_with_deadline(
     fn: Callable[[dict[str, Any]], DatasourceTestResult],
     *,
@@ -823,7 +683,8 @@ def _run_roundtrip_with_deadline_bound(
 
     def worker() -> None:
         try:
-            outcome["result"] = fn(state)
+            with deadline_worker():
+                outcome["result"] = fn(state)
         except BaseException as exc:
             values = cr.injected_values(state.get("backend"))
             if values and isinstance(exc, Exception) and not isinstance(exc, DatasourceError):
@@ -831,18 +692,16 @@ def _run_roundtrip_with_deadline_bound(
             else:
                 outcome["error"] = exc
         finally:
-            backend = state.get("backend")
-            disconnect = getattr(backend, "disconnect", None)
-            if callable(disconnect):
-                with suppress(Exception):
-                    disconnect()
+            _release_connection(state.get("backend"))
 
     context = copy_context()
     thread = threading.Thread(target=lambda: context.run(worker), daemon=True)
     started = time.perf_counter()
     state["started"] = started
     thread.start()
-    thread.join(timeout_seconds)
+    thread.join(
+        max(0.0, (operation.deadline or time.monotonic() + timeout_seconds) - time.monotonic())
+    )
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 
     if thread.is_alive() or operation.cancelled:
@@ -862,11 +721,10 @@ def _run_roundtrip_with_deadline_bound(
             datasource_name=datasource_name,
             location=f"md.test({datasource_name!r})",
         )
-        backend = state.get("backend")
-        disconnect = getattr(backend, "disconnect", None)
-        if callable(disconnect):
-            with suppress(Exception):
-                disconnect()
+        threading.Thread(
+            target=lambda: _release_connection(state.get("backend")),
+            daemon=True,
+        ).start()
         return DatasourceTestResult(
             name=datasource_name,
             ok=False,
@@ -1175,6 +1033,8 @@ def raw_sql(
             ``TRUNCATED`` card status, and the truncation warning injected into
             ``warnings``.
         timeout_seconds: Backend execution timeout; fail-closed if unenforceable.
+            Connection acquisition has a separate default 30-second handshake
+            budget. This value is not an end-to-end operation deadline.
         include_types: Whether to include returned column type labels when available.
         project_root: Optional project root for tests and embedded callers.
 

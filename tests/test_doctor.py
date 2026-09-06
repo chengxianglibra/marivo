@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from marivo.datasource import backends as datasource_backends
+from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.doctor import (
     DoctorCheck,
     DoctorOptions,
@@ -1181,14 +1183,14 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
             },
         )()
 
-    def fake_build_backend_with_secrets(datasource):  # type: ignore[no-untyped-def]
-        return type("BuiltBackend", (), {"backend": backend, "env_sourced_secrets": {}})()
+    def fake_build_backend(datasource, **_kwargs):  # type: ignore[no-untyped-def]
+        return BuiltDatasourceBackend(backend, ())
 
     monkeypatch.setattr(datasource_manage._store, "load_one", fake_load_one)
     monkeypatch.setattr(
-        datasource_manage._backends,
-        "build_backend_with_secrets",
-        fake_build_backend_with_secrets,
+        datasource_backends,
+        "build_backend",
+        fake_build_backend,
     )
 
     result = datasource_manage.test_no_persist("warehouse", project_root=tmp_path)

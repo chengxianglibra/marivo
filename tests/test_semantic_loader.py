@@ -15,6 +15,7 @@ Tests cover:
 from __future__ import annotations
 
 import textwrap
+from contextlib import nullcontext
 
 import pytest
 
@@ -1050,9 +1051,9 @@ def test_field_ref_resolves_after_load(semantic_project_factory) -> None:
 
     fake_service = _FakeConnectionService()
 
-    with patch.object(project, "_connection_service", return_value=fake_service):
+    with patch.object(project, "_connection_operation", return_value=nullcontext(fake_service)):
         catalog = SemanticCatalog(project)
-        resolver = catalog._semantic_resolver()
+        resolver = catalog._semantic_resolver(connections=fake_service)
         table = resolver.table(make_ref("sales.orders", SemanticKind.ENTITY))
 
         field_expr = resolver.dimension(make_ref("sales.orders.region", SemanticKind.DIMENSION))
@@ -1271,10 +1272,10 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
 
     fake_service = _FakeConnectionService()
 
-    with patch.object(project, "_connection_service", return_value=fake_service):
+    with patch.object(project, "_connection_operation", return_value=nullcontext(fake_service)):
         result = (
             SemanticCatalog(project)
-            ._semantic_resolver()
+            ._semantic_resolver(connections=fake_service)
             .table(make_ref("sales.orders", SemanticKind.ENTITY))
         )
     assert isinstance(result, ibis.expr.types.Table)
@@ -1334,10 +1335,10 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
 
     fake_service = _FakeConnectionService()
 
-    with patch.object(project, "_connection_service", return_value=fake_service):
+    with patch.object(project, "_connection_operation", return_value=nullcontext(fake_service)):
         result = (
             SemanticCatalog(project)
-            ._semantic_resolver()
+            ._semantic_resolver(connections=fake_service)
             .table(make_ref("sales.orders", SemanticKind.ENTITY))
         )
     assert isinstance(result, ibis.expr.types.Table)

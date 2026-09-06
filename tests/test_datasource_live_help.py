@@ -187,7 +187,7 @@ def test_live_help_performs_no_datasource_effects(
         raise AssertionError("help must not perform datasource effects")
 
     monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend_with_secrets", fail)
+    monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
     monkeypatch.setattr("marivo.datasource.authoring_store.AuthoringStore.write_snapshot", fail)
     monkeypatch.setattr("marivo.config.load_project_config", fail)
 

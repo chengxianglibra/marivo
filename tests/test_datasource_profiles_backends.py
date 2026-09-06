@@ -146,6 +146,9 @@ def test_duckdb_http_auth_creates_parameterized_temporary_scoped_secret(
             calls.append((sql, kwargs))
 
     class _Profile:
+        connection_thread = "worker"
+        connection_conflict = staticmethod(lambda exc: False)
+
         def connect(self, _name: str, kwargs: dict[str, object]) -> _Backend:
             connect_kwargs.update(kwargs)
             return _Backend()
@@ -163,7 +166,7 @@ def test_duckdb_http_auth_creates_parameterized_temporary_scoped_secret(
         )
     )
 
-    backend = datasource_backends.build_backend(datasource)
+    backend = datasource_backends.build_backend(datasource).backend
 
     assert connect_kwargs == {"path": ":memory:", "read_only": False}
     assert len(calls) == 1
@@ -193,6 +196,9 @@ def test_duckdb_http_auth_disconnects_when_secret_configuration_fails(
             disconnected = True
 
     class _Profile:
+        connection_thread = "worker"
+        connection_conflict = staticmethod(lambda exc: False)
+
         def connect(self, _name: str, _kwargs: dict[str, object]) -> _Backend:
             return _Backend()
 

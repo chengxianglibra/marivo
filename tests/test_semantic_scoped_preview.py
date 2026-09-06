@@ -255,9 +255,8 @@ def test_complete_batch_is_validated_before_connection(
         _catalog=catalog,
     )
     monkeypatch.setattr(
-        catalog._project,
-        "_connection_service",
-        lambda: pytest.fail("connection opened"),
+        "marivo.datasource.backends.build_backend",
+        lambda *_args, **_kwargs: pytest.fail("connection opened"),
     )
 
     with pytest.raises(SemanticRuntimeError, match="not a registered concrete"):
@@ -300,9 +299,8 @@ def test_cross_datasource_preview_fails_before_connection(
     )
     catalog = SemanticCatalog(project)
     monkeypatch.setattr(
-        catalog._project,
-        "_connection_service",
-        lambda: pytest.fail("connection opened"),
+        "marivo.datasource.backends.build_backend",
+        lambda *_args, **_kwargs: pytest.fail("connection opened"),
     )
 
     with pytest.raises(SemanticRuntimeError, match="share one datasource"):
@@ -348,11 +346,12 @@ def test_json_source_bindings_are_exact_entity_ref_mappings(
         }
     )
     catalog = SemanticCatalog(project)
-    original_connection_service = catalog._project._connection_service
+    from marivo.datasource import backends
+
+    original_build = backends.build_backend
     monkeypatch.setattr(
-        catalog._project,
-        "_connection_service",
-        lambda: pytest.fail("connection opened"),
+        "marivo.datasource.backends.build_backend",
+        lambda *_args, **_kwargs: pytest.fail("connection opened"),
     )
     entity = ms.ref.entity("sales.events")
 
@@ -371,7 +370,7 @@ def test_json_source_bindings_are_exact_entity_ref_mappings(
         captured["params"] = source_params
         return ibis.memtable({"event_id": [1, 2]})
 
-    monkeypatch.setattr(catalog._project, "_connection_service", original_connection_service)
+    monkeypatch.setattr(backends, "build_backend", original_build)
     monkeypatch.setattr("marivo.semantic.materializer.read_json_source", fake_read_json_source)
     result = catalog.preview(
         entity,

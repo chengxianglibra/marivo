@@ -219,12 +219,18 @@ def operation_context(
     timeout_seconds: int | None = None,
 ) -> Iterator[CredentialOperation]:
     parent = _OPERATION.get()
-    if parent is not None:
+    deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
+    if parent is not None and (
+        deadline is None or (parent.deadline is not None and parent.deadline <= deadline)
+    ):
         yield parent
         return
     operation = CredentialOperation(
-        project_root=(project_root or resolve_project_root()).resolve(),
-        deadline=None if timeout_seconds is None else time.monotonic() + timeout_seconds,
+        project_root=parent.project_root
+        if parent is not None
+        else (project_root or resolve_project_root()).resolve(),
+        deadline=deadline,
+        cancel=parent.cancel if parent is not None else Event(),
     )
     token = _OPERATION.set(operation)
     try:

@@ -161,7 +161,7 @@ def test_build_backend_read_only_rejects_writes(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     datasource_ir = store.load_one("warehouse", project_root=tmp_path)
     assert datasource_ir is not None
-    backend = build_backend(datasource_ir, read_only=True)
+    backend = build_backend(datasource_ir, read_only=True).backend
     try:
         with pytest.raises(Exception):
             backend.raw_sql("CREATE TABLE evil (a INT)")
