@@ -154,7 +154,9 @@ and state the one action required to continue.
 - Do not bypass Marivo safety with direct Ibis, DuckDB, pandas, backend clients,
   or ad hoc SQL.
 - Caller-stated read-count, row, and timeout budgets override retries.
-- Author credentials as references, never plaintext project source.
+- Author credentials as references, never plaintext project source. For host-owned
+  resolution, follow `marivo.help("datasource.credential_scope")` and the host repair;
+  do not copy credentials into an alternate store or environment.
 - Never substitute a physical column, guessed join, neighboring metric, or
   silent fallback for missing governed meaning.
 - Follow focused help and structured repair; stop the affected branch when the

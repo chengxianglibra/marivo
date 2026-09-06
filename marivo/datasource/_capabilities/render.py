@@ -6,7 +6,7 @@ import inspect
 from typing import TYPE_CHECKING
 
 from marivo._authoring.model import AuthoringCapability
-from marivo.datasource._capabilities.registry import REGISTRY, TYPE_CONTRACTS
+from marivo.datasource._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
 from marivo.datasource.constraints import iter_constraints
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
@@ -264,6 +264,7 @@ def _render_error_contract(error_name: str) -> str:
     lines = [
         error_name,
         "  Datasource error contract.",
+        *(f"  {line}" for line in (inspect.getdoc(ERROR_TYPES[error_name]) or "").splitlines()),
         "  Concrete repair guidance is available only when an instance carries repair.help_target.",
     ]
     return _bounded("\n".join(lines))

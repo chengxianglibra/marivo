@@ -8,7 +8,7 @@ import os
 import stat
 import tempfile
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -31,8 +31,8 @@ class SecretProvider(Protocol):
 @dataclass(frozen=True)
 class ResolvedSecret:
     name: str
-    value: str
-    provider: SecretProvider
+    value: str = field(repr=False)
+    provider: SecretProvider = field(repr=False)
 
 
 class EnvProvider:
@@ -180,6 +180,8 @@ def resolve(
 
 
 def persist_env_sourced(resolved: tuple[ResolvedSecret, ...]) -> None:
+    if not resolved:
+        return
     cache = LocalPlaintextCache.default()
     for item in resolved:
         if isinstance(item.provider, EnvProvider):

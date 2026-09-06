@@ -35,6 +35,15 @@ such a session can read persisted artifacts and evidence but cannot run analysis
 that touches a datasource. Operators that need a backend raise
 `NoBackendFactoryError` on a read-only session.
 
+### Credential source ownership
+
+Connection runtimes capture the datasource resolver selected when they are created
+or resumed. They retain it after `md.credential_scope` exits; no resolver or secret
+is persisted in the Session Store. A different explicit resolver at managed
+backend acquisition requires a new runtime. Existing backend overrides and
+Session cleanup remain unchanged. See `marivo.help("datasource.credential_scope")`
+for the owning credential contract.
+
 ### Lifecycle
 
 The public session surface is intentionally small (`mv.session.__all__` is exactly

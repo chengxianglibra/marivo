@@ -21,6 +21,8 @@ __all__ = [
 class ConstraintId(StrEnum):
     """Stable identifiers for datasource constraints."""
 
+    CREDENTIAL_RESOLUTION = "credential_resolution"
+    CREDENTIAL_RUNTIME_BINDING = "credential_runtime_binding"
     DATASOURCE_NAME_GLOBAL = "datasource_name_global"
     DATASOURCE_BACKEND_TYPE_REQUIRED = "datasource_backend_type_required"
     DATASOURCE_FIELD_JSONABLE = "datasource_field_jsonable"
@@ -67,6 +69,24 @@ def _constraint(
 
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
+    ConstraintId.CREDENTIAL_RESOLUTION: _constraint(
+        ConstraintId.CREDENTIAL_RESOLUTION,
+        "DatasourceCredential",
+        "runtime",
+        ("credential_scope", "CredentialResolver.resolve"),
+        "Explicit resolvers replace env/cache reads and never persist their values.",
+        "A request groups a reference's fields within one bound project and connection operation.",
+        "Return a non-empty SecretValue promptly; honor deadline_monotonic/cancelled and report typed failures. Hosts own authorization and resolver client lifetime.",
+    ),
+    ConstraintId.CREDENTIAL_RUNTIME_BINDING: _constraint(
+        ConstraintId.CREDENTIAL_RUNTIME_BINDING,
+        "DatasourceCredentialScope",
+        "runtime",
+        ("credential_scope",),
+        "Runtimes keep their resolver after scope exit; managed acquisition rejects another explicit resolver.",
+        "Scope selects a source, not a connection lifetime or execution authorization boundary.",
+        "Use normal Session/connection cleanup. External backend overrides keep their dispatch; raw backend handoff is not intercepted.",
+    ),
     ConstraintId.DATASOURCE_NAME_GLOBAL: _constraint(
         ConstraintId.DATASOURCE_NAME_GLOBAL,
         "DatasourceFieldInvalid",
@@ -258,6 +278,8 @@ _DEFAULT_BY_ERROR_KIND: dict[str, ConstraintId] = {
     "DatasourceDuplicate": ConstraintId.DATASOURCE_UNIQUE_NAME,
     "DatasourceMissing": ConstraintId.DATASOURCE_CONFIGURED,
     "DatasourceEnvVarMissing": ConstraintId.DATASOURCE_ENV_AVAILABLE,
+    "DatasourceCredential": ConstraintId.CREDENTIAL_RESOLUTION,
+    "DatasourceCredentialScope": ConstraintId.CREDENTIAL_RUNTIME_BINDING,
     "DatasourceBackendTypeUnsupported": ConstraintId.DATASOURCE_BACKEND_SUPPORTED,
 }
 

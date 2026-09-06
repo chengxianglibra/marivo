@@ -16,6 +16,7 @@ import ibis.expr.types as ir
 from ibis.expr.operations.relations import SQLQueryResult
 
 from marivo._compat import UTC
+from marivo.datasource import credentials as cr
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
@@ -182,12 +183,19 @@ class Materializer:
         except SemanticRuntimeError:
             raise
         except Exception as exc:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Entity {semantic_id!r} source materialization raised: {exc}",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
+            values = cr.injected_values(backend)
+            message = cr.redact(str(exc), values)
+            try:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Entity {semantic_id!r} source materialization raised: {message}",
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                )
+            except SemanticRuntimeError as error:
+                if values:
+                    raise error from None
+                raise
 
         scope = self._entity_scopes.get(semantic_id)
         if scope is not None:

@@ -131,7 +131,10 @@ class SemanticProject:
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
-        self._connection_service_instance: DatasourceConnectionService | None = None
+        self._connection_service_instance = DatasourceConnectionService(
+            project_root=self._workspace_dir,
+            include_semantic_layers=True,
+        )
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
 
     @property
@@ -410,12 +413,7 @@ class SemanticProject:
     # -- readiness ----------------------------------------------------------
 
     def _connection_service(self) -> DatasourceConnectionService:
-        """Return the lazily-created DatasourceConnectionService."""
-        if self._connection_service_instance is None:
-            self._connection_service_instance = DatasourceConnectionService(
-                project_root=self._workspace_dir,
-                include_semantic_layers=True,
-            )
+        """Return the connection service that captured this reader's resolver."""
         return self._connection_service_instance
 
     def _session_backend_factory(self) -> Callable[[str], Any]:

@@ -73,7 +73,19 @@ def _datasource_example_namespace(project_root: Path) -> dict[str, object]:
             "event_date",
         ),
     )
+
+    class Resolver:
+        def resolve(self, request: md.CredentialRequest) -> md.SecretValue:
+            return md.SecretValue("example-fixture-only")
+
     return {
+        "host_resolver": Resolver(),
+        "request": md.CredentialRequest(
+            reference="EXAMPLE",
+            project_root=project_root,
+            datasource="warehouse",
+            fields=("password",),
+        ),
         "md": md,
         "ms": ms,
         "inspection": inspection,

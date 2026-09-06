@@ -38,6 +38,7 @@ from marivo._temporal import (
     WorkScheduleSnapshotStore,
     WorkScheduleSnapshotV1,
 )
+from marivo.datasource import credentials as cr
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import (
     AiContextIR,
@@ -4422,7 +4423,7 @@ def _certification_capture(
             refs=(ref.key,),
             details={"query_executed": False, "backend": bindings.backend},
         )
-    with timeout_guard(backend, bindings.timeout_seconds):
+    with cr.backend_errors(backend), timeout_guard(backend, bindings.timeout_seconds):
         frame = table.execute()
     observed = len(frame)
     if observed > scope.max_rows:
@@ -6339,7 +6340,7 @@ class SemanticCatalog(RenderableResult):
                 details={"kind": str(kind)},
             )
 
-        with timeout(backend, bindings.timeout_seconds):
+        with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
             result = execute_preview()
         return _attach_preview_scope(
             result,
@@ -6583,7 +6584,7 @@ class SemanticCatalog(RenderableResult):
                 details={"query_executed": False, "backend": bindings.backend},
             )
         backend = connections.session_backend(bindings.datasource_id)
-        with timeout(backend, bindings.timeout_seconds):
+        with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
             dataframe = preview_table.limit(row_limit + 1).execute()
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         from marivo.datasource.timezone import system_timezone_name
@@ -6703,7 +6704,7 @@ class SemanticCatalog(RenderableResult):
                 details={"query_executed": False, "backend": bindings.backend},
             )
         backend = connections.session_backend(bindings.datasource_id)
-        with timeout(backend, bindings.timeout_seconds):
+        with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
             dataframe = preview_table.limit(limit + 1).execute()
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         results: list[PreviewResult] = []

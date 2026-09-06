@@ -18,12 +18,15 @@ import ibis.expr.types as ir
 import pandas as pd
 
 from marivo.datasource import backends as _backends
+from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
+    DatasourceCredentialError,
+    DatasourceCredentialScopeError,
     DatasourceObservedEffects,
     _backend_failure_summary,
 )
@@ -616,8 +619,14 @@ def acquire_snapshot(
     execute_attempted = False
     try:
         try:
-            backend = _backends.build_backend(datasource_ir, read_only=True)
+            with cr.operation_context(
+                project_root=inspection._project_root, timeout_seconds=scope.timeout_seconds
+            ):
+                backend = _backends.build_backend(datasource_ir, read_only=True)
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
         except Exception as exc:
+            exc = cr.safe_backend_exception(exc, backend)
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
                 code="acquisition_connection_failed",
@@ -631,7 +640,10 @@ def acquire_snapshot(
                 inspection.source,
                 source_params=normalized_source_params,
             )
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
         except Exception as exc:
+            exc = cr.safe_backend_exception(exc, backend)
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
                 code="acquisition_source_failed",
@@ -666,7 +678,10 @@ def acquire_snapshot(
                 timeout_entered = True
                 execute_attempted = True
                 frame = expression.execute()
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
         except Exception as exc:
+            exc = cr.safe_backend_exception(exc, backend)
             failure = _backend_failure_summary(exc)
             if not timeout_entered:
                 raise _acquisition_error(

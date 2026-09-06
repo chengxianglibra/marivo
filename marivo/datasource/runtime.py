@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from marivo.datasource import backends, store
+from marivo.datasource import credentials as cr
 from marivo.datasource.authoring import _storage_name
-from marivo.datasource.errors import DatasourceMissingError, repair
+from marivo.datasource.errors import DatasourceError, DatasourceMissingError, repair
 from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
 
 
@@ -53,7 +54,8 @@ def _build_backend_from_store(
                 candidates=tuple(available),
             ),
         )
-    return backends.build_backend(datasource_ir, read_only=read_only)
+    with cr.operation_context(project_root=project_root):
+        return backends.build_backend(datasource_ir, read_only=read_only)
 
 
 class DatasourceConnectionService:
@@ -81,7 +83,8 @@ class DatasourceConnectionService:
         use_datasources: bool = True,
         include_semantic_layers: bool = False,
     ) -> None:
-        self._project_root = None if project_root is None else Path(project_root)
+        self._project_root = cr.operation_root(None if project_root is None else Path(project_root))
+        self._resolver = cr.current_resolver()
         self._backend_overrides = dict(backends or {})
         self._backend_factory = backend_factory
         self._use_datasources = use_datasources
@@ -94,24 +97,41 @@ class DatasourceConnectionService:
         return self._project_root
 
     @contextmanager
+    def resolution_context(self) -> Iterator[None]:
+        """Use the captured resolver for auxiliary Marivo-owned connections."""
+        cr.check_binding(self._resolver)
+        with cr.bind_resolver(self._resolver):
+            yield
+
+    @contextmanager
     def use_backend(self, name: str, *, read_only: bool = False) -> Iterator[Any]:
         """Yield a live backend, disconnecting on exit (success or error)."""
         datasource_name = _storage_name(name)
-        if self._include_semantic_layers:
-            backend = _build_backend_from_store(
-                datasource_name,
-                self._project_root,
-                read_only=read_only,
-                include_semantic_layers=True,
-            )
-        else:
-            backend = _build_backend_from_store(
-                datasource_name,
-                self._project_root,
-                read_only=read_only,
-            )
+        cr.check_binding(self._resolver)
+        with cr.bind_resolver(self._resolver):
+            if self._include_semantic_layers:
+                backend = _build_backend_from_store(
+                    datasource_name,
+                    self._project_root,
+                    read_only=read_only,
+                    include_semantic_layers=True,
+                )
+            else:
+                backend = _build_backend_from_store(
+                    datasource_name,
+                    self._project_root,
+                    read_only=read_only,
+                )
         try:
             yield backend
+        except DatasourceError:
+            # The operation owns typed errors, their redaction, and observed effects.
+            raise
+        except Exception as exc:
+            values = cr.injected_values(backend)
+            if values:
+                raise cr.connection_error(exc, values) from None
+            raise
         finally:
             _disconnect(backend)
 
@@ -151,19 +171,32 @@ class DatasourceConnectionService:
         same name until ``close_all()`` is called.
         """
         datasource_name = _storage_name(name)
+        external = datasource_name in self._backend_overrides or self._backend_factory is not None
+        if not external:
+            cr.check_binding(self._resolver)
         backend = self._session_backends.get(datasource_name)
         if backend is None:
-            backend = self._build_session_backend(datasource_name)
+            if external:
+                backend = self._build_session_backend(datasource_name)
+            else:
+                with cr.bind_resolver(self._resolver):
+                    backend = self._build_session_backend(datasource_name)
             self._session_backends[datasource_name] = backend
         return backend
 
     def engine_timezone(self, name: str) -> DatasourceEngineTimezone:
         """Return the cached engine timezone for a datasource session backend."""
         datasource_name = _storage_name(name)
+        backend = self.session_backend(datasource_name)
         resolved = self._engine_timezones.get(datasource_name)
         if resolved is None:
-            backend = self.session_backend(datasource_name)
-            resolved = probe_engine_timezone(backend)
+            try:
+                resolved = probe_engine_timezone(backend)
+            except Exception as exc:
+                values = cr.injected_values(backend)
+                if values:
+                    raise cr.connection_error(exc, values) from None
+                raise
             self._engine_timezones[datasource_name] = resolved
         return resolved
 

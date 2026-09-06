@@ -27,6 +27,7 @@ from marivo.analysis.executor.query_record import (
 )
 from marivo.analysis.executor.windowing import BackendDatetimeDecodePolicy
 from marivo.analysis.session._connections import AnalysisConnectionRuntime
+from marivo.datasource import credentials as cr
 from marivo.datasource import secrets as _secrets
 from marivo.datasource.engines import profile_for_backend
 
@@ -199,6 +200,7 @@ def execute(
     session_id: str | None = None,
 ) -> ExecutionResult:
     backend = cache.get_or_create(datasource_name)
+    secrets = cr.injected_values(backend)
     profile = profile_for_backend(backend)
     dialect = str(getattr(backend, "name", profile.name))
     decode_policy = profile.datetime_decode_policy
@@ -217,7 +219,7 @@ def execute(
                 sql = profile.postprocess_sql(sql)
 
                 prefixed = _prefix_sql_for_session(sql, session_id=session_id)
-                captured_sql = prefixed
+                captured_sql = cr.redact(prefixed, secrets)
                 return prefixed
 
             compile_fn = compile_with_prefix
@@ -231,7 +233,7 @@ def execute(
 
                 sql = profile.postprocess_sql(sql)
 
-                captured_sql = sql
+                captured_sql = cr.redact(sql, secrets)
                 return sql
 
             compile_fn = compile_and_capture
@@ -269,6 +271,11 @@ def execute(
                 failed_qe.sql_digest,
                 captured_sql[:200],
             )
+        if secrets:
+            raise BackendError(
+                message=cr.redact(str(exc), secrets),
+                context={"datasource": datasource_name},
+            ) from None
         raise BackendError(
             message=str(exc),
             context=_debug_details(expr, datasource_name),

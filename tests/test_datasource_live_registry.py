@@ -6,13 +6,16 @@ import pytest
 
 import marivo.datasource as md
 from marivo._authoring.model import AuthoringEffects
-from marivo.datasource._capabilities.registry import REGISTRY, TYPE_CONTRACTS
+from marivo.datasource._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.datasource._capabilities.validation import validate_datasource_live_surface
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.snapshot import DiscoverySnapshot
 
 PUBLIC_CALLABLE_TARGETS = {
+    "credential_scope",
+    "CredentialResolver.resolve",
+    "SecretValue.reveal",
     "duckdb",
     "sqlite",
     "trino",
@@ -56,6 +59,9 @@ def test_datasource_surface_uses_the_native_registry_without_copying() -> None:
 
 
 EXPECTED_EFFECTS = {
+    "credential_scope": AuthoringEffects(data_access="none", connection="none"),
+    "CredentialResolver.resolve": AuthoringEffects(data_access="none", connection="none"),
+    "SecretValue.reveal": AuthoringEffects(data_access="none", connection="none"),
     "duckdb": AuthoringEffects(data_access="none", connection="none"),
     "sqlite": AuthoringEffects(data_access="none", connection="none"),
     "trino": AuthoringEffects(data_access="none", connection="none"),
@@ -248,7 +254,7 @@ def test_registry_resolves_functions_and_bound_methods() -> None:
 
 def test_type_contracts_cover_public_classes_without_exporting_registry_types() -> None:
     public_classes = {value for name in md.__all__ if isinstance(value := getattr(md, name), type)}
-    assert public_classes <= set(TYPE_CONTRACTS)
+    assert public_classes <= set(TYPE_CONTRACTS) | set(ERROR_TYPES.values())
     assert "DatasourceCapabilityRegistry" not in md.__all__
 
 

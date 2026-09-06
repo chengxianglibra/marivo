@@ -221,6 +221,8 @@ def get_or_create(
     changing the persisted question. Prefer :func:`resume` when an existing
     session identity is available and creation must fail closed.
 
+    Credential injection follows ``marivo.help("datasource.credential_scope")``.
+
     Args:
         name: Session name. Creates if absent, attaches if present.
         question: Current guiding question. An explicit string updates the
@@ -282,6 +284,8 @@ def resume(
     use_datasources: bool = True,
 ) -> Session:
     """Resume an existing project session by its exact name or immutable id.
+
+    Credential injection follows ``marivo.help("datasource.credential_scope")``.
 
     Args:
         identity: Exact session name or ``sess_...`` id returned by a session

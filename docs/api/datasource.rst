@@ -28,6 +28,20 @@ Registration & lifecycle
    remove
    test
 
+Credential injection
+--------------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   credential_scope
+   CredentialRequest
+   CredentialResolver
+   SecretValue
+   DatasourceCredentialError
+   DatasourceCredentialScopeError
+
 Source constructors
 -------------------
 

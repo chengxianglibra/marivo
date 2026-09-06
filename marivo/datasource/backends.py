@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from marivo.datasource import credentials as cr
 from marivo.datasource import secrets
 from marivo.datasource.engines import (
     SUPPORTED_BACKEND_TYPES as SUPPORTED_BACKEND_TYPES,
@@ -20,13 +22,16 @@ from marivo.datasource.ir import DatasourceIR, JsonSourceIR
 
 @dataclass(frozen=True)
 class EffectiveDatasourceKwargs:
-    kwargs: dict[str, Any]
+    kwargs: dict[str, Any] = field(repr=False)
+    injected: tuple[cr.SecretValue, ...]
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
 
 
 def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
     resolved: dict[str, Any] = dict(datasource.fields)
     env_sourced: list[secrets.ResolvedSecret] = []
+    resolver = cr.current_resolver()
+    injected: dict[str, cr.SecretValue] = {}
     for stem, env_var in datasource.env_refs.items():
         if not isinstance(env_var, str) or not env_var:
             raise DatasourceFieldInvalidError(
@@ -43,12 +48,29 @@ def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
                     action="Set a non-empty environment variable reference.",
                 ),
             )
+        if resolver is not None:
+            if env_var not in injected:
+                with cr.operation_context() as operation:
+                    injected[env_var] = cr.resolve_reference(
+                        resolver,
+                        operation,
+                        reference=env_var,
+                        datasource=datasource.name,
+                        fields=tuple(
+                            sorted(
+                                key for key, ref in datasource.env_refs.items() if ref == env_var
+                            )
+                        ),
+                    )
+            resolved[stem] = injected[env_var].reveal()
+            continue
         resolved_secret = secrets.resolve(env_var, datasource=datasource.name, field=stem)
         resolved[stem] = resolved_secret.value
         if isinstance(resolved_secret.provider, secrets.EnvProvider):
             env_sourced.append(resolved_secret)
     return EffectiveDatasourceKwargs(
         kwargs=resolved,
+        injected=tuple(injected.values()),
         env_sourced_secrets=tuple(env_sourced),
     )
 
@@ -62,7 +84,7 @@ class BuiltDatasourceBackend:
 @dataclass(frozen=True)
 class _DuckDBHttpAuth:
     scope: str
-    headers: tuple[tuple[str, str], ...]
+    headers: tuple[tuple[str, str], ...] = field(repr=False)
 
 
 def _configure_duckdb_http_auth(
@@ -180,7 +202,7 @@ def apply_json_http_settings(backend: object, source: object) -> None:
     raw_sql("SET force_download=true")
 
 
-def build_backend_with_secrets(
+def _build_backend_with_secrets(
     datasource: DatasourceIR,
     *,
     read_only: bool = False,
@@ -200,7 +222,12 @@ def build_backend_with_secrets(
                 http_headers[key.removeprefix("http_header:")] = kwargs.pop(key)
     if read_only:
         kwargs = profile.apply_read_only_kwargs(kwargs)
-    backend = profile.connect(datasource.name, kwargs)
+    try:
+        backend = profile.connect(datasource.name, kwargs)
+    except Exception as exc:
+        if effective.injected:
+            raise cr.connection_error(exc, effective.injected) from None
+        raise
     try:
         if datasource.backend_type == "duckdb":
             http_auth = _configure_duckdb_http_auth(
@@ -211,15 +238,32 @@ def build_backend_with_secrets(
             )
             if http_auth is not None:
                 backend._marivo_duckdb_http_auth = http_auth
-    except BaseException:
+    except BaseException as exc:
         disconnect = getattr(backend, "disconnect", None)
         if callable(disconnect):
             disconnect()
+        if effective.injected and isinstance(exc, Exception):
+            raise cr.connection_error(exc, effective.injected) from None
         raise
+    cr.remember_injected(backend, effective.injected)
+    with cr.operation_context() as operation:
+        if operation.cancelled:
+            backend.disconnect()
+            raise TimeoutError("Datasource connection operation was cancelled.")
     return BuiltDatasourceBackend(
         backend=backend,
         env_sourced_secrets=effective.env_sourced_secrets,
     )
+
+
+def build_backend_with_secrets(
+    datasource: DatasourceIR,
+    *,
+    read_only: bool = False,
+    project_root: Path | None = None,
+) -> BuiltDatasourceBackend:
+    with cr.operation_context(project_root=project_root):
+        return _build_backend_with_secrets(datasource, read_only=read_only)
 
 
 def build_backend(datasource: DatasourceIR, *, read_only: bool = False) -> Any:

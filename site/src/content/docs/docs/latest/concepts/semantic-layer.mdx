@@ -357,7 +357,7 @@ supported aggregation and a native temporal column instead.
 :::caution[Credentials are references, never literals]
 Sensitive fields are authored as `*_env` references that name an environment
 variable — `user_env="TRINO_USER"`, `password_env="MYSQL_PASSWORD"`. Putting a
-secret literal in a datasource field raises an error. Marivo resolves `*_env`
+secret literal in a datasource field raises an error. By default, Marivo resolves `*_env`
 values through `os.environ` → `~/.marivo/secrets.toml` and attempts to cache
 resolved secrets there after a validated `md.test(...)` round-trip or the first
 successful analysis execution in a session. Cache write failures emit a sanitized
@@ -368,6 +368,39 @@ and omitted connection fields are left to the selected Ibis backend.
 Trino is the exception for connection identity: `user_env` is required so the
 username never falls through to an Ibis default. `auth_env` remains optional.
 :::
+
+### Host-owned credential resolution
+
+Use `md.credential_scope(resolver=host_resolver)` to read existing `*_env`
+references from a host service. The resolver replaces env/cache reads and never
+writes the secret cache. It receives a `CredentialRequest` and returns a
+`SecretValue`, or raises `DatasourceCredentialError`. Read
+`marivo.help("datasource.credential_scope")` for the adapter contract.
+
+Runtimes retain the selected resolver after scope exit. Normal connection and
+Session cleanup still applies; the host keeps its resolver client available.
+A different explicit resolver cannot silently replace a runtime's source.
+External backend overrides retain their existing dispatch. Raw backend calls
+are outside scope execution checks.
+
+Managed failures redact injected values, including source materialization during
+analysis planning. Query errors keep their original typed repair and execution
+facts; metadata permission errors keep the same projected-schema fallback.
+
+```python
+import marivo
+import marivo.datasource as md
+import marivo.analysis as mv
+
+marivo.help("datasource.credential_scope")
+with md.credential_scope(resolver=host_resolver):
+    session = mv.session.get_or_create("host-analysis")
+try:
+    session.show()
+finally:
+    session.close()
+```
+
 
 ```python
 # models/datasources/lake.py
