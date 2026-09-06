@@ -16,8 +16,14 @@ import pandas as pd
 
 from marivo._authoring.model import AuthoringRepair
 from marivo._compat import UTC
+from marivo.datasource import credentials as cr
 from marivo.datasource.engines import require_profile_for_backend_type
-from marivo.datasource.errors import DatasourceAuthoringError, _backend_failure_summary
+from marivo.datasource.errors import (
+    DatasourceAuthoringError,
+    DatasourceCredentialError,
+    DatasourceCredentialScopeError,
+    _backend_failure_summary,
+)
 from marivo.datasource.inspection import SourceInspection, _inspect_in_project
 from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, JsonSourceIR
 from marivo.datasource.source import AuthoringScope
@@ -1043,7 +1049,10 @@ def run_source_health(
         if entity.datasource not in connectivity:
             try:
                 backend = connections.session_backend(entity.datasource)
-                backend.raw_sql("SELECT 1")
+                with cr.backend_errors(backend):
+                    backend.raw_sql("SELECT 1")
+            except (DatasourceCredentialError, DatasourceCredentialScopeError):
+                raise
             except Exception as exc:
                 connectivity[entity.datasource] = (
                     "unavailable",
@@ -1078,11 +1087,14 @@ def run_source_health(
             )
         )
         try:
-            inspection = _inspect_in_project(
-                exact_datasource_ref,
-                entity.source,
-                project_root=catalog._project.workspace_dir,
-            )
+            with connections.resolution_context():
+                inspection = _inspect_in_project(
+                    exact_datasource_ref,
+                    entity.source,
+                    project_root=catalog._project.workspace_dir,
+                )
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
         except DatasourceAuthoringError as exc:
             inspections[entity_id] = None
             authoring_status: SourceHealthStatus = (

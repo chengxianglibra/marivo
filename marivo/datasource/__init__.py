@@ -18,6 +18,13 @@ from marivo.datasource.authoring import (
     trino,
 )
 from marivo.datasource.catalog import DatasourceCatalog, load
+from marivo.datasource.credentials import (
+    CredentialRequest,
+    CredentialResolver,
+    SecretValue,
+    credential_scope,
+)
+from marivo.datasource.errors import DatasourceCredentialError, DatasourceCredentialScopeError
 from marivo.datasource.inspection import (
     ExecutionCapabilities,
     Partitioning,
@@ -60,8 +67,12 @@ from marivo.datasource.source import (
 
 __all__ = [
     "ClickHouseSpec",
+    "CredentialRequest",
+    "CredentialResolver",
     "DatasourceCatalog",
     "DatasourceConnection",
+    "DatasourceCredentialError",
+    "DatasourceCredentialScopeError",
     "DatasourceDescription",
     "DatasourceFailure",
     "DatasourceList",
@@ -78,6 +89,7 @@ __all__ = [
     "PhysicalExtent",
     "PostgresSpec",
     "SQLiteSpec",
+    "SecretValue",
     "SourceInspection",
     "TableColumnBindingIR",
     "TableSource",
@@ -85,6 +97,7 @@ __all__ = [
     "UnprunedScope",
     "clickhouse",
     "connect",
+    "credential_scope",
     "csv",
     "describe",
     "duckdb",

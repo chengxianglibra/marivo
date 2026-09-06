@@ -23,6 +23,12 @@ The maintained documentation describes the Python-native Marivo library only.
   calendar authority, named scopes, event intervals, work schedules, and
   alignment policy.
 
+## Implementation Designs
+
+- [Injectable datasource credentials](superpowers/specs/2026-09-05-injectable-datasource-credentials-design.md)
+  — host-supplied credential resolver, connection-path coverage, and lifecycle
+  rules. See the [local acceptance evidence](superpowers/specs/2026-09-06-injectable-datasource-credentials-acceptance.md).
+
 ## Agent Guidance
 
 Packaged agent guidance lives under:

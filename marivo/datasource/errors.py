@@ -276,6 +276,81 @@ class DatasourceEnvVarMissingError(DatasourceError):
     pass
 
 
+CredentialFailureReason = Literal[
+    "missing", "denied", "unavailable", "expired", "timeout", "invalid-response"
+]
+
+
+class DatasourceCredentialError(DatasourceError):
+    """Host credential resolution failed, with reference-only repair facts.
+
+    Args:
+        reason: missing, denied, unavailable, expired, timeout or invalid-response.
+        reference: The requested credential reference, never its secret value.
+        datasource: The datasource requiring this reference.
+        fields: The connection fields sharing the reference.
+
+    Repair is constructed from the reason. Hosts resolve configuration, access,
+    expiry, service availability or adapter failures and retry the operation.
+    No environment fallback is attempted. See marivo.help("datasource.credential_scope").
+    """
+
+    def __init__(
+        self,
+        *,
+        reason: CredentialFailureReason,
+        reference: str,
+        datasource: str,
+        fields: tuple[str, ...],
+    ) -> None:
+        actions: dict[CredentialFailureReason, str] = {
+            "missing": "Configure the reference in the host credential service, then retry.",
+            "denied": "Ask the host to grant access to this reference, then retry.",
+            "unavailable": "Check the host credential service and adapter connectivity.",
+            "expired": "Renew host authorization or credential material, then reconnect.",
+            "timeout": "Check credential service latency and the operation timeout budget.",
+            "invalid-response": "Fix the host adapter to return a non-empty SecretValue.",
+        }
+        if reason not in actions:
+            raise ValueError("Unsupported credential failure reason.")
+        self.reason = reason
+        self.reference = reference
+        self.datasource = datasource
+        self.fields = tuple(sorted(set(fields)))
+        super().__init__(
+            message=f"credential reference {reference!r} resolution failed: {reason}",
+            expected="a non-empty SecretValue from the authorized host resolver",
+            received=reason,
+            location=f"datasource {datasource!r} fields {self.fields!r}",
+            repair=repair(
+                kind="configure", canonical_id="credential_scope", action=actions[reason]
+            ),
+        )
+
+
+class DatasourceCredentialScopeError(DatasourceError):
+    """The selected resolver differs from the runtime's captured source.
+
+    Raised before acquiring a Marivo-built connection, including cache hits.
+    Takes no parameters. Scope exit and external overrides do not trigger it.
+    Reuse the original resolver context or create/resume a new runtime under
+    the desired resolver. See marivo.help("datasource.credential_scope").
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="the active credential resolver differs from this runtime's source",
+            expected="the runtime's captured resolver or no explicit scope",
+            received="a different explicit credential resolver",
+            location="datasource connection acquisition",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="credential_scope",
+                action="Use the runtime's original resolver context, or create/resume a new runtime under the desired resolver.",
+            ),
+        )
+
+
 class DatasourceBackendTypeUnsupportedError(DatasourceError):
     pass
 

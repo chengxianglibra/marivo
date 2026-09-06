@@ -13,6 +13,7 @@ import ibis
 
 from marivo.config import find_project_root
 from marivo.datasource import backends as _backends
+from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
 from marivo.datasource.authoring import _storage_name
@@ -20,6 +21,8 @@ from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import EngineProfile, PartitionProbeRequest
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
+    DatasourceCredentialError,
+    DatasourceCredentialScopeError,
     DatasourceFieldInvalidError,
     DatasourceMetadataError,
     DatasourceObservedEffects,
@@ -1046,6 +1049,10 @@ def _parquet_metadata(
             partition_state="unknown" if source.hive_partitioning else "none",
             warnings=(),
         )
+    except Exception as exc:
+        if cr.injected_values(backend):
+            raise cr.safe_backend_exception(exc, backend) from None
+        raise
     finally:
         disconnect = getattr(backend, "disconnect", None)
         if callable(disconnect):
@@ -1191,7 +1198,10 @@ def _captured_partitioning_for_fields(
             ),
             warnings,
         )
+    except (DatasourceCredentialError, DatasourceCredentialScopeError):
+        raise
     except Exception as exc:
+        exc = cr.safe_backend_exception(exc, backend)
         return (
             Partitioning(
                 state="known",
@@ -1259,15 +1269,16 @@ def _listed_partitioning(
         source_to_output = {source: output for output, source in output_to_source.items()}
         physical_source = _unprojected_table(inspection.source)
 
-    partitioning, warnings = _captured_partitioning_for_fields(
-        state=inspection.partitioning.state,
-        fields=physical_fields,
-        datasource_ir=datasource_ir,
-        source=physical_source,
-        profile=profile,
-        limit=limit,
-        order=order,
-    )
+    with cr.operation_context(project_root=inspection._project_root):
+        partitioning, warnings = _captured_partitioning_for_fields(
+            state=inspection.partitioning.state,
+            fields=physical_fields,
+            datasource_ir=datasource_ir,
+            source=physical_source,
+            profile=profile,
+            limit=limit,
+            order=order,
+        )
     if not source_to_output or partitioning.state != "known":
         return partitioning, warnings
     return (
@@ -1331,6 +1342,16 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
 
 
 def _inspect_in_project(
+    datasource: Ref[DatasourceKind],
+    source: TableSource,
+    *,
+    project_root: Path,
+) -> SourceInspection:
+    with cr.operation_context(project_root=project_root):
+        return _inspect_bound_source(datasource, source, project_root=project_root)
+
+
+def _inspect_bound_source(
     datasource: Ref[DatasourceKind],
     source: TableSource,
     *,

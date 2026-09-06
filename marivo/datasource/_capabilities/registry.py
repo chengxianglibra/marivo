@@ -26,6 +26,9 @@ from marivo.introspection.live.model import LiveHelpTarget
 
 INPUT_FAMILIES = frozenset(
     {
+        "CredentialResolver",
+        "CredentialRequest",
+        "SecretValue",
         "DatasourceSpec",
         "Ref[datasource]",
         "DatasourceName",
@@ -66,6 +69,11 @@ INPUT_FAMILIES = frozenset(
 
 OUTPUT_FAMILIES = frozenset(
     {
+        "CredentialScope",
+        "str",
+        "CredentialResolver",
+        "CredentialRequest",
+        "SecretValue",
         "DatasourceSpec",
         "Ref[datasource]",
         "DatasourceSummary",
@@ -283,6 +291,52 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             example='md.describe("warehouse")',
         ),
         _capability(
+            "credential_scope",
+            "marivo.datasource.credentials.credential_scope",
+            "Select a host resolver for new operations/runtimes; exit restores selection only.",
+            output="CredentialScope",
+            inputs=_inputs(("dependency", "CredentialResolver")),
+            constraints=("credential_resolution", "credential_runtime_binding"),
+            example=(
+                "class HostResolver:\n"
+                "    def resolve(self, request: md.CredentialRequest) -> md.SecretValue:\n"
+                "        raise md.DatasourceCredentialError(\n"
+                "            reason='missing', reference=request.reference,\n"
+                "            datasource=request.datasource, fields=request.fields)\n"
+                "with md.credential_scope(resolver=HostResolver()):\n"
+                "    result = md.test('warehouse')"
+            ),
+            see_also=(
+                _target("CredentialRequest"),
+                _target("CredentialResolver"),
+                _target("SecretValue"),
+                _target("DatasourceCredentialError"),
+                _target("DatasourceCredentialScopeError"),
+            ),
+            repair_kinds=("configure", "reconnect"),
+        ),
+        _capability(
+            "CredentialResolver.resolve",
+            "marivo.datasource.credentials.CredentialResolver.resolve",
+            "Resolve one reference using host authorization and the request deadline; return SecretValue or a typed credential failure.",
+            kind="method",
+            output="SecretValue",
+            inputs=_inputs(("receiver", "CredentialResolver"), ("subject", "CredentialRequest")),
+            example="value = host_resolver.resolve(request)",
+            constraints=("credential_resolution",),
+            public_entrypoint="resolver.resolve",
+        ),
+        _capability(
+            "SecretValue.reveal",
+            "marivo.datasource.credentials.SecretValue.reveal",
+            "Read secret material explicitly for a trusted driver adapter; never print or persist it.",
+            kind="method",
+            output="str",
+            inputs=_inputs(("receiver", "SecretValue")),
+            example="value = md.SecretValue('example-only').reveal()",
+            public_entrypoint="secret.reveal",
+        ),
+        _capability(
             "connect",
             "marivo.datasource.manage.connect",
             "Open a managed live datasource connection, bounded by a 30s wall-clock deadline (SQLite opens inline on the caller's thread).",
@@ -291,6 +345,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             effects=_CONNECT,
             constraints=constraints["configured"],
             example='with md.connect("warehouse") as con:\n    con.raw_sql("SELECT 1")',
+            see_also=(_target("credential_scope"),),
         ),
         _capability(
             "test",
@@ -301,6 +356,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             effects=_TEST,
             constraints=constraints["configured"],
             example=('result = md.test(ms.ref.datasource("warehouse"))\nresult.show()\n'),
+            see_also=(_target("credential_scope"),),
         ),
         _capability(
             "source_column",
@@ -433,6 +489,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
                 "inspection.show()"
             ),
+            see_also=(_target("credential_scope"),),
             preconditions=("a registered datasource ref",),
             repair_kinds=("register", "reconnect"),
         ),
@@ -627,6 +684,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "describe",
                 "connect",
                 "test",
+                "credential_scope",
             ),
             "physical_sources": (
                 "source_column",
@@ -672,6 +730,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         TrinoSpec,
     )
     from marivo.datasource.catalog import DatasourceCatalog
+    from marivo.datasource.credentials import CredentialRequest, CredentialResolver, SecretValue
     from marivo.datasource.inspection import (
         ExecutionCapabilities,
         Partitioning,
@@ -719,6 +778,35 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             consumers=tuple(_target(value) for value in consumers),
         )
 
+    add(
+        CredentialRequest,
+        "CredentialRequest",
+        ("credential_scope",),
+        properties=(
+            "reference",
+            "project_root",
+            "datasource",
+            "fields",
+            "deadline_monotonic",
+            "cancelled",
+        ),
+        methods=("show",),
+        consumers=("CredentialResolver.resolve",),
+    )
+    add(
+        CredentialResolver,
+        "CredentialResolver",
+        (),
+        methods=("resolve",),
+        consumers=("credential_scope",),
+    )
+    add(
+        SecretValue,
+        "SecretValue",
+        ("CredentialResolver.resolve",),
+        methods=("reveal",),
+        consumers=("SecretValue.reveal",),
+    )
     spec_producers: tuple[tuple[type, str], ...] = (
         (DuckDBSpec, "duckdb"),
         (SQLiteSpec, "sqlite"),

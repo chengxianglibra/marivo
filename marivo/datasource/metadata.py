@@ -12,8 +12,15 @@ from typing import Any, Literal
 import ibis
 
 from marivo.datasource import backends as _backends
+from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
-from marivo.datasource.errors import DatasourceMetadataError, _backend_failure_summary, repair
+from marivo.datasource.errors import (
+    DatasourceCredentialError,
+    DatasourceCredentialScopeError,
+    DatasourceMetadataError,
+    _backend_failure_summary,
+    repair,
+)
 from marivo.datasource.ir import (
     CsvSourceIR,
     EntitySourceIR,
@@ -555,8 +562,12 @@ def inspect_table(
     backend: Any = None
     try:
         try:
-            backend = _backends.build_backend(datasource_ir)
+            with cr.operation_context(project_root=project_root):
+                backend = _backends.build_backend(datasource_ir)
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
         except Exception as exc:
+            exc = cr.safe_backend_exception(exc, backend)
             failure = _backend_failure_summary(exc)
             raise DatasourceMetadataError(
                 message=(
@@ -579,9 +590,13 @@ def inspect_table(
                 if database is None
                 else backend.table(table, database=database)
             )
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
         except Exception as exc:
+            resolution_failure = profile.metadata.classify_table_resolution_failure(exc)
+            exc = cr.safe_backend_exception(exc, backend)
             failure = _backend_failure_summary(exc)
-            if profile.metadata.classify_table_resolution_failure(exc) == "metadata_unavailable":
+            if resolution_failure == "metadata_unavailable":
                 raise _TableMetadataUnavailableError(
                     identity=failure.identity,
                     message=failure.message,
@@ -615,7 +630,10 @@ def inspect_table(
             )
         except DatasourceMetadataError:
             raise
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
         except Exception as exc:
+            exc = cr.safe_backend_exception(exc, backend)
             metadata = _schema_only(
                 datasource=datasource,
                 table=table,
@@ -684,7 +702,8 @@ def _inspect_source(
             ),
         )
     try:
-        backend = _backends.build_backend(datasource_ir)
+        with cr.operation_context(project_root=project_root):
+            backend = _backends.build_backend(datasource_ir)
         kwargs: dict[str, object] = {}
         if isinstance(source, ParquetSourceIR):
             reader = getattr(backend, "read_parquet", None)
@@ -709,7 +728,10 @@ def _inspect_source(
             # metadata-only, so parameterized API URLs do not need runtime
             # bindings and are never fetched merely to rediscover that schema.
             table_expr = ibis.table(dict(source.schema), name=source_name(source))
+    except (DatasourceCredentialError, DatasourceCredentialScopeError):
+        raise
     except Exception as exc:
+        exc = cr.safe_backend_exception(exc, backend)
         raise DatasourceMetadataError(
             message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
             expected="an inspectable file datasource source",

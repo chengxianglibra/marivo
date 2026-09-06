@@ -164,7 +164,7 @@ author edits them.
 ## Credentials and secret persistence
 
 Secrets never live in project state. Instead a spec records env-var names, and
-Marivo resolves them at connect time through a provider chain:
+By default, Marivo resolves them at connect time through a provider chain:
 
 ```text
 EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
@@ -228,6 +228,37 @@ Marivo resolves every environment-backed value and installs a temporary DuckDB
 HTTP secret constrained by `http_scope`; the same connection keeps the scoped
 headers in memory for POST execution. Resolved values are never serialized into
 `md.json(...)` or project metadata.
+
+### Host-injected credential resolution
+
+`md.credential_scope(resolver=...)` selects a synchronous `CredentialResolver`
+for new operations and connection runtimes. It replaces the default env/cache
+chain completely: no fallback, cache reads, or cache writes. Datasource declarations
+keep their existing `*_env` references. One `CredentialRequest` groups all fields
+using a reference in a backend build; it includes the bound project, datasource,
+remaining operation deadline and live cancellation state. The host validates its
+own authorization and returns a non-empty `SecretValue` or `DatasourceCredentialError`.
+
+Session and semantic reader runtimes retain their resolver after scope exit.
+A different explicit resolver is rejected when acquiring a Marivo-built backend,
+including cache hits. Exiting scope restores selection only; normal connection
+and Session cleanup remains responsible for resources. External backend overrides
+keep their existing dispatch and credential ownership. Raw backend handoffs are
+not intercepted. The host keeps resolver clients alive while runtimes use them.
+
+Credential failures expose missing, denied, unavailable, expired, timeout, and
+invalid-response reasons; `md.test` reports matching `credential_*` failure codes.
+Database failures retain connection/query meaning. Secret wrappers mask display
+and reject serialization; managed error boundaries redact values and suppress raw
+provider causes. Live Help owns the complete callable/type and repair contract:
+`marivo.help("datasource.credential_scope")`.
+
+Source materialization failures during analysis planning are also redacted while
+retaining their semantic error kind and refs. Raw SQL failures retain
+`DatasourceRawSqlError`, observed query effects, and their `raw_sql` repair target.
+Metadata permission classification reads the original structured driver error
+before redaction, so injected credentials preserve declared-schema fallback for
+projected sources; other failures remain closed.
 
 ## Physical sources
 

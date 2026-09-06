@@ -155,6 +155,6 @@ def validate_datasource_live_surface() -> None:
     for exported_name in md.__all__:
         exported = getattr(md, exported_name)
         if isinstance(exported, type):
-            assert exported in TYPE_CONTRACTS
+            assert exported in TYPE_CONTRACTS or exported in ERROR_TYPES.values()
         if callable(exported) and not isinstance(exported, type):
             assert REGISTRY.by_callable(exported)

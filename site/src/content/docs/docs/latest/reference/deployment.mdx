@@ -8,8 +8,9 @@ description: Run a Marivo project where an agent can access its semantic layer a
 Marivo is a Python library, not a hosted service. Install it in the environment
 where the agent runs, then check the project's datasource and semantic
 declarations into version control. Provide datasource secrets as environment
-variables referenced by `*_env` fields; do not commit credentials into the
-project.
+variables referenced by `*_env` fields, or inject a host resolver with
+`md.credential_scope(resolver=...)`; do not commit credentials into the project.
+The host adapter contract is owned by `marivo.help("datasource.credential_scope")`.
 
 For development from this repository, create an environment, install the
 editable package with the needed extras, and verify the import:

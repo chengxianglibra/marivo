@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource.errors import DatasourceMissingError, repair
 from marivo.datasource.ir import AiContextIR
@@ -177,7 +178,8 @@ class DatasourceCatalog(RenderableResult):
             >>> with catalog.connect("wh") as con:
             ...     con.raw_sql("SELECT 1")
         """
-        return connect(name, timeout_seconds=timeout_seconds)
+        with cr.operation_context(project_root=self.workspace_dir, timeout_seconds=timeout_seconds):
+            return connect(name, timeout_seconds=timeout_seconds)
 
     def test(
         self,
@@ -199,7 +201,8 @@ class DatasourceCatalog(RenderableResult):
         Example:
             >>> result = catalog.test("wh")
         """
-        return test(name, timeout_seconds=timeout_seconds)
+        with cr.operation_context(project_root=self.workspace_dir, timeout_seconds=timeout_seconds):
+            return test(name, timeout_seconds=timeout_seconds)
 
     def _repr_identity(self) -> str:
         count = len(_store.load_all(self.workspace_dir))

@@ -312,7 +312,7 @@ SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 会
 
 :::note[凭据是引用，绝不是明文]
 敏感字段以 `*_env` 引用的形式声明，指向环境变量 —— `user_env="TRINO_USER"`、
-`password_env="MYSQL_PASSWORD"`。把密钥明文写进数据源字段会报错。Marivo 通过
+`password_env="MYSQL_PASSWORD"`。把密钥明文写进数据源字段会报错。默认情况下，Marivo 通过
 `os.environ` → `~/.marivo/secrets.toml` 解析 `*_env` 值，并在一次通过验证的
 `md.test(...)` 往返之后，或会话中第一次分析执行成功之后，尝试把解析到的密钥缓存
 到那里。缓存写入失败只会产生脱敏 warning，不会让已经成功的连接测试或分析执行
@@ -322,6 +322,35 @@ SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 会
 Trino 的连接身份是例外：`user_env` 必填，避免用户名回退到 Ibis 默认值；
 `auth_env` 仍然可选。
 :::
+
+### 宿主凭证解析
+
+通过 `md.credential_scope(resolver=host_resolver)`，可以从宿主服务读取既有 `*_env`
+引用。resolver 完全替换环境变量与缓存读取，并且不回写秘密缓存。它接收 `CredentialRequest`，
+返回 `SecretValue`，或抛出 `DatasourceCredentialError`。适配器契约见
+`marivo.help("datasource.credential_scope")`。
+
+runtime 在 scope 退出后继续保留所选 resolver。连接与 Session 仍使用原有清理方式；宿主须保持
+resolver 客户端可用。另一个显式 resolver 不能静默替换旧 runtime 的来源。外部 backend override
+保留既有分派规则，原始 backend 的直接调用不属于 scope 执行校验范围。
+
+受管操作的错误会脱敏注入值，包括分析规划期间的源物化失败。查询错误保留原有类型、
+修复入口和执行事实；元数据权限错误仍按相同规则使用已声明的投影 schema。
+
+```python
+import marivo
+import marivo.datasource as md
+import marivo.analysis as mv
+
+marivo.help("datasource.credential_scope")
+with md.credential_scope(resolver=host_resolver):
+    session = mv.session.get_or_create("host-analysis")
+try:
+    session.show()
+finally:
+    session.close()
+```
+
 
 ```python
 # models/datasources/lake.py

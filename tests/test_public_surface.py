@@ -220,6 +220,12 @@ ANALYSIS_PUBLIC = {
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",
     "DatasourceCatalog",
+    "CredentialRequest",
+    "CredentialResolver",
+    "SecretValue",
+    "DatasourceCredentialError",
+    "DatasourceCredentialScopeError",
+    "credential_scope",
     "DatasourceConnection",
     "DatasourceDescription",
     "DatasourceFailure",

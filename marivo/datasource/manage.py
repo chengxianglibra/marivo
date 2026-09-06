@@ -9,6 +9,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import suppress
+from contextvars import copy_context
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeAlias, cast
@@ -18,6 +19,7 @@ from pandas.api.types import is_object_dtype
 
 from marivo._authoring.model import AuthoringRepair
 from marivo.datasource import backends as _backends
+from marivo.datasource import credentials as cr
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
 from marivo.datasource.authoring import (
@@ -28,6 +30,8 @@ from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import decode_cursor_frame
 from marivo.datasource.errors import (
     DatasourceConnectionTimeoutError,
+    DatasourceCredentialError,
+    DatasourceCredentialScopeError,
     DatasourceError,
     DatasourceMissingError,
     DatasourceObservedEffects,
@@ -157,6 +161,12 @@ class DatasourceFailure:
         "connection_roundtrip_failed",
         "connection_timeout",
         "connection_roundtrip_timeout",
+        "credential_missing",
+        "credential_denied",
+        "credential_unavailable",
+        "credential_expired",
+        "credential_timeout",
+        "credential_invalid_response",
     ]
     exception_type: str
     backend_code: str | None
@@ -569,36 +579,71 @@ def _run_with_deadline(
     stage: Literal["connection_timeout", "connection_roundtrip_timeout"],
     datasource_name: str,
 ) -> Any:
+    with cr.operation_context(timeout_seconds=timeout_seconds) as operation:
+        return _run_with_deadline_bound(
+            fn,
+            timeout_seconds=timeout_seconds,
+            datasource_name=datasource_name,
+            operation=operation,
+            stage=stage,
+        )
+
+
+def _run_with_deadline_bound(
+    fn: Callable[[], Any],
+    *,
+    operation: cr.CredentialOperation,
+    timeout_seconds: int,
+    stage: Literal["connection_timeout", "connection_roundtrip_timeout"],
+    datasource_name: str,
+) -> Any:
     """Run *fn* on a worker thread and fail closed past ``timeout_seconds``.
 
     The worker is a daemon thread, so a backend that blocks indefinitely in its
     own connect/query call cannot keep the process alive. When the deadline is
     exceeded the helper raises ``DatasourceConnectionTimeoutError`` rather than
-    blocking the caller; a backend that eventually completes on its own after
-    the deadline is abandoned (the caller already failed closed and no reference
-    is handed back).
-
-    Residual behavior: the thread cannot be forcibly killed, so an abandoned
-    worker that later completes its handshake may open a backend that is never
-    disconnected. That connection (or session) then lives until process exit;
-    callers in long-lived processes should treat a connection timeout as a
-    signal to bound their own retries rather than relying on this helper to
-    reclaim the leaked handle.
+    blocking the caller. Late results are disconnected and never published.
+    Blocking third-party worker code cannot be forcibly stopped.
     """
     outcome: dict[str, Any] = {}
+    lock = threading.Lock()
 
     def _target() -> None:
         try:
-            outcome["value"] = fn()
+            value = fn()
+            with lock:
+                late = operation.cancelled
+                if not late:
+                    outcome["value"] = value
+            if late:
+                disconnect = getattr(value, "disconnect", None)
+                if callable(disconnect):
+                    with suppress(Exception):
+                        disconnect()
         except BaseException as exc:
             outcome["error"] = exc
 
-    worker = threading.Thread(target=_target, daemon=True)
+    context = copy_context()
+    worker = threading.Thread(target=lambda: context.run(_target), daemon=True)
     started = time.monotonic()
     worker.start()
-    worker.join(timeout_seconds)
+    worker.join(max(0.0, (operation.deadline or started + timeout_seconds) - time.monotonic()))
     elapsed_ms = int((time.monotonic() - started) * 1000)
-    if worker.is_alive():
+    if worker.is_alive() or operation.cancelled:
+        with lock:
+            credential_error = operation.timeout_error()
+            if credential_error is None and isinstance(
+                outcome.get("error"), DatasourceCredentialError
+            ):
+                credential_error = outcome["error"]
+            operation.cancel.set()
+            value = outcome.pop("value", None)
+        disconnect = getattr(value, "disconnect", None)
+        if callable(disconnect):
+            with suppress(Exception):
+                disconnect()
+        if credential_error is not None:
+            raise credential_error
         raise DatasourceConnectionTimeoutError(
             stage=stage,
             timeout_seconds=timeout_seconds,
@@ -617,6 +662,7 @@ def _connect_internal(
     project_root: Path | None = None,
     include_semantic_layers: bool = False,
 ) -> DatasourceConnection:
+    project_root = cr.operation_root(project_root)
     datasource = (
         _store.load_one_layered(name, project_root=project_root)
         if include_semantic_layers
@@ -641,7 +687,8 @@ def _connect_internal(
                 candidates=tuple(available),
             ),
         )
-    built = _backends.build_backend_with_secrets(datasource)
+    with cr.operation_context(project_root=project_root):
+        built = _backends.build_backend_with_secrets(datasource)
     connection = DatasourceConnection(built.backend)
     _secrets.remember_env_sourced(built.backend, built.env_sourced_secrets)
     _secrets.remember_env_sourced(connection, built.env_sourced_secrets)
@@ -650,7 +697,7 @@ def _connect_internal(
 
 def _connect_runs_inline(name: str) -> bool:
     """Return True when the backend must be opened on the caller's thread."""
-    datasource = _store.load_one(name)
+    datasource = _store.load_one(name, project_root=cr.operation_root(None))
     return (
         datasource is not None
         and getattr(datasource, "backend_type", None) in _THREAD_AFFINE_BACKEND_TYPES
@@ -666,6 +713,12 @@ DatasourceFailureCode: TypeAlias = Literal[
     "connection_roundtrip_failed",
     "connection_timeout",
     "connection_roundtrip_timeout",
+    "credential_missing",
+    "credential_denied",
+    "credential_unavailable",
+    "credential_expired",
+    "credential_timeout",
+    "credential_invalid_response",
 ]
 
 
@@ -692,6 +745,16 @@ def _datasource_failure(
     *,
     code: DatasourceFailureCode,
 ) -> DatasourceFailure:
+    if isinstance(exc, DatasourceCredentialError):
+        codes: dict[str, DatasourceFailureCode] = {
+            "missing": "credential_missing",
+            "denied": "credential_denied",
+            "unavailable": "credential_unavailable",
+            "expired": "credential_expired",
+            "timeout": "credential_timeout",
+            "invalid-response": "credential_invalid_response",
+        }
+        code = codes[exc.reason]
     summary = _backend_failure_summary(exc)
     timeout_seconds = (
         exc.timeout_seconds if isinstance(exc, DatasourceConnectionTimeoutError) else None
@@ -718,6 +781,25 @@ def _run_roundtrip_with_deadline(
     *,
     timeout_seconds: int,
     datasource_name: str,
+    project_root: Path | None = None,
+) -> DatasourceTestResult:
+    with cr.operation_context(
+        project_root=project_root, timeout_seconds=timeout_seconds
+    ) as operation:
+        return _run_roundtrip_with_deadline_bound(
+            fn,
+            timeout_seconds=timeout_seconds,
+            datasource_name=datasource_name,
+            operation=operation,
+        )
+
+
+def _run_roundtrip_with_deadline_bound(
+    fn: Callable[[dict[str, Any]], DatasourceTestResult],
+    *,
+    operation: cr.CredentialOperation,
+    timeout_seconds: int,
+    datasource_name: str,
 ) -> DatasourceTestResult:
     """Run a full connectivity round-trip on one worker thread with a deadline.
 
@@ -732,12 +814,9 @@ def _run_roundtrip_with_deadline(
     the ``SELECT 1`` round-trip. A raised error is mapped to a failure code
     using the phase it surfaced in.
 
-    Residual behavior: the worker cannot be forcibly killed. If it later
-    completes its ``SELECT 1`` after the caller has already returned a fail-closed
-    timeout, it may still reach the secret-persist phase and write the validated
-    env-sourced secret to the user-global cache. That side effect is benign but
-    arrives after the caller has observed failure; callers should not assume a
-    timed-out ``test`` implies no cache write.
+    The worker cannot be forcibly killed. A completed round-trip checks operation
+    cancellation before starting default-cache persistence. An already-started
+    cache write cannot be rolled back; injected credentials are never cached.
     """
     state: dict[str, Any] = {"backend": None, "phase": "connection", "started": 0.0}
     outcome: dict[str, Any] = {}
@@ -746,7 +825,11 @@ def _run_roundtrip_with_deadline(
         try:
             outcome["result"] = fn(state)
         except BaseException as exc:
-            outcome["error"] = exc
+            values = cr.injected_values(state.get("backend"))
+            if values and isinstance(exc, Exception) and not isinstance(exc, DatasourceError):
+                outcome["error"] = cr.connection_error(exc, values)
+            else:
+                outcome["error"] = exc
         finally:
             backend = state.get("backend")
             disconnect = getattr(backend, "disconnect", None)
@@ -754,20 +837,25 @@ def _run_roundtrip_with_deadline(
                 with suppress(Exception):
                     disconnect()
 
-    thread = threading.Thread(target=worker, daemon=True)
+    context = copy_context()
+    thread = threading.Thread(target=lambda: context.run(worker), daemon=True)
     started = time.perf_counter()
     state["started"] = started
     thread.start()
     thread.join(timeout_seconds)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 
-    if thread.is_alive():
+    if thread.is_alive() or operation.cancelled:
+        credential_error = operation.timeout_error()
+        if credential_error is None and isinstance(outcome.get("error"), DatasourceCredentialError):
+            credential_error = outcome["error"]
+        operation.cancel.set()
         stage: Literal["connection_timeout", "connection_roundtrip_timeout"] = (
             "connection_timeout"
             if state["phase"] == "connection"
             else "connection_roundtrip_timeout"
         )
-        exc = DatasourceConnectionTimeoutError(
+        exc: Exception = credential_error or DatasourceConnectionTimeoutError(
             stage=stage,
             timeout_seconds=timeout_seconds,
             elapsed_ms=elapsed_ms,
@@ -789,6 +877,8 @@ def _run_roundtrip_with_deadline(
 
     if "error" in outcome:
         exc = outcome["error"]
+        if isinstance(exc, DatasourceCredentialScopeError):
+            raise exc
         if isinstance(exc, DatasourceConnectionTimeoutError):
             # The connect phase raised its own typed timeout before the outer
             # deadline fired; keep the precise stage instead of the generic
@@ -858,7 +948,9 @@ def test(
         state["backend"] = connect(datasource_name, timeout_seconds=timeout_seconds)
         state["phase"] = "roundtrip"
         state["backend"].raw_sql("SELECT 1")
-        _secrets.try_persist_backend_env_sourced(state["backend"])
+        with cr.operation_context() as operation:
+            if not operation.cancelled:
+                _secrets.try_persist_backend_env_sourced(state["backend"])
         latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
@@ -932,6 +1024,7 @@ def test_no_persist(
         roundtrip,
         timeout_seconds=timeout_seconds,
         datasource_name=datasource_name,
+        project_root=project_root,
     )
 
 
@@ -1182,7 +1275,7 @@ def raw_sql(
             raise DatasourceRawSqlError(
                 message="raw_sql execution or result fetching failed; no side effects were applied.",
                 expected="a read-only diagnostic the datasource backend can execute",
-                received=str(exc),
+                received=cr.redact(str(exc), cr.injected_values(backend)),
                 location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
                 effect_observed=DatasourceObservedEffects(query_executed=True),
                 repair=repair(
@@ -1190,7 +1283,7 @@ def raw_sql(
                     canonical_id="raw_sql",
                     action="Verify the datasource connection and retry the diagnostic.",
                 ),
-            ) from exc
+            ) from cr.safe_backend_exception(exc, backend)
         duration_ms = int((time.monotonic() - start) * 1000)
         rows = extracted_rows[:limit]
         is_truncated = len(extracted_rows) > limit

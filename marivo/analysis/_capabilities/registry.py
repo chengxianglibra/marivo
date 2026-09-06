@@ -3010,7 +3010,7 @@ def _build_registry() -> CapabilityRegistry:
             "session.get_or_create",
             "mv.session.get_or_create(...)",
             "session.get_or_create",
-            "Create or reuse a named session and apply an explicit current question.",
+            "Create or reuse a named session and apply an explicit current question; credential injection: datasource.credential_scope.",
             "recovery",
             "Session",
             "session_name",
@@ -3030,7 +3030,7 @@ def _build_registry() -> CapabilityRegistry:
             "session.resume",
             (
                 "Resume an existing project session by exact name or immutable id; "
-                "use by='name' or by='id' only to resolve a collision."
+                "use by='name' or by='id' only to resolve a collision. Credential injection: datasource.credential_scope."
             ),
             "recovery",
             "Session",
