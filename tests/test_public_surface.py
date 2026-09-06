@@ -60,6 +60,8 @@ SEMANTIC_PUBLIC = {
     "RelationshipDetails",
     "RichnessReport",
     "SemanticCatalog",
+    "SemanticDefinition",
+    "SemanticDefinitionReadError",
     "SemanticKind",
     "SimpleMetricDetails",
     "SourceCheck",

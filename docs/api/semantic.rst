@@ -161,6 +161,8 @@ Details types
    DatasourceDetails
    DerivedMetricDetails
    SimpleMetricDetails
+   SemanticDefinition
+   SemanticDefinitionReadError
    PeriodCalendarDetails
    CalendarLevelDetails
    TemporalSetDetails

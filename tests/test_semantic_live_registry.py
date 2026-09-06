@@ -796,7 +796,10 @@ def test_registry_covers_all_public_types() -> None:
     for name in ms.__all__:
         exported = getattr(ms, name)
         if isinstance(exported, type):
-            assert exported in TYPE_CONTRACTS, f"{name} ({exported}) is not in TYPE_CONTRACTS"
+            registered_error = ERROR_TYPES.get(exported.__name__) is exported
+            assert exported in TYPE_CONTRACTS or registered_error, (
+                f"{name} ({exported}) is not in TYPE_CONTRACTS or ERROR_TYPES"
+            )
 
 
 def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:

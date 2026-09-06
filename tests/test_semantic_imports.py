@@ -99,6 +99,8 @@ def test_all_list_matches_expected() -> None:
         "Ref",
         "RichnessReport",
         "SemanticCatalog",
+        "SemanticDefinition",
+        "SemanticDefinitionReadError",
         "SemanticKind",
         "SimpleMetricDetails",
         "SourceCheck",
@@ -412,6 +414,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
 }
 
 _EXPECTED_RUNTIME_KINDS = {
+    "definition_read_failed",
     "not_found",
     "entity_not_found",
     "dimension_not_found",

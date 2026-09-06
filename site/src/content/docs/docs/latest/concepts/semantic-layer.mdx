@@ -1603,3 +1603,42 @@ ready for replay from inception. Use `marivo.help("semantic.state_model")` for
 the current constructor contract. Use `catalog.require(...)` for exact current
 membership, scoped readiness for static preflight, and preview only for a
 concrete runtime risk.
+
+## Read a calculation definition without querying
+
+Loaded metric, measure, dimension and time-dimension details expose a typed,
+immutable `definition`. Its JSON projection preserves input roles, aggregation
+parameters, filters, cumulative anchors and exact references:
+
+```python
+import json
+import marivo
+import marivo.semantic as ms
+
+catalog = ms.load()
+definition = catalog.metrics.get("sales.revenue").details().definition
+definition.show()
+payload = definition.to_dict()
+print(json.dumps(payload, allow_nan=False))
+marivo.help("semantic.SemanticDefinition")
+```
+
+Follow a direct input Ref through the same `catalog.require(ref)` to explain the
+next object. The payload uses `marivo.semantic_definition/v1` and existing
+`marivo.semantic_ref/v1` references. A semantic grain retains its calendar and
+level; it never assumes that a retail quarter is a Gregorian quarter. Omitted
+cumulative `over` remains marked as default selection, not an authored axis.
+
+Expression descriptions support columns, bound fields, fixed-type casts,
+authored binary/unary operator tokens, comparisons and `.ifelse()`. Function-body
+literals are hidden and unsupported syntax is explicitly marked. Tokens such as
+`+` and `&` remain syntax-level because their Ibis meaning depends on operand
+dtypes. Declaration filters retain their typed finite values; `ms.where` rejects
+NaN and infinity during authoring. A time dimension's source expression does not
+replace its parse, granularity or timezone contract.
+
+Temporal descriptions distinguish declared rules, metric fold overrides and
+statically resolved effective rules. Snapshot identity, business guardrails,
+readiness and data freshness remain separate. Definition reading performs no
+query, source read, expression execution or calendar certification after loading;
+trusted Python model loading retains its existing behavior.

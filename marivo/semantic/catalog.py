@@ -10,7 +10,7 @@ import binascii
 import inspect
 import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
@@ -97,15 +97,30 @@ from marivo.semantic._capabilities.catalog_members import (
     CATALOG_COLLECTION_PROPERTIES,
     CATALOG_MEMBER_CONTRACTS,
 )
+from marivo.semantic._definition_projection import metric_node, temporal_rules
 from marivo.semantic._metric_resolution import (
     fold_input_to_ir,
     resolve_aggregate_temporal_contract,
-    resolve_metric_temporal_contract,
 )
 from marivo.semantic.constraints import ConstraintId
+from marivo.semantic.definition import (
+    ExpressionDescription,
+    SemanticDefinition,
+    _Aggregate,
+    _Column,
+    _Cumulative,
+    _Linear,
+    _Ratio,
+    _SupportedExpression,
+    _TemporalRule,
+    _TemporalRules,
+    _UnsupportedExpression,
+    _WeightedMean,
+)
 from marivo.semantic.dtos import DatasetSource, PreviewBatchResult
 from marivo.semantic.errors import (
     ErrorKind,
+    SemanticDefinitionReadError,
     SemanticLoadFailed,
     SemanticRuntimeError,
     _raise,
@@ -113,7 +128,6 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.event import _event_fingerprint as _event_definition_fingerprint
 from marivo.semantic.ir import (
-    CumulativeComposition,
     DateParse,
     DatetimeParse,
     DimensionIR,
@@ -131,6 +145,7 @@ from marivo.semantic.ir import (
     RatioComposition,
     RelationshipIR,
     SampleIntervalIR,
+    SemiAdditive,
     SnapshotVersioningIR,
     SourceLocation,
     SqlProvenance,
@@ -619,6 +634,33 @@ class _DetailsBase(RenderableResult):
 
 
 @dataclass(frozen=True, repr=False)
+class _DefinitionDetailsBase(_DetailsBase):
+    _definition: SemanticDefinition | None = field(default=None, kw_only=True)
+
+    @property
+    def definition(self) -> SemanticDefinition:
+        """Return this object's immutable, direct computation description.
+
+        No parameters. Returns the current Catalog's SemanticDefinition.
+        Example: ``payload = entry.details().definition.to_dict()``.
+        Requires details acquired from a loaded Catalog; never reads data or source.
+        """
+        if self._definition is None:
+            raise SemanticDefinitionReadError(
+                ref=self.ref.key,
+                location=self.source_location,
+                received="details not acquired from a loaded Catalog",
+            )
+        return self._definition
+
+    def _card(self) -> Card:
+        card = super()._card()
+        if self._definition is not None:
+            card = card.field("definition", self._definition.render(max_output_bytes=None))
+        return card
+
+
+@dataclass(frozen=True, repr=False)
 class DatasourceDetails(_DetailsBase):
     """Details for a datasource object."""
 
@@ -704,7 +746,7 @@ class EntityDetails(_DetailsBase):
 
 
 @dataclass(frozen=True, repr=False)
-class DimensionDetails(_DetailsBase):
+class DimensionDetails(_DefinitionDetailsBase):
     """Details for a categorical dimension object."""
 
     entity: Ref[SemanticKindTag]
@@ -723,7 +765,7 @@ class DimensionDetails(_DetailsBase):
 
 
 @dataclass(frozen=True, repr=False)
-class MeasureDetails(_DetailsBase):
+class MeasureDetails(_DefinitionDetailsBase):
     """Details for a row-level quantitative measure object."""
 
     entity: Ref[SemanticKindTag]
@@ -751,7 +793,7 @@ class MeasureDetails(_DetailsBase):
 
 
 @dataclass(frozen=True, repr=False)
-class TimeDimensionDetails(_DetailsBase):
+class TimeDimensionDetails(_DefinitionDetailsBase):
     """Details for a time dimension object."""
 
     entity: Ref[SemanticKindTag]
@@ -838,7 +880,7 @@ def _metric_common_sections(
 
 
 @dataclass(frozen=True, repr=False)
-class SimpleMetricDetails(_DetailsBase):
+class SimpleMetricDetails(_DefinitionDetailsBase):
     """Details for a simple (entity-backed) metric.
 
     Simple metrics are declared with ``@ms.metric(...)`` or ``ms.aggregate(...)``.
@@ -931,7 +973,7 @@ class SimpleMetricDetails(_DetailsBase):
 
 
 @dataclass(frozen=True, repr=False)
-class DerivedMetricDetails(_DetailsBase):
+class DerivedMetricDetails(_DefinitionDetailsBase):
     """Details for a derived (composed) metric.
 
     Derived metrics are declared with ``ms.ratio(...)``, ``ms.cumulative(...)``,
@@ -3427,6 +3469,18 @@ def _expression_dependency_refs(
     return tuple(ordered)
 
 
+def _definition_expression(
+    catalog: SemanticCatalog, ref: Ref[SemanticKindTag], entity: Ref[EntityKind] | None = None
+) -> ExpressionDescription:
+    sidecar = catalog._project._expression_sidecar
+    body = sidecar.bodies.get(ref) if sidecar is not None else None
+    if body is None:
+        return _UnsupportedExpression("description_unavailable")
+    if body.source_column is not None and entity is not None:
+        return _SupportedExpression(_Column(entity, body.source_column))
+    return body.description
+
+
 def _build_dimension_object(
     f_ir: DimensionIR, reg: Registry, catalog: SemanticCatalog
 ) -> CatalogEntry[SemanticKindTag]:
@@ -3475,6 +3529,12 @@ def _build_dimension_object(
             domain=f_ir.domain,
             context=f_ir.ai_context,
             source_location=f_ir.location,
+            _definition=SemanticDefinition(
+                ref,
+                catalog.definition_fingerprint,
+                _definition_expression(catalog, ref, ref_factory.entity(f_ir.entity)),
+                f_ir.location,
+            ),
             parents=(ds_ref, *_expression_dependency_refs(catalog, ref)),
             children=(),
             dependents=(),
@@ -3496,6 +3556,12 @@ def _build_dimension_object(
             domain=f_ir.domain,
             context=f_ir.ai_context,
             source_location=f_ir.location,
+            _definition=SemanticDefinition(
+                ref,
+                catalog.definition_fingerprint,
+                _definition_expression(catalog, ref, ref_factory.entity(f_ir.entity)),
+                f_ir.location,
+            ),
             parents=(ds_ref, *_expression_dependency_refs(catalog, ref)),
             children=(),
             dependents=(),
@@ -3526,6 +3592,23 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry, catalog: SemanticCatal
         domain=m_ir.domain,
         context=m_ir.ai_context,
         source_location=m_ir.location,
+        _definition=SemanticDefinition(
+            ref,
+            catalog.definition_fingerprint,
+            _definition_expression(catalog, ref, ref_factory.entity(m_ir.entity)),
+            m_ir.location,
+            _TemporalRules(
+                declared=_TemporalRule(
+                    ref_factory.time_dimension(m_ir.additivity.over), m_ir.additivity.fold
+                ),
+                effective=_TemporalRule(
+                    ref_factory.time_dimension(m_ir.additivity.over), m_ir.additivity.fold
+                ),
+                source="declared",
+            )
+            if isinstance(m_ir.additivity, SemiAdditive)
+            else _TemporalRules(),
+        ),
         parents=(entity_ref, *_expression_dependency_refs(catalog, ref)),
         children=(),
         dependents=dependents,
@@ -3575,54 +3658,30 @@ def _metric_expression_row(
     *,
     path: str,
     registry: Registry,
+    default_cumulative_axis: bool = False,
 ) -> tuple[str, str, str, str]:
     metric_ref = _make_ref(metric.semantic_id, SemanticKind.METRIC).key
     expression: str
     base_inputs = "(none)"
-    if metric.metric_type == "derived":
-        composition = metric.composition
-        if isinstance(composition, RatioComposition):
-            expression = "ratio"
-        elif isinstance(composition, LinearComposition):
-            terms = ", ".join(
-                f"{term.sign}term{index}" for index, term in enumerate(composition.terms)
-            )
-            expression = f"linear({terms})"
-        elif isinstance(composition, CumulativeComposition):
-            over = (
-                _make_ref(composition.over, SemanticKind.TIME_DIMENSION).key
-                if composition.over is not None
-                else "(default)"
-            )
-            expression = (
-                f"cumulative(over={over}, anchor={_format_cumulative_anchor(composition.anchor)})"
-            )
-        else:
-            raise AssertionError(f"unsupported metric composition: {composition!r}")
+    node = metric_node(metric, registry, default_cumulative_axis=default_cumulative_axis)
+    if isinstance(node, _Ratio):
+        return (path, metric_ref, "ratio", base_inputs)
+    if isinstance(node, _Linear):
+        terms = ", ".join(f"{sign}term{index}" for index, (sign, _) in enumerate(node.terms))
+        return (path, metric_ref, f"linear({terms})", base_inputs)
+    if isinstance(node, _Cumulative):
+        over = node.over.key if node.over is not None else "(default)"
+        expression = f"cumulative(over={over}, anchor={_format_cumulative_anchor(node.anchor)})"
         return (path, metric_ref, expression, base_inputs)
-
-    if metric.weighted_mean is not None:
+    if isinstance(node, _WeightedMean):
         expression = "weighted_mean"
-        base_inputs = ", ".join(
-            (
-                f"value={_make_ref(metric.weighted_mean.value, SemanticKind.MEASURE).key}",
-                f"weight={_make_ref(metric.weighted_mean.weight, SemanticKind.MEASURE).key}",
-            )
-        )
-    elif metric.aggregation is not None:
-        expression = _format_agg(metric.aggregation) or "aggregate"
-        target = _aggregation_target_ref(metric)
-        if target is None:
-            raise AssertionError(f"aggregate metric has no target: {metric.semantic_id}")
-        base_inputs = target.key
-        temporal_contract = resolve_metric_temporal_contract(metric, registry)
-        if temporal_contract is not None:
-            expression += f"; fold={temporal_contract.fold.label()}"
-            over = _make_ref(
-                temporal_contract.status_time_dimension,
-                SemanticKind.TIME_DIMENSION,
-            ).key
-            expression += f" over={over}"
+        base_inputs = f"value={node.value.key}, weight={node.weight.key}"
+    elif isinstance(node, _Aggregate):
+        expression = _format_agg(node.operation) or "aggregate"
+        base_inputs = node.target.key
+        temporal = temporal_rules(metric, registry).effective
+        if temporal is not None:
+            expression += f"; fold={temporal.fold.label()} over={temporal.over.key}"
     else:
         expression = "expression_body"
     rendered_filter = _format_metric_filter(metric.filter)
@@ -3631,21 +3690,10 @@ def _metric_expression_row(
     return (path, metric_ref, expression, base_inputs)
 
 
-def _aggregation_target_ref(m_ir: MetricIR) -> Ref[SemanticKindTag] | None:
-    target = m_ir.aggregation_target or m_ir.measure
-    target_kind = m_ir.aggregation_target_kind or ("measure" if m_ir.measure else None)
-    if target is None or target_kind is None:
-        return None
-    kind = {
-        "measure": SemanticKind.MEASURE,
-        "entity": SemanticKind.ENTITY,
-    }[target_kind]
-    return _make_ref(target, kind)
-
-
 def _metric_analysis_metadata(
     metric_ir: MetricIR,
     registry: Registry,
+    default_cumulative_axes: frozenset[str] = frozenset(),
 ) -> tuple[
     tuple[Ref[SemanticKindTag], ...],
     tuple[Ref[SemanticKindTag], ...],
@@ -3669,7 +3717,12 @@ def _metric_analysis_metadata(
             raise AssertionError(f"metric composition cycle reached catalog: {current.semantic_id}")
         next_active = active | {current.semantic_id}
         expression_tree_rows.append(
-            _metric_expression_row(current, path=expression_path, registry=registry)
+            _metric_expression_row(
+                current,
+                path=expression_path,
+                registry=registry,
+                default_cumulative_axis=current.semantic_id in default_cumulative_axes,
+            )
         )
         for entity_id in current.entities:
             effective_entity_ids.setdefault(entity_id, None)
@@ -3747,24 +3800,49 @@ def _build_metric_object(
     m_ir: MetricIR, reg: Registry, project: SemanticProject, catalog: SemanticCatalog
 ) -> MetricEntry:
     ref = _make_ref(m_ir.semantic_id, SemanticKind.METRIC)
+    sidecar = catalog._project._expression_sidecar
+    definition = SemanticDefinition(
+        ref,
+        catalog.definition_fingerprint,
+        metric_node(
+            m_ir,
+            reg,
+            _definition_expression(catalog, ref),
+            default_cumulative_axis=sidecar is not None and ref in sidecar.default_cumulative_axes,
+        ),
+        m_ir.location,
+        temporal_rules(m_ir, reg),
+    )
+    node = definition.node
     entity_refs = tuple(_make_ref(ds, SemanticKind.ENTITY) for ds in m_ir.entities)
     root_entity_ref = _make_ref(m_ir.root_entity, SemanticKind.ENTITY) if m_ir.root_entity else None
-    comp_map = composition_components(m_ir.composition) if m_ir.composition is not None else {}
-    components = tuple(
-        (role, _make_ref(comp_ref, SemanticKind.METRIC)) for role, comp_ref in comp_map.items()
-    )
+    components: tuple[tuple[str, Ref[SemanticKindTag]], ...] = ()
+    if isinstance(node, _Ratio):
+        components = (("numerator", node.numerator), ("denominator", node.denominator))
+    elif isinstance(node, _Linear):
+        components = tuple((f"term{index}", metric) for index, (_, metric) in enumerate(node.terms))
+    elif isinstance(node, _Cumulative):
+        components = (("base", node.base),)
     component_refs = tuple(r for _, r in components)
-    aggregation_target = _aggregation_target_ref(m_ir)
+    aggregation_target = node.target if isinstance(node, _Aggregate) else None
     (
         effective_entities,
         candidate_dimensions,
         candidate_time_dimensions,
         measure_lineage,
         expression_tree_rows,
-    ) = _metric_analysis_metadata(m_ir, reg)
+    ) = _metric_analysis_metadata(
+        m_ir,
+        reg,
+        frozenset(
+            item.path for item in catalog._project._expression_sidecar.default_cumulative_axes
+        )
+        if catalog._project._expression_sidecar is not None
+        else frozenset(),
+    )
     linear_terms = (
-        tuple((t.sign, t.metric) for t in m_ir.composition.terms)
-        if isinstance(m_ir.composition, LinearComposition)
+        tuple((sign, metric.path) for sign, metric in node.terms)
+        if isinstance(node, _Linear)
         else ()
     )
     required_rels: tuple[Ref[SemanticKindTag], ...] = ()
@@ -3776,14 +3854,7 @@ def _build_metric_object(
             and r.from_entity in m_ir.entities
             and r.to_entity in m_ir.entities
         )
-    weighted_mean_refs = (
-        (
-            _make_ref(m_ir.weighted_mean.value, SemanticKind.MEASURE),
-            _make_ref(m_ir.weighted_mean.weight, SemanticKind.MEASURE),
-        )
-        if m_ir.weighted_mean is not None
-        else ()
-    )
+    weighted_mean_refs = (node.value, node.weight) if isinstance(node, _WeightedMean) else ()
     parents = (
         entity_refs
         + component_refs
@@ -3799,11 +3870,8 @@ def _build_metric_object(
     )
     parity_status = propagated_parity_status(project, m_ir.semantic_id)
     add = m_ir.additivity
-    temporal_contract = resolve_metric_temporal_contract(m_ir, reg)
-    if m_ir.metric_type == "derived":
-        assert m_ir.composition is not None, (
-            f"Derived metric {m_ir.semantic_id!r} has no composition IR"
-        )
+    temporal_contract = definition.temporal.effective
+    if isinstance(node, (_Ratio, _Linear, _Cumulative)):
         details: MetricDetails = DerivedMetricDetails(
             ref=ref,
             kind=SemanticKind.METRIC,
@@ -3811,20 +3879,21 @@ def _build_metric_object(
             domain=m_ir.domain,
             context=m_ir.ai_context,
             source_location=m_ir.location,
+            _definition=definition,
             parents=parents,
             children=(),
             dependents=dependents,
             python_symbol=m_ir.python_symbol,
             entities=entity_refs,
             root_entity=root_entity_ref,
-            composition=m_ir.composition.kind,
+            composition=node.kind,
             components=components,
             linear_terms=linear_terms,
             required_relationships=required_rels,
             additivity=additivity_bucket(add) if add is not None else "non_additive",
             fold=(temporal_contract.fold.label() if temporal_contract is not None else None),
             status_time_dimension=(
-                temporal_contract.status_time_dimension if temporal_contract is not None else None
+                temporal_contract.over.path if temporal_contract is not None else None
             ),
             fanout_policy=m_ir.fanout_policy,
             unit=m_ir.unit,
@@ -3844,6 +3913,7 @@ def _build_metric_object(
             domain=m_ir.domain,
             context=m_ir.ai_context,
             source_location=m_ir.location,
+            _definition=definition,
             parents=parents,
             children=(),
             dependents=dependents,
@@ -3851,13 +3921,17 @@ def _build_metric_object(
             entities=entity_refs,
             root_entity=root_entity_ref,
             aggregation=(
-                "weighted_mean" if m_ir.weighted_mean is not None else _format_agg(m_ir.aggregation)
+                "weighted_mean"
+                if isinstance(node, _WeightedMean)
+                else _format_agg(node.operation)
+                if isinstance(node, _Aggregate)
+                else None
             ),
             measure=_make_ref(m_ir.measure, SemanticKind.MEASURE) if m_ir.measure else None,
             additivity=additivity_bucket(add) if add is not None else "non_additive",
             fold=(temporal_contract.fold.label() if temporal_contract is not None else None),
             status_time_dimension=(
-                temporal_contract.status_time_dimension if temporal_contract is not None else None
+                temporal_contract.over.path if temporal_contract is not None else None
             ),
             fanout_policy=m_ir.fanout_policy,
             unit=m_ir.unit,
@@ -3866,21 +3940,15 @@ def _build_metric_object(
             aggregation_target=aggregation_target,
             aggregation_target_kind=m_ir.aggregation_target_kind
             or ("measure" if m_ir.measure else None),
-            filter=m_ir.filter,
+            filter=tuple((dimension.name, value) for dimension, value in node.filter) or None
+            if isinstance(node, (_Aggregate, _WeightedMean))
+            else None,
             effective_entities=effective_entities,
             candidate_dimensions=candidate_dimensions,
             candidate_time_dimensions=candidate_time_dimensions,
             measure_lineage=measure_lineage,
-            weighted_mean_value=(
-                _make_ref(m_ir.weighted_mean.value, SemanticKind.MEASURE)
-                if m_ir.weighted_mean is not None
-                else None
-            ),
-            weighted_mean_weight=(
-                _make_ref(m_ir.weighted_mean.weight, SemanticKind.MEASURE)
-                if m_ir.weighted_mean is not None
-                else None
-            ),
+            weighted_mean_value=node.value if isinstance(node, _WeightedMean) else None,
+            weighted_mean_weight=node.weight if isinstance(node, _WeightedMean) else None,
         )
     return _object_from_details(MetricEntry, details, catalog)
 

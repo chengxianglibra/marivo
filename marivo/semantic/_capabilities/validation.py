@@ -58,7 +58,7 @@ def _is_registered_semantic_target(target: LiveHelpTarget) -> bool:
     try:
         REGISTRY.by_canonical_id(target.canonical_id)
     except KeyError:
-        return False
+        return any(contract.name == target.canonical_id for contract in TYPE_CONTRACTS.values())
     return True
 
 

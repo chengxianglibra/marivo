@@ -1,0 +1,169 @@
+[
+  {
+    "schema": "marivo.semantic_definition/v1",
+    "ref": {
+      "schema": "marivo.semantic_ref/v1",
+      "kind": "metric",
+      "path": "growth.retail_quarter_to_date_campaign_spend"
+    },
+    "catalog_definition_fingerprint": "sha256:5a96786f4cdb30ecaa12a8d2619ed308dd4e42d5b05e3ca9a331ae6f85367e83",
+    "source_location": {
+      "file": "<project>/models/semantic/growth/campaign_performance.py",
+      "line": 112
+    },
+    "node": {
+      "kind": "cumulative",
+      "base": {
+        "schema": "marivo.semantic_ref/v1",
+        "kind": "metric",
+        "path": "growth.campaign_spend"
+      },
+      "over": {
+        "selection": "explicit",
+        "ref": {
+          "schema": "marivo.semantic_ref/v1",
+          "kind": "time_dimension",
+          "path": "growth.campaign_performance_daily.activity_date"
+        }
+      },
+      "anchor": {
+        "kind": "grain_to_date",
+        "grain": {
+          "kind": "semantic",
+          "calendar": {
+            "schema": "marivo.semantic_ref/v1",
+            "kind": "period_calendar",
+            "path": "commerce.retail_calendar"
+          },
+          "level": "retail_quarter"
+        }
+      }
+    },
+    "temporal": {
+      "declared": {
+        "status": "not_declared"
+      },
+      "override": {
+        "status": "not_declared"
+      },
+      "effective": {
+        "status": "context_required"
+      }
+    }
+  },
+  {
+    "schema": "marivo.semantic_definition/v1",
+    "ref": {
+      "schema": "marivo.semantic_ref/v1",
+      "kind": "metric",
+      "path": "growth.campaign_spend"
+    },
+    "catalog_definition_fingerprint": "sha256:5a96786f4cdb30ecaa12a8d2619ed308dd4e42d5b05e3ca9a331ae6f85367e83",
+    "source_location": {
+      "file": "<project>/models/semantic/growth/campaign_performance.py",
+      "line": 81
+    },
+    "node": {
+      "kind": "aggregate",
+      "operation": {
+        "kind": "sum"
+      },
+      "target": {
+        "schema": "marivo.semantic_ref/v1",
+        "kind": "measure",
+        "path": "growth.campaign_performance_daily.campaign_spend"
+      },
+      "target_kind": "measure",
+      "filter": []
+    },
+    "temporal": {
+      "declared": {
+        "status": "not_declared"
+      },
+      "override": {
+        "status": "not_declared"
+      },
+      "effective": {
+        "status": "not_applicable"
+      }
+    }
+  },
+  {
+    "schema": "marivo.semantic_definition/v1",
+    "ref": {
+      "schema": "marivo.semantic_ref/v1",
+      "kind": "measure",
+      "path": "growth.campaign_performance_daily.campaign_spend"
+    },
+    "catalog_definition_fingerprint": "sha256:5a96786f4cdb30ecaa12a8d2619ed308dd4e42d5b05e3ca9a331ae6f85367e83",
+    "source_location": {
+      "file": "<project>/models/semantic/growth/campaign_performance.py",
+      "line": 56
+    },
+    "node": {
+      "kind": "expression",
+      "status": "supported",
+      "expression": {
+        "kind": "cast",
+        "operand": {
+          "kind": "column",
+          "entity": {
+            "schema": "marivo.semantic_ref/v1",
+            "kind": "entity",
+            "path": "growth.campaign_performance_daily"
+          },
+          "name": "spend_cny"
+        },
+        "data_type": "float64"
+      }
+    },
+    "temporal": {
+      "declared": {
+        "status": "not_declared"
+      },
+      "override": {
+        "status": "not_declared"
+      },
+      "effective": {
+        "status": "not_applicable"
+      }
+    }
+  },
+  {
+    "schema": "marivo.semantic_definition/v1",
+    "ref": {
+      "schema": "marivo.semantic_ref/v1",
+      "kind": "time_dimension",
+      "path": "growth.campaign_performance_daily.activity_date"
+    },
+    "catalog_definition_fingerprint": "sha256:5a96786f4cdb30ecaa12a8d2619ed308dd4e42d5b05e3ca9a331ae6f85367e83",
+    "source_location": {
+      "file": "<project>/models/semantic/growth/campaign_performance.py",
+      "line": 17
+    },
+    "node": {
+      "kind": "expression",
+      "status": "supported",
+      "expression": {
+        "kind": "column",
+        "entity": {
+          "schema": "marivo.semantic_ref/v1",
+          "kind": "entity",
+          "path": "growth.campaign_performance_daily"
+        },
+        "name": "activity_date"
+      }
+    },
+    "temporal": {
+      "declared": {
+        "status": "not_declared"
+      },
+      "override": {
+        "status": "not_declared"
+      },
+      "effective": {
+        "status": "not_applicable"
+      }
+    }
+  }
+]

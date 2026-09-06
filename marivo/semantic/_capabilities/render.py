@@ -557,6 +557,10 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.append(
             "  Consumers: " + ", ".join(_target_text(target) for target in contract.consumers)
         )
+    lines.extend(f"  {note}" for note in contract.notes)
+    if contract.example is not None:
+        lines.append("  Example:")
+        lines.extend(f"    {line}" for line in contract.example.splitlines())
     if type_name == "Ref":
         lines.extend(
             (

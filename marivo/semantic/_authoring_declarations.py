@@ -7,6 +7,7 @@ Internal module: public symbols are re-exported from
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -300,8 +301,9 @@ def where(
 
     Args:
         **conditions: One or more ``dimension=value`` predicates. Values are
-            str, int, float, bool, or a non-empty tuple/list of those scalars.
-            ``None``, sets, mappings, and nested values are not supported.
+            str, int, finite float, bool, or a non-empty tuple/list of those
+            scalars. ``None``, non-finite floats, sets, mappings, and nested
+            values are not supported.
 
     Returns:
         A :class:`WhereFilter` to pass as ``filter=``.
@@ -347,6 +349,15 @@ def where(
                     cls=SemanticDecoratorError,
                     constraint_id=ConstraintId.FILTER_CONDITION_VALID,
                 )
+            if any(isinstance(item, float) and not math.isfinite(item) for item in value):
+                _raise(
+                    ErrorKind.INVALID_FILTER,
+                    f"ms.where dimension {dimension_name!r} membership values must be finite.",
+                    cls=SemanticDecoratorError,
+                    expected="finite str/int/float/bool membership values",
+                    received="a non-finite float membership value",
+                    constraint_id=ConstraintId.FILTER_CONDITION_VALID,
+                )
             normalized.append((dimension_name, tuple(value)))
             continue
         if not isinstance(value, str | int | float | bool):
@@ -356,6 +367,15 @@ def where(
                 "or a non-empty tuple/list of those scalars; "
                 f"got {type(value).__name__}",
                 cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.FILTER_CONDITION_VALID,
+            )
+        if isinstance(value, float) and not math.isfinite(value):
+            _raise(
+                ErrorKind.INVALID_FILTER,
+                f"ms.where dimension {dimension_name!r} value must be finite.",
+                cls=SemanticDecoratorError,
+                expected="a finite str/int/float/bool equality value",
+                received="a non-finite float equality value",
                 constraint_id=ConstraintId.FILTER_CONDITION_VALID,
             )
         normalized.append((dimension_name, value))

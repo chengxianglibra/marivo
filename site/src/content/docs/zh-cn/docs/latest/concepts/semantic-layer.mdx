@@ -1446,3 +1446,36 @@ order_lifecycle = ms.state_model(
 起始，但这种模型不能从起始开始重放。当前构造器契约以
 `marivo.help("semantic.state_model")` 为准；用 `catalog.require(...)` 确认精确当前成员，
 用限定范围的 readiness 做静态预检，只在具体运行风险需要时执行 preview。
+
+## 不查询数据，读取计算定义
+
+已加载的指标、度量、维度和时间维度 Details 提供类型明确、不可变的
+`definition`。其 JSON 投影保留输入角色、聚合参数、过滤条件、累计规则和精确引用：
+
+```python
+import json
+import marivo
+import marivo.semantic as ms
+
+catalog = ms.load()
+definition = catalog.metrics.get("sales.revenue").details().definition
+definition.show()
+payload = definition.to_dict()
+print(json.dumps(payload, allow_nan=False))
+marivo.help("semantic.SemanticDefinition")
+```
+
+通过同一 Catalog 的 `catalog.require(ref)` 沿直接输入 Ref 逐层解释。
+输出采用 `marivo.semantic_definition/v1`，引用复用 `marivo.semantic_ref/v1`。
+语义粒度保留日历与层级，不将零售季度推断为自然季度。累计指标省略 `over`
+时仍标记为默认选择，不冒充作者显式声明的时间轴。
+
+表达式说明支持列、绑定字段、固定类型转换、源码二元/一元运算符 token、比较及
+`.ifelse()`。函数体字面量隐藏，不支持的语法明确标注。`+` 与 `&` 等 token
+保持语法层含义，因为实际 Ibis 运算取决于操作数 dtype。声明式过滤保留类型化有限值，
+`ms.where` 在编写阶段拒绝 NaN 与无穷值。时间维度的源表达式不能替代其 parse、粒度
+和时区契约。
+
+时间规则分别说明声明值、指标折叠覆盖和静态可确定的有效规则。定义快照身份、业务限制、
+readiness 与数据新鲜度保持独立。Catalog 加载后的定义读取不查询数据、不读源码、
+不执行表达式、不认证日历；可信 Python 模型加载仍遵循原有行为。

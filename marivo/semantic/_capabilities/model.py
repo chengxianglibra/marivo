@@ -239,6 +239,8 @@ class SemanticTypeContract:
     public_properties: tuple[str, ...] = ()
     public_methods: tuple[str, ...] = ()
     consumers: tuple[LiveHelpTarget, ...] = ()
+    notes: tuple[str, ...] = ()
+    example: str | None = None
 
 
 @dataclass(frozen=True)

@@ -251,8 +251,7 @@ intermediate metric refs to its named measure or entity inputs. The table preser
 ratio roles, linear signs and declaration order, cumulative axes and anchors,
 aggregate filters and folds, and weighted-mean inputs. A metric implemented by an
 Ibis function body ends honestly at `expression_body` when it has no named base
-measure. This is a rendering projection only: `DerivedMetricDetails` adds no
-`expression_tree` field or traversal API.
+measure. This table shares the direct definition projection described below; it is not a machine-readable traversal API.
 Secrets appear only as env-var *names* — a resolved secret value is never
 rendered.
 
@@ -414,7 +413,9 @@ assembly-time `invalid_filter`: Marivo preserves the authored business literal,
 does not infer a code/label mapping from physical types or sample values, and
 routes the required decision to the current business authority. Project loading
 and `semantic_static` readiness may continue without the unavailable runtime
-evidence.
+evidence. Non-finite float filter values are never legal declarations: `ms.where`
+rejects NaN and infinity immediately with `invalid_filter` so loaded definitions
+remain JSON-safe.
 
 ### Parity-time
 
@@ -566,3 +567,12 @@ expressions whose dependency closures passed. A missing required semantic object
 `marivo-semantic` through the structured `semantic_authoring` repair and returns
 to the same semantic entry, requiring matching scoped readiness before
 resuming.
+
+
+## Structured definition reading
+
+Loaded metric, measure, dimension, and time-dimension Details expose
+`definition: SemanticDefinition`. See [the definition reading contract](definition-reading.md)
+for the closed variants, JSON schema, disclosure policy, and support matrix.
+The direct read and serialization are snapshot-only and do not run readiness,
+preview, authentication, expression bodies, or calendar certification.
