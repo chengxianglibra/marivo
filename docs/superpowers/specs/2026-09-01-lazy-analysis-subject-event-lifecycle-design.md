@@ -2,11 +2,16 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-05
+Revised: 2026-09-07
 
 Status: accepted
 
 Owner decision status: confirmed
+
+The 2026-09-07 amendment below is an accepted target contract, not a claim that
+the lazy implementation or its acceptance evidence already exists. It closes
+stable subject identity, lossless replay retention, and descriptive duration
+semantics before the public cutover.
 
 ## Outcome
 
@@ -74,8 +79,8 @@ an agent can determine before execution:
   Metric coordinates and aggregation;
 - the shared `AnalysisPredicate` grammar, literal compatibility, filter effects,
   filter ordering, or shared filter field-resolution rules;
-- private semantic nodes, semi-join lowering, Ibis construction, execution
-  fixed-domain binding or Runtime resource policy;
+- private semantic nodes, semi-join lowering, Ibis construction,
+  source/pandas boundary selection or Runtime resource policy;
 - Run, Artifact, storage-receipt, Evidence-envelope, writer-lock, commit, cleanup, or
   recovery state machines;
 - ordinary Metric operator admission or Candidate scoring;
@@ -86,7 +91,7 @@ The owning upstream sources are:
 
 - [Dataset Core](2026-09-01-lazy-analysis-dataset-core-design.md);
 - [Observation Model](2026-09-01-lazy-analysis-observation-model-design.md);
-- [Direct Compiler and Fixed Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md);
+- [Source Pushdown and Pandas Execution](2026-09-01-lazy-analysis-planner-and-pushdown-design.md);
 - [Materialization Runtime](2026-09-01-lazy-analysis-materialization-runtime-design.md);
 - [Typed Operators](2026-09-01-lazy-analysis-typed-operators-design.md).
 
@@ -196,8 +201,21 @@ SubjectIdentityContractV1
 ```
 
 `subject_entity_ref` is one exact current semantic Entity at logical source
-construction. `identity_signature` is the Entity's non-empty ordered primary-key
-signature. Every component is non-null and retains its governed logical type.
+construction. `identity_signature` is the Entity's non-empty ordered stable
+primary-key signature `K`. Every component is non-null and retains its governed
+logical type. Snapshot partitions and validity start/end coordinates are owned
+by Entity versioning and are not components of `K`. A physical historical row
+is identified by `K` plus its governed version coordinate; a Population, Event
+subject, or Lifecycle subject always carries `K` alone.
+
+Temporal resolution selects the unique historical representation for the exact
+domain anchor before a to-one enrichment or identity join. It never chooses an
+arbitrary duplicate, adds a version coordinate to subject identity, or silently
+uses the latest version. A logical Population rooted directly in a versioned
+Entity requires Module 2's explicit finite membership scope. A governed domain
+selection retains its own exact selection-time authority instead; Event anchor
+instants and Lifecycle replay or selection instants remain separate authorities
+for their own version selection.
 
 Public subject identity uses one fixed-arity tuple field:
 
@@ -520,8 +538,9 @@ that boundary. A bare state name, cross-model handle, naive datetime, instant
 outside that closed selection range, or inferred `latest` instant fails
 locally.
 
-One subject is selected when its replayed interval establishes the exact model
-state at `at`. A gap, missing inception, or insufficient Event coverage cannot
+One subject is selected when its replayed interval and retained subject-coverage
+row establish the exact model state at `at`. Every admitted subject is checked,
+including subjects with no interval. A gap, missing inception, or insufficient Event coverage cannot
 be interpreted as another state. Any membership uncertainty makes PopulationDataset
 publication fail atomically under the confirmed complete-only contract.
 
@@ -573,10 +592,16 @@ admission requires:
 - exact Event, role, Pattern order, and semantic fingerprints are available;
 - semantic readiness and occurrence-time authority are complete.
 
-When `population` is omitted, the source constructs an implicit exact unsampled
-Population root for the resolved subject Entity. It does not infer membership
-from observed first-step rows. The Event anchor filter later selects journeys
-within `cohort_window`.
+When `population` is omitted for a non-versioned subject Entity, the source
+constructs an implicit exact unsampled Population root. It does not infer
+membership from observed first-step rows. The Event anchor filter later selects
+journeys within `cohort_window`. For a versioned subject Entity, omission fails
+locally: the repair supplies an explicit admitted PopulationInput with complete
+membership authority. This can be Module 2's finite membership-scoped Entity
+root, a governed domain selection at its exact selection time, or an admitted
+identity-bearing Artifact. A domain selection does not acquire the Entity-root
+endpoint convention. The cohort window never substitutes for membership scope;
+the fixed input identities `K` and Event occurrence anchors remain independent.
 
 When `population` is present, it must satisfy the exact `PopulationInput`
 compatibility contract above. A materialized admitted input is consumed through
@@ -809,10 +834,11 @@ The exact generated-field logical types are:
 | Event ref fields | exact typed Event ref |
 | `step_key` | exact retained PatternStep identity projected as its stable key |
 | state fields | exact retained ModelState identity projected as its stable key |
-| `occurred_at`, `from_time`, `to_time`, `valid_from`, `valid_to`, `as_of` | timezone-aware instant normalized to UTC |
+| `occurred_at`, `from_time`, `to_time`, `followup_until`, `valid_from`, `valid_to`, `as_of` | timezone-aware instant normalized to UTC |
 | elapsed and duration fields | backend-independent duration logical type |
+| `left_clipped` | non-null boolean |
 | `*_count`, `contribution_rank` | exact `int64`, with non-negative counts and positive ranks |
-| rates, shares, mean, median, and percentile fields | finite `float64` when defined |
+| rates and shares | finite `float64` when defined |
 | comparison and contribution numeric fields | Module 5's registered lossless common numeric type |
 | masks | fixed-length `tuple[bool, ...]` matching authored axis count |
 | status, presence, violation, method, contribution-kind, and causal-claim fields | owning non-null closed enum |
@@ -827,11 +853,11 @@ The closed semantic-role mapping is:
 | `event_occurrence_identity` | every `*_event_identity` and `event_identity` |
 | `event_semantic_identity` | `trigger_event_ref`, `entered_by_event_ref`, `exited_by_event_ref` |
 | `model_state_identity` | `model_state`, `from_model_state`, `to_model_state`, `model_state_at_event` |
-| `time_coordinate` | `occurred_at`, `from_time`, `to_time`, `valid_from`, `valid_to`, `as_of` |
-| `duration_value` | elapsed fields, `duration`, and dwell duration statistics |
+| `time_coordinate` | `occurred_at`, `from_time`, `to_time`, `followup_until`, `valid_from`, `valid_to`, `as_of` |
+| `duration_value` | elapsed fields, `duration`, `observed_duration`, and dwell duration statistics |
 | `additive_count` | every `*_count` field |
 | `rate_value` | conversion, loss-rate, and share fields |
-| `status` | completion, interval, calculation, presence, and violation classifications |
+| `status` | completion, interval, calculation, presence, violation, and `left_clipped` classifications |
 | `comparison_value` | current/baseline count and rate fields plus `loss_rate_delta` |
 | `attribution_partition_identity` | authored axes, `active_axis_mask`, `other_mask`, `contribution_kind` |
 | `effect_value` | attribution current/baseline values, overall delta, contribution, and pool/total shares |
@@ -874,7 +900,8 @@ Nullability is closed by shape:
 
 - journey `event_identity`, `occurred_at`, and both elapsed fields are nullable;
 - funnel rates are nullable; its counts and `step_key` are not;
-- time-to-event occurrence identities, times, and `duration` are nullable; its
+- time-to-event occurrence identities, times, `duration`, `followup_until`, and
+  `observed_duration` are nullable; its
   journey/subject coordinates and status are not;
 - history exit Event ref/identity fields are nullable; all other history fields
   are not;
@@ -1029,12 +1056,50 @@ from_time
 to_event_identity
 to_time
 duration
+followup_until
+observed_duration
 completion_status
 ```
 
 One row means one admitted journey attempt between the two exact steps.
-`duration` is non-negative and present only for complete rows. Incomplete rows
-require complete follow-up; coverage-censored rows retain unknown truth.
+`duration` is non-negative and present only for complete rows. The follow-up
+fields retain the observed exposure separately from a completed duration.
+
+For this shape only, `completion_status` is the closed union:
+
+```text
+complete | incomplete | coverage_censored | not_entered | entry_unknown
+```
+
+Classification is relative to the selected step pair, not the final Pattern
+step. A reached `to_step` after the reached `from_step` is `complete` even when
+later Pattern steps are missing. Ordered intermediate Pattern steps remain part
+of the canonical assignment; the reducer never matches a shortcut between the
+selected Events.
+
+- If `from_step` is reached, the attempt entered the selected risk set. A reached
+  `to_step` is `complete`; a missing `to_step` with complete required follow-up
+  through `completion_through` is `incomplete`; otherwise it is
+  `coverage_censored`.
+- If `from_step` is provably not reached, the row is `not_entered`. If its entry
+  truth is unknown, the row is `entry_unknown`. Neither row belongs in an
+  entered-attempt denominator. Both have null occurrence, time, duration, and
+  follow-up fields for this pair.
+- For complete rows, `followup_until = to_time`. For entered incomplete rows,
+  `followup_until = completion_through`. For entered coverage-censored rows,
+  it is the end of the contiguous proven follow-up prefix from `from_time` for
+  all Events needed by the selected pair, capped at `completion_through`; an
+  unproved prefix ends at `from_time` itself. This bound is derived once from
+  the retained exact coverage authority, never from the last observed Event.
+- `observed_duration = followup_until - from_time` for every entered row and is
+  non-negative; `duration = to_time - from_time` only for complete rows.
+  `incomplete` means no completion within the requested follow-up, not that
+  completion can never occur. Source-coverage uncertainty remains distinct from
+  a known end of observation.
+
+This is a descriptive attempt-level observation contract. It does not estimate
+a survival distribution, treat repeated attempts as independent subjects, or
+admit a Kaplan-Meier, Cox, or competing-risk reducer in this cutover.
 
 The reducer consumes exact journey rows supplied by the Logical input or
 immutable Artifact. It never rematches Events or replaces the source matching policy.
@@ -1048,7 +1113,7 @@ Event filtering consumes the shared `AnalysisPredicate` contract and always has
 | --- | --- | --- | --- |
 | `event/journey@v1` | no | none | dropping structural step rows corrupts journey authority |
 | `event/funnel@v1` | yes | retained axes, `step_key`, all count and rate fields | each row is one complete summary cell |
-| `event/time-to-event@v1` | yes | `from_time`, `to_time`, `completion_status`; null checks only on `duration` | each row is one independently meaningful attempt summary |
+| `event/time-to-event@v1` | yes | `from_time`, `to_time`, `followup_until`, `completion_status`; null checks only on `duration` and `observed_duration` | each row is one independently meaningful attempt summary |
 
 `journey_id`, `entity_identity`, and Event identity tuples are not filter
 operands. Row filtering never changes Pattern meaning, matching assignment, or
@@ -1068,8 +1133,8 @@ Generated Event fields use this exact predicate-kind registration:
 | `step_key`, `completion_status` | `eq`, `not_eq`, `is_in` |
 | integer count | `eq`, `not_eq`, `lt`, `lte`, `gt`, `gte`, `is_in` |
 | floating rate | numeric comparisons and `is_in`; `is_null` / `is_not_null` when nullable |
-| `from_time`, `to_time` | datetime comparisons and `is_in`; null checks when nullable |
-| `duration` | `is_null`, `is_not_null` only |
+| `from_time`, `to_time`, `followup_until` | datetime comparisons and `is_in`; null checks when nullable |
+| `duration`, `observed_duration` | `is_null`, `is_not_null` only |
 
 The shared predicate contract has no governed duration literal class in the
 first cutover, so this module cannot admit duration thresholds by treating a
@@ -1121,8 +1186,13 @@ Every trigger role must resolve cardinality-one at the same subject Entity. The
 source rejects unresolved, cross-Entity, ambiguous, or nondeterministic model
 authority before Dataset construction.
 
-When `population` is omitted, replay constructs an implicit exact unsampled
-Population root for the model subject Entity. An explicit `PopulationInput`
+When `population` is omitted for a non-versioned subject Entity, replay
+constructs an implicit exact unsampled Population root. For a versioned subject,
+omission fails with the same explicit governed-membership repair as Event
+matching; the replay window is not an inferred Population scope. A finite-scoped
+Entity root, a complete domain selection at its own selection time, or an
+admitted identity-bearing Artifact supplies stable `K` independently of replay
+version anchors. An explicit `PopulationInput`
 must match that Entity and identity signature exactly under its registered
 direct-membership or identity-projection mode. It narrows eligible subjects but
 does not become a seed, change its own Dataset family, or change the replay
@@ -1156,8 +1226,10 @@ The confirmed subject classification is:
 | transition trigger exists but no inception exists | every trigger is source-origin complete through `window.end` | fail `insufficient_state_history` atomically |
 | inception truth cannot be established | one or more triggers lack compatible source-origin coverage | `coverage_censored`; no invented initial interval |
 
-Coverage-censored subjects contribute to bounded diagnostics and Evidence inputs
-but cannot enter an `InState` PopulationDataset. Pre-inception modeled occurrences do
+Coverage-censored subjects contribute to bounded diagnostics and Evidence inputs.
+They block an `InState` PopulationDataset whenever the requested instant lies
+outside their retained proven prefix; an earlier proved state remains governed
+by the exact at-instant coverage rules below. Pre-inception modeled occurrences do
 not silently seed state. The fixed replay contract records or rejects them only
 according to the exact row below; callers do not choose an `on_missing_history`
 policy.
@@ -1245,6 +1317,7 @@ entered_by_event_identity
 exited_by_event_ref
 exited_by_event_identity
 interval_status
+left_clipped
 ```
 
 Rows for one subject are ordered, non-overlapping intervals clipped to the
@@ -1253,6 +1326,10 @@ same-time trigger sequence may change transient internal state, but zero-duratio
 intermediate intervals are not emitted; only the state effective after that
 instant can begin a public interval. The row key is the complete subject
 identity plus `valid_from`.
+`left_clipped` is true exactly when the actual entry into this positive-duration
+state interval preceded `window.start`; its public `valid_from` is then
+`window.start`. It is false for entry at or after that boundary. This flag does
+not retain the original entry instant or authorize a whole-episode duration.
 `interval_status` is:
 
 ```text
@@ -1261,8 +1338,19 @@ completed | right_censored | coverage_censored
 
 A completed interval ends at a legal modeled transition. The final open
 interval is right-censored at `window.end` only when coverage is complete
-through that instant. Otherwise it is coverage-censored. No interval assigns a
+through that instant. Otherwise it is coverage-censored. An interval whose
+state or legal exit depends on an unproved coverage suffix is also
+coverage-censored, even if an observed trigger suggests an exit; it cannot enter
+the completed-fragment dwell statistics. No interval assigns a
 state before deterministic inception.
+
+Positive intervals are the public occupancy projection, not the complete replay
+fact set. The same canonical replay also owns three exact private row sets:
+`lifecycle_legal_transition_trace@v1`, `lifecycle_subject_coverage@v1`, and
+`lifecycle_violation_trace@v1`. Their schemas and atomic retention contracts are
+defined below. Legal transitions through zero-duration states and subjects with
+no interval are retained there; reducers must not try to reconstruct them from
+interval adjacency or aggregate counts.
 
 History rejects `where(...)`. Removing one interval would corrupt adjacency,
 state-at-time truth, transition counts, dwell censoring, and violation linkage.
@@ -1310,9 +1398,17 @@ and instant. `coverage_censored_subject_count` is kept separate. Subjects not
 yet incepted are outside the StateModel distribution and are not assigned to
 the initial state. A zero known denominator yields null share.
 
-With no axes, distribution consumes the exact input history rows. Adding axes
-explicitly joins current Dimension paths while retaining the source history as
-its exact logical or immutable input.
+The exact subject-coverage rows enumerate every admitted subject and determine
+known, not-yet-incepted, or unknown state truth at each requested instant before
+grouping. Axis enrichment applies to those stable subject identities, including
+censored subjects that have no history interval. The coverage rows and positive
+intervals must reconcile under the at-instant rules below; a source Population
+recipe, current Entity enumeration, or bounded aggregate count is not a
+replacement for retained subject membership.
+
+With no axes, distribution consumes the exact input history and subject-coverage
+rows. Adding axes explicitly joins current Dimension paths at each requested
+instant while retaining both row sets as its exact logical or immutable input.
 
 ### `transitions`
 
@@ -1338,8 +1434,22 @@ therefore contribute to one pair row. Illegal triggers are not transitions;
 they remain in the violation trace. The share denominator is the count of all
 legal modeled transitions. A zero denominator yields null.
 
-The reducer consumes the exact logical source or retained materialized history
-and trace. It adds no current semantic expansion.
+The reducer consumes only the canonical legal-transition trace for transitions
+whose `occurred_at` is in `[window.start, window.end)`. It counts every legal
+transition, including same-time cycles and transitions at `window.start` whose
+preceding interval is outside the public window. Inception is not a modeled
+state pair and is excluded. It never infers transition multiplicity from
+positive interval adjacency. A materialized input reads the retained trace; the
+reducer adds no current semantic expansion or Event replay.
+
+These are counts of observed triggers classified as legal by the canonical
+replay, with its retained coverage qualifiers in family metadata and Evidence.
+Under incomplete coverage they do not claim the unobserved true transition
+total or certainty about an unobserved intervening state. The share denominator
+is the same observed legal trace count; it is not a from-state conditional
+transition probability, a person-time hazard, or a causal quantity. Unknown
+coverage is disclosed rather than silently upgraded, without adding a new
+full-coverage admission requirement for this descriptive reducer.
 
 ### `dwell`
 
@@ -1358,6 +1468,7 @@ interval_count
 completed_count
 right_censored_count
 coverage_censored_count
+left_clipped_completed_count
 mean_duration
 median_duration
 p90_duration
@@ -1367,6 +1478,21 @@ It emits every declared state in StateModel order. Duration statistics use only
 completed intervals. Right- and coverage-censored intervals remain explicit
 counts and are never assigned an artificial duration. Zero completed intervals
 produce null duration statistics.
+
+The fixed estimand is the duration `valid_to - valid_from` of each completed
+positive state-episode fragment clipped to the requested replay window. It is
+a descriptive statistic conditional on those fragments completing within that
+window. It is not a whole-episode duration, an all-entrants mean, a survival
+estimate, or total time in state. `left_clipped_completed_count` reports the
+completed fragments with `left_clipped = true` and is a subset of
+`completed_count`; the fragment remains in the completed-fragment statistics.
+For example, entry on January 1, window start on January 10, and legal exit on
+January 12 contributes a two-day completed fragment, not an eleven-day episode.
+The family metadata binds the fixed estimand id
+`completed_window_fragment_duration@v1`. No original entry instant is required
+or reconstructed for this estimand.
+Zero-duration states contribute transitions to the retained trace but no dwell
+interval or duration statistic.
 
 The first-cutover median and p90 are exact. A backend that cannot lower the
 exact registered reduction fails compilation; runtime pressure does not switch
@@ -1579,6 +1705,15 @@ private logical inputs still retain both exact journey assignments. It uses
 resolved-entry and lost-count components and may enrich exact current subject
 axes under the same first-step anchor contract. It never rematches Events.
 
+The attributed scope is exactly the compared Event definition on each side:
+Pattern and selected step, stable subject identity, admitted Population,
+matching assignment, anchor window, follow-up bound, and complete resolved-entry
+and loss membership. It must reproduce that selected step's full loss-rate
+delta from those components before any Top-K presentation. A row-subset filter
+that removes the target step or narrows its underlying membership cannot be
+silently undone, and a Metric-only attribution scope rule cannot broaden this
+Event overload. Complete journey scan leaves remain the reusable authority.
+
 A materialized Delta is rejected because aggregate rows do not retain subject
 assignment. A logical Delta built from already materialized funnel summaries is
 rejected for the same reason. The repair reconstructs each funnel logically
@@ -1637,15 +1772,17 @@ Each operator binds the following inputs and concrete checks during construction
 | --- | --- | --- | --- |
 | exact Metric/Candidate `population=` input | project exact current input identities | project retained identity field | input-state-selected identity projection; no reach-through |
 | journey `.select_subjects(DroppedBefore)` | execute exact Pattern assignment | consume retained dense journey rows | exact input rows; no origin replay; complete coverage required |
-| history `.select_subjects(InState)` | execute exact replay intervals | consume retained complete history rows | exact input rows; no origin replay; complete at-instant truth required |
+| history `.select_subjects(InState)` | execute exact intervals and subject-coverage rows | consume retained intervals and subject-coverage role | exact admitted K membership; no origin replay; complete at-instant truth required |
 | `events.match` | current Pattern Events plus membership input | current Pattern Events plus immutable membership leaf | explicit current Event source execution |
 | `journeys.funnel(axes=())` | consume journey definition | consume retained journey rows | exact input rows; no origin replay |
 | `journeys.funnel(axes=...)` | consume journey plus current axes | retain journey leaf plus current axes | explicit current Dimension joins |
 | `journeys.time_to_event` | consume journey definition | consume retained journey rows | exact input rows; no origin replay |
 | `lifecycle.replay` | current StateModel Events plus membership input | current StateModel Events plus immutable membership leaf | explicit current Event source execution |
-| `history.distribution(axes=())` | consume replay history | consume retained history rows | exact input rows; no origin replay |
-| `history.distribution(axes=...)` | consume history plus current axes | retain history leaf plus current axes | explicit current Dimension joins |
-| transitions/dwell/violations | consume exact logical history and trace | consume retained history and committed trace | exact input rows; no origin replay |
+| `history.distribution(axes=())` | consume replay intervals and subject-coverage rows | consume retained intervals and subject-coverage role | exact input rows including subjects without intervals; no origin replay |
+| `history.distribution(axes=...)` | consume intervals and subject-coverage rows plus current axes | retain both row sets plus current axes | exact retained K membership; explicit at-instant Dimension joins |
+| `history.transitions()` | consume canonical legal-transition rows | consume legal-transition role | all legal occurrences in replay window, including zero-duration cycles; no origin replay |
+| `history.dwell()` | consume positive intervals | consume retained positive intervals | completed clipped-fragment statistics; no origin replay |
+| `history.violations()` | consume canonical violation rows | consume violation role | exact violation observations; no origin replay |
 | owned row filter | current logical rows | retained current rows | shared logical/materialized filter matrix |
 
 Equivalent lowering preserves the calculation over the exact rows owned by
@@ -1720,7 +1857,7 @@ the only materialized Dataset that can provide population input.
 Raw subject and Event identity values may exist only in:
 
 - engine expressions and datasource execution internal to an admitted action;
-- authorized Dataset row storage;
+- authorized Dataset row storage and registered private retained row parts;
 - bounded explicit `show()` output;
 - guarded complete terminal `to_pandas()` output;
 - transient in-process batches already allowed by an exact guarded boundary.
@@ -1807,7 +1944,7 @@ The exact first-cutover registrations are:
 | `session.events.match` | `event_journey_quality@v1` | `event_journey_validation@v1` | `event_journey_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
 | `journeys.funnel` | `event_funnel_quality@v1` | `event_funnel_validation@v1` | `event_funnel_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
 | `journeys.time_to_event` | `event_time_to_event_quality@v1` | `event_time_to_event_validation@v1` | `event_time_to_event_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
-| `session.lifecycle.replay` | `lifecycle_history_quality@v1` | `lifecycle_history_validation@v1` | `lifecycle_history_evidence@v1` | `none@v1` / `zero_findings@v1` | `lifecycle_violation_trace@v1` |
+| `session.lifecycle.replay` | `lifecycle_history_quality@v1` | `lifecycle_history_validation@v1` | `lifecycle_history_evidence@v1` | `none@v1` / `zero_findings@v1` | `lifecycle_legal_transition_trace@v1`; `lifecycle_subject_coverage@v1`; `lifecycle_violation_trace@v1` |
 | `history.distribution` | `lifecycle_distribution_quality@v1` | `lifecycle_distribution_validation@v1` | `lifecycle_distribution_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
 | `history.transitions` | `lifecycle_transitions_quality@v1` | `lifecycle_transitions_validation@v1` | `lifecycle_transitions_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
 | `history.dwell` | `lifecycle_dwell_quality@v1` | `lifecycle_dwell_validation@v1` | `lifecycle_dwell_evidence@v1` | `none@v1` / `zero_findings@v1` | none |
@@ -1825,11 +1962,11 @@ then run over the same staged rows and bounded validation outputs:
 | `subject_selection_quality@v1` | non-null exact identity tuples; row-key uniqueness; complete membership authority; no censored member | source family/shape, subject Entity/signature refs, selection kind, row count, coverage basis |
 | `event_journey_quality@v1` | dense exact Pattern steps per journey; matching algorithm/version; within-journey occurrence uniqueness; time monotonicity; status/null coherence; coverage classification | Pattern/matching ids, journey/subject/step counts, completion-status counts, coverage basis; no journey or identity values |
 | `event_funnel_quality@v1` | dense steps/groups; count equations; zero-denominator nulls; grouped-to-ungrouped reconciliation | axes/step refs, group count, count ranges, status totals, reconciliation maxima |
-| `event_time_to_event_quality@v1` | one row per source journey; selected-step identity; non-negative complete duration; status/null and coverage coherence | selected step refs, row/status counts, duration range for defined aggregate values, coverage basis |
-| `lifecycle_history_quality@v1` | source-origin classification; interval key uniqueness; positive clipped intervals; no overlap; legal adjacency; status/end coherence; violation-trace linkage | StateModel/seed ids, subject/interval/status/violation counts, coverage basis; no identity or interval samples |
-| `lifecycle_distribution_quality@v1` | dense instants/states/groups; known/censored count coherence; grouped reconciliation; share equation | requested instants, state/axis refs, count ranges, censored totals, reconciliation maxima |
-| `lifecycle_transitions_quality@v1` | dense distinct declared pairs; non-negative counts; legal total and share reconciliation | StateModel id, pair count, transition total, zero-count rows, reconciliation maximum |
-| `lifecycle_dwell_quality@v1` | dense states; interval-count equation; completed-only exact statistics; censor/null coherence | StateModel id, state/count ranges, censor totals, defined-statistic counts |
+| `event_time_to_event_quality@v1` | one row per source journey; pair-local classification; entered/not-entered/unknown entry partition; complete and observed duration equations; follow-up bounds; status/null and coverage coherence | selected step refs, row/status and entered counts, defined duration ranges, coverage basis |
+| `lifecycle_history_quality@v1` | exact admitted K ledger; source-origin prefix/classification; interval keys, positive clipping and flags; no overlap; legal-transition order and boundary reconciliation including zero-duration states; status/end coherence; all three retained-role bindings and keys | StateModel/seed ids, subject/interval/status/legal-transition/violation/left-clipped counts, coverage basis; no identity or interval samples |
+| `lifecycle_distribution_quality@v1` | dense instants/states/groups; exact coverage-ledger at-instant partition; subjects without intervals retained; known/censored count coherence; grouped reconciliation; share equation | requested instants, state/axis refs, count ranges, censored totals, reconciliation maxima |
+| `lifecycle_transitions_quality@v1` | dense distinct declared pairs; exact observed legal-trace projection including same-time cycles; non-negative counts; observed total and share reconciliation; retained coverage qualification | StateModel id, pair count, observed transition total, zero-count rows, reconciliation maximum, coverage basis and censored-subject count |
+| `lifecycle_dwell_quality@v1` | dense states; interval-count equation; completed clipped-fragment exact statistics; left-clipped completed subset count; censor/null coherence | StateModel id, state/count ranges, censor and left-clipped totals, defined-statistic counts, fixed fragment-estimand id |
 | `lifecycle_violations_quality@v1` | exact trace projection; key uniqueness; closed violation kind; trigger/state coherence | StateModel id, violation-kind counts, distinct trigger refs; no subject or occurrence identities |
 | `funnel_delta_quality@v1` | compatible inputs; coordinate presence; additive zero-fill; count/rate equations; complete follow-up; delta status coherence | Pattern/axis refs, presence/status/count totals, reconciliation maxima, coverage basis |
 | `funnel_attribution_quality@v1` | complete mapped membership; additive component equations; endpoint reproduction; per-resolution reconciliation; rank/share/status coherence | target/method/axis refs, resolution and Top-K/Other counts, status totals, reconciliation maxima |
@@ -1865,21 +2002,115 @@ For funnel Attribution, Module 6 extends the Module 5-owned
 `denominator_mix`. It uses the same masks, typed shares, rank, reconciliation,
 and `causal_claim="none"` invariants; no second contribution payload exists.
 
-`lifecycle_violation_trace@v1` is the only first-cutover private retained state
-introduced here. It binds the history Artifact, exact StateModel and replay
-versions, trigger refs, trace schema, trace row count, and integrity receipt. It
-contains the identity-bearing violation rows needed by `history.violations()`
-under the same authorization boundary as history storage. Cold reads validate
-it and fail if absent or corrupt; they never replay Events to rebuild it.
+### Canonical replay retained parts
 
-The trace is an actual `retained_parts[]` instance under the history Artifact,
-using role `lifecycle_violation_trace` with the registered version and its own
-receipt. Its schema/count/content and locator are committed with the primary
-history receipt; both reservations transfer in one Store transaction. It is not
-temporary exchange garbage or a separately published Artifact. Ordinary history
-row reads do not open the trace; `violations()` and full integrity inspection do.
-The same physical ownership and authorization rules apply across local, engine,
-and object backing, with no Event replay when the trace is missing or corrupt.
+One replay owns its public positive intervals and all three private row sets
+below. Every row set binds the same history Artifact, stable subject `K`
+signature, admitted Population authority, exact StateModel and Event/role
+fingerprints, replay window/version, coverage receipts/declarations, schema
+version, row count, and private integrity receipt. These are registered
+`retained_parts[]`, not public Dataset shapes or independent Artifacts. Their
+row-schema names are module-internal contracts, not public exports, constructors,
+or focused Help targets.
+
+| Retained contract / ordered row schema | Exact role id | Consumers |
+| --- | --- | --- |
+| `lifecycle_legal_transition_trace@v1` / `LifecycleLegalTransitionRowV1` | `lifecycle_legal_transition_trace` | `transitions`, history structural validation, full integrity inspection |
+| `lifecycle_subject_coverage@v1` / `LifecycleSubjectCoverageRowV1` | `lifecycle_subject_coverage` | `distribution`, `select_subjects(InState)`, history structural validation, full integrity inspection |
+| `lifecycle_violation_trace@v1` / `LifecycleViolationRowV1` | `lifecycle_violation_trace` | `violations`, history structural validation, full integrity inspection |
+
+`LifecycleLegalTransitionRowV1` has this exact ordered schema:
+
+```text
+entity_identity
+transition_ordinal
+occurred_at
+from_model_state
+to_model_state
+trigger_event_ref
+trigger_event_identity
+```
+
+Every field is non-null. Identity tuples and Event/state refs use the same
+governed types as the history; `occurred_at` is a UTC-normalized aware instant;
+`transition_ordinal` is a positive `int64`. The row key and canonical ordering
+are `(entity_identity, transition_ordinal)`. Ordinals are contiguous from one
+for each subject's legal transitions in `[window.start, window.end)` and retain
+the exact deterministic replay order, including transitions at the same time.
+`(trigger_event_ref, trigger_event_identity)` is also unique. One row is one
+legal ordinary modeled trigger, including self-transitions and zero-duration
+cycles; inception and illegal triggers are excluded. No interval compaction,
+pair aggregation, or duplicate elimination may change this row set. The trace
+retains enough state and occurrence facts to validate public interval boundary
+states even when any number of intermediate states have zero duration.
+
+`LifecycleSubjectCoverageRowV1` has this exact ordered schema:
+
+```text
+entity_identity
+classification
+inception_at
+known_through
+```
+
+There is exactly one row per admitted subject, including subjects with no
+trigger, no interval, unknown inception, or no violation. Its row key and
+canonical ordering are `entity_identity`. Identity is non-null stable `K`;
+`classification` is non-null `seeded | not_incepted | coverage_censored`.
+`inception_at` and `known_through` are nullable UTC-normalized aware instants.
+`known_through` is the end of the common source-origin-complete prefix proved
+for every modeled trigger, capped at `window.end`; it is null if any trigger
+lacks compatible source-origin authority. Bounded coverage or a minimum/maximum
+observed Event time cannot supply this field. `inception_at` is the earliest
+deterministic inception strictly before `known_through`, or null when no such
+inception has been established. Full-window proof of modeled transitions but no
+inception remains an atomic `insufficient_state_history` error under the source
+classification rule, not a published classification row.
+
+At `window.end`, complete-through proof plus an established inception yields
+`seeded`; the same proof with no inception yields `not_incepted`; otherwise the
+row is `coverage_censored`. The latter may retain a proven earlier prefix and
+inception, but does not claim complete history through the replay end. This
+retention does not relax the complete-through rule for full-window replay truth.
+
+For an interior requested instant `at`, state truth is known only when
+`known_through` is non-null and `at < known_through`. At exact `window.end`,
+left-limit selection requires `known_through = window.end` and considers only
+Events strictly before that boundary. Within this proved range, a null inception
+or `at < inception_at` means not yet incepted; otherwise exactly one positive
+interval must establish state. Outside it, state membership is unknown even if
+an observed interval suggests a state. `distribution` counts that subject once
+as coverage-censored in its exact at-instant axis group. `InState` applies its
+complete-membership gate to every admitted subject using these rows; it cannot
+omit unknown subjects just because they have no public interval. The original
+membership rows and proof are immutable after materialization.
+
+`LifecycleViolationRowV1` has exactly the ordered schema and non-null types of
+the `lifecycle/violations@v1` row contract above, with row key
+`(trigger_event_ref, trigger_event_identity)`. It retains each illegal modeled
+trigger and the state at that occurrence; it cannot substitute for either the
+legal-transition or subject-coverage row set.
+
+All three roles are mandatory even when a row set is empty. Their separate
+schema/count/content/opaque-locator receipts commit with the primary history
+receipt in one Store transaction, and all reservations transfer together.
+Failure, cancellation, or a mismatched binding publishes none of them. They use
+the same Session authorization, identity-safe storage, budget, cleanup, and
+redaction rules as history rows across local, engine, and object backing.
+Identities, order samples, per-subject classification, and hashes of realized
+identity rows never enter ordinary metadata, cards, Evidence, or errors; only
+bounded aggregate counts and contract ids may be projected there.
+
+Cold recovery validates each consumed role's binding, schema, count, and private
+integrity receipt. Ordinary history row reads do not open private rows;
+`dwell()` needs only public intervals, while each other reducer opens its
+registered exact roles. Missing or corrupt required retention fails with a
+structured Artifact-integrity repair. No consumer replays Events, enumerates
+the current Entity or original Population definition, traverses Artifact
+lineage to recover identities, or rebuilds missing rows. Explicit axis
+enrichment reads current governed Dimension definitions using the retained
+subject `K` rows and the requested historical anchor; it does not replace those
+rows or choose an implicit latest snapshot.
 
 ## Definition Identity and Lineage
 
@@ -1922,6 +2153,8 @@ A Lifecycle replay fingerprint binds:
 - optional Population authority;
 - completeness declarations and prior-history requirements;
 - fixed violation behavior version;
+- exact legal-transition, subject-coverage, and violation retained contracts,
+  ordered schemas, role ids, and binding versions;
 - exact output row-contract and row-set-contract fingerprints.
 
 Reducer fingerprints bind requested instants, axes and temporal anchors, exact
@@ -1945,6 +2178,7 @@ contract state.
 | --- | --- | --- |
 | Pattern steps resolve different subject Entities | construction | exact resolved step/Entity bindings |
 | explicit Population Entity mismatch | construction | required source subject Entity/signature |
+| omitted Population for a versioned subject Entity | construction | explicit finite-scoped Entity Population, complete governed domain selection, or admitted identity-bearing Artifact; never infer membership from the Event/Lifecycle window |
 | foreign Logical membership or cross-Store Artifact | construction | materialize in the owner Session, then explicitly select its same-Store Artifact |
 | bare or foreign step/state selector | construction | exact retained PatternSteps or ModelStateHandles |
 | missing Event cohort or Lifecycle replay window | construction | canonical source signature |
@@ -1965,6 +2199,7 @@ contract state.
 | funnel/group reconciliation failure | action | inspect source contract; no partial output |
 | identity-safe storage unavailable | compilation/storage selection | choose an admitted durable policy/backend |
 | recovered identity Artifact unreadable/corrupt | runtime read | repair storage authority; never replay origin |
+| missing/corrupt required Lifecycle retained role | runtime read | repair that exact Artifact role and its receipt; never reconstruct from counts, interval adjacency, current membership, or Event replay |
 
 Errors never render identity examples, first offending identity, Event payloads,
 SQL, Ibis, storage credentials, or unbounded candidate lists. A row-dependent
@@ -1972,12 +2207,17 @@ failure may disclose aggregate counts and safe semantic identities only.
 
 Coverage failure is not repaired by silently dropping uncertain subjects.
 Identity mismatch is not repaired by a join on similarly named columns.
-Unsupported compilation is not repaired by a post-failure pandas, Polars, or
-DuckDB fallback. The 2026-09-05 amendment fixes matching, replay and
-identity-bearing reducers to their registered engine implementation. Local
-Artifact relations may use their fixed DuckDB reader when that exact method is
-supported; remote identities are not collected to make an unsupported method
-work. Complex methods are admitted per tested engine, not universally.
+A failed compilation or execution is not repaired by another implementation.
+The 2026-09-07 amendment preferentially composes eligible source work through
+Ibis and uses declared pandas continuations for a terminal result-only suffix.
+Matching, replay, identity-bearing reducers and current-source membership joins
+remain source-required on tested adapters; remote identities and private journey
+state are not collected to make an unsupported method work. An engine Artifact
+must supply the exact compatible source scan. Local/object Artifact readers use
+PyArrow only for an exact admitted pandas contract and cannot make a
+source-required reducer locally executable. Compact Event funnel compare and
+attribution may use pandas over their complete additive component rows. No
+internal DuckDB executor exists.
 
 ## Contract and Help Disclosure
 
@@ -2082,7 +2322,10 @@ signature:
 - matching-policy interpretations;
 - follow-up and declaration authority;
 - from-inception history requirements;
-- right censoring versus coverage censoring;
+- right censoring versus coverage censoring, pair-local entry classification,
+  and completed versus observed duration;
+- the completed-window-fragment dwell estimand and left-clipping disclosure;
+- the exact retained roles needed by each Lifecycle continuation;
 - row filtering versus subject membership;
 - logical same-plan versus materialized cold reuse;
 - identity privacy and terminal export boundaries.
@@ -2180,11 +2423,14 @@ explicit durable-boundary repair.
 
 Journey fixtures must choose an explicit compatible execution/storage setup.
 A retained Population or identity selection later joined to current sources uses
-an engine target and reader in that same datasource domain. Local Artifact-only
-continuations use DuckDB. These are fixture configurations, not automatic
-placement or target switching. Include a conflicting-domain negative fixture;
-`.execute()` must not be advertised as a repair unless its configured writer
-and reader can actually establish the required common domain within bounds.
+an engine target and reader in that same datasource domain. Exact result-only
+continuations over local/object Artifacts use PyArrow reads and bounded pandas
+functions; their budgets include every required retained part. Include source
+pushdown, planned pandas-suffix and oversized-local-input fixtures, plus a
+conflicting-domain negative fixture for source-required semantic work.
+`execute()` must not be advertised as a repair unless its configured writer,
+reader and the consumer's exact contract actually establish that path. No fixture
+creates an internal DuckDB executor or changes a failed plan's implementation.
 
 ### Metric population input into Event analysis
 
@@ -2276,9 +2522,61 @@ dwell = stable_history.dwell()
 violations = stable_history.violations()
 ```
 
-Acceptance proves all reducers consume one immutable history and committed
-violation trace, do not query trigger Events, and recover the exact owned
-family/shape contracts in a fresh process.
+Acceptance proves all reducers consume one immutable history and their exact
+committed legal-transition, subject-coverage, or violation roles, do not query
+trigger Events, and recover the exact owned family/shape contracts in a fresh
+process. `dwell()` consumes only the retained positive intervals.
+
+### Same-time transition preservation
+
+1. Define one Event `X` with a governed occurrence identity order and deterministic
+   state rules `A -> B -> C -> D -> B`, all triggered by `X`.
+2. At one timestamp replay two separately scoped histories containing ordered
+   occurrence ids `{1, 5, 6, 7}` and `{1, 2, 3, 4, 5, 6, 7}` respectively. Both
+   have the same preceding positive `A` interval and following positive `B`
+   interval, with the same boundary trigger identities and zero violations.
+3. Prove their positive interval rows are equal but their legal-transition
+   traces contain four and seven rows and the correct distinct pair counts.
+4. Materialize both, close the process, disable Event readers, and prove
+   `transitions()` retains those unequal exact counts without replay.
+5. Remove or corrupt the required legal-transition role and assert a structured
+   integrity failure, no reconstructed adjacency counts, and no source reads.
+
+### Censored subjects without intervals
+
+1. Construct two histories with equal positive intervals, equal violation rows,
+   and equal aggregate censored-subject counts, but different admitted censored
+   subject identities belonging to different governed Dimension groups.
+2. Include unknown inception subjects with no interval and complete no-trigger
+   subjects classified as not incepted. Prove one coverage row exists for every
+   admitted stable subject identity and keeps those cases distinct.
+3. Cold-recover both histories with Event and original-Population readers
+   disabled. At the same requested instant, prove grouped distribution places
+   censored subjects in the correct distinct groups, reconciles with ungrouped
+   totals, and excludes not-yet-incepted subjects from the state denominator.
+4. Prove `InState` fails for unknown membership, including subjects with no
+   interval, while an earlier instant within a retained proved prefix uses its
+   exact state. Explicit Dimension reads may enrich retained identities but
+   cannot enumerate a replacement Population or choose a latest snapshot.
+5. Missing or corrupt coverage retention fails atomically; aggregate counts do
+   not repair it. Exercise failure and cancellation for each of the three
+   retained roles and assert no partially published history Artifact.
+
+### Duration and risk-set interpretation
+
+1. Prove a state entered January 1, clipped at a January 10 window start, and
+   exited January 12 contributes two days, `left_clipped = true`, and one
+   `left_clipped_completed_count`; no whole-episode estimate is emitted.
+2. Prove right- and coverage-censored intervals contribute counts but not
+   completed-fragment duration statistics, and zero-duration states contribute
+   only to legal transitions.
+3. For Pattern `A -> B -> C`, prove `time_to_event(A, B)` is complete when A and B
+   are reached even if C is absent. Prove `time_to_event(B, C)` distinguishes
+   known non-entry at B, unknown entry at B, entered finite non-completion, and
+   entered coverage uncertainty, preserving the exact follow-up prefix.
+4. Run the same checks on logical and cold-recovered materialized inputs with
+   Event readers disabled for the latter. No survival estimator or assumption
+   of independent repeated attempts is introduced.
 
 ### Empty complete cohort
 
@@ -2331,14 +2629,18 @@ port, or a successful backend query alone. The public-cutover plan must require:
    occurrences, missing steps, shared non-final occurrences, exclusive final
    assignment, and coverage bases;
 6. funnel density, zero-denominator, censoring, grouped reconciliation, and
-   no-rematch tests;
-7. time-to-event complete, incomplete, censored, repeated-attempt, and typed-step
-   tests;
+   no-rematch tests, plus independent Ibis/pandas compare and attribution
+   conformance over complete compact additive component rows;
+7. time-to-event pair-local completion, known/unknown non-entry, incomplete and
+   coverage-censored entered attempts, exact follow-up and observed duration,
+   repeated-attempt, and typed-step tests;
 8. replay tests for source-origin versus bounded coverage, inception lookback,
    no-trigger subjects, missing inception, terminal state, illegal transitions,
-   simultaneous triggers, clipping, and censoring;
+   simultaneous triggers and cycles, positive-interval clipping flags,
+   censored subjects without intervals, and exact three-role retention;
 9. distribution, transition, dwell, and violation numerical and structural
-   differential tests;
+   differential tests, including the same-interval/different-transition and
+   same-count/different-censored-identity adversaries above;
 10. filter drift tests proving structural shapes reject `where(...)`, every
     generated field is registered once, and raw identities/audit fields cannot
     enter predicates;
@@ -2401,7 +2703,7 @@ This module supplies the PopulationDataset output contract and Event-specific
 selection/comparison registrations. Neither module creates a second identity
 authority.
 
-### Direct Compiler and Fixed Execution Boundaries consumes
+### Source Pushdown and Pandas Execution consumes
 
 - source and reducer semantic node ids plus exact row-contract and
   row-set-contract fingerprints;
@@ -2410,30 +2712,37 @@ authority.
 - matching, replay, ordering, completeness, reconciliation, and exact reduction
   requirements;
 - identity-safe boundary and diagnostic constraints;
-- one fixed engine recipe for each matching/replay/identity-bearing method,
-  with precise support on tested adapters and no kernel collection fallback;
+- one source-required recipe for each matching/replay/identity-bearing method,
+  with precise support on tested adapters and no local collection alternative;
 - same-domain validation for source, Population and explicit current-semantic
   inputs, independently of their Logical/Materialized authority.
 
-The compiler binds that recipe in the inherited domain. It cannot import a
-materialized membership set into another engine, discover federation routes,
-select a new matching policy, seed, censoring interpretation or subject set.
-Materialized selection followed by current-source observation is executable
-only when its fixed reader and the source share an admitted domain. Otherwise
-it fails with a real storage/configuration repair or a typed unsupported reason.
-Module 5's Event funnel compare and attribution variants remain fixed Ibis
-recipes over the exact Event-owned additive components.
+The compiler composes eligible source-required recipes through Ibis in their
+admitted source domain. It cannot import a materialized membership set into
+another engine, discover federation routes, select a new matching policy, seed,
+censoring interpretation or subject set. Materialized selection followed by
+current-source observation requires an exact engine reader sharing the admitted
+source domain; otherwise it fails before data work with a real
+storage/configuration repair or typed unsupported reason.
+
+Event funnel compare and attribution preserve the exact Event-owned additive
+components. They prefer eligible source Ibis lowering and admit exact pandas
+continuations over complete compact component rows when source lowering is
+ineligible or inputs are local. Those result-only paths do not admit raw journey
+or membership collection, rematching, replay or a different censoring rule.
+Dependent operations after a pandas boundary stay local, and their inputs and
+retained state must fit the combined Runtime budgets.
 
 ### Materialization Runtime consumes
 
 - privacy-safe storage and metadata requirements;
 - concrete input checks for every occurrence;
 - PopulationDataset complete-membership publication gate;
-- family-specific schema, uniqueness, coverage, reconciliation, violation-trace,
-  quality, Evidence, and Finding inputs;
+- family-specific schema, uniqueness, coverage, reconciliation, all three exact
+  replay retained roles, quality, Evidence, and Finding inputs;
 - exact cold-recovery privacy invariants;
-- cleanup of every authorized identity-bearing reader/writer batch, Runtime
-  staging file and DuckDB workspace; harmless surviving files remain
+- cleanup of every authorized identity-bearing reader/writer batch, bounded
+  local buffer and Runtime staging file; harmless surviving files remain
   journaled without blocking valid publication after termination/fencing.
 
 The runtime commits those requirements through its one Artifact publication
@@ -2483,9 +2792,11 @@ cutover acceptance must prove:
     one backend-independent conformance contract;
 15. implementation evidence includes terminal Runtime proof, not transport or
     harness evidence alone;
-16. every method uses its fixed admitted engine recipe; materialized readers
-    preserve identity location and same-domain requirements without automatic
-    import, local identity collection, hidden Artifacts or failure fallback;
+16. source-required matching/replay/identity methods preserve their tested
+    source recipes and compatible engine readers; compact funnel compare and
+    attribution have equivalent source-preferred Ibis and bounded pandas paths,
+    with no raw identity collection, internal DuckDB executor, hidden Artifact,
+    automatic upload or failure fallback;
 17. no observed occurrence-range read performs datasource work outside
     `execute()`, and Event/Lifecycle windows remain explicit authored inputs.
 
@@ -2548,7 +2859,17 @@ This module freezes:
     bounds never become window or completeness authority.
 31. completeness declarations are constructed directly through the two
     immutable versioned public classes; `CompletenessDeclaration` is
-    unexported annotation shorthand and no helper or watermark alias exists.
+    unexported annotation shorthand and no helper or watermark alias exists;
+32. stable Entity primary key `K` excludes historical version coordinates;
+    domain anchors resolve historical representations before identity joins;
+33. every history Artifact atomically retains legal-transition, subject-coverage,
+    and violation roles, including empty roles; zero-duration transitions and
+    subjects without public intervals cannot be lost or reconstructed by replay;
+34. dwell estimates completed clipped-window fragment durations only, declares
+    its estimand, and counts left-clipped completed fragments explicitly;
+35. time-to-event classifies the selected step pair, distinguishes entered and
+    known/unknown non-entered attempts, and retains observed follow-up separately
+    from completed duration without adding survival inference.
 
 Changing one of these decisions requires an explicit amendment to this module
 before the public-cutover plan or implementation depends on a replacement.
@@ -2556,8 +2877,14 @@ before the public-cutover plan or implementation depends on a replacement.
 ## Owner Confirmation
 
 The 2026-09-05 amendment replaces the former separate membership family with
-Population and enables its common Dimension filters. Domain matching, replay,
-selection truth, and completeness choices below remain unchanged.
+Population and enables its common Dimension filters. The 2026-09-07 execution
+amendment prefers eligible Ibis source work and uses exact pandas suffixes for
+admitted compact result methods, removing internal DuckDB execution. Domain
+matching, replay, selection truth, identity privacy and completeness choices
+below remain source-required. The later 2026-09-07 review amendment clarifies
+stable `K` identity, retains the three lossless replay row sets, and freezes the
+descriptive duration/risk-set contracts above. These are accepted target design
+changes; their implementation and runtime evidence remain required below.
 
 On 2026-09-02 the owner accepted all six surfaced choices:
 

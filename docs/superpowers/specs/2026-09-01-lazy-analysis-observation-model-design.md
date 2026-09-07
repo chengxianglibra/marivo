@@ -2,9 +2,11 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-05
+Revised: 2026-09-07
 
-Status: accepted; amended 2026-09-05 following observation-model review
+Status: accepted; amended 2026-09-07 for Entity identity, aggregation algebra,
+Ibis pushdown, and pandas execution. These are target design contracts; the
+current eager implementation changes only through the Public Cutover Plan.
 
 ## Outcome
 
@@ -113,13 +115,20 @@ The observation model accepts these Dataset Core decisions as fixed:
 
 The semantic model remains authoritative for:
 
-- exact Entity refs and ordered primary keys;
+- exact Entity refs, ordered identity primary keys, and separate versioning;
 - Metric root Entity and recursive component bindings;
 - Dimension and time-Dimension Entity bindings;
-- Relationship cardinality and fanout policy;
+- Relationship keys and version rules, and Metric-specific contribution paths;
 - Metric aggregation, additivity, temporal fold, status-time axis, unit, and
   component graph;
 - current-catalog normalization and readiness.
+
+The [Semantic Object Model](../../specs/semantic/semantic-object-model.md)
+owns these intrinsic definitions. This module combines them with the selected
+Population, coordinates, contributions, and retained input state to derive
+operator admission. Neither layer invents a business allocation or an author
+`rollup_safe` flag. Storage schemas for retained state remain family-owned
+materialization contracts, not semantic authoring parameters.
 
 ## Decision Summary
 
@@ -146,7 +155,8 @@ snapshot.
 ### Infer one exact default Entity or fail closed
 
 `session.observe(...)` infers a default Population only when every normalized
-Metric root resolves to the same exact governed analysis Entity. It never
+Metric root resolves to the same exact governed analysis Entity and that Entity
+admits unscoped membership under the rules below. It never
 chooses an Entity because it is physically nearby, appears first, has a short
 join path, or is cheaper to query.
 
@@ -652,8 +662,10 @@ must not reorder a predicate across:
 - Lifecycle replay;
 - component composition or cumulative evaluation.
 
-Same-domain Ibis composition does not change the public operator order, filter effect, or
-lineage.
+Source Ibis composition and any exact pandas continuation preserve the public
+operator order, filter effect and lineage. A local row-subset filter is admitted
+only over the exact rows/state its registered contract permits; it never pulls
+Population refinement or another source-owned semantic operation into pandas.
 
 ### Filtering input resolution
 
@@ -715,9 +727,12 @@ same-kind ref or a concrete entry owned by the current Session catalog. Bare
 strings, stale or cross-catalog entries, wrong-kind refs, arbitrary subclasses,
 and duck-typed values fail during local construction.
 
-The Entity must have one non-empty, ordered, unique compiled primary-key
-signature. Marivo never asks the caller to repeat physical key column names and
-never substitutes a Dimension for missing Entity identity.
+The Entity must have one non-empty, ordered compiled identity primary-key
+signature `K`. Its fields identify one Entity instance across versions. A
+snapshot partition or validity boundary is not appended to `K` merely because
+it distinguishes source versions. A source-only Entity without an identity key
+cannot produce a Population. Marivo never asks the caller to repeat key fields
+or substitutes a Dimension for missing Entity identity.
 
 `time_scope` is an optional literal half-open interval `[start, end)`. Its end
 is excluded exactly as authored. The scope restricts eligible membership only.
@@ -733,6 +748,52 @@ closed order:
 
 Marivo does not select the first Metric's time axis or infer temporal meaning
 from a physical type or column name.
+
+### Versioned membership resolution
+
+The first-cutover `population(...)` contract requires a finite `time_scope` for
+a versioned Entity. With no scope, construction fails and points to an explicit
+scoped Population; it never scans all versions and silently takes distinct
+identities or chooses an ambient latest snapshot. No new selection-policy
+constructor or implicit inheritance from a later `observe(...)` is introduced.
+
+For this source, the membership state is resolved immediately before the
+excluded `time_scope.end`, then the selected membership time-axis predicate is
+applied over `[start, end)`. This fixed endpoint-view meaning is not an
+ever-present, any-time, or all-time membership query. The selected
+`time_dimension` still determines the membership predicate; it does not replace
+the Entity's declared version axis. The membership endpoint and its
+left-boundary interpretation are normalized definition facts, not a subtraction
+of one arbitrary machine timestamp tick.
+
+- Snapshot resolution chooses the single semantic snapshot period containing
+  that left-limit endpoint. An endpoint exactly on a period boundary therefore
+  selects the preceding period. The expected partition must be available under
+  the Semantic Object Model's complete-snapshot contract; no prior-partition
+  fallback or per-Entity last-known lookup is allowed.
+- Validity resolution selects intervals containing that left-limit endpoint.
+  For `[valid_from, valid_to)`, the condition is
+  `valid_from < end <= valid_to`, with the declared open-end convention. Other
+  admitted interval closure follows its exact semantic boundary rule.
+- Source version-row uniqueness is validated at `(K, snapshot_version)` or
+  `(K, valid_from)` before identity projection. Validity overlap and conflicting
+  versions fail. After temporal resolution, at most one source representation
+  may remain per `K`; `DISTINCT K` cannot repair duplicate or conflicting rows.
+
+Every branch uses the same resolved membership representation and validation
+facts within the action. Population rows carry only `K`; selection/version
+coordinates and completeness facts remain in the producing definition and
+committed provenance. A declared complete-snapshot meaning does not prove
+actual availability or coverage: missing required source evidence fails the
+source action. An explicit empty complete snapshot can produce zero members.
+
+Consumers of that Population resolve Metric facts and historical enrichment
+using their own observation or domain anchors. January snapshot membership can
+therefore feed February observation without forcing February attributes to use
+the January version. Materialized membership uses its exact committed `K` rows
+and never reselects a source version. Event/Lifecycle selection producers retain
+their own exact temporal and completeness rules instead of acquiring this
+Entity-source endpoint convention.
 
 ### Population row semantics
 
@@ -771,7 +832,10 @@ field never contains realized identities or a membership digest.
 
 ### Primary-key row contract
 
-One Population row is one exact Entity primary-key tuple.
+One Population row is one exact Entity identity primary-key tuple. Source
+version-row keys and analytical keys such as `(K, time)` are separate from this
+membership identity. The same `K` in several historical versions is one Entity,
+not several members or independent statistical units.
 
 The public coordinate column is:
 
@@ -900,6 +964,16 @@ Sampling preserves the `PopulationDataset` family, row contract, and
 `keyed(unknown)` row-set contract but changes the definition fingerprint and
 adds target-Population lineage.
 
+Each authored sampling call also establishes one private realization handle.
+All branches that consume that sampled Population retain the same handle and
+must consume its one action-scoped sample. Two calls on the unsampled Population
+establish distinct realizations even when their requests, including any seed,
+and standalone definition fingerprints match. Equal parameters do not authorize
+merging those realizations, and separate realizations may still produce equal
+members. Dataset Core normalizes their sharing relation when composing the
+complete logical definition; raw handles and realized membership never enter
+the fingerprint.
+
 ## Default Population Inference
 
 ### Metric computation roots and analysis Entity resolution
@@ -938,15 +1012,24 @@ never replace it or restart inference.
 
 ### Default membership and observation scope
 
-When `population=` is omitted, construct the inferred Entity's all-eligible,
-exact, unscoped Population. Observe-level `time_scope` and `time_dimension` apply
-only to Metric evaluation. For an Entity with a registration axis, observing
-February spending does not implicitly select February registrations.
+When `population=` is omitted, construct the inferred non-versioned Entity's
+all-eligible, exact, unscoped Population. A versioned inferred Entity instead
+requires an explicit scoped Population under Versioned membership resolution;
+observe-level `time_scope` is never borrowed to satisfy that requirement.
+Observe-level `time_scope` and `time_dimension` apply only to Metric evaluation.
+For an Entity with a registration axis, observing February spending does not
+implicitly select February registrations.
 
 When observation scope is absent, Metric evaluation is semantically unbounded
 unless its own contract provides an exact bound. Construction can remain legal;
 action admission may require an explicit window. Metric-local filters affect
 only their contributions and never narrow shared membership.
+
+A versioned Metric source or enrichment that requires a temporal boundary must
+resolve it from that Metric's observation/evaluation contract. If none exists,
+construction rejects the missing temporal authority; the selected Population's
+membership endpoint is not an observation default. Historical source rows are
+never joined as a unique Entity-side relation merely because `K` is stable.
 
 Observation `time_dimension` requires `time_scope`. An omitted reference axis
 resolves from the governed Metric graph: use its unique compatible declared
@@ -1147,8 +1230,8 @@ they do not define a second Event- or Lifecycle-specific binding mechanism.
 
 | `population` | Observation scope | Result |
 | --- | --- | --- |
-| omitted | omitted | infer all-eligible membership; evaluate semantically unbounded Metrics |
-| omitted | supplied consistently | infer all-eligible membership; evaluate Metrics in the explicit observation window |
+| omitted | omitted | infer all-eligible non-versioned membership; evaluate Metrics only if their own temporal contract admits no observation scope |
+| omitted | supplied consistently | infer all-eligible non-versioned membership; evaluate Metrics in the explicit observation window |
 | admitted logical or materialized Population input | omitted | consume its members; evaluate semantically unbounded Metrics without inheriting selection time |
 | admitted logical or materialized Population input | supplied consistently | consume its members; evaluate Metrics in the independent observation window |
 | any | `time_dimension` without `time_scope` | reject incomplete observation scope |
@@ -1513,6 +1596,14 @@ a governed one-to-many path may produce multiple Entity-Dimension coordinates
 only when every Metric has a valid contribution/allocation contract at that
 coordinate. Otherwise construction fails before planning.
 
+Relationship reachability alone does not prove that coordinate buckets are a
+partition of Metric contributions. The compiled Metric/path contract must
+distinguish disjoint assignment, explicitly weighted conserving allocation, and
+overlapping membership. A reused bridge weight may be a governed Measure; its
+application belongs to the Metric contribution graph, not to a universal
+Relationship allocation policy. Membership stability and fold safety are
+derived facts, never caller assertions or conclusions from a preview.
+
 Null is a governed Dimension bucket when the Dimension contract permits null.
 It is not silently dropped.
 
@@ -1681,11 +1772,13 @@ rollup(...)
 ```
 
 The distinction is invariant across input states. A Logical input retains a
-fold node after its upstream logical relation and may receive an equivalent
-same-domain Ibis composition. A Materialized input creates the same fold over its exact
-immutable Artifact scan leaf. The Logical branch may not reinterpret rollup as
-a fresh Metric-graph recomputation, and the Materialized branch may not reach
-through origin lineage.
+fold node after its upstream logical relation and receives equivalent source
+Ibis composition while eligible. A Materialized input creates the same fold over
+its exact immutable Artifact scan leaf. When the exact retained fold admits
+pandas and source lowering is ineligible or its input is already local, the
+complete current rows and required retained state feed that pandas continuation.
+The Logical branch may not reinterpret rollup as a fresh Metric-graph
+recomputation, and the Materialized branch may not reach through origin lineage.
 
 The admitted Entity-reduced transitions are:
 
@@ -1718,15 +1811,23 @@ coordinate:
 
 | Retained Metric authority | Admitted rollup fold |
 | --- | --- |
-| additive `sum` / `count` | `sum` |
+| additive `sum` / `count` | `sum` only across a proven disjoint or conserving allocated contribution partition |
 | `min` / `max` | matching extremum |
-| semi-additive | only its declared fold on the exact removed axis |
+| semi-additive | only an exact axis fold whose order and retained state preserve the original spatial/time calculation |
 | additive linear composition | only when the composed retained value is proven additive |
 | mean, weighted mean, ratio | only a registered merge over retained named sufficient-state bindings |
 | `count_distinct` | only a registered exact mergeable distinct state; projected counts never sum |
 | median, percentile, distribution statistic | only a registered exact mergeable distribution state |
 | cumulative time series | declared period-end `last` fold with exact ordered time and evaluation-end authority |
 | opaque or unresolved value | rejected |
+
+Every row in this table is conditional on the complete Metric/path/selection
+contract. In particular, an additive base value is not a license to sum
+overlapping Dimension buckets. One 100-unit order assigned to two tags can
+legally appear as 100 in each tag view; dropping that tag coordinate cannot
+claim the order total is 200. The fold must have an exact conserving allocation
+or retained state that computes the unique contribution union; otherwise it is
+rejected. No implementation invents equal weights or consults origin lineage.
 
 A cumulative `last` fold selects the final retained source bucket within each
 target period, preserves that row's exact evaluation end, and marks a target
@@ -1775,15 +1876,30 @@ MetricCoordinateAggregationV1
   logical_recompute_mode
   materialized_fold_by_reduced_axis
   required_components[]
+  contribution_partition_by_reduced_axis
+  ordered_aggregation_and_temporal_fold
+  required_alignment_and_coverage
+  empty_and_null_contract
   required_time_axis
   status_time_contract
   cumulative_contract
   blockers[]
 ```
 
-This is semantic admission metadata, not a private physical plan. It is complete
-enough to decide whether a coordinate transition is meaningful and whether a
-materialized row set is sufficient.
+This is derived semantic admission metadata, not a public authoring record or
+private physical plan. The semantic graph supplies intrinsic aggregation,
+component, unit, versioning, and temporal facts; this binding combines them with
+the actual coordinates, path allocation, selection and input authority. It is
+complete enough to decide whether a coordinate transition is meaningful and
+whether the current rows and required state are sufficient. Standard aggregate,
+weighted-mean, ratio, linear and cumulative constructors provide those facts
+without new author-supplied capability flags.
+
+An admitted fold must prove that finalizing the merged input state gives the
+same governed result as evaluating the represented contribution set at the
+target coordinates. The proof includes overlap/allocation, null/empty behavior,
+ordering, calendar alignment and coverage. This computational sufficiency does
+not establish inferential sufficiency, independent sampling or a study design.
 
 If any Metric in an arity-N Dataset rejects a transition, the whole Dataset
 construction fails. Marivo never returns a partial subset of Metric columns and
@@ -1807,19 +1923,24 @@ uses this matrix:
 | additive linear composition | admitted when every term has compatible coordinates and units | recompute signed terms at the output key, then compose |
 | other derived composition | admitted only when every component graph supplies an exact coordinate contract | recompute components before composition |
 | cumulative | admitted only under the cumulative-axis rules below | recompute base contributions, then apply the governed anchor/window |
-| opaque Tier-2 expression | admitted only when its declaration publishes an exact reaggregation contract | otherwise fail with semantic-authoring repair |
+| opaque Tier-2 expression | admitted only when its existing declared graph can resolve to a registered exact contribution/reaggregation contract | otherwise fail with a repair to express the calculation using governed constructors; no author boolean or generic callback supplies proof |
 
-Backend support is an action-time planner requirement. The local Dataset may be
-constructed when semantic admission is exact but physical capability is not
-yet selected; `contract()` exposes that requirement. Missing semantic authority
-fails during construction.
+Backend support is an action-time planner requirement resolved before data
+work. The local Dataset may be constructed when semantic admission is exact but
+physical capability is not yet selected; `contract()` exposes that requirement.
+Logical Metric-graph evaluation and its governed reaggregation remain
+source-required. A missing source lowering does not authorize collecting raw
+contributions into pandas. Materialized aggregation may use pandas only when
+its exact retained-input fold admits all required state under local budgets.
+Missing semantic authority fails during construction.
 
 ### Semi-additive rules
 
 A semi-additive Metric must retain its exact `status_time_dimension` and
 governed fold.
 
-- Dimension-only grouping is admitted across non-time coordinates.
+- Dimension-only grouping requires an exact contribution partition and the
+  original spatial-before-temporal calculation order.
 - A selected time coordinate must be the status axis or one exact governed
   temporal path compatible with it.
 - The requested grain may not be finer than physical sample/granularity
@@ -1833,6 +1954,20 @@ governed fold.
 Marivo never sums snapshot dates, treats a technical ingestion time as a
 business status axis, or carries a snapshot across buckets without an owning
 semantic contract.
+
+A value already folded in time is not automatically additive over Entity or
+Dimension. For devices with samples `[10, 0]` and `[0, 10]`, a Metric defined as
+the window maximum of the per-instant device sum is 10. Summing their separately
+materialized maxima gives 20 and is invalid. `max`, `min`, and percentile folds
+generally do not commute with spatial sum. Mean needs the same sample domain,
+weights and missingness rules; first/last need the same governed evaluation
+instant. The normalized binding must prove commutation for the exact case or
+provide an explicitly registered merge of aligned retained samples followed by
+the temporal fold. Without either, materialized reduction is rejected.
+
+The first cutover does not promise generic retained sample or distribution
+parts for semi-additive Metrics. A backend's ability to evaluate the logical
+Metric is not evidence that its projected scalar values suffice after a read.
 
 ### Component-aware rules
 
@@ -1879,10 +2014,10 @@ The initial matrix is:
 
 | Materialized Metric value | Entity-axis fold |
 | --- | --- |
-| additive `sum` / `count` | `sum` |
+| additive `sum` / `count` | `sum` only under exact disjointness or conserving allocation |
 | `min` | `min` |
 | `max` | `max` |
-| semi-additive value reduced only across a non-time Entity axis | `sum` |
+| semi-additive value reduced across Entity | only a registered exact retained-state fold or a proven commuting fold with aligned evaluation/coverage; otherwise rejected |
 | additive linear composition | admitted only when the composed value is itself proven additive |
 | `count_distinct` | admitted only when the distinct identity is exactly the Population Entity key and disjointness is proven by the row contract |
 | mean, weighted mean, ratio | merge their required named sufficient state under exact component folds |
@@ -1919,6 +2054,12 @@ These bindings are private storage-authorized state, not extra public columns.
 Another selected Metric column is never silently borrowed as a numerator,
 denominator, count, or weight. `.contract()` derives legal folds from the exact
 registered and retained state, identically after cold recovery.
+
+Empty and null reductions consume the Semantic Object Model's fixed operator
+rules. An absent contribution is not automatically a zero; a ratio does not
+gain zero-fill or additive components merely because its visible value is
+numeric. Count state, numerator/denominator state and coverage must stay
+distinguishable through every selected-row and materialization boundary.
 
 When rejected, the structured repair is:
 
@@ -2025,16 +2166,39 @@ family or duplicates the common filter/sample registrations.
 
 All registrations first invoke `dataset_structure_quality@v1`. Population
 checks then prove exact non-null tuple identity, row-key uniqueness, scope and
-predicate realization, and sampling receipt coherence. Metric checks prove one
+predicate realization, and sampling receipt coherence. A versioned root also
+requires `population_version_resolution@v1`: source version-key uniqueness,
+validity non-overlap where applicable, the exact selected snapshot/interval
+boundary, required source coverage, and at-most-one representation per `K`
+before projecting identity. These are action-time requirements derived during
+construction, not datasource checks performed by a constructor. Checks cover
+the selected source versions and necessary interval boundary neighborhood;
+they do not inspect unrelated history to certify source freshness. Filtering
+and sampling validate their inherited resolved membership and cannot replace
+source-integrity checks with output deduplication.
+
+`population_root_validation@v1` records the normalized versioning contract,
+membership boundary and interpretation, selected version coordinate, uniqueness
+and interval-check outcomes, and exact source coverage binding when applicable.
+Those are factual, bounded validation/provenance fields, not raw identity rows
+or a new retained-state family. A non-versioned root carries its corresponding
+identity-only validation variant. Missing required source evidence fails the
+action; repeated execution-binding recovery uses the already committed facts.
+
+Metric checks prove one
 shared Population spine, exact row-key uniqueness, ordered Metric and coordinate
 bindings, null-retention semantics, branch-to-spine reconciliation, and the
-selected aggregation equations. A sample validates its realized membership
+selected aggregation equations. They additionally bind every consumed source's
+own temporal resolution, contribution partition/allocation and ordered-fold
+requirements; a membership version never substitutes for a Metric version.
+A sample validates its realized membership
 once per action and records requested versus realized authority without
 publishing identity values.
 
 Evidence contains only bounded semantic refs, contract ids, scope and sampling
 classes, row and null-count summaries, coordinate/Metric counts, reconciliation
-maxima, and approximation facts. Raw Entity identities, coordinate samples,
+maxima, version-selection/boundary and source-coverage validation summaries,
+and approximation facts. Raw Entity identities, coordinate samples,
 predicate literals classified as sensitive, source rows, SQL, and private graph
 nodes are forbidden. Population and Metric materialization creates no Findings:
 these Datasets are governed observations, not analytical conclusions. The
@@ -2048,6 +2212,12 @@ private, storage-authorized Artifact state; it is not a public column and cannot
 authorize origin replay. Missing, incompatible, or unreconciled retained state
 blocks publication rather than silently weakening later materialized
 reaggregation.
+
+Retained sums preserve absence of non-null support. A nullable sum, or a
+registered sum-plus-support-count representation, must finalize an unsupported
+empty/all-null sum as null. A local accumulator initialized to zero cannot
+erase that fact. Mean and weighted-mean state follows the same exact component
+support/null rules before finalization.
 
 Each required private component state is an actual Artifact-owned retained part,
 not only a registration id. Module 4's `retained_parts[]` maps its family-registered
@@ -2064,12 +2234,20 @@ A Population definition fingerprint binds:
 
 - family and contract versions;
 - exact Entity ref and compiled primary-key signature;
+- Entity versioning definition and the exact membership endpoint-resolution
+  rule, when applicable; no ambient latest-snapshot request;
 - reference scope and selected time-Dimension ref;
 - canonical membership predicate trees in authored operator order;
 - exact sampling request;
 - unsampled target-Population authority token;
 - semantic and Relationship dependency identities;
 - logical or materialized input authority token.
+
+Population and Metric definitions also use Dataset Core's canonical sharing
+relation for sampling and selected-contribution realizations. Observation owns
+which uses must share and propagates their private requirement handles; Core
+owns normalization and identity. An immutable Artifact remains a scan leaf,
+with no traversal of the producer's Population or contribution graph.
 
 It excludes realized members, row counts, sample realization, generated SQL,
 backend strategy, and factual input/source lineage.
@@ -2088,6 +2266,8 @@ A Metric Dataset definition fingerprint additionally binds:
 - exact time coordinate and grain;
 - Entity-axis present/reduced state;
 - operator versions, rollup requests, and materialized-fold decisions.
+- contribution partition/allocation, ordered spatial/temporal operations,
+  alignment, coverage and null/empty contract versions used for those folds.
 
 Every filtered Dataset fingerprint also binds the exact input authority token,
 family filter effect, canonical predicate tree, authored operator position, and
@@ -2211,8 +2391,12 @@ and exact transitions Dataset Core intentionally leaves family-specific.
 - materialized-fold admission and coordinate-barrier failures;
 - action-time semantic and capability requirements.
 
-It decides relational lowering and placement. It may not change Entity,
-membership, coordinate domain, Metric aggregation, or null-retention semantics.
+It composes eligible source work through Ibis and admits only declared exact
+pandas continuations for retained-input folds and result-row operations.
+Source-owned Population and Metric-graph evaluation, semantic enrichment and
+identity projection stay in their admitted source domain. It may not change
+Entity, membership, coordinate domain, Metric aggregation or null-retention
+semantics, or choose a local continuation after source failure.
 
 ### Materialization Runtime consumes
 
@@ -2377,11 +2561,14 @@ definitions. Only an explicit policy authorizes approximation.
 
 Journey fixtures must choose an explicit compatible execution/storage setup.
 A retained Population or identity selection later joined to current sources uses
-an engine target and reader in that same datasource domain. Local Artifact-only
-continuations use DuckDB. These are fixture configurations, not automatic
-placement or target switching. Include a conflicting-domain negative fixture;
-`.execute()` must not be advertised as a repair unless its configured writer
-and reader can actually establish the required common domain within bounds.
+an engine target and reader in that same datasource domain. Exact result-only
+continuations over local/object Artifacts use PyArrow reads and bounded pandas
+functions; their budgets include every required retained part. Include source
+pushdown, planned pandas-suffix and oversized-local-input fixtures, plus a
+conflicting-domain negative fixture for source-required semantic work.
+`execute()` must not be advertised as a repair unless its configured writer,
+reader and the consumer's exact contract actually establish that path. No fixture
+creates an internal DuckDB executor or changes a failed plan's implementation.
 
 ### Default same-Entity inference
 
@@ -2638,6 +2825,40 @@ only selected periods contribute, with no complete-window claim. Reject
 Metric without the exact required temporal fold. Cold execution reads only
 primary rows and registered parts.
 
+### Stable identity and versioned membership
+
+Define a snapshot Entity with `primary_key=["user_id"]`, two complete daily
+versions and changing membership. A finite membership scope selects the one
+snapshot immediately before its excluded end and emits each selected `user_id`
+once. Test both an end exactly at midnight and an end inside a day using the
+declared timezone/calendar. The source remains keyed by identity plus version;
+it never adds the version field to the Population identity.
+
+Reject unscoped inference, a missing expected partition, duplicate identities
+inside a snapshot, conflicting validity intervals and any attempted
+deduplication repair. Missing identities in a complete selected snapshot are not
+carried from prior snapshots. Reuse the selected Population for a disjoint
+Metric observation window, and repeat from a cold Artifact without version
+reselection. A validity boundary fixture proves the distinct exact-instant and
+excluded-endpoint interpretations. A date that belongs to a non-versioned
+business identity remains part of `K`.
+
+### Fold order and contribution partition counterexamples
+
+For two devices with samples `[10, 0]` and `[0, 10]`, compute the spatial sum
+then the window maximum: expect 10. Projected per-device peaks `[10, 10]` must
+not admit a materialized Entity sum of 20. Repeat with asynchronous last samples,
+unequal mean coverage and percentile folds. An admitted exact-state method must
+match the same represented source calculation; otherwise reject before data
+work, including after cold recovery.
+
+For one 100-unit order in two overlapping tags, retain the valid 100-per-tag
+view but reject a target-total sum of 200. Exercise a separately authored
+conserving allocation and prove its target total is 100. Apply row selection
+before each fold and verify that neither dropped coordinates nor original
+Population lineage restores excluded contributions. These checks apply equally
+to source Ibis and any admitted pandas implementation.
+
 ## Acceptance Criteria
 
 The amendment is complete when these contracts are reviewable and later tested:
@@ -2671,14 +2892,32 @@ The amendment is complete when these contracts are reviewable and later tested:
 14. Empty scalar outputs retain singleton row-set semantics and exact empty-fold rules.
 15. Sampling remains explicit, Entity-safe, shared per action, and ordered after
     membership predicates; downstream source windows do not change sampling units.
+    Explicitly shared and separately authored equal sampling branches have
+    different combined definition fingerprints, while reconstructing the same
+    sharing relation preserves identity without hashing handles or sample rows.
 16. Identity, source binding, scopes, selection, coordinates, component state, and
     fold decisions participate in definition identity and bounded disclosure.
 17. Raw identities and sensitive predicate/source literals remain outside metadata,
     errors, Evidence, cards, and public fingerprints over realized membership.
 18. All affected Help, registration, runtime, cold-recovery, drift, and acceptance
     inventories use the amended contracts with no legacy aliases or dual paths.
+19. Entity identity excludes pure version coordinates; version rows are validated
+    before temporal resolution and Population identities after it. Versioned
+    membership has the fixed explicit endpoint-view contract, independently of
+    Metric and domain time anchors.
+20. Additivity summaries cannot bypass contribution partition, ordered temporal
+    folds or retained-state proof. The device-peak and overlapping-tag
+    counterexamples fail admission wherever exact state is unavailable.
 
 ## Frozen Module Decisions
+
+The accepted 2026-09-07 identity-and-algebra amendment additionally replaces the
+source-row interpretation of Entity `primary_key`, unscoped membership inference
+for versioned Entities, blanket semi-additive Entity sums and additive folding
+across unproven overlapping coordinates. The Semantic Object Model owns the
+intrinsic definitions; this module owns their operation-specific admission and
+membership endpoint binding. This amendment changes design intent, not the
+currently exported eager implementation.
 
 The 2026-09-05 amendment supersedes earlier choices that coupled membership and
 observation time, required equal computation roots before explicit-Population
@@ -2729,23 +2968,41 @@ Membership provenance, selected contributions, and computational denominators
 remain separate authorities. Logical fusion avoids unnecessary Entity execution;
 retained sufficient state supports continued analysis after an explicit read.
 
-## 2026-09-05 Fixed Execution Boundary Amendment
+## 2026-09-07 Ibis Pushdown and Pandas Suffix Amendment
 
 The accepted Module 3 replacement preserves every Population, coordinate,
 filter-phase, contribution, sampling and retained-state rule in this document.
-It narrows execution compatibility: relational sources, Materialized readers
-and explicit current Dimension enrichment must already share one Marivo-owned
-domain. Logical/Materialized semantic admission does not authorize import,
-federation, local identity collection or replay of an Artifact's origin.
+At `execute()`, contiguous eligible source operations compose through Ibis;
+known source ineligibility may start only an exact registered pandas suffix.
+Logical/Materialized semantic admission alone does not authorize federation,
+local identity collection or replay of an Artifact's origin. Compile or runtime
+failure never changes the selected boundary.
 
-Known domain conflicts are construction failures; reader or connection facts
-requiring live resolution are checked after Run admission and before data work.
-A Materialized Population combined with current Dimensions therefore needs a
-compatible reader/source binding. A local Artifact and remote source are not
-made compatible merely by calling `execute()` again. A suggested independent
-materialization must be reachable and writable/readable in the required domain
-under the configured storage policy; otherwise the exact path is unsupported.
+Population membership, logical Metric-graph evaluation, current Dimension
+enrichment and identity projection remain source-required. Their sources,
+Materialized readers and explicit current semantic dependencies must share the
+admitted datasource domain. Known conflicts fail during construction; reader or
+connection facts requiring live resolution are checked after Run admission and
+before data work. A Materialized Population combined with current Dimensions
+therefore needs a compatible engine reader/source binding. A local Artifact
+and remote source are not made compatible by calling `execute()` again. A
+suggested materialization repair must be reachable and writable/readable in the
+required domain under the configured storage policy.
+
+Result-row filtering and exact Entity-axis/coordinate retained folds may use
+pandas only where their registered input contract admits the complete current
+rows and retained sufficient state. The planner prefers source Ibis while that
+exact lowering is eligible. Engine Artifacts remain immutable source scans;
+local/object Artifacts use PyArrow into bounded pandas inputs. Local size guards
+cover every required retained part and intermediate growth; there is no promise
+of computation over arbitrarily large local Artifacts. No internal DuckDB
+executor or per-operator Arrow serialization exists, and all dependent work
+after a local boundary stays in pandas.
 
 Explicitly shared Population and contribution handles retain their semantic
-sharing. Required volatile realizations still need an exact engine fence;
-general compiler CSE and a global one-query guarantee are not prerequisites.
+sharing. Their owner-bound realization requirements feed Dataset Core's sole
+canonical definition identity, including sharing across otherwise equal logical
+operands. Distinct authored sampling realizations remain distinct; matching
+standalone fingerprints do not coalesce them. Required volatile realizations
+still need an exact source fence; general compiler CSE and a global one-query
+guarantee are not prerequisites.

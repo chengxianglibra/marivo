@@ -1,6 +1,11 @@
 # Semantic and Datasource Layer — Design Overview
 
-Status: draft design. This is the entry point for the design of Marivo's
+Status: accepted target design; amended 2026-09-07 for lazy Analysis. The amended
+identity, temporal-resolution, and aggregation boundaries are not implemented
+by this documentation change. Current eager APIs and live Help remain the
+executable surface until the coordinated public cutover.
+
+This is the entry point for the design of Marivo's
 datasource and semantic layers (`marivo.datasource` and `marivo.semantic`). It
 states the design goals, the layered architecture, and the principles that the
 per-topic documents below elaborate. Read it first, then follow the topic that
@@ -12,7 +17,7 @@ matches your task.
 |---|---|
 | [overview.md](overview.md) | Design goals, architecture, and principles (this file). |
 | [datasource-layer.md](datasource-layer.md) | `marivo.datasource` — connections, typed specs, file sources, secrets, discovery/evidence. |
-| [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — domain, entity, dimension, time dimension, measure, metric, derived/cumulative metrics, relationship, provenance, `ai_context`. |
+| [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — identity/versioning, dimensions, measures, Metric graphs and intrinsic aggregation, Relationships, Event/StateModel boundaries, provenance, `ai_context`. |
 | [authoring-workflow.md](authoring-workflow.md) | Agent-native exploration, coherent-slice authoring, scoped readiness, and targeted runtime/source-health probes. |
 | [loading-validation-introspection.md](loading-validation-introspection.md) | The runtime — loader/registry, catalog reader, result contract, materialization, multi-stage validation, readiness/richness. |
 
@@ -22,6 +27,9 @@ For the current cross-layer period-calendar, temporal-set, work-schedule,
 time-scope, and alignment contract, see
 [`../temporal-semantics.md`](../temporal-semantics.md).
 For the analysis layer, see [`../analysis/python-analysis-design.md`](../analysis/python-analysis-design.md).
+For the accepted lazy cutover, see the
+[design decomposition](../../superpowers/specs/2026-09-01-lazy-analysis-design-decomposition-plan.md)
+and [observation model](../../superpowers/specs/2026-09-01-lazy-analysis-observation-model-design.md).
 
 ## Audience and intent
 
@@ -57,6 +65,23 @@ The design holds to these goals:
   or an explicit default domain — never from a file path. A metric's entity comes
   from `entities=[...]`, not a parameter name. The reader binds to a project root,
   not a thread-local guess.
+- **Entity identity is stable across versions.** `primary_key` identifies one
+  Entity instance; `versioning` identifies its historical representations.
+  Snapshot and validity row keys derive from both authorities. A physical
+  partition is not semantic versioning, and no second business-key authoring
+  parameter or planner-side key subtraction is needed.
+- **Time has an explicit consuming role.** Semantic declarations own source
+  time meaning, snapshot periods, validity intervals, and Metric status folds.
+  Analysis supplies exact temporal boundaries with their fixed instant or
+  immediately-before-endpoint interpretation and keeps membership selection, Metric
+  observation, and output coordinates separate. An absent exact snapshot fails;
+  neither implicit latest nor per-Entity last-known selection repairs it.
+- **Aggregation follows the governed equation.** Metric computation roots,
+  component equations, spatial-before-temporal order, fixed null/empty rules,
+  units, and intrinsic state requirements have one semantic owner. Analysis
+  combines these facts with its selected contributions and retained coordinates
+  to admit a transformation. Additivity alone does not prove disjoint buckets,
+  fold commutation, or sufficient materialized state.
 - **Ibis is the only expression language.** SQL is retained as provenance and a
   parity oracle, but it is metadata, never an executable authoring body.
 - **Downstream depends only on refs.** Analysis, operators, skills, and scripts
@@ -79,19 +104,37 @@ dependency:
 marivo.datasource   connection + physical source + evidence
         ↓ Ref[datasource] + TableSource + DiscoverySnapshot
 marivo.semantic     domain / entity / dimension / metric / relationship
-        ↓ Ibis materialization + typed semantic refs
+        ↓ normalized business contracts + typed refs + Ibis construction
 marivo.analysis     observe / compare / attribute / correlate / ...
-        ↓ typed frames + session persistence + lineage
+        ↓ Logical/Materialized Datasets + persistence + lineage
 ```
 
 - The **datasource** layer owns *how to reach the data and what it physically
   looks like* — and nothing about business meaning. A datasource is the execution
   source of an entity, never the caliber of a metric.
 - The **semantic** layer owns *what each business object is and how it
-  materializes*. It produces Ibis expressions and typed refs, not frames.
+  contributes to a governed computation*. It normalizes identity, versioning,
+  Metric graphs, and intrinsic fold/state requirements and constructs Ibis
+  expressions. This is not publication of an Analysis Dataset.
 - The **analysis** layer owns *what to do with those objects*. It reads through
   refs and never re-defines a caliber, guesses an entity/time dimension, or reads
-  a table behind the registry.
+  a table behind the registry. It selects Population membership, observational
+  units, windows, coordinates, and exact contribution subsets; logical operators
+  compose before explicit execution, while a materialized Artifact authorizes
+  its committed rows and retained parts without semantic-origin replay.
+
+A Metric's computation root is distinct from the analysis Entity and reporting
+grain. A multi-root graph can be semantically coherent while requiring an
+explicit Population and a safe per-component mapping at the analysis boundary.
+Relationship describes mapping facts; Metric-path semantics own contribution
+allocation. Shared intrinsic resolvers derive these requirements instead of
+adding author-set `rollup_safe`, `membership_stable`, or generic allocation
+switches.
+
+Event and StateModel retain business occurrence and normative transition
+meaning. Population membership, sampling, censoring, and scoped completeness
+assumptions belong to Analysis and source evidence. Neither an Event declaration,
+a StateModel, nor a snapshot declaration establishes observed source completeness.
 
 If an analysis needs a new business object, extend the semantic layer first, then
 let analysis consume it — business definitions never hide in one-off scripts.
@@ -142,6 +185,9 @@ executed by the library. This mirrors the ownership split stated in
 |---|---|
 | Datasource constructors, connections, scope, effects, snapshots, evidence | `marivo.datasource` (`md`) |
 | Semantic constructors, typed refs, dependencies, project validation, preview | `marivo.semantic` (`ms`) |
+| Entity identity, version row grain, intrinsic Metric graph and fold/state requirements | semantic declarations and their shared normalized resolver |
+| Membership/time choices, current coordinate/state admission, explicit Dataset execution | `marivo.analysis` (`mv`) |
+| Snapshot/validity integrity and operation-required source coverage | exact runtime validation and source evidence |
 | Readiness and analysis-ready inputs | `ReadinessReport` |
 | Callable operations, effects, input facts, and constraints | private native registries (not public APIs) |
 | Current failed-operation repair | typed error/result repair object |
@@ -160,6 +206,14 @@ dependency closures have no blocker; dependency refs remain diagnostic input
 rather than leaking into the handoff. Blockers and warnings remain on the same
 report. No additional transfer object or hidden authoring API exists between
 readiness and ordinary analysis operations.
+
+The lazy cutover is accepted only when one coherent snapshot preserves identity
+without last-known substitution, validity resolution rejects overlap, independent
+membership/observation periods compose, and multi-root observations preserve
+per-component contributions. Numerical acceptance must additionally reject
+overlapping-bucket sums and non-commuting semi-additive folds, preserve null and
+empty semantics, and prove admitted retained-state folds equal direct governed
+computation. Static design alignment alone does not satisfy those runtime gates.
 
 ## Relationship to prior schema designs
 

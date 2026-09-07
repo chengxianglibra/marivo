@@ -2,11 +2,16 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-05
+Revised: 2026-09-07
 
 Status: accepted
 
 Owner decision status: confirmed
+
+The 2026-09-07 amendment below is accepted design authority, not implementation
+evidence. It tightens prediction-interval mathematics, attribution scope and
+component admission, and the Observation-owned exact fold boundary. Public
+cutover still requires the implementation and acceptance evidence in this file.
 
 ## Outcome
 
@@ -38,6 +43,7 @@ The first matrix covers:
 correlate
 rank
 limit
+rollup
 compare
 attribute
 forecast
@@ -76,7 +82,7 @@ continuations remain legal.
 - common Dataset construction, state, actions, fingerprints, or scan leaves;
 - Population inference, observation, aggregation coordinates, predicate syntax,
   common filter effects, or filter ordering;
-- Ibis expression construction, fixed-domain binding, Arrow transfer, or
+- Ibis expression construction, source pushdown, Arrow transfer, or
   local-execution policy;
 - Run, Artifact, Evidence, recovery, or commit ordering;
 - Population identity authority or domain selection truth;
@@ -89,7 +95,7 @@ The owning sources are:
 
 - [Dataset Core](2026-09-01-lazy-analysis-dataset-core-design.md);
 - [Observation Model](2026-09-01-lazy-analysis-observation-model-design.md);
-- [Direct Compiler and Fixed Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md);
+- [Source Pushdown and Pandas Execution](2026-09-01-lazy-analysis-planner-and-pushdown-design.md);
 - [Materialization Runtime](2026-09-01-lazy-analysis-materialization-runtime-design.md);
 - [Subject, Event, and Lifecycle](2026-09-01-lazy-analysis-subject-event-lifecycle-design.md);
 - the planned public-cutover plan.
@@ -239,45 +245,70 @@ The variant must declare enough information to decide this before execution:
 The operator registry selects authority and validates semantics; it does not
 choose placement or duplicate implementation ids. The compiler binds logical
 inputs to their semantic subgraphs and materialized inputs to immutable scan
-leaves, then applies the exact method's fixed implementation. Relational
-inputs and any explicit semantic enrichment must already share one execution
-domain; authority admission does not guarantee placement compatibility. There
-is no automatic scan import, federation or input relocation. A mismatch fails
-with a reachable repair, never origin replay or another algorithm.
+leaves. It preferentially composes eligible source work through Ibis and uses
+only the exact method's declared pandas continuation after the source boundary.
+Source work and current semantic enrichment require a compatible datasource
+domain. A registered result-only pandas continuation may consume separately
+prepared source branches or immutable retained inputs under its exact role and
+complete-input contracts. This is not generic cross-source federation. An
+unsupported authority or source-required combination fails with a reachable
+repair, never origin replay or another algorithm.
 
-### Each exact method has one fixed execution recipe
+### Each exact method declares source eligibility and its pandas continuation
 
-The 2026-09-05 amendment fixes a method's implementation category before backend
-work. Module 3 dispatches the exact invocation/method to an Ibis builder in the
-inherited domain or a named Python kernel with an explicit input recipe. It does
-not choose engine versus local execution from backend support or a failed compile.
-The implementation registry owns callables; this module owns the numerical
-reference semantics and required preparation. No second public overload is added.
+The 2026-09-07 amendment keeps the Dataset graph lazy and maximizes contiguous
+eligible Ibis work in the source domain at `execute()`. Module 3 checks the
+registered exact method and tested datasource adapter before any data work.
+Known absence or ineligibility of source lowering starts the method's declared
+pandas suffix when its exact inputs are admitted. A compilation, execution or
+resource failure never selects that boundary or retries another implementation.
+The implementation registry owns callables and tested source eligibility; this
+module owns reference semantics and required preparation. There is no cost
+optimizer, automatic method selection or second public overload.
 
-The first-cutover method assignments are:
+The first-cutover execution declarations are:
 
-| Exact method or family | Fixed recipe |
+| Exact method or family | Preferred source work and admitted pandas continuation |
 | --- | --- |
-| rank, limit, compare and retained-state rollup | Ibis in the common input domain |
-| Pearson/Spearman, including Entity shape | Exact Ibis in the inherited domain on tested engines; no Entity table collection |
-| Kendall tau-b | Fixed Python kernel over complete numeric pairs prepared by the inherited engine, within kernel bounds |
-| additive_difference, component_mix, distinct_membership attribution | Ibis in the common input domain; distinct membership keys stay there |
-| distribution_shapley attribution | Engine computes exact bounded coalition values; fixed Python kernel combines those scalar values |
-| naive, drift, seasonal-naive forecast | Fixed Python kernel over complete governed series |
-| point_zscore, global_zscore_runs, entity_mad, delta_window_zscore, axis_concentration | Exact Ibis in the inherited domain on tested engines |
+| rank, limit, compare, row-subset filters and retained-state rollup | Compose exact Ibis lowering while eligible; otherwise apply the same operation to complete retained result rows/state in pandas, including ordering and null rules |
+| Pearson/Spearman | Prefer exact Ibis on tested adapters; an exact pandas continuation consumes complete numeric observations or source-aligned pair inputs. Entity identities must be projected away by source preparation before local transfer |
+| Kendall tau-b | Push eligible coordinate/lag alignment and pair preparation into the source; Entity pairs require source preparation, while already-local non-identity pairs may align in pandas; compute tau-b locally over complete bounded pairs |
+| additive_difference and component_mix attribution | Prefer exact Ibis over the complete compatible components; otherwise pandas applies the same allocation and reconciliation to those retained components |
+| distinct_membership attribution | Source-required exact membership-key preparation and allocation; raw membership keys do not enter a pandas suffix |
+| distribution_shapley attribution | Source-required exact partition/distribution and coalition evaluation; pandas combines the complete bounded coalition values |
+| naive, drift, seasonal-naive forecast | Push eligible governed-series preparation into Ibis; pandas numerical functions consume the complete series |
+| point_zscore, global_zscore_runs, delta_window_zscore, axis_concentration | Prefer exact Ibis on tested adapters; otherwise exact pandas over complete admitted result rows and required retained state |
+| entity_mad, identity-bearing Attribution, and identity-bearing Candidate production | Source-required exact identity-preserving implementation; no generic local Entity-table collection |
 
-Backend-specific Ibis implementations must preserve the same method and domain.
-An unsupported relational method fails instead of acquiring a Python route.
-A Python result is local; subsequent relation operations use DuckDB and cannot
-combine with remote inputs by automatic upload. DuckDB also reads local Artifacts
-using the same relation builders, not a second fallback algorithm.
+These result-method declarations do not waive identity/privacy requirements.
+An identity-preserving variant stays source-required unless its exact
+retained-input contract expressly admits local processing. Only the named
+identity-free numeric pair recipe permits local Entity correlation.
 
-Kernel inputs/outputs use exact Arrow schemas. NumPy, SciPy, statsmodels or
-pandas objects remain private implementation dependencies. Runtime owns complete
-input/output limits, numerical problem-size budgets, cancellation and cleanup;
-spilling does not widen kernel admission. Polars is absent from this cutover.
-The public row contract, approximation and retained-state semantics remain
-identical across admitted Logical/Materialized input authority.
+Once a node enters pandas, every dependent continuation remains in pandas.
+Eligible independent source branches can still finish their declared preparation
+and supply a local multi-input method under a combined complete-input budget.
+There is no upload back to a source. A source-required semantic preparation with
+no tested implementation fails before data work; small expected output is not
+permission to fetch its private raw dependencies locally.
+
+DuckDB remains an ordinary datasource with its tested Ibis support. Analysis
+creates no internal DuckDB connection, temporary relation or local execution
+domain. Local/object Artifacts are read through PyArrow into the same bounded
+pandas path; engine Artifacts are exact source scan leaves. A local Artifact
+larger than the local input or method budget cannot be processed by bypassing
+those limits.
+
+Source-to-local and storage boundaries use exact Arrow schemas and validated
+actual batches. Adjacent local functions pass private pandas DataFrames and
+required retained state directly; they do not serialize through Arrow or
+Parquet after every operator. Arrow-backed columns are preferred where they
+preserve the declared semantics. NumPy, SciPy or other exact numerical helpers
+remain private implementation dependencies. Runtime owns complete input/output
+limits, intermediate growth and numerical problem-size budgets, cancellation
+and cleanup; spill does not widen admission. Every Ibis/pandas implementation
+must preserve keys, nulls, coordinate order, schema, retained-state and
+reconciliation semantics. Polars is absent from this cutover.
 
 ### Output contracts are complete before execution
 
@@ -361,11 +392,13 @@ Construction- and action-time constraint rules own their own structured repair;
 there is no entry-level repair catalog.
 
 `semantic_node_kind` links to Module 3's typed graph. For a registered-operator
-node, its closed invocation and exact method contract select the fixed recipe
-above. The implementation registry resolves that dispatch without route arrays,
-per-action manifest fingerprints or backend/local selection. A behavior-preserving
-implementation change does not alter Dataset definition identity; a change to
-method meaning requires its semantic contract version to change.
+node, its closed invocation and exact method contract select the exact
+source and pandas execution declarations above. The implementation registry
+resolves tested source eligibility and the first admitted pandas boundary before
+data work, without candidate route arrays, cost ranking or failure-driven
+selection. A behavior-preserving implementation change does not alter Dataset
+definition identity; a change to method meaning requires its semantic contract
+version to change.
 
 `DatasetMaterializationContractV1` names the exact quality, Evidence, Finding,
 validation-output, and retained-sufficient-statistic contracts that Module 4
@@ -417,8 +450,8 @@ family. The complete matrix and method sections below are normative.
 
 ## Owner-Confirmed Product Decisions
 
-The owner confirmed decisions 1-10 on 2026-09-01 and the rollup decision 11 on
-2026-09-04:
+The owner confirmed decisions 1-10 on 2026-09-01, the rollup decision 11 on
+2026-09-04, and the statistical and coordinate amendment on 2026-09-07:
 
 1. the discovery surface contains exactly `point_anomalies`,
    `interesting_windows`, `entity_outliers`, `period_shifts`, and
@@ -452,6 +485,12 @@ The owner confirmed decisions 1-10 on 2026-09-01 and the rollup decision 11 on
 11. `rollup(drop_dimensions=..., grain=..., drop_time=...)` is retained as one Dataset-owned
     current-row fold, not a Metric-graph recomputation; it accepts only
     Entity-reduced Metric shapes and exact Observation-owned fold authority.
+12. attribution retains its exact comparison scope in every output key and
+    reconciliation; component-mix admission requires exact additive partition
+    components, not merely a ratio declaration.
+13. forecast prediction intervals use each named model's one-step innovations,
+    residual degrees of freedom, and horizon variance. Unavailable variance is
+    never encoded as zero uncertainty.
 
 These decisions replace the corresponding eager Frame behavior. They are not
 compatibility defaults.
@@ -485,6 +524,7 @@ The initial generated-field roles are:
 ```text
 metric_identity
 pair_identity
+attribution_partition_identity
 method_identity
 status
 sample_count
@@ -521,7 +561,7 @@ ordered field list and status/null rules:
 | promoted `current_value`, `baseline_value`, `delta`, and additive/component contribution values | the row-contract builder's registered lossless common numeric type; nullable exactly under the owning closed status |
 | `selected_for_pair` | non-null `bool` |
 | `status`, presence, direction, method, and scale fields | the owning non-null closed string enum; never an open string |
-| `active_axis_mask`, `other_mask` | fixed-length `tuple[bool, ...]` with length equal to the authored axis count |
+| `active_axis_mask`, `other_mask` | non-null fixed-length `tuple[bool, ...]` with length equal to the authored axis count |
 | `metric_key`, `axis_ref` | the owning typed semantic-ref identity |
 | `item_id` | non-null canonical `sha256:<lowercase-hex>` digest string |
 | `reason_codes` | non-null bounded tuple of the objective's closed reason enum |
@@ -612,10 +652,29 @@ MetricRollupInvocationV1
   output_row_contract
 ```
 
+This exact closed invocation is a member of Module 3's
+`RegisteredOperatorInvocationV1` union under `rollup/metric_coordinates@v1`.
+Each normalized fold constructs a `RegisteredOperatorNodeV1` after its receiver;
+rollup never uses the Entity-axis reduction node. A combined coordinate change
+constructs the canonical time fold followed by the Dimension fold, with each
+invocation binding that step's exact input and output contracts. Module 2 owns
+the fold meaning and coverage transition, this registry owns admission and
+normalization, and Module 3 owns the matching source/pandas implementations.
+
 Every Metric must have one exact admitted fold for every removed coordinate.
 An arity-N receiver fails atomically when any Metric lacks sufficient retained
 state. It never drops the blocked Metric, substitutes `sum`, borrows another
 Metric column as sufficient state, or changes exactness.
+
+The exact fold proof includes membership allocation and evaluation-end
+authority, not only a Metric's broad aggregation class. Dropping overlapping
+Dimension memberships cannot sum duplicated additive contributions without an
+exact retained allocation or disjointness proof. A semi-additive declaration
+does not authorize summing values taken at different status-time endpoints.
+After a time fold, a Dimension fold must prove that the retained endpoints and
+coverage still satisfy its exact fold; otherwise the combined call and the
+equivalent chained call are both rejected. Module 2 owns these proofs and their
+composition order; this module consumes them unchanged.
 
 ### One meaning across input states
 
@@ -644,15 +703,23 @@ coarsens or removes only the requested time coordinate, and carries the Observat
 coverage transition.
 
 The output row key is the canonical retained Dimension tuple followed by time
-when present. Dropping every Dimension from `metric/dimension@v1` produces the
-explicit `metric/scalar@v1` singleton row-set contract, including for zero input rows;
-each Metric uses its registered empty-fold result. Time is never removed:
-`metric/time@v1` remains time-shaped, and dropping every Dimension from
-`metric/dimension-time@v1` produces `metric/time@v1`.
+when present. Removing the final coordinate produces the explicit
+`metric/scalar@v1` singleton row-set contract, including for zero input rows;
+each Metric uses its registered empty-fold result. Retaining time while dropping
+every Dimension from `metric/dimension-time@v1` produces `metric/time@v1`.
+`drop_time=True` maps `metric/time@v1` to `metric/scalar@v1` and
+`metric/dimension-time@v1` to `metric/dimension@v1` when Dimensions remain.
+Coarsening time retains a time-bearing shape. Every transition preserves the
+owning fold and coverage requirements. Removing time preserves the
+selected-period coverage record; it never upgrades partial, disjoint, or
+filtered periods into a complete-window claim.
 
-Definition identity binds the exact input authority token, authored occurrence,
-ordered dropped Dimension refs, source and target grain/calendar identities,
-per-Metric fold-contract versions, coverage contract, and output row contract.
+Definition identity binds the exact input authority token, normalized coordinate
+transition, ordered dropped Dimension refs, source and target grain/calendar
+identities, per-Metric fold-contract versions, coverage contract, and output row
+contract under Dataset Core's canonical normalization. Required realization
+sharing is inherited from the bound input; diagnostic authored occurrence paths
+do not add another identity component.
 No realized period count, generated SQL, backend placement, or Artifact row
 value enters the semantic node.
 
@@ -670,12 +737,15 @@ state, received input state/shape, and one valid repair. When retained state is
 insufficient, the repair authors and executes a new observation at the target
 coordinates; it never suggests origin replay from a Materialized Dataset.
 
-The compiler manifest registers one relational fold lowering for every admitted
-fold id. A cumulative period-end `last` fold preserves exact evaluation-end
-authority and incomplete target-period coverage. A retained-state merge may use
-one registered local kernel only under the common bounded Arrow/Parquet
-contract. Unsupported compilation or guard overflow fails the action without
-switching fold, recollecting rows, or publishing a partial Metric Dataset.
+The compiler implementation registry registers exact Ibis eligibility and a
+pandas continuation for every locally admitted retained fold id. Source-eligible folds
+compose into Ibis before any transfer; an ineligible fold or a local input uses
+its declared pandas function. A cumulative period-end `last` fold preserves exact
+evaluation-end authority and incomplete target-period coverage in either path.
+Local admission includes every required retained part, not just the visible
+Metric values. Missing exact implementation, compilation failure or guard
+overflow fails without switching fold, recollecting rows, or publishing a
+partial Metric Dataset.
 
 ## `correlate`
 
@@ -747,7 +817,9 @@ The row key is the retained Dimension tuple, when any, followed by the Metric
 pair and lag. Non-lag shapes have no synthetic lag column.
 
 Pairwise null deletion occurs after exact coordinate and lag alignment.
-Different pairs may therefore have different complete-pair counts. The status
+Different pairs may therefore have different complete-pair counts and realized
+observation subsets; the resulting coefficients need not form a positive
+semidefinite correlation matrix. The status
 vocabulary is:
 
 ```text
@@ -774,20 +846,40 @@ Association Dataset. Exactly one valid candidate is selected by:
 Invalid lag rows remain published beside the selected row so boundary loss,
 null loss, and constant inputs remain auditable.
 
-Pearson, Spearman, and Kendall retain their standard definitions. Spearman rank
-ties use average rank. Kendall is tau-b. Every fixed implementation must match
-the independent reference tolerance. Pearson/Spearman use their exact Ibis
-builder or fail; they do not fall back to Kendall, pandas or Python.
+These are descriptive coefficients over the exact aligned retained rows.
+Dimension-bucket association is not individual-Entity association, and time
+buckets do not imply independent observations. Selection of the largest
+absolute coefficient over a lag search is exploratory: two complete pairs may
+produce an absolute coefficient of one without establishing reliable evidence.
+Cards, Evidence, and Findings preserve, directly or through their exact bound
+Artifact contract, the observation-unit contract, searched
+pair/lag/series scope, selection rule, and complete-pair counts. They report no
+p-value, significance, population effect, or causal direction. A positive lag
+describes coordinate order only. No selected candidate gains the future Delta
+test's inferential authority.
 
-Kendall's fixed Python recipe receives complete numeric pair inputs after the
-engine performs exact coordinate/lag alignment and pairwise null accounting.
+Pearson, Spearman, and Kendall retain their standard definitions. Spearman rank
+ties use average rank. Kendall is tau-b. Every source and pandas implementation
+must match the independent reference tolerance. Pearson/Spearman prefer their
+exact Ibis lowering while its registered eligibility holds. Otherwise their
+exact pandas continuation uses the same method, counts, ranks and status rules;
+a failed source compilation never triggers that continuation.
+
+Kendall's pandas function receives complete numeric pair inputs after the
+source performs exact coordinate/lag alignment and pairwise null accounting.
+The same source-prepared input contract admits Pearson/Spearman locally when
+full source reduction is ineligible. Already local, non-identity-bearing inputs
+may prepare their pairs in pandas under the same exact alignment contract.
 Input descriptors preserve pair, series and lag coordinates and counts, including
 empty/invalid candidates; raw Entity identities are projected away before
-transfer. The kernel calculates tau-b, constant/insufficient statuses and the
-same candidate-selection rule above. Total pairs and bytes across all requested
-Metrics, lags and Dimension series must fit the Runtime kernel budget. Oversized
-Entity inputs fail without sampling or another method. There is no quadratic
-SQL-pair-join implementation or runtime engine/kernel selection.
+transfer. The pandas function calculates the selected coefficient,
+constant/insufficient statuses and the same candidate-selection rule above.
+Total pairs and bytes across all requested Metrics, lags and Dimension series
+must fit the combined Runtime local budget. Source preparation is mandatory for
+Entity inputs; a local identity-bearing Artifact is not permission to collect
+raw Entity features into these functions. Oversized pair inputs fail without
+sampling or another method. Kendall has no quadratic SQL-pair-join alternative;
+no failure triggers implementation switching.
 
 ### Filtering and continuations
 
@@ -1072,6 +1164,46 @@ reachable through one unique safe path from both comparison branches. Time
 Dimensions fail with a repair to use the existing comparison coordinate rather
 than treating time as an attribution driver.
 
+### Comparison scope and decomposition coordinates
+
+Attribution decomposes an overall Delta separately within an exact retained
+comparison scope. Naming a retained Dimension in `axes` explicitly makes that
+Dimension a decomposition coordinate; every unrequested retained Dimension
+remains a scope coordinate. Adding a missing axis partitions the same scope
+under the admitted logical expansion. Entity identity and the comparison time
+coordinate are never decomposition axes and are never implicitly reduced.
+
+The complete scope is derived before execution:
+
+| Delta input shape | Ordered retained scope coordinates |
+| --- | --- |
+| `delta/scalar@v1` | none; one explicit overall scope |
+| `delta/entity@v1` | exact governed `entity_identity` |
+| `delta/dimension@v1` | retained Dimension coordinates not named in `axes`, in input order |
+| `delta/time@v1` | `comparison_ordinal` |
+| `delta/dimension-time@v1` | retained Dimensions not named in `axes`, then `comparison_ordinal` |
+| `delta/funnel@v1` | Module 6's exact funnel attribution registration; it does not inherit Metric scope rules |
+
+Time-bearing scopes also retain the Delta's exact `current_time` and
+`baseline_time` value fields. These values are determined by the retained
+comparison coordinate; neither becomes a second row key or a merged time axis.
+Within every scope, both independent endpoints and the partition components
+must cover the same selected contributions. Recomposition across a Dimension
+named in `axes` requires the method's exact retained state and partition/fold
+proof. It never sums arbitrary Delta rows, reduces an unrequested coordinate,
+or silently folds Entity or time. A missing endpoint or fold authority rejects
+construction when known and otherwise fails its typed action-time check.
+
+Entity-scoped Attribution retains `entity_identity` as a public typed row
+coordinate so uniqueness remains explicit. Module 6's identity redaction and
+source-required execution rules apply; the key does not appear in metadata,
+Evidence, Findings, errors, or cards. This is not a private hidden row key or a
+new `population=` input registration. An absent exact source implementation
+fails before data work; the general result-only pandas continuation cannot
+collect this identity-bearing shape.
+
+### Resolution and partition mapping
+
 `mode="joint"` emits one resolution over the full ordered axis tuple.
 `mode="hierarchy"` emits every authored prefix resolution. Supplying
 `mode="hierarchy"` for one axis is rejected as meaningless. `top_k`, when
@@ -1107,9 +1239,9 @@ The Metric's exact aggregation contract selects one registered method:
 
 | Metric aggregation contract | Admitted attribution |
 | --- | --- |
-| additive sum or count | `additive_difference@v1` |
-| semi-additive | `additive_difference@v1` only on non-status-time axes |
-| ratio or weighted mean with named numerator and denominator/weight | `component_mix@v1` |
+| additive sum or count with a complete disjoint partition or exact additive allocation | `additive_difference@v1` |
+| semi-additive with the same partition proof and compatible evaluation-end authority | `additive_difference@v1` only on non-status-time axes whose exact fold is admitted |
+| ratio or weighted mean with named components proven additive over the complete requested partition | `component_mix@v1` |
 | first-cutover mean with retained sum and non-null count | `component_mix@v1` |
 | `count_distinct(key)` with exact reproducible membership basis | `distinct_membership@v1` |
 | exact median or percentile with retained exact distribution basis | `distribution_shapley@v1` |
@@ -1119,14 +1251,40 @@ Opaque non-additive Metrics, `min`, `max`, an unbound mean, an unsupported
 distribution basis, or a semi-additive status-time axis fail before execution.
 Attribution never guesses additivity from observed rows.
 
+Named numerator and denominator bindings are necessary but not sufficient for
+`component_mix@v1`. Each component must have an exact additive allocation over
+the mapped partitions, including Other, and each side's component sums must
+reproduce its independent endpoint components within the same scope. A ratio
+does not make a distinct, semi-additive, percentile, or cumulative component
+additive. A known missing partition/additivity/fold proof is a construction
+failure, with a repair to use a Metric and axes whose exact component contract
+is admitted. An exact mergeable state alone does not authorize substituting a
+non-additive merge into the sum-based formula below. Such a decomposition
+requires its own fully specified method registration and is absent from this
+cutover.
+
+For example, `distinct buyers / orders` grouped by order channel cannot use
+component mix when one buyer may belong to multiple channels. Two current
+orders from one shared buyer yield an overall ratio of `1/2`, while summing the
+two channel buyer counts yields `2/2`. This known mismatch fails admission;
+publication reconciliation is an additional defense, not its first detection.
+
+An additive Metric also cannot sum overlapping Dimension memberships merely
+because its base measure is additive. The exact retained disjointness or
+allocation proof must cover the requested axes. A time fold followed by a
+semi-additive Dimension decomposition must preserve the Observation-owned
+evaluation-end and fold-order contract. Neither operator repairs incompatible
+endpoints by summing them.
+
 The selected versioned method is stored once in the Attribution row semantics
 and is not a compiler choice.
 
 ### Exact attribution arithmetic
 
-For one complete comparison scope, let `C_i` and `B_i` be the current and
-baseline component states for partition `i`, and let `D` be the independently
-computed overall Delta row. Missing additive/component partitions use zero only
+For one complete comparison scope derived above, let `C_i` and `B_i` be the
+current and baseline component states for partition `i`, and let `D` be the
+independently computed overall Delta for that same scope. Missing
+additive/component partitions use zero only
 where the aggregation contract declares zero as its exact empty value.
 
 `additive_difference@v1` calculates:
@@ -1183,20 +1341,23 @@ one input engine. That engine evaluates the registered Metric for every exact
 coalition and emits one value per `(resolution, scope, coalition)` plus player
 coordinates and independent endpoints. For at most eight players there are at
 most 256 coalition values per scope/resolution; total scopes and resolutions
-still obey the Runtime kernel input and method-size guards. No raw distribution
+still obey the Runtime local input and method-size guards. No raw distribution
 or membership key crosses into Python. The engine evaluation must use one
 required action realization or exact immutable input, including for approximate
 backend methods; inability to provide it is an explicit unsupported failure.
 
-A fixed Python kernel verifies complete coalition coverage and endpoints,
+A pandas function verifies complete coalition coverage and endpoints,
 calculates the exact weights above, and applies the existing reconciliation
 gate. It does not recalculate percentiles, approximate Shapley values or select
-players. This exact preparation is method-owned, not a compiler-inferred SQL
-prefix. Its local output cannot be uploaded back to the source implicitly.
+players. The required distribution preparation is method-owned and remains
+source-required. Eligible upstream and downstream source operations are composed
+as far as this numerical boundary permits. Every dependent operation after this
+function remains in pandas; its output is never uploaded back to the source.
 
 ### Top-K and reconciliation
 
-Top-K membership is selected once over the complete current-plus-baseline scope
+Top-K membership is selected once within each exact comparison scope over its
+complete current-plus-baseline partitions
 before attribution arithmetic. Descending scores and typed-coordinate order
 break ties. The method-owned score is:
 
@@ -1232,14 +1393,39 @@ attribution/joint@v1
 attribution/hierarchy@v1
 ```
 
-Joint rows are keyed by the full ordered axis tuple. Hierarchy rows are keyed by
-the closed `active_axis_mask` plus the full typed axis tuple. Inactive typed axis
-cells are null and the mask distinguishes them from real null members. The
+Every output retains its ordered comparison scope coordinates. Joint rows are
+keyed by that scope, the full ordered typed axis tuple, and `other_mask`.
+Hierarchy rows are keyed by that scope, the closed `active_axis_mask`, the full
+typed axis tuple, and `other_mask`. Inactive typed axis cells are null;
+`active_axis_mask` distinguishes them from real null members, and `other_mask`
+distinguishes a typed Other cell from both. The
 family row semantics stores the ordered authored resolution prefixes as exact
 axis field-id tuples once; no public row uses a numeric resolution position as
 identity.
 
-Every row contains:
+Both masks are public generated coordinates with the existing
+`attribution_partition_identity` role. They are not private key material or
+ordinary status values. Let `S` be the ordered retained scope field ids, `A`
+the ordered authored axis field ids, `M` be
+`generated.attribute.active_axis_mask@v1`, and `O` be
+`generated.attribute.other_mask@v1`. The exact public projections are:
+
+| Metric Attribution shape | `coordinate_field_ids` | `key_field_ids` |
+| --- | --- | --- |
+| `attribution/joint@v1` | `S + (M,) + A + (O,)` | `S + A + (O,)` |
+| `attribution/hierarchy@v1` | `S + (M,) + A + (O,)` | `S + (M,) + A + (O,)` |
+
+The joint mask `M` is the all-active coordinate and need not be part of its
+minimal key. Every key is an ordered subset of these public coordinates, as
+Dataset Core requires. Paired time-value fields and contribution values are
+excluded from the coordinate projection. Each field still appears once in the
+ordered schema below; coordinate/key order is an explicit projection and does
+not create another field binding. Module 6 owns its funnel shape's separate
+coordinate and key registration.
+
+The ordered public schema begins with retained scope coordinates, then the
+full authored axis tuple, then paired `current_time` and `baseline_time` values
+for time-bearing scope only. Every row then contains:
 
 ```text
 active_axis_mask
@@ -1255,8 +1441,9 @@ contribution_rank
 status
 ```
 
-The Attribution row semantics stores the ordered resolution-prefix field-id
-tuples, selected method id, interpretation-relevant approximation class, and
+The Attribution row semantics stores the exact scope field-id tuple, paired
+time-value bindings when present, ordered resolution-prefix field-id tuples,
+selected method id, interpretation-relevant approximation class, and
 `resolution_semantics = rollup, rollup_safe = true` for additive/component
 methods or `resolution_semantics = independent, rollup_safe = false` for
 distinct/distribution methods. The normalized Dataset definition and committed
@@ -1267,7 +1454,9 @@ second field binding.
 
 `active_axis_mask` is all-active for joint mode. Only a Dataset whose family row
 semantics declares `rollup_safe = true` may be summed across child members, and
-even then callers select one resolution before summing.
+even then callers select one comparison scope and resolution before summing.
+The flag never authorizes summing across Entity identities, comparison periods,
+or any other retained scope coordinate.
 
 Positive- and negative-pool shares are non-negative within their same-sign
 pools. Marivo does not label a sign as improvement or degradation. A zero total
@@ -1279,8 +1468,10 @@ input overall delta within the registered numeric tolerance. A reconciliation
 failure, incomplete partition set, invalid component state, or endpoint
 mismatch fails the whole action and publishes no Attribution Dataset.
 
-All axis coordinates, masks, contribution values, rank, and status row fields
-are filterable. Method, resolution, rollup-safety, and approximation contracts
+All non-identity scope coordinates, paired time values, axis coordinates, masks,
+contribution values, rank, and status row fields are filterable under their
+owning field contracts. Entity identity remains subject to Module 6's closed
+identity-selector rules. Method, scope binding, resolution, rollup-safety, and approximation contracts
 are definition metadata. The derived continuations are `where`, `rank`,
 `limit`, and state-specific actions. Attribution does not feed back into `compare` or
 discovery in the first cutover.
@@ -1370,35 +1561,66 @@ drift             3
 seasonal_naive    seasonality_period + 1
 ```
 
-Naive repeats the final observation. Drift extends the first-to-last average
-step. Seasonal-naive repeats the value one season behind. Prediction intervals
-use the exact `normal_residual@v1` product contract below and are epistemic
-estimates, not guaranteed coverage.
+These minima leave positive residual degrees of freedom under the exact
+formulas below. They establish numerical admission only, not model adequacy or
+well-calibrated small-sample coverage. Fewer periods fail the action; missing
+variance is never represented by a zero-width interval.
 
-For one series `y[1..n]`, residuals are calculated independently per series:
+Naive repeats the final observation. Drift extends the first-to-last average
+step. Seasonal-naive repeats the last observed season. `normal_residual@v1`
+defines model-specific nominal prediction intervals for future observations,
+not confidence intervals for an expected mean. Its model assumes zero-mean,
+uncorrelated innovations with constant finite variance and a normal forecast
+error distribution. Drift additionally propagates uncertainty in the estimated
+mean increment. Neither complete coordinates nor finite residuals proves these
+assumptions; model Help, cards, and Evidence disclose the fixed assumption
+contract and the absence of empirical calibration in this cutover.
+
+The benchmark variance estimators and horizon factors follow
+[Forecasting: Principles and Practice, section 5.5](https://otexts.com/fpp3/prediction-intervals.html).
+The following formulas, rather than a backend library default, are normative.
+For each complete series `y[1..n]`, construct its one-step model innovations and
+residual mean-square estimate independently:
 
 ```text
 naive:
   point[h] = y[n]
   residual[t] = y[t] - y[t - 1]                         for t = 2..n
+  residual_df = n - 1
+  sigma_squared = sum(residual[t] ** 2) / residual_df
+  horizon_variance[h] = sigma_squared * h
 
 drift:
   slope = (y[n] - y[1]) / (n - 1)
   point[h] = y[n] + h * slope
-  residual[t] = y[t] - (y[1] + (t - 1) * slope)        for t = 1..n
+  residual[t] = y[t] - y[t - 1] - slope               for t = 2..n
+  residual_df = n - 2
+  sigma_squared = sum(residual[t] ** 2) / residual_df
+  horizon_variance[h] = sigma_squared * h * (1 + h / (n - 1))
 
 seasonal_naive(periods = s):
   point[h] = y[n - s + ((h - 1) mod s) + 1]
   residual[t] = y[t] - y[t - s]                        for t = s + 1..n
+  residual_df = n - s
+  sigma_squared = sum(residual[t] ** 2) / residual_df
+  horizon_variance[h] = sigma_squared * (floor((h - 1) / s) + 1)
 ```
 
-Let `sigma` be the sample standard deviation of the complete residual vector
-with `ddof = 1`; when fewer than two residuals exist or every residual is equal,
-`sigma = 0`. Let `z` be the inverse standard-normal CDF at
-`(1 + interval_level) / 2`. The interval for horizon ordinal `h` is:
+The naive and seasonal-naive residuals are not demeaned: a constant non-zero
+forecast error is not zero uncertainty. The drift residuals remove only that
+model's fitted mean increment, not a line fitted to time-series levels. A
+non-positive residual degree of freedom, unavailable residual, negative
+computed variance, or non-finite required value fails the action. A zero
+variance estimate is admitted only when every required model innovation is
+exactly zero; it describes the observed residual fit and is not a guarantee of
+deterministic future values. No missing estimate, near-zero clamp, or constant
+non-zero residual vector may take that path.
+
+Let `z` be the inverse standard-normal CDF at `(1 + interval_level) / 2`.
+The nominal prediction interval for horizon ordinal `h` is:
 
 ```text
-margin[h] = z * sigma * sqrt(h)
+margin[h] = z * sqrt(horizon_variance[h])
 interval_lower[h] = point[h] - margin[h]
 interval_upper[h] = point[h] + margin[h]
 ```
@@ -1432,9 +1654,13 @@ training_row_count
 `horizon_ordinal` starts at one. Published rows are always complete and finite;
 an inability to compute a requested point or bound fails the action rather than
 publishing a partial horizon. `model_id`, `interval_level`,
-`interval_method = normal_residual@v1`, and approximation inherited from the
-input are definition-level family-contract and Artifact metadata. Forecast-model
-estimation remains epistemic meaning, not an input-sampling approximation.
+`interval_method = normal_residual@v1`, the model's fixed innovation and
+assumption contract, and approximation inherited from the input are
+definition-level family-contract and Artifact metadata. Predictive uncertainty
+includes future innovations and, for drift, estimated-increment uncertainty;
+it is not merely epistemic uncertainty and is not input-sampling approximation.
+Realized residual counts, degrees of freedom, and variance checks belong to
+bounded validation/Evidence output, not repeated optional public columns.
 
 Retained Dimensions, future time, horizon ordinal, forecast and interval
 values, and training count are filterable. Model, interval, and approximation
@@ -1489,7 +1715,7 @@ definition fingerprint:
 | `candidate/interesting-window@v1` | retained Dimension tuple, `window_start`, `window_end` |
 | `candidate/entity-outlier@v1` | governed `entity_identity` |
 | `candidate/period-shift@v1` | retained Dimension tuple, `window_start`, `window_end`, `baseline_start`, `baseline_end` |
-| `candidate/driver-axis@v1` | governed `axis_ref` |
+| `candidate/driver-axis@v1` | retained screening-scope coordinates, governed `axis_ref` |
 
 The key coordinates are typed exactly as their owning input or semantic ref and
 must be unique before `limit` is applied. `item_id` is then calculated from the
@@ -1508,6 +1734,14 @@ duplicates field bindings. None of these facts is repeated as a row column.
 from different objectives, methods, sources, or parameterizations are not
 comparable. A Candidate is a lead, not a causal claim, accepted hypothesis,
 Finding, or Population member.
+
+Fixed z-scores, MAD scores, and concentration scores are descriptive screening
+rules. A threshold is not a significance level or calibrated false-positive
+rate, and evaluating many points, windows, or axes does not create a
+multiplicity-corrected decision. Baseline construction, evaluated-unit counts,
+the search scope, and the applied limit remain visible in the objective's
+definition and Evidence. Publication, ranking, or filtering never promotes a
+score into inferential or causal evidence.
 
 An eligible evaluation that finds no candidate publishes a valid zero-row
 Candidate Dataset. If no input series or axis can be evaluated because of
@@ -1565,6 +1799,11 @@ The receiver shapes and per-series baseline are the same as point anomalies.
 The fixed `global_zscore_runs@v1` method forms maximal contiguous runs whose
 points all meet the absolute z-score threshold. It does not search arbitrary
 overlapping windows or optimize a variable window length.
+
+Contiguity follows the registered time-coordinate sequence, not adjacent rows
+after filtering. A missing coordinate or null point breaks a run. The global
+baseline remains the complete current series' non-null points; no run-specific
+baseline is fitted after candidate selection.
 
 Rows add:
 
@@ -1642,9 +1881,13 @@ trailing window size of `max(7, floor(series_length / 10))`, computes trailing
 window means, z-scores those means against their complete-series distribution,
 and forms maximal contiguous runs meeting the threshold.
 
-At least four source rows and at least two finite trailing-window means are
-required, and the trailing-window mean distribution must have non-zero finite
-standard deviation. Rows add:
+Only full trailing windows of that fixed size over consecutive comparison
+ordinals are evaluated; any missing ordinal, null/unavailable delta, or
+non-finite value makes that window unavailable. There is no short-window
+padding, imputation, or minimum-period override. At least `window_size + 1`
+source rows and at least two finite complete trailing-window means are
+required, and their distribution must have non-zero finite standard deviation.
+Unavailable windows break candidate runs. Rows add:
 
 ```text
 retained Dimension coordinates
@@ -1679,7 +1922,24 @@ branches. The receiver is any arity-one Delta shape whose Metric aggregation
 contract admits additive concentration scoring. Non-additive or component
 Metrics use `attribute`, not this screening heuristic.
 
-The fixed `axis_concentration@v1` method groups Delta by each candidate axis,
+One common screening scope is constructed for the entire `search_space`:
+retain every input Dimension not named in that search space, in input order;
+retain Entity identity when present; and retain `comparison_ordinal` for
+time-bearing input, with its exact paired current/baseline time values. An
+explicit scalar Delta has one scope with no coordinates. Each searched axis is
+evaluated separately within that same scope, using its complete additive
+partition and an exact admitted fold across other searched Dimensions. Missing
+axes may partition the scope only through the logical expansion below.
+
+All folds require the Observation-owned disjointness/allocation,
+evaluation-end, selected-contribution, and coverage proof. Time and Entity are
+never silently collapsed for screening. In particular, a daily Delta produces
+daily axis candidates, not an undisclosed whole-window score. A caller seeking
+a whole-window score must construct compatible Metric inputs under an explicit
+admitted temporal fold before comparison.
+
+The fixed `axis_concentration@v1` method groups Delta by each candidate axis
+within each retained screening scope,
 orders absolute group contributions, finds the smallest `k` whose cumulative
 absolute contribution reaches at least 50%, and scores:
 
@@ -1697,7 +1957,22 @@ concentration_share
 ```
 
 One row means one governed axis whose Delta is concentrated in relatively few
-members. It is a search lead, not causal attribution.
+members within one exact screening scope. The ordered schema adds the retained
+screening-scope coordinates and paired time values, when present, before the
+axis fields above. The row key is that scope followed by `axis_ref`; paired
+time values retain their input field ids and are not extra key coordinates.
+The score ordering and `limit` apply across the resulting Candidate Dataset
+under the common objective contract. A complete partition whose absolute
+contributions sum to zero is an evaluated scope with no candidate; it does not
+divide by zero or invent a concentration score. An incomplete or unavailable
+partition is not an evaluated zero. This is a search lead, not causal
+attribution.
+
+An Entity-scoped Candidate preserves its public identity coordinate under
+Module 6's source-required execution, storage, and redaction contract. Its
+identity is absent from metadata, Evidence, Findings, errors, and cards, and it
+does not gain `population=` admission. No generic local Candidate continuation
+may collect this identity-bearing shape without an exact registered permission.
 
 Input handling follows `attribute`:
 
@@ -1717,9 +1992,10 @@ approximation disclosures exist only in family-contract and Artifact metadata
 and cannot enter row predicates.
 
 Every Candidate shape admits `where`, `rank`, `limit`, and state-specific
-actions. Only
-`candidate/entity-outlier@v1` carries the exact Entity identity binding required
-for direct `population=` admission. No candidate selection read or detached
+actions. Only `candidate/entity-outlier@v1` is registered for direct
+`population=` admission with proven Entity-only uniqueness. Entity-scoped
+driver-axis rows are keyed by identity and axis and gain no such registration.
+No candidate selection read or detached
 `*Selection` value exists. Filtering by the exact `item_id` is the canonical
 one-item Dataset path:
 
@@ -1736,6 +2012,7 @@ The exact first-cutover assignment is:
 | Operator occurrence | Logical input | Materialized input | Additional constraint |
 | --- | --- | --- | --- |
 | `correlate`, `rank`, `limit`, `forecast` | consume logical rows | consume retained rows | no origin replay or extra semantic lookup |
+| `rollup` | fold current logical rows and required state | fold immutable retained rows and required state | exact registered coordinate transition; no Entity reduction or origin reevaluation |
 | `compare` | evaluate each logical operand | scan each materialized operand | exact ordered input nodes; no substitution |
 | `attribute`, axes retained | consume admitted row/sufficient-statistic contract | consume retained row/sufficient-statistic contract | no origin replay or extra semantic lookup |
 | `attribute`, axis missing | expand logical branches under current semantics | rejected | explicit current Dimension paths; Logical Delta only |
@@ -1804,8 +2081,9 @@ population inference merely because its arithmetic implementation is exact over
 a sampled input.
 
 Correlation methods, rank, compare arithmetic, and discovery scores are exact
-over their admitted input rows. Forecast intervals and Candidate scores remain
-estimates by product meaning even when arithmetic is deterministic. Attribution
+over their admitted input rows. Forecast intervals are model-conditional nominal
+predictions; Candidate scores are descriptive screening statistics. Neither
+obtains calibrated inferential authority from deterministic arithmetic. Attribution
 inherits any
 approximation in its Metric basis and must reconcile against the exact input
 Delta produced under that basis.
@@ -1858,19 +2136,20 @@ state gets a separate Run or Artifact, and missing state never causes origin rep
 
 | Producing operator | Quality contract | Required family checks | Canonical Evidence projection |
 | --- | --- | --- | --- |
-| `correlate` | `association_quality@v1` | unique pair/lag/series key; coefficient in `[-1, 1]`; nulls match status; at least one valid row per Metric pair | method, pair count, lag range, valid/status counts, sample-count range, approximation bindings by pair |
+| `correlate` | `association_quality@v1` | unique pair/lag/series key; coefficient in `[-1, 1]`; nulls match status; at least one valid row per Metric pair and series; exact lag-selection rule | method, observation-unit contract, searched pair/lag/series counts, valid/status counts, complete-pair and null-loss ranges, selection-rule id, approximation bindings by pair; descriptive-only interpretation |
 | `rank` | `rank_quality@v1` | source row keys and row count preserved exactly; null/non-finite inputs have null rank; tie policy and partition-local rank sequence match the registered method | source/output row counts, partition count, tie method, ranked/null-rank counts; no row values |
 | `limit` | `limit_quality@v1` | output row keys are the exact ordered prefix; output count is `min(input_count, count)`; family, shape, and values are unchanged | input/output row counts, requested bound, ordering-contract id; no row values |
 | `compare` | `delta_quality@v1` | coordinate-presence and status coherence; lossless promoted values; exact delta equation; relative-delta formula/status; paired time-coordinate completeness | shape, presence/status counts, matched/unpaired counts, relative-status counts, numeric-promotion id, approximation binding |
-| `attribute` | `attribution_quality@v1` | mapped membership completeness; method-specific sufficient-statistic checks; endpoint reproduction; exact contribution formula; per-scope/resolution reconciliation and rank/share coherence | method id, axes/resolutions, partition counts, Top-K/Other counts, reconciliation maxima, status counts, approximation binding |
-| `forecast` | `forecast_quality@v1` | exact horizon rows per series; consecutive certified future coordinates; finite point/bounds; lower <= point <= upper; training count/minimum; no cross-series residual pooling | model/method ids, interval level, horizon, series count, training-count range, residual-zero series count, approximation binding |
-| `discover.*` | objective-specific `<objective>_quality@v1` | exact shape key and item-id uniqueness; non-negative finite score; objective threshold/scorer equation; deterministic ordering and limit; evaluable-zero versus not-evaluated distinction | objective/method ids, normalized parameters, evaluated unit count, candidate count, reason/status counts, score range, approximation binding |
+| `attribute` | `attribution_quality@v1` | exact scope and paired-time preservation; key distinction for scope/real-null/Other/resolution; complete partition and method-required additive-allocation proof; method-specific sufficient state; component and overall endpoint reproduction; exact formula; per-scope/resolution reconciliation and rank/share coherence | method id, scope field ids/count, axes/resolutions, partition/fold contract ids, partition counts, Top-K/Other counts, reconciliation maxima, status counts, approximation binding; no Entity values |
+| `forecast` | `forecast_quality@v1` | exact horizon rows per series; consecutive certified future coordinates; finite point/bounds; lower <= point <= upper; model-specific innovations, residual degrees of freedom, mean-square and horizon variance; zero variance only for all-zero innovations; no cross-series pooling | model/method and assumption-contract ids, nominal interval level, horizon, series count, training/residual/degree-of-freedom ranges, residual-zero series count, variance-validation summary, approximation binding; no empirical calibration claim |
+| `discover.*` | objective-specific `<objective>_quality@v1` | exact shape/screening-scope key and item-id uniqueness; scope/time/identity preservation; non-negative finite score; complete-window and objective threshold/scorer equation; exact screening fold proof; deterministic ordering and limit; evaluable-zero versus not-evaluated distinction | objective/method ids, normalized parameters, scope contract/count, searched/evaluated unit counts, candidate count, reason/status counts, score range, approximation binding; descriptive-only interpretation |
 
 Evidence projections contain bounded semantic refs, contract ids, aggregate
 counts, numeric ranges, and reconciliation summaries only. They never contain
 raw Entity identities, raw distinct keys, source rows, typed coordinate samples,
 SQL, private nodes, or per-row Candidate reasons. For an identity-bearing
-`metric/entity@v1`, `delta/entity@v1`, or `candidate/entity-outlier@v1`, Evidence
+`metric/entity@v1`, `delta/entity@v1`, Entity-scoped Attribution, or an
+identity-bearing Candidate, Evidence
 records only aggregate counts and Module 2's exact Entity identity binding.
 
 Typed issues are emitted in `(severity, check_id, canonical_scope_key)` order.
@@ -1891,13 +2170,13 @@ projected into a Finding.
 
 | Producing operator | Finding extractor | Eligible rows and order | Epistemic boundary |
 | --- | --- | --- | --- |
-| `correlate` | `association_finding@v1` | valid rows by descending `abs(coefficient)`, then row key | `estimated`; association is explicitly non-causal |
+| `correlate` | `association_finding@v1` | valid rows by descending `abs(coefficient)`, then row key | `estimated`; descriptive association only, with pair counts and bound search scope; no significance or causal claim |
 | `rank` | `none@v1` | zero new Findings regardless of preserved family | rank changes presentation order, not the underlying claim |
 | `limit` | `none@v1` | zero new Findings regardless of preserved family | limiting selects rows but creates no new analytical claim |
 | `rollup` | `none@v1` | zero new Findings; upstream Findings remain linked through lineage | rollup changes coordinate resolution under an existing Metric claim |
 | `compare` | `delta_finding@v1` | non-Entity rows with `calculation_status = ok`, by descending `abs(delta)`, then row key | `algebraic`; relative delta may remain unavailable with its reason |
-| `attribute` | `contribution_finding@v1` | reconciled rows by descending `abs(contribution)`, then resolution and row key | `algebraic`; `causal_claim = none` |
-| `forecast` | `forecast_point_finding@v1` | Dimension tuple, then ascending horizon ordinal | `predicted`; interval is an estimate, not guaranteed coverage |
+| `attribute` | `contribution_finding@v1` | non-Entity-scoped reconciled rows by descending `abs(contribution)`, then scope, resolution, and row key; Entity-scoped rows emit none | `algebraic`; complete comparison scope retained; `causal_claim = none` |
+| `forecast` | `forecast_point_finding@v1` | Dimension tuple, then ascending horizon ordinal | `predicted`; model-conditional nominal prediction interval under its bound assumption contract, not guaranteed empirical coverage |
 | `discover.*` | `none@v1` | zero Findings | Candidate rows are leads and do not become conclusions by publication |
 
 The exact Module 5-owned `FindingValueV1` variants are:
@@ -1906,8 +2185,8 @@ The exact Module 5-owned `FindingValueV1` variants are:
 | --- | --- | --- |
 | `AssociationFindingValueV1` | `kind="association"`, `method: pearson\|spearman\|kendall`, `coefficient`, `input_observation_count`, `null_pair_count`, `complete_pair_count`, `lag`, `causal_claim="none"` | `coefficient` is finite; complete pairs are at least two; null plus complete pairs do not exceed input count. `lag` is a discriminated `none` variant for non-lag shapes or a `lag` variant with signed `lag_offset`, `selected_for_pair`, non-negative `matched_observation_count`, and `lag_boundary_drop_count`. |
 | `DeltaFindingValueV1` | `kind="delta"`, `coordinate_presence`, `current_value`, `baseline_value`, `delta`, `relative_delta`, `calculation_status="ok"` | Numeric values are finite and use the registered lossless common type. `relative_delta` is a discriminated finite `defined(value)` or `undefined(reason="baseline_zero")` value. Only calculation-status `ok` rows are eligible. |
-| `ContributionFindingValueV1` | `kind="contribution"`, registered `method`, `active_axis_mask`, `other_mask`, `contribution_kind`, `current_value`, `baseline_value`, `overall_delta`, `contribution`, three typed share values, positive `contribution_rank`, `status`, `causal_claim="none"` | Module 5 admits `contribution_kind="metric"`; Module 6 adds `loss` and `denominator_mix`. Each share is discriminated as finite `defined(value)` or `undefined` with `zero_total_delta`, `empty_positive_pool`, or `empty_negative_pool`. Masks have equal length and match authored axes; the row passed exact resolution reconciliation. |
-| `ForecastPointFindingValueV1` | `kind="forecast_point"`, `model`, `interval_method="normal_residual@v1"`, `interval_level`, `horizon_ordinal`, `forecast_value`, `interval_lower`, `interval_upper`, `training_row_count` | Model is `naive@v1`, `drift@v1`, or `seasonal_naive@v1`; all values are finite, `0 < interval_level < 1`, horizon is positive, training count meets the model minimum, and lower <= forecast <= upper. |
+| `ContributionFindingValueV1` | `kind="contribution"`, registered `method`, `active_axis_mask`, `other_mask`, `contribution_kind`, `current_value`, `baseline_value`, `overall_delta`, `contribution`, three typed share values, positive `contribution_rank`, `status`, `causal_claim="none"` | Module 5 admits `contribution_kind="metric"`; Module 6 adds `loss` and `denominator_mix`. Each share is discriminated as finite `defined(value)` or `undefined` with `zero_total_delta`, `empty_positive_pool`, or `empty_negative_pool`. Masks have equal length and match authored axes; the row passed exact reconciliation within its complete retained scope and resolution. Entity-scoped rows are ineligible. |
+| `ForecastPointFindingValueV1` | `kind="forecast_point"`, `model`, `interval_method="normal_residual@v1"`, `interval_level`, `horizon_ordinal`, `forecast_value`, `interval_lower`, `interval_upper`, `training_row_count` | Model is `naive@v1`, `drift@v1`, or `seasonal_naive@v1`; all values are finite, `0 < interval_level < 1`, horizon is positive, and lower <= forecast <= upper. The bound Artifact proves positive model-specific residual degrees of freedom and the registered innovation/horizon-variance equation; its fixed assumption contract qualifies the nominal interval. |
 
 Association Metric identities live in the outer Association subject. Metric
 identity for Delta, Attribution, and Forecast lives in the outer Metric
@@ -1915,6 +2194,16 @@ subject. Retained Dimension/time coordinates live in the outer ordered
 `Finding.coordinates`; no variant duplicates them or admits an identity-bearing
 coordinate. The public read design owns the outer Finding/subject/coordinate
 composition while this module owns these semantic payloads.
+
+Attribution Findings preserve all non-identity comparison-scope coordinates and
+decomposition coordinates in that outer representation. A time-bearing scope
+retains its `comparison_ordinal` together with the corresponding exact current
+and baseline times under the owning comparison-coordinate representation.
+Resolution and Other masks remain in the typed contribution payload, while the
+canonical item key includes the full scope, resolution, typed axes, and Other
+distinction. Different comparison days or real-null/Other cells cannot collapse
+to one Finding identity. Module 6 supplies the equivalent complete scope for
+its funnel contribution variant without importing the Metric scope rules.
 
 An eligible zero-row set produces the canonical empty Finding digest and
 `finding_count = 0`. An extractor that cannot construct every selected Finding
@@ -1953,15 +2242,19 @@ canonical Help target. The initial repair matrix is:
 | invalid method, threshold, horizon, limit, or tie policy | construction | use the bounded closed values rendered by focused Help |
 | invalid rollup coordinate or target grain | construction | choose a retained Dimension or time transition whose exact fold is shown by the Dataset contract |
 | Metric lacks an exact retained rollup fold | construction | author and execute a fresh observation at the target coordinates |
+| overlapping partition or incompatible semi-additive evaluation endpoints | construction when known, otherwise action | use an exact disjoint/allocation and fold contract, or author a fresh target-coordinate observation; never sum duplicated contributions or unmatched endpoints |
 | missing attribution/driver axis on logical Delta | construction | admitted current-semantic expansion occurs automatically |
 | missing attribution/driver axis on materialized Delta | construction | rebuild the logical comparison with the axis before materialization |
+| component-mix numerator or basis lacks exact additive partition authority | construction | choose admitted Metric components and axes or a separately registered exact decomposition; a generic ratio declaration is not a repair |
+| requested attribution/screening scope lacks endpoint or coordinate authority | construction when known, otherwise action | preserve the input Entity/time and unrequested Dimension coordinates, and supply the exact retained state for the authored partition |
 | distribution attribution has more than eight mapped players | action | lower `top_k` or choose a coarser attribution axis |
 | correlation pair has no valid candidate | action | narrow Metrics/lags, repair constants/nulls, or provide more observations |
 | forecast history incomplete or horizon uncertified | action | re-observe complete consecutive periods with certified future coverage |
+| forecast variance unavailable or residual degrees of freedom non-positive | action | provide complete history meeting the named model's minimum; do not publish a zero-width interval as a substitute |
 | discovery has no evaluable series/axis | action | provide the method's minimum non-null, non-constant input and required coordinate |
 | attribution reconciliation contradiction | action | repair source semantics/data or choose an admitted aggregation contract; never accept partial rows |
 | quality/Evidence/Finding contract absent or invalid | publication | repair the owning registration or staged rows; never publish without the exact registered contract |
-| compiler/backend capability absent | compilation | materialize at an explicit capable boundary or choose another registered exact method |
+| neither eligible source lowering nor an admitted exact pandas continuation exists | pre-data planning | use a tested source/configuration or a registered method whose exact input contract is available; no failure fallback |
 
 Errors may include bounded present field ids, shapes, Metric refs, and safe
 coordinate identities. They do not render raw Entity identities, source rows,
@@ -2091,11 +2384,14 @@ the governed Entity analysis required by `entity_outliers`.
 
 Journey fixtures must choose an explicit compatible execution/storage setup.
 A retained Population or identity selection later joined to current sources uses
-an engine target and reader in that same datasource domain. Local Artifact-only
-continuations use DuckDB. These are fixture configurations, not automatic
-placement or target switching. Include a conflicting-domain negative fixture;
-`.execute()` must not be advertised as a repair unless its configured writer
-and reader can actually establish the required common domain within bounds.
+an engine target and reader in that same datasource domain. Exact result-only
+continuations over local/object Artifacts use PyArrow reads and bounded pandas
+functions; their budgets include every required retained part. Include source
+pushdown, planned pandas-suffix and oversized-local-input fixtures, plus a
+conflicting-domain negative fixture for source-required semantic work.
+`execute()` must not be advertised as a repair unless its configured writer,
+reader and the consumer's exact contract actually establish that path. No fixture
+creates an internal DuckDB executor or changes a failed plan's implementation.
 
 ### Reuse one materialized daily regional checkpoint
 
@@ -2113,6 +2409,10 @@ monthly_total = daily_region.rollup(
     drop_dimensions=(region,),
     grain=mv.grain("month"),
 ).execute()
+window_total = daily_region.rollup(
+    drop_dimensions=(region,),
+    drop_time=True,
+).execute()
 ```
 
 Acceptance proves both downstream actions scan only the immutable daily
@@ -2120,6 +2420,10 @@ Artifact, apply the same registered current-row fold meaning as a Logical
 input, preserve exact partial-period coverage, and never execute the original
 Metric sources. A non-additive fixture without retained sufficient state fails
 during construction with a repair to author the target observation directly.
+Time removal produces the scalar singleton with exact selected-period coverage.
+Parallel negative fixtures use overlapping Dimension memberships and
+semi-additive rows with incompatible evaluation ends; neither a combined call
+nor time-fold-then-Dimension-fold composition may silently sum them.
 
 ### Shared materialized Entity checkpoint
 
@@ -2140,6 +2444,11 @@ outliers.execute().show()
 Acceptance proves both operators consume the same immutable Entity rows,
 correlation never transfers the Entity feature table into an unbounded local
 stage, and Candidate cards do not disclose raw identities.
+An additional lag fixture leaves two complete pairs at one searched offset.
+It may retain an absolute coefficient of one, but its card and Finding retain
+the pair count and bound search scope and expose no significance, inferential,
+or causal claim. Pairwise-null fixtures must not advertise the result as a
+guaranteed positive semidefinite correlation matrix.
 
 ### Logical time comparison with missing-axis attribution
 
@@ -2156,19 +2465,43 @@ baseline = (
 )
 
 delta = current.compare(baseline)
-drivers = delta.attribute(axes=(region, channel), mode="joint")
+drivers = delta.attribute(axes=[region, channel], mode="joint")
 drivers.execute().show()
 ```
 
 Acceptance proves arity-one admission, ordinal time alignment, one
 current-semantic expansion of both still-logical branches, exact axis order,
-and reconciliation before publication.
+and reconciliation before publication. Repeated region/channel members on
+different comparison days produce different scoped row and Finding identities;
+each day retains its exact current/baseline times and reconciles separately.
+Real-null and Other members cannot share a key. An unrequested retained
+Dimension remains a scope coordinate. Entity-scoped admission preserves the
+public identity key under source/privacy rules and emits no identity-bearing
+Finding.
+
+The same daily Delta screened by `discover.driver_axes(search_space=[region,
+channel])` retains the day as screening scope and keys each candidate by day
+and axis. It may not collapse days into one concentration score. A separately
+authored scalar comparison can request a whole-window screening scope only
+after each Metric's explicit temporal fold is admitted.
+
+### Component attribution rejects non-additive partitions
+
+Construct `distinct buyers / orders` with two current orders in distinct
+channels from the same buyer and two baseline orders from different buyers.
+The overall ratios are `1/2` and `2/2`, while naive summation of channel buyer
+counts gives `2/2` on both sides. `component_mix@v1` must reject this known
+non-additive numerator at construction. A positive ratio fixture uses named
+additive components with exact disjoint partition proof and verifies component
+endpoint reproduction before overall reconciliation. Empty components follow
+the owning Metric's null/zero-denominator contract; they cannot manufacture a
+defined Delta from an undefined ratio.
 
 ### Materialization barrier repair
 
 ```python
 checkpoint = current.compare(baseline).execute()
-checkpoint.attribute(axes=(region,))
+checkpoint.attribute(axes=[region])
 ```
 
 When `region` is absent, construction fails before a Run with a repair to
@@ -2201,6 +2534,28 @@ projection.execute().show()
 Acceptance proves complete consecutive history, shared panel coverage, exact
 future coordinate construction, fixed model semantics, and all-or-nothing
 horizon publication.
+
+Independent numerical fixtures also prove the revised interval contract:
+
+- Naive history `[1, 2, 3]` has residual mean square `1`, point forecast `3`,
+  and non-zero interval width at every positive horizon. Equal non-zero
+  residuals must not collapse the interval.
+- Drift history `[1, 2, 4, 4]` has slope `1`, innovations `[0, 1, -1]`,
+  residual degrees of freedom `2`, and variance estimate `1`. Horizon
+  variances are `4/3` at `h=1` and `6` at `h=3`; residuals from an endpoint line
+  or a shared `sqrt(h)` margin must fail conformance.
+- Seasonal-naive history `[1, 4, 2, 6, 4]` with `s=2` has innovations
+  `[1, 2, 2]`, residual degrees of freedom `3`, and variance estimate `3`.
+  Horizons `1, 2` have variance `3`; horizons `3, 4` have variance `6`.
+- Histories below each model's minimum fail without a Forecast Artifact.
+  All-zero model innovations may produce a zero estimated variance, with its
+  explicit residual-fit disclosure; insufficient or constant non-zero
+  innovations cannot use that path.
+
+Source/pandas implementations must agree with these equations and exact future
+coordinates. Cards, Findings, and Evidence retain nominal model-conditional
+prediction meaning, model assumptions, and the absence of empirical coverage
+certification; finite output alone is not a calibration check.
 
 ### Entity-outlier Candidate as a Population input
 
@@ -2247,15 +2602,23 @@ healthy local runtime alone. It requires:
    test merely from row shape or realized pair counts;
 8. independent numerical differential tests for correlation, rank ties,
    ordered-limit prefixes, Delta arithmetic, each attribution method, forecast
-   models, and discovery scorers;
+   models, and discovery scorers; forecast cases include non-zero constant
+   innovations, nonconstant drift increments, seasonal horizon boundaries,
+   positive residual degrees of freedom, and genuine all-zero innovations;
 9. null, constant, empty, insufficient, non-finite, tie, one-sided, and
    approximation cases for every relevant operator;
-10. compiler conformance proving every exact node/invocation/method resolves
-   through the implementation registry to its fixed recipe; no remote compile
-   failure invokes a local alternative and no cross-domain relation is imported;
-11. numerical and actual-Arrow-batch tests for fixed forecast/Kendall/Shapley kernels,
-   same-domain Ibis/DuckDB semantic conformance, complete-input and output guards,
-   cancellation, null/time/decimal/ordering, and typed unsupported backends;
+10. compiler conformance proving eligible contiguous source operations compose
+   through Ibis and known source ineligibility starts only an exact admitted
+   pandas suffix before data work; dependent local nodes never return to a
+   source, no compile failure invokes another implementation, and source-required
+   identity/private work never gains a generic local path;
+11. independent Ibis/pandas numerical conformance and actual-Arrow-batch tests
+   for result methods and forecast/Kendall/Shapley functions, combined complete
+   inputs including retained parts, intermediate growth, output guards,
+   cancellation, null/time/decimal/key/ordering, and typed unsupported paths;
+   Entity correlation fixtures must prove all three methods receive the same
+   exact aligned numeric pairs and counts when local, no Entity identifier
+   crosses the boundary, and a local raw Entity Artifact is rejected;
 12. runtime tests proving incomplete Run admission precedes execution and
    failed publication exposes no partial Dataset, Artifact, Evidence, or
    Finding;
@@ -2270,7 +2633,20 @@ healthy local runtime alone. It requires:
    once and audit-only fields cannot enter predicates;
 16. real-agent execution of the vertical journeys against a supported backend,
    including terminal Runtime Run/Artifact/Evidence proof rather than only a
-   transcript or local harness result.
+   transcript or local harness result;
+17. scoped Attribution and driver-axis tests covering every input shape,
+    unrequested retained Dimensions, repeated members across comparison days,
+    exact public mask roles and coordinate/key projections, the ordered key
+    subset invariant, real-null/Other/resolution key distinction, complete endpoint reproduction,
+    canonical Finding identity, cold recovery, and Entity privacy/source-only
+    admission without new Population affordances;
+18. construction-time rejection of known overlapping additive partitions,
+    non-additive ratio components, and incompatible semi-additive endpoints;
+    runtime independently verifies those exact registered proofs without
+    postponing statically known failures to reconciliation;
+19. descriptive-disclosure tests proving lag-selected correlations preserve
+    observation counts and search scope, and discovery thresholds never become
+    significance levels or inferred causal claims.
 
 ## Cross-Module Seams
 
@@ -2289,6 +2665,8 @@ operators. It does not change the common Dataset protocol.
 - Population and target-Population authority;
 - Metric bindings, arity, semantic value types, aggregation contracts, and
   approximation intent;
+- exact disjointness/allocation, component fold, empty/null result,
+  evaluation-end, coverage, and composed fold-order authority;
 - Entity, Dimension, and time coordinates and compatibility;
 - shared predicate syntax, filter effect, field-resolution lifecycle, and
   filter field-resolution rules;
@@ -2299,23 +2677,26 @@ This module may restrict an accepted Metric shape or value type. It may not
 reinterpret a Dimension bucket as an Entity sample or create another Metric
 source path.
 
-### Direct Compiler and Fixed Execution Boundaries consumes
+### Source Pushdown and Pandas Execution consumes
 
 - exact operator-variant, invocation and method contract versions;
 - deterministic input/output, ordering, null, status and approximation contracts;
-- the fixed method assignment and any explicit relational kernel preparation;
+- source-required semantic preparation and exact pandas continuation inputs;
 - reference results, complete-input shape and method-size requirements;
 - exact same-domain enrichment requirements and immutable-input restrictions.
 
-Module 3's implementation registry binds those recipes to actual builders and
-kernels. Module 5 does not enumerate implementation callables, choose engines
-or duplicate datasource support matrices. A fixed Ibis method may be unsupported
-on an engine without making its analytical meaning ambiguous.
+Module 3's implementation registry binds those contracts to Ibis builders,
+tested source eligibility and pandas functions. Module 5 does not enumerate
+implementation callables or duplicate datasource support matrices. Source
+ineligibility selects a declared equivalent pandas continuation before data
+work only when its input contract is complete; source-required methods fail
+without inventing that continuation.
 
 Runtime owns Arrow collection, actual-batch validation, worker cancellation,
-executor budgets, private staging and cleanup. No owner promotes a kernel input
-or engine intermediate to a Dataset, changes the method for resource pressure,
-or imports an incompatible Artifact to another domain.
+local budgets, private staging and cleanup. Adjacent local functions pass their
+DataFrames directly. No owner promotes an internal input or intermediate to a
+Dataset, changes the method for resource pressure, or uploads local results into
+another source domain.
 
 ### Materialization Runtime consumes
 
@@ -2374,15 +2755,27 @@ Implementation and cutover acceptance must prove all of the following:
     authority;
 13. every operator occurrence resolves one registered quality, Evidence, and
     Finding extraction contract before Run admission;
-14. every exact method uses its fixed recipe; actual Arrow boundaries and
-    numerical outputs match the owner reference, local Artifact relations use
-    DuckDB, and no pandas/Polars/DuckDB fallback or automatic upload occurs;
+14. every exact method preserves its reference meaning through source-preferred
+    Ibis and its admitted pandas suffix; Arrow boundaries, complete retained
+    inputs and numerical outputs conform, local Artifact reads use PyArrow,
+    and no internal DuckDB executor, failure fallback or automatic upload occurs;
 15. rollup differential tests prove identical current-row fold meaning for
     Logical and Materialized inputs, including additive, extremum,
     sufficient-state, cumulative period-end, partial coverage, and rejected
     non-additive cases;
 16. rollup removes time only under an exact registered fold; it never admits
-    Entity-grained input, recomputes an origin Metric graph, or changes one blocked Metric while retaining others.
+    Entity-grained input, recomputes an origin Metric graph, or changes one blocked Metric while retaining others;
+17. Attribution and driver-axis output keys preserve their exact comparison or
+    screening scope, including time and unrequested Dimensions; no implicit
+    Entity/time reduction or real-null/Other collision survives publication or
+    Finding extraction;
+18. component-mix admission proves additive components over the exact mapped
+    partition, and overlapping membership or incompatible semi-additive
+    endpoints cannot be repaired by summing visible rows;
+19. forecast variance uses the named model's innovations, positive residual
+    degrees of freedom, and horizon factor; incomplete variance estimation is
+    never published as zero uncertainty, and nominal prediction meaning is
+    preserved in Help, cards, Findings, Evidence, and cold recovery.
 
 ## Frozen Module Decisions
 
@@ -2426,16 +2819,34 @@ This accepted design freezes all of the following:
     quality/Evidence owns null/non-null completeness diagnostics;
 20. eager Session duplicates, Frame/Result outputs, detached selections,
     aliases, and legacy recovery do not survive cutover;
-21. the 2026-09-05 fixed method table assigns Ibis relations, Python forecast,
-    engine-pair/Python Kendall and engine-coalition/Python-weight Shapley recipes; Module 3 binds them without
-    alternative placements. Runtime guards Arrow and local resources; pandas
-    remains kernel-private and Polars is absent;
+21. the 2026-09-07 execution declarations maximize eligible source Ibis work
+    and use exact pandas continuations for the dependent local suffix; source
+    support is resolved before data work and failures never change the plan.
+    Source-owned identity/distribution preparation remains source-required,
+    Runtime guards complete Arrow/local resources, internal DataFrames are not
+    public inputs, and no internal DuckDB executor or Polars path exists;
 22. `MetricDataset.rollup(...)` is the sole coordinate-coarsening transform,
     uses `drop_dimensions`, exact coarser `grain`, or explicit `drop_time`, and
     returns a Logical Metric Dataset under one current-row fold meaning;
 23. rollup is limited to Entity-reduced Metric shapes and registered retained
     folds, including explicit time removal; arbitrary axis deletion, silent sum,
-    and origin recomputation do not survive cutover.
+    and origin recomputation do not survive cutover;
+24. the 2026-09-07 scope amendment preserves Entity/time and unrequested
+    Dimension coordinates in Attribution and driver screening. Only authored
+    decomposition/search Dimensions may be recomposed under exact method and
+    fold authority; scope and Other/resolution distinctions belong to row and
+    Finding identity;
+25. additive/component methods require complete exact partition allocations.
+    A ratio declaration does not make its components additive, and a
+    semi-additive declaration does not authorize incompatible evaluation ends;
+26. prediction intervals use model-specific innovation mean squares and
+    horizon variance under a fixed disclosed assumption contract. Positive
+    residual degrees of freedom are mandatory; only all-zero innovations
+    admit a zero variance estimate. The result is a nominal predictive interval,
+    not empirical coverage certification or solely epistemic uncertainty;
+27. correlation and discovery remain descriptive/exploratory. Lag search,
+    pairwise null selection, or repeated screening cannot confer significance,
+    individual-level interpretation, population inference, or causality.
 
 ## Final Boundary
 

@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-05
+Revised: 2026-09-07
 
 Status: accepted
 
@@ -705,6 +705,19 @@ or shape semantic version.
 Coordinates identify the analytical position of a row. Values are facts
 measured, calculated, scored, or classified at that position.
 
+Entity coordinates bind the Semantic Object Model's identity primary key `K`.
+Version coordinates identify historical representations and never silently join
+that identity signature. An analytical row may be keyed by `(K, time)` while a
+Population row is keyed by `K` alone; each family's owner supplies its exact
+temporal resolution and uniqueness checks. The compiler cannot manufacture a
+second Entity identity by subtracting version fields from an authored key.
+
+Every coordinate needed to distinguish published rows must remain in the public
+row contract. For example, Attribution retains its comparison scope alongside
+decomposition axes; an unexposed private scope cannot repair a duplicate public
+row key. Identity-bearing scope coordinates follow the same row-only privacy
+boundary as other Entity coordinates and do not enter Evidence subjects.
+
 Every public binding appears exactly once in `DatasetSchema.columns`. Coordinate
 membership is the ordered `coordinate_field_ids` projection. Value bindings are
 derived deterministically as the schema columns not named by that projection;
@@ -947,12 +960,14 @@ definition. It binds:
 - exact bound semantic dependency digests, refs, and governed policy values;
 - normalized literal parameters and captured source-parameter value digests;
 - ordered private input authority tokens;
+- the canonical sharing relation of semantically significant realization
+  occurrences in the complete logical definition, as specified below;
 - producer implementation, quality, Evidence, Finding, and retained-state
   contract versions that affect the committed result contract.
 
 It excludes:
 
-- Python object addresses;
+- Python object addresses and raw graph-local node or realization handles;
 - generated SQL text;
 - secrets and credentials;
 - executor timing and resource usage;
@@ -969,6 +984,58 @@ Session. It does not normalize those dependencies again in a parallel key schema
 Executing a Dataset preserves the fingerprint recorded as the Dataset's
 origin definition. The definition fingerprint therefore answers what was
 defined, not which backing a later operator must consume.
+
+### Sharing is part of the analytical definition
+
+An owning semantic contract identifies calculations whose within-action
+realization affects meaning, including Population sampling and selected
+contributions that require single evaluation. It creates and propagates opaque
+graph-local realization handles under that contract's sharing rule. Reusing an
+upstream definition preserves those handles through filters, projections and
+other dependent branches. A separately authored sampling call creates a distinct
+realization handle even when its parameters and standalone fingerprint are
+equal. An owner-required shared dependency, such as repeated uses of one Event
+occurrence stream, retains one realization handle under its own contract.
+
+Dataset Core incorporates this sharing relation into the sole definition
+fingerprint during construction:
+
+1. Traverse the normalized logical root in deterministic depth-first order,
+   following each owner's ordered input roles and semantic dependency roles.
+   Visit every use occurrence, including repeated references to a shared node;
+   any requirements on one node have an owner-defined stable role order.
+2. For each semantically significant realization handle, assign the next
+   ordinal on its first encounter and reuse that ordinal at every subsequent
+   occurrence of that handle. Bind the ordered semantic occurrence positions
+   and their ordinals into the normalized definition.
+3. Stop at each Materialized input. Its exact Artifact token supplies immutable
+   authority; producer graph structure and realized sampling rows do not enter
+   this traversal.
+
+For two otherwise equal operands, the sharing labels are therefore `[0, 0]`
+for one shared realization and `[0, 1]` for two separately authored realizations.
+The raw handles, allocation order, Python addresses, variable names and source
+locations are excluded. Reconstructing the same normalized graph and sharing
+relation in another process produces the same fingerprint. Sharing a pure
+subgraph without a significant realization does not itself change identity;
+this rule does not add general common-subexpression elimination or make SQL
+object reuse proof of single evaluation.
+
+For example, let `d` be a scalar Metric observation over an unseeded sampled
+Population, and let `make_d()` construct that same definition with a new sampling
+call. On a fixed source, `d.compare(d)` consumes one sample and has zero delta
+for a finite non-null Metric. `make_d().compare(make_d())` consumes two separate
+samples and may have a nonzero delta. The comparisons have different definition
+fingerprints even though their ordered upstream fingerprint lists are equal.
+Separate samples need not produce different rows; their sharing contracts,
+rather than the observed outcome, determine definition identity.
+
+This normalization is part of Dataset Core's existing definition authority.
+There is no second graph fingerprint, persisted occurrence table, public
+realization id or recoverable logical graph. The compiler consumes the bound
+sharing requirements and preserves their realization partition; it cannot merge
+distinct sample realizations or split a required shared realization. Runtime
+uses only the resulting Core fingerprint for execution-key construction.
 
 ### Input authority token
 
@@ -987,6 +1054,12 @@ A logical input token requires the later action to evaluate the definition
 using the consuming Session's admitted semantic/execution contracts. A materialized input token fixes the
 immutable committed rows and forbids transparent reach-through to the original
 semantic source graph.
+
+Tokens select input authority; their ordered list alone is not a complete
+downstream definition. Core also consumes the live logical roots to normalize
+the sharing relation across and within operands. Equal `LogicalInputToken`
+values do not merge their roots or prove equal realizations. No realization
+handle is added to the token or persisted as a second reuse key.
 
 The downstream Dataset's `definition_fingerprint` binds the ordered input
 authority tokens, not only each input's public definition fingerprint. As a
@@ -1362,8 +1435,8 @@ observable behavior:
 1. the input Dataset is never mutated;
 2. success returns only after durable materialized authority is committed;
 3. failure returns no partially materialized Dataset;
-4. private engine stages, Arrow/Parquet exchanges, DuckDB workspaces, and local
-   kernel outputs never construct a public Dataset or Materialized state;
+4. private source stages, Arrow transfers, pandas DataFrames, numerical outputs,
+   and Runtime staging never construct a public Dataset or Materialized state;
 5. realized root schema must satisfy the pre-execution row contract and its
    realized row count must satisfy the row-set contract;
 6. downstream operators read the materialized backing as a leaf;
@@ -1435,16 +1508,26 @@ The materialized variant supplies the planner only:
 - exact row-contract and row-set-contract fingerprints;
 - immutable storage admission handle;
 - realized schema validation facts;
-- bounded capability facts and the fixed execution domain of its reader.
+- bounded reader and source-lowering capability facts for its immutable backing.
 
 Semantic acceptance of Logical/Materialized operands does not promise they can
-execute together. Relational inputs must already share an admitted domain;
-known conflicts fail construction, and live reader/binding checks happen after
-Run admission and before data work. Local Artifact rows use DuckDB; engine
-Artifact rows stay in their owning engine. There is no automatic input import,
-relocation or origin replay. A reachable `.execute()` repair is valid only when
-the configured writer and fixed readers can establish a common domain within
-bounds. Fixed numerical recipes and their guarded inputs are owned by Module 3.
+execute together. Eligible same-domain source expressions compose through Ibis;
+engine Artifacts contribute immutable scans in their owning source domain.
+Local/object Parquet readers use authorized PyArrow reads and begin a bounded
+pandas continuation. There is no internal DuckDB executor; DuckDB remains an
+ordinary datasource when explicitly declared as one.
+
+Before data work, Module 3 traverses registered method/adapter support to retain
+contiguous eligible source work and determine the first local step. Independent
+source outputs may feed only explicitly admitted pandas input roles. Once an
+input enters local computation, all dependent successors remain local; nothing
+uploads it into a source expression. Missing required source support fails when
+no exact, identity-safe local method is registered. Source compilation or
+execution failure never changes this decision. Reader/binding checks and
+complete local input, retained-part, intermediate-memory and deadline guards
+remain mandatory. An explicit `.execute()` repair is advertised only when the
+configured backing and consuming method can actually satisfy those requirements;
+it does not authorize origin replay or make an oversized local input admissible.
 
 It does not supply the original source graph as a rewrite target. Origin lineage
 may remain available for audit, but audit lineage is not executable lineage.
@@ -1784,11 +1867,14 @@ It supplies family-specific subject identity and row meanings.
 
 Journey fixtures must choose an explicit compatible execution/storage setup.
 A retained Population or identity selection later joined to current sources uses
-an engine target and reader in that same datasource domain. Local Artifact-only
-continuations use DuckDB. These are fixture configurations, not automatic
-placement or target switching. Include a conflicting-domain negative fixture;
-`.execute()` must not be advertised as a repair unless its configured writer
-and reader can actually establish the required common domain within bounds.
+an engine target and reader in that same datasource domain when its registered
+contract requires source-private identity work. Local/object Artifact-only
+continuations use authorized PyArrow reads and bounded pandas steps. Include
+both explicitly admitted independent-source pandas inputs and a source-required
+domain conflict that cannot be repaired locally. `.execute()` is a repair only
+when its configured writer, reader and consuming method can satisfy the exact
+authority and resource requirements. No fixture may replay an Artifact origin,
+upload local output or create an internal DuckDB executor.
 
 ### Logical DAG construction and governed execution
 
@@ -1981,8 +2067,10 @@ testable:
     authority is committed or an exact Session binding is recovered;
 12. a materialized Dataset is a private immutable scan leaf for downstream
     planning;
-13. Python object identity, script path, line number, and variable name do not
-    define execution reuse;
+13. raw Python identity, script path, line number, and variable name do not
+    define execution reuse; Core preserves semantic sharing through canonical
+    occurrence labels, so reconstructed equal sharing graphs have equal keys
+    while shared and separately authored sampling branches have different keys;
 14. DataFrame-like implicit reads and inbound pandas re-entry are absent;
 15. explicit same-Store Materialized inputs may cross Sessions without copying
     or ownership changes; foreign Logical inputs and selectors fail locally;
@@ -2011,8 +2099,12 @@ testable:
     no private or nullable state-dependent annotation;
 28. executable Dataset values deliberately do not implement `AgentResult`, while
     `DatasetContract` implements its exact `repr`/`render`/`show` floor;
-29. private Arrow/Parquet exchanges, DuckDB workspaces, and local-kernel outputs
-    remain action-internal and cannot construct Materialized Dataset state.
+29. private Arrow transfers, pandas DataFrames, numerical outputs and Runtime
+    staging remain action-internal and cannot construct Materialized Dataset state;
+30. execution retains contiguous eligible Ibis source work, determines a bounded
+    pandas suffix before data work, and never retries a failed source step locally;
+31. local/object Artifact continuations obey complete local input and retained-part
+    guards; storage capacity alone does not promise local computational capacity.
 
 ## Filter-Selector Amendment Acceptance
 
