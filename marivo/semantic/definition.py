@@ -25,7 +25,7 @@ from marivo.refs import (
 from marivo.render import Card, RenderableResult
 from marivo.semantic.ir import AggKind, CumulativeAnchor, SourceLocation, TimeFoldIR, WhereValue
 
-JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 
 
 class _Value(RenderableResult):
