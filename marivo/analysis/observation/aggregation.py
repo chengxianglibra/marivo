@@ -10,7 +10,8 @@ from marivo.analysis.observation.contracts import (
     construction_error,
     metric_contracts,
     metric_definition,
-    owner_of,
+    producer_contract,
+    source_owner_of,
 )
 
 
@@ -25,12 +26,13 @@ def aggregate(dataset: Dataset) -> Dataset:
             "unsupported aggregation contract",
         )
     updated = replace(definition, entity_present=False)
-    owner = owner_of(dataset)
+    owner = source_owner_of(dataset)
     row, row_set = metric_contracts(updated, dataset._registration.ids, owner.semantic_registry)
     return construct_operator(
         owner=owner,
         registry=dataset._registry,
         operator_id="metric.aggregate",
+        contract_versions=producer_contract("metric.aggregate").versions,
         inputs=(dataset,),
         row_contract=row,
         row_set_contract=row_set,

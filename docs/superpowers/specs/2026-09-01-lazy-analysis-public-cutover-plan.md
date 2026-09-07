@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-07
 
-Status: Slices 0-1 and sub-slice 2a complete; Slice 2b and later units require separate authorization
+Status: Slices 0-2 complete; Slice 3 and later units require separate authorization
 
 ## Outcome
 
@@ -1294,9 +1294,9 @@ adapter, concurrency, and failure matrix without changing this protocol.
 
 ### Slice 2a execution record: 2026-09-07
 
-Slice 2a is implemented privately and accepted. This closes semantic/source
-construction only; Slice 2 remains incomplete until its separately authorized
-2b execution, publication and recovery gate passes.
+Slice 2a is implemented privately and accepted. At that gate, only semantic/source
+construction was complete; Slice 2 still required the separately authorized
+2b execution, publication and recovery gate recorded below.
 
 Candidate: branch `lazy-dataset`, base HEAD
 `277b51e937b99e087b32bdcf87960bdecd59c71a`, plus the uncommitted owned changes.
@@ -1407,6 +1407,144 @@ public API, Help, site content or packaged workflow skill was switched.
 No commit, push or release was made. The local implementation document at
 `../plans/2026-09-07-lazy-analysis-slice-2a-source-construction.md` is synchronized;
 the plans directory remains ignored by the existing repository rule.
+
+### Slice 2b and Slice 2 acceptance record: 2026-09-07
+
+The owner authorized Slice 2b implementation and the parent Slice 2 acceptance
+against committed Slice 2a `21259dfa180b175f5d6c2783cc91e8dff86c5fd9`.
+**Slice 2b is implemented and accepted; the composed Slice 2 gate is complete.**
+The implementation record is
+`../plans/2026-09-07-lazy-analysis-slice-2b-execution.md`; complete machine-readable
+runtime evidence is
+`../plans/evidence/2026-09-07-slice-2b-runtime.json`.
+
+Initial acceptance candidate (superseded by the review follow-up below): branch
+`lazy-dataset`, base HEAD `21259dfa180b175f5d6c2783cc91e8dff86c5fd9`, plus the
+uncommitted owned changes at that gate.
+The SHA-256 of the 74 explicitly listed source, test and configuration files is
+`3f5d0cd87b9b10268da7025e68110699ff49a538c342a6dc04a0d3226b0af8ae`.
+The protocol is sorted UTF-8 path, NUL, file bytes, NUL; the evidence contains every
+path and individual hash. Before/after manifests match. Documentation and generated
+build artifacts are excluded from the candidate digest.
+
+Implemented and verified:
+
+- Private Population and Metric chains lower the actual frozen semantic graph
+  into one final Ibis calculation. Independent sum, count, mean, weighted mean,
+  same-root ratio and cross-root ratio references verify exact filtering before
+  component recomputation, unequal weights/denominators, null and zero branches,
+  all eight Metric shapes and a shared Population spine without fanout.
+- Declared DuckDB TableSources use one read transaction for physical schema,
+  identity/version validation and computation. Controlled GET JSON uses reserved
+  reader/fence names in that datasource; captured values survive scope exit,
+  separate exact keys, and remain absent from persistence and diagnostics.
+  Primary values and sufficient-component parts cross one bounded Arrow stream.
+- Observation registers producer, quality, validation, Evidence and retained-state
+  versions during pure construction. Core owns the complete definition fingerprint;
+  Runtime derives only the execution key. The descriptor's semantic dependency
+  projection also comes from the owning frozen Observation facts.
+- The final nine-table STRICT v3 Store enforces WAL/FULL publication, exact-key
+  uniqueness, complete zero-Finding Evidence and one successful terminal. Guarded
+  admission precedes all live work. File and backend resources are reserved before
+  creation; immutable Parquet and receipts are durable before the single bundle
+  transaction. Independent readers observe no partial bundle.
+- Cold reconstruction uses only selected v3 metadata and returns the same family,
+  complete row/row-set contracts and a non-executable scan leaf. `show()` reads at
+  most 20 rows and renders at most 8192 bytes; collection is capped at 100000 rows,
+  64 MiB and 60 seconds using a terminable storage-only subprocess. Primary plus
+  all retained parts share the 64 MiB file budget and 8 MiB decoded-batch cap.
+- Failure injection proves same-Run attribution, no contender Run, safe cleanup
+  after termination proof, committed readback after lost acknowledgement, and
+  recovery-pending when readback or termination is unknown. Actual process exits
+  cover reservation, final rename, an open publication transaction and commit.
+  A second interpreter recovers after the source database is moved offline.
+
+Fresh final gates:
+
+- Combined compiler/materialization, 2a Observation/semantic, Core and import
+  regressions: **531 passed in 94.26 seconds**.
+- Telemetry-enabled no-I/O subprocess: **1 passed in 3.87 seconds**; eight
+  definitions, 80 filter nodes, five negative cases and 27 guarded entrypoints.
+  Datasource, query, connection, Run, Artifact, Store, Evidence, binding, filesystem
+  and network attempt counts are all zero.
+- Explicit `-n 0 -q -s` runtime acceptance: **1 passed in 24.39 seconds**, containing
+  four real producer exits with code 73 and four fresh recovery processes. The
+  first three recover the original failed Run without publishing or replaying;
+  the committed case preserves the exact succeeded Run and Artifact. Every cold
+  process records zero profile/credential/backend/compiler/source-factory attempts.
+- Scoped typing: **32 source files**, plus owned fixture/test typing; lint and
+  transitive import contracts pass. Compiler isolation is independently enforced.
+- Final `make check-agent`: **348 source files** pass mypy, **5912 tests pass in
+  149.96 seconds**, lint/import contracts pass, and API documentation builds.
+- `git diff --check` passes. Public exports, Help, capability snapshots and public
+  Session methods retain their current contracts.
+
+The committed terminal case is Session
+`session_ab51f699c31b4e1b9f0f55f11f479bff`, Run
+`run_37b7cfc129114182621d02e7`, Artifact
+`artifact_c9d05e3b355e41d6bfb294b0441cd4e4`. Its one primary stage transfers six rows
+and 254 Arrow bytes; eight runtime validation operations are recorded separately.
+Primary and retained receipts account for 1107 and 1978 bytes respectively,
+including manifests. Evidence has zero Findings and zero failed/warning checks.
+The full row contracts, fingerprints, normalized statement inventory, receipts
+and reconciliation snapshots are retained in the evidence file.
+
+Observed dependencies are Python 3.12.13, Ibis 12.0.0, DuckDB 1.5.3, PyArrow 25.0.1
+and pandas 2.3.3. Timings are observations, not performance thresholds. The
+implementation record documents repaired schema/Arrow-width, JSON, credential,
+dependency-summary, fork and concurrent-initialization issues and their regressions.
+
+This closes the specified local reference vertical. Retained rollups, generic
+pandas continuation, other storage adapters, complete history browsing and the
+public cutover remain with their later owners. No commit, push or release was
+made. The implementation/evidence directory remains ignored by the existing rule.
+
+### Slice 2b review follow-up: 2026-09-07
+
+The review suggestions were checked against the owning runtime contracts and
+the accepted implementation. The bounded corrections are complete:
+
+- Preview rows, rendered guidance and complete collection consume the same selected
+  `ReadPolicy`. Source-engine execution retains its independent named deadline;
+  the owning executor-specific budget contract does not couple engine cancellation
+  to the retained-read timeout.
+- Publication callbacks now belong to `publish(event=...)`. Constructing two
+  runtimes over one Store cannot replace either runtime's instrumentation or
+  failure injection. No Store-lifetime callback remains.
+- Runtime assertions are explicit typed checks, including the complete Artifact
+  check before commit. Unsupported family payloads and missing Population ancestry
+  also use structured errors. Redundant Session-creation branching is removed,
+  and the diagnostic docstring no longer claims a separately enforced bound.
+- SQLGlot import placement and pure profile registry lookup are retained. The
+  pre-existing `show(max_output_bytes=...)` action-port contract is documented as
+  a reducing override capped at 8192 bytes. No public surface or persisted codec
+  changed, and no extra execution capability was added.
+
+The current candidate retains base HEAD
+`21259dfa180b175f5d6c2783cc91e8dff86c5fd9` and the same 74-file manifest. Exactly
+six manifest files changed: `materialization/{admission,publication,store}.py`
+and their three existing execution/failure/Store test modules. Its combined
+SHA-256 is `0f041e7422b284de515d36cf242dc70d0e8283f270092d2c12841a43c69f2e17`.
+The initial evidence remains historical and unchanged; current evidence is
+`../plans/evidence/2026-09-07-slice-2b-review-runtime.json`.
+
+Fresh validation:
+
+- Affected Store/codec/execution/failure/guard tests: **91 passed in 84.77s**.
+  New regressions prove shared-Store callback isolation, policy-aligned preview
+  and collection, and `python -O` rollback when a real SQLite trigger removes
+  the pending publication bundle.
+- All six touched implementation/test modules pass typing; lint and import
+  contracts pass.
+- Fresh-process runtime evidence: **1 passed in 25.37s**, covering all four
+  crash points with identical before/after candidate manifests. Recovery records
+  zero source, backend, profile, credential and compiler attempts.
+- Final `make check-agent`: **5915 tests passed in 156.52s**, full typing,
+  lint/import checks and API documentation build passed. `git diff --check`
+  passed; current public exports, Help and capability snapshots remain unchanged.
+
+Slice 2b and the composed Slice 2 acceptance remain complete. No commit, push
+or release was performed during this follow-up.
 
 ## Slice 3: Filtering, Coordinates, Ordering, and Explicit Checkpoints
 

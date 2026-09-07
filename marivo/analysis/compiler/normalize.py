@@ -1,0 +1,114 @@
+"""Pure discovery of exact reachable semantic sources and captured parameters."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+from marivo.analysis.compiler.errors import compilation_error
+from marivo.analysis.datasets.base import LogicalDataset
+from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity
+from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+from marivo.analysis.observation.contracts import MetricPayload, PopulationPayload, source_owner_of
+from marivo.analysis.observation.coordinates import functional_path, path_entities
+from marivo.analysis.observation.predicates import BoundPredicate
+from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
+from marivo.semantic.ir import TargetEntityContract
+from marivo.semantic.metric_graph import AggregateNodeV1, WeightedMeanAggregateNodeV1
+from marivo.semantic.validator import normalize_target_dimension, normalize_target_entity
+
+
+def logical_roots(dataset: LogicalDataset) -> Iterator[LogicalRootHandle]:
+    """Walk definition inputs in dependency order without following retained origins."""
+    seen: set[int] = set()
+
+    def visit(root: LogicalRootHandle | MaterializedScanLeafHandle) -> Iterator[LogicalRootHandle]:
+        if isinstance(root, MaterializedScanLeafHandle):
+            raise compilation_error(
+                "registered logical source inputs", "retained scan requires a later recipe"
+            )
+        if id(root) not in seen:
+            seen.add(id(root))
+            for child in root.inputs:
+                yield from visit(child.root)
+            yield root
+
+    yield from visit(dataset._root)
+
+
+def predicate_leaves(predicate: BoundPredicate | None) -> Iterator[BoundPredicate]:
+    if predicate is None:
+        return
+    if predicate.kind == "all_of":
+        for child in predicate.children:
+            yield from predicate_leaves(child)
+    else:
+        yield predicate
+
+
+def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ...]:
+    """Return normalized, exactly reachable Entities, never unrelated catalog entries."""
+    registry = source_owner_of(dataset).semantic_registry
+    ids: set[str] = set()
+
+    def path(source: str, target: str, *, versioned: bool = False) -> None:
+        route = functional_path(registry, source, target, allow_versioned_target=versioned)
+        ids.update(path_entities(registry, source, (route,)))
+
+    for root in logical_roots(dataset):
+        payload = root.payload
+        if isinstance(payload, PopulationPayload):
+            entity = payload.entity.ref.path
+            ids.add(entity)
+            if payload.reference_axis is not None:
+                path(entity, payload.reference_axis.entity_ref.path)
+            for predicate in predicate_leaves(payload.predicate):
+                field = predicate.field
+                if field is None or not isinstance(field.identity, _CatalogFieldIdentity):
+                    raise compilation_error("exact membership Dimension", "invalid predicate field")
+                dimension = normalize_target_dimension(
+                    registry, field.identity.identity_id.split(":", 1)[1]
+                )
+                path(entity, dimension.entity_ref.path)
+        elif isinstance(payload, MetricPayload):
+            definition = payload.definition
+            entity = definition.entity.ref.path
+            ids.add(entity)
+            axes = (
+                *definition.dimensions,
+                *((definition.time_axis,) if definition.time_axis else ()),
+            )
+            for axis in axes:
+                path(entity, axis.entity_ref.path)
+            for metric in definition.metrics:
+                for component_root in metric.computation_roots:
+                    path(component_root.path, entity, versioned=True)
+                    if definition.reference_axis is not None:
+                        path(component_root.path, definition.reference_axis.entity_ref.path)
+                for record in metric.graph.nodes:
+                    node = record.node
+                    if isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
+                        for condition in node.filter:
+                            dimension = normalize_target_dimension(
+                                registry, condition.dimension_ref.path
+                            )
+                            for component in metric.components:
+                                if component.node_id == record.node_id:
+                                    path(component.computation_root.path, dimension.entity_ref.path)
+        else:
+            raise compilation_error("closed Observation payload", "unsupported definition payload")
+    return tuple(normalize_target_entity(registry, name) for name in sorted(ids))
+
+
+def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV1, ...]:
+    """Return frozen arguments; conflicting captures cannot share one source realization."""
+    found: dict[str, BoundSourceParametersV1] = {}
+    for root in logical_roots(dataset):
+        payload = root.payload
+        if isinstance(payload, (PopulationPayload, MetricPayload)):
+            for capture in payload.captures:
+                previous = found.setdefault(capture.entity_ref.path, capture)
+                if previous.exact_value_digest != capture.exact_value_digest:
+                    raise compilation_error(
+                        "one exact captured source binding", "conflicting source captures"
+                    )
+    return tuple(found[name] for name in sorted(found))

@@ -27,6 +27,8 @@ from marivo.analysis.observation.contracts import (
     owner_of,
     path_dependency_fingerprint,
     population_contracts,
+    producer_contract,
+    source_owner_of,
 )
 from marivo.analysis.observation.coordinates import (
     functional_path,
@@ -198,7 +200,7 @@ def make_population(
         ),
         requirements=tuple(f"population.{item.kind}@v1" for item in normalized.obligations),
         dependency_facts=(f"entity:{reference.path}",),
-        contract_versions=(("observation", "v1"),),
+        contract_versions=producer_contract("session.population").versions,
     )
     if not isinstance(result, LogicalPopulationDataset):
         raise construction_error("paired Logical Population", "invalid family registration")
@@ -206,7 +208,7 @@ def make_population(
 
 
 def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> LogicalPopulationDataset:
-    owner = owner_of(dataset)
+    owner = source_owner_of(dataset)
     identity = dataset.schema.columns[0].identity
     if not isinstance(identity, _EntityFieldIdentity):
         raise construction_error("exact governed membership identity", "invalid identity")
@@ -270,6 +272,7 @@ def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> Logic
         owner=owner,
         registry=dataset._registry,
         operator_id="population.where",
+        contract_versions=producer_contract("population.where").versions,
         inputs=(dataset,),
         row_contract=dataset.row_contract,
         row_set_contract=dataset.row_set_contract,
