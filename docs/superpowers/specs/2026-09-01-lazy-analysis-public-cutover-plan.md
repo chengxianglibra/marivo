@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-07
 
-Status: Slice 0 complete; Slices 1-9 require separate authorization
+Status: Slices 0-1 complete; Slices 2-9 require separate authorization
 
 ## Outcome
 
@@ -1041,10 +1041,15 @@ execution or public exposure.
 ### Explicit exclusions
 
 - no datasource binding or Ibis expression;
-- no Run, Artifact, receipt, Evidence, or row read;
+- no Run/Artifact allocation, receipt publication, or Evidence/row read;
 - no public export or Help route;
 - no family-specific Metric/Event/statistical meaning;
 - no pickle or logical-Artifact ref.
+
+Core still owns the state-specific abstract action signatures and trusted
+Materialized authority descriptors defined by the Dataset Core design. Declaring
+those contracts does not execute a read, publish an Artifact, or recover persisted
+state. The required family decoder registration slot is not a decoder implementation.
 
 ### Required tests
 
@@ -1076,6 +1081,103 @@ execution or public exposure.
 Every later family can register one paired state type and construct complete
 logical row and row-set contracts without importing compiler, runtime, pandas,
 or storage implementation.
+
+### Slice 1 execution record: 2026-09-07
+
+Slice 1 is implemented privately and accepted. The owner separately authorized
+this slice on 2026-09-07; Slices 2-9 remain outside this authorization.
+
+Candidate: branch `lazy-dataset`, base HEAD
+`5b1fa9aca9b0ddc53755c527d9716720b7e72253`, plus the uncommitted owned changes.
+The SHA-256 of the 21 ordered production/test/import-boundary files (UTF-8 path,
+NUL, file bytes, NUL for each lexically ordered path) is
+`6036925b7c3abd8eecac5a9ac437e87e662c9330c5cd7c9f32df5a64133f7247`.
+Documentation and generated build artifacts are excluded from this content digest.
+The digest includes pre-commit formatter line wrapping in the row-contract test;
+its Python AST is unchanged from the fully validated candidate.
+
+Implemented:
+
+- all ten private Dataset Core modules, sealed descriptor/state variants and
+  paired-family registration; the production registry has no family registrations;
+- canonical schema and separate jointly validated row/row-set contracts,
+  exact field selectors and registered physical-type refinement;
+- immutable values, identity equality, unhashability, bounded lineage, and the
+  sole definition fingerprint including canonical significant-realization sharing;
+- factory-issued logical roots with inductive child-integrity checks, exact
+  Materialized scan leaves, state-specific abstract actions and pure construction;
+- registry-derived DatasetContract terminal reads, structured error repairs,
+  dependency guards and early-public-exposure negatives.
+
+Review disposition (2026-09-07):
+
+- Adopted one shared tagged canonical scalar/tuple encoder and one stable-ID
+  lexical predicate. Descriptor and definition owners still select their own
+  complete payloads and expose their own typed errors. Independent byte vectors
+  cover exact types, float.hex, negative zero, Unicode escaping and tuple order.
+- Removed the unused lineage-limit parameter and shared the repeated ordered
+  key/coordinate validation. Kept each closed selector/contract sealing block
+  local: its construction and repair rules have a distinct owner, and a generic
+  sealing abstraction would add no contract benefit.
+- Moved registry freezing to explicit assembly. Logical, Materialized and raw
+  construction require a finalized registry and do not mutate it on success or
+  failure. Failed assembly remains open for repair.
+- Replaced the blanket indirect-backend exception with three exact legacy edges:
+  datasets.errors -> analysis.errors, and datasets.fields -> semantic.catalog /
+  semantic.runtime_metric. Those edges retain their existing transitive backend
+  dependencies; every other direct or indirect Core entry remains forbidden.
+  Nine injected import-graph violations verify the boundary. The eager/execution
+  import contract retains full transitive enforcement.
+- Retained the materialized-state decoder registration slot and abstract
+  Materialized reads: the Core design explicitly owns them. The fixture identity
+  callback proves registration completeness, not persisted decoding or recovery;
+  abstract methods and trusted authority descriptors perform no reads/publication.
+- Additional independent review found a pre-existing family-fact ambiguity:
+  a DatasetFieldId and a literal tuple containing its encoded tag could collide.
+  Family tuple facts now have their own tag. Both direct and nested regressions
+  failed on the old encoding and pass after the correction.
+
+The shared encoding changes private fingerprints. No durable identity, published
+Dataset consumer or compatibility path exists in this slice. The refreshed
+candidate digest and no-I/O fingerprints below identify the reviewed revision.
+
+Fresh verification:
+
+- Baseline: `make test-agent TESTS='tests/test_public_surface.py tests/test_analysis_capability_registry.py tests/test_analysis_help.py tests/test_analysis_imports.py tests/test_agent_result_protocol.py'`
+  passed 424 tests before implementation.
+- `make test-agent TESTS='tests/test_lazy_dataset_descriptors.py tests/test_lazy_dataset_row_contract.py tests/test_lazy_dataset_registry.py tests/test_lazy_dataset_values.py tests/test_lazy_dataset_fields.py tests/test_lazy_dataset_contract.py tests/test_lazy_dataset_runtime_no_io.py tests/test_analysis_imports.py'`
+  passed 195 tests in 11.16 seconds. Descriptor, row-contract, registry, value, selector, terminal-contract,
+  static-type and no-I/O tests cover all Slice 1 acceptance rows. Independent
+  review probes and regressions reject changed top-level/nested root definitions,
+  mutable registration containers, foreign ID vocabularies and wrong-state methods.
+- `make typecheck-agent TYPECHECK_TARGETS='marivo/analysis/datasets tests/typing'`
+  passed for 13 files.
+- `make lint-agent LINT_TARGETS='marivo/analysis/datasets tests/lazy_dataset_fixtures.py tests/test_lazy_dataset_descriptors.py tests/test_lazy_dataset_row_contract.py tests/test_lazy_dataset_registry.py tests/test_lazy_dataset_values.py tests/test_lazy_dataset_fields.py tests/test_lazy_dataset_contract.py tests/test_lazy_dataset_runtime_no_io.py tests/typing/lazy_dataset_core_contract.py tests/test_analysis_imports.py'`
+  passed, including both Core import contracts.
+- `.venv/bin/pytest -n 0 -q -s tests/test_lazy_dataset_runtime_no_io.py::test_deep_private_dataset_dag_is_pure`
+  passed in a fresh child process: 2,001 logical nodes, 16 retained lineage facts,
+  1,985 omitted facts, 27 guarded entrypoints and three typed negative cases.
+  Datasource, connection, query, Run, Artifact, Store, Evidence, binding,
+  filesystem and network attempt counts were all zero.
+- `make check-agent` passed: lint/import contracts; mypy for 319 files;
+  5,659 tests in 118.57 seconds; API documentation build.
+- `git diff --check` and the exact owned-file scope check passed.
+
+The no-I/O journey's source fingerprint was
+`ds_0b610ada9b21cc97a0c0b3726082bb43e08d3d5bbe4250e80a651a4748312352`;
+its final fingerprint was
+`ds_5cd26067078c0eedac8169d9cb1c842c6063736ef093503e5b3cc83161156e15`.
+The test Session identity is `session-test`; no real Session, backend, Store or
+Artifact was created. These are pure Core acceptance facts, not backend or
+real-Agent acceptance for later slices.
+
+The current 82-export, 128-capability and 169-Help-target snapshots remain
+unchanged. No public API/Help, eager implementation, Session Store, current site
+content or packaged skill was switched. No commit, push or release was made.
+The local implementation document at
+`../plans/2026-09-04-lazy-analysis-slice-1-dataset-core.md` was synchronized with the
+September 7 owner contract; that plans directory remains ignored by the existing
+repository rule.
 
 ## Slice 2: First Complete Metric Vertical
 

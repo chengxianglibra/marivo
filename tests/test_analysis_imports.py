@@ -1,5 +1,119 @@
 """Smoke tests that the analysis package and its subpackages import cleanly."""
 
+import subprocess
+import sys
+from pathlib import Path
+
+
+def test_private_dataset_core_has_no_early_public_surface() -> None:
+    script = """
+import importlib
+import marivo.analysis as mv
+from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
+from marivo.analysis.errors import HelpTargetError
+from marivo.introspection.live.resolve import resolve_live_target
+
+names = '''Dataset LogicalDataset MaterializedDataset DatasetShapeId
+DatasetFieldId DatasetFieldIdentity DatasetPhysicalTypeState DatasetField
+DatasetRowBound DatasetCardinality DatasetOrderTerm DatasetOrdering DatasetByteCount
+DatasetFamilyRowSemantics DatasetRowContract DatasetRowSetContract DatasetSchema
+LogicalDatasetState MaterializedDatasetState DatasetContract DatasetFields
+DatasetFieldRef'''.split()
+baseline_exports = tuple(mv.__all__)
+baseline_help = REGISTRY.help_targets
+for name in names:
+    assert name not in mv.__all__ and not hasattr(mv, name), name
+for module in ('base', 'descriptors', 'fields', 'state', 'contract', 'registry',
+               'handles', 'actions', 'errors'):
+    importlib.import_module('marivo.analysis.datasets.' + module)
+for name in names:
+    assert name not in mv.__all__ and not hasattr(mv, name), name
+assert tuple(mv.__all__) == baseline_exports
+assert REGISTRY.help_targets == baseline_help
+for target in ('datasets', 'datasets.dataset', 'datasets.logical',
+               'datasets.materialized', 'datasets.contract', 'actions.execute'):
+    try:
+        resolve_live_target(target, ANALYSIS_LIVE_SURFACE)
+    except HelpTargetError:
+        pass
+    else:
+        raise AssertionError('Early Dataset Help route: ' + target)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_dataset_backend_import_boundary_rejects_new_indirect_paths() -> None:
+    """Exercise the checked-in contract against real and injected import graphs."""
+    script = """
+from configparser import ConfigParser
+from copy import deepcopy
+
+import grimp
+from importlinter.configuration import configure
+from importlinter.contracts.forbidden import ForbiddenContract
+
+configure()
+config = ConfigParser()
+assert config.read('.importlinter')
+section = config['importlinter:contract:dataset-core-has-no-backend-imports']
+options = {
+    key: [line.strip() for line in value.splitlines() if line.strip()]
+    if '\\n' in value else value
+    for key, value in section.items()
+}
+contract = ForbiddenContract(
+    name=section['name'],
+    session_options={'root_packages': ['marivo'], 'include_external_packages': True},
+    contract_options=options,
+)
+graph = grimp.build_graph(
+    'marivo', include_external_packages=True,
+    exclude_type_checking_imports=True, cache_dir=None,
+)
+baseline = contract.check(deepcopy(graph), verbose=False)
+assert baseline.kept and not baseline.warnings, baseline.metadata
+
+source = 'marivo.analysis.datasets.base'
+helper = 'marivo.dataset_import_probe'
+for backend in ('pandas', 'ibis', 'pyarrow', 'duckdb'):
+    for indirect in (False, True):
+        candidate = deepcopy(graph)
+        if backend not in candidate.modules:
+            candidate.add_module(backend, is_squashed=True)
+        if indirect:
+            candidate.add_module(helper)
+            candidate.add_import(importer=source, imported=helper)
+            candidate.add_import(importer=helper, imported=backend)
+        else:
+            candidate.add_import(importer=source, imported=backend)
+        result = contract.check(candidate, verbose=False)
+        assert not result.kept, (backend, indirect, result.metadata)
+
+# An approved legacy target is exempt only on its named existing Core edge.
+candidate = deepcopy(graph)
+candidate.add_import(importer=source, imported='marivo.semantic.catalog')
+result = contract.check(candidate, verbose=False)
+assert not result.kept, result.metadata
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
 
 def test_package_imports():
     import marivo.analysis
