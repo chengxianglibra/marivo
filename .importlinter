@@ -60,3 +60,37 @@ forbidden_modules =
     marivo.datasource
     marivo.semantic
     marivo.analysis
+
+[importlinter:contract:dataset-core-is-foundational]
+name = Dataset Core must not depend on eager or executing analysis implementations
+type = forbidden
+source_modules =
+    marivo.analysis.datasets
+forbidden_modules =
+    marivo.analysis.frames
+    marivo.analysis.intents
+    marivo.analysis.executor
+    marivo.analysis.session
+    marivo.analysis.observation
+    marivo.analysis.compiler
+    marivo.analysis.materialization
+    marivo.analysis.operators
+    marivo.analysis.domains
+
+[importlinter:contract:dataset-core-has-no-backend-imports]
+name = Dataset Core must not import dataframe or backend implementations
+type = forbidden
+source_modules =
+    marivo.analysis.datasets
+forbidden_modules =
+    pandas
+    ibis
+    pyarrow
+    duckdb
+# These exact existing error and semantic-descriptor edges reach legacy backend
+# dependencies. All other direct and indirect Core backend paths remain forbidden.
+# The separate foundational contract keeps its full transitive enforcement.
+ignore_imports =
+    marivo.analysis.datasets.errors -> marivo.analysis.errors
+    marivo.analysis.datasets.fields -> marivo.semantic.catalog
+    marivo.analysis.datasets.fields -> marivo.semantic.runtime_metric
