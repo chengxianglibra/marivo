@@ -70,6 +70,20 @@ Descriptions are captured during existing AST compilation and stored with the
 immutable expression sidecar. Reading does not inspect source or call the body.
 This describes syntax; it does not prove execution or data correctness.
 
+Serialized expression nodes independently expose `display` with `language="python"`,
+`form="normalized_ibis"`, `text`, `bindings` (alias plus exact Ref), and
+`redacted_literals`. Consumers display this text directly as code, without
+reconstructing syntax from `expression`. Entity aliases such as `t1` qualify
+columns; field aliases such as `f1` identify semantic field Refs. The text is
+normalized Ibis syntax, not original source or a standalone runnable program.
+Literal values remain hidden as `REDACTED_<TYPE>` identifiers. A structural `status=unsupported` does not prevent display of calls such as
+`.count()` or `.sum()`. Display capture bounds are 1,024 AST nodes, depth 64, and
+16,384 characters; unavailable or oversized syntax has no display text.
+Display failure does not change structural status or discard a supported tree;
+structural syntax and budget checks run independently.
+Formatting uses only the captured AST and does not
+change fingerprints or execute expressions.
+
 | Supported structure | Description |
 | --- | --- |
 | `rows.column`, `rows["column"]`, column constructors | `column` with Entity Ref and column name. |
@@ -108,10 +122,33 @@ granularity, and timezone fields.
 fold overrides, and effective rules resolved by the existing temporal resolver.
 Python rules contain exact `over` Ref and the existing typed `fold` value.
 An absent declaration/override serializes as `status=not_declared`; a resolved
-rule identifies `source=declared|measure|metric_override`. No applicable rule uses
-`not_applicable`; derived context-dependent reaggregation uses `context_required`.
-Percentile folds retain `q`. These facts never license arbitrary summation of
-non-additive metrics or cumulative values along time.
+rule identifies `source=declared|measure|metric_override`. Percentile folds retain
+`q`. Effective classification follows the loaded composition and dependencies:
+
+- `not_applicable`: no independent status-time fold applies. This includes
+  ordinary aggregates and linear compositions whose complete recursive inputs
+  are additive and have no independent fold or component-defined time behavior.
+  An amount sum/difference therefore does not require observation to explain it.
+- `component_defined`: the calculation follows the existing node and component
+  rules, without claiming one equivalent top-level fold. This includes ratios,
+  cumulative nodes, and linear compositions containing folded, non-additive, or
+  component-defined inputs. Follow the direct Refs in `node` through the same
+  Catalog; no duplicate dependency tree is serialized.
+
+`component_defined` describes an available definition, not missing context or a
+requirement to execute observe. Neither status licenses arbitrary summation of
+non-additive metrics or cumulative values along time. No fold is inferred from
+metric names, additivity alone, or matching component folds. Cumulative `over`
+and `anchor` retain their separate node contract, including default axis selection
+marked `context_required`; no effective fold currently has a context-required
+variant because no concrete missing fold context is identified by this reader.
+
+Classification reads only loaded IR, within the existing metric graph limits of
+10 levels and 256 occurrences. Missing dependencies, cycles, unresolved declared
+status axes, and inapplicable overrides fail with `SemanticDefinitionReadError`
+instead of becoming `not_applicable`. Loading and execution retain their existing
+ambiguity/conflict checks. Classification does not alter the calculation graph
+or its fingerprint.
 
 `SemanticDefinitionReadError` identifies the object, declaration location,
 expected/received facts and a typed reauthor repair when projection cannot

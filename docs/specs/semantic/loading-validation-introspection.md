@@ -585,3 +585,18 @@ Loaded metric, measure, dimension, and time-dimension Details expose
 for the closed variants, JSON schema, disclosure policy, and support matrix.
 The direct read and serialization are snapshot-only and do not run readiness,
 preview, authentication, expression bodies, or calendar certification.
+
+
+### Normalized Ibis expression display
+
+Expression nodes in `details().definition.to_dict()` additionally expose
+`node.display`: `language="python"`, `form="normalized_ibis"`, `text`, `bindings`
+(alias plus exact Ref), and `redacted_literals`. Display `text` directly as code;
+do not reconstruct syntax from the structural expression tree in a consumer.
+For example, `(t1["spend_cny"]).cast("float64")` binds `t1` to its entity Ref.
+Field aliases bind to already-described semantic field Refs. This is normalized
+Ibis syntax, not original source or a standalone runnable program. Literal values
+remain hidden as `REDACTED_<TYPE>` identifiers. Display is independent of structural support: method calls such as `.sum()` and
+`.count()` remain visible even when the structural node is unsupported. Missing or
+oversized captured syntax has no fabricated display text. This formatting does
+not execute functions, inspect source files, access data, or change fingerprints.

@@ -24,7 +24,9 @@ from marivo.semantic.ir import (
     RatioComposition,
     SemiAdditive,
     WhereValue,
+    composition_components,
 )
+from marivo.semantic.metric_graph import MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_OCCURRENCES
 from marivo.semantic.validator import Registry
 
 
@@ -92,6 +94,72 @@ def metric_node(
 
 
 def temporal_rules(metric: MetricIR, registry: Registry) -> _TemporalRules:
+    """Describe time semantics without inferring a fold for a composition."""
+    occurrences = 0
+
+    def visit(current: MetricIR, active: tuple[str, ...]) -> _TemporalRules:
+        nonlocal occurrences
+        occurrences += 1
+        if current.semantic_id in active:
+            raise SemanticDefinitionReadError(
+                ref=f"metric:{current.semantic_id}",
+                location=current.location,
+                received="cyclic metric dependency in temporal description",
+            )
+        if len(active) >= MAX_EXPRESSION_DEPTH or occurrences > MAX_EXPRESSION_OCCURRENCES:
+            raise SemanticDefinitionReadError(
+                ref=f"metric:{current.semantic_id}",
+                location=current.location,
+                received="temporal description exceeds metric graph depth or occurrence limits",
+            )
+        composition = current.composition
+        if composition is None:
+            if current.metric_type == "derived":
+                raise SemanticDefinitionReadError(
+                    ref=f"metric:{current.semantic_id}",
+                    location=current.location,
+                    received="derived metric has no composition",
+                )
+            return _leaf_temporal_rules(current, registry)
+        if not isinstance(
+            composition, (LinearComposition, RatioComposition, CumulativeComposition)
+        ):
+            raise SemanticDefinitionReadError(
+                ref=f"metric:{current.semantic_id}",
+                location=current.location,
+                received="unknown metric composition",
+            )
+        children: list[tuple[MetricIR, _TemporalRules]] = []
+        for dependency in composition_components(composition).values():
+            child = registry.metrics.get(dependency)
+            if child is None:
+                raise SemanticDefinitionReadError(
+                    ref=f"metric:{current.semantic_id}",
+                    location=current.location,
+                    received=f"missing temporal component metric:{dependency}",
+                )
+            children.append((child, visit(child, (*active, current.semantic_id))))
+        ordinary_linear = isinstance(composition, LinearComposition) and all(
+            child.additivity == "additive" and rules.source == "not_applicable"
+            for child, rules in children
+        )
+        return _TemporalRules(
+            source="not_applicable" if ordinary_linear else "component_defined",
+        )
+
+    return visit(metric, ())
+
+
+def _leaf_temporal_rules(metric: MetricIR, registry: Registry) -> _TemporalRules:
+    target_kind = metric.aggregation_target_kind or ("measure" if metric.measure else None)
+    if metric.aggregation is not None and target_kind == "measure":
+        target = metric.aggregation_target or metric.measure
+        if target not in registry.measures and target not in registry.dimensions:
+            raise SemanticDefinitionReadError(
+                ref=f"metric:{metric.semantic_id}",
+                location=metric.location,
+                received=f"missing temporal aggregate target {target!r}",
+            )
     declared = (
         _TemporalRule(ref.time_dimension(metric.additivity.over), metric.additivity.fold)
         if isinstance(metric.additivity, SemiAdditive) and metric.aggregation is None
@@ -99,10 +167,23 @@ def temporal_rules(metric: MetricIR, registry: Registry) -> _TemporalRules:
     )
     resolved = resolve_metric_temporal_contract(metric, registry)
     if resolved is None:
+        if metric.fold_override is not None:
+            raise SemanticDefinitionReadError(
+                ref=f"metric:{metric.semantic_id}",
+                location=metric.location,
+                received="fold override has no applicable status-time contract",
+            )
         return _TemporalRules(
             declared=declared,
             override=metric.fold_override,
-            source="context_required" if metric.metric_type == "derived" else "not_applicable",
+            source="not_applicable",
+        )
+    axis = registry.dimensions.get(resolved.status_time_dimension)
+    if axis is None or not axis.is_time_dimension:
+        raise SemanticDefinitionReadError(
+            ref=f"metric:{metric.semantic_id}",
+            location=metric.location,
+            received=f"unresolved status time dimension {resolved.status_time_dimension!r}",
         )
     return _TemporalRules(
         declared=declared,

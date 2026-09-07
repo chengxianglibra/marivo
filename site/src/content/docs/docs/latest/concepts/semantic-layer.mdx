@@ -1671,7 +1671,26 @@ NaN and infinity during authoring. A time dimension's source expression does not
 replace its parse, granularity or timezone contract.
 
 Temporal descriptions distinguish declared rules, metric fold overrides and
-statically resolved effective rules. Snapshot identity, business guardrails,
+statically resolved effective rules. `temporal.effective.status` is
+`not_applicable` for ordinary aggregates and recursively additive linear
+combinations without component folds. Ratios, cumulative metrics, and other
+linear combinations use `component_defined`: follow the existing `node` and
+component Refs for the calculation rules. This means the definition is available,
+not that observe must discover a missing fold. Neither status permits arbitrary
+summation of non-additive results. Resolved folds preserve the exact time axis,
+operation, parameters, and source. Cumulative default axis selection remains on
+`node.over`; it is separate from an effective fold. Missing dependencies or
+invalid time rules fail explicitly rather than becoming an absent rule.
+Snapshot identity, business guardrails,
 readiness and data freshness remain separate. Definition reading performs no
 query, source read, expression execution or calendar certification after loading;
 trusted Python model loading retains its existing behavior.
+
+
+Expression payloads can also provide `payload["node"]["display"]` with
+normalized Ibis Python `text`, alias-to-Ref `bindings`, and `redacted_literals`.
+Render the text directly in a code block. For example,
+`(t1["spend_cny"]).cast("float64")` uses an alias bound to the entity Ref.
+Display is independent of structural support, including calls like `.count()` and
+`.sum()`. It is normalized syntax, not original source or standalone executable code;
+constants remain hidden and unsupported expressions retain their reason.

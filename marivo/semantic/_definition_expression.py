@@ -7,12 +7,14 @@ from collections.abc import Mapping
 from typing import Literal
 
 from marivo.refs import EntityKind, FieldKind, Ref
+from marivo.semantic._definition_display import describe_display
 from marivo.semantic.definition import (
     ExpressionDescription,
     ExpressionNode,
     _Binary,
     _Cast,
     _Column,
+    _ExpressionDisplay,
     _Field,
     _IfElse,
     _Literal,
@@ -154,8 +156,14 @@ def describe_expression(
     if len(returns) != 1 or returns[0].value is None:
         return _UnsupportedExpression("unsupported_syntax")
     try:
-        return _SupportedExpression(visit(returns[0].value))
+        display: _ExpressionDisplay | None = describe_display(
+            returns[0].value, entities=entities, bindings=bindings
+        )
+    except (OverflowError, ValueError, RecursionError):
+        display = None
+    try:
+        return _SupportedExpression(visit(returns[0].value), display=display)
     except _UnsupportedError:
-        return _UnsupportedExpression("unsupported_syntax")
+        return _UnsupportedExpression("unsupported_syntax", display=display)
     except OverflowError:
-        return _UnsupportedExpression("limit_exceeded")
+        return _UnsupportedExpression("limit_exceeded", display=display)
