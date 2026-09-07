@@ -129,7 +129,7 @@ reuse requires it; mechanical compatibility alone is not current semantic
 authority.
 
 For cold starts, use bounded Run history to locate the exact committed Artifact;
-use focused graph reads for factual adjacency and Artifact-owned Finding reads
+use focused Session graph reads for factual adjacency and Artifact-owned Finding reads
 for audit detail. These public recovery reads do not establish current semantic
 authority, datasource freshness, causality, or business validity. Disclose
 freshness as unchecked unless a separate current source check establishes it.

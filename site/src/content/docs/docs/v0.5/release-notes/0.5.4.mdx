@@ -1,0 +1,80 @@
+---
+slug: docs/v0.5/release-notes/0.5.4
+title: Marivo 0.5.4
+description: Release notes for Marivo 0.5.4.
+---
+
+Marivo 0.5.4 makes semantic definitions directly inspectable and hardens
+datasource credential and connection lifecycles for host-managed deployments.
+
+## Highlights
+
+- `entry.details().definition` returns an immutable `SemanticDefinition` for
+  loaded metrics, measures, dimensions, and time dimensions. Its JSON-safe
+  `to_dict()` projection exposes the direct computation structure, temporal
+  rules, and redacted normalized Ibis display without executing data or
+  exposing source text, credentials, or datasource configuration.
+- `md.credential_scope(resolver=...)` lets a host supply short-lived datasource
+  credentials through a context-local resolver. Injected secrets remain outside
+  project state and are never cached or serialized.
+- Datasource authoring, inspection, semantic preview, source health, and parity
+  now use operation-owned connections with bounded cleanup. Analysis sessions
+  retain their own connections until `Session.close()`.
+
+## Changed
+
+- Credential requests carry the bound project, datasource reference, requested
+  fields, and operation deadline to the host resolver. Environment-backed
+  credentials retain their validated provenance, while host-injected values do
+  not fall back to environment or secret-cache reads.
+- Datasource handshakes have explicit deadlines and cleanup paths for failed,
+  timed-out, or interrupted operations. DuckDB configuration conflicts return
+  structured repair guidance instead of silently changing ownership or mode.
+- Semantic definition reads and datasource lifecycle behavior are available
+  through focused Help, API reference, and packaged agent guidance.
+
+## Fixed
+
+- Derived temporal semantics now distinguish ordinary additive combinations
+  from component-defined calculations while preserving declared folds,
+  overrides, and calculation identity.
+- Definition display capture is independently bounded from structural support,
+  so supported expression trees remain available when display formatting cannot
+  be produced within its budget.
+- Late backend results from interrupted handshakes are reclaimed without
+  masking the original exception or entering a cache.
+
+## Documentation
+
+- Updated semantic-layer, datasource, deployment, installation, and agent
+  guidance in English and Chinese for definition reading, host credential
+  injection, connection ownership, deadlines, and cleanup.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.5.4 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.5/installation/)
+- [Quick Start](/docs/v0.5/quick-start/)
+- [Semantic Layer](/docs/v0.5/concepts/semantic-layer/)
+- [Readiness](/docs/v0.5/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.5/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.5/concepts/evidence/)
