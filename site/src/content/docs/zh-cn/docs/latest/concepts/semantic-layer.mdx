@@ -1505,6 +1505,19 @@ marivo.help("semantic.SemanticDefinition")
 `ms.where` 在编写阶段拒绝 NaN 与无穷值。时间维度的源表达式不能替代其 parse、粒度
 和时区契约。
 
-时间规则分别说明声明值、指标折叠覆盖和静态可确定的有效规则。定义快照身份、业务限制、
+时间规则分别说明声明值、指标折叠覆盖和静态可确定的有效规则。
+普通聚合，以及递归检查后所有输入均可加且没有组件 fold 的线性组合，
+其 `temporal.effective.status` 为 `not_applicable`。比率、累计指标和其他线性组合
+使用 `component_defined`：沿现有 `node` 和组件 Ref 读取计算规则。这表示定义已明确，
+不表示必须执行 observe 才能发现缺失的 fold。两种状态均不允许任意求和非可加结果。
+已解析的 fold 保留精确时间轴、操作、参数和来源。累计默认时间轴选择仍由 `node.over`
+表达，与有效 fold 分开。缺失依赖或非法时间规则明确失败，不降级成无规则。
+定义快照身份、业务限制、
 readiness 与数据新鲜度保持独立。Catalog 加载后的定义读取不查询数据、不读源码、
 不执行表达式、不认证日历；可信 Python 模型加载仍遵循原有行为。
+
+
+表达式可独立提供 `payload["node"]["display"]`，不受结构化解析支持范围限制（例如 `.count()`、`.sum()`），包含规范化 Ibis Python
+`text`、别名对应 Ref 的 `bindings` 和 `redacted_literals`。消费端直接用代码块展示文本，
+例如 `(t1["spend_cny"]).cast("float64")`，其中别名对应实体 Ref。
+该文本是规范化展示形式，不是原始源码或独立可执行代码；常量继续隐藏，不支持的表达式保留原因。

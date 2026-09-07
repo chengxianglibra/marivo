@@ -59,6 +59,12 @@ rolling = ms.cumulative(name='rolling', base=total, over=time, anchor=ms.trailin
 retail = ms.cumulative(name='retail', base=total, over=time, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('commerce.retail'), level='retail_quarter')))
 state_total = ms.aggregate(name='state_total', measure=state, agg='sum')
 state_override = ms.aggregate(name='state_override', measure=state, agg='sum', fold='last')
+gross_profit = ms.linear(name='gross_profit', add=[total], subtract=[filtered, total, filtered, total])
+nested_profit = ms.linear(name='nested_profit', add=[gross_profit, total])
+state_linear = ms.linear(name='state_linear', add=[state_total, state_override])
+ratio_linear = ms.linear(name='ratio_linear', add=[ratio, ratio])
+cumulative_linear = ms.linear(name='cumulative_linear', add=[all_time, mtd])
+percentile_linear = ms.linear(name='percentile_linear', add=[p95, p95])
 """
 _CALENDAR = """
 from datetime import date
@@ -279,10 +285,176 @@ def test_loaded_reads_do_not_execute(
                 )
 
 
+@pytest.mark.parametrize(
+    ("name", "status"),
+    [
+        ("total", "not_applicable"),
+        ("custom", "not_applicable"),
+        ("repeated", "not_applicable"),
+        ("gross_profit", "not_applicable"),
+        ("nested_profit", "not_applicable"),
+        ("ratio", "component_defined"),
+        ("all_time", "component_defined"),
+        ("mtd", "component_defined"),
+        ("state_linear", "component_defined"),
+        ("ratio_linear", "component_defined"),
+        ("cumulative_linear", "component_defined"),
+        ("percentile_linear", "component_defined"),
+    ],
+)
+def test_temporal_composition_classification(
+    catalog: ms.SemanticCatalog, name: str, status: str
+) -> None:
+    definition = catalog.metrics.get(f"sales.{name}").details().definition
+    assert definition.to_dict()["temporal"] == {
+        "declared": {"status": "not_declared"},
+        "override": {"status": "not_declared"},
+        "effective": {"status": status},
+    }
+    assert definition.temporal.source == status
+    assert definition.temporal.effective is None
+    assert status in definition.render()
+    assert definition.catalog_definition_fingerprint == catalog.definition_fingerprint
+
+
+def test_temporal_description_preserves_component_rules(catalog: ms.SemanticCatalog) -> None:
+    definition = catalog.metrics.get("sales.state_linear").details().definition
+    assert definition.node.kind == "linear"
+    components: list[SemanticDefinition] = []
+    for _, ref in definition.node.terms:
+        details = catalog.require(ref).details()
+        assert isinstance(details, ms.SimpleMetricDetails)
+        components.append(details.definition)
+    for component, source, fold in zip(
+        components,
+        ("measure", "metric_override"),
+        ({"kind": "percentile", "q": 0.95}, {"kind": "last"}),
+        strict=True,
+    ):
+        payload = component.to_dict()["temporal"]
+        assert isinstance(payload, dict)
+        assert payload["effective"] == {
+            "status": "resolved",
+            "source": source,
+            "over": {
+                "schema": "marivo.semantic_ref/v1",
+                "kind": "time_dimension",
+                "path": "sales.rows.day",
+            },
+            "fold": fold,
+        }
+
+
+@pytest.mark.parametrize("metric", ["sales.nested_profit", "sales.ratio", "sales.all_time"])
+def test_missing_temporal_dependency_fails_closed(catalog: ms.SemanticCatalog, metric: str) -> None:
+    from marivo.semantic._definition_projection import temporal_rules
+
+    metrics = dict(catalog._reg.metrics)
+    del metrics["sales.total"]
+    registry = replace(catalog._reg, metrics=metrics)
+    with pytest.raises(ms.SemanticDefinitionReadError, match="cannot be described safely") as exc:
+        temporal_rules(registry.metrics[metric], registry)
+    assert exc.value.received == "missing temporal component metric:sales.total"
+    assert exc.value.expected and exc.value.location and exc.value.repair
+
+
+def test_temporal_classification_checks_leaf_rules(catalog: ms.SemanticCatalog) -> None:
+    from marivo.semantic._definition_projection import temporal_rules
+
+    dimensions = dict(catalog._reg.dimensions)
+    del dimensions["sales.rows.day"]
+    registry = replace(catalog._reg, dimensions=dimensions)
+    with pytest.raises(ms.SemanticDefinitionReadError) as exc:
+        temporal_rules(registry.metrics["sales.state_linear"], registry)
+    assert "unresolved status time dimension" in exc.value.received
+
+
+def test_temporal_classification_rejects_invalid_override(catalog: ms.SemanticCatalog) -> None:
+    from marivo.semantic._definition_projection import temporal_rules
+
+    state = catalog._reg.measures["sales.rows.state"]
+    measures = dict(catalog._reg.measures)
+    measures[state.semantic_id] = replace(state, additivity="additive")
+    registry = replace(catalog._reg, measures=measures)
+    with pytest.raises(ms.SemanticDefinitionReadError) as exc:
+        temporal_rules(registry.metrics["sales.state_linear"], registry)
+    assert exc.value.received == "fold override has no applicable status-time contract"
+
+
+def test_temporal_classification_rejects_cycles_and_missing_leaves(
+    catalog: ms.SemanticCatalog,
+) -> None:
+    from marivo.semantic._definition_projection import temporal_rules
+    from marivo.semantic.ir import RatioComposition
+
+    metrics = dict(catalog._reg.metrics)
+    metrics["sales.ratio"] = replace(
+        metrics["sales.ratio"],
+        composition=RatioComposition(numerator="sales.ratio", denominator="sales.total"),
+    )
+    registry = replace(catalog._reg, metrics=metrics)
+    with pytest.raises(ms.SemanticDefinitionReadError) as exc:
+        temporal_rules(registry.metrics["sales.ratio"], registry)
+    assert "cyclic metric dependency" in exc.value.received
+
+    measures = dict(catalog._reg.measures)
+    del measures["sales.rows.spend"]
+    registry = replace(catalog._reg, measures=measures)
+    with pytest.raises(ms.SemanticDefinitionReadError) as exc:
+        temporal_rules(registry.metrics["sales.nested_profit"], registry)
+    assert "missing temporal aggregate target" in exc.value.received
+
+
+def test_temporal_read_preserves_calculation_graph(catalog: ms.SemanticCatalog) -> None:
+    from marivo.semantic.metric_graph_lowering import lower_catalog_metric
+
+    fingerprint = catalog.definition_fingerprint
+    for name in ("gross_profit", "state_linear", "ratio_linear", "cumulative_linear"):
+        metric_id = f"sales.{name}"
+        before = lower_catalog_metric(catalog._reg, metric_id)
+        catalog.metrics.get(metric_id).details().definition.to_dict()
+        assert lower_catalog_metric(catalog._reg, metric_id) == before
+    assert catalog.definition_fingerprint == fingerprint
+
+
+@pytest.mark.parametrize("shape", ["depth", "width"])
+def test_temporal_classification_is_bounded(catalog: ms.SemanticCatalog, shape: str) -> None:
+    from marivo.semantic._definition_projection import temporal_rules
+    from marivo.semantic.ir import LinearComposition, LinearTerm, RatioComposition
+    from marivo.semantic.metric_graph import MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_OCCURRENCES
+
+    metrics = dict(catalog._reg.metrics)
+    root = metrics["sales.ratio"]
+    if shape == "depth":
+        for index in range(MAX_EXPRESSION_DEPTH):
+            root = replace(
+                root,
+                semantic_id=f"sales.nested_{index}",
+                composition=RatioComposition(numerator=root.semantic_id, denominator="sales.total"),
+            )
+            metrics[root.semantic_id] = root
+    else:
+        root = replace(
+            root,
+            composition=LinearComposition(
+                terms=tuple(
+                    LinearTerm(sign="+", metric="sales.total")
+                    for _ in range(MAX_EXPRESSION_OCCURRENCES)
+                )
+            ),
+        )
+    registry = replace(catalog._reg, metrics=metrics)
+    with pytest.raises(ms.SemanticDefinitionReadError) as exc:
+        temporal_rules(root, registry)
+    assert "depth or occurrence limits" in exc.value.received
+
+
 def test_definition_help(catalog: ms.SemanticCatalog, capsys: pytest.CaptureFixture[str]) -> None:
     marivo_help("semantic.SemanticDefinition")
     text = capsys.readouterr().out
     assert "to_dict" in text and "catalog_definition_fingerprint" in text
+    assert "component_defined" in text and "not_applicable" in text
+    assert "not the effective fold" in text
     marivo_help("semantic.MeasureDetails")
     assert "definition" in capsys.readouterr().out
     assert isinstance(catalog.metrics.get("sales.total").details().definition, SemanticDefinition)
@@ -427,7 +599,12 @@ def test_supported_expression_matrix(
     definition = ms.SemanticCatalog(project).dimensions.get("sales.rows.value").details().definition
     assert definition.node.kind == "expression" and definition.node.status == "supported"
     assert definition.node.expression.kind == kind
-    assert definition.to_dict()["node"] is not None
+    payload = definition.to_dict()["node"]
+    assert isinstance(payload, dict)
+    display = payload["display"]
+    assert isinstance(display, dict)
+    assert display["form"] == "normalized_ibis"
+    assert isinstance(display["text"], str)
 
 
 def test_projection_does_not_change_fingerprint(

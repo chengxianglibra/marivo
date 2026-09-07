@@ -104,8 +104,16 @@ ExpressionNode: TypeAlias = _Column | _Field | _Literal | _Cast | _Unary | _Bina
 
 
 @dataclass(frozen=True, repr=False)
+class _ExpressionDisplay(_Value):
+    text: str
+    bindings: tuple[tuple[str, Ref[SemanticKindTag]], ...]
+    redacted_literals: bool
+
+
+@dataclass(frozen=True, repr=False)
 class _SupportedExpression(_Value):
     expression: ExpressionNode
+    display: _ExpressionDisplay | None = None
     status: Literal["supported"] = "supported"
     kind: Literal["expression"] = "expression"
 
@@ -113,6 +121,7 @@ class _SupportedExpression(_Value):
 @dataclass(frozen=True, repr=False)
 class _UnsupportedExpression(_Value):
     reason: Literal["unsupported_syntax", "description_unavailable", "limit_exceeded"]
+    display: _ExpressionDisplay | None = None
     status: Literal["unsupported"] = "unsupported"
     kind: Literal["expression"] = "expression"
 
@@ -174,7 +183,7 @@ class _TemporalRules(_Value):
     override: TimeFoldIR | None = None
     effective: _TemporalRule | None = None
     source: Literal[
-        "declared", "measure", "metric_override", "not_applicable", "context_required"
+        "declared", "measure", "metric_override", "not_applicable", "component_defined"
     ] = "not_applicable"
 
 
@@ -205,6 +214,16 @@ def _expression(value: ExpressionNode) -> dict[str, JsonValue]:
             when_false=_expression(value.when_false),
         )
     return result
+
+
+def _expression_display(value: _ExpressionDisplay) -> dict[str, JsonValue]:
+    return {
+        "language": "python",
+        "form": "normalized_ibis",
+        "text": value.text,
+        "bindings": [{"alias": alias, "ref": _ref(ref)} for alias, ref in value.bindings],
+        "redacted_literals": value.redacted_literals,
+    }
 
 
 def _filters(values: tuple[tuple[Ref[FieldKind], WhereValue], ...]) -> list[JsonValue]:
@@ -261,9 +280,25 @@ def _node(value: DefinitionNode) -> dict[str, JsonValue]:
             anchor=_anchor(value.anchor),
         )
     elif isinstance(value, _SupportedExpression):
-        result.update(status=value.status, expression=_expression(value.expression))
+        result.update(
+            status=value.status,
+            expression=_expression(value.expression),
+        )
     else:
         result.update(status=value.status, reason=value.reason)
+    if isinstance(value, (_SupportedExpression, _UnsupportedExpression)):
+        display = value.display
+        if display is None and isinstance(value, _SupportedExpression):
+            # Column constructors have no captured function AST.
+            column = value.expression
+            if isinstance(column, _Column):
+                display = _ExpressionDisplay(
+                    f"t1[{json.dumps(column.name, ensure_ascii=True)}]",
+                    (("t1", column.entity),),
+                    False,
+                )
+        if display is not None:
+            result["display"] = _expression_display(display)
     return result
 
 
@@ -318,6 +353,13 @@ class SemanticDefinition(RenderableResult):
         No parameters. Returns a ``marivo.semantic_definition/v1`` mapping with
         exact RefPayloadV1 references and explicit availability states.
         Example: ``json.dumps(definition.to_dict(), allow_nan=False)``.
+        Available expression displays include text in normalized Ibis syntax,
+        alias-to-Ref bindings, and a redacted_literals flag. This is not original
+        source or standalone executable code.
+        Effective temporal status is resolved, not_applicable, or
+        component_defined. The latter follows node/component rules without an
+        inferred top-level fold or a missing-context claim. These descriptive
+        states do not grant permission to sum non-additive results.
         Constraints: literals are redacted; no data, source text, SQL provenance,
         credentials, or connection configuration is exported. This does not query.
         """
