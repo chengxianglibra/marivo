@@ -285,6 +285,7 @@ def _reconstruct(
             else definition_fingerprint
         ),
         lineage=dataset._lineage,
+        inputs=dataset._inputs,
     )
 
 

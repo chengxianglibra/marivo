@@ -14,6 +14,23 @@ from marivo.analysis.materialization.store import SessionStore
 _TERMINATED: set[str] = set()
 _LOCAL_CAPABILITY = "local_owned_path@v1"
 _DUCKDB_CAPABILITY = "duckdb_process_lifetime@v1"
+_WORKER_CAPABILITY = "pandas_worker@v1"
+
+
+def _worker_locator(nonce: str) -> str:
+    return f"worker/{os.getpid()}/{nonce}"
+
+
+def worker_reservation(run_ref: str) -> ResourceRecord:
+    nonce = uuid4().hex
+    return ResourceRecord(
+        run_ref=run_ref,
+        resource_kind="backend_execution",
+        execution_domain_id="pandas@v1",
+        ownership_nonce=nonce,
+        cleanup_capability_id=_WORKER_CAPABILITY,
+        safe_locator=_worker_locator(nonce),
+    )
 
 
 def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
@@ -35,6 +52,13 @@ def prove_local_termination(resource: ResourceRecord) -> None:
 
 def execution_is_terminal(resource: ResourceRecord) -> bool:
     """Only this registered process-owned DuckDB route inherits process lifetime."""
+    if resource.cleanup_capability_id == _WORKER_CAPABILITY:
+        # A dead parent is not proof that its subprocess has stopped.
+        return (
+            resource.resource_kind == "backend_execution"
+            and resource.safe_locator == _worker_locator(resource.ownership_nonce)
+            and resource.ownership_nonce in _TERMINATED
+        )
     if (
         resource.resource_kind not in ("backend_execution", "planner_temporary_relation")
         or resource.cleanup_capability_id != _DUCKDB_CAPABILITY

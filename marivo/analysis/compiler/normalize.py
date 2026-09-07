@@ -23,9 +23,7 @@ def logical_roots(dataset: LogicalDataset) -> Iterator[LogicalRootHandle]:
 
     def visit(root: LogicalRootHandle | MaterializedScanLeafHandle) -> Iterator[LogicalRootHandle]:
         if isinstance(root, MaterializedScanLeafHandle):
-            raise compilation_error(
-                "registered logical source inputs", "retained scan requires a later recipe"
-            )
+            return
         if id(root) not in seen:
             seen.add(id(root))
             for child in root.inputs:

@@ -713,3 +713,79 @@ def test_collection_worker_never_opens_store_or_origin_or_writes_state(tmp_path:
         for path in tmp_path.rglob("*")
         if path.is_file()
     }
+
+
+@pytest.mark.parametrize("payload", ["x" * 16384, "\u00e9" * 16384], ids=["ascii", "utf8"])
+def test_wide_string_primary_read_checks_actual_bytes_and_predecode_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: str
+) -> None:
+    contracts = _contracts((("id", "int64", False), ("payload", "string", True)))
+    table = pa.table({"id": [1, 2], "payload": [payload, payload]})
+    result = _write(tmp_path, table, contracts)
+
+    def read(policy: ReadPolicy) -> pa.Table:
+        return storage._read(
+            project_root=tmp_path,
+            receipt=result.primary_receipt,
+            row_contract=contracts[0],
+            row_set_contract=contracts[1],
+            preview=False,
+            policy=policy,
+        )
+
+    decoded = read(ReadPolicy()).nbytes
+    assert read(ReadPolicy(max_decoded_bytes=decoded))["payload"].to_pylist() == [payload, payload]
+    with pytest.raises(CollectionLimitError, match="decoded byte limit"):
+        read(ReadPolicy(max_decoded_bytes=decoded - 1))
+    monkeypatch.setattr(
+        pq.ParquetFile,
+        "iter_batches",
+        lambda *args, **kwargs: pytest.fail("oversized variable-width group must not be decoded"),
+    )
+    with pytest.raises(CollectionLimitError, match="row group"):
+        _read(tmp_path, result, contracts, policy=ReadPolicy(max_batch_bytes=1024))
+
+
+def test_large_binary_required_part_read_is_bounded_before_local_collection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.materialization.local import LocalBudget, LocalPolicy, collect_part
+
+    contracts = _contracts((("id", "int64", False),))
+    payload = b"x" * 16384
+    table = pa.table(
+        {"id": [1, 2], "payload": pa.array([payload, payload], type=pa.large_binary())}
+    )
+    result = _write(
+        tmp_path,
+        table,
+        contracts,
+        parts=(PartWriteSpec("binary_state", "test.binary", 1, ("id", "payload")),),
+    )
+    selected = result.retained_parts[0]
+    schema = table.schema
+    batches = list(storage.read_part_batches(tmp_path, selected, expected_schema=schema))
+    decoded = sum(batch.nbytes for batch in batches)
+    for limit in (decoded, decoded - 1):
+        budget = LocalBudget(replace(LocalPolicy(), max_input_bytes=limit), time.monotonic() + 60)
+        incoming = storage.read_part_batches(tmp_path, selected, expected_schema=schema)
+        if limit == decoded:
+            assert collect_part(incoming, schema, ("id",), budget)["payload"].to_pylist() == [
+                payload,
+                payload,
+            ]
+        else:
+            with pytest.raises(MaterializationError, match="combined input overflow"):
+                collect_part(incoming, schema, ("id",), budget)
+    monkeypatch.setattr(
+        pq.ParquetFile,
+        "iter_batches",
+        lambda *args, **kwargs: pytest.fail("oversized binary group must not be decoded"),
+    )
+    with pytest.raises(CollectionLimitError, match="row group"):
+        list(
+            storage.read_part_batches(
+                tmp_path, selected, expected_schema=schema, policy=ReadPolicy(max_batch_bytes=1024)
+            )
+        )

@@ -2,9 +2,9 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-07
+Revised: 2026-09-08
 
-Status: Slices 0-2 complete; Slice 3 and later units require separate authorization
+Status: Slices 0-2, 3a and 4a complete; remaining units require separate authorization
 
 ## Outcome
 
@@ -1900,6 +1900,84 @@ outcome or termination follows the owning recovery-blocked protocol rather than
 guessing failure. All retained runtime reads consume the final private v3 read
 model. No private exchange is visible as an Artifact, Dataset, Evidence owner,
 or graph node.
+
+### Slice 4a acceptance record: 2026-09-08
+
+**Slice 4a is implemented and accepted. Slices 4b-4d, Slice 3b and the parent
+Slice 4 gate remain open.** Work began on 2026-09-07 from clean Slice 3a commit
+`5e63a7f1` on `lazy-dataset`. The execution record is
+[Slice 4a execution record](../plans/2026-09-07-lazy-analysis-slice-4a-execution.md).
+
+Implemented and verified:
+
+- Private deterministic placement preserves the maximal eligible source prefix
+  and binds exact pandas row methods before data work. Support is pinned to the
+  tested DuckDB 1.5.3 / Ibis 12.0.0 adapter pair; mismatched versions reject
+  source-required roots before Run admission. This is adapter-specific support,
+  with no portable source claim. Distinct owning bindings never
+  fuse because their arguments or table names compare equal. Unknown support,
+  source-required successors and actual compile/query failures never select a
+  replacement executor. Exact execution-key hits bypass new placement.
+- Core retains immutable input references to expose each existing row/row-set
+  contract to the compiler without adding identity facts or persisting graphs.
+  Local `where`, `metric`, `rank` and `limit` consume primary-only Metric shapes;
+  contribution/sampling-part row transformations remain with Slice 3b. Independent
+  tests cover null predicates, admitted NaN comparisons, all rank ties and
+  directions, composite identities, time/Dimension partitions and limit prefixes.
+- Authorized PyArrow primary/part reads validate complete actual schemas, keys,
+  order, nullability and selected backing integrity. Combined inputs and parts,
+  dictionary expansion, exact temporal/decimal/integer types, conversion,
+  intermediate allocations, method scale, output, peak RSS and deadlines have
+  independent guards. A 100001-row storage stream succeeds while its local
+  collection is rejected before a pandas consumer runs.
+- One terminable worker carries the complete local suffix. Adjacent operations
+  exchange their private DataFrames directly. Worker creation is reserved before
+  spawn; resolved failures prove worker and feeder termination before cleanup.
+  Structured early input failures survive broken upload pipes; a blocked partial
+  response remains subject to the supervisor deadline. Sorting and output
+  validation share one direction/null comparator. A dead parent is not accepted
+  as subprocess termination proof; the broader
+  external-termination/fencing matrix remains Slice 4c.
+- Artifact inputs inherit committed Population and semantic dependency authority,
+  record exact consumer Run input edges and use the existing v3 writer,
+  publication and committed-outcome readback. Local failures publish no partial
+  Artifact/Evidence and leave no resources after proved termination.
+
+Fresh final gates:
+
+- `make check-agent`: lint and import contracts pass; mypy checks 360 files;
+  **6180 tests pass in 233.25 seconds**; API documentation builds.
+- Additional scoped typing passes for 16 reviewed implementation/test modules.
+  Guard tests explicitly cover equality and overflow of configured method,
+  output, allocation, deadline and worker-RSS limits. `git diff --check` passes.
+- The three-process runtime acceptance creates a source Artifact, moves the
+  source offline, executes `where -> rank -> limit -> metric` in a new interpreter,
+  and reconstructs the same logical continuation in a third interpreter. The
+  continuation uses no source queries, profile/credential resolution or internal
+  DuckDB connection, and both guarded construction/placement paths record zero
+  I/O attempts. Four local calls use direct DataFrame handoffs. Cold binding
+  recovery adds no Run, Artifact, Evidence, storage copy or worker.
+- Session `session_268534de5a244b13a9a14c4522a634e9` has exactly two terminal Runs,
+  two Artifacts/Evidence envelopes, one Artifact-input edge, zero Findings and
+  zero resource obligations. The local result is
+  `artifact_1bcde72751e744f2835188da013d44a8`; its verified revenue/rank rows are
+  `(100, 1)`, `(30, 2)` and `(10, 3)`.
+
+The final 685-file ordered-content candidate SHA-256 is
+`717ff00a041ecd3ad30c9fcade72017bbb48b6f1c812cbd6f2a049f2e4a07991`. The protocol is sorted UTF-8 path, NUL,
+file bytes, NUL across library/test Python files and the selected configuration
+files, excluding documentation and generated files. Matching before/after
+manifests, runtime versions, source statements, v3 snapshots, worker handoffs,
+termination and cold-recovery evidence were generated under the test temporary
+directory and explicitly copied to local, ignored raw evidence at
+`../plans/evidence/2026-09-08-slice-4a-review-runtime.json`. Default tests do not
+write into the checkout. The reviewable execution record includes the compact
+evidence and item-by-item review decisions.
+
+No public export, Help, Session facade, public Store generation, or user-facing
+API documentation switches in this unit. Engine/object adapters, full row/part
+selection, fold/rollup, identity checkpoints and Forecast retain their later
+slice ownership. No commit, push or release was made.
 
 ## Slice 5: Compare and Attribution Vertical
 
