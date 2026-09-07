@@ -17,8 +17,9 @@ from marivo.analysis.observation.contracts import (
     construction_error,
     metric_contracts,
     metric_definition,
-    owner_of,
     path_dependency_fingerprint,
+    producer_contract,
+    source_owner_of,
 )
 from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.refs import Ref, SemanticKind
@@ -189,7 +190,7 @@ def with_dimensions(dataset: Dataset, dimensions: tuple[DimensionInput, ...]) ->
         raise construction_error(
             "Entity-present input and at least one Dimension", "invalid coordinate declaration"
         )
-    owner = owner_of(dataset)
+    owner = source_owner_of(dataset)
     selected = tuple(normalize_dimension_input(owner, item, time=False) for item in dimensions)
     all_dimensions = definition.dimensions + selected
     if len({item.ref.path for item in all_dimensions}) != len(all_dimensions):
@@ -237,6 +238,7 @@ def with_dimensions(dataset: Dataset, dimensions: tuple[DimensionInput, ...]) ->
         owner=owner,
         registry=dataset._registry,
         operator_id="metric.with_dimensions",
+        contract_versions=producer_contract("metric.with_dimensions").versions,
         inputs=(dataset,),
         row_contract=row,
         row_set_contract=row_set,
@@ -257,7 +259,7 @@ def with_time_axis(dataset: Dataset, time_dimension: TimeDimensionInput, grain: 
         or grain.count != 1
     ):
         raise construction_error("the initial builtin day grain", "unsupported grain")
-    owner = owner_of(dataset)
+    owner = source_owner_of(dataset)
     axis = normalize_dimension_input(owner, time_dimension, time=True)
     path = functional_path(
         owner.semantic_registry, definition.entity.ref.path, axis.entity_ref.path
@@ -297,6 +299,7 @@ def with_time_axis(dataset: Dataset, time_dimension: TimeDimensionInput, grain: 
         owner=owner,
         registry=dataset._registry,
         operator_id="metric.with_time_axis",
+        contract_versions=producer_contract("metric.with_time_axis").versions,
         inputs=(dataset,),
         row_contract=row,
         row_set_contract=row_set,

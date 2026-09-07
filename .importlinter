@@ -107,3 +107,15 @@ forbidden_modules =
     marivo.analysis.session
     marivo.analysis.compiler
     marivo.analysis.materialization
+
+[importlinter:contract:dataset-compiler-isolation]
+name = Private Dataset compilation must not depend on runtime publication or eager execution
+type = forbidden
+source_modules =
+    marivo.analysis.compiler
+forbidden_modules =
+    marivo.analysis.materialization
+    marivo.analysis.session
+    marivo.analysis.frames
+    marivo.analysis.intents
+    marivo.analysis.executor

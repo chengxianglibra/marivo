@@ -38,6 +38,7 @@ from marivo.analysis.observation.contracts import (
     metric_contracts,
     owner_of,
     path_dependency_fingerprint,
+    producer_contract,
     retained_field,
 )
 from marivo.analysis.observation.population import (
@@ -357,7 +358,7 @@ def make_observation(
                 "metric.source_capability@v1",
             ),
             dependency_facts=tuple(f"metric:{item.ref.path}" for item in normalized),
-            contract_versions=(("observation", "v1"),),
+            contract_versions=producer_contract("session.observe").versions,
         )
     )
 
@@ -390,6 +391,7 @@ def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> Logic
             owner=owner_of(dataset),
             registry=dataset._registry,
             operator_id="metric.where",
+            contract_versions=producer_contract("metric.where").versions,
             inputs=(dataset,),
             row_contract=dataset.row_contract,
             row_set_contract=dataset.row_set_contract,
@@ -458,6 +460,7 @@ def _project(dataset: Dataset, metric: MetricInput) -> LogicalMetricDataset:
             owner=owner_of(dataset),
             registry=dataset._registry,
             operator_id="metric.metric",
+            contract_versions=producer_contract("metric.metric").versions,
             inputs=(dataset,),
             row_contract=row,
             row_set_contract=dataset.row_set_contract,

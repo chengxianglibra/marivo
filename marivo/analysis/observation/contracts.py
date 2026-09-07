@@ -115,6 +115,71 @@ METRIC_SHAPES = (
 IDENTITY_FIELD_ID = _make_field_id("identity.entity_identity@v1")
 
 
+@dataclass(frozen=True, slots=True)
+class ObservationProducerContract:
+    """One pure owner registration shared by construction and materialization."""
+
+    producer_id: str
+    contract_stem: str
+
+    @property
+    def quality_id(self) -> str:
+        return f"{self.contract_stem}_quality"
+
+    @property
+    def validation_id(self) -> str:
+        return f"{self.contract_stem}_validation@v1"
+
+    @property
+    def evidence_id(self) -> str:
+        return f"{self.contract_stem}_evidence"
+
+    @property
+    def retained_contract_ids(self) -> tuple[str, ...]:
+        return (
+            ("metric.sufficient_components",)
+            if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
+            else ()
+        )
+
+    @property
+    def versions(self) -> tuple[tuple[str, str], ...]:
+        return (
+            (self.producer_id, "v1"),
+            ("dataset_structure_quality", "v1"),
+            (self.quality_id, "v1"),
+            (self.validation_id, "v1"),
+            (self.evidence_id, "v1"),
+            ("none", "v1"),
+            ("zero_findings", "v1"),
+            (
+                "metric.sufficient_components"
+                if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
+                else "population_identity",
+                "v1",
+            ),
+        )
+
+
+_PRODUCER_CONTRACTS = (
+    ObservationProducerContract("session.population", "population_root"),
+    ObservationProducerContract("population.where", "population_filter"),
+    ObservationProducerContract("session.observe", "metric_observation"),
+    ObservationProducerContract("metric.where", "metric_filter"),
+    ObservationProducerContract("metric.metric", "metric_projection"),
+    ObservationProducerContract("metric.with_dimensions", "metric_coordinate"),
+    ObservationProducerContract("metric.with_time_axis", "metric_coordinate"),
+    ObservationProducerContract("metric.aggregate", "metric_aggregation"),
+)
+
+
+def producer_contract(operator_id: str) -> ObservationProducerContract:
+    for registration in _PRODUCER_CONTRACTS:
+        if registration.producer_id == operator_id:
+            return registration
+    raise construction_error("an exact registered Observation producer", "unsupported producer")
+
+
 class ObservationActionPort(Protocol):
     """Required execution/read owner; definition construction never invokes this port."""
 
@@ -132,17 +197,35 @@ class ObservationActionPort(Protocol):
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class ObservationOwner(DatasetOwner):
+class ObservationRuntimeOwner(DatasetOwner):
+    """Retained action/read authority independent of any source semantic catalog."""
+
+    action_port: ObservationActionPort = field(kw_only=True)
+
+
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class ObservationOwner(ObservationRuntimeOwner):
     semantic_registry: Registry = field(kw_only=True)
     sidecar: CompiledExpressionSidecar = field(kw_only=True)
-    action_port: ObservationActionPort = field(kw_only=True)
     binding_scopes: SourceBindingScopes = field(kw_only=True)
 
 
-def owner_of(dataset: Dataset) -> ObservationOwner:
+def owner_of(dataset: Dataset) -> ObservationRuntimeOwner:
     owner = dataset._owner
-    if not isinstance(owner, ObservationOwner):
+    if not isinstance(owner, ObservationRuntimeOwner):
         raise construction_error("private Observation owner", "foreign family owner")
+    return owner
+
+
+def source_owner_of(dataset: Dataset) -> ObservationOwner:
+    """Require source authority only for operations that actually consume semantics."""
+    owner = owner_of(dataset)
+    if not isinstance(owner, ObservationOwner):
+        raise construction_error(
+            "current source-construction authority for semantic enrichment",
+            "catalog-free retained Dataset owner",
+            repair="Use retained fields for row operations, or construct a new source with explicit semantic authority.",
+        )
     return owner
 
 
@@ -510,7 +593,7 @@ def additional_captures(
             if isinstance(payload, (PopulationPayload, MetricPayload)):
                 captured.update(item.entity_ref.path for item in payload.captures)
             roots.extend(item.root for item in root.inputs)
-    return owner_of(dataset).binding_scopes.capture(
+    return source_owner_of(dataset).binding_scopes.capture(
         tuple(entity for entity in entities if entity.ref.path not in captured)
     )
 
@@ -818,7 +901,10 @@ def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
         identity = dataset.schema.columns[0].identity
         if not isinstance(identity, _EntityFieldIdentity):
             return False
-        entity = owner_of(dataset).semantic_registry.entities.get(identity.entity_ref.path)
+        owner = owner_of(dataset)
+        if not isinstance(owner, ObservationOwner):
+            return False
+        entity = owner.semantic_registry.entities.get(identity.entity_ref.path)
         return entity is not None and entity.versioning is None
     if consumer_id in ("metric.aggregate", "metric.with_dimensions", "metric.with_time_axis"):
         from marivo.analysis.datasets.handles import LogicalRootHandle
@@ -936,3 +1022,68 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     )
     registry.freeze()
     return registry
+
+
+def semantic_dependency_digest(dataset: Dataset) -> str:
+    """Hash the complete frozen semantic closure without inspecting live authoring state."""
+    from marivo.analysis.datasets.descriptors import _field_binding_fingerprint
+    from marivo.analysis.datasets.handles import LogicalRootHandle
+
+    facts: set[str] = set()
+    visited: set[int] = set()
+    roots = [dataset._root]
+    while roots:
+        root = roots.pop()
+        if not isinstance(root, LogicalRootHandle):
+            raise construction_error(
+                "frozen logical Observation semantic dependencies",
+                "retained scan requires its committed dependency authority",
+            )
+        if id(root) in visited:
+            continue
+        visited.add(id(root))
+        payload = root.payload
+        if isinstance(payload, PopulationPayload):
+            semantic_facts: CanonicalValue = (
+                "population",
+                entity_payload(payload.entity),
+                payload.dependency_fingerprint,
+                None
+                if payload.reference_axis is None
+                else dimension_payload(payload.reference_axis),
+            )
+        elif isinstance(payload, MetricPayload):
+            definition = payload.definition
+            semantic_facts = (
+                "metric",
+                entity_payload(definition.entity),
+                tuple(
+                    (metric.ref.path, metric.dependency_fingerprint)
+                    for metric in definition.metrics
+                ),
+                definition.source_dependency_fingerprint,
+                definition.coordinate_dependencies,
+                tuple(dimension_payload(dimension) for dimension in definition.dimensions),
+                None if definition.time_axis is None else dimension_payload(definition.time_axis),
+                None
+                if definition.reference_axis is None
+                else dimension_payload(definition.reference_axis),
+            )
+        else:
+            raise construction_error(
+                "closed logical Observation semantic payload",
+                "unsupported semantic dependency payload",
+            )
+        facts.add(_canonical_digest(semantic_facts))
+        predicates = [payload.predicate] if payload.predicate is not None else []
+        while predicates:
+            predicate = predicates.pop()
+            if predicate.field is not None:
+                facts.add(
+                    _canonical_digest(
+                        ("predicate_field", _field_binding_fingerprint(predicate.field))
+                    )
+                )
+            predicates.extend(predicate.children)
+        roots.extend(item.root for item in root.inputs)
+    return _canonical_digest(("observation.semantic_dependencies/v1", tuple(sorted(facts))))

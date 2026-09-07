@@ -186,8 +186,19 @@ def build_backend_with_secrets(
     read_only: bool = False,
 ) -> BuiltDatasourceBackend:
     """Open an ibis backend and return any env-sourced secret provenance."""
-    profile = require_profile_for_backend_type(datasource.backend_type)
+    require_profile_for_backend_type(datasource.backend_type)
     effective = _effective_kwargs(datasource)
+    return _build_backend_from_effective(datasource, effective, read_only=read_only)
+
+
+def _build_backend_from_effective(
+    datasource: DatasourceIR,
+    effective: EffectiveDatasourceKwargs,
+    *,
+    read_only: bool = False,
+) -> BuiltDatasourceBackend:
+    """Open from already resolved operation-local credentials without resolving twice."""
+    profile = require_profile_for_backend_type(datasource.backend_type)
     kwargs = dict(effective.kwargs)
     http_scope = None
     http_bearer_token = None
