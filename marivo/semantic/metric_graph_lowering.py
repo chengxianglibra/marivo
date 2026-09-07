@@ -5,16 +5,19 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
-from typing import NoReturn, cast
+from typing import Literal, NoReturn, cast
+
+import ibis
+import ibis.expr.datatypes as dt
 
 from marivo._temporal import Grain as TemporalGrain
-from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
-from marivo.refs import ref as ref_factory
+from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag, _create_ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic._metric_resolution import (
     fold_ir_to_input,
     resolve_metric_temporal_contract,
 )
+from marivo.semantic.errors import SemanticLoadError, repair
 from marivo.semantic.ir import (
     CumulativeComposition,
     LinearComposition,
@@ -40,6 +43,8 @@ from marivo.semantic.metric_graph import (
     RatioNodeV1,
     SemanticDependencyDigestV1,
     SemanticDependencyEntryV1,
+    TargetMetricComponent,
+    TargetMetricContract,
     WeightedMeanAggregateNodeV1,
 )
 from marivo.semantic.metric_graph_canonical import (
@@ -48,7 +53,7 @@ from marivo.semantic.metric_graph_canonical import (
     intern_nodes,
     node_fingerprint,
 )
-from marivo.semantic.validator import Registry
+from marivo.semantic.validator import Registry, normalize_target_entity
 
 
 class MetricGraphLoweringError(ValueError):
@@ -163,24 +168,22 @@ def _additivity_value(additivity: object) -> object:
 
 
 def _ref_payload(kind: str, path: str) -> RefPayloadV1:
-    factories = {
-        "domain": ref_factory.domain,
-        "datasource": ref_factory.datasource,
-        "entity": ref_factory.entity,
-        "dimension": ref_factory.dimension,
-        "time_dimension": ref_factory.time_dimension,
-        "measure": ref_factory.measure,
-        "metric": ref_factory.metric,
-        "relationship": ref_factory.relationship,
-        "event": ref_factory.event,
-        "state_model": ref_factory.state_model,
-        "work_schedule": ref_factory.work_schedule,
+    supported = {
+        "domain",
+        "datasource",
+        "entity",
+        "dimension",
+        "time_dimension",
+        "measure",
+        "metric",
+        "relationship",
+        "event",
+        "state_model",
+        "work_schedule",
     }
-    factory = factories.get(kind)
-    if factory is None:
+    if kind not in supported:
         raise AssertionError(f"unsupported dependency kind: {kind}")
-    ref = factory(path)
-    return RefPayloadV1.from_ref(ref)
+    return RefPayloadV1.from_ref(_create_ref(SemanticKind(kind), path))
 
 
 def _dimension_payload(
@@ -229,20 +232,7 @@ def _entry_for(
     ref_payload = _ref_payload(semantic_kind, semantic_id)
     body = None
     if sidecar is not None:
-        factory = {
-            SemanticKind.DOMAIN: ref_factory.domain,
-            SemanticKind.DATASOURCE: ref_factory.datasource,
-            SemanticKind.ENTITY: ref_factory.entity,
-            SemanticKind.DIMENSION: ref_factory.dimension,
-            SemanticKind.TIME_DIMENSION: ref_factory.time_dimension,
-            SemanticKind.MEASURE: ref_factory.measure,
-            SemanticKind.METRIC: ref_factory.metric,
-            SemanticKind.RELATIONSHIP: ref_factory.relationship,
-            SemanticKind.EVENT: ref_factory.event,
-            SemanticKind.STATE_MODEL: ref_factory.state_model,
-            SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
-        }[ref_payload.kind]
-        body = sidecar.bodies.get(factory(ref_payload.path))
+        body = sidecar.bodies.get(_create_ref(ref_payload.kind, ref_payload.path))
     bindings = body.bindings if body is not None else ()
     if semantic_kind == "metric":
         metric = registry.metrics[semantic_id]
@@ -450,9 +440,7 @@ class _DependencyCollector:
             self.collect_metric(composition.base)
             if composition.over is not None:
                 self.collect_dimension(composition.over)
-        self._collect_expression_bindings(
-            cast("Ref[SemanticKindTag]", ref_factory.metric(metric_id))
-        )
+        self._collect_expression_bindings(_create_ref(SemanticKind.METRIC, metric_id))
         self._active_metrics.remove(metric_id)
 
     def collect_measure(self, measure_id: str) -> None:
@@ -465,9 +453,7 @@ class _DependencyCollector:
         self.collect_entity(measure.entity)
         if isinstance(measure.additivity, SemiAdditive):
             self.collect_dimension(measure.additivity.over)
-        self._collect_expression_bindings(
-            cast("Ref[SemanticKindTag]", ref_factory.measure(measure_id))
-        )
+        self._collect_expression_bindings(_create_ref(SemanticKind.MEASURE, measure_id))
 
     def collect_dimension(self, dimension_id: str) -> None:
         dimension = self.registry.dimensions.get(dimension_id)
@@ -478,12 +464,7 @@ class _DependencyCollector:
             return
         self._add(kind, dimension_id)
         self.collect_entity(dimension.entity)
-        field_ref = (
-            ref_factory.time_dimension(dimension_id)
-            if dimension.is_time_dimension
-            else ref_factory.dimension(dimension_id)
-        )
-        self._collect_expression_bindings(cast("Ref[SemanticKindTag]", field_ref))
+        self._collect_expression_bindings(_create_ref(SemanticKind(kind), dimension_id))
 
     def collect_entity(self, entity_id: str) -> None:
         entity = self.registry.entities.get(entity_id)
@@ -538,12 +519,7 @@ class _DependencyCollector:
                 self.collect_dimension(identity_ref)
             for participant in event.participants:
                 for relationship_id in participant.path or ():
-                    self.collect_ref(
-                        cast(
-                            "Ref[SemanticKindTag]",
-                            ref_factory.relationship(relationship_id),
-                        )
-                    )
+                    self.collect_ref(_create_ref(SemanticKind.RELATIONSHIP, relationship_id))
             self._collect_expression_bindings(ref)
             return
         if ref.kind is SemanticKind.STATE_MODEL:
@@ -553,19 +529,9 @@ class _DependencyCollector:
             self._add("state_model", ref.path)
             self.collect_entity(model.subject)
             for inception in model.inceptions:
-                self.collect_ref(
-                    cast(
-                        "Ref[SemanticKindTag]",
-                        ref_factory.event(inception.trigger.event_ref),
-                    )
-                )
+                self.collect_ref(_create_ref(SemanticKind.EVENT, inception.trigger.event_ref))
             for transition in model.transitions:
-                self.collect_ref(
-                    cast(
-                        "Ref[SemanticKindTag]",
-                        ref_factory.event(transition.trigger.event_ref),
-                    )
-                )
+                self.collect_ref(_create_ref(SemanticKind.EVENT, transition.trigger.event_ref))
             return
         if ref.kind is SemanticKind.WORK_SCHEDULE:
             schedule = self.registry.work_schedules.get(ref.path)
@@ -744,7 +710,7 @@ class _CatalogGraphBuilder:
             elif metric.aggregation is None:
                 node = CatalogBodyLeafV1(
                     kind="catalog_body_leaf",
-                    metric_ref=RefPayloadV1.from_ref(ref_factory.metric(metric_id)),
+                    metric_ref=_ref_payload("metric", metric_id),
                     dependency_fingerprint=_dependency_fingerprint(
                         self.registry, sidecar=self.sidecar, metric_id=metric_id
                     ),
@@ -953,7 +919,7 @@ def lower_catalog_metrics(
         identities=tuple(
             CatalogMetricIdentity(
                 kind="catalog",
-                metric_ref=RefPayloadV1.from_ref(ref_factory.metric(metric_id)),
+                metric_ref=_ref_payload("metric", metric_id),
             )
             for metric_id in roots
         ),
@@ -969,6 +935,249 @@ def lower_catalog_metric(
 ) -> MetricExpressionForestV1:
     """Lower one catalog metric root through the shared forest implementation."""
     return lower_catalog_metrics(registry, (metric_id,), sidecar=sidecar)
+
+
+def _target_metric_error(metric_id: str, expected: str, received: str) -> NoReturn:
+    action = "Use typed direct-column measures and the supported sum/count/mean/weighted-mean/ratio builders."
+    raise SemanticLoadError(
+        kind="invalid_target_metric",
+        message="The Metric cannot supply a private lazy computation contract.",
+        refs=(metric_id,),
+        expected=expected,
+        received=received,
+        hint=action,
+        repair=repair(kind="reauthor", canonical_id="metric", action=action),
+    )
+
+
+def _target_measure_type(
+    registry: Registry,
+    path: str,
+    sidecar: CompiledExpressionSidecar | None,
+    *,
+    metric_id: str,
+) -> tuple[str, str | None, RefPayloadV1]:
+    measure = registry.measures.get(path)
+    body = (
+        sidecar.bodies.get(_create_ref(SemanticKind.MEASURE, path)) if sidecar is not None else None
+    )
+    if measure is None or body is None or body.source_column is None:
+        _target_metric_error(
+            metric_id,
+            "a loaded measure with direct-column expression type facts",
+            "missing declared measure column facts",
+        )
+    entity = normalize_target_entity(registry, measure.entity)
+    data_type = dict(entity.columns).get(body.source_column)
+    if data_type is None:
+        _target_metric_error(
+            metric_id, "a declared source type for the measure column", "missing source-column type"
+        )
+    return data_type, measure.unit, entity.ref
+
+
+def normalize_target_metric(
+    registry: Registry,
+    metric_id: str,
+    *,
+    sidecar: CompiledExpressionSidecar | None = None,
+) -> TargetMetricContract:
+    """Derive private intrinsic state from the existing canonical graph without I/O."""
+    if metric_id not in registry.metrics:
+        _target_metric_error(metric_id, "a loaded Metric", "Metric not loaded")
+    forest = lower_catalog_metrics(registry, (metric_id,), sidecar=sidecar)
+    for dependency in forest.dependency_digest.entries:
+        if dependency.ref.kind is not SemanticKind.METRIC:
+            continue
+        definition = registry.metrics[dependency.ref.path]
+        if definition.metric_type != "simple":
+            continue
+        declared_root = definition.root_entity or (
+            definition.entities[0] if len(definition.entities) == 1 else None
+        )
+        if declared_root is None or declared_root not in definition.entities:
+            _target_metric_error(
+                metric_id,
+                "one explicit computation root belonging to the Metric entities",
+                "missing or foreign computation root",
+            )
+        target = definition.aggregation_target or definition.measure
+        if definition.weighted_mean is not None:
+            target = definition.weighted_mean.value
+        if target is not None:
+            target_root = (
+                target
+                if definition.aggregation_target_kind == "entity"
+                else registry.measures[target].entity
+            )
+            if target_root != declared_root:
+                _target_metric_error(
+                    metric_id,
+                    "aggregate inputs on the declared computation root",
+                    "aggregate input belongs to another Entity",
+                )
+    nodes = {record.node_id: record.node for record in forest.graph.nodes}
+    components: list[TargetMetricComponent] = []
+
+    def visit(node_id: str, role: str) -> tuple[str, bool, str | None]:
+        node = nodes[node_id]
+        if isinstance(node, AggregateNodeV1):
+            if node.agg not in {"sum", "count", "mean"}:
+                _target_metric_error(
+                    metric_id, "a registered initial aggregate", "unsupported aggregate kind"
+                )
+            if node.target_ref.kind is SemanticKind.ENTITY:
+                if node.agg != "count":
+                    _target_metric_error(
+                        metric_id, "count for an Entity target", "non-count Entity aggregate"
+                    )
+                root = normalize_target_entity(registry, node.target_ref.path).ref
+                data_type, unit = "int64", None
+            else:
+                data_type, unit, root = _target_measure_type(
+                    registry,
+                    node.target_ref.path,
+                    sidecar,
+                    metric_id=metric_id,
+                )
+            status_time_dimension = None
+            if node.target_ref.kind is SemanticKind.MEASURE:
+                additivity = registry.measures[node.target_ref.path].additivity
+                if isinstance(additivity, SemiAdditive):
+                    status_time_dimension = _ref_payload("time_dimension", additivity.over)
+            if node.agg != "count" and not dt.dtype(data_type).is_numeric():
+                _target_metric_error(metric_id, "a numeric measure", "non-numeric source type")
+            expression = ibis.table({"value": data_type}, name="_target_type_facts").value
+            state: tuple[str, ...]
+            if node.agg == "sum":
+                output_type = str(expression.sum().type())
+                state = ("sum", "non_null_count", "row_count")
+            elif node.agg == "mean":
+                output_type = str(expression.mean().type())
+                state = ("sum", "non_null_count", "row_count")
+            else:
+                output_type = "int64"
+                state = ("count", "row_count")
+                unit = None
+            components.append(
+                TargetMetricComponent(
+                    node_id,
+                    role,
+                    root,
+                    state,
+                    "ignore_null_inputs",
+                    "zero" if node.agg == "count" else "null",
+                    node.fold,
+                    status_time_dimension,
+                )
+            )
+            return output_type, node.agg != "count", node.unit_override or unit
+        if isinstance(node, WeightedMeanAggregateNodeV1):
+            value_type, unit, root = _target_measure_type(
+                registry,
+                node.value_ref.path,
+                sidecar,
+                metric_id=metric_id,
+            )
+            weight_type, _, weight_root = _target_measure_type(
+                registry,
+                node.weight_ref.path,
+                sidecar,
+                metric_id=metric_id,
+            )
+            if root != weight_root or any(
+                not dt.dtype(value).is_numeric() for value in (value_type, weight_type)
+            ):
+                _target_metric_error(
+                    metric_id,
+                    "numeric value/weight measures on one computation root",
+                    "incompatible weighted-mean inputs",
+                )
+            value_additivity = registry.measures[node.value_ref.path].additivity
+            weight_additivity = registry.measures[node.weight_ref.path].additivity
+            time_fold = None
+            status_time_dimension = None
+            if isinstance(value_additivity, SemiAdditive) or isinstance(
+                weight_additivity, SemiAdditive
+            ):
+                if (
+                    not isinstance(value_additivity, SemiAdditive)
+                    or not isinstance(weight_additivity, SemiAdditive)
+                    or value_additivity != weight_additivity
+                ):
+                    _target_metric_error(
+                        metric_id,
+                        "matching weighted-pair temporal axes and folds",
+                        "incompatible weighted-pair temporal contracts",
+                    )
+                time_fold = fold_ir_to_input(value_additivity.fold)
+                status_time_dimension = _ref_payload("time_dimension", value_additivity.over)
+            components.append(
+                TargetMetricComponent(
+                    node_id,
+                    role,
+                    root,
+                    ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count"),
+                    "non_null_pairs",
+                    "null",
+                    time_fold,
+                    status_time_dimension,
+                )
+            )
+            typed_pair = ibis.table(
+                {"value": value_type, "weight": weight_type}, name="_target_weighted_type_facts"
+            )
+            output_type = str(
+                ((typed_pair.value * typed_pair.weight).sum() / typed_pair.weight.sum()).type()
+            )
+            return output_type, True, node.unit_override or unit
+        if isinstance(node, RatioNodeV1):
+            numerator_type, _, _ = visit(node.numerator_id, f"{role}.numerator")
+            denominator_type, _, _ = visit(node.denominator_id, f"{role}.denominator")
+            typed_pair = ibis.table(
+                {"numerator": numerator_type, "denominator": denominator_type},
+                name="_target_ratio_type_facts",
+            )
+            return (
+                str((typed_pair.numerator / typed_pair.denominator).type()),
+                True,
+                node.unit_override,
+            )
+        _target_metric_error(
+            metric_id, "a registered initial Metric graph node", type(node).__name__
+        )
+
+    output_type, nullable, unit = visit(forest.graph.roots[0], "value")
+    root_node = nodes[forest.graph.roots[0]]
+    null_rule: Literal["ignore_null_inputs", "non_null_pairs", "null_component_or_zero_denominator"]
+    if isinstance(root_node, RatioNodeV1):
+        null_rule = "null_component_or_zero_denominator"
+    elif isinstance(root_node, WeightedMeanAggregateNodeV1):
+        null_rule = "non_null_pairs"
+    else:
+        null_rule = "ignore_null_inputs"
+    return TargetMetricContract(
+        ref=_ref_payload("metric", metric_id),
+        graph=forest.graph,
+        dependency_fingerprint=forest.dependency_digest.digest,
+        computation_roots=tuple(
+            dict.fromkeys(component.computation_root for component in components)
+        ),
+        components=tuple(components),
+        required_state=tuple(
+            f"{component.role}.{state}"
+            for component in components
+            for state in component.required_state
+        ),
+        logical_type=output_type,
+        nullable=nullable,
+        unit=registry.metrics[metric_id].unit_override or unit,
+        null_rule=null_rule,
+        empty_rule="null" if nullable else "zero",
+        supports_coordinate_aggregation=all(
+            component.time_fold is None for component in components
+        ),
+    )
 
 
 __all__ = [

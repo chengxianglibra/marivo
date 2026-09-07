@@ -11,6 +11,7 @@ from marivo.analysis.datasets.descriptors import (
     DatasetPhysicalTypeState,
     _CatalogFieldIdentity,
     _DeferredPhysicalType,
+    _EntityFieldIdentity,
     _ExactByteCount,
     _GeneratedFieldIdentity,
     _KeyedCardinality,
@@ -155,6 +156,14 @@ def _field_ids(field_ids: tuple[DatasetFieldId, ...]) -> str:
 
 
 def _identity_text(identity: DatasetFieldIdentity) -> str:
+    if isinstance(identity, _EntityFieldIdentity):
+        signature = ",".join(
+            f"{name}:{logical_type}" for name, logical_type in identity.identity_signature[:12]
+        )
+        omitted = len(identity.identity_signature) - 12
+        if omitted > 0:
+            signature += f",+{omitted} components"
+        return f"entity_identity:{identity.entity_ref.key}({signature})"
     if isinstance(identity, _CatalogFieldIdentity):
         return f"catalog_ref:{identity.identity_id}"
     if isinstance(identity, _RuntimeMetricFieldIdentity):
@@ -250,6 +259,8 @@ def make_contract(dataset: Dataset) -> DatasetContract:
                 "execute() produces the paired MaterializedDataset; logical values have no row reads",
             )
         )
+    for label, value in dataset._registration.facts_for(dataset)[:_MAX_FACTS]:
+        facts.append((label[:80], value[:240].replace("\n", " ").replace("\r", " ")))
     consumers = dataset._registry.consumers_for(dataset)
     visible_consumers: list[str] = []
     omitted_consumers = max(0, len(consumers) - _MAX_CONSUMERS)

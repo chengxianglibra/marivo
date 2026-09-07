@@ -51,6 +51,41 @@ for target in ('datasets', 'datasets.dataset', 'datasets.logical',
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_private_observation_imports_do_not_activate_sources_or_help() -> None:
+    script = """
+import importlib
+import marivo.analysis as mv
+from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.session.core import Session
+
+exports = tuple(mv.__all__)
+help_targets = REGISTRY.help_targets
+observe = Session.observe
+bindings = Session.source_bindings
+for module in ('population', 'metric', 'source_bindings', 'predicates',
+               'coordinates', 'aggregation', 'contracts', 'errors'):
+    importlib.import_module('marivo.analysis.observation.' + module)
+importlib.import_module('marivo.analysis.session._lazy_sources')
+for name in ('LogicalPopulationDataset', 'MaterializedPopulationDataset',
+             'LogicalMetricDataset', 'MaterializedMetricDataset', 'AnalysisPredicate'):
+    assert name not in mv.__all__ and not hasattr(mv, name), name
+assert not hasattr(Session, 'population')
+assert Session.observe is observe
+assert Session.source_bindings is bindings
+assert tuple(mv.__all__) == exports
+assert REGISTRY.help_targets == help_targets
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_dataset_backend_import_boundary_rejects_new_indirect_paths() -> None:
     """Exercise the checked-in contract against real and injected import graphs."""
     script = """

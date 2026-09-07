@@ -12,6 +12,7 @@ from typing import Literal, TypeAlias
 
 from marivo._compat import Never
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.refs import EntityKind, Ref, SemanticKind
 
 _CORE_TOKEN = object()
 _ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,159}\Z")
@@ -162,7 +163,14 @@ class DatasetFieldId(_Descriptor, _token=_CORE_TOKEN):
 
 class DatasetFieldIdentity(_Descriptor, _token=_CORE_TOKEN):
     __slots__ = ()
-    kind: Literal["catalog_ref", "runtime_metric", "generated"]
+    kind: Literal["catalog_ref", "runtime_metric", "generated", "entity_identity"]
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _EntityFieldIdentity(DatasetFieldIdentity, _token=_CORE_TOKEN):
+    entity_ref: Ref[EntityKind]
+    identity_signature: tuple[tuple[str, str], ...]
+    kind: Literal["entity_identity"] = field(default="entity_identity", init=False)
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -368,6 +376,33 @@ def _catalog_identity(identity_id: str) -> DatasetFieldIdentity:
     return _CatalogFieldIdentity(_token=_CORE_TOKEN, identity_id=identity_id)
 
 
+def _entity_identity(
+    entity_ref: Ref[EntityKind],
+    identity_signature: tuple[tuple[str, str], ...],
+    *,
+    ids: _StableIdRegistry,
+) -> _EntityFieldIdentity:
+    location = "identity.entity_identity"
+    if type(entity_ref) is not Ref or entity_ref.kind is not SemanticKind.ENTITY:
+        _fail("an exact Entity ref", type(entity_ref).__name__, location)
+    _stable_text(entity_ref.key, location)
+    if type(identity_signature) is not tuple or not identity_signature:
+        _fail("a non-empty immutable identity signature", "invalid signature", location)
+    names: list[str] = []
+    for component in identity_signature:
+        if type(component) is not tuple or len(component) != 2:
+            _fail("ordered key-name and logical-type pairs", "invalid component", location)
+        name, logical_type = component
+        _stable_text(name, location)
+        _registered(logical_type, ids.logical_types, location)
+        names.append(name)
+    if len(set(names)) != len(names):
+        _fail("unique ordered primary-key names", "duplicate component", location)
+    return _EntityFieldIdentity(
+        _token=_CORE_TOKEN, entity_ref=entity_ref, identity_signature=identity_signature
+    )
+
+
 def _runtime_metric_identity(expression_fingerprint: str) -> DatasetFieldIdentity:
     _stable_text(expression_fingerprint, "identity.runtime_metric")
     return _RuntimeMetricFieldIdentity(
@@ -411,8 +446,12 @@ def _make_field(
         _CatalogFieldIdentity,
         _RuntimeMetricFieldIdentity,
         _GeneratedFieldIdentity,
+        _EntityFieldIdentity,
     ):
         _fail("a closed field identity", type(identity).__name__, "field.identity")
+    if isinstance(identity, _EntityFieldIdentity):
+        _validate_variant_kind(identity, "entity_identity")
+        _entity_identity(identity.entity_ref, identity.identity_signature, ids=ids)
     if type(physical_type_state) not in (_ResolvedPhysicalType, _DeferredPhysicalType):
         _fail(
             "a closed physical type state",
@@ -739,6 +778,8 @@ def _descriptor_payload(value: _Descriptor) -> _CanonicalValue:
 def _descriptor_atom(value: object) -> _CanonicalValue:
     if isinstance(value, _Descriptor):
         return _descriptor_payload(value)
+    if type(value) is Ref:
+        return ("semantic_ref", value.kind.value, value.path)
     if value is None or isinstance(value, (str, int, bool)):
         return value
     if isinstance(value, tuple):
@@ -876,6 +917,9 @@ def _validate_registered_schema(schema: DatasetSchema, *, ids: _StableIdRegistry
         elif type(identity) is _RuntimeMetricFieldIdentity:
             _validate_variant_kind(identity, "runtime_metric")
             _runtime_metric_identity(identity.expression_fingerprint)
+        elif type(identity) is _EntityFieldIdentity:
+            _validate_variant_kind(identity, "entity_identity")
+            _entity_identity(identity.entity_ref, identity.identity_signature, ids=ids)
         elif type(identity) is _GeneratedFieldIdentity:
             _validate_variant_kind(identity, "generated")
             if type(identity.producer_field_id) is not DatasetFieldId:

@@ -31,7 +31,7 @@ from marivo.datasource.ir import (
     source_name,
     source_to_dict,
 )
-from marivo.refs import SemanticKind
+from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic.time_format import normalize_strptime
 
 __all__ = [
@@ -396,6 +396,104 @@ class EntityIR:
     python_symbol: str
     location: SourceLocation
     versioning: EntityVersioningIR | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetRuntimeObligation:
+    """A source assertion awaiting execution, never static validation evidence."""
+
+    kind: Literal[
+        "identity_non_null",
+        "source_row_unique",
+        "validity_well_formed",
+        "validity_non_overlapping",
+        "exact_snapshot_available",
+        "selected_identity_unique",
+    ]
+    columns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TargetSnapshotVersion:
+    """Private target snapshot coordinate, separate from Entity identity."""
+
+    coordinate_ref: RefPayloadV1
+    source_column: str
+    logical_type: str
+    timezone: str | None
+    format: str | None
+    kind: Literal["snapshot"] = "snapshot"
+    grain: Literal["day"] = "day"
+
+
+@dataclass(frozen=True, slots=True)
+class TargetValidityVersion:
+    """Private target validity axes and their exact authored closure."""
+
+    valid_from_ref: RefPayloadV1
+    valid_to_ref: RefPayloadV1
+    valid_from_column: str
+    valid_to_column: str
+    interval: Literal["closed_open", "closed_closed"]
+    open_end: tuple[str | None, ...]
+    timezone: str | None
+    kind: Literal["validity"] = "validity"
+
+
+@dataclass(frozen=True, slots=True)
+class TargetEntityContract:
+    """Immutable private identity/source facts normalized without source access."""
+
+    ref: RefPayloadV1
+    datasource_ref: RefPayloadV1
+    dependency_fingerprint: str
+    source: EntitySourceIR
+    primary_key: tuple[str, ...]
+    identity_signature: tuple[tuple[str, str], ...]
+    version_row_key: tuple[str, ...]
+    columns: tuple[tuple[str, str], ...]
+    version: TargetSnapshotVersion | TargetValidityVersion | None
+    obligations: tuple[TargetRuntimeObligation, ...]
+    credential_slots: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TargetDimensionContract:
+    """Declared direct-column Dimension facts usable during lazy construction."""
+
+    ref: RefPayloadV1
+    entity_ref: RefPayloadV1
+    source_column: str
+    logical_type: str
+    nullable: bool
+    is_time_dimension: bool
+    granularity: str | None
+    is_default: bool
+    timezone: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetSnapshotSelection:
+    """One exact required period; absence cannot authorize an older snapshot."""
+
+    coordinate_ref: RefPayloadV1
+    period: str
+    interpretation: Literal["instant", "before_endpoint"]
+    kind: Literal["snapshot"] = "snapshot"
+
+
+@dataclass(frozen=True, slots=True)
+class TargetValiditySelection:
+    """Symbolic endpoint comparisons, preserving exact left-limit semantics."""
+
+    valid_from_ref: RefPayloadV1
+    valid_to_ref: RefPayloadV1
+    boundary: str
+    start_operator: Literal["lt", "le"]
+    end_operator: Literal["gt", "ge"]
+    open_end: tuple[str | None, ...]
+    interpretation: Literal["instant", "before_endpoint"]
+    kind: Literal["validity"] = "validity"
 
 
 @dataclass(frozen=True)

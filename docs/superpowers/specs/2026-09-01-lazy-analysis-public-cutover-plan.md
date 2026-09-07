@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-07
 
-Status: Slices 0-1 complete; Slices 2-9 require separate authorization
+Status: Slices 0-1 and sub-slice 2a complete; Slice 2b and later units require separate authorization
 
 ## Outcome
 
@@ -1207,6 +1207,14 @@ until Slice 8.
 | 2a: private semantic and Metric source construction | 1 | Implement target semantic normalization and Population/Metric source contracts behind private factories. Identity/version selection, captured bindings, observation scope, and the initial coordinate chain have complete contracts with no data work. Exercise the actual target normalizers; fixtures must not substitute for their implementation. |
 | 2b: first committed Metric execution | 2a | Execute one declared datasource route into local immutable Parquet, publish the final v3 transaction bundle, recover it in a fresh process, and perform bounded/guarded terminal reads. Prove admission ordering, exact-key recovery, and precommit/postcommit failure behavior on this route. |
 
+The owner authorized Slice 2a on 2026-09-07 against Slice 1 commit
+`277b51e937b99e087b32bdcf87960bdecd59c71a`. The accepted Core amendment adds a
+closed Entity-identity field variant containing the exact Entity ref and ordered
+typed identity signature, without adding a top-level export. Slice 2a also owns
+the minimal Core node-payload, construction, registration and disclosure seams
+needed by private Population/Metric families. The implementation document is
+`../plans/2026-09-07-lazy-analysis-slice-2a-source-construction.md`.
+
 Slice 2 is intentionally a narrow cross-layer vertical. Its implementation
 document names the exact reference backend, Metric variants, and controlled
 parameterized-source fixture. General operator support and additional storage
@@ -1283,6 +1291,122 @@ Metric Dataset with complete committed authority. A compiled query, pandas
 preview, staged file, or isolated Evidence row is not enough. Acceptance proves
 the normalized committed bundle and exact cold recovery. Slice 4 extends the
 adapter, concurrency, and failure matrix without changing this protocol.
+
+### Slice 2a execution record: 2026-09-07
+
+Slice 2a is implemented privately and accepted. This closes semantic/source
+construction only; Slice 2 remains incomplete until its separately authorized
+2b execution, publication and recovery gate passes.
+
+Candidate: branch `lazy-dataset`, base HEAD
+`277b51e937b99e087b32bdcf87960bdecd59c71a`, plus the uncommitted owned changes.
+The SHA-256 of the 35 ordered production/test/import-boundary files (UTF-8 path,
+NUL, file bytes, NUL for each lexically ordered path) is
+`d2f0cda1ea376dd346758c81e041639cb819dcec2ee0cc6b4542501217145e4a`.
+Documentation and generated build artifacts are excluded from this digest.
+
+Implemented and verified:
+
+- Private production target normalizers separate stable typed Entity identity
+  from version-row keys, preserve snapshot/validity endpoint meaning, and declare
+  uniqueness, overlap, availability and post-selection checks as execution
+  obligations. Existing public loading behavior remains unchanged.
+- The canonical Metric graph supplies calculation roots, component roles,
+  null/empty rules, required sum/count/weight/ratio state and space-before-time
+  evaluation constraints. Safe functional mappings support different-root ratios
+  over an explicit customer Population.
+- Required injected action/read ports support complete paired Population/Metric
+  registration without a default executor. The private Session source facade
+  constructs membership, observation, filters, dimensions, day axes, aggregation
+  and projection with all eight Metric shapes and complete row contracts.
+- Entity identity descriptors bind ordered typed tuples, including unary keys.
+  Core owns the immutable node-payload seam and sole safe definition fingerprint.
+  Raw source bindings and predicate values remain private; Materialized inputs
+  retain exact scan-leaf authority without replayable origin payloads.
+- Source bindings use exact scalar types, declaration order, immutable sequence
+  copies, complete nested-scope replacement/restoration and per-source reachable
+  capture. Scope exit, input mutation and unrelated bindings cannot change an
+  existing definition; changed values or types change its fingerprint.
+- Independent review regressions reject mismatched row shapes, incomplete action
+  ports, stale retained identity signatures, wrong join-key types, unresolved
+  versioned intermediate paths and ambiguous scopes. Entity-owned default time
+  axes take precedence; retained Population origins are not recaptured. Source
+  and relationship-key changes enter the exact node dependency digest.
+
+Fresh verification after the September 7 review cleanup:
+
+Timings below are observations from individual local runs, not performance
+acceptance thresholds or values that must reproduce. The combined and full
+Make gates use the repository's default `-n auto --dist=loadscope`; the explicit
+no-I/O command uses `-n 0`. Counts, outcomes, fingerprints and guarded operation
+attempts are the acceptance facts. The local implementation document records the
+exact focused command.
+
+- The combined Core/import, semantic normalization/Metric graph, and Observation
+  construction/binding/predicate/no-I/O gate passed 322 tests in 14.96 seconds.
+  Tests use typed authored in-memory definitions and the production normalizers,
+  including scalar/duplicate-coordinate/repeated-aggregation rejection, exact
+  temporal endpoints, independent windows, filtering and projection placement.
+- `make typecheck-agent` over Core, Observation, the private source facade, four
+  touched semantic modules and `tests/typing` passed for 28 files. Scoped lint
+  and import contracts passed, including the new Observation isolation boundary.
+- `.venv/bin/pytest -n 0 -q -s tests/test_lazy_observation_runtime_no_io.py::test_actual_private_observation_chain_is_pure`
+  passed in 8.82 seconds. A fresh child process constructed eight checked
+  definitions, an 80-filter chain and five typed negative cases while guarding
+  27 runtime entrypoints with telemetry enabled. Datasource, connection, query,
+  Run, Artifact, Store, Evidence, binding, filesystem and network attempt counts
+  were all zero.
+- `make check-agent` passed: lint/import contracts, mypy for 330 source files,
+  5,759 tests in 96.48 seconds, and API documentation build.
+- `git diff --check` and the owned-file scope check passed. Existing public
+  export, capability and Help snapshots remain unchanged; private imports also
+  preserve the current public Session methods.
+
+The no-I/O journey's first observed Metric fingerprint was
+`ds_c33203300d7711f2687eb4453e87acfabc855c7ead4546ecf126409abb307b73`;
+its final `metric/dimension-time@v1` fingerprint was
+`ds_f37aebe4e722a5a7879dbaa9334f4c071d7dfcfb58f142f319ec5495a9bbbdfe`.
+The test owner identity is `session-observation`; no real Session, backend,
+Store, Run or Artifact was created.
+
+Review disposition:
+
+- Removed the unused Observation `fail()` helper, duplicate Population
+  normalization branches and their inline cast. Directly deleting the cast is
+  insufficient for mypy because the runtime Ref discriminator does not narrow
+  its generic marker; an exact membership-Dimension type guard now carries that
+  proof without broadening the normalizer's input contract.
+- Catch only `ObservationConstructionError` when searching compatible time
+  axes. Exact scalar branches now provide static narrowing without redundant
+  `isinstance` checks or numeric asserts. Metric identity collection preserves
+  the narrowed identity type; a corrupt bound comparison raises its structured
+  predicate error. Consumer admission uses full registered IDs, and coordinate
+  checks unpack the grain by name.
+- Retained the small canonical Metric/coordinate tuples. A frozen nested
+  dataclass would require a new projection or expansion of Core's closed
+  row-fact encoding. Payload checks have different owners and outcomes
+  (admission, capture traversal, disclosure or required authority), and the two
+  coordinate constructors enforce different path/time constraints. No generic
+  accessor or construction-template abstraction was added for these checks.
+- Retained internal `_create_ref` calls: public Ref factories invoke telemetry
+  and can access files, so the production normalizer must bypass that wrapper
+  to satisfy telemetry-enabled no-I/O acceptance. This is required purity work,
+  not an additional public surface change. Direct `RefPayloadV1` construction
+  already shares validated path rules and needs no intermediate Ref/helper.
+- Retained normalized time-fold/status-axis facts to recognize unsupported
+  semantic graphs before rejecting them. The local dependency-digest import
+  reuses one existing collector after module initialization; that collector
+  reads IR and does not re-enter Entity normalization. No additional module or
+  deferred execution support was introduced.
+
+This slice claims no execution backend or storage adapter. Runtime Metric
+expressions, semi-additive time folds, general coordinate allocation, complete
+predicates, sampling, rank/limit and retained-state folds remain outside this
+initial construction envelope and fail explicitly where encountered. No current
+public API, Help, site content or packaged workflow skill was switched.
+No commit, push or release was made. The local implementation document at
+`../plans/2026-09-07-lazy-analysis-slice-2a-source-construction.md` is synchronized;
+the plans directory remains ignored by the existing repository rule.
 
 ## Slice 3: Filtering, Coordinates, Ordering, and Explicit Checkpoints
 

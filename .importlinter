@@ -94,3 +94,16 @@ ignore_imports =
     marivo.analysis.datasets.errors -> marivo.analysis.errors
     marivo.analysis.datasets.fields -> marivo.semantic.catalog
     marivo.analysis.datasets.fields -> marivo.semantic.runtime_metric
+
+[importlinter:contract:observation-definition-isolation]
+name = Private observation definitions must not depend on eager or executing analysis
+type = forbidden
+source_modules =
+    marivo.analysis.observation
+forbidden_modules =
+    marivo.analysis.frames
+    marivo.analysis.intents
+    marivo.analysis.executor
+    marivo.analysis.session
+    marivo.analysis.compiler
+    marivo.analysis.materialization

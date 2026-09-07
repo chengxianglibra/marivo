@@ -216,6 +216,39 @@ class MetricExpressionGraphV1:
     occurrences: tuple[ExpressionOccurrenceV1, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class TargetMetricComponent:
+    """Intrinsic leaf state and role derived from the canonical Metric graph."""
+
+    node_id: str
+    role: str
+    computation_root: RefPayloadV1
+    required_state: tuple[str, ...]
+    null_rule: Literal["ignore_null_inputs", "non_null_pairs"]
+    empty_rule: Literal["zero", "null"]
+    time_fold: AggregateFoldInput
+    status_time_dimension: RefPayloadV1 | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetMetricContract:
+    """Private source-free Metric facts, with no coordinate admission claim."""
+
+    ref: RefPayloadV1
+    graph: MetricExpressionGraphV1
+    dependency_fingerprint: str
+    computation_roots: tuple[RefPayloadV1, ...]
+    components: tuple[TargetMetricComponent, ...]
+    required_state: tuple[str, ...]
+    logical_type: str
+    nullable: bool
+    unit: str | None
+    null_rule: Literal["ignore_null_inputs", "non_null_pairs", "null_component_or_zero_denominator"]
+    empty_rule: Literal["zero", "null"]
+    evaluation_order: tuple[Literal["space", "time", "compose"], ...] = ("space", "time", "compose")
+    supports_coordinate_aggregation: bool = True
+
+
 @dataclass(frozen=True)
 class PresentationLabelV1:
     occurrence_path: str

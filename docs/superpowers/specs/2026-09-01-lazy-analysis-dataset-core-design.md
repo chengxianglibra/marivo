@@ -285,6 +285,8 @@ registration binds:
 - the closed set of family-qualified shapes;
 - its row-contract and row-set-contract validators;
 - its common operators and state-specific action/read surfaces;
+- its exact immutable logical-node payload variants and pure consumer-admission
+  and bounded contract-fact callbacks, when the family needs them;
 - its bounded representation renderer;
 - its materialized-state decoder;
 - the module that owns its family-specific row semantics.
@@ -577,6 +579,7 @@ DatasetFieldId
 
 DatasetFieldIdentity
   catalog_ref(identity_id)
+  entity_identity(entity_ref, identity_signature)
   runtime_metric(expression_fingerprint)
   generated(producer_field_id: DatasetFieldId)
 
@@ -621,6 +624,17 @@ DatasetByteCount
   exact(byte_count: int)
   unavailable(reason_id: str)
 ```
+
+The accepted Slice 2a amendment adds `entity_identity` to the closed field
+identity vocabulary. It carries an exact Entity ref and a non-empty ordered
+`identity_signature: tuple[tuple[str, str], ...]` of primary-key field names and
+registered component logical-type ids. Names are unique; every component is
+non-null. A one-column key still denotes a one-element tuple. Version fields
+are not included unless they actually belong to the authored stable identity.
+The signature participates in field binding and row-contract fingerprints and
+is readable from the canonical schema without consulting a catalog or graph.
+The variant introduces no additional top-level export. Raw identity values are
+never descriptor facts.
 
 `DatasetShapeId` is the one shape discriminator. Its validated fields replace
 independent family, shape, and semantic-version strings that could disagree.
@@ -948,6 +962,21 @@ lookup and explicit `session.artifact(ref)` reads reuse existing rows without
 new publication or a suitability guarantee.
 
 ## Logical Definition Identity and Lineage
+
+### Private owner payload boundary
+
+Core admits only exact family-registered, frozen, slotted logical-node payload
+variants. The family owns and validates the nested semantic arguments and any
+private captures. Core consumes one safe canonical identity projection from the
+payload to compute the sole definition fingerprint; a node cannot also supply
+a competing parameter projection. Payloads are process-local, redacted in
+representations, and not serializable. Raw captured values never enter the
+projection or lineage.
+
+The payload supplements the one Dataset input graph. A Materialized input still
+terminates at its exact Artifact scan leaf, which carries no replayable source
+payload. Family admission callbacks are pure and are shared by construction and
+contract disclosure, so a rejected state-specific continuation is not advertised.
 
 ### Definition fingerprint
 
@@ -1675,7 +1704,7 @@ contract:
 | paired concrete Dataset family classes | accepted when its owning family design freezes them | one registry-owned `analysis.<family>` leaf | sealed Logical/Materialized pair with one family id and identical operator admission |
 | `DatasetShapeId` | accepted | `analysis.datasets.shape_id` | immutable validated family-local shape and semantic-version identity; bounded `repr` |
 | `DatasetFieldId` | accepted | `analysis.datasets.field_id` | immutable validated stable field identity used by schemas, selectors, keys, and ordering; bounded `repr` |
-| `DatasetFieldIdentity` | accepted | `analysis.datasets.field_identity` | sealed catalog-ref, runtime-Metric, or generated identity value; bounded `repr` |
+| `DatasetFieldIdentity` | accepted | `analysis.datasets.field_identity` | sealed catalog-ref, typed Entity identity, runtime-Metric, or generated identity value; bounded `repr` |
 | `DatasetPhysicalTypeState` | accepted | `analysis.datasets.physical_type_state` | sealed resolved or deferred type-state value; bounded `repr` |
 | `DatasetField` | accepted | `analysis.datasets.field` | immutable logical field binding stored once in the row-contract schema and referenced by ids from coordinates, keys, ordering, family semantics, and selectors; bounded `repr` |
 | `DatasetRowBound` | accepted | `analysis.datasets.row_bound` | sealed unknown, static, or runtime-policy row-bound value; bounded `repr` |

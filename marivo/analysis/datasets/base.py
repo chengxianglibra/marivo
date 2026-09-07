@@ -33,6 +33,7 @@ from marivo.analysis.datasets.handles import (
     RealizationRequirement,
     _check_label,
     _check_tuple,
+    _LogicalNodePayload,
     _make_lineage,
     _make_logical_root,
     _validate_logical_root,
@@ -163,6 +164,7 @@ class Dataset(ABC):
                     "registered Logical class/state/root pair", "corrupt Dataset pair"
                 )
             _validate_logical_root(root)
+            registration.validate_payload(root.payload)
             if state.kind != "logical":
                 raise _construction_error("logical state discriminator", "corrupt state kind")
             if root.definition_fingerprint != definition_fingerprint:
@@ -404,11 +406,13 @@ def _make_logical_dataset(
     dependency_facts: tuple[str, ...] = (),
     contract_versions: tuple[tuple[str, str], ...] = (),
     input_roles: tuple[str, ...] = (),
+    payload: _LogicalNodePayload | None = None,
 ) -> LogicalDataset:
     registry.require_frozen()
     _validate_input_ownership(owner, inputs)
     registration = registry.get(family_id)
     registration.validate(row_contract, row_set_contract)
+    registration.validate_payload(payload)
     roles = input_roles or tuple(f"input_{index}" for index in range(len(inputs)))
     if len(roles) != len(inputs):
         raise _construction_error("one role per ordered input", "input role count mismatch")
@@ -426,6 +430,7 @@ def _make_logical_dataset(
         requirements=requirements,
         dependency_facts=dependency_facts,
         contract_versions=contract_versions,
+        payload=payload,
     )
     return registration.logical_type(
         _token=_CORE_TOKEN,
