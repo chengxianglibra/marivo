@@ -40,7 +40,9 @@ def _closed_descriptor_discriminators(
     byte_count: DatasetByteCount,
     family_semantics: DatasetFamilyRowSemantics,
 ) -> None:
-    assert_type(identity.kind, Literal["catalog_ref", "runtime_metric", "generated"])
+    assert_type(
+        identity.kind, Literal["catalog_ref", "runtime_metric", "generated", "entity_identity"]
+    )
     assert_type(physical_type.kind, Literal["resolved", "deferred"])
     assert_type(row_bound.kind, Literal["unknown", "static", "runtime_policy"])
     assert_type(cardinality.kind, Literal["singleton", "keyed"])

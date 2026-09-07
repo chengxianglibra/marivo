@@ -814,6 +814,13 @@ This variant has no additional payload fields: the canonical
 `entity_identity` binding already owns the exact Entity ref, identity signature,
 logical type, and nullability.
 
+The accepted Slice 2a Core amendment represents those identity facts with
+`DatasetFieldIdentity.entity_identity(entity_ref, identity_signature)`. The
+ordered signature contains primary-key field names and component logical-type
+ids, including the single component of a one-column key. Population and Metric
+identity coordinates use this same descriptor; they do not hide the signature
+in private graph metadata or repeat it in Population family semantics.
+
 Reference scope, reference-time identity, normalized predicates, sampling, and
 target-Population definition identity remain in the normalized Dataset
 definition and bounded lineage. They do not change the meaning or type of one
@@ -1204,6 +1211,14 @@ bindings reachable from that source; unrelated entries do not change its
 definition identity. An inner scope replaces the complete active binding map
 for that Session until exit, then restores the outer map. There is no implicit
 merge whose result depends on nesting order.
+
+Observation stores normalized source arguments and captures in the Core-owned
+closed immutable node-payload interface. Its safe identity projection contains
+the exact semantic dependency and capture digests; Core computes the one Dataset
+definition fingerprint. Downstream construction retains already captured inputs
+and captures only newly reached sources. Traversal stops at Materialized scan
+leaves: retained membership identity does not require recapturing the original
+source bindings.
 
 Exact canonical typed values participate in the source definition fingerprint
 and the runtime execution key through `exact_value_digest`. The raw in-memory

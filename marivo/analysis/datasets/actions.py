@@ -11,7 +11,11 @@ from marivo.analysis.datasets.base import (
     _validate_input_ownership,
 )
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
-from marivo.analysis.datasets.handles import CanonicalValue, RealizationRequirement
+from marivo.analysis.datasets.handles import (
+    CanonicalValue,
+    RealizationRequirement,
+    _LogicalNodePayload,
+)
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 
 
@@ -27,6 +31,7 @@ def construct_operator(
     realizations: tuple[RealizationRequirement, ...] = (),
     dependency_facts: tuple[str, ...] = (),
     contract_versions: tuple[tuple[str, str], ...] = (),
+    payload: _LogicalNodePayload | None = None,
 ) -> LogicalDataset:
     _validate_input_ownership(owner, inputs)
     if not inputs:
@@ -53,4 +58,5 @@ def construct_operator(
         requirements=consumer.requirements,
         dependency_facts=dependency_facts,
         contract_versions=contract_versions,
+        payload=payload,
     )

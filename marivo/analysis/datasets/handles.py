@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import InitVar, dataclass, field
+from abc import ABC, abstractmethod
+from dataclasses import InitVar, dataclass, field, is_dataclass
 from typing import SupportsIndex, TypeAlias
 
 from marivo._compat import Never
@@ -18,6 +19,7 @@ from marivo.analysis.refs import ArtifactRef
 
 CanonicalValue: TypeAlias = _CanonicalValue
 _LINEAGE_FACT_LIMIT = 16
+_PAYLOAD_CLASSES: set[type[_LogicalNodePayload]] = set()
 
 
 def _definition_error(expected: str, received: str) -> DatasetDefinitionError:
@@ -50,6 +52,64 @@ def _check_label(value: str) -> None:
 def _check_tuple(value: object) -> None:
     if type(value) is not tuple:
         raise _definition_error("immutable tuple of bound definition facts", "mutable container")
+
+
+@dataclass(frozen=True, slots=True, repr=False, eq=False, kw_only=True)
+class _LogicalNodePayload(ABC):
+    """Sealed owner data; only its safe projection enters definition identity.
+
+    Family owners validate their nested immutable records and captured values.
+    Core admits only exact registered payload classes with frozen slotted state.
+    """
+
+    _token: InitVar[object]
+
+    def __post_init__(self, _token: object) -> None:
+        _check_token(_token)
+
+    def __init_subclass__(cls, *, _token: object | None = None) -> None:
+        own_fields: object = cls.__dict__.get("__dataclass_fields__")
+        slot_replacement = own_fields is not None and any(
+            trusted.__module__ == cls.__module__
+            and trusted.__name__ == cls.__name__
+            and trusted.__dict__.get("__dataclass_fields__") is own_fields
+            for trusted in _PAYLOAD_CLASSES
+        )
+        if _token is not _CORE_TOKEN and not slot_replacement:
+            raise _definition_error("an owner-registered payload variant", "untrusted subclass")
+        _PAYLOAD_CLASSES.add(cls)
+
+    @property
+    @abstractmethod
+    def identity_payload(self) -> CanonicalValue:
+        """Return safe immutable semantic facts and capture digests, never raw values."""
+
+    def __repr__(self) -> str:
+        return "<private logical node payload>"
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> Never:
+        raise _definition_error("in-process owner payload", "payload serialization")
+
+
+def _validate_payload_type(payload_type: type[_LogicalNodePayload]) -> None:
+    parameters = getattr(payload_type, "__dataclass_params__", None)
+    if (
+        payload_type not in _PAYLOAD_CLASSES
+        or not is_dataclass(payload_type)
+        or not getattr(parameters, "frozen", False)
+        or payload_type.__dictoffset__ != 0
+        or payload_type.__abstractmethods__
+        or payload_type.__repr__ is not _LogicalNodePayload.__repr__
+        or payload_type.__reduce_ex__ is not _LogicalNodePayload.__reduce_ex__
+    ):
+        raise _definition_error("a sealed frozen slotted owner payload", "invalid payload class")
+
+
+def _payload_identity(payload: _LogicalNodePayload) -> CanonicalValue:
+    _validate_payload_type(type(payload))
+    projection = payload.identity_payload
+    _digest(projection)
+    return projection
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -124,6 +184,7 @@ class LogicalRootHandle:
     realizations: tuple[RealizationRequirement, ...]
     has_realizations: bool
     requirements: tuple[str, ...]
+    payload: _LogicalNodePayload | None = None
     # Replacement/reconstruction clears issuance; it cannot inherit validation.
     _factory_validated: bool = field(default=False, init=False)
 
@@ -205,7 +266,14 @@ def _make_logical_root(
     requirements: tuple[str, ...] = (),
     dependency_facts: tuple[str, ...] = (),
     contract_versions: tuple[tuple[str, str], ...] = (),
+    payload: _LogicalNodePayload | None = None,
 ) -> LogicalRootHandle:
+    if payload is not None:
+        if parameters != ():
+            raise _definition_error(
+                "one payload-owned safe parameter projection", "duplicate parameters"
+            )
+        parameters = _payload_identity(payload)
     for sequence in (inputs, realizations, requirements, dependency_facts, contract_versions):
         _check_tuple(sequence)
     for pair in contract_versions:
@@ -267,6 +335,7 @@ def _make_logical_root(
         realizations=realizations,
         has_realizations=bool(sharing),
         requirements=requirements,
+        payload=payload,
     )
     object.__setattr__(root, "_factory_validated", True)
     return root
@@ -283,6 +352,10 @@ def _validate_logical_root(root: LogicalRootHandle) -> None:
         raise _definition_error(
             "fingerprint bound to retained normalized definition", "corrupt logical root"
         )
+    if root.payload is not None and _digest(_payload_identity(root.payload)) != _digest(
+        root.parameters
+    ):
+        raise _definition_error("unchanged owner payload identity projection", "changed payload")
 
 
 @dataclass(frozen=True, slots=True)

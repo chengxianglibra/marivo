@@ -10,7 +10,7 @@ import operator
 import pickle
 import subprocess
 import sys
-from dataclasses import FrozenInstanceError, fields, replace
+from dataclasses import FrozenInstanceError, dataclass, fields, replace
 from pathlib import Path
 
 import pytest
@@ -27,14 +27,17 @@ from marivo.analysis.datasets.descriptors import (
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetDefinitionError
 from marivo.analysis.datasets.handles import (
+    CanonicalValue,
     DefinitionInput,
     LogicalInputToken,
     MaterializedInputToken,
     RealizationHandle,
     _check_label,
     _digest,
+    _LogicalNodePayload,
     _sharing_occurrences,
 )
+from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.render import AgentResult
 from tests.lazy_dataset_fixtures import (
     TEST_IDS,
@@ -44,8 +47,100 @@ from tests.lazy_dataset_fixtures import (
     make_materialized_dataset,
     make_owner,
     make_row_contracts,
+    make_test_registration,
     make_test_registry,
 )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _SourcePayload(_LogicalNodePayload, _token=_CORE_TOKEN):
+    captured: str
+
+    @property
+    def identity_payload(self) -> CanonicalValue:
+        return ("test.source/v1", _canonical_digest((self.captured,)))
+
+
+def _payload_registry() -> DatasetFamilyRegistry:
+    registry = DatasetFamilyRegistry()
+    registry.register(replace(make_test_registration(), node_payload_types=(_SourcePayload,)))
+    registry.freeze()
+    return registry
+
+
+def test_owner_payload_is_immutable_private_and_uses_one_safe_definition_projection() -> None:
+    payload = _SourcePayload(_token=_CORE_TOKEN, captured="private-source-parameter-7294")
+    registry = _payload_registry()
+    source = make_logical_dataset(registry=registry, payload=payload)
+    assert source._root.payload is payload
+    assert source._root.parameters == payload.identity_payload
+    assert (
+        source.definition_fingerprint
+        == make_logical_dataset(
+            registry=registry, payload=replace(payload, _token=_CORE_TOKEN)
+        ).definition_fingerprint
+    )
+    changed = replace(payload, _token=_CORE_TOKEN, captured="another-private-value")
+    assert (
+        source.definition_fingerprint
+        != make_logical_dataset(registry=registry, payload=changed).definition_fingerprint
+    )
+    for display in (
+        repr(source),
+        repr(payload),
+        repr(source._root),
+        source.contract().render(max_output_bytes=None),
+        repr(source._lineage),
+        repr(source._root.parameters),
+    ):
+        assert payload.captured not in display
+    with pytest.raises(FrozenInstanceError):
+        payload.captured = "mutated"
+    with pytest.raises(DatasetDefinitionError, match="serialization"):
+        pickle.dumps(payload)
+    with pytest.raises(DatasetDefinitionError, match="duplicate parameters"):
+        make_logical_dataset(registry=registry, payload=payload, parameters=("second projection",))
+    with pytest.raises(DatasetConstructionError, match="unregistered payload"):
+        make_logical_dataset(payload=payload)
+    with pytest.raises(DatasetDefinitionError, match="direct root construction"):
+        _SourcePayload(_token=object(), captured="private")
+
+
+def test_payload_authority_stops_at_the_materialized_leaf() -> None:
+    payload = _SourcePayload(_token=_CORE_TOKEN, captured="private-captured-value")
+    source = make_logical_dataset(registry=_payload_registry(), payload=payload)
+    downstream = source.step()
+    assert downstream._root.payload is None
+    assert downstream._root.inputs[0].root is source._root
+    materialized = make_materialized_dataset(origin=downstream, registry=source._registry)
+    leaf = materialized._root
+    assert not hasattr(leaf, "payload")
+    assert not hasattr(leaf, "inputs")
+    assert materialized.step()._root.inputs[0].root is leaf
+
+
+def test_payload_projection_is_rechecked_on_downstream_admission() -> None:
+    payload = _SourcePayload(_token=_CORE_TOKEN, captured="private-value")
+    source = make_logical_dataset(registry=_payload_registry(), payload=payload)
+    object.__setattr__(payload, "captured", "corrupt-value")
+    with pytest.raises(DatasetDefinitionError, match="changed payload"):
+        source.step()
+
+
+def test_payload_subclasses_are_sealed_and_cannot_expose_default_repr() -> None:
+    with pytest.raises(DatasetDefinitionError, match="untrusted subclass"):
+
+        class UntrustedPayload(_LogicalNodePayload):
+            pass
+
+    @dataclass(frozen=True, slots=True)
+    class ExposedPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
+        @property
+        def identity_payload(self) -> CanonicalValue:
+            return ()
+
+    with pytest.raises(DatasetDefinitionError, match="invalid payload class"):
+        replace(make_test_registration(), node_payload_types=(ExposedPayload,))
 
 
 def test_definition_identity_is_explicit_and_datasets_are_unhashable() -> None:

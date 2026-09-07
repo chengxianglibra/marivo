@@ -14,6 +14,7 @@ from marivo.analysis.datasets.descriptors import (
     _catalog_identity,
     _complete_from_schema,
     _deferred_type,
+    _entity_identity,
     _exact_byte_count,
     _ExactByteCount,
     _field_binding_fingerprint,
@@ -45,6 +46,7 @@ from marivo.analysis.datasets.state import (
 )
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.refs import ArtifactRef
+from marivo.refs import ref
 from tests.lazy_dataset_fixtures import TEST_IDS, make_materialized_dataset, make_row_contracts
 
 
@@ -59,6 +61,11 @@ def test_all_closed_variants_have_exact_non_optional_fields() -> None:
     )
     cases = (
         (_catalog_identity("metric:revenue"), "catalog_ref", {"kind", "identity_id"}),
+        (
+            _entity_identity(ref.entity("sales.customer"), (("id", "numeric"),), ids=TEST_IDS),
+            "entity_identity",
+            {"kind", "entity_ref", "identity_signature"},
+        ),
         (
             _runtime_metric_identity("runtime:v1"),
             "runtime_metric",
@@ -96,6 +103,43 @@ def test_all_closed_variants_have_exact_non_optional_fields() -> None:
         assert len(repr(value)) <= 200
         with pytest.raises((FrozenInstanceError, TypeError)):
             value.kind = "changed"
+
+
+def test_entity_identity_preserves_complete_ordered_component_signature() -> None:
+    base = make_row_contracts("entity")[0].schema.columns[0]
+    entity = ref.entity("sales.customer")
+    signatures = (
+        (("id", "numeric"),),
+        (("id", "string"),),
+        (("region", "string"), ("id", "numeric")),
+        (("id", "numeric"), ("region", "string")),
+    )
+    identities = tuple(
+        _entity_identity(entity, signature, ids=TEST_IDS) for signature in signatures
+    )
+    assert identities[0].entity_ref == entity
+    assert identities[0].identity_signature == (("id", "numeric"),)
+    fingerprints = {
+        _field_binding_fingerprint(replace(base, _token=_CORE_TOKEN, identity=identity))
+        for identity in identities
+    }
+    other = _entity_identity(ref.entity("sales.account"), signatures[0], ids=TEST_IDS)
+    fingerprints.add(_field_binding_fingerprint(replace(base, _token=_CORE_TOKEN, identity=other)))
+    assert len(fingerprints) == 5
+
+
+@pytest.mark.parametrize(
+    "signature",
+    [(), [], (("id", "unknown"),), (("id", "numeric"), ("id", "string")), (("id",),)],
+)
+def test_entity_identity_rejects_invalid_component_signatures(signature: tuple) -> None:
+    with pytest.raises(DatasetConstructionError):
+        _entity_identity(ref.entity("sales.customer"), signature, ids=TEST_IDS)
+
+
+def test_entity_identity_rejects_a_ref_of_another_kind() -> None:
+    with pytest.raises(DatasetConstructionError, match="an exact Entity ref"):
+        _entity_identity(ref.metric("sales.revenue"), (("id", "numeric"),), ids=TEST_IDS)
 
 
 def test_shape_field_id_and_schema_are_exact_bounded_immutable_values() -> None:

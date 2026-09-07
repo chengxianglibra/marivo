@@ -16,7 +16,11 @@ from marivo.analysis.datasets.descriptors import (
     _validate_row_contract_pair,
 )
 from marivo.analysis.datasets.errors import DatasetRegistrationError
-from marivo.analysis.datasets.handles import _check_label
+from marivo.analysis.datasets.handles import (
+    _check_label,
+    _LogicalNodePayload,
+    _validate_payload_type,
+)
 from marivo.analysis.datasets.state import MaterializedDatasetState
 
 if TYPE_CHECKING:
@@ -77,12 +81,31 @@ class DatasetFamilyRegistration:
     repr_renderer: Callable[[Dataset], str]
     materialized_state_decoder: Callable[[MaterializedDatasetState], MaterializedDatasetState]
     unique_tie_breakers: tuple[tuple[DatasetFieldId, ...], ...] = ()
+    node_payload_types: tuple[type[_LogicalNodePayload], ...] = ()
+    consumer_admission: Callable[[Dataset, str], bool] | None = None
+    contract_facts: Callable[[Dataset], tuple[tuple[str, str], ...]] | None = None
 
     def __post_init__(self) -> None:
         from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 
-        for sequence in (self.shape_ids, self.consumers, self.unique_tie_breakers):
+        for sequence in (
+            self.shape_ids,
+            self.consumers,
+            self.unique_tie_breakers,
+            self.node_payload_types,
+        ):
             _immutable_sequence(sequence)
+        if len(set(self.node_payload_types)) != len(self.node_payload_types):
+            raise _registration_error(
+                "unique exact owner payload classes", "duplicate payload type"
+            )
+        for payload_type in self.node_payload_types:
+            _validate_payload_type(payload_type)
+        for callback in (self.consumer_admission, self.contract_facts):
+            if callback is not None and not callable(callback):
+                raise _registration_error(
+                    "callable owner admission and contract facts", "invalid callback"
+                )
         for tie_breaker in self.unique_tie_breakers:
             _immutable_sequence(tie_breaker)
 
@@ -185,6 +208,27 @@ class DatasetFamilyRegistration:
         _validate_row_contract_pair(row, row_set, unique_tie_breakers=self.unique_tie_breakers)
         self.row_validator(row, row_set)
 
+    def validate_payload(self, payload: _LogicalNodePayload | None) -> None:
+        if payload is not None and type(payload) not in self.node_payload_types:
+            raise _registration_error("an exact family-owned node payload", "unregistered payload")
+
+    def admits(self, dataset: Dataset, consumer_id: str) -> bool:
+        if self.consumer_admission is None:
+            return True
+        admitted = self.consumer_admission(dataset, consumer_id)
+        if type(admitted) is not bool:
+            raise _registration_error("a boolean owner admission decision", "invalid admission")
+        return admitted
+
+    def facts_for(self, dataset: Dataset) -> tuple[tuple[str, str], ...]:
+        facts = () if self.contract_facts is None else self.contract_facts(dataset)
+        _immutable_sequence(facts)
+        for fact in facts:
+            _immutable_sequence(fact)
+            if len(fact) != 2 or any(type(value) is not str for value in fact):
+                raise _registration_error("immutable named owner contract facts", "invalid fact")
+        return facts
+
 
 class DatasetFamilyRegistry:
     """Private assembly registry explicitly frozen before pure Dataset construction."""
@@ -255,6 +299,7 @@ class DatasetFamilyRegistry:
                     item
                     for item in registration.consumers
                     if dataset.row_contract.shape_id in item.accepted_shape_ids
+                    and registration.admits(dataset, item.id)
                 ),
                 key=lambda item: item.id,
             )

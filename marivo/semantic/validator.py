@@ -12,14 +12,26 @@ import ast
 import hashlib
 import inspect
 import textwrap
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
+from datetime import datetime, time, timedelta
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
+from zoneinfo import ZoneInfo
 
-from marivo.datasource.ir import DatasourceIR, TableSourceIR
+import ibis.expr.datatypes as dt
+
+from marivo.datasource.ir import (
+    CsvSourceIR,
+    DatasourceIR,
+    EntitySourceIR,
+    JsonQueryParamValue,
+    JsonSourceIR,
+    ParquetSourceIR,
+    TableSourceIR,
+)
 from marivo.introspection._fuzzy import did_you_mean
-from marivo.refs import SemanticKind
+from marivo.refs import RefPayloadV1, SemanticKind, _create_ref
 from marivo.refs import ref as ref_factory
 from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
@@ -54,6 +66,13 @@ from marivo.semantic.ir import (
     StateTriggerDeclarationIR,
     StateTriggerIR,
     StrptimeParse,
+    TargetDimensionContract,
+    TargetEntityContract,
+    TargetRuntimeObligation,
+    TargetSnapshotSelection,
+    TargetSnapshotVersion,
+    TargetValiditySelection,
+    TargetValidityVersion,
     TemporalSetIR,
     TimestampParse,
     ValidityVersioningIR,
@@ -125,6 +144,288 @@ class Registry:
         if getattr(self, "_frozen", False):
             raise AttributeError("compiled semantic registry is immutable")
         object.__setattr__(self, name, value)
+
+
+def _target_error(*, ref: str, expected: str, received: str, action: str) -> NoReturn:
+    raise SemanticLoadError(
+        kind="invalid_target_semantics",
+        message="The declaration cannot supply the private lazy semantic contract.",
+        refs=(ref,),
+        expected=expected,
+        received=received,
+        hint=action,
+        repair=repair(kind="reauthor", canonical_id="entity", action=action),
+    )
+
+
+def _target_columns(entity: EntityIR) -> tuple[tuple[str, str], ...]:
+    source = entity.source
+    if isinstance(source, TableSourceIR):
+        columns = tuple((name, value.data_type) for name, value in source.columns)
+    elif isinstance(source, CsvSourceIR | JsonSourceIR):
+        columns = source.schema
+    else:
+        columns = ()
+    return tuple((name, str(dt.dtype(data_type))) for name, data_type in columns)
+
+
+def _snapshot_target_source(source: EntitySourceIR) -> EntitySourceIR:
+    """Detach nested authoring sequences from the captured source declaration."""
+    if isinstance(source, JsonSourceIR):
+        query: list[tuple[str, JsonQueryParamValue]] = []
+        for name, value in source.query_params:
+            frozen_value = (
+                tuple(value)
+                if isinstance(value, Sequence) and not isinstance(value, str)
+                else value
+            )
+            query.append((name, frozen_value))
+        return replace(
+            source,
+            schema=tuple((name, dtype) for name, dtype in source.schema),
+            field_paths=tuple((name, path) for name, path in source.field_paths),
+            query_params=tuple(query),
+            body_params=tuple((tuple(path), parameter) for path, parameter in source.body_params),
+        )
+    if isinstance(source, CsvSourceIR):
+        return replace(source, schema=tuple((name, dtype) for name, dtype in source.schema))
+    if isinstance(source, ParquetSourceIR):
+        return replace(
+            source, columns=tuple(source.columns) if source.columns is not None else None
+        )
+    return replace(source, columns=tuple(source.columns))
+
+
+def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetDimensionContract:
+    """Normalize a declared column Dimension without compiling or reading its source."""
+    dimension = registry.dimensions.get(dimension_id)
+    if dimension is None:
+        _target_error(
+            ref=dimension_id,
+            expected="a loaded Dimension",
+            received="not loaded",
+            action="Use a Dimension from the current Registry.",
+        )
+    entity = registry.entities.get(dimension.entity)
+    if entity is None or dimension.source_column is None:
+        _target_error(
+            ref=dimension_id,
+            expected="a declared direct source column on a loaded Entity",
+            received="missing declared source-column facts",
+            action="Declare a direct-column Dimension with typed source columns.",
+        )
+    columns = dict(_target_columns(entity))
+    data_type = columns.get(dimension.source_column)
+    if data_type is None:
+        _target_error(
+            ref=dimension_id,
+            expected="a declared source-column type",
+            received="column type is not declared",
+            action="Declare the Dimension column in the source schema.",
+        )
+    dimension_ref = (
+        _create_ref(SemanticKind.TIME_DIMENSION, dimension_id)
+        if dimension.is_time_dimension
+        else _create_ref(SemanticKind.DIMENSION, dimension_id)
+    )
+    parse = dimension.parse
+    if (
+        isinstance(parse, DateParse)
+        or (parse is None and dt.dtype(data_type).is_date())
+        or (isinstance(parse, StrptimeParse) and not is_time_bearing_format(parse.format))
+    ):
+        logical_type = "date"
+    elif dimension.is_time_dimension:
+        if parse is None and not dt.dtype(data_type).is_timestamp():
+            _target_error(
+                ref=dimension_id,
+                expected="a temporal source type or explicit temporal parse",
+                received="a non-temporal source type without parse",
+                action="Declare the source time type or a governed temporal parser.",
+            )
+        logical_type = "timestamp"
+    else:
+        logical_type = data_type
+    return TargetDimensionContract(
+        ref=RefPayloadV1.from_ref(dimension_ref),
+        entity_ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.ENTITY, entity.semantic_id)),
+        source_column=dimension.source_column,
+        logical_type=logical_type,
+        nullable=dt.dtype(data_type).nullable,
+        is_time_dimension=dimension.is_time_dimension,
+        granularity=dimension.granularity,
+        is_default=dimension.is_default,
+        timezone=(
+            parse.timezone
+            if isinstance(parse, DatetimeParse | TimestampParse | StrptimeParse)
+            else None
+        ),
+    )
+
+
+def _target_time_axis(registry: Registry, entity: EntityIR, path: str) -> TargetDimensionContract:
+    axis = normalize_target_dimension(registry, path)
+    if axis.entity_ref.path != entity.semantic_id or not axis.is_time_dimension:
+        _target_error(
+            ref=entity.semantic_id,
+            expected="a temporal Dimension on the same Entity",
+            received="a foreign or non-temporal version axis",
+            action="Reference a declared temporal Dimension owned by this Entity.",
+        )
+    return axis
+
+
+def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityContract:
+    """Derive target K and version-row facts; keep public assembly validation unchanged."""
+    entity = registry.entities.get(entity_id)
+    if entity is None:
+        _target_error(
+            ref=entity_id,
+            expected="a loaded Entity",
+            received="not loaded",
+            action="Use an Entity from the current Registry.",
+        )
+    columns = _target_columns(entity)
+    types = dict(columns)
+    key = entity.primary_key
+    if len(set(key)) != len(key) or any(name not in types for name in key):
+        _target_error(
+            ref=entity_id,
+            expected="distinct identity keys with declared source types",
+            received="duplicate keys or missing type facts",
+            action="Declare each identity key once in the typed source schema.",
+        )
+    signature = tuple((name, types[name]) for name in key)
+    obligations: list[TargetRuntimeObligation] = []
+    if key:
+        obligations.append(TargetRuntimeObligation("identity_non_null", key))
+    version: TargetSnapshotVersion | TargetValidityVersion | None = None
+    row_key = key
+    authored = entity.versioning
+    if isinstance(authored, SnapshotVersioningIR):
+        axis = _target_time_axis(registry, entity, authored.partition_field)
+        if axis.source_column in key:
+            _target_error(
+                ref=entity_id,
+                expected="stable identity K separate from snapshot coordinate",
+                received="snapshot coordinate included in K",
+                action="Declare stable identity keys without the version coordinate.",
+            )
+        version = TargetSnapshotVersion(
+            axis.ref,
+            axis.source_column,
+            axis.logical_type,
+            authored.timezone or axis.timezone,
+            authored.format,
+        )
+        row_key = (*key, axis.source_column) if key else ()
+        obligations.append(
+            TargetRuntimeObligation("exact_snapshot_available", (axis.source_column,))
+        )
+    elif isinstance(authored, ValidityVersioningIR):
+        start = _target_time_axis(registry, entity, authored.valid_from)
+        end = _target_time_axis(registry, entity, authored.valid_to)
+        if start.source_column == end.source_column or any(
+            column in key for column in (start.source_column, end.source_column)
+        ):
+            _target_error(
+                ref=entity_id,
+                expected="distinct validity bounds separate from K",
+                received="overlapping identity and version declarations",
+                action="Declare stable identity keys and two distinct validity axes.",
+            )
+        version = TargetValidityVersion(
+            start.ref,
+            end.ref,
+            start.source_column,
+            end.source_column,
+            authored.interval,
+            authored.open_end,
+            authored.timezone or start.timezone,
+        )
+        row_key = (*key, start.source_column) if key else ()
+        obligations.append(
+            TargetRuntimeObligation(
+                "validity_well_formed", (start.source_column, end.source_column)
+            )
+        )
+        if key:
+            obligations.append(TargetRuntimeObligation("validity_non_overlapping", key))
+    if row_key:
+        obligations.append(TargetRuntimeObligation("source_row_unique", row_key))
+    if key and version is not None:
+        obligations.append(TargetRuntimeObligation("selected_identity_unique", key))
+    datasource = registry.datasources.get(entity.datasource)
+    if datasource is None:
+        _target_error(
+            ref=entity_id,
+            expected="a loaded declared datasource",
+            received="datasource not loaded",
+            action="Load the Entity's declared datasource before constructing its contract.",
+        )
+    from marivo.semantic.metric_graph_lowering import dependency_fingerprint_for_target
+
+    dependency_fingerprint = dependency_fingerprint_for_target(
+        registry,
+        kind="entity",
+        semantic_id=entity_id,
+    )
+    credential_slots = tuple(sorted(datasource.env_refs))
+    return TargetEntityContract(
+        ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.ENTITY, entity_id)),
+        datasource_ref=RefPayloadV1.from_ref(
+            _create_ref(SemanticKind.DATASOURCE, entity.datasource)
+        ),
+        dependency_fingerprint=dependency_fingerprint,
+        source=_snapshot_target_source(entity.source),
+        primary_key=key,
+        identity_signature=signature,
+        version_row_key=row_key,
+        columns=columns,
+        version=version,
+        obligations=tuple(obligations),
+        credential_slots=credential_slots,
+    )
+
+
+def normalize_target_version_selection(
+    entity: TargetEntityContract,
+    *,
+    boundary: datetime,
+    interpretation: Literal["instant", "before_endpoint"],
+) -> TargetSnapshotSelection | TargetValiditySelection:
+    """Resolve exact period/comparison facts without observing available versions."""
+    version = entity.version
+    if version is None or interpretation not in {"instant", "before_endpoint"}:
+        _target_error(
+            ref=entity.ref.path,
+            expected="versioning and an exact boundary interpretation",
+            received="unversioned Entity or unsupported interpretation",
+            action="Supply a versioned Entity and an instant or before-endpoint boundary.",
+        )
+    zone = ZoneInfo(version.timezone or "UTC")
+    localized = (
+        boundary.replace(tzinfo=zone) if boundary.tzinfo is None else boundary.astimezone(zone)
+    )
+    if isinstance(version, TargetSnapshotVersion):
+        period = localized.date()
+        if (
+            interpretation == "before_endpoint"
+            and localized.timetz().replace(tzinfo=None) == time()
+        ):
+            period -= timedelta(days=1)
+        return TargetSnapshotSelection(version.coordinate_ref, period.isoformat(), interpretation)
+    return TargetValiditySelection(
+        version.valid_from_ref,
+        version.valid_to_ref,
+        localized.isoformat(),
+        "lt" if interpretation == "before_endpoint" else "le",
+        "ge"
+        if interpretation == "before_endpoint" or version.interval == "closed_closed"
+        else "gt",
+        version.open_end,
+        interpretation,
+    )
 
 
 _PARTITION_TIME_COLUMN_NAMES = {

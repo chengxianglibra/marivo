@@ -7,6 +7,7 @@ from dataclasses import replace
 
 import pytest
 
+from marivo.analysis.datasets.base import Dataset, LogicalDataset
 from marivo.analysis.datasets.contract import DatasetContract
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
@@ -15,6 +16,7 @@ from marivo.analysis.datasets.descriptors import (
     _make_field_id,
     _make_schema,
 )
+from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.datasets.registry import ConsumerRegistration, DatasetFamilyRegistry
 from marivo.render import AgentResult
 from tests.lazy_dataset_fixtures import (
@@ -121,6 +123,28 @@ def test_continuations_use_registered_shape_admission_roles_and_requirements() -
         "test.step: input_roles=(source) -> test; requirements=(test.require_entity)" in entity_card
     )
     assert entity_card.index("test.combine:") < entity_card.index("test.step:")
+
+
+def test_owner_admission_is_shared_by_operator_construction_and_contract_disclosure() -> None:
+    def admits(dataset: Dataset, consumer_id: str) -> bool:
+        return consumer_id != "test.step" or isinstance(dataset, LogicalDataset)
+
+    def facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
+        return (("test.shape", dataset.row_contract.shape_id.local_shape_id),)
+
+    registry = DatasetFamilyRegistry()
+    registry.register(
+        replace(make_test_registration(), consumer_admission=admits, contract_facts=facts)
+    )
+    registry.freeze()
+    source = make_logical_dataset(registry=registry)
+    assert "test.step:" in source.contract().render(max_output_bytes=None)
+    assert "test.shape: scalar" in source.contract().render(max_output_bytes=None)
+    assert source.step().kind == "test"
+    materialized = make_materialized_dataset(registry=registry)
+    assert "test.step:" not in materialized.contract().render(max_output_bytes=None)
+    with pytest.raises(DatasetRegistrationError, match="unavailable operator"):
+        materialized.step()
 
 
 def test_contract_and_render_do_not_repeat_family_validation_or_registry_reads(

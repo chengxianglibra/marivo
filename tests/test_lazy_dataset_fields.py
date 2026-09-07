@@ -14,6 +14,7 @@ from marivo.analysis.datasets.descriptors import (
     DatasetRowContract,
     DatasetRowSetContract,
     _catalog_identity,
+    _entity_identity,
     _make_field_id,
     _make_schema,
     _resolved_type,
@@ -205,6 +206,39 @@ def test_binding_guard_covers_every_field_fact(attribute: str) -> None:
     target = make_logical_dataset(owner=source._owner, contracts=_contracts(changed))
     with pytest.raises(DatasetFieldSelectionError):
         validate_field_ref(target, selector)
+
+
+def test_entity_selector_is_bound_to_the_exact_signature_and_ref() -> None:
+    row, row_set = make_row_contracts("entity")
+    identity_field = row.schema.columns[0]
+    entity = ref.entity("sales.customer")
+
+    def contracts(
+        entity_path: str, signature: tuple[tuple[str, str], ...]
+    ) -> tuple[DatasetRowContract, DatasetRowSetContract]:
+        column = replace(
+            identity_field,
+            _token=_CORE_TOKEN,
+            identity=_entity_identity(ref.entity(entity_path), signature, ids=TEST_IDS),
+        )
+        return replace(
+            row, _token=_CORE_TOKEN, schema=_make_schema((column, *row.schema.columns[1:]))
+        ), row_set
+
+    source = make_logical_dataset(contracts=contracts(entity.path, (("id", "numeric"),)))
+    selector = source.fields.get(identity_field.field_id)
+    for entity_path, signature in (
+        (entity.path, (("id", "string"),)),
+        ("sales.account", (("id", "numeric"),)),
+    ):
+        target = make_logical_dataset(
+            owner=source._owner, contracts=contracts(entity_path, signature)
+        )
+        with pytest.raises(DatasetFieldSelectionError):
+            validate_field_ref(target, selector)
+    assert "entity_identity:entity:sales.customer(id:numeric)" in source.contract().render(
+        max_output_bytes=None
+    )
 
 
 def test_fields_and_selectors_are_closed_immutable_and_not_column_protocols() -> None:

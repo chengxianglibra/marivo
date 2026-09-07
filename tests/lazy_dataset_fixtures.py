@@ -42,6 +42,7 @@ from marivo.analysis.datasets.handles import (
     CanonicalValue,
     RealizationHandle,
     RealizationRequirement,
+    _LogicalNodePayload,
 )
 from marivo.analysis.datasets.registry import (
     ConsumerRegistration,
@@ -278,6 +279,7 @@ def make_logical_dataset(
     requirements: tuple[str, ...] = (),
     dependency_facts: tuple[str, ...] = (),
     contract_versions: tuple[tuple[str, str], ...] = (),
+    payload: _LogicalNodePayload | None = None,
 ) -> LogicalTestDataset:
     row, row_set = contracts if contracts is not None else make_row_contracts()
     owner = make_owner() if owner is None else owner
@@ -299,6 +301,7 @@ def make_logical_dataset(
             realizations=realizations,
             dependency_facts=dependency_facts,
             contract_versions=contract_versions,
+            payload=payload,
         )
     else:
         result = _make_logical_dataset(
@@ -314,6 +317,7 @@ def make_logical_dataset(
             requirements=requirements,
             dependency_facts=dependency_facts,
             contract_versions=contract_versions,
+            payload=payload,
         )
     assert isinstance(result, LogicalTestDataset)
     return result
