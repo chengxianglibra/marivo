@@ -1,0 +1,71 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.5.4
+title: Marivo 0.5.4
+description: Marivo 0.5.4 发布说明。
+---
+
+Marivo 0.5.4 让语义定义可以直接读取，并强化了由宿主管理的数据源凭据和连接生命周期。
+
+## 重点
+
+- `entry.details().definition` 会为已加载的 metric、measure、dimension 和
+  time dimension 返回不可变的 `SemanticDefinition`。它的 JSON 安全
+  `to_dict()` 投影会提供直接计算结构、时间规则和经过脱敏的规范化 Ibis 展示，
+  不执行数据读取，也不会暴露源代码、凭据或数据源配置。
+- `md.credential_scope(resolver=...)` 允许宿主通过上下文内的 resolver 提供短期数据源
+  凭据。注入的 secret 不会进入项目状态，也不会被缓存或序列化。
+- 数据源编写、检查、语义 preview、source health 和 parity 现在使用有界且由操作拥有的
+  连接并负责清理；analysis Session 继续保留自己的连接，直到 `Session.close()`。
+
+## 变更
+
+- 凭据请求会将绑定的项目、数据源引用、请求字段和操作 deadline 传递给宿主 resolver。
+  环境变量凭据会保留已验证的来源信息；宿主注入值不会回退到环境变量或 secret cache。
+- 数据源 handshake 现在有明确的 deadline，并为失败、超时和中断提供清理路径。DuckDB
+  配置冲突会返回结构化修复指引，不会静默改变连接所有权或模式。
+- 语义定义读取和数据源生命周期行为现在可通过 focused Help、API reference 和随包提供的
+  agent guidance 获取。
+
+## 修复
+
+- 派生时间语义现在区分普通可加组合与由组件定义的计算，同时保留已声明的 fold、override
+  和计算 identity。
+- Definition display 的预算与结构支持独立处理；即使无法在预算内生成展示，仍会保留受支持
+  的表达式树。
+- 被中断 handshake 产生的延迟 backend 结果会被回收，不会覆盖原始异常，也不会进入缓存。
+
+## 文档
+
+- 更新中英文 semantic layer、datasource、deployment、installation 和 agent 指引，覆盖
+  definition reading、宿主凭据注入、连接所有权、deadline 与清理行为。
+
+## 安装
+
+国内网络建议运行：
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+也可以使用标准安装器：
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+手动安装：
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.5.4 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/zh-cn/docs/latest/concepts/evidence/)
