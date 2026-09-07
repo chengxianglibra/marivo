@@ -9,7 +9,17 @@ from marivo.analysis import grain, time_scope
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetOwnershipError
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.observation.contracts import MetricPayload
-from marivo.analysis.observation.predicates import all_of, eq, gt
+from marivo.analysis.observation.predicates import (
+    all_of,
+    any_of,
+    eq,
+    gt,
+    is_in,
+    is_null,
+    lte,
+    not_,
+    not_eq,
+)
 from marivo.refs import ref
 from tests.lazy_observation_fixtures import make_sources
 
@@ -133,3 +143,27 @@ def test_provably_contradictory_ordering_fails_without_rows() -> None:
     with pytest.raises(DatasetConstructionError, match="contradictory"):
         source.where(eq(REVENUE, 1), gt(REVENUE, 2))
     assert source.where(eq(REVENUE, 2), gt(REVENUE, 1)).kind == "metric"
+
+
+def test_complete_boolean_vocabulary_binds_through_metric_and_population_owners() -> None:
+    sources = make_sources()
+    metric = sources.observe(REVENUE).with_dimensions(REGION)
+    selected = metric.where(
+        any_of(is_in(REGION, ["EU", "APAC"]), is_null(REGION)),
+        not_(not_eq(REVENUE, 10)),
+        lte(REVENUE, 20),
+    )
+    assert selected.row_contract == metric.row_contract
+    equivalent = metric.where(
+        lte(REVENUE, 20),
+        not_(not_eq(REVENUE, 10)),
+        any_of(is_null(REGION), is_in(REGION, ["APAC", "EU", "EU"])),
+    )
+    assert selected.definition_fingerprint == equivalent.definition_fingerprint
+    population = sources.population(ref.entity("sales.orders"))
+    union = population.where(any_of(eq(REGION, "EU"), eq(REGION, "APAC")))
+    assert union.row_contract == population.row_contract
+    assert (
+        union.definition_fingerprint
+        == population.where(any_of(eq(REGION, "APAC"), eq(REGION, "EU"))).definition_fingerprint
+    )

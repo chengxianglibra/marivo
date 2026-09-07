@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo._temporal import Grain, TimeScope
 from marivo.analysis.datasets.actions import construct_operator
@@ -16,10 +16,12 @@ from marivo.analysis.datasets.base import (
 )
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
+    _canonical_digest,
     _EntityFieldIdentity,
     _make_row_contract,
     _make_schema,
 )
+from marivo.analysis.datasets.fields import DatasetFieldRef
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.observation import aggregation, coordinates
@@ -49,6 +51,7 @@ from marivo.analysis.observation.population import (
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import MetricEntry
+from marivo.semantic.ir import TargetDimensionContract
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import normalize_target_entity
@@ -67,6 +70,37 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
 
     __slots__ = ()
 
+    def rank(
+        self,
+        by: DatasetFieldRef,
+        *,
+        order: Literal["ascending", "descending"] = "descending",
+        ties: Literal["ordinal", "dense", "min", "max"] = "ordinal",
+        partition_by: tuple[DatasetFieldRef, ...] = (),
+    ) -> LogicalMetricDataset:
+        """Rank current numeric values by the exact by selector.
+
+        Args: by: Current value field. order: Direction. ties: Tie method.
+            partition_by: Distinct current row-key coordinates.
+        Returns: Logical Metric with nullable rank and deterministic total order.
+        Example: ``metrics.rank(metrics.fields.metric(revenue)).limit(10)``.
+        Constraints: Registered non-singleton shapes only; no data work occurs.
+        """
+        from marivo.analysis.observation.ordering import rank
+
+        return _checked(rank(self, by, order=order, ties=ties, partition_by=partition_by))
+
+    def limit(self, count: int) -> LogicalMetricDataset:
+        """Keep the first count rows of the existing logical order.
+
+        Args: count: Exact integer from 1 through 100000.
+        Returns: Logical Metric with the same row contract and a bounded row set.
+        Example: ``ranked.limit(10)``. Constraints: Requires a registered total order.
+        """
+        from marivo.analysis.observation.ordering import limit
+
+        return _checked(limit(self, count))
+
     def where(self, *predicates: AnalysisPredicate) -> LogicalMetricDataset:
         """Select current rows using predicates; return a new Logical Metric.
 
@@ -75,7 +109,7 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
         return _where(self, predicates)
 
     def with_dimensions(self, *dimensions: DimensionInput) -> LogicalMetricDataset:
-        """Add ordered functional dimensions and return a Logical Metric.
+        """Add ordered governed dimensions and return a Logical Metric.
 
         Example: ``metrics.with_dimensions(region)``. Constraints: Entity must remain present.
         """
@@ -87,7 +121,7 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
         """Add time_dimension at grain and return a Logical Metric.
 
         Example: ``metrics.with_time_axis(day, grain=grain('day'))``.
-        Constraints: Only one initial day axis is admitted; scope is unchanged.
+        Constraints: One governed time axis is admitted; scope is unchanged.
         """
         return _checked(coordinates.with_time_axis(self, time_dimension, grain))
 
@@ -119,6 +153,36 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
     """Retained Metric rows backed by an exact immutable Artifact scan leaf."""
 
     __slots__ = ()
+
+    def rank(
+        self,
+        by: DatasetFieldRef,
+        *,
+        order: Literal["ascending", "descending"] = "descending",
+        ties: Literal["ordinal", "dense", "min", "max"] = "ordinal",
+        partition_by: tuple[DatasetFieldRef, ...] = (),
+    ) -> LogicalMetricDataset:
+        """Describe ranking over exact retained rows using the current by selector.
+
+        Args: by: Numeric field. order: Direction. ties: Tie method.
+            partition_by: Distinct current key coordinates.
+        Returns: Logical Metric. Example: ``retained.rank(retained.fields.get('revenue'))``.
+        Constraints: Retained execution needs its separately registered local method.
+        """
+        from marivo.analysis.observation.ordering import rank
+
+        return _checked(rank(self, by, order=order, ties=ties, partition_by=partition_by))
+
+    def limit(self, count: int) -> LogicalMetricDataset:
+        """Describe a count-row prefix of the retained logical ordering.
+
+        Args: count: Exact integer from 1 through 100000.
+        Returns: Logical Metric. Example: ``retained.limit(10)``.
+        Constraints: File or preview order cannot authorize this operation.
+        """
+        from marivo.analysis.observation.ordering import limit
+
+        return _checked(limit(self, count))
 
     def where(self, *predicates: AnalysisPredicate) -> LogicalMetricDataset:
         """Select retained rows using predicates and return a Logical Metric.
@@ -237,14 +301,6 @@ def make_observation(
         normalize_target_metric(owner.semantic_registry, item.path, sidecar=owner.sidecar)
         for item in references
     )
-    if any(
-        component.time_fold is not None for metric in normalized for component in metric.components
-    ):
-        raise construction_error(
-            "plain additive/count/mean/weighted/ratio component graphs in this slice",
-            "semi-additive status-time fold",
-            repair="Use an initial supported plain component graph; status-time and general temporal fold admission belongs to Slice 3a.",
-        )
     roots = tuple(
         dict.fromkeys(root.path for item in normalized for root in item.computation_roots)
     )
@@ -281,7 +337,8 @@ def make_observation(
     if population.kind == "metric":
         semantics = population.row_contract.family_semantics
         if not isinstance(semantics, EntityPresentMetricSemantics) or any(
-            grain not in ("functional", "day") for _, grain, _ in semantics.coordinate_semantics
+            not facts or facts[0] != "entity_unique"
+            for _, _, facts in semantics.coordinate_semantics
         ):
             raise construction_error(
                 "owner-proven Entity-unique Metric coordinates", "unsupported identity projection"
@@ -291,17 +348,54 @@ def make_observation(
         raise construction_error("same governed identity signature", "changed Entity key contract")
     paths = tuple(
         coordinates.functional_path(
-            owner.semantic_registry, root, entity.ref.path, allow_versioned_target=True
+            owner.semantic_registry,
+            root,
+            entity.ref.path,
+            allow_versioned_target=True,
+            allow_versioned_source=True,
         )
         for root in roots
     )
-    axis = coordinates.resolve_time_axis(owner, roots, time_scope, time_dimension)
+    required_axes = tuple(
+        dict.fromkeys(
+            (
+                *[
+                    component.status_time_dimension.path
+                    for metric in normalized
+                    for component in metric.components
+                    if component.status_time_dimension is not None
+                ],
+                *[item.over_ref.path for metric in normalized for item in metric.cumulative],
+            )
+        )
+    )
+    if len(required_axes) > 1:
+        raise construction_error(
+            "one common observation time axis", "incompatible component status/cumulative axes"
+        )
+    axis: TargetDimensionContract | None
+    if time_scope is not None and time_dimension is None and required_axes:
+        from marivo.semantic.validator import normalize_target_dimension
+
+        axis = normalize_target_dimension(owner.semantic_registry, required_axes[0])
+        for root in roots:
+            coordinates.functional_path(
+                owner.semantic_registry, root, axis.entity_ref.path, allow_versioned_source=True
+            )
+    else:
+        axis = coordinates.resolve_time_axis(owner, roots, time_scope, time_dimension)
+    if axis is not None and required_axes and axis.ref.path != required_axes[0]:
+        raise construction_error("the governed status/cumulative reference axis", axis.ref.path)
     for root in roots:
-        if normalize_target_entity(owner.semantic_registry, root).version is not None:
+        if normalize_target_entity(owner.semantic_registry, root).version is not None and any(
+            component.computation_root.path == root and component.status_time_dimension is None
+            for metric in normalized
+            for component in metric.components
+        ):
             raise construction_error(
                 "owning temporal fold for versioned Metric contributions",
-                "versioned Metric evaluation is outside this slice",
-                repair="Use the scoped Population with a non-versioned Metric fact source; versioned Metric evaluation requires its registered temporal fold.",
+                "versioned Metric lacks a status-time fold",
+                repair="Declare the exact business status axis and temporal fold for every versioned contribution.",
             )
     source_ids = set(roots) | set(
         coordinates.path_entities(owner.semantic_registry, entity.ref.path, paths)
@@ -316,11 +410,38 @@ def make_observation(
                     root,
                     (
                         coordinates.functional_path(
-                            owner.semantic_registry, root, axis.entity_ref.path
+                            owner.semantic_registry,
+                            root,
+                            axis.entity_ref.path,
+                            allow_versioned_source=True,
                         ),
                     ),
                 )
             )
+    from marivo.semantic.metric_graph import AggregateNodeV1, WeightedMeanAggregateNodeV1
+    from marivo.semantic.validator import normalize_target_dimension
+
+    filter_dependencies: list[str] = []
+    for metric in normalized:
+        nodes = {record.node_id: record.node for record in metric.graph.nodes}
+        for component in metric.components:
+            node = nodes[component.node_id]
+            if not isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
+                continue
+            for condition in node.filter:
+                dimension = normalize_target_dimension(
+                    owner.semantic_registry, condition.dimension_ref.path
+                )
+                component_root = component.computation_root.path
+                route = coordinates.governed_path(
+                    owner.semantic_registry, component_root, dimension.entity_ref.path
+                )
+                source_ids.update(
+                    coordinates.path_entities(owner.semantic_registry, component_root, (route,))
+                )
+                filter_dependencies.append(
+                    path_dependency_fingerprint(owner, component_root, (route,))
+                )
     captures = owner.binding_scopes.capture(
         tuple(normalize_target_entity(owner.semantic_registry, name) for name in sorted(source_ids))
     )
@@ -338,8 +459,11 @@ def make_observation(
         axis,
         population_identity,
         contribution_paths=paths,
-        source_dependency_fingerprint=path_dependency_fingerprint(owner, entity.ref.path, paths),
+        source_dependency_fingerprint=_canonical_digest(
+            (path_dependency_fingerprint(owner, entity.ref.path, paths), tuple(filter_dependencies))
+        ),
     )
+    definition = coordinates.bind_aggregation(owner, definition)
     row, row_set = metric_contracts(definition, registry.get("metric").ids, owner.semantic_registry)
     return _checked(
         _make_logical_dataset(

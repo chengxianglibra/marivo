@@ -328,6 +328,7 @@ def test_captured_values_and_injected_errors_are_redacted_from_every_chain(tmp_p
         assert validation_kinds == {
             "validation:sales.api.identity_non_null",
             "validation:sales.api.source_row_unique",
+            "validation:dataset.final_row_key_unique",
         }
         record = runtime.store.artifact(materialized.state.artifact_ref.ref)
         assert record is not None

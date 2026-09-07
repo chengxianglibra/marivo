@@ -17,6 +17,8 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_PAYLOAD_BYTES = 1_048_576
+# Bound realization metadata independently of the generic JSON byte envelope.
+_MAX_SAMPLING_REALIZATIONS = 64
 
 
 def invalid(received: str) -> IntegrityError:
@@ -324,6 +326,104 @@ class MaterializationIssue:
 
 
 @dataclass(frozen=True, slots=True)
+class SamplingRealization:
+    """Bounded facts for one physically fenced Entity sample, without member values."""
+
+    ordinal: int
+    population_definition_fingerprint: str
+    target_population_definition_fingerprint: str
+    target_rows: int
+    seed: int | None
+    realized_entity_count: int
+    membership_digest: str
+    implementation_id: str = "duckdb.entity_reservoir@v1"
+
+
+def sampling_payload(value: tuple[SamplingRealization, ...] | None) -> object:
+    if value is None:
+        return None
+    return {
+        "schema": "marivo.population_sampling_execution/v1",
+        "realizations": [
+            {
+                "ordinal": item.ordinal,
+                "population_definition_fingerprint": item.population_definition_fingerprint,
+                "target_population_definition_fingerprint": item.target_population_definition_fingerprint,
+                "target_rows": item.target_rows,
+                "seed": item.seed,
+                "realized_entity_count": item.realized_entity_count,
+                "membership_digest": item.membership_digest,
+                "implementation_id": item.implementation_id,
+            }
+            for item in value
+        ],
+    }
+
+
+def decode_sampling(value: object) -> tuple[SamplingRealization, ...] | None:
+    if value is None:
+        return None
+    obj = _obj(value, "schema realizations")
+    if obj["schema"] != "marivo.population_sampling_execution/v1":
+        raise invalid("unsupported sampling execution contract")
+    records = _array(obj["realizations"])
+    if not 1 <= len(records) <= _MAX_SAMPLING_REALIZATIONS:
+        raise invalid("invalid sampling realization count")
+    result = []
+    for ordinal, record in enumerate(records):
+        item = _obj(
+            record,
+            "ordinal population_definition_fingerprint target_population_definition_fingerprint target_rows seed realized_entity_count membership_digest implementation_id",
+        )
+        sampled = _text(item["population_definition_fingerprint"])
+        target = _text(item["target_population_definition_fingerprint"])
+        member_digest = _text(item["membership_digest"])
+        _hash(member_digest)
+        if any(re.fullmatch(r"ds_[0-9a-f]{64}", text) is None for text in (sampled, target)):
+            raise invalid("invalid sampling Population definition")
+        seed = None if item["seed"] is None else _int(item["seed"])
+        target_rows = _int(item["target_rows"], minimum=1)
+        count = _int(item["realized_entity_count"])
+        if (
+            _int(item["ordinal"]) != ordinal
+            or item["implementation_id"] != "duckdb.entity_reservoir@v1"
+            or (seed is not None and seed > 2**31 - 1)
+            or target_rows > 1_000_000_000
+            or count > target_rows
+            or sampled == target
+        ):
+            raise invalid("inconsistent sampled Entity realization")
+        result.append(
+            SamplingRealization(ordinal, sampled, target, target_rows, seed, count, member_digest)
+        )
+    return tuple(result)
+
+
+def required_retained_contracts(
+    row: d.DatasetRowContract,
+    registered: tuple[str, ...],
+    *,
+    sampled: bool,
+) -> tuple[str, ...]:
+    """Select required registered state from the exact row semantics and sampling authority."""
+    from marivo.analysis.observation.contracts import (
+        EntityPresentMetricSemantics,
+        EntityReducedMetricSemantics,
+    )
+
+    semantics = row.family_semantics
+    component_state = isinstance(
+        semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
+    ) and any(binding[3] for binding in semantics.metric_bindings)
+    result = tuple(
+        name for name in registered if name != "metric.sufficient_components" or component_state
+    )
+    if sampled and "population_sampling_state" not in result:
+        result += ("population_sampling_state",)
+    return result
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactDescriptor:
     definition_fingerprint: str
     row_contract: d.DatasetRowContract
@@ -332,7 +432,7 @@ class ArtifactDescriptor:
     bounded_lineage: BoundedLineage
     semantic_dependency_digest: str
     population_authority: PopulationAuthority
-    sampling_execution: None
+    sampling_execution: tuple[SamplingRealization, ...] | None
     operator_implementation_versions: tuple[tuple[str, int], ...]
     dataset_materialization_contract: MaterializationContract
     storage_receipt: LocalReceipt
@@ -777,7 +877,7 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
             "version_selection": value.population_authority.version_selection,
             "validation_results": value.population_authority.validation_results,
         },
-        "sampling_execution": value.sampling_execution,
+        "sampling_execution": sampling_payload(value.sampling_execution),
         "operator_implementation_versions": value.operator_implementation_versions,
         "dataset_materialization_contract": materialization_payload(
             value.dataset_materialization_contract
@@ -813,10 +913,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         parse_json(text),
         "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues",
     )
-    if (
-        obj["schema"] != "marivo.dataset_artifact_descriptor/v1"
-        or obj["sampling_execution"] is not None
-    ):
+    if obj["schema"] != "marivo.dataset_artifact_descriptor/v1":
         raise invalid("unsupported Artifact descriptor or sampling contract")
     row = decode_row(obj["row_contract"], ids)
     row_set = decode_row_set(obj["row_set_contract"], ids)
@@ -891,7 +988,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             _selection(population["version_selection"]),
             _validation_results(population["validation_results"]),
         ),
-        None,
+        decode_sampling(obj["sampling_execution"]),
         tuple(versions),
         _materialization(obj["dataset_materialization_contract"], ids),
         decode_receipt(obj["storage_receipt"]),
@@ -910,6 +1007,13 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     ):
         raise invalid("contract fingerprint mismatch")
     contract = result.dataset_materialization_contract
+    if (
+        isinstance(row_set.ordering, d._OrderedOrdering)
+        and tuple(term.field_id for term in row_set.ordering.terms) != row.key_field_ids
+        and ("dataset.final_row_key_unique", 0)
+        not in result.population_authority.validation_results
+    ):
+        raise invalid("ordered output lacks independent final row-key validation")
     if str(contract.shape_id) != str(row.shape_id):
         raise invalid("materialization shape mismatch")
     registration = producer_contract(contract.producer_id)
@@ -924,7 +1028,9 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         "none",
         1,
         (registration.validation_id,),
-        registration.retained_contract_ids,
+        required_retained_contracts(
+            row, registration.retained_contract_ids, sampled=result.sampling_execution is not None
+        ),
         "zero_findings@v1",
     )
     if materialization_payload(contract) != materialization_payload(expected_contract):
@@ -936,21 +1042,57 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         not any(item.contract_id == expected for item in parts) for expected in registered_parts
     ):
         raise invalid("retained contract set mismatch")
+    sampling_parts = tuple(
+        item for item in parts if item.contract_id == "population_sampling_state"
+    )
+    if result.sampling_execution is None:
+        if sampling_parts or contract.producer_id == "population.sample":
+            raise invalid("missing required sampling execution")
+    else:
+        if (
+            len(sampling_parts) != 1
+            or sampling_parts[0].role != "population_sampling_state"
+            or sampling_parts[0].contract_version != 1
+            or sampling_parts[0].storage_receipt.realized_row_count != 1
+            or ("population.sample", 1) not in result.operator_implementation_versions
+        ):
+            raise invalid("inconsistent retained sampling state")
+        if row.shape_id.family_id == "population" and (
+            len(result.sampling_execution) != 1
+            or result.sampling_execution[0].population_definition_fingerprint
+            != result.definition_fingerprint
+            or result.sampling_execution[0].realized_entity_count
+            != result.storage_receipt.realized_row_count
+        ):
+            raise invalid("sampled Population receipt mismatch")
     if row.shape_id.family_id == "metric":
+        from marivo.analysis.observation.contracts import (
+            EntityPresentMetricSemantics,
+            EntityReducedMetricSemantics,
+        )
+
+        semantics = row.family_semantics
+        if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
+            raise invalid("missing Metric row semantics")
+        retained_fields = {binding[0] for binding in semantics.metric_bindings if binding[3]}
         expected_roles = {
             "metric_components." + d._canonical_digest(column.identity.identity_id[7:])[:20]
             for column in row.schema.columns
             if column.role_id == "metric"
+            and column.field_id in retained_fields
             and isinstance(column.identity, d._CatalogFieldIdentity)
             and column.identity.identity_id.startswith("metric:")
         }
-        if {item.role for item in parts} != expected_roles:
+        component_parts = tuple(
+            item for item in parts if item.contract_id != "population_sampling_state"
+        )
+        if {item.role for item in component_parts} != expected_roles:
             raise invalid("retained Metric component roles mismatch")
         if any(
             item.contract_id != "metric.sufficient_components"
             or item.contract_version != 1
             or item.storage_receipt.realized_row_count != result.storage_receipt.realized_row_count
-            for item in parts
+            for item in component_parts
         ):
             raise invalid("retained Metric component contract or count mismatch")
     if (

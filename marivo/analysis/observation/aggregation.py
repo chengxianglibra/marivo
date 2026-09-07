@@ -13,6 +13,7 @@ from marivo.analysis.observation.contracts import (
     producer_contract,
     source_owner_of,
 )
+from marivo.analysis.observation.coordinates import bind_aggregation
 
 
 def aggregate(dataset: Dataset) -> Dataset:
@@ -20,13 +21,8 @@ def aggregate(dataset: Dataset) -> Dataset:
     definition = metric_definition(dataset)
     if not definition.entity_present:
         raise construction_error("Entity axis present before reduction", "already reduced Metric")
-    if any(not item.supports_coordinate_aggregation for item in definition.metrics):
-        raise construction_error(
-            "exact component coordinate recomputation for every Metric",
-            "unsupported aggregation contract",
-        )
-    updated = replace(definition, entity_present=False)
     owner = source_owner_of(dataset)
+    updated = bind_aggregation(owner, replace(definition, entity_present=False))
     row, row_set = metric_contracts(updated, dataset._registration.ids, owner.semantic_registry)
     return construct_operator(
         owner=owner,

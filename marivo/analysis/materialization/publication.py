@@ -10,6 +10,8 @@ from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     MaterializationContract,
     PopulationAuthority,
+    SamplingRealization,
+    required_retained_contracts,
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import LocalWriteResult
@@ -53,7 +55,14 @@ def materialization_contract(dataset: LogicalDataset) -> MaterializationContract
         finding_extractor_id="none",
         finding_extractor_version=1,
         validation_output_contract_ids=(registration.validation_id,),
-        retained_private_state_contract_ids=registration.retained_contract_ids,
+        retained_private_state_contract_ids=required_retained_contracts(
+            dataset.row_contract,
+            registration.retained_contract_ids,
+            sampled=any(
+                isinstance(item.payload, PopulationPayload) and item.payload.sampling is not None
+                for item in logical_roots(dataset)
+            ),
+        ),
         finding_policy_id="zero_findings@v1",
     )
 
@@ -63,6 +72,7 @@ def make_descriptor(
     materialization: MaterializationContract,
     storage: LocalWriteResult,
     validations: tuple[tuple[str, int], ...],
+    sampling: tuple[SamplingRealization, ...] = (),
 ) -> ArtifactDescriptor:
     current_root = dataset._root
     if not isinstance(current_root, LogicalRootHandle):
@@ -73,6 +83,24 @@ def make_descriptor(
             stage="publication",
         )
     roots = tuple(logical_roots(dataset))
+    sampled_roots = tuple(root for root in roots if root.operator_id == "population.sample")
+    if len(sampled_roots) != len(sampling) or any(
+        not isinstance(root.payload, PopulationPayload)
+        or root.payload.sampling is None
+        or receipt.ordinal != ordinal
+        or receipt.population_definition_fingerprint != root.definition_fingerprint
+        or receipt.target_population_definition_fingerprint
+        != root.payload.target_population_definition_fingerprint
+        or receipt.target_rows != root.payload.sampling.target_rows
+        or receipt.seed != root.payload.sampling.seed
+        for ordinal, (root, receipt) in enumerate(zip(sampled_roots, sampling, strict=True))
+    ):
+        raise MaterializationError(
+            expected="one exact realized receipt for every authored sampling requirement",
+            received="inconsistent sampling execution facts",
+            repair="Execute the complete sampled Population through its registered physical fence.",
+            stage="publication",
+        )
     current_payload = current_root.payload
     population: LogicalRootHandle | None
     if isinstance(current_payload, PopulationPayload):
@@ -141,7 +169,7 @@ def make_descriptor(
             version_selection=_version_selection_payload(payload.version_selection),
             validation_results=validations,
         ),
-        sampling_execution=None,
+        sampling_execution=sampling or None,
         operator_implementation_versions=tuple(
             (name, 1) for name in dict.fromkeys(root.operator_id for root in roots)
         ),

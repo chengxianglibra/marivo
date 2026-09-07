@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from marivo.analysis.compiler.errors import compilation_error
+from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.observation.contracts import MetricPayload, PopulationPayload, source_owner_of
-from marivo.analysis.observation.coordinates import functional_path, path_entities
-from marivo.analysis.observation.predicates import BoundPredicate
+from marivo.analysis.observation.coordinates import functional_path, governed_path, path_entities
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.metric_graph import AggregateNodeV1, WeightedMeanAggregateNodeV1
@@ -33,16 +33,6 @@ def logical_roots(dataset: LogicalDataset) -> Iterator[LogicalRootHandle]:
             yield root
 
     yield from visit(dataset._root)
-
-
-def predicate_leaves(predicate: BoundPredicate | None) -> Iterator[BoundPredicate]:
-    if predicate is None:
-        return
-    if predicate.kind == "all_of":
-        for child in predicate.children:
-            yield from predicate_leaves(child)
-    else:
-        yield predicate
 
 
 def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ...]:
@@ -78,12 +68,30 @@ def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ..
                 *((definition.time_axis,) if definition.time_axis else ()),
             )
             for axis in axes:
-                path(entity, axis.entity_ref.path)
+                binding = next(
+                    (item for item in definition.coordinate_paths if item.ref == axis.ref.path),
+                    None,
+                )
+                if binding is None:
+                    path(entity, axis.entity_ref.path)
+                else:
+                    ids.update(path_entities(registry, entity, (binding.spine_path,)))
+                    for coordinate_root, component_path in binding.component_paths:
+                        ids.update(path_entities(registry, coordinate_root, (component_path,)))
             for metric in definition.metrics:
                 for component_root in metric.computation_roots:
                     path(component_root.path, entity, versioned=True)
                     if definition.reference_axis is not None:
                         path(component_root.path, definition.reference_axis.entity_ref.path)
+                    for cumulative in metric.cumulative:
+                        axis = normalize_target_dimension(registry, cumulative.over_ref.path)
+                        path(component_root.path, axis.entity_ref.path)
+                for component in metric.components:
+                    if component.status_time_dimension is not None:
+                        axis = normalize_target_dimension(
+                            registry, component.status_time_dimension.path
+                        )
+                        path(component.computation_root.path, axis.entity_ref.path)
                 for record in metric.graph.nodes:
                     node = record.node
                     if isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
@@ -93,7 +101,11 @@ def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ..
                             )
                             for component in metric.components:
                                 if component.node_id == record.node_id:
-                                    path(component.computation_root.path, dimension.entity_ref.path)
+                                    source = component.computation_root.path
+                                    route = governed_path(
+                                        registry, source, dimension.entity_ref.path
+                                    )
+                                    ids.update(path_entities(registry, source, (route,)))
         else:
             raise compilation_error("closed Observation payload", "unsupported definition payload")
     return tuple(normalize_target_entity(registry, name) for name in sorted(ids))

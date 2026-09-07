@@ -143,7 +143,10 @@ def test_initial_metric_variants_bind_real_component_contracts(name: str) -> Non
     metric = dataset._root.payload.definition.metrics[0]
     assert metric.graph.nodes and metric.required_state
     assert metric.evaluation_order == ("space", "time", "compose")
-    assert metric.supports_coordinate_aggregation
+    assert (
+        dataset._root.payload.definition.aggregation_contracts[0].materialized_fold
+        == "exact_components"
+    )
     assert dataset.row_contract.family_semantics.metric_bindings[0][3] == metric.required_state
 
 
@@ -564,7 +567,7 @@ def test_coordinate_and_membership_fingerprints_bind_sources_and_join_keys() -> 
         )
 
 
-def test_semi_additive_contract_is_explicitly_deferred_and_not_advertised() -> None:
+def test_semi_additive_contract_requires_source_recomputation() -> None:
     from marivo.semantic.ir import SemiAdditive, TimeFoldIR
 
     registry, sidecar = _editable_authority()
@@ -572,7 +575,8 @@ def test_semi_additive_contract_is_explicitly_deferred_and_not_advertised() -> N
         registry.measures["sales.orders.amount"],
         additivity=SemiAdditive("sales.orders.order_time", TimeFoldIR("last")),
     )
-    with pytest.raises(DatasetConstructionError, match="semi-additive"):
-        _sources_from(registry, sidecar).observe(REVENUE)
+    source = _sources_from(registry, sidecar).observe(REVENUE)
+    assert "source_temporal_fold" in source.contract().render()
+    assert "projected retained values" in source.contract().render()
     versioned = make_sources().population(ref.entity("sales.snapshots"), time_scope=WINDOW)
     assert "population.where:" not in versioned.contract().render()

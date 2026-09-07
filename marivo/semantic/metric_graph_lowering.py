@@ -43,8 +43,10 @@ from marivo.semantic.metric_graph import (
     RatioNodeV1,
     SemanticDependencyDigestV1,
     SemanticDependencyEntryV1,
+    SliceNodeV1,
     TargetMetricComponent,
     TargetMetricContract,
+    TargetMetricCumulative,
     WeightedMeanAggregateNodeV1,
 )
 from marivo.semantic.metric_graph_canonical import (
@@ -53,6 +55,7 @@ from marivo.semantic.metric_graph_canonical import (
     intern_nodes,
     node_fingerprint,
 )
+from marivo.semantic.unit_algebra import linear_unit, linear_units_conflict, ratio_unit
 from marivo.semantic.validator import Registry, normalize_target_entity
 
 
@@ -938,7 +941,7 @@ def lower_catalog_metric(
 
 
 def _target_metric_error(metric_id: str, expected: str, received: str) -> NoReturn:
-    action = "Use typed direct-column measures and the supported sum/count/mean/weighted-mean/ratio builders."
+    action = "Use typed governed aggregate, weighted-mean, ratio, linear, slice, or cumulative builders with exact component and temporal contracts."
     raise SemanticLoadError(
         kind="invalid_target_metric",
         message="The Metric cannot supply a private lazy computation contract.",
@@ -1018,20 +1021,42 @@ def normalize_target_metric(
                 )
     nodes = {record.node_id: record.node for record in forest.graph.nodes}
     components: list[TargetMetricComponent] = []
+    cumulative: list[TargetMetricCumulative] = []
+    requirements: set[str] = set()
+    source_recompute = False
+    policies: dict[str, Literal["block", "aggregate_then_join"]] = {}
+
+    def contribution_policies(path: str, role: str) -> None:
+        declaration = registry.metrics[path]
+        composition = declaration.composition
+        if isinstance(composition, RatioComposition):
+            contribution_policies(composition.numerator, f"{role}.numerator")
+            contribution_policies(composition.denominator, f"{role}.denominator")
+        elif isinstance(composition, LinearComposition):
+            for index, term in enumerate(composition.terms):
+                contribution_policies(term.metric, f"{role}.term[{index}]")
+        elif isinstance(composition, CumulativeComposition):
+            contribution_policies(composition.base, f"{role}.base")
+        else:
+            policies[role] = declaration.fanout_policy
+
+    contribution_policies(metric_id, "value")
 
     def visit(node_id: str, role: str) -> tuple[str, bool, str | None]:
+        nonlocal source_recompute
         node = nodes[node_id]
         if isinstance(node, AggregateNodeV1):
-            if node.agg not in {"sum", "count", "mean"}:
-                _target_metric_error(
-                    metric_id, "a registered initial aggregate", "unsupported aggregate kind"
-                )
             if node.target_ref.kind is SemanticKind.ENTITY:
-                if node.agg != "count":
+                if node.agg not in ("count", "count_distinct"):
                     _target_metric_error(
-                        metric_id, "count for an Entity target", "non-count Entity aggregate"
+                        metric_id, "count or count_distinct for an Entity target", role
                     )
-                root = normalize_target_entity(registry, node.target_ref.path).ref
+                target_entity = normalize_target_entity(registry, node.target_ref.path)
+                if node.agg == "count_distinct" and not target_entity.identity_signature:
+                    _target_metric_error(
+                        metric_id, "a declared Entity identity for distinct count", role
+                    )
+                root = target_entity.ref
                 data_type, unit = "int64", None
             else:
                 data_type, unit, root = _target_measure_type(
@@ -1045,8 +1070,17 @@ def normalize_target_metric(
                 additivity = registry.measures[node.target_ref.path].additivity
                 if isinstance(additivity, SemiAdditive):
                     status_time_dimension = _ref_payload("time_dimension", additivity.over)
-            if node.agg != "count" and not dt.dtype(data_type).is_numeric():
+            if node.agg not in ("count", "count_distinct") and not dt.dtype(data_type).is_numeric():
                 _target_metric_error(metric_id, "a numeric measure", "non-numeric source type")
+            if node.fold is not None:
+                if status_time_dimension is None:
+                    _target_metric_error(
+                        metric_id, "a governed status-time axis for the fold", role
+                    )
+                source_recompute = True
+                requirements.add("metric.source_temporal_fold@v1")
+                if isinstance(node.fold, tuple):
+                    requirements.add("metric.source_quantile@v1")
             expression = ibis.table({"value": data_type}, name="_target_type_facts").value
             state: tuple[str, ...]
             if node.agg == "sum":
@@ -1055,10 +1089,30 @@ def normalize_target_metric(
             elif node.agg == "mean":
                 output_type = str(expression.mean().type())
                 state = ("sum", "non_null_count", "row_count")
-            else:
+            elif node.agg in ("count", "count_distinct"):
                 output_type = "int64"
-                state = ("count", "row_count")
+                state = ("count" if node.agg == "count" else "value", "row_count")
                 unit = None
+                if node.agg == "count_distinct":
+                    source_recompute = True
+                    requirements.add("metric.source_distinct@v1")
+            elif node.agg in ("min", "max"):
+                output_type = data_type
+                state = (node.agg, "non_null_count", "row_count")
+            else:
+                output_type = "float64"
+                state = ("value", "non_null_count", "row_count")
+                source_recompute = True
+                requirements.add("metric.source_quantile@v1")
+            component_recompute = node.fold is not None or node.agg not in (
+                "sum",
+                "count",
+                "mean",
+                "min",
+                "max",
+            )
+            if node.fold is not None:
+                state = ("value", "non_null_count", "row_count")
             components.append(
                 TargetMetricComponent(
                     node_id,
@@ -1066,12 +1120,18 @@ def normalize_target_metric(
                     root,
                     state,
                     "ignore_null_inputs",
-                    "zero" if node.agg == "count" else "null",
+                    "zero" if node.agg in ("count", "count_distinct") else "null",
                     node.fold,
                     status_time_dimension,
+                    component_recompute,
+                    policies.get(role, "block"),
                 )
             )
-            return output_type, node.agg != "count", node.unit_override or unit
+            return (
+                output_type,
+                node.agg not in ("count", "count_distinct"),
+                node.unit_override or unit,
+            )
         if isinstance(node, WeightedMeanAggregateNodeV1):
             value_type, unit, root = _target_measure_type(
                 registry,
@@ -1097,31 +1157,27 @@ def normalize_target_metric(
             weight_additivity = registry.measures[node.weight_ref.path].additivity
             time_fold = None
             status_time_dimension = None
-            if isinstance(value_additivity, SemiAdditive) or isinstance(
-                weight_additivity, SemiAdditive
-            ):
-                if (
-                    not isinstance(value_additivity, SemiAdditive)
-                    or not isinstance(weight_additivity, SemiAdditive)
-                    or value_additivity != weight_additivity
-                ):
-                    _target_metric_error(
-                        metric_id,
-                        "matching weighted-pair temporal axes and folds",
-                        "incompatible weighted-pair temporal contracts",
-                    )
+            if weight_additivity != "additive":
+                _target_metric_error(metric_id, "an additive weight measure", f"{role}.weight")
+            if isinstance(value_additivity, SemiAdditive):
                 time_fold = fold_ir_to_input(value_additivity.fold)
                 status_time_dimension = _ref_payload("time_dimension", value_additivity.over)
+                source_recompute = True
+                requirements.add("metric.source_temporal_fold@v1")
             components.append(
                 TargetMetricComponent(
                     node_id,
                     role,
                     root,
-                    ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count"),
+                    ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
+                    if time_fold is None
+                    else ("value", "non_null_pair_count", "row_count"),
                     "non_null_pairs",
                     "null",
                     time_fold,
                     status_time_dimension,
+                    time_fold is not None,
+                    policies.get(role, "block"),
                 )
             )
             typed_pair = ibis.table(
@@ -1132,8 +1188,10 @@ def normalize_target_metric(
             )
             return output_type, True, node.unit_override or unit
         if isinstance(node, RatioNodeV1):
-            numerator_type, _, _ = visit(node.numerator_id, f"{role}.numerator")
-            denominator_type, _, _ = visit(node.denominator_id, f"{role}.denominator")
+            numerator_type, _, numerator_unit = visit(node.numerator_id, f"{role}.numerator")
+            denominator_type, _, denominator_unit = visit(
+                node.denominator_id, f"{role}.denominator"
+            )
             typed_pair = ibis.table(
                 {"numerator": numerator_type, "denominator": denominator_type},
                 name="_target_ratio_type_facts",
@@ -1141,10 +1199,69 @@ def normalize_target_metric(
             return (
                 str((typed_pair.numerator / typed_pair.denominator).type()),
                 True,
-                node.unit_override,
+                node.unit_override or ratio_unit(numerator_unit, denominator_unit),
             )
+        if isinstance(node, SliceNodeV1):
+            return visit(node.child_id, f"{role}.slice")
+        if isinstance(node, LinearNodeV1):
+            terms = tuple(
+                visit(term.child_id, f"{role}.term[{index}]")
+                for index, term in enumerate(node.terms)
+            )
+            units = tuple(term[2] for term in terms)
+            if linear_units_conflict(units):
+                _target_metric_error(metric_id, "commensurable linear component units", role)
+            typed = ibis.table(
+                {f"term_{index}": term[0] for index, term in enumerate(terms)},
+                name="_target_linear_type_facts",
+            )
+            values = tuple(
+                typed[f"term_{index}"] * term.coefficient for index, term in enumerate(node.terms)
+            )
+            expression = values[0]
+            for value in values[1:]:
+                expression = expression + value
+            return (
+                str(expression.type()),
+                any(term[1] for term in terms),
+                node.unit_override or linear_unit(units),
+            )
+        if isinstance(node, CumulativeNodeV1):
+            child = nodes[node.child_id]
+            if not (
+                isinstance(child, WeightedMeanAggregateNodeV1)
+                or (
+                    isinstance(child, AggregateNodeV1)
+                    and child.agg in ("sum", "count", "count_distinct")
+                )
+            ):
+                _target_metric_error(
+                    metric_id, "a governed sum/count/distinct/weighted-mean cumulative base", role
+                )
+            output_type, nullable, unit = visit(node.child_id, f"{role}.base")
+            over = node.time_dimension_ref
+            if over is None:
+                roots = {
+                    item.computation_root.path
+                    for item in components
+                    if item.role.startswith(f"{role}.base")
+                }
+                axes = tuple(
+                    item
+                    for item in registry.dimensions.values()
+                    if item.entity in roots and item.is_time_dimension
+                )
+                if len(axes) != 1:
+                    _target_metric_error(metric_id, "one exact cumulative over axis", role)
+                over = _ref_payload("time_dimension", axes[0].semantic_id)
+            cumulative.append(
+                TargetMetricCumulative(node_id, role, node.child_id, over, node.anchor)
+            )
+            source_recompute = True
+            requirements.add("metric.source_cumulative@v1")
+            return output_type, nullable, node.unit_override or unit
         _target_metric_error(
-            metric_id, "a registered initial Metric graph node", type(node).__name__
+            metric_id, "an exact governed contribution graph", f"{role}: {type(node).__name__}"
         )
 
     output_type, nullable, unit = visit(forest.graph.roots[0], "value")
@@ -1164,7 +1281,9 @@ def normalize_target_metric(
             dict.fromkeys(component.computation_root for component in components)
         ),
         components=tuple(components),
-        required_state=tuple(
+        required_state=()
+        if source_recompute
+        else tuple(
             f"{component.role}.{state}"
             for component in components
             for state in component.required_state
@@ -1174,9 +1293,9 @@ def normalize_target_metric(
         unit=registry.metrics[metric_id].unit_override or unit,
         null_rule=null_rule,
         empty_rule="null" if nullable else "zero",
-        supports_coordinate_aggregation=all(
-            component.time_fold is None for component in components
-        ),
+        cumulative=tuple(cumulative),
+        source_requirements=tuple(sorted(requirements)),
+        requires_source_recompute=source_recompute,
     )
 
 

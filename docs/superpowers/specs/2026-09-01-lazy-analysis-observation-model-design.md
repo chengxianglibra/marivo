@@ -2228,6 +2228,21 @@ authorize origin replay. Missing, incompatible, or unreconciled retained state
 blocks publication rather than silently weakening later materialized
 reaggregation.
 
+The private Slice 3a DuckDB registration records each realization's ordinal,
+sampled and unsampled target definition fingerprints, exact target and seed,
+realized Entity count, membership digest, and implementation id
+`duckdb.entity_reservoir@v1` in `marivo.population_sampling_execution/v1`.
+The actual sampling-state part is a one-row Parquet relation whose non-null
+`sampling_execution_digest` string binds the canonical receipt. It contains no
+raw identity rows. The part shares the Artifact's reservation, storage budget,
+validation and atomic publication. Metadata recovery validates the receipt
+without reading Parquet; an explicit private part audit validates its stored
+digest. Ordinary primary reads do not depend on an unused sampling part.
+Neither this receipt nor its part grants materialized fold or origin-replay
+authority. The physical registration accepts reservoir targets up to one billion
+and seeds from zero through `2**31 - 1`, rejecting unsupported exact requests
+before source statements rather than truncating or coercing them.
+
 Retained sums preserve absence of non-null support. A nullable sum, or a
 registered sum-plus-support-count representation, must finalize an unsupported
 empty/all-null sum as null. A local accumulator initialized to zero cannot
