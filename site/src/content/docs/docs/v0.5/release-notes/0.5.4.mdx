@@ -44,6 +44,11 @@ datasource credential and connection lifecycles for host-managed deployments.
 - Late backend results from interrupted handshakes are reclaimed without
   masking the original exception or entering a cache.
 
+## Compatibility
+
+- Excludes SQLGlot 30.18.0, which is incompatible with the Ibis 12.0.0
+  dependency range used by this release.
+
 ## Documentation
 
 - Updated semantic-layer, datasource, deployment, installation, and agent
