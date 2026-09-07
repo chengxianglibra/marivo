@@ -740,10 +740,9 @@ def validate_sampling_state(project_root: Path, state: SamplingStateRead | None)
         )
 
 
-def _open_primary(
+def _open_payload(
     project_root: Path,
     receipt: LocalReceipt,
-    row: DatasetRowContract,
 ) -> tuple[pq.ParquetFile, Path]:
     path = Path(receipt.project_relative_path)
     if path.is_absolute():
@@ -771,12 +770,6 @@ def _open_primary(
         parquet = pq.ParquetFile(data, page_checksum_verification=True)
         if parquet.metadata.num_rows != receipt.realized_row_count:
             _integrity("the exact committed row count", "Parquet row count differs")
-        realized = _realized_schema(row.schema, parquet.schema_arrow)
-        if schema_fingerprint(realized) != receipt.schema_fingerprint:
-            _integrity("the exact realized schema fingerprint", "retained schema mismatch")
-        for field, actual in zip(row.schema.columns, parquet.schema_arrow, strict=True):
-            if field.nullable != actual.nullable:
-                _integrity("the committed field nullability", "retained nullability differs")
         return parquet, data
     except IntegrityError:
         if parquet is not None:
@@ -790,6 +783,68 @@ def _open_primary(
         if parquet is not None:
             parquet.close()
         _integrity("accessible valid committed Parquet backing", "backing is missing or invalid")
+
+
+def _open_primary(
+    project_root: Path,
+    receipt: LocalReceipt,
+    row: DatasetRowContract,
+) -> tuple[pq.ParquetFile, Path]:
+    parquet, data = _open_payload(project_root, receipt)
+    try:
+        realized = _realized_schema(row.schema, parquet.schema_arrow)
+        if schema_fingerprint(realized) != receipt.schema_fingerprint:
+            _integrity("the exact realized schema fingerprint", "retained schema mismatch")
+        for field, actual in zip(row.schema.columns, parquet.schema_arrow, strict=True):
+            if field.nullable != actual.nullable:
+                _integrity("the committed field nullability", "retained nullability differs")
+        return parquet, data
+    except BaseException:
+        parquet.close()
+        raise
+
+
+def read_part_batches(
+    project_root: Path,
+    part: RetainedPart,
+    *,
+    expected_schema: pa.Schema,
+    policy: ReadPolicy = _READ_POLICY,
+) -> Iterator[pa.RecordBatch]:
+    """Read exactly one registered part; closing early never constitutes validation."""
+    receipt = part.storage_receipt
+    if receipt.realized_row_count > policy.max_rows:
+        _limited("required part row count exceeds the collection limit")
+    expected_hash = hashlib.sha256(expected_schema.serialize().to_pybytes()).hexdigest()
+    if receipt.schema_fingerprint != expected_hash:
+        _integrity("the exact registered part schema", "required part schema fingerprint differs")
+    parquet, data = _open_payload(project_root, receipt)
+    started = time.monotonic()
+    count = decoded = 0
+    try:
+        if not parquet.schema_arrow.equals(expected_schema, check_metadata=False):
+            _integrity("the exact registered part schema", "required part schema differs")
+        for batch in _bounded_batches(parquet, policy, preview=False):
+            count += batch.num_rows
+            decoded += batch.nbytes
+            if count > policy.max_rows or decoded > policy.max_decoded_bytes:
+                _limited("required part exceeds the collection budget")
+            if time.monotonic() - started > policy.deadline_seconds:
+                _limited("required part read deadline exceeded")
+            for field in expected_schema:
+                if not field.nullable and batch.column(field.name).null_count:
+                    _integrity("required non-null part fields", "null required part field")
+            yield batch
+        if (
+            count != receipt.realized_row_count
+            or _hash_file(data) != receipt.bytes_hash
+            or receipt.file_manifest[0].sha256 != receipt.bytes_hash
+        ):
+            _integrity("complete immutable required part backing", "required part content changed")
+    except (OSError, pa.ArrowException):
+        _integrity("accessible valid required part backing", "required part is corrupt")
+    finally:
+        parquet.close()
 
 
 def _to_dataframe(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:

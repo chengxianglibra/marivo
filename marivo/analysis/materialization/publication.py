@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from marivo.analysis.compiler.normalize import logical_roots
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
@@ -73,6 +75,8 @@ def make_descriptor(
     storage: LocalWriteResult,
     validations: tuple[tuple[str, int], ...],
     sampling: tuple[SamplingRealization, ...] = (),
+    *,
+    inherited: ArtifactDescriptor | None = None,
 ) -> ArtifactDescriptor:
     current_root = dataset._root
     if not isinstance(current_root, LogicalRootHandle):
@@ -83,6 +87,37 @@ def make_descriptor(
             stage="publication",
         )
     roots = tuple(logical_roots(dataset))
+    if inherited is not None:
+        if inherited.retained_parts or inherited.sampling_execution or sampling:
+            raise MaterializationError(
+                expected="a primary-only committed input authority",
+                received="required retained state needs its registered continuation",
+                repair="Apply the row operation before the materialization boundary.",
+                stage="implementation_registration",
+            )
+        return replace(
+            inherited,
+            definition_fingerprint=dataset.definition_fingerprint,
+            row_contract=dataset.row_contract,
+            row_set_contract=dataset.row_set_contract,
+            realized_schema=storage.realized_schema,
+            bounded_lineage=dataset._lineage,
+            population_authority=replace(
+                inherited.population_authority, validation_results=validations
+            ),
+            operator_implementation_versions=tuple(
+                (name, 1) for name in dict.fromkeys(root.operator_id for root in roots)
+            ),
+            dataset_materialization_contract=materialization,
+            storage_receipt=storage.primary_receipt,
+            retained_parts=storage.retained_parts,
+            quality_summary=QualitySummary(
+                sample_size=storage.realized_row_count,
+                evaluated_check_count=len(validations) + 1,
+                failed_check_count=0,
+                warning_check_count=0,
+            ),
+        )
     sampled_roots = tuple(root for root in roots if root.operator_id == "population.sample")
     if len(sampled_roots) != len(sampling) or any(
         not isinstance(root.payload, PopulationPayload)
@@ -138,7 +173,7 @@ def make_descriptor(
                 repair="Reconstruct the Metric from its selected Population.",
                 stage="publication",
             )
-        inherited = next(
+        inherited_root = next(
             (
                 root
                 for root in roots
@@ -146,14 +181,14 @@ def make_descriptor(
             ),
             None,
         )
-        if inherited is None:
+        if inherited_root is None:
             raise MaterializationError(
                 expected="the exact inherited Population definition in the logical inputs",
                 received="a missing inherited Population definition",
                 repair="Reconstruct the Metric from its selected Population.",
                 stage="publication",
             )
-        payload = inherited.payload
+        payload = inherited_root.payload
     return ArtifactDescriptor(
         definition_fingerprint=dataset.definition_fingerprint,
         row_contract=dataset.row_contract,

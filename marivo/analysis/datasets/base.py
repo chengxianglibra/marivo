@@ -97,6 +97,7 @@ class Dataset(ABC):
 
     __slots__ = (
         "_definition_fingerprint",
+        "_inputs",
         "_lineage",
         "_owner",
         "_registration",
@@ -108,6 +109,7 @@ class Dataset(ABC):
     )
     _declared_family: ClassVar[str] = ""
     _owner: DatasetOwner
+    _inputs: tuple[Dataset, ...]
     _registration: DatasetFamilyRegistration
     _registry: DatasetFamilyRegistry
     _row_contract: DatasetRowContract
@@ -144,6 +146,7 @@ class Dataset(ABC):
         root: LogicalRootHandle | MaterializedScanLeafHandle,
         definition_fingerprint: str,
         lineage: BoundedLineage,
+        inputs: tuple[Dataset, ...] = (),
     ) -> None:
         if _token is not _CORE_TOKEN:
             raise _construction_error("registered private factory", "direct Dataset construction")
@@ -223,6 +226,22 @@ class Dataset(ABC):
             raise _construction_error(
                 "canonical definition fingerprint", "invalid definition identity"
             )
+        if (
+            type(inputs) is not tuple
+            or (
+                isinstance(root, LogicalRootHandle)
+                and (
+                    len(inputs) != len(root.inputs)
+                    or any(
+                        item._root is not binding.root
+                        for item, binding in zip(inputs, root.inputs, strict=True)
+                    )
+                )
+            )
+            or (isinstance(root, MaterializedScanLeafHandle) and inputs)
+        ):
+            raise _construction_error("exact immutable definition inputs", "input graph mismatch")
+        object.__setattr__(self, "_inputs", inputs)
         for name, value in (
             ("_owner", owner),
             ("_registration", registration),
@@ -437,6 +456,7 @@ def _make_logical_dataset(
         owner=owner,
         registration=registration,
         registry=registry,
+        inputs=inputs,
         row_contract=row_contract,
         row_set_contract=row_set_contract,
         state=_logical_state(),

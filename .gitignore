@@ -95,7 +95,8 @@ docs/archive/
 
 # Superpowers (working docs — tracked selectively via frontmatter convention)
 # docs/superpowers/ is no longer fully ignored; active specs/plans are tracked
-docs/superpowers/plans/
+docs/superpowers/plans/*
+!docs/superpowers/plans/2026-09-07-lazy-analysis-slice-4a-execution.md
 docs/superpowers/discussions/
 docs/superpowers/specs/archive/
 .superpowers/
