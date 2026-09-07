@@ -1630,6 +1630,159 @@ The Metric algebra can express and safely execute both a fused logical chain and
 an explicitly checkpointed chain, with deterministic order and exact
 materialization-barrier repairs.
 
+### Slice 3a acceptance record: 2026-09-07
+
+This is the initial candidate record. The review follow-up below supersedes its
+candidate digest and final gate; its original runtime and no-I/O evidence is
+preserved with the `-initial.json` suffix.
+
+**Slice 3a is implemented and accepted. Slice 3b and the parent Slice 3 gate
+remain open.** The authorized source algebra was implemented on branch
+`lazy-dataset`, against committed Slice 2b
+`9e0cda8e5451070d64236446659333a29da62f01`; the checkout was clean at entry.
+The execution record is `../plans/2026-09-07-lazy-analysis-slice-3a-execution.md`.
+
+Implemented and verified:
+
+- All twelve predicate builders preserve exact typed bindings, SQL three-valued
+  logic, normalized Boolean/set identity and authored occurrence diagnostics.
+  Population predicates bind stable member Dimensions; Metric predicates bind
+  current retained fields, including generated rank. Literal disclosure stays
+  outside errors and persisted graph projections.
+- A sealed private Entity policy admits native DuckDB reservoir sampling after
+  membership/version validation and filtering. A shared realization is evaluated
+  once before every dependent Metric branch; independent handles remain separate.
+  Unsupported exact parameters, repeated sampling and post-sample filtering fail
+  without coercion or fallback. Sampling receipts and an actual private state part
+  join the existing reserved, bounded, atomic v3 publication.
+- Intrinsic Metric graphs normalize extrema, distinct, quantile, linear/derived,
+  semi-additive and cumulative computation alongside sum/count/mean/weighted mean
+  and ratio. Observation records actual grains, per-component contribution paths,
+  per-axis partitions and temporal requirements instead of a Boolean admission
+  flag. Unsafe fanout, overlapping fold claims and incompatible axes/anchors fail
+  during construction. Certified calendar snapshots bind field and definition
+  identity; display coverage and cumulative history have separate checks.
+- Real source references verify all eight shapes, selected A = 8/10, exact
+  customer-day selection, two orders with revenue 100 and AOV 50, device peak 10,
+  overlapping tags without doubling a total, independent membership/observation
+  versions, all registered status-time folds, and cumulative reset/trailing/history
+  endpoints. Weighted and distinct cumulative values recompute raw base windows.
+- Rank remains restricted to entity, dimension, time and dimension-time shapes.
+  All four tie policies, both directions, partitions, composite identities,
+  non-finite/null values and repeated ordered limits have independent references.
+  Generated rank never becomes a contribution key. Compiler, writer and reader
+  consume the Core total order; row-key uniqueness is independently validated.
+- Ordinary source chains use one final Ibis calculation, with validation and
+  sampling preparations disclosed separately. New source algorithms receive
+  retained parts only when exact registered state requires them. Primary reads
+  remain independent of unused private parts; explicit sampling-part audit is
+  available after source-free metadata recovery.
+
+The final candidate manifest contains 308 source, test and configuration files.
+Its ordered-content SHA-256 is
+`2f959c7c8f2d55b7a16c7d72d4429e2f106ca0d2e004276ebd45b8d52a2ebb4f`.
+The protocol is sorted UTF-8 path, NUL, file bytes, NUL. Documentation and
+generated files are excluded. Matching before/after manifests, individual hashes,
+runtime versions, normalized statements, receipts and terminal bundles are in
+`../plans/evidence/2026-09-07-slice-3a-runtime-initial.json`.
+
+Fresh final gates:
+
+- Focused predicates, ordering, semantic/Observation and materialization
+  regressions: 158 passed; source/calendar/coordinate regressions: 57 passed.
+  Sampling's native query, final query, state-write and publication failure
+  matrix proves failed Runs publish no partial Artifact/Evidence/Findings and
+  leave no resources. The final full gate includes all these regressions.
+- Telemetry-enabled fresh-process no-I/O evidence:
+  `../plans/evidence/2026-09-07-slice-3a-no-io-initial.json`. All 45 definitions, twelve
+  predicates, nine grains, eight aggregation variants, four ties and sixteen
+  rejected cases execute under 62 entrypoint guards; all fourteen I/O categories
+  record zero attempts. The candidate digest matches runtime acceptance.
+- Explicit two-process runtime acceptance: 1 passed in 33.01 seconds. Session
+  `session_719a1232a75e4b6e83243819dcdc789c`, Run
+  `run_8764f6e492d946acc587ecc3`, Artifact
+  `artifact_01efb4c2c1de48a1a01275b33a5046b2` use one sampling fence, one primary
+  query/stage and ten validation operations, transferring one row and 81 Arrow
+  bytes. A new interpreter with the source database moved offline recovers the
+  same rows, order, receipt and display, then validates the sampling-state part.
+  All source/profile/credential/backend/compiler attempts are zero.
+- Scoped typing passes for 36 touched dependency modules and typing probes.
+  Final `make check-agent`: lint and import contracts pass, mypy checks 354
+  files, 6085 tests pass in 186.97 seconds, and API documentation builds.
+  `git diff --check` passes.
+
+No public export, Help, Session API or site API switches in this unit. Materialized
+input continuation, fold/rollup, checkpoints, pandas and engine Artifacts retain
+their later slice ownership. No commit, push or release was made. Execution and
+machine-readable evidence files remain under the repository's ignored plans rule.
+
+### Slice 3a review follow-up: 2026-09-07
+
+The owner authorized evaluating the review and adopting justified fixes on the
+same uncommitted candidate. Full dispositions are recorded in
+`../plans/2026-09-07-lazy-analysis-slice-3a-review-followup.md`.
+
+Two source acceptance gaps were confirmed and repaired: natural-order
+perturbation and January-membership/February-observation cold recovery. Five
+tests now physically reverse insertion order, confirm the unordered backend scan
+changes, and execute new Sessions to verify stable unordered previews and all
+four ranked-prefix tie policies. The independent scope fixture proves January
+members have reference value 30, explicit February observation 300, and omitted
+observation scope 3000; two Artifacts recover unchanged in a new process with
+the source offline and all source entrypoints forbidden.
+
+The scope fixture uncovered a publication defect missed by source-only numeric
+tests: repeated status-time validation names made the v3 descriptor invalid.
+Compiler declarations now assign stable occurrence identities, preserving every
+validation expression. The cold scope test proves repeated checks survive with
+unique identities. Two additional real publication tests cover repeated calendar
+coverage checks for additive and cumulative graphs.
+
+Rank's coupled arguments now share one frozen `RankSpec` across logical and
+retained payloads, field derivation and Compiler lowering. Coordinate binding and
+resolution have distinct names; the duplicated `builtin_grain` imports are
+consolidated. Sampling bounds remain deliberate and tested: negative seeds were
+already rejected by `_int(minimum=0)`, large-integer repr remains bounded, and the
+realization-count cap is named. No materialized-input execution or broader
+cross-layer refactor was added.
+
+The old semi-additive test's change from deferred source support to required
+source recomputation is intentional Slice 2b-to-3a evolution. Projected retained
+folding remains refused. The existing retained predicate construction test ends
+at a payload-free scan leaf; executed retained predicates remain a 3b gate.
+Updated working-tree specifications are part of the authorized implementation,
+not a claim of a new commit. Native reservoir SQL remains inside the private
+Runtime adapter and never enters an authored Python-track expression.
+
+The reviewed candidate has 311 source, test and configuration files, with digest
+`51034e26bb28fcf8490fa17feeddb348c140fdd4996d5c2e9caab8aa5a553946` under the same
+ordered-content protocol. Matching before/after manifests and refreshed terminal
+evidence are in `../plans/evidence/2026-09-07-slice-3a-runtime.json`; independent
+scope recovery is in `../plans/evidence/2026-09-07-slice-3a-scope-recovery.json`,
+and refreshed no-I/O evidence is in
+`../plans/evidence/2026-09-07-slice-3a-no-io.json`. All bind this candidate digest.
+The explicit runtime acceptance passes in 54.25 seconds: Session
+`session_2e1989cd7b254e30932c29d85230b4c1`, Run
+`run_0032a54813ef69a72b51f001`, Artifact
+`artifact_fcba0b1ed2234a3fa24683fa7f6f619c` still require one sampling fence,
+one primary query/stage and ten validation operations, transferring one row and
+81 Arrow bytes. Cold-source attempt counts remain zero.
+
+Final follow-up gates: scoped typing passes for 24 implementation/test modules;
+`make check-agent` passes lint/import contracts, mypy for 354 files, 6101 tests in
+267.60 seconds and API documentation. The 16 additional tests cover the two
+confirmed evidence gaps, sampling boundaries and repeated calendar publication
+checks. `git diff --check` and the final candidate/evidence comparison pass.
+Slice 3a remains accepted; Slice 3b and the parent Slice 3 remain open. No commit,
+push or release was made.
+
+During the subsequently authorized commit preparation, the formatting hook
+normalized only `tests/lazy_scope_recovery_worker.py`,
+`tests/test_lazy_scope_recovery.py`, and `tests/test_lazy_source_natural_order.py`.
+Their Python ASTs are unchanged from the reviewed candidate. The recorded
+runtime evidence identifies the pre-formatting bytes; production files remain
+identical to that accepted candidate.
+
 ## Slice 4: Compiler Boundaries and Runtime Reliability
 
 ### Outcome

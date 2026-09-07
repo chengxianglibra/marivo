@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast
 
-from marivo._temporal import TimeScope
+from marivo._temporal import Grain, PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.datasets.base import Dataset, DatasetOwner, MaterializedDataset, _dataset_repr
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
@@ -21,6 +21,7 @@ from marivo.analysis.datasets.descriptors import (
     _deferred_type,
     _entity_identity,
     _EntityFieldIdentity,
+    _GeneratedFieldIdentity,
     _is_stable_identifier,
     _keyed_cardinality,
     _make_field,
@@ -44,6 +45,7 @@ from marivo.analysis.datasets.registry import (
 from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
 from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.analysis.observation.predicates import BoundPredicate, PredicateField
+from marivo.analysis.observation.sampling import EntitySamplingPolicy
 from marivo.datasource.ir import (
     CsvSourceIR,
     EntitySourceIR,
@@ -136,6 +138,8 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
+        if self.producer_id == "population.sample":
+            return ("population_sampling_state",)
         return (
             ("metric.sufficient_components",)
             if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
@@ -155,6 +159,8 @@ class ObservationProducerContract:
             (
                 "metric.sufficient_components"
                 if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
+                else "population_sampling_state"
+                if self.producer_id == "population.sample"
                 else "population_identity",
                 "v1",
             ),
@@ -164,12 +170,15 @@ class ObservationProducerContract:
 _PRODUCER_CONTRACTS = (
     ObservationProducerContract("session.population", "population_root"),
     ObservationProducerContract("population.where", "population_filter"),
+    ObservationProducerContract("population.sample", "population_sample"),
     ObservationProducerContract("session.observe", "metric_observation"),
     ObservationProducerContract("metric.where", "metric_filter"),
     ObservationProducerContract("metric.metric", "metric_projection"),
     ObservationProducerContract("metric.with_dimensions", "metric_coordinate"),
     ObservationProducerContract("metric.with_time_axis", "metric_coordinate"),
     ObservationProducerContract("metric.aggregate", "metric_aggregation"),
+    ObservationProducerContract("metric.rank", "metric_rank"),
+    ObservationProducerContract("metric.limit", "metric_limit"),
 )
 
 
@@ -208,6 +217,9 @@ class ObservationOwner(ObservationRuntimeOwner):
     semantic_registry: Registry = field(kw_only=True)
     sidecar: CompiledExpressionSidecar = field(kw_only=True)
     binding_scopes: SourceBindingScopes = field(kw_only=True)
+    period_calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = field(
+        default=(), kw_only=True
+    )
 
 
 def owner_of(dataset: Dataset) -> ObservationRuntimeOwner:
@@ -406,6 +418,53 @@ def dimension_payload(dimension: TargetDimensionContract) -> CanonicalValue:
     )
 
 
+def grain_payload(grain: Grain | None) -> CanonicalValue:
+    if grain is None:
+        return None
+    if grain.kind == "builtin":
+        return ("builtin", grain.unit, grain.count)
+    return ("semantic", None if grain.calendar is None else grain.calendar.path, grain.level)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CoordinatePathBinding:
+    """One shared coordinate spine path and each source branch's exact mapping."""
+
+    ref: str
+    spine_path: tuple[str, ...]
+    component_paths: tuple[tuple[str, tuple[str, ...]], ...]
+    partition: Literal["functional", "disjoint", "overlapping"]
+
+    def identity_payload(self) -> CanonicalValue:
+        return (self.ref, self.spine_path, self.component_paths, self.partition)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class MetricCoordinateAggregationV1:
+    """Exact source admission separated from the sufficient state of a read."""
+
+    metric_ref: str
+    required_components: tuple[str, ...]
+    contribution_partition_by_reduced_axis: tuple[tuple[str, str], ...]
+    required_time_axes: tuple[str, ...]
+    source_requirements: tuple[str, ...]
+    materialized_fold: Literal["exact_components", "source_required"]
+    logical_recompute_mode: Literal["exact_source"] = "exact_source"
+    ordered_aggregation_and_temporal_fold: tuple[str, ...] = ("space", "time", "compose")
+
+    def identity_payload(self) -> CanonicalValue:
+        return (
+            self.metric_ref,
+            self.required_components,
+            self.contribution_partition_by_reduced_axis,
+            self.required_time_axes,
+            self.source_requirements,
+            self.materialized_fold,
+            self.logical_recompute_mode,
+            self.ordered_aggregation_and_temporal_fold,
+        )
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class MetricDefinition:
     entity: TargetEntityContract
@@ -420,6 +479,10 @@ class MetricDefinition:
     contribution_paths: tuple[tuple[str, ...], ...] = ()
     coordinate_dependencies: tuple[tuple[str, str], ...] = ()
     source_dependency_fingerprint: str = ""
+    grain: Grain | None = None
+    coordinate_paths: tuple[CoordinatePathBinding, ...] = ()
+    aggregation_contracts: tuple[MetricCoordinateAggregationV1, ...] = ()
+    temporal_snapshot: PeriodCalendarSnapshotV1 | None = None
 
     def identity_payload(self) -> CanonicalValue:
         return (
@@ -439,7 +502,9 @@ class MetricDefinition:
                 for item in self.metrics
             ),
             tuple(dimension_payload(item) for item in self.dimensions),
-            None if self.time_axis is None else (dimension_payload(self.time_axis), "day"),
+            None
+            if self.time_axis is None
+            else (dimension_payload(self.time_axis), grain_payload(self.grain)),
             scope_payload(self.time_scope),
             None if self.reference_axis is None else dimension_payload(self.reference_axis),
             self.population_definition,
@@ -448,6 +513,9 @@ class MetricDefinition:
             self.contribution_paths,
             self.coordinate_dependencies,
             self.source_dependency_fingerprint,
+            tuple(path.identity_payload() for path in self.coordinate_paths),
+            tuple(contract.identity_payload() for contract in self.aggregation_contracts),
+            None if self.temporal_snapshot is None else self.temporal_snapshot.snapshot_digest,
         )
 
 
@@ -460,6 +528,8 @@ class PopulationPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
     captures: tuple[BoundSourceParametersV1, ...]
     predicate: BoundPredicate | None = None
     dependency_fingerprint: str = ""
+    sampling: EntitySamplingPolicy | None = None
+    target_population_definition_fingerprint: str | None = None
 
     @property
     def identity_payload(self) -> CanonicalValue:
@@ -471,6 +541,26 @@ class PopulationPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
             tuple(item.identity_payload() for item in self.captures),
             None if self.predicate is None else self.predicate.identity_payload(),
             self.dependency_fingerprint,
+            None if self.sampling is None else self.sampling.identity_payload,
+            self.target_population_definition_fingerprint,
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class RankSpec:
+    """One bound rank request shared by logical and retained row operators."""
+
+    by: DatasetField
+    order: Literal["ascending", "descending"]
+    ties: Literal["ordinal", "dense", "min", "max"]
+    partition_fields: tuple[DatasetField, ...] = ()
+
+    def identity_payload(self) -> CanonicalValue:
+        return (
+            self.by.field_id.value,
+            self.order,
+            self.ties,
+            tuple(field.field_id.value for field in self.partition_fields),
         )
 
 
@@ -480,6 +570,8 @@ class MetricPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
     captures: tuple[BoundSourceParametersV1, ...]
     predicate: BoundPredicate | None = None
     selected_metric: str | None = None
+    rank: RankSpec | None = None
+    limit_count: int | None = None
 
     @property
     def identity_payload(self) -> CanonicalValue:
@@ -488,6 +580,8 @@ class MetricPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
             tuple(item.identity_payload() for item in self.captures),
             None if self.predicate is None else self.predicate.identity_payload(),
             self.selected_metric,
+            None if self.rank is None else self.rank.identity_payload(),
+            self.limit_count,
         )
 
 
@@ -495,12 +589,16 @@ class MetricPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
 class RetainedRowsPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
     predicate: BoundPredicate | None = None
     selected_metric: str | None = None
+    rank: RankSpec | None = None
+    limit_count: int | None = None
 
     @property
     def identity_payload(self) -> CanonicalValue:
         return (
             None if self.predicate is None else self.predicate.identity_payload(),
             self.selected_metric,
+            None if self.rank is None else self.rank.identity_payload(),
+            self.limit_count,
         )
 
 
@@ -562,12 +660,12 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 *(("metric", shape, 1) for shape in METRIC_SHAPES),
             }
         ),
-        roles=frozenset({"entity_identity", "metric", "dimension", "time_dimension"}),
+        roles=frozenset({"entity_identity", "metric", "dimension", "time_dimension", "rank"}),
         logical_types=types,
         physical_types=types,
         admitted_types=types,
         physical_type_classes=frozenset((kind, kind) for kind in types),
-        value_orders=frozenset({"observation.identity_tuple@v1"}),
+        value_orders=frozenset({"observation.identity_tuple@v1", "observation.scalar_order@v1"}),
         storage_kinds=frozenset({"parquet"}),
         byte_unavailable_reasons=frozenset({"not_measured"}),
     )
@@ -620,11 +718,16 @@ def dimension_field(
     *,
     time: bool = False,
     dependency_fingerprint: str = "",
+    grain: Grain | None = None,
 ) -> DatasetField:
     role = "time_dimension" if time else "dimension"
     identity = f"{dimension.ref.kind.value}:{dimension.ref.path}"
     derived = _canonical_digest(
-        (dimension_payload(dimension), "day" if time else None, dependency_fingerprint)
+        (
+            dimension_payload(dimension),
+            grain_payload(grain) if time else None,
+            dependency_fingerprint,
+        )
     )
     return _make_field(
         field_id=_make_field_id(f"{role}.{derived[:32]}@v1"),
@@ -663,9 +766,28 @@ def metric_contracts(
     coordinates: list[DatasetField] = []
     if definition.entity_present:
         coordinates.append(identity_field(definition.entity, ids))
-    coordinates.extend(dimension_field(item, ids) for item in definition.dimensions)
+    dependencies = dict(definition.coordinate_dependencies)
+    coordinates.extend(
+        dimension_field(item, ids, dependency_fingerprint=dependencies.get(item.ref.path, ""))
+        for item in definition.dimensions
+    )
     if definition.time_axis is not None:
-        coordinates.append(dimension_field(definition.time_axis, ids, time=True))
+        coordinates.append(
+            dimension_field(
+                definition.time_axis,
+                ids,
+                time=True,
+                grain=definition.grain,
+                dependency_fingerprint=_canonical_digest(
+                    (
+                        dependencies.get(definition.time_axis.ref.path, ""),
+                        None
+                        if definition.temporal_snapshot is None
+                        else definition.temporal_snapshot.snapshot_digest,
+                    )
+                ),
+            )
+        )
     columns = list(coordinates)
     bindings: list[MetricBinding] = []
     for metric in definition.metrics:
@@ -693,10 +815,23 @@ def metric_contracts(
                 metric.empty_rule,
             )
         )
+    path_bindings = {path.ref: path for path in definition.coordinate_paths}
     coordinate_semantics = tuple(
-        (item.field_id, "day" if item.role_id == "time_dimension" else "functional", ())
+        (
+            item.field_id,
+            definition.grain.to_token()
+            if item.role_id == "time_dimension" and definition.grain is not None
+            else path_bindings[item.identity.identity_id.split(":", 1)[1]].partition,
+            (
+                ("entity_unique",)
+                if path_bindings[item.identity.identity_id.split(":", 1)[1]].partition
+                == "functional"
+                else ("contribution_coordinates",)
+            )
+            + path_bindings[item.identity.identity_id.split(":", 1)[1]].spine_path,
+        )
         for item in coordinates
-        if item.role_id != "entity_identity"
+        if isinstance(item.identity, _CatalogFieldIdentity)
     )
     if definition.entity_present:
         semantics: DatasetFamilyRowSemantics = EntityPresentMetricSemantics(
@@ -754,7 +889,7 @@ def metric_contracts(
 def retained_field(dataset: Dataset, operand: PredicateField) -> DatasetField:
     if isinstance(operand, DatasetFieldRef):
         return validate_field_ref(
-            dataset, operand, allowed_roles=("metric", "dimension", "time_dimension")
+            dataset, operand, allowed_roles=("metric", "dimension", "time_dimension", "rank")
         )
     if isinstance(operand, (MetricEntry, DimensionEntry, TimeDimensionEntry)):
         if operand._catalog is not dataset._owner.catalog_identity:
@@ -822,9 +957,24 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
     if entity_present != isinstance(semantics, EntityPresentMetricSemantics):
         raise construction_error("shape-matched Entity context", "mismatched Entity state")
     columns = row.schema.columns
-    coordinates = tuple(column for column in columns if column.role_id != "metric")
+    coordinates = tuple(
+        column
+        for column in columns
+        if column.role_id in ("entity_identity", "dimension", "time_dimension")
+    )
     values = tuple(column for column in columns if column.role_id == "metric")
-    if not values or columns != (*coordinates, *values):
+    ranks = tuple(column for column in columns if column.role_id == "rank")
+    if len(ranks) > 1 or any(
+        field.field_id.value != "generated.rank@v1"
+        or field.name != "rank"
+        or field.logical_type_id != "int64"
+        or not field.nullable
+        or not isinstance(field.identity, _GeneratedFieldIdentity)
+        or field.identity.producer_field_id != field.field_id
+        for field in ranks
+    ):
+        raise construction_error("one exact nullable generated rank field", "invalid rank binding")
+    if not values or columns != (*coordinates, *values, *ranks):
         raise construction_error(
             "coordinates followed by ordered Metric values", "invalid field role order"
         )
@@ -884,20 +1034,22 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
         raise construction_error(
             "shape-exact ordered Dimension and time coordinates", "invalid coordinate roles"
         )
-    expected_semantics = tuple(
-        (column.field_id, "day" if column.role_id == "time_dimension" else "functional", ())
-        for column in remaining
-    )
-    if semantics.coordinate_semantics != expected_semantics:
+    if tuple(binding[0] for binding in semantics.coordinate_semantics) != tuple(
+        column.field_id for column in remaining
+    ) or any(not binding[1] for binding in semantics.coordinate_semantics):
         raise construction_error(
-            "exact initial functional coordinate semantics", "mismatched coordinate meaning"
+            "exact ordered coordinate semantics", "mismatched coordinate meaning"
         )
     if row_set.cardinality.kind != ("singleton" if shape == "scalar" else "keyed"):
         raise construction_error("shape-exact cardinality", "invalid row-set cardinality")
 
 
 def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
-    if consumer_id == "population.where":
+    if consumer_id == "metric.rank":
+        return not any(field.role_id == "rank" for field in dataset.schema.columns)
+    if consumer_id == "metric.limit":
+        return dataset.row_set_contract.ordering.kind == "ordered"
+    if consumer_id in ("population.where", "population.sample"):
         identity = dataset.schema.columns[0].identity
         if not isinstance(identity, _EntityFieldIdentity):
             return False
@@ -934,6 +1086,21 @@ def _contract_facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
                 ("observation_scope", repr(scope_payload(definition.time_scope))),
             )
         )
+        for contract in definition.aggregation_contracts:
+            if contract.source_requirements:
+                facts.append(
+                    (
+                        f"source_requirements:{contract.metric_ref}",
+                        ", ".join(contract.source_requirements),
+                    )
+                )
+            if contract.materialized_fold == "source_required":
+                facts.append(
+                    (
+                        f"aggregation:{contract.metric_ref}",
+                        "Exact source recomputation; projected retained values do not authorize a coordinate fold.",
+                    )
+                )
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, PopulationPayload):
         facts.append(("membership_scope", repr(scope_payload(root.payload.time_scope))))
         if root.payload.version_selection is not None:
@@ -977,6 +1144,17 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
                     (population_shape,),
                     ("population_membership_stable@v1",),
                 ),
+                ConsumerRegistration(
+                    "population.sample",
+                    ("input",),
+                    "population",
+                    (population_shape,),
+                    (
+                        "population.entity_sampling@v1",
+                        "population.sample_approximation@v1",
+                        "population.sample_selection_fence@v1",
+                    ),
+                ),
             ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=state_decoder,
@@ -1001,6 +1179,15 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             ("with_dimensions", entity_shapes),
             ("with_time_axis", entity_shapes),
             ("aggregate", entity_shapes),
+            (
+                "rank",
+                tuple(
+                    shape
+                    for shape in shapes
+                    if shape.local_shape_id in ("entity", "dimension", "time", "dimension-time")
+                ),
+            ),
+            ("limit", tuple(shape for shape in shapes if shape.local_shape_id != "scalar")),
         )
     )
     registry.register(
@@ -1063,6 +1250,9 @@ def semantic_dependency_digest(dataset: Dataset) -> str:
                 ),
                 definition.source_dependency_fingerprint,
                 definition.coordinate_dependencies,
+                None
+                if definition.temporal_snapshot is None
+                else definition.temporal_snapshot.snapshot_digest,
                 tuple(dimension_payload(dimension) for dimension in definition.dimensions),
                 None if definition.time_axis is None else dimension_payload(definition.time_axis),
                 None

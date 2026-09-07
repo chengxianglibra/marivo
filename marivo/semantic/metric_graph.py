@@ -228,6 +228,19 @@ class TargetMetricComponent:
     empty_rule: Literal["zero", "null"]
     time_fold: AggregateFoldInput
     status_time_dimension: RefPayloadV1 | None = None
+    requires_source_recompute: bool = False
+    fanout_policy: Literal["block", "aggregate_then_join"] = "block"
+
+
+@dataclass(frozen=True, slots=True)
+class TargetMetricCumulative:
+    """An exact accumulation occurrence over a governed base and time axis."""
+
+    node_id: str
+    role: str
+    base_node_id: str
+    over_ref: RefPayloadV1
+    anchor: CumulativeAnchorV1
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,7 +259,9 @@ class TargetMetricContract:
     null_rule: Literal["ignore_null_inputs", "non_null_pairs", "null_component_or_zero_denominator"]
     empty_rule: Literal["zero", "null"]
     evaluation_order: tuple[Literal["space", "time", "compose"], ...] = ("space", "time", "compose")
-    supports_coordinate_aggregation: bool = True
+    cumulative: tuple[TargetMetricCumulative, ...] = ()
+    source_requirements: tuple[str, ...] = ()
+    requires_source_recompute: bool = False
 
 
 @dataclass(frozen=True)

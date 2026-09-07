@@ -362,14 +362,16 @@ def test_weighted_mean_and_different_root_ratio_retain_intrinsic_component_state
     assert "value.denominator.count" in ratio.required_state
 
 
-def test_metric_missing_type_facts_and_unregistered_aggregate_fail_locally() -> None:
+def test_metric_missing_type_facts_fail_and_quantiles_require_source() -> None:
     registry = _registry()
     registry.metrics["sales.value"] = _metric("value")
     with pytest.raises(SemanticLoadError, match="direct-column"):
         normalize_target_metric(registry, "sales.value")
     registry.metrics["sales.value"] = _metric("value", agg="median")
-    with pytest.raises(SemanticLoadError, match="unsupported aggregate"):
-        normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
+    normalized = normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
+    assert normalized.requires_source_recompute
+    assert normalized.required_state == ()
+    assert "metric.source_quantile@v1" in normalized.source_requirements
 
 
 def test_metric_never_rewrites_the_authored_computation_root() -> None:
@@ -394,17 +396,20 @@ def test_status_measure_requires_spatial_before_temporal_state() -> None:
     assert normalized.components[0].time_fold == "last"
     assert normalized.components[0].status_time_dimension is not None
     assert normalized.components[0].status_time_dimension.path == "sales.orders.day"
-    assert normalized.supports_coordinate_aggregation is False
+    assert "metric.source_temporal_fold@v1" in normalized.source_requirements
+    assert normalized.requires_source_recompute
+    assert normalized.required_state == ()
     assert normalized.evaluation_order.index("space") < normalized.evaluation_order.index("time")
     axis = normalize_target_dimension(registry, "sales.orders.day")
     assert axis.logical_type == "date" and axis.is_default and axis.granularity == "day"
 
 
-def test_weighted_temporal_pair_retains_axis_without_claiming_coordinate_support() -> None:
+def test_weighted_temporal_value_requires_additive_weight() -> None:
     registry = _registry()
     temporal = SemiAdditive("sales.orders.day", TimeFoldIR("last"))
-    for path in ("sales.orders.amount", "sales.orders.weight"):
-        registry.measures[path] = replace(registry.measures[path], additivity=temporal)
+    registry.measures["sales.orders.amount"] = replace(
+        registry.measures["sales.orders.amount"], additivity=temporal
+    )
     registry.metrics["sales.weighted"] = replace(
         _metric("weighted"),
         aggregation=None,
@@ -418,7 +423,14 @@ def test_weighted_temporal_pair_retains_axis_without_claiming_coordinate_support
     assert component.time_fold == "last"
     assert component.status_time_dimension is not None
     assert component.status_time_dimension.path == "sales.orders.day"
-    assert normalized.supports_coordinate_aggregation is False
+    assert "metric.source_temporal_fold@v1" in normalized.source_requirements
+    assert normalized.requires_source_recompute
+    assert normalized.required_state == ()
+    registry.measures["sales.orders.weight"] = replace(
+        registry.measures["sales.orders.weight"], additivity=temporal
+    )
+    with pytest.raises(SemanticLoadError, match="additive weight"):
+        normalize_target_metric(registry, "sales.weighted", sidecar=_sidecar(registry))
 
 
 def test_private_normalization_never_calls_telemetry_wrapped_public_ref_factories(

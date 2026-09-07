@@ -96,6 +96,24 @@ class LocalWriteResult:
     realized_row_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class SamplingStateRead:
+    sampling: tuple[codec.SamplingRealization, ...]
+    receipt: LocalReceipt
+
+
+def sampling_state_read(descriptor: codec.ArtifactDescriptor) -> SamplingStateRead | None:
+    """Select exact committed read authority without touching any Artifact backing."""
+    if descriptor.sampling_execution is None:
+        return None
+    selected = tuple(
+        part for part in descriptor.retained_parts if part.role == "population_sampling_state"
+    )
+    if len(selected) != 1:
+        _integrity("one retained sampling receipt binding", "missing sampling state")
+    return SamplingStateRead(descriptor.sampling_execution, selected[0].storage_receipt)
+
+
 def _fail(expected: str, received: str, *, stage: str = "output_validation") -> Never:
     raise MaterializationError(
         expected=expected,
@@ -372,15 +390,28 @@ def _compare(left: _Value, right: _Value, *, nulls: str = "last") -> int:
 
 
 class _RowValidator:
-    def __init__(self, contract: DatasetRowContract, rows: DatasetRowSetContract) -> None:
+    def __init__(
+        self,
+        contract: DatasetRowContract,
+        rows: DatasetRowSetContract,
+        *,
+        source_key_validation: bool = False,
+    ) -> None:
         by_id = {field.field_id: field.name for field in contract.schema.columns}
         self.keys = tuple(by_id[key] for key in contract.key_field_ids)
         self.terms = tuple((name, "ascending", "last") for name in self.keys)
         if isinstance(rows.ordering, _OrderedOrdering):
-            if tuple(term.field_id for term in rows.ordering.terms) != contract.key_field_ids:
+            ordered_ids = tuple(term.field_id for term in rows.ordering.terms)
+            if not set(contract.key_field_ids).issubset(ordered_ids):
                 _fail(
-                    "a stream order over the exact complete row key",
-                    "unsupported ordering contract",
+                    "a total stream order containing the complete row key",
+                    "missing unique ordering tie-breaker",
+                    stage="storage_selection",
+                )
+            if ordered_ids != contract.key_field_ids and not source_key_validation:
+                _fail(
+                    "separate final source row-key uniqueness validation",
+                    "ordering alone does not prove row-key uniqueness",
                     stage="storage_selection",
                 )
             self.terms = tuple(
@@ -402,14 +433,14 @@ class _RowValidator:
             ):
                 _fail("complete non-null identity tuples", "null identity component")
         for offset in range(batch.num_rows):
-            key = tuple(
+            ordered = tuple(
                 _value(batch.column(batch.schema.get_field_index(name))[offset])
-                for name in self.keys
+                for name, _, _ in self.terms
             )
             if self.previous is not None:
                 comparison = 0
                 for left, right, (_, direction, nulls) in zip(
-                    self.previous, key, self.terms, strict=True
+                    self.previous, ordered, self.terms, strict=True
                 ):
                     comparison = _compare(left, right, nulls=nulls)
                     if direction == "descending" and left is not None and right is not None:
@@ -417,8 +448,11 @@ class _RowValidator:
                     if comparison:
                         break
                 if comparison >= 0:
-                    _fail("unique keys in canonical stream order", "duplicate or unordered row key")
-            self.previous = key
+                    _fail(
+                        "strictly increasing governed total stream order",
+                        "duplicate or unordered ordering tuple",
+                    )
+            self.previous = ordered
             self.count += 1
         if self.rows.cardinality.kind == "singleton" and self.count > 1:
             _fail("one singleton row", "multiple singleton rows")
@@ -464,6 +498,8 @@ def write_local_dataset(
     row_contract: DatasetRowContract,
     row_set_contract: DatasetRowSetContract,
     parts: tuple[PartWriteSpec, ...] = (),
+    sampling: tuple[codec.SamplingRealization, ...] = (),
+    source_key_validation: bool = False,
     event: Callable[[str], None],
     policy: StoragePolicy = _STORAGE_POLICY,
 ) -> LocalWriteResult:
@@ -480,7 +516,11 @@ def write_local_dataset(
         not _ROLE.fullmatch(part.role) for part in parts
     ):
         _fail("unique bounded retained role names", "invalid retained role")
-    validator = _RowValidator(row_contract, row_set_contract)
+    if sampling and any(part.role == "population_sampling_state" for part in parts):
+        _fail("one owned sampling-state role", "duplicate sampling state")
+    validator = _RowValidator(
+        row_contract, row_set_contract, source_key_validation=source_key_validation
+    )
     for part in parts:
         if (
             not part.column_names
@@ -560,12 +600,38 @@ def write_local_dataset(
         for sink in sinks:
             sink.close()
         sinks.clear()
+        row_counts = (validator.count,) * len(directories)
+        retained_specs = tuple(
+            (part.role, part.contract_id, part.contract_version) for part in parts
+        )
+        if sampling:
+            directory = "parts/population_sampling_state"
+            target = staging / directory
+            _create_directory(target)
+            schema = pa.schema([pa.field("sampling_execution_digest", pa.string(), nullable=False)])
+            batch = pa.RecordBatch.from_arrays(
+                [pa.array([codec.digest(codec.sampling_payload(sampling))], type=pa.string())],
+                schema=schema,
+            )
+            with (
+                _BudgetFile(target / "data.parquet", budget) as sink,
+                pq.ParquetWriter(
+                    sink, schema, compression="zstd", write_page_checksum=True
+                ) as writer,
+            ):
+                writer.write_batch(batch)
+            schemas.append(schema)
+            directories += (directory,)
+            row_counts += (1,)
+            retained_specs += (("population_sampling_state", "population_sampling_state", 1),)
         receipts: list[LocalReceipt] = []
-        for index, (directory, schema) in enumerate(zip(directories, schemas, strict=True)):
+        for index, (directory, schema, row_count) in enumerate(
+            zip(directories, schemas, row_counts, strict=True)
+        ):
             target = staging / directory
             file = target / "data.parquet"
             with pq.ParquetFile(file) as parquet:
-                if parquet.metadata.num_rows != validator.count or not parquet.schema_arrow.equals(
+                if parquet.metadata.num_rows != row_count or not parquet.schema_arrow.equals(
                     schema, check_metadata=False
                 ):
                     _fail(
@@ -589,11 +655,11 @@ def write_local_dataset(
                     schema_fingerprint=schema_fingerprint(realized)
                     if index == 0
                     else hashlib.sha256(schema.serialize().to_pybytes()).hexdigest(),
-                    realized_row_count=validator.count,
+                    realized_row_count=row_count,
                     realized_byte_count=entry.size_bytes + len(manifest),
                 )
             )
-        if parts:
+        if retained_specs:
             _fsync_directory(staging / "parts")
         _fsync_directory(staging)
         _create_directory(final.parent)
@@ -606,8 +672,10 @@ def write_local_dataset(
         return LocalWriteResult(
             receipts[0],
             tuple(
-                RetainedPart(part.role, part.contract_id, part.contract_version, receipt)
-                for part, receipt in zip(parts, receipts[1:], strict=True)
+                RetainedPart(role, contract_id, version, receipt)
+                for (role, contract_id, version), receipt in zip(
+                    retained_specs, receipts[1:], strict=True
+                )
             ),
             realized,
             validator.count,
@@ -619,6 +687,57 @@ def write_local_dataset(
         for sink in sinks:
             with suppress(OSError, MaterializationError):
                 sink.close()
+
+
+def validate_sampling_state(project_root: Path, state: SamplingStateRead | None) -> None:
+    """Verify the bounded retained receipt binding without source or membership reads."""
+    if state is None:
+        return
+    sampling = state.sampling
+    receipt = state.receipt
+    root = _checked_path(project_root, Path(receipt.project_relative_path))
+    if len(receipt.file_manifest) != 1 or receipt.realized_row_count != 1:
+        _integrity("one bounded sampling state row", "invalid sampling state receipt")
+    entry = receipt.file_manifest[0]
+    if entry.relative_path != "data.parquet" or entry.size_bytes > 65_536:
+        _integrity("the bounded sampling state Parquet file", "invalid sampling backing")
+    data = _checked_path(project_root, root / "data.parquet")
+    manifest = _checked_path(project_root, root / "manifest.json")
+    schema = pa.schema([pa.field("sampling_execution_digest", pa.string(), nullable=False)])
+    try:
+        expected_manifest = _manifest_bytes(receipt.file_manifest)
+        if (
+            data.stat().st_size != entry.size_bytes
+            or manifest.stat().st_size != len(expected_manifest)
+            or manifest.read_bytes() != expected_manifest
+            or _hash_file(data) != receipt.bytes_hash
+            or entry.sha256 != receipt.bytes_hash
+            or receipt.schema_fingerprint
+            != hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
+            or receipt.realized_byte_count != entry.size_bytes + len(expected_manifest)
+        ):
+            _integrity(
+                "the exact retained sampling state receipt", "sampling state backing changed"
+            )
+        with pq.ParquetFile(data, page_checksum_verification=True) as parquet:
+            if (
+                parquet.metadata.num_rows != 1
+                or parquet.metadata.num_row_groups != 1
+                or parquet.metadata.row_group(0).total_byte_size > 65_536
+                or not parquet.schema_arrow.equals(schema)
+            ):
+                _integrity("the bounded sampling state schema", "invalid sampling state rows")
+            value: object = parquet.read()["sampling_execution_digest"][0].as_py()
+            if value != codec.digest(codec.sampling_payload(sampling)):
+                _integrity(
+                    "sampling state bound to the exact execution receipt",
+                    "sampling receipt differs",
+                )
+    except (OSError, pa.ArrowException):
+        _integrity(
+            "accessible valid retained sampling state",
+            "sampling state backing is absent or corrupt",
+        )
 
 
 def _open_primary(
@@ -718,7 +837,8 @@ def _read(
     if not preview and receipt.realized_row_count > policy.max_rows:
         _limited("committed row count exceeds the collection limit")
     parquet, data = _open_primary(project_root, receipt, row_contract)
-    validator = _RowValidator(row_contract, row_set_contract)
+    # The committed descriptor requires the producer's independent key validation.
+    validator = _RowValidator(row_contract, row_set_contract, source_key_validation=True)
     retained: list[pa.RecordBatch] = []
     decoded = 0
     remaining = policy.preview_rows if preview else receipt.realized_row_count

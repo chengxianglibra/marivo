@@ -20,6 +20,7 @@ from ibis.backends.duckdb import Backend
 from sqlglot import expressions as sge
 
 from marivo.analysis.compiler import captured_parameters, compile_dataset, required_entities
+from marivo.analysis.compiler.nodes import CompiledSampleFence
 from marivo.analysis.compiler.normalize import logical_roots
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
@@ -32,6 +33,7 @@ from marivo.analysis.materialization.contracts import (
     RunDatasetInput,
     RunFailure,
     RunRecord,
+    SamplingRealization,
 )
 from marivo.analysis.materialization.errors import (
     IntegrityError,
@@ -48,16 +50,23 @@ from marivo.analysis.materialization.resources import (
     prove_local_termination,
     reserve_output,
 )
+from marivo.analysis.materialization.sampling import (
+    admit_sampling,
+    execute_sample,
+    sample_statement,
+)
 from marivo.analysis.materialization.storage import (
     PartWriteSpec,
     ReadPolicy,
     read_preview,
     read_primary,
+    sampling_state_read,
+    validate_sampling_state,
     write_local_dataset,
 )
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
-from marivo.analysis.observation.contracts import source_owner_of
+from marivo.analysis.observation.contracts import PopulationPayload, source_owner_of
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
@@ -87,6 +96,7 @@ class ExecutionStatistics:
     primary_queries: int = 0
     validation_queries: int = 0
     source_fences: int = 0
+    sampling_fences: int = 0
     transferred_rows: int = 0
     transferred_bytes: int = 0
     events: dict[str, int] = field(default_factory=dict)
@@ -316,6 +326,15 @@ class DatasetRuntime:
             f"Preview: {table.num_rows} of {record.descriptor.storage_receipt.realized_row_count} rows (maximum {_READ_POLICY.preview_rows})",
             " | ".join(table.column_names),
         ]
+        sampling = record.descriptor.sampling_execution
+        if sampling is not None:
+            facts = "; ".join(
+                f"target={item.target_rows}, realized={item.realized_entity_count}, seeded={item.seed is not None}"
+                for item in sampling[:3]
+            )
+            lines.insert(
+                1, f"Sampling: approximate Entity sample; realizations={len(sampling)}; {facts}"
+            )
         identities = {
             field.name for field in dataset.schema.columns if field.role_id == "entity_identity"
         }
@@ -388,6 +407,8 @@ class DatasetRuntime:
         for root in roots:
             if root.contract_versions != producer_contract_versions(root.operator_id):
                 raise _error("implementation_registration")
+            if isinstance(root.payload, PopulationPayload) and root.payload.sampling is not None:
+                admit_sampling(root.payload.sampling)
         key = execution_key(dataset.definition_fingerprint)
         self.statistics = ExecutionStatistics()
         self.last_run_ref = None
@@ -466,8 +487,13 @@ class DatasetRuntime:
                 phase = "ibis_backend_compile"
                 self._event("backend_compile")
                 backend.compile(recipe.expression)
-                for validation in recipe.validations:
-                    backend.compile(validation.expression)
+                for assertion in recipe.validations:
+                    backend.compile(assertion.expression)
+                for preparation in recipe.preparations:
+                    if isinstance(preparation, CompiledSampleFence):
+                        sqlglot.parse_one(sample_statement(backend, preparation), read="duckdb")
+                    else:
+                        backend.compile(preparation.expression)
                 phase = "source_binding"
                 with _engine_deadline(backend):
                     for entity in entities:
@@ -499,8 +525,34 @@ class DatasetRuntime:
                         self.statistics.source_fences += 1
                 phase = "stage_execution"
                 validations: list[tuple[str, int]] = []
+                sampling: list[SamplingRealization] = []
                 with _engine_deadline(backend):
-                    for validation in recipe.validations:
+                    for validation in recipe.preparations or recipe.validations:
+                        if isinstance(validation, CompiledSampleFence):
+                            self.store.reserve(
+                                ResourceRecord(
+                                    run_ref=run.run_ref,
+                                    resource_kind="planner_temporary_relation",
+                                    execution_domain_id=domain,
+                                    ownership_nonce=execution.ownership_nonce,
+                                    cleanup_capability_id="duckdb_process_lifetime@v1",
+                                    safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
+                                )
+                            )
+                            self._event("sampling_reserved")
+                            sampling.append(
+                                execute_sample(
+                                    backend,
+                                    validation,
+                                    ordinal=len(sampling),
+                                    record=self._record_statement,
+                                    event=self._event,
+                                )
+                            )
+                            self.statistics.sampling_fences += 1
+                            self.statistics.validation_queries += 1
+                            validations.append((f"sampling.{len(sampling) - 1}.identity", 0))
+                            continue
                         self._event("source_statement")
                         self.statistics.validation_queries += 1
                         self._record_statement(
@@ -546,11 +598,16 @@ class DatasetRuntime:
                             )
                             for part in recipe.retained_parts
                         ),
+                        sampling=tuple(sampling),
+                        source_key_validation=("dataset.final_row_key_unique", 0) in validations,
                         event=self._event,
                     )
                 phase = "quality"
                 self._event("quality")
-                descriptor = make_descriptor(dataset, contract, storage, tuple(validations))
+                descriptor = make_descriptor(
+                    dataset, contract, storage, tuple(validations), tuple(sampling)
+                )
+                validate_sampling_state(self.store.project_root, sampling_state_read(descriptor))
                 phase = "evidence"
                 self._event("evidence")
                 backend.raw_sql("ROLLBACK")

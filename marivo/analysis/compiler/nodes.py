@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import ibis.expr.types as ir
 
+from marivo.analysis.observation.sampling import EntitySamplingPolicy
+
 
 @dataclass(frozen=True, slots=True, repr=False)
 class CompiledValidation:
@@ -26,6 +28,18 @@ class RetainedPartSpec:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class CompiledSampleFence:
+    """One predeclared, action-owned physical realization of eligible Entity rows."""
+
+    relation_name: str
+    expression: ir.Table
+    policy: EntitySamplingPolicy
+    population_definition_fingerprint: str
+    target_population_definition_fingerprint: str
+    identity_columns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class CompiledDataset:
     """One final source expression with separate, named assertion preflights."""
 
@@ -33,3 +47,4 @@ class CompiledDataset:
     validations: tuple[CompiledValidation, ...]
     primary_columns: tuple[str, ...]
     retained_parts: tuple[RetainedPartSpec, ...]
+    preparations: tuple[CompiledValidation | CompiledSampleFence, ...] = ()

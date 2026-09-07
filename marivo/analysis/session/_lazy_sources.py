@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 
-from marivo._temporal import TimeScope
+from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.observation.contracts import (
     EntityInput,
@@ -96,6 +96,7 @@ def make_lazy_sources(
     session_id: str,
     store_id: str,
     catalog: SemanticCatalog | None = None,
+    period_calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
 ) -> LazySources:
     """Assemble private source constructors from immutable, already loaded authority."""
     if not semantic_registry._frozen:
@@ -125,5 +126,6 @@ def make_lazy_sources(
         sidecar=sidecar,
         action_port=action_port,
         binding_scopes=SourceBindingScopes.from_registry(semantic_registry),
+        period_calendar_snapshots=period_calendar_snapshots,
     )
     return LazySources(owner, make_family_registry(make_ids(())))
