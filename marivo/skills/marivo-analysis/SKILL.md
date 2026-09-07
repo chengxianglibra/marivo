@@ -7,27 +7,16 @@ description: Use when a user wants to run or continue a trusted Marivo investiga
 
 ## Purpose and ownership
 
-Use this skill to turn a business, product, or operational question into a
-bounded, evidence-backed Marivo investigation. This skill owns workflow
-boundaries, handoffs, evidence continuity, and closeout obligations. The agent
-owns planning, method choice, analytical judgment, synthesis, and stopping.
+Turn the user's question into a bounded, evidence-backed investigation. The
+agent owns planning, method choice, judgment, synthesis, and stopping; governed
+semantic objects own reusable business meaning.
 
-Trust the verified installed Marivo environment and its live guidance:
-
-- `marivo.help("analysis")` owns the environment fingerprint, responsibility
-  boundary, and progressive entry map;
-- `analysis.entry`, `analysis.methods`, `analysis.inputs`, `analysis.artifacts`,
-  `analysis.evidence`, and `analysis.runtime` are the six discovery hubs;
-- focused `marivo.help("analysis.<target>")` owns exact signatures,
-  constraints, return types, and examples;
-- governed semantic objects own reusable business meaning;
-- `.show()` owns bounded current artifact state;
-- `.contract()` owns mechanically valid next actions;
-- `marivo.help("analysis.boundary.to_pandas")` owns the exact terminal exit;
-- structured errors own repair guidance.
-
-Do not reconstruct those contracts from this skill, remembered syntax, or
-private implementation details.
+Use the host-selected verified environment. `marivo.help("analysis")` provides
+progressive discovery; focused Help owns exact signatures, constraints, and
+examples. `.show()` owns current artifact state, `.contract()` owns mechanically
+valid continuations, and structured errors own repair. Consult them when the
+next decision needs that information; do not reconstruct contracts from memory
+or private implementation details.
 
 ## Bounded analysis loop
 
@@ -79,18 +68,15 @@ additivity, and reconciliation where applicable; missingness, uncertainty, and
 quality blockers; and the boundary between observation, association,
 projection, hypothesis testing, and causal evidence.
 
-Use `marivo.help("analysis.artifacts")`,
-`marivo.help("analysis.evidence")`, the Artifact's current state, and its
-structured contract for the installed inspection mechanics. Preserve warnings
+Use `marivo.help("analysis.artifacts")` and `marivo.help("analysis.evidence")`
+when inspection or Evidence mechanics are unknown. Preserve warnings
 and partial coverage. Do not turn absence into zero, association into causation,
 a point forecast into certainty, or a segment result into a population claim.
 
 ### 5. Synthesize, hand off, or stop
 
-Close the investigation when every required answer is supported or explicitly
-blocked. Separate observed or computed facts, interpretations supported by
-those facts, recommendations or hypotheses requiring judgment, and unsupported
-questions with their smallest missing evidence or semantic object.
+Close when every required answer is supported or explicitly blocked, using the
+closeout obligations below.
 
 Hand only reusable semantic gaps to `marivo-semantic`. Resume the affected
 analysis branch from the returned analysis-ready inputs; do not restart
@@ -130,8 +116,8 @@ Artifact rows, and never feed a terminal result back into typed analysis.
 
 ### Evidence continuity and recovery
 
-Use one question-scoped session and carry exact Artifact identities across
-decision rounds. Do not depend on process memory, an implicit latest result,
+Carry exact Artifact identities across decision rounds in that session. Do not
+depend on process memory, an implicit latest result,
 imported prior scripts, chat summaries, or repeated successful observations as
 substitutes for persisted identity.
 
@@ -142,17 +128,13 @@ Use the installed revalidation and repair guidance when authority-sensitive
 reuse requires it; mechanical compatibility alone is not current semantic
 authority.
 
-Runtime history, graph projections, and persisted Evidence reads aid recovery
-and audit. They do not by themselves establish current semantic authority,
-datasource freshness, causal interpretation, or business validity. Stop and
-disclose an affected branch when its authority or Evidence cannot be restored,
-and disclose freshness as unchecked unless a separate current source check
-establishes it.
-
-Cold-start recovery starts with bounded Run history. Use the runtime Help route
-to choose the installed Run read, restore the exact committed Artifact through
-the public runtime read, use a focused Session graph only for factual adjacency,
-and choose Artifact-owned Finding reads when audit details are required.
+For cold starts, use bounded Run history to locate the exact committed Artifact;
+use focused graph reads for factual adjacency and Artifact-owned Finding reads
+for audit detail. These public recovery reads do not establish current semantic
+authority, datasource freshness, causality, or business validity. Disclose
+freshness as unchecked unless a separate current source check establishes it.
+If authority or Evidence cannot be restored, block only the affected branch and
+continue independent work.
 
 ### Structured repair and stopping
 
@@ -174,9 +156,7 @@ material conclusion:
   exits;
 - keep the supporting semantic refs, Session, Run, Artifact, and scope
   recoverable without exposing runtime bookkeeping unless the user requests an
-  audit;
-- name missing reusable semantic objects and route their authoring to
-  `marivo-semantic`.
+  audit.
 
 Do not prescribe a fixed report template or continue exploring after the
 required answers and limitations are complete. Delivery or publication belongs

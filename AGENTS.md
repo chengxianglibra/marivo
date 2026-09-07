@@ -1,177 +1,126 @@
 # AGENTS.md
 
-Shared coding, testing, and documentation guidance for agents working in this
-repository. Keep this file focused on stable rules that should be loaded for
-every coding task. Do not modify this file without explicit user approval.
+Stable repository-wide rules. Change this file only when the user explicitly
+requests or approves it. Task-specific procedures belong in the owning skill
+or domain documentation.
 
-## Core Rules
+## Scope and authorization
 
-- Think before coding: state assumptions, surface tradeoffs, and ask only when
-  ambiguity would make the change risky.
-- Prefer the minimum code that solves the requested problem; do not add
-  speculative flexibility, future placeholders, or unrelated abstractions.
-- Make surgical changes: touch only the files required, match existing style,
-  and never clean up unrelated local changes.
-- Do not add Chinese text to source code, code comments, tests, fixtures,
-  generated code, or user-facing strings in code. Keep code artifacts in
-  English unless a task explicitly updates localized documentation.
-- Define verifiable success criteria for non-trivial work and loop until the
-  relevant checks pass or explain why they could not run.
-- Treat committed specs and docs as sources of truth. If code and docs
-  disagree, verify the intended current contract before changing behavior.
+- For non-trivial work, state the intended outcome, assumptions, tradeoffs, and
+  verifiable success criteria before editing; then complete the authorized work.
+- Use context to resolve routine implementation choices. Ask only when missing
+  information materially affects business meaning, scope, correctness, or
+  authorization. Continue independent work while that question is unresolved.
+- Explicit user instructions take precedence over skill guidelines. Reuse
+  authorization already given for the same action and scope. A skill invocation
+  does not by itself authorize unrelated external writes, publication, messages,
+  destructive cleanup, or changes to shared infrastructure. Prepare a reviewable
+  result before requesting any still-missing authorization.
+- If an instruction blocks completion, cite its file and relevant rule, explain
+  the concrete blocker, and distinguish a requirement from your interpretation.
+- Make the smallest coherent change, match existing style, and preserve unrelated
+  work, including staged changes. Do not add speculative abstractions or cleanup.
+- Keep source, comments, tests, fixtures, generated code, and code-owned user
+  strings in English; localized documentation is the explicit exception.
+- Report the outcome, relevant validation, and material limitations concisely.
+  Distinguish proposed design from implemented and observed behavior.
 
-## Python And Typing
+## Python and verification
 
-- Never use bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
-- Use repository entrypoints or explicit `.venv/bin/...` paths only. For
-  targeted Python tests, prefer `make test TESTS='tests/test_file.py'` or
-  `.venv/bin/pytest tests/test_file.py`.
-- During agent iteration, prefer the compact `make test-agent`,
-  `make typecheck-agent`, and `make lint-agent` entrypoints. Narrow them with
-  `TESTS`, `TYPECHECK_TARGETS`, or `LINT_TARGETS` before broadening the scope.
-  These targets preserve failures and exit status while reducing successful
-  output; they do not replace a required broad final check.
-- New or modified Python code must satisfy typing for the touched modules.
-- Do not introduce new implicit `Any`, broad `cast(...)`, or `# type: ignore`
-  unless it is strictly necessary and locally justified.
+- Never use bare `python`, `pytest`, `mypy`, or `ruff`. Use repository Make targets
+  or explicit `.venv/bin/...` paths (`.venv/Scripts/...` on Windows).
+- During iteration prefer `make test-agent TESTS='tests/test_file.py'`,
+  `make typecheck-agent TYPECHECK_TARGETS='...'`, and
+  `make lint-agent LINT_TARGETS='...'`. Use verbose output only for failures that
+  need it. The compact targets preserve failures and exit status.
+- Touched Python modules must pass typing. Public parameters and returns use
+  concrete types; do not add implicit `Any`, broad casts, or `# type: ignore`
+  without a necessary, local justification.
+- Reuse fixtures in `tests/conftest.py` and pure builders in
+  `tests/shared_fixtures.py`. Preserve worker and mutable-state isolation.
+- Verify the changed contract with the narrowest useful checks. Test observable
+  behavior and durable invariants; do not add tests that only mirror incidental
+  wording or a reversible formatting edit.
+- Broaden to `make test` for shared behavior. Use `make check-agent` for the full
+  lint, typecheck, default-test, and API-docs gate; it covers the same scope as
+  `make check`. Release-specific gates remain owned by the release workflow.
+- After applicable checks pass, broaden or repeat only for new changes, failures,
+  or unresolved risk. Report checks that could not run and their impact.
 
-## Marivo Python Library
+## Library contracts
 
-The public Marivo surface is the Python library:
+The public surfaces are `marivo.help`, `marivo.datasource`, `marivo.semantic`,
+and `marivo.analysis`. Use `import marivo` for focused help and `md`, `ms`, and
+`mv` for the respective execution modules. Execution aliases such as
+`marivo.session` are unavailable at the top level.
 
-- `marivo.help`
-- `marivo.datasource`
-- `marivo.semantic`
-- `marivo.analysis`
+- Python-track expression bodies return Ibis expressions only and remain within
+  `marivo/semantic/validator.py`. SQL text belongs in provenance value objects
+  such as `ms.from_sql(sql=..., dialect=...)`, not executable expression bodies.
+- Semantic definitions own reusable business meaning; analysis consumes governed
+  inputs and owns question-specific computation. Physical evidence cannot decide
+  business meaning. Follow the owning packaged skill for authoring and handoff.
+- New exceptions subclass `DatasourceError`, `SemanticError`, or `AnalysisError`
+  for their surface, carry structured fields, and use shared rendering templates.
+  State expected input, received input, and a concrete repair from real state;
+  never invent candidates or silently fall back.
+- Top-level Frame APIs are immutable; only `frame.to_pandas()` returns an isolated
+  copy. Helpers consuming frames enforce cross-session ownership.
+- Author credentials as `*_env` references, never secrets in project state.
+  After a validated datasource round-trip, Marivo may cache resolved secrets in
+  plaintext user-global `~/.marivo/secrets.toml`. Persistent semantic and analysis
+  state belongs under `<project_root>/.marivo/`.
+- Public functions need docstrings with purpose, parameters, return value, a
+  usage example, and constraints. Every public symbol resolves through
+  `marivo.help("datasource.<target>")`, `marivo.help("semantic.<target>")`, or
+  `marivo.help("analysis.<target>")`.
 
-Import `marivo` for focused help and each execution surface under its
-conventional alias — `import marivo.datasource as md`, `import marivo.semantic
-as ms`, `import marivo.analysis as mv`. `marivo.session` and similar execution
-aliases are not available at the top level.
+## Agent-facing disclosure
 
-Rules for this surface:
+- Keep one owner per fact: live Help owns static API/navigation; `.show()` owns
+  bounded current state; analysis artifact `.contract()` owns mechanically valid
+  continuations; structured errors own repair; packaged skills own workflow and
+  judgment. Datasource and semantic authoring expose operations, effects, input
+  facts, errors, and repairs without a shared lifecycle graph. Terminal results
+  such as `RawSqlResult` remain contract-free and cannot enter typed analysis.
+- Every public result has a bounded single-line repr with kind, identity, and a
+  `.show()` pointer; default dataclass reprs are insufficient. Terminal cards
+  order content deterministically and show only state-dependent continuations,
+  not a repeated capability matrix.
+- Keep one canonical public path per capability. Pin `__all__` with snapshot
+  tests; exclude internal handoffs, type aliases, and "internal, use X" symbols
+  from top-level discovery. New result types join an existing family or justify
+  a new one. Prefer closed kind-dispatched variants over optional-field unions.
+- Prior-result reuse is a weak dependency: retain one current contract and remove
+  legacy artifacts, aliases, migrations, and dual reads unless the owning
+  contract explicitly requires compatibility.
+- `marivo.help()` introduces core concepts and routes only to `authoring` or
+  `analysis`. Discover qualified targets beneath those roots; each focused
+  symbol has a minimal runnable example. Keep navigation bounded, progressive,
+  independently resolvable, and owned by native registries, without renderer
+  shadow inventories.
+- Any public export, callable/type, Help target, result/error guidance, or dynamic
+  continuation change is one disclosure-contract change. Align the affected
+  implementation, registry and budgets, guidance, independent drift/reachability/
+  budget tests, examples, skills, CLI, and current docs in the same change.
 
-- Python-track expressions return ibis expressions only. SQL text belongs only
-  in provenance value objects such as
-  `provenance=ms.from_sql(sql=..., dialect=...)`, never in executable expression
-  bodies.
-- Decorator function bodies stay restricted by
-  `marivo/semantic/validator.py`.
-- New exceptions subclass `SemanticError` or `AnalysisError`, carry structured
-  fields, and render through the shared template style. New datasource
-  exceptions subclass `DatasourceError`, parallel to the `SemanticError` and
-  `AnalysisError` hierarchy rules, and follow the same structured-fields and
-  shared-template-rendering contract.
-- Top-level Frame APIs remain immutable. Only `frame.to_pandas()` returns an
-  isolated copy.
-- Datasource credentials are authored as `*_env` references and must not be
-  written into project state. After a validated datasource round-trip, Marivo
-  may cache resolved secrets in plaintext user-global state at
-  `~/.marivo/secrets.toml`.
-- Persistent analysis and semantic state lives project-locally under
-  `<project_root>/.marivo/`.
-- Cross-session frame ownership is mandatory for helpers that consume frames.
-- Public API functions must have a docstring that covers: function purpose,
-  parameter descriptions, return value, a usage example, and brief constraints.
-  Each public API symbol resolves through the one public help coordinator:
-  `marivo.help("datasource.<target>")` for datasource symbols,
-  `marivo.help("semantic.<target>")` for semantic symbols, and
-  `marivo.help("analysis.<target>")` for analysis symbols.
-- Public API functions must not accept or return `Any` or other ambiguous types;
-  every parameter and return annotation must be a concrete, specific type.
+## Documentation routing
 
-## Agent-Facing Surface Principles
+Read the owning docs before changing behavior. Committed specs define intent;
+if code and docs disagree, establish the current contract before editing.
 
-The library is consumed primarily by agents through a write-run-read loop.
-These rules govern every public surface change:
+| Task | Read first |
+| --- | --- |
+| Datasource or semantic design | `docs/specs/semantic/overview.md` and focused public Help |
+| Datasource declarations and discovery | `docs/specs/semantic/datasource-layer.md` |
+| Semantic object model | `docs/specs/semantic/semantic-object-model.md` |
+| Semantic authoring | `docs/specs/semantic/authoring-workflow.md` |
+| Loading, validation, catalog, analysis handoff | `docs/specs/semantic/loading-validation-introspection.md` |
+| Analysis design | `docs/specs/analysis/python-analysis-design.md` |
+| Public result and guidance protocol | `docs/specs/agent-friendly-public-surface.md` |
+| Agent workflow | `marivo/skills/marivo-semantic/SKILL.md` or `marivo/skills/marivo-analysis/SKILL.md` |
 
-- Errors teach: every typed error states what was expected, what was
-  received, and the concrete next step. Suggestions are built from real
-  state (e.g. catalog contents), never hardcoded. No silent fallback.
-- Keep guidance with its natural owner: live Help owns static API and navigation
-  facts; result `show()` / `contract()` methods own current state and
-  mechanically valid continuations; structured errors own concrete repair;
-  packaged skills own workflow boundaries and judgment without duplicating
-  those contracts.
-- One canonical path per capability: discovery and guidance point to exactly one
-  public entry point. Compatibility paths exist only when the owning contract
-  explicitly requires them. Nothing described as "internal — use X instead"
-  may appear in `__all__`.
-- Treat reuse of prior analysis results as a weak dependency: prefer one clean
-  current contract and remove legacy artifacts, aliases, migrations, and
-  dual-read compatibility unless explicitly required.
-- `__repr__` is the floor: every public result type has a bounded,
-  single-line repr carrying kind and identity, pointing to `.show()` for
-  detail. Default dataclass reprs are not acceptable on public result types.
-- Terminal results (objects an agent stops to read) implement bounded
-  `.show()` output with deterministic ordering. Artifact cards include only
-  continuation hints that depend on the artifact's current state; they do not
-  repeat the full capability matrix. Analysis artifacts expose `.contract()`
-  when they own mechanically valid next actions. Datasource and semantic
-  authoring expose callable operations, effects, input facts, structured errors,
-  and typed repairs without a shared lifecycle graph. Explicit terminal
-  boundaries such as `RawSqlResult` remain contract-free because they cannot
-  enter typed analysis.
-- Surface growth is gated: public `__all__` sets are pinned by a snapshot
-  test. A new public result type must join an existing family (naming and
-  protocol) or justify a new one. Type aliases and module-internal handoff
-  types stay out of the top-level help index.
-- Discovery is progressive and bounded: `marivo.help()` introduces the core
-  concepts and routes only to `marivo.help("authoring")` or
-  `marivo.help("analysis")`; qualified focused targets are discovered beneath
-  those secondary roots and include a minimal runnable example for the owning
-  symbol.
-- Prefer one entry shape with closed, kind-dispatched variants over
-  optional-field mega-classes: precise types fail loudly, optional-field
-  unions fail silently.
-- Treat a change to any public export, callable or type contract, Help target,
-  result/error guidance, or dynamic continuation as one disclosure-contract
-  change. Keep the affected implementation/API, native Help registry and
-  budgets, dynamic guidance, independent drift/reachability/budget tests,
-  examples, skills, CLI, and current English/Chinese docs aligned. Preserve one
-  owner per fact, bounded progressive routes, and independently resolvable
-  targets. Do not add renderer shadow inventories or unowned compatibility
-  aliases; compatibility and migration belong to the owning contract.
-
-## Tests
-
-- Use shared fixtures in `tests/conftest.py` and `tests/shared_fixtures.py`
-  for repeated Python-track setup.
-- Keep tests aligned to the current owning contract; do not preserve legacy
-  compatibility shapes unless explicitly required.
-- Run the narrowest useful test first, then broaden to `make test` when the
-  change touches shared behavior.
-- `make test-agent` uses short tracebacks and stops after five failures so an
-  agent can repair several related problems without admitting unbounded test
-  output. When those diagnostics are insufficient, rerun only the failing
-  scope with `make test` or an explicit `.venv/bin/pytest` command and the
-  needed verbosity.
-- Use `make check-agent` for a compact broad gate. It covers the same lint,
-  typecheck, default-test, and API-documentation stages as `make check`; a
-  successful compact run is full-scope evidence, while a failed run still
-  requires repair and rerun.
-
-## Documentation Routing
-
-When working on a task, read the right docs first:
-
-| Task Type | Read First |
-|-----------|------------|
-| Datasource + semantic design (start here) | `docs/specs/semantic/overview.md` + focused `marivo.help("semantic.<target>")` / `marivo.help("datasource.<target>")` |
-| Datasource declarations, discovery | `docs/specs/semantic/datasource-layer.md` |
-| Python semantic object model | `docs/specs/semantic/semantic-object-model.md` |
-| Semantic authoring workflow | `docs/specs/semantic/authoring-workflow.md` |
-| Semantic loading, validation, runtime, and analysis handoff | `docs/specs/semantic/loading-validation-introspection.md` |
-| Python analysis design | `docs/specs/analysis/python-analysis-design.md` |
-| Agent workflow and boundaries | `marivo/skills/marivo-semantic/SKILL.md` or `marivo/skills/marivo-analysis/SKILL.md` |
-
-## Documentation Updates
-
-- After behavior changes, update affected API, UI, user documentation, spec,
-  or skill files in the same change.
-- When changing the public API, also update the example code in the `site/`
-  documentation (versioned under `site/src/content/docs/*/latest/`). Keep
-  both English and Chinese editions in sync.
-- Update `AGENTS.md` only for stable repository-wide coding and testing rules.
-- Put task-specific procedures in project-local skills, README files, or the
-  relevant domain documentation.
+Update affected specs and user documentation with behavior changes. Public API
+changes also update examples in both English and Chinese latest site docs under
+`site/src/content/docs/`. Load only the relevant skill references. Packaged
+skills stay self-contained; code and tests must not depend on local `.agents/`.
