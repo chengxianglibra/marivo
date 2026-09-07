@@ -1,6 +1,11 @@
 # Loading, Validation, and Introspection
 
-Status: design. This document describes the runtime side of
+Status: accepted target design; amended 2026-09-07 for lazy Analysis. The amended
+identity, version-resolution, and aggregation validation requirements below are
+design commitments, not implementation evidence. Current eager behavior and
+live Help remain executable until the coordinated cutover.
+
+This document describes the runtime side of
 `marivo.semantic`: how authored Python files become a loaded registry, how agents
 and analysis read that registry, how objects materialize to Ibis, and how the
 multi-stage fail-closed validation model reports problems. It complements
@@ -245,6 +250,22 @@ projected recursively from composition components. Candidate axes are dimensions
 owned directly by those effective entities. They are static discovery facts, not
 a promise that every cross-entity relationship or fanout plan is executable;
 `session.observe(...)` remains the authority for plan validity.
+
+The compiled catalog derives identity and intrinsic aggregation facts from the
+same canonical declarations used by validation and analysis. Entity identity is
+its ordered `primary_key` (`K`); versioned source row keys derive from `K` plus
+the version coordinate. Metric facts retain computation roots per component,
+spatial-before-temporal order, fixed null/empty rules, unit algebra, and exact
+state requirements. They are shared internal contracts, not new authoring
+fields, a second public capability index, or a promise that every materialized
+Dataset can perform every transformation. Bounded details and Help disclose
+facts through their existing native owners; Dataset `contract()` combines them
+with current coordinates, selection, and retained state.
+
+Relationship key coverage alone cannot advertise an unresolved historical
+Entity as a unique join side. The consuming operation must supply the exact
+temporal anchor and prove the resulting cardinality. Population identity,
+current source bindings, and persisted Artifact state remain separate authority.
 `DerivedMetricDetails.render()` / `.show()` additionally include an
 `expression_tree` table that expands every authored component occurrence through
 intermediate metric refs to its named measure or entity inputs. The table preserves
@@ -334,6 +355,32 @@ Backend resolution rules:
 - Multi-datasource metrics fail closed in compile and parity (federation is a
   separate design).
 
+Target-design temporal materialization receives the exact temporal boundary and
+its closed interpretation from the consuming Analysis operation: an instant or
+immediately before an excluded endpoint. This is an internal binding, not a new
+public authoring argument. Snapshot resolution selects the period containing
+the instant or the endpoint's left limit under the declared grain and timezone;
+the latter selects the preceding period at an exact period boundary. Missing
+that exact snapshot fails. No arbitrary timestamp tick, implicit latest/nearest
+available snapshot, per-Entity last-known selection, or unconditional
+observe-window-end anchor is inserted. For closed-open validity, instant
+resolution uses `valid_from <= at < valid_to`, while endpoint-left resolution
+uses `valid_from < end <= valid_to`, with the declared open-end rule. Other
+admitted interval closures retain their exact boundary rules. Overlapping
+matches fail. Only the resolved relation can claim uniqueness by Entity `K`.
+
+Temporal declaration and source evidence remain distinct. Snapshot declares an
+expected complete cross-section; runtime must independently establish required
+coverage and integrity. A present partition or a successful bounded preview is
+not proof that it is complete. Materialization cannot repair an incomplete
+snapshot by mixing older Entity rows into it.
+
+Semantic Ibis construction is not publication of a lazy Analysis Dataset.
+Logical Analysis uses current governed definitions; materialized Analysis reads
+the exact committed rows and parts authorized by its Artifact. Semantic lineage
+never permits reconstructing absent retained state or replaying an Artifact's
+original source.
+
 Entity source provenance is source-aware. An ordinary table is `IBIS_TABLE`; a
 table with typed column bindings is `TABLE_PROJECTION` and never carries a raw
 SQL snippet; a retained Ibis SQL node is `SQL_VIEW`. A projected table still has
@@ -367,6 +414,12 @@ reads an entity table in its body; a decorator/metadata call executed outside a
 loader context; a metric body that violates the single-`return`-expression rule
 or calls a decorated metric function / an Ibis SQL escape hatch.
 
+Entity `primary_key` declares identity, not physical version-row uniqueness.
+Version fields are declared separately and are not required in `primary_key`.
+Snapshot/validity declarations must supply their own well-formed temporal
+coordinates and boundary metadata. No `business_key`, `physical_key`, generic
+allocation policy, or author-set `rollup_safe`/`membership_stable` field is added.
+
 ### Load / assembly-time
 
 After the loader executes project files, assembly validation checks cross-object
@@ -380,6 +433,26 @@ dimension refs, entity membership, or arity. Tier-1 metric filters must resolve
 every local key to a declared dimension on the target entity; failures use
 `invalid_filter` with focused `semantic.where` repair. On failure the registry
 is `errored` and retains `load_errors`.
+
+When `K` is declared, assembly derives the versioned source row key as
+`(K, snapshot_coordinate)` or `(K, valid_from)`, without rewriting `K`.
+An unkeyed computation source contributes no identity-based uniqueness proof.
+Version coordinate refs must resolve
+on the owning Entity with coherent temporal types and timezone rules. A
+source-only Entity may omit `K`; Population input, Event participant subject,
+and StateModel subject require a complete non-empty identity signature. Analysis
+checks the first of those consumer boundaries; semantic Event/StateModel
+assembly checks their own subject references. Actual nulls, duplicates, and
+overlapping validity intervals remain runtime integrity checks, not facts
+invented by static assembly.
+
+Metric assembly lowers each component's computation root and intrinsic
+aggregate, filter, fold, unit, null/empty, and cumulative contract. Different
+component roots alone do not invalidate a derived graph. Analysis later binds
+every occurrence to one chosen Population and exact coordinates and validates
+paths, allocation, time compatibility, and required state. An opaque Tier-2
+expression is not granted reaggregation from an additivity label: an absent
+exact transformation contract yields a targeted consumer blocker.
 
 For an entity backed by `md.table(columns=...)`, assembly also proves that every
 `primary_key` entry and every direct `ms.dimension_column(...)`,
@@ -416,6 +489,24 @@ routes the required decision to the current business authority. Project loading
 and `semantic_static` readiness may continue without the unavailable runtime
 evidence.
 
+For the lazy target, runtime validates uniqueness at the declared source grain:
+`K` for a non-versioned keyed Entity, `(K, snapshot_coordinate)` for a keyed
+snapshot, and `(K, valid_from)` plus non-overlapping intervals for keyed validity.
+An unkeyed computation source cannot establish identity or a unique join side.
+At a selected
+temporal anchor it validates at most one representation per `K`, complete
+non-null subject identities, and operation-required coverage. Empty or absent
+members are handled by the owning Population/observation contract; duplicate
+versions or ambiguous temporal matches are integrity failures, never a request
+to deduplicate opportunistically.
+
+Retained aggregation state must reconcile with its primary values, obey the
+same selection and coordinate binding, and preserve the exact empty/null and
+component equations. Mean, weighted mean, and ratio use their named state;
+distinct/distribution folds require their admitted state; spatial and temporal
+folds cannot exchange order without a valid proof. A corrupt or insufficient
+Artifact fails dependency validation without rereading the semantic source.
+
 ### Parity-time
 
 Parity compares SQL provenance against the Ibis expression. It can fail on
@@ -427,13 +518,17 @@ the tolerance.
 
 ### Static policy-time
 
-Data-free policy checks: optional sample-uniqueness checks on entity primary keys
-(non-blocking by default; unverified keys surface as warnings); a ban on
+Data-free policy checks prohibit
 `backend.sql(...)` / raw-SQL escape hatches / dialect-specific SQL in metric
 bodies (vendor differences belong in datasource compilation and parity, not in a
 body). The SQL-escape-hatch check scans the materialized Ibis expression tree;
 decorator-time only rejects obvious method names to avoid false positives on
 ordinary column access.
+
+Optional sampled uniqueness observations belong to explicit source health,
+not static policy. They cannot certify full-source identity, version integrity,
+or completeness, and do not replace required action-time checks at the exact
+source and temporal grain.
 
 ## Error model
 
@@ -482,6 +577,11 @@ Two checks sit at the end of the write loop:
   operation is executable. Operation-specific snapshot identity, temporal
   fold, grain, and artifact-shape checks remain owned by the consuming
   analysis call.
+  A versioned Entity therefore does not need an ambient "current" anchor to pass
+  intrinsic static checks, and readiness cannot select its latest rows. Likewise,
+  a coherent multi-root Metric graph is distinct from proof that a particular
+  Population binding or coordinate fold is admissible. Readiness validates shared
+  semantic facts without assigning analysis choices or retained-state authority.
   Readiness is independent of discovery snapshots and ordinary preview history.
   It evaluates only the current semantic project, the requested dependency
   closure, and dedicated certified temporal artifacts. Ordinary preview cannot
@@ -550,9 +650,11 @@ analysis operator.
 
 ## Relationship to analysis
 
-The boundary is firm: `semantic` owns *what an object is, what its caliber is, and
-how it materializes*; `analysis` owns *observe / compare / attribute / correlate
-over those objects, with session persistence and lineage*. At qualifying
+The boundary is firm: `semantic` owns *business identity, historical
+representation, intrinsic Metric equations, and their normalized materialization
+requirements*; `analysis` owns *Population membership, observation windows,
+coordinates, selection, typed operators, and explicit materialization with
+persistence and lineage*. At qualifying
 catalog-bound runtime inputs, analysis accepts an exact current `CatalogEntry`
 or its exact `Ref`, then immediately normalizes to the ref. It never re-defines a
 caliber, guesses an entity or time dimension, persists an entry, or bypasses the
@@ -566,3 +668,22 @@ expressions whose dependency closures passed. A missing required semantic object
 `marivo-semantic` through the structured `semantic_authoring` repair and returns
 to the same semantic entry, requiring matching scoped readiness before
 resuming.
+
+The coordinated cutover must verify these seams without duplicating owners:
+
+1. An identity-keyed snapshot declaration loads, repeated `K` across snapshots
+   is valid, duplicate `(K, snapshot)` rows fail, and an absent requested snapshot
+   fails without another partition being substituted.
+2. Static readiness succeeds without querying or inventing a temporal anchor;
+   action admission separately rejects missing temporal context, overlapping
+   validity, incomplete subject identity, and unsupported coordinate folds.
+3. One explicit Population supports safely mapped different Metric roots while
+   invalid paths fail at the responsible occurrence. Event and StateModel
+   subjects retain exact Entity identity and never derive it from occurrence keys.
+4. Direct computation and an admitted retained-state fold agree for selected
+   mean/weighted/ratio contributions, including empty/all-null/zero inputs;
+   incompatible semi-additive folds and overlapping additive buckets fail.
+5. Native Help, catalog projections, Dataset contracts, structured repairs,
+   retained-state validation, and cold recovery derive the same facts. Until
+   those implementation and public-disclosure checks pass, this amendment must
+   not be presented as live lazy behavior.

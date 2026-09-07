@@ -1,6 +1,11 @@
 # Semantic Object Model
 
-Status: draft design. This document defines the object contracts of
+Status: accepted target design; amended 2026-09-07 for lazy Analysis. The amended
+identity, version-selection, and coordinate-aggregation contracts below are not
+implemented by this documentation change. Current eager behavior and live Help
+remain the executable contract until the coordinated public cutover.
+
+This document defines the object contracts of
 `marivo.semantic` (`ms`): the business objects a coding agent declares in Python
 so that downstream analysis can reference stable, validated semantics. It is the
 authority for *what each object is and what fields it carries*; the process of
@@ -13,8 +18,10 @@ See also:
 - [overview.md](overview.md) — design goals and where the object model sits.
 - [datasource-layer.md](datasource-layer.md) — the refs and evidence entities
   build on.
-- `marivo.help("semantic.<constructor>")` — the always-current static contract
-  (required and optional parameters, defaults, omit rules) for any object below.
+- `marivo.help("semantic.<constructor>")` — the current executable static
+  contract; target-design examples below change with the coordinated cutover.
+- [Lazy Analysis Observation Model](../../superpowers/specs/2026-09-01-lazy-analysis-observation-model-design.md)
+  — Population selection, observation scopes, and coordinate transitions.
 
 Python files under `models/semantic/<domain>/` are the source of truth. An
 object is declared once, is statically readable, and is referenced everywhere
@@ -95,8 +102,11 @@ ms.domain(
 
 ## Entity
 
-An entity is the logical view of a business entity or fact table. It binds a
-`Ref[datasource]` and a physical source, and declares its key.
+An Entity declares a business object or fact grain over one physical source.
+Its ordered `primary_key` is the identity of one Entity instance, denoted `K`;
+it is not a copy of the source table's physical uniqueness constraint. Version
+coordinates belong to `versioning` and are not added to `K` merely to distinguish
+historical rows. The same `K` may appear in multiple historical versions.
 
 ```python
 warehouse = ms.ref.datasource("warehouse")
@@ -117,31 +127,60 @@ orders = ms.entity(
   be exposed as a backend table via `source=md.table(...)`; one-off SQL
   transforms are out of scope.
 - Do not push metric aggregation logic into an entity.
+- `K` must be complete, non-empty, and non-null when the Entity supplies a
+  Population, Event participant subject, or StateModel subject. An Entity without
+  a declared key may remain a computation source; it cannot become identity
+  authority through observed uniqueness or a guessed Dimension.
+- One identity tuple always denotes the same Entity instance. There is no second
+  `business_key` or `physical_key` authoring parameter. Source row uniqueness is
+  derived from `K` and the declared version coordinates below.
 
 ### Versioning: snapshot and validity
 
-Entities may declare how their history is versioned.
+Entities may declare how historical representations of their instances are
+versioned. A storage partition is not automatically a semantic version: a table
+partitioned by ingestion date may still contain ordinary event facts. Only an
+explicit `versioning` declaration establishes snapshot or validity meaning.
 
-**Snapshot** entities are periodic partitioned facts observed at the latest
-available partition by default:
+**Snapshot** Entities declare one coherent business snapshot per governed
+snapshot period. The example is target-design authoring:
 
 ```python
 user_profile_daily = ms.entity(
     name="user_profile_daily",
     datasource=warehouse,
     source=md.table("user_profile_daily"),
-    primary_key=["user_id", "dt"],
+    primary_key=["user_id"],
     versioning=ms.snapshot(
-        partition_field=ms.ref.dimension("sales.user_profile_daily.dt"),
+        partition_field=ms.ref.time_dimension("sales.user_profile_daily.dt"),
         grain="day",  # snapshot cadence
-        timezone="Asia/Shanghai",  # resolves "latest" on a real calendar
+        timezone="Asia/Shanghai",  # defines the exact snapshot-period boundary
         format="%Y%m%d",  # on-disk partition encoding; omit for native date
     ),
 )
 ```
 
-Analysis joins against a snapshot entity use the partition matching the observe
-window end.
+The source row key is derived as `(K, snapshot_coordinate)`. Within one selected
+snapshot, `K` is unique. A consuming Analysis operation supplies one exact
+temporal boundary value: either an instant or immediately before an excluded
+endpoint. These are closed internal interpretations owned by the consuming
+operation, not new semantic authoring arguments or an arbitrary timestamp-tick
+subtraction. An instant selects the snapshot period containing it under the
+declared grain and timezone. An immediately-before endpoint selects the period
+containing its left limit; an endpoint on a period boundary selects the preceding
+period. If that exact snapshot is absent, the operation fails with the missing
+period and a concrete temporal repair. It never chooses the latest available
+partition, a nearest earlier available partition, or each Entity's last-known
+row. A half-open scope alone does not choose an interpretation: its consuming
+operation defines and normalizes the exact temporal boundary rule.
+
+All members and attributes at an anchor come from the same snapshot. Absence of
+`K` from that snapshot means no represented member at that anchor; it does not
+authorize carrying an older row forward. Declaring snapshot meaning states the
+expected complete cross-section, not observed proof that an ingestion finished
+or every expected member arrived. Source coverage and completeness remain
+independent runtime evidence, and operations requiring them must validate that
+evidence before publication.
 
 **Validity-interval (SCD2)** entities declare `valid_from`/`valid_to` +
 `interval` + `open_end`:
@@ -151,7 +190,7 @@ user_history = ms.entity(
     name="user_history",
     datasource=warehouse,
     source=md.table("user_history"),
-    primary_key=["user_id", "valid_from"],
+    primary_key=["user_id"],
     versioning=ms.validity(
         valid_from=valid_from,
         valid_to=valid_to,
@@ -162,17 +201,53 @@ user_history = ms.entity(
 )
 ```
 
-`valid_from` must be part of `primary_key`, and both bounds must reference
-declared dimensions on the same entity. `open_end` lists the values that mean
-"still current". The planner subtracts both bounds from the effective key so a
-fact→validity relationship can resolve many-to-one once the validity table is
-collapsed to one row per `(key, anchor)`. (`current_flag`-style versioning is not
-supported.)
+Both bounds reference declared temporal Dimensions on the same Entity;
+`open_end` lists the values meaning no declared end. The source row key is
+`(K, valid_from)`. Validity bounds do not join `primary_key` solely because they
+identify a version. Intervals for one `K` must be well-formed and non-overlapping
+under the declared boundary convention, so an exact consuming-operation temporal
+boundary resolves at most one representation. For `[valid_from, valid_to)`, an
+instant `at` uses `valid_from <= at < valid_to`; immediately before an excluded
+`end` uses `valid_from < end <= valid_to`, with the declared open-end convention.
+Other admitted interval closures follow their exact boundary rule. Zero matching
+intervals preserves absence; multiple matching intervals fail, without choosing
+an arbitrary row.
+`current_flag`-style versioning is not supported.
+
+| Entity source | Required source row uniqueness | Resolved identity |
+| --- | --- | --- |
+| Non-versioned with declared `K` | `K` | `K` |
+| Snapshot with declared `K` | `(K, snapshot_coordinate)` | `K` within one exact snapshot |
+| Validity intervals with declared `K` | `(K, valid_from)`, plus non-overlapping intervals per `K` | `K` at one exact anchor |
+
+An unkeyed computation source supplies no Entity-identity or identity-based
+uniqueness proof. An empty `K` is not interpreted as a singleton business Entity
+or as a claim that a whole snapshot has only one row.
+
+A Relationship to a versioned Entity is not physically many-to-one merely
+because its keys match `K`. The join must first carry the exact snapshot or
+validity resolution needed to prove one matching representation. No planner
+derives identity by subtracting columns from `primary_key`.
+
+Version selection does not define a Population's membership scope. Analysis
+owns finite membership selection and its boundary rule, separately from Metric
+observation time. An unresolved versioned Population cannot silently mean
+`distinct(K)` across all history or borrow a later Metric's observation window.
 
 ## Dimension, time dimension, and measure
 
 These are row-level objects: attributes, temporal axes, and numeric facts reused
 by filters, grouping, relationships, and metric expressions.
+
+A Dimension has one value per resolved owning Entity representation. Its logical
+type and nullability derive from governed source bindings and its restricted
+expression; display names and sampled values do not establish type, ordering,
+or functional dependence. A reachable Dimension is single-valued only when its
+complete directed path and temporal resolution prove that property. Analysis
+derives predicate and coordinate admission from these facts; authors do not set
+`membership_stable`, `filterable`, or `rollup_safe` flags. A current non-versioned
+attribute does not acquire historical as-of meaning merely because it is a
+categorical Dimension.
 
 Prefer the direct-column constructors for physical columns and the decorator
 form only when a row-level Ibis expression is needed:
@@ -231,7 +306,9 @@ hh = ms.time_dimension_column(
   supply `ms.strptime(format)` or `ms.hour_prefix(prefix)`. The body's ibis dtype
   must be compatible with the parse variant.
 - **`is_default`** (default `False`) marks the default time axis when an entity
-  has several; `observe()` without an explicit `time_dimension=` uses it. At most
+  has several. A consumer may use it only within its exact temporal role and
+  compatibility checks; it does not bind membership time, observation time, and
+  version-selection time to one window. At most
   one per entity — a second raises `SemanticLoadError`
   (`duplicate_default_time_dimension`).
 - **`sample_interval`** on a parse marks a fixed-cadence sampled series (see
@@ -313,11 +390,19 @@ def paid_revenue(order_rows):
 
 ### Grain, root entity, and fan-out
 
-Every base metric declares `additivity`. Single-entity metrics resolve
-`root_entity` automatically; multi-entity metrics must name `root_entity`
-explicitly — it defines the preserved row set, the join anchor, and the observe
-time axis. Aggregate receivers in a base body must belong to the root entity;
-joined entities may still contribute dimensions and filters.
+Every base Metric has a computation root: the Entity whose governed facts and
+join paths define its contributions. Single-Entity Metrics resolve `root_entity`
+automatically; multi-Entity expression Metrics name it explicitly. Aggregate
+receivers in a base body belong to that root; joined Entities may contribute
+Dimensions and filters. The root does not also select the analysis Population,
+observation window, or reporting coordinates.
+
+Analysis may bind multiple computation roots to one explicitly chosen Population
+when each component has a unique, temporally compatible, contribution-safe path
+to that analysis Entity. A derived graph is not rejected solely because its
+leaves have different computation roots. Static semantic validation owns the
+graph's intrinsic coherence; Analysis validates the concrete Population and
+coordinate binding without rewriting any root.
 
 `@ms.metric(...)` accepts `fanout_policy`:
 
@@ -329,6 +414,15 @@ joined entities may still contribute dimensions and filters.
   that side give semi-join membership semantics (a root row with ≥1 match counts
   once). Requires `additivity in {additive, semi_additive}` and is rejected on
   derived metrics.
+
+Overlapping buckets are not an additive partition. A root contribution of 100
+associated with two tags can appear as 100 in each tag while remaining 100 at
+the root grain. Removing the tag coordinate may not sum those two values without
+an exact disjointness or conserving allocation proof. Allocation meaning belongs
+to the particular Metric contribution path, not to Relationship join metadata.
+A reusable business weight can be a governed Measure on a bridge Entity; its
+application remains part of the Metric definition. No implicit equal split or
+new generic `allocation=` authoring API is introduced by this amendment.
 
 ### Sampled semi-additive metrics
 
@@ -375,6 +469,74 @@ stored in the canonical metric graph, so inherited and explicit temporal
 semantics participate in artifact identity. A fold override on a measure that
 is not semi-additive is invalid.
 
+Spatial aggregation precedes temporal folding. The two operations are not
+interchangeable: devices with samples `[10, 0]` and `[0, 10]` have individual
+peaks 10 and 10, but the peak of their spatial total is 10, not 20. A projected
+semi-additive value therefore does not authorize summation across Entity or
+Dimension merely because the removed coordinate is non-temporal. The exact
+fold must prove commutation under the retained sample domain, weights, nulls,
+and evaluation times, or retain sufficient aligned state to restore the
+declared order. A missing proof blocks the transformation. Mean folds require
+compatible sample domains and weighting; first/last folds require compatible
+evaluation anchors; max/min/percentile generally require pre-fold state.
+
+### Intrinsic graph and coordinate-aggregation facts
+
+Standard aggregate, ratio, weighted-mean, linear, and cumulative builders retain
+their existing authoring shapes. Their normalized semantic graph is the sole
+owner of computation roots, base inputs, filters, component roles, spatial
+aggregates, temporal folds, cumulative anchors, units, approximation, and fixed
+null/empty rules. A shared semantic resolver derives intrinsic transformation
+requirements from that graph; Analysis combines them with the exact Population,
+coordinates, selected contributions, and retained Artifact state to decide
+admission. These derived requirements are not new business-authoring parameters
+or a second handwritten capability inventory.
+
+Every removed coordinate requires its own proof: disjoint or conserving
+contributions, the required evaluation order, compatible coverage and anchors,
+and exact merge/finalize state. Typical retained state is:
+
+| Governed operation | Sufficient state for an admitted coordinate fold |
+| --- | --- |
+| Sum/count | Additive value and empty/null support, with disjointness or exact allocation |
+| Mean | Sum and non-null count over the same selected contributions |
+| Weighted mean | Weighted numerator and weight sum over the same non-null pairs |
+| Ratio | Each named component's independently admissible state and fold |
+| Distinct count | Exact mergeable identity state, or an exact disjointness proof |
+| Median/percentile | Exact registered distribution state; projected quantiles are insufficient |
+| Semi-additive | State preserving spatial-before-temporal order, or an exact commutation proof |
+| Cumulative | Compatible base/anchor/evaluation-end state under the specific removed-axis contract |
+
+The table states requirements, not permission for every Analysis operator or
+materialized family to implement those folds. Missing state rejects the
+transition; a materialized value never authorizes replaying its semantic origin.
+An opaque Tier-2 expression with no exact normalized aggregation semantics may
+remain a valid authored expression, but cannot acquire coordinate transformation
+capabilities from its `additivity` label alone. Unsupported transformations fail
+with repair to express the business meaning using existing governed builders or
+perform an already-admitted observation at the required grain. This amendment
+does not add a generic reaggregation callback or opaque-state API.
+
+### Fixed null and empty contracts
+
+Reducers use the exact selected contribution set. Numeric reducers ignore null
+inputs; count counts its declared Entity/row unit or non-null field inputs as
+specified by its builder, and distinct count excludes null identities. With no
+admitted non-null contributions, count/distinct count return zero;
+sum/min/max/mean/median/percentile return null. Mean retains non-null count;
+weighted mean retains only pairs whose value and weight are both non-null.
+Its zero or missing weight sum returns null. Ratio returns null when either
+component is null or its denominator is zero. Linear and cumulative nodes retain
+their own component/base null behavior; they cannot insert an implicit zero.
+
+An empty scalar reduction retains its singleton row contract. A missing
+coordinate, an all-null observed coordinate, and a present zero remain distinct
+facts; neither a Population member nor a missing time bucket automatically
+contributes a zero or denominator unit. Private retained state must distinguish
+empty/all-null support when that distinction is needed to merge values. These
+rules are fixed by the governed operation, identically for Ibis and pandas; no
+backend-dependent division or null-fill policy is chosen at execution time.
+
 ## Weighted means
 
 `ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>)` is a tier-1
@@ -408,10 +570,11 @@ avg_execution_time = ms.ratio(
 Shape classification fails closed: `@ms.metric` with an empty `entities` list is
 an error; a call with neither `entities` nor composition components is an error.
 Derived metrics cannot reference entities/dimensions/time dimensions directly —
-package any intermediate values as base metrics first. They do no Python-side
-zero-division handling; the generated Ibis follows backend SQL semantics (most
-backends yield `NULL` on a zero denominator), so an explicit fallback must be
-wrapped in a base metric.
+package any intermediate values as base metrics first. Ratio uses the existing
+canonical `zero_division="null"` contract: a zero denominator yields null, never
+infinity, and null inputs remain null. Backend lowering preserves this exact
+rule. Any different named business formula must be authored explicitly rather
+than selected as a backend fallback.
 
 ### Recursive derived metrics
 
@@ -422,6 +585,13 @@ lowers the complete selected metric through the same graph contract used by
 analysis and blocks graphs deeper than 10 nodes or wider than 256 pre-CSE
 occurrences. A legal ratio of ratios is therefore analysis-ready; an illegal
 child combination fails with the responsible dependency and occurrence path.
+
+Coordinate aggregation resolves and folds every component before composing its
+parent. A ratio does not make its numerator or denominator additive: either may
+be distinct, cumulative, or temporally folded and must independently satisfy
+the requested axis transition. Filtering a current observation binds its full
+coordinates and selects the associated component contributions together. It
+does not retain an unfiltered denominator from Population provenance.
 
 ### Cumulative metrics
 
@@ -443,7 +613,7 @@ accumulation shape:
 |---|---|
 | `None` (default) | All-history running total; the observe window clips displayed rows but does not reset the value. |
 | `ms.grain_to_date(grain=...)` | Resets at each `week`/`month`/`quarter`/`year` boundary (WTD/MTD/QTD/YTD). |
-| `ms.trailing(count=..., unit=...)` | Fixed-size rolling window ending at each bucket; empty windows are true zero, partial windows are marked `partial`. |
+| `ms.trailing(count=..., unit=...)` | Fixed-size rolling window ending at each bucket; empty windows follow the exact base null/empty contract, and partial windows retain partial coverage. |
 
 `trailing` accepts only fixed-size units (`second`..`week`); calendar-variable
 units are rejected with a teaching error pointing to `grain_to_date`. A
@@ -488,7 +658,10 @@ and unequal factorable units form a reduced quotient;
 `weighted_mean` yields its value measure unit; `linear` yields the common unit and
 raises `INCOMMENSURABLE_LINEAR_UNITS` when terms carry ≥2 distinct known units
 (an author override cannot suppress this — the physics of addition is
-label-independent). Units never affect computed values; `None` is always valid
+label-independent). Units never perform value conversion: relabeling `ms` as `s`
+does not divide by 1000, and a currency unit does not authorize an exchange-rate
+conversion. Such conversions require an explicitly governed expression and its
+business inputs. `None` is always valid
 (richness-advisory only, never a readiness blocker).
 
 Automatic derivation uses one bounded grammar shared by catalog and runtime
@@ -517,6 +690,54 @@ ms.relationship(
     keys=[ms.join_on(order_customer_id, customer_id)],
 )
 ```
+
+Relationship owns the mapping between its endpoints, not a Metric's counting or
+allocation rule. Key coverage and version resolution derive single-valuedness;
+declared identity is a constraint to validate, not runtime evidence that a source
+obeys it. Ambiguous paths or temporal matches fail rather than choosing a cheaper
+or first path. A path that permits coordinate enrichment does not itself prove
+that overlapping contributions can be summed when a coordinate is removed.
+
+## Event and StateModel boundaries
+
+Event keeps its existing occurrence identity, business `occurred_at` axis,
+restricted occurrence predicate, and named participant paths with `one` or
+`optional_one` cardinality. Occurrence identity is distinct from the participant
+Entity's `K`. A subject-consuming operation requires the exact participant
+Entity identity and any temporal resolution needed to reproduce it; occurrence
+keys never substitute for subject membership.
+
+StateModel keeps its exact subject Entity, closed states, inception, and
+deterministic transitions through cardinality-one Event roles. It defines which
+transitions are valid, not whether source history is complete or which members
+belong to this analysis. Population windows, sampling, replay windows, censoring,
+and scoped completeness assumptions remain Analysis/source-evidence concerns.
+No semantic Population, Sample, or `complete=True` authoring field is introduced.
+
+## Bounded acceptance cases for the amendment
+
+1. A snapshot Entity with `K=(user_id,)` admits repeated users across dates,
+   rejects duplicate `(user_id, snapshot)` rows, resolves one exact snapshot,
+   and rejects a missing snapshot without last-known substitution. A physically
+   partitioned non-versioned Event Entity acquires no snapshot semantics.
+2. A validity Entity derives `(K, valid_from)` row uniqueness, rejects overlapping
+   intervals and ambiguous matches, and proves at most one row only after an
+   exact anchor is supplied. No identity key is constructed by removing columns.
+3. A January membership selection can observe February facts while retaining the
+   selected `K` values. An unspecified versioned membership anchor cannot become
+   historical `distinct(K)` or the downstream observation end.
+4. Order counts and line-item revenue keep their own computation roots while
+   observing one explicit customer Population; unsafe mapping or allocation
+   fails with the responsible component occurrence.
+5. Two overlapping tags cannot double a 100-unit root total during rollup. The
+   two-device peak example above rejects projected-value summation; mean folds
+   with incompatible sample coverage also reject without sufficient state.
+6. Merging mean/weighted/ratio state matches direct governed computation after
+   row selection, including empty, all-null, and zero-denominator inputs. A ratio
+   with a distinct or temporal component cannot inherit additive permission.
+7. Event participant and StateModel subject identity equal Population `K`; no
+   source-only Entity with an absent key becomes a subject. Declared snapshot or
+   StateModel meaning does not create runtime completeness evidence.
 
 ## Provenance and parity
 

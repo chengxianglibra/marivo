@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-05
+Revised: 2026-09-07
 
 Status: accepted
 
@@ -50,6 +50,23 @@ arbitrary one-document-per-implementation-slice rule.
 
 ## Governing Decomposition Rules
 
+### Semantic definitions and analytical correctness amendment
+
+The accepted 2026-09-07 amendment consumes the
+[Semantic Object Model](../../specs/semantic/semantic-object-model.md) as the
+owner of Entity identity primary keys, separate versioning, intrinsic Metric
+graphs, spatial/temporal order, and Metric-path contribution meaning. It adds no
+new public semantic object family or author capability flags. Observation owns
+the exact Population endpoint binding and per-operation fold admission; Core
+owns complete public coordinates and keys. Typed Operators owns model-specific
+forecast uncertainty and scope-preserving decomposition/discovery. Module 6
+owns canonical legal-transition/coverage/violation parts and duration estimands.
+Compiler and Runtime consume those contracts without adding competing meanings.
+
+These are target design changes. The Public Cutover Plan records their private
+validation and atomic public/disclosure switch; this revision does not implement
+them or authorize the remaining code slices.
+
 ### One contract, one owner
 
 Every contract-bearing concept has one owning design. Other documents link to
@@ -95,9 +112,10 @@ The filenames were reserved by this plan. Each child became authoritative only
 when its individual design work was completed and accepted.
 
 All six module designs and the north-star are accepted. The Public Cutover
-Plan's owner decisions are resolved, while the plan remains draft pending its
-exact Slice 0 inventory and file manifests. Implementation remains
-unauthorized until separately requested by the owner.
+Plan records Slice 0 inventory completion; Slices 1-9 still require separate
+implementation authorization. The 2026-09-07 semantic/statistical amendment
+updates the affected target scopes and acceptance requirements without changing
+that authorization boundary.
 
 ## Module 1: Dataset Core and Actions
 
@@ -110,7 +128,8 @@ Accepted design with accepted filter-selector amendment:
 - the common public Dataset abstraction, paired logical/materialized state
   types, and closed family mechanism;
 - public schema, row-contract, row-set-contract, shape, and coordinate identity;
-- lineage and logical fingerprint boundaries;
+- lineage and the sole canonical logical fingerprint, including the equivalence
+  relation of semantically significant realization occurrences;
 - Dataset ownership by one Session;
 - the generic Dataset operator protocol shared by logical and materialized
   inputs, with every operator returning a new Logical Dataset;
@@ -221,53 +240,63 @@ requested semantic combination is admissible. The reviewer can also determine
 what a filter changes at each stage and which fields, predicate forms, and
 operator reorderings are legal.
 
-## Module 3: Direct Compiler and Fixed Execution Boundaries
+## Module 3: Source Pushdown and Pandas Execution
 
-Accepted design, replaced by the owner's 2026-09-05 fixed-boundary amendment:
+Accepted design, revised by the owner's 2026-09-07 source-prefix amendment:
 
-- [Direct Compiler and Fixed Execution Boundaries](2026-09-01-lazy-analysis-planner-and-pushdown-design.md)
+- [Source Pushdown and Pandas Execution](2026-09-01-lazy-analysis-planner-and-pushdown-design.md)
 
 ### Owns
 
 - one private typed semantic graph and direct Ibis relation construction;
 - exact input-domain binding independent of Ibis backend equality;
-- immutable scan leaves through their fixed local/object/engine readers;
-- fixed per-method dispatch to an inherited-domain Ibis builder or an exact
-  Python recipe; no engine/local alternatives;
+- immutable engine scans and authorized PyArrow readers for local/object Parquet;
+- deterministic traversal of tested method/adapter support, retaining contiguous
+  eligible Ibis source work and binding a registered exact pandas suffix;
 - exact captured source parameters and their redaction boundary;
 - Population/coordinate spines, semantic barriers and required single realization;
-- actual-schema Arrow kernel boundaries and a small in-process execution recipe;
+- the closed owner-invocation algebra, including `MetricRollupInvocationV1`,
+  with window and lag expressions confined to their owning method builders;
+- actual-schema Arrow source/storage boundaries, private DataFrame handoffs and
+  a small in-process execution recipe;
 - typed compile/placement failures, reachable repairs and bounded diagnostics.
 
 ### Does not own
 
 - analytical meaning, method admission or Population inference;
 - Runtime resource-policy values, storage target selection or publication;
-- federation discovery, automatic imports or input relocation;
-- general CSE, maximal partial-SQL placement or separately fingerprinted graphs.
+- federation discovery, local-output uploads or internal DuckDB execution;
+- general CSE, cost-based route search or separately fingerprinted graphs.
 
 ### Required decisions
 
-1. Keep Dataset Core as the sole owner of analytical definition identity.
-2. Compose adjacent relations only within one existing input domain.
+1. Keep Dataset Core as the sole owner of analytical definition identity,
+   including owner-declared realization sharing; graph-local handles are not
+   fingerprint values or a separate compiler identity.
+2. Compose contiguous eligible Ibis relations only within one source domain.
 3. Read Materialized inputs through their fixed backing without origin replay.
-4. Fix numerical recipes by exact method before execution, including explicit
-   engine preparation when the method requires it; no fallback route selection.
+4. Determine the local frontier from registered support before data work, including
+   exact source preparation and identity restrictions. An absent or ineligible
+   source lowerer uses a registered exact pandas method; absent legal local
+   support fails. Compilation or execution failure never chooses another route.
 5. Retain shared-sample fences, fanout authority and exact retained-state semantics.
 6. Give Runtime exact outputs for one configured writer, with no sink candidates.
-7. Enforce separate engine, complete-kernel-input and storage-stream contracts.
-8. Validate actual Arrow batches and explicit domain conflicts with adversarial
-   dependency fixtures, not only successful Ibis compilation.
+7. Enforce separate source, complete local-input and storage-stream contracts;
+   include combined inputs, retained parts, intermediate memory and deadlines.
+8. Validate actual Arrow batches and explicit local input roles with adversarial
+   dependency fixtures, not only successful Ibis compilation. Once local, all
+   dependent successors stay local; independent source branches remain executable.
 
 ### Exit gate
 
-One ordinary same-domain relation chain compiles and executes through Ibis;
-local Artifact rollup uses DuckDB; a governed forecast crosses its fixed Arrow
-boundary into Python. Each action publishes only its complete final Dataset or
-fails. Required fences, validations and writes may add statements. Unsupported
-multi-domain relations never import, federate, collect locally or replay an
-Artifact origin. No public execution machinery or generalized placement system
-is introduced.
+One ordinary eligible same-domain relation chain executes through Ibis; a chain
+with a predeclared source support boundary executes its entire dependent suffix
+in pandas. Local/object Artifact rollup uses PyArrow readers and bounded pandas.
+Independent source branches can feed only admitted local roles; source-required
+semantic or identity work without a legal method fails before data work. Each
+action publishes only its complete final Dataset or fails. Required fences,
+validations and writes may add statements. There is no failed-query retry,
+local-to-source upload, internal DuckDB executor or Artifact origin replay.
 
 ## Module 4: Materialization Runtime and Authority
 
@@ -282,7 +311,7 @@ Accepted design with owner-confirmed module choices:
 - execution Runs;
 - local, engine, and object Dataset storage receipts;
 - one configured storage target, exact writer validation, executor-specific
-  resource budgets and kernel worker cancellation;
+  resource budgets and local worker cancellation;
 - Artifact identity, factual source/input lineage, and the write-once
   `DatasetExecutionKeyV1 -> artifact_ref` Session binding;
 - parameterized-source binding digests in execution identity and exhaustive
@@ -292,8 +321,8 @@ Accepted design with owner-confirmed module choices:
 - crash recovery, explicit retry, Session writer exclusion, and cross-Session
   concurrent execution;
 - cleanup of compiler-declared action-scoped temporary engine resources;
-- execution and cleanup of fixed Arrow kernel boundaries, Runtime staging, DuckDB
-  workspaces, and Python-kernel buffers; journal only recoverable external
+- execution and cleanup of Arrow source/storage boundaries, Runtime staging,
+  private pandas DataFrames and numerical buffers; journal only recoverable external
   resources, not pure process-local memory;
 - immutable scan-leaf recovery;
 - the common `DatasetMaterializationContractV1` envelope, resolution,
@@ -309,6 +338,8 @@ remain journaled after success. Local persistence streams under distinct batch
 and disk limits. Detailed compiler diagnostics are not persistent Run state.
 Dataset Core owns the canonical definition fingerprint; Runtime adds only the
 common materialization protocol version to its Session-scoped lookup key.
+The Core fingerprint already distinguishes shared from independent significant
+realizations; Runtime stores no occurrence table and derives no second graph key.
 
 ### Does not own
 
@@ -483,7 +514,8 @@ creating duplicate source APIs.
 
 ## Public Cutover Plan
 
-Draft implementation and disclosure plan with accepted owner decisions:
+Implementation and disclosure plan with accepted owner decisions and completed
+Slice 0 inventory; Slices 1-9 require separate implementation authorization:
 
 ```text
 2026-09-01-lazy-analysis-public-cutover-plan.md
@@ -520,13 +552,15 @@ acceptance evidence.
 | Contract | Owner |
 | --- | --- |
 | Dataset family, common state, and action semantics | Dataset Core |
+| Entity identity versus source version rows; intrinsic Metric/Relationship/time definitions | Semantic Object Model |
 | Entity Population and default inference | Observation Model |
+| versioned Population membership endpoint and per-axis partition/fold admission | Observation Model |
 | Metric Dataset coordinate algebra | Observation Model |
 | parameterized source binding capture and logical definition identity | Observation Model |
-| parameterized source lowering from captured typed values | Direct Compiler and Fixed Execution Boundaries |
+| parameterized source lowering from captured typed values | Source Pushdown and Pandas Execution |
 | parameterized source digest, execution identity, and redaction | Materialization Runtime |
 | shared predicate syntax, filter effects, ordering, and filter field-resolution rules | Observation Model |
-| private typed graph, fixed-domain Ibis builders, exact Python recipes, Arrow schemas and input-domain checks | Direct Compiler and Fixed Execution Boundaries |
+| private typed graph, source support traversal, exact pandas recipes, Arrow schemas and input-role checks | Source Pushdown and Pandas Execution |
 | executor-specific budgets, one configured storage target, private exchange execution, staging journals and cleanup | Materialization Runtime |
 | `ParquetDataContractV1` writer/reader semantics shared by private staging and durable file receipts | Materialization Runtime |
 | final local/object Parquet receipts and Artifact publication | Materialization Runtime |
@@ -536,11 +570,14 @@ acceptance evidence.
 | statistical and Candidate materialization registrations | Typed Operators |
 | Domain selection, Event, and Lifecycle materialization registrations | Subject/Event/Lifecycle |
 | Run, Artifact, receipts, recovery, and Evidence timing | Materialization Runtime |
+| closed persisted read records and typed Finding coordinates | [Session Runtime Read design](2026-08-30-session-runtime-read-surface-and-graph-design.md) |
 | non-filter typed operator admission and output rows | Typed Operators |
+| attribution/discovery scope keys and per-model forecast variance | Typed Operators |
 | Metric Dataset `rollup(...)` public registration and invocation | Typed Operators |
 | Metric rollup coordinate and retained-fold semantics | Observation Model |
 | Population identity/family/filtering | Observation Model |
 | Domain selection truth and Event/Lifecycle families | Subject/Event/Lifecycle |
+| canonical history retained parts, selected-step risk sets and clipped duration estimands | Subject/Event/Lifecycle |
 | removal of observed Event occurrence-range inspection | Subject/Event/Lifecycle |
 | removals, Help, skills, docs, and rollout order | Public Cutover Plan |
 
@@ -559,7 +596,7 @@ Dataset Core
 Observation Model
         |
         v
-Direct Compiler and Fixed Execution Boundaries
+Source Pushdown and Pandas Execution
         |
         +-------------------+
         |                   |
@@ -594,7 +631,9 @@ machines, or algorithms.
 
 - decide common type naming and state;
 - freeze action contracts;
-- freeze public/private and logical/materialized boundaries.
+- freeze public/private and logical/materialized boundaries;
+- freeze reconstruction-stable realization-sharing identity under Core's
+  normalized traversal, terminating at exact Materialized Artifact leaves.
 
 Exit: every later design can reference one stable Dataset protocol.
 
@@ -607,20 +646,26 @@ Exit: every later design can reference one stable Dataset protocol.
 
 Exit: compiler and operators receive one stable logical input model.
 
-### Phase 3: Freeze fixed compilation and Runtime seams
+### Phase 3: Freeze source-prefix compilation and Runtime seams
 
 - define private typed nodes and the small execution recipe;
-- freeze same-domain Ibis composition and fixed Artifact readers;
-- register exact method recipes without route alternatives or manifest identity;
+- cover every accepted owner invocation, including current-row Metric rollup,
+  without generic window or lag nodes outside their owning methods;
+- freeze eligible same-domain Ibis composition, immutable engine scans and
+  authorized PyArrow Artifact readers;
+- register source support and exact pandas recipes without cost search or
+  exception-based route selection;
 - preserve semantic barriers and dedicated single-evaluation fences;
-- assign Arrow validation to adapters and complete-input kernel invocation to Runtime;
+- assign Arrow source/storage validation to adapters and complete-input local
+  invocation plus private DataFrame handoffs to Runtime;
 - give Runtime one configured storage target and its exact writer validation;
-- separate engine memory/disk/deadline, kernel problem size and storage budgets;
+- separate source budgets, pandas problem size/peak memory/deadline and storage budgets;
 - retain cancellation, staging cleanup and atomic publication ownership.
 
-Exit: basic single-domain relations, local Artifact reuse and one fixed forecast
-kernel can be implemented before complex method/backend coverage. No generic
-placement, import, federation or sink-negotiation subsystem is required.
+Exit: eligible source prefixes, exact local suffixes, bounded Artifact reuse and
+one forecast method can be implemented before complex method/backend coverage.
+No internal DuckDB executor, cost planner, upload, federation discovery or
+sink-negotiation subsystem is required.
 
 ### Phase 4: Freeze operator and cross-domain matrices
 
@@ -660,13 +705,14 @@ collection-scoped, or committed materialized authority.
 
 ### Engine-execution gate
 
-High-cardinality relations stay in their input engine or fixed Artifact reader.
-No method silently transfers an Entity relation into a Python kernel. Numerical
-methods use their explicit complete-input recipe and fail on resource overflow.
-Known relational domain conflicts fail before data work with a reachable repair.
-Local Artifact computation uses DuckDB under engine budgets, not the kernel
-row cap. One configured writer publishes complete root output; no compiler
-route search or private intermediate Artifact is introduced.
+Source-required semantic and identity calculations stay in their admitted
+source domain or fail before data work. Eligible source operators fuse until a
+registered support boundary; its admitted pandas method and all dependent
+successors run locally. Actual complete local inputs, combined retained parts,
+intermediate memory and algorithm dimensions must fit Runtime guards. Large
+storage streams do not imply local computational capacity. One configured
+writer publishes complete root output. No internal DuckDB executor, failed-query
+retry, local upload, cost search or private intermediate Artifact is introduced.
 
 ### Vertical-journey gate
 
@@ -707,13 +753,16 @@ The decomposition is complete only when:
    boundary, while both logical and materialized inputs support downstream
    operators that return Logical Datasets;
 8. compiler and runtime agree on materialized scan-leaf authority;
+   Core's sole fingerprint preserves significant realization sharing without
+   depending on process-local handle values;
 9. typed operators and cross-domain flows return only Dataset families;
-10. compiler and runtime agree that fixed kernel Arrow boundaries and Runtime
-    staging are private; only root primary data and registered retained parts
-    receive durable file/engine receipts and become a Materialized Dataset;
-11. DuckDB is the first-cutover local relational executor, Python kernels are
-    exact registered non-relational implementations, and pandas/Polars are not
-    generic fallback domains;
+10. compiler and runtime agree that Arrow source/storage boundaries, internal
+    DataFrames and Runtime staging are private; only root primary data and
+    registered retained parts receive durable file/engine receipts and become a
+    Materialized Dataset;
+11. eligible Ibis source work precedes a registered bounded pandas suffix;
+    DuckDB remains an ordinary datasource only, and no source failure changes
+    the precomputed split or invokes a local retry;
 12. the cutover plan maps each change to implementation, tests, Help, skills,
     and current English/Chinese docs;
 13. implementation slices can be accepted without reopening an unspecified

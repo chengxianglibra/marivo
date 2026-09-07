@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Revised: 2026-09-05
+Revised: 2026-09-07
 
 Status: accepted for the lazy Dataset v3 cutover
 
@@ -36,7 +36,7 @@ This design supersedes the public recovery names and topology in:
   audit is Session-scoped; this design removes the Session Evidence namespace,
   keeps digest and Finding reads on their owning Artifact, folds trace into
   `Finding`, and removes public selection compatibility;
-- [`2026-07-18-evidence-typed-digest-refactor-design.md`](2026-07-18-evidence-typed-digest-refactor-design.md),
+- the historical `2026-07-18-evidence-typed-digest-refactor-design.md`,
   only for its session recap and recovery API layout;
 - [`evidence-compatibility-and-revalidation-design.md`](evidence-compatibility-and-revalidation-design.md),
   for the complete public `EvidenceCompatibility` API, result algebra, Help,
@@ -64,7 +64,9 @@ contract.
 ## Accepted Lazy Dataset v3 Amendment
 
 The owner accepted this amendment on 2026-09-04 and revised its persistence
-boundary on 2026-09-05. It is the sole target contract
+boundary on 2026-09-05 and its Finding coordinate contract on 2026-09-07. The
+coordinate revision is accepted design authority, not implemented behavior or
+runtime acceptance evidence. It is the sole target contract
 for the lazy Dataset cutover. Later sections retain useful current-state history
 and non-conflicting result-protocol guidance, but any eager Frame, v2 Store,
 query-text, reused-Run, `reuses`-edge, separate Evidence database, metadata
@@ -165,7 +167,7 @@ identities where relevant. Normal reads validate only their actual dependencies.
 FindingCoordinateV1
   field_id: DatasetFieldId
   identity: DatasetFieldIdentity
-  value: str | int | finite float | bool | Decimal | date | datetime
+  value: str | int | finite float | bool | Decimal | date | datetime | None
 
 AssociationFindingSubjectV1
   kind: Literal["association"]
@@ -213,8 +215,59 @@ FindingPage
   next_cursor: str | None
 ```
 
-Finding coordinates may contain only retained Dimension, time, or generated
-step fields. Entity/subject identity fields are rejected before extraction.
+`FindingCoordinateV1.value` preserves the existing scalar path, matching the
+bound field's logical type. `None` is admitted only for the exact Dimension-cell
+states below. It is not a general missing-value policy. The closed
+`semantic_null`, `inactive_axis`, and `other` classifications are internal
+validation states derived from the row contract and existing contribution
+masks; no new public value wrapper, constructor, export, Help target, or
+independently authored null-kind field is added.
+
+Coordinate admission is owned by the exact producer/extractor registration.
+Its closed first-cutover field classes are:
+
+- retained governed Dimension coordinates;
+- retained time coordinates and the exact paired `current_time` and
+  `baseline_time` fields attached to an admitted comparison scope;
+- the generated `comparison_ordinal` bound to that same comparison scope;
+- generated step coordinates explicitly registered by the Event/Funnel owner.
+
+An arbitrary generated field is not admitted by having an integer, time, or
+string value. Comparison Findings preserve the ordered scope and paired times
+under the producing Delta/Attribution contract; they never invent one common
+time axis or omit the ordinal to collapse different comparison rows. Entity
+and subject identity fields are rejected before value classification, including
+when null, redacted, hashed, or packaged in a generated field. Entity-scoped
+Attribution produces no Findings.
+
+Only a retained governed Dimension whose exact row contract permits the
+corresponding null cell can use `None`. For an Attribution axis at
+position `i`, the producer's complete masks select its value deterministically:
+
+| Source axis cell and mask state | Public value and internal validation state |
+| --- | --- |
+| active, not Other, non-null cell | exact typed scalar; defined |
+| active, not Other, null cell admitted as a semantic Dimension member | `None`; `semantic_null` |
+| inactive, not Other, null cell | `None`; `inactive_axis` |
+| active, Other, null cell | `None`; `other` |
+
+An inactive Other cell, a non-null inactive/Other cell, mismatched mask length,
+or an unregistered null cell is a publication/read integrity contradiction.
+Outside Attribution decomposition axes, only a nullable retained Dimension
+may use `None`, with `semantic_null` meaning; inactive and Other states are
+forbidden. Time, comparison ordinal, and step coordinates require non-null
+typed scalar values.
+These rules do not encode missing comparison sides, unavailable calculations,
+NaN, infinity, or arbitrary source nulls as coordinates.
+
+Resolution and Other masks remain once in `ContributionFindingValueV1`; the
+internal null classifications are derived from them, not independent
+authoring authority or duplicated persisted tags. The canonical item key remains the exact producer row-key
+encoding, including scope, resolution, axes, and Other distinction. Real null,
+inactive, and Other cells therefore remain distinct without string sentinels
+or identity-bearing values in a Finding. Extraction and cold reads validate the
+same closed contract and never repair an invalid cell or mask from source data.
+
 Association Findings use `AssociationFindingSubjectV1`; Metric Delta, Metric
 Attribution, and Forecast use `MetricFindingSubjectV1`; Funnel Delta and Funnel
 Attribution use `FunnelFindingSubjectV1`.
@@ -1989,6 +2042,16 @@ Tests must prove:
 - exact `artifact.finding(id)` rejects a Finding owned by another Artifact;
 - each exact Finding carries its complete derivation trace without a second
   public read;
+- scoped Attribution Findings preserve comparison ordinals, paired times, and
+  unrequested Dimension coordinates; repeated axis members on different days
+  retain distinct canonical item keys after cold recovery;
+- real-null, inactive-axis, and Other coordinate cells round-trip under the
+  exact nullable Dimension and mask contract; mismatched masks, arbitrary
+  generated coordinates, null time/ordinal/step, unregistered `None`, NaN, and infinity
+  fail extraction or reading without a fallback;
+- Entity/subject identity is rejected before coordinate value classification,
+  including null/hashed/redacted disguises; Entity-scoped Attribution emits no
+  Findings and no raw identity enters Finding keys or diagnostics;
 - public Help, exports, structured repairs, digest continuations, skills, and
   current docs contain no `session.evidence` route,
   `EvidenceDigestNotAvailableError`, Finding-selection compatibility API, or
