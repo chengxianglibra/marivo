@@ -51,6 +51,7 @@ from marivo.analysis.observation.population import (
 )
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
 from marivo.analysis.observation.rollup import rollup as _rollup
+from marivo.analysis.operators.contracts import DEFAULT_ALIGNMENT, WindowBucketAlignment
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import MetricEntry
 from marivo.semantic.ir import TargetDimensionContract
@@ -62,6 +63,7 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
+    from marivo.analysis.operators.delta import LogicalDeltaDataset
 
 PopulationInput: TypeAlias = "LogicalPopulationDataset | MaterializedPopulationDataset | LogicalMetricDataset | MaterializedMetricDataset"
 
@@ -70,6 +72,22 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
     """Complete logical Metric row meaning without executing contributions."""
 
     __slots__ = ()
+
+    def compare(
+        self,
+        baseline: LogicalMetricDataset | MaterializedMetricDataset,
+        *,
+        alignment: WindowBucketAlignment = DEFAULT_ALIGNMENT,
+    ) -> LogicalDeltaDataset:
+        """Compare current rows with baseline using ordinal window alignment.
+
+        Args: baseline: Compatible single-Metric input. alignment: window_bucket() policy.
+        Returns: Logical Delta. Example: ``current.compare(baseline)``.
+        Constraints: Same membership and non-time selection; source ownership is validated.
+        """
+        from marivo.analysis.operators.compare import compare
+
+        return compare(self, baseline, alignment=alignment)
 
     def rank(
         self,
@@ -173,6 +191,22 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
     """Retained Metric rows backed by an exact immutable Artifact scan leaf."""
 
     __slots__ = ()
+
+    def compare(
+        self,
+        baseline: LogicalMetricDataset | MaterializedMetricDataset,
+        *,
+        alignment: WindowBucketAlignment = DEFAULT_ALIGNMENT,
+    ) -> LogicalDeltaDataset:
+        """Compare current rows with baseline using ordinal window alignment.
+
+        Args: baseline: Compatible single-Metric input. alignment: window_bucket() policy.
+        Returns: Logical Delta. Example: ``current.compare(baseline)``.
+        Constraints: Same membership and non-time selection; source ownership is validated.
+        """
+        from marivo.analysis.operators.compare import compare
+
+        return compare(self, baseline, alignment=alignment)
 
     def rank(
         self,

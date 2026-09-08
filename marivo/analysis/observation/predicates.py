@@ -496,8 +496,27 @@ def bind_predicates(
         if item.operand is None:
             _error("complete field predicate", "corrupt predicate")
         resolved = resolver(item.operand)
-        if resolved.role_id not in ("metric", "dimension", "time_dimension", "rank"):
-            _error("retained Metric, Dimension or generated rank field", resolved.role_id)
+        comparison_roles = {
+            "comparison_ordinal": "comparison_coordinate",
+            "current_time": "comparison_time",
+            "baseline_time": "comparison_time",
+            "coordinate_presence": "status",
+            "current_value": "comparison_value",
+            "baseline_value": "comparison_value",
+            "delta": "comparison_value",
+            "relative_delta": "effect_value",
+            "calculation_status": "status",
+            "relative_delta_status": "status",
+        }
+        comparison_field = (
+            resolved.field_id.value == f"generated.compare.{resolved.name}@v1"
+            and comparison_roles.get(resolved.name) == resolved.role_id
+        )
+        if (
+            resolved.role_id not in ("metric", "dimension", "time_dimension", "rank")
+            and not comparison_field
+        ):
+            _error("retained Metric, Dimension or exact generated row field", resolved.role_id)
         literal: CanonicalValue
         if item.kind in ("is_null", "is_not_null"):
             if not resolved.nullable:

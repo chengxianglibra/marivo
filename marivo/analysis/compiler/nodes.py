@@ -44,6 +44,7 @@ class CompiledSampleFence:
     population_definition_fingerprint: str
     target_population_definition_fingerprint: str
     identity_columns: tuple[str, ...]
+    root_identity: int
 
 
 @dataclass(frozen=True, slots=True, repr=False)

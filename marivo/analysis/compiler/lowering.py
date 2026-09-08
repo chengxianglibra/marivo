@@ -11,6 +11,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._temporal import Grain, PeriodCalendarSnapshotV1, builtin_grain
+from marivo.analysis.compiler.comparison import lower_compare
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
@@ -35,6 +36,7 @@ from marivo.analysis.observation.contracts import (
     EntityReducedMetricSemantics,
     MetricDefinition,
     MetricPayload,
+    ObservationOwner,
     PopulationPayload,
     RankSpec,
     RetainedRowsPayload,
@@ -50,6 +52,7 @@ from marivo.analysis.observation.fold_contracts import (
     fold_part_role,
     fold_state_names,
 )
+from marivo.analysis.operators.contracts import ComparePayload
 from marivo.refs import SemanticKind
 from marivo.semantic.ir import (
     DateParse,
@@ -163,6 +166,22 @@ def _state_projection(row: DatasetRowContract) -> tuple[str, ...]:
             if name not in keys
         )
     )
+
+
+def _declared_cast(value: ir.Value, logical_type: str) -> ir.Value:
+    target = dt.dtype(logical_type)
+    if logical_type == "decimal":
+        physical = value.type()
+        if (
+            not isinstance(physical, dt.Decimal)
+            or physical.precision is None
+            or physical.scale is None
+        ):
+            raise compilation_error(
+                "resolved exact Decimal precision and scale", "unknown Decimal physical type"
+            )
+        target = physical
+    return ops.Cast(value, to=target).to_expr()
 
 
 def _physical_casts(expression: ir.Table) -> ir.Table:
@@ -390,10 +409,10 @@ def lower_fold(
                     )
                 )
     values = {
-        output_fields[authority.field_id].name: ops.Cast(
+        output_fields[authority.field_id].name: _declared_cast(
             _fold_value(grouped, authority),
-            to=dt.dtype(output_fields[authority.field_id].logical_type_id),
-        ).to_expr()
+            output_fields[authority.field_id].logical_type_id,
+        )
         for authority in semantics.metric_folds
     }
     result = grouped.mutate(**values)
@@ -409,9 +428,10 @@ class _Compiler:
         dataset: LogicalDataset,
         tables: Mapping[str, ir.Table],
         scans: Mapping[str, CompiledArtifactScan],
+        source_owner: ObservationOwner | None = None,
     ) -> None:
         self.dataset = dataset
-        self.owner = source_owner_of(dataset)
+        self.owner = source_owner_of(dataset) if source_owner is None else source_owner
         self.registry = self.owner.semantic_registry
         self.tables = tables
         self.scans = scans
@@ -430,7 +450,7 @@ class _Compiler:
         self.prepared_validation_count = 0
         self.samples: dict[int, ir.Table] = {}
         self.cache: dict[int, _Rows] = {}
-        self.entities = required_entities(dataset)
+        self.entities = required_entities(dataset, registry=self.registry)
         if set(tables) != {entity.ref.path for entity in self.entities}:
             raise compilation_error(
                 "exact reachable declared Entity table mapping", "missing or extra source table"
@@ -441,7 +461,11 @@ class _Compiler:
                 raise compilation_error(
                     "ordered declared semantic source columns", "source schema mismatch"
                 )
-            if any(table[name].type() != dt.dtype(kind) for name, kind in entity.columns):
+            if any(
+                table[name].type() != dt.dtype(kind)
+                and not (kind == "decimal" and isinstance(table[name].type(), dt.Decimal))
+                for name, kind in entity.columns
+            ):
                 raise compilation_error(
                     "exact declared semantic source types", "source type mismatch"
                 )
@@ -686,6 +710,7 @@ class _Compiler:
                         target_population_definition_fingerprint=payload.target_population_definition_fingerprint
                         or "",
                         identity_columns=entity.primary_key,
+                        root_identity=id(root),
                     )
                 )
                 sampled = ibis.table(table.schema(), name=name)
@@ -1300,7 +1325,7 @@ class _Compiler:
                     "closed aggregate/weighted/ratio graph", "unsupported graph node"
                 )
 
-            output[field.name] = value(metric.graph.roots[0]).cast(metric.logical_type)
+            output[field.name] = _declared_cast(value(metric.graph.roots[0]), metric.logical_type)
         return table.mutate(**output)
 
     def _evaluate(
@@ -1397,10 +1422,15 @@ class _Compiler:
             if scan is None or (
                 root.shape_id.family_id != "population"
                 and (
-                    not isinstance(semantics, EntityPresentMetricSemantics)
-                    or any(
-                        not facts or facts[0] != "entity_unique"
-                        for _, _, facts in semantics.coordinate_semantics
+                    not isinstance(
+                        semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
+                    )
+                    or (
+                        isinstance(semantics, EntityPresentMetricSemantics)
+                        and any(
+                            not facts or facts[0] != "entity_unique"
+                            for _, _, facts in semantics.coordinate_semantics
+                        )
                     )
                 )
             ):
@@ -1414,6 +1444,8 @@ class _Compiler:
                 for field in dataset.schema.columns
                 if isinstance(field.identity, _EntityFieldIdentity)
             )
+            if not identities:
+                return _Rows(table, table, entity)
             if (
                 len(identities) != 1
                 or identities[0].entity_ref.path != entity.ref.path
@@ -1435,6 +1467,14 @@ class _Compiler:
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
+        elif isinstance(payload, ComparePayload):
+            current = self._visit(root.inputs[0].root)
+            baseline = self._visit(root.inputs[1].root)
+            table, validations = lower_compare(
+                current.expression, baseline.expression, payload.spec
+            )
+            self.validations.extend(validations)
+            result = _Rows(table, current.membership, current.entity)
         elif isinstance(payload, RetainedFoldPayload):
             previous = self._visit(root.inputs[0].root)
             table, validations = lower_fold(previous.expression, payload.spec)
@@ -1607,16 +1647,18 @@ def compile_dataset(
     tables: Mapping[str, ir.Table],
     *,
     scans: Mapping[str, CompiledArtifactScan] | None = None,
+    source_owner: ObservationOwner | None = None,
 ) -> CompiledDataset:
     """Lower a logical Dataset using exact source tables without executing or reading rows."""
-    return _Compiler(dataset, tables, {} if scans is None else scans).compile()
+    return _Compiler(dataset, tables, {} if scans is None else scans, source_owner).compile()
 
 
 def compile_retained_rows(
     dataset: LogicalDataset,
-    table: ir.Table,
+    table: ir.Table | Mapping[str, ir.Table],
     *,
     parts: Mapping[str, ir.Table] | None = None,
+    input_parts: Mapping[str, Mapping[str, ir.Table]] | None = None,
 ) -> CompiledDataset:
     """Compose exact row/state operations over one immutable engine Artifact."""
     from marivo.analysis.operators.registry import admit_retained_rows
@@ -1627,14 +1669,20 @@ def compile_retained_rows(
         validations.append(CompiledValidation(name, invalid.aggregate(violations=invalid.count())))
 
     def read(value: MaterializedDataset) -> ir.Table:
+        selected_table = (
+            table if isinstance(table, ir.Table) else table[value.state.artifact_ref.ref]
+        )
+        selected_parts = (
+            parts if input_parts is None else input_parts.get(value.state.artifact_ref.ref)
+        )
         expected = {part.role: part for part in retained_part_specs(value.row_contract)}
-        result = table
+        result = selected_table
         keys = tuple(
             field.name
             for field in value.schema.columns
             if field.field_id in value.row_contract.key_field_ids
         )
-        for role, incoming in () if parts is None else parts.items():
+        for role, incoming in () if selected_parts is None else selected_parts.items():
             spec = expected.get(role)
             if spec is None or tuple(incoming.columns) != spec.column_names:
                 raise compilation_error(
@@ -1645,11 +1693,14 @@ def compile_retained_rows(
                 counts = incoming.group_by(keys).aggregate(__mv_count=incoming.count())
                 assertion(f"{role}.keys_unique", counts.filter(counts.__mv_count > 1))
                 right = incoming.view()
-                conditions = [table[key].identical_to(right[key]) for key in keys]
+                conditions = [selected_table[key].identical_to(right[key]) for key in keys]
                 assertion(
-                    f"{role}.primary_keys_complete", table.join(right, conditions, how="anti")
+                    f"{role}.primary_keys_complete",
+                    selected_table.join(right, conditions, how="anti"),
                 )
-                assertion(f"{role}.part_keys_complete", right.join(table, conditions, how="anti"))
+                assertion(
+                    f"{role}.part_keys_complete", right.join(selected_table, conditions, how="anti")
+                )
                 joined = result.join(
                     right, [result[key].identical_to(right[key]) for key in keys], how="left"
                 )
@@ -1664,13 +1715,13 @@ def compile_retained_rows(
         semantics = value.row_contract.family_semantics
         if isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
             fields = {field.field_id.value: field for field in value.schema.columns}
-            selected = {} if parts is None else parts
+            selected = {} if selected_parts is None else selected_parts
             for authority in semantics.metric_folds:
                 role = fold_part_role(authority)
                 if role not in selected:
                     continue
                 field = fields[authority.field_id]
-                finalized = _fold_value(result, authority).cast(dt.dtype(field.logical_type_id))
+                finalized = _declared_cast(_fold_value(result, authority), field.logical_type_id)
                 assertion(
                     f"{role}.primary_value_reconciliation",
                     result.filter(~result[field.name].identical_to(finalized)),
@@ -1729,6 +1780,12 @@ def compile_retained_rows(
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
+        if isinstance(payload, ComparePayload):
+            result, checks = lower_compare(
+                visit(value._inputs[0]), visit(value._inputs[1]), payload.spec
+            )
+            validations.extend(checks)
+            return result
         if (
             not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload))
             or len(value._inputs) != 1

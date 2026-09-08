@@ -27,7 +27,10 @@ def recover_dataset(
     ids = make_ids(())
     registry = make_family_registry(ids)
     owner = ObservationRuntimeOwner(
-        session_id=session_ref, store_id=store_id, action_port=action_port
+        session_id=session_ref,
+        store_id=store_id,
+        action_port=action_port,
+        comparison_basis_snapshot=descriptor.comparison_basis,
     )
     state = _materialized_state(
         artifact_ref=ArtifactRef(ref=record.artifact_ref),

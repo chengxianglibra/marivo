@@ -250,7 +250,7 @@ class DefinedFindingRatioV1(_Value):
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class UndefinedRelativeDeltaV1(_Value):
-    reason: Literal["baseline_zero"] = "baseline_zero"
+    reason: Literal["baseline_zero", "delta_unavailable"] = "baseline_zero"
     kind: Literal["undefined"] = "undefined"
 
 
@@ -300,8 +300,17 @@ class DeltaFindingValueV1(_Value):
         _Value.__post_init__(self)
         if len({type(self.current_value), type(self.baseline_value), type(self.delta)}) != 1:
             raise invalid("Delta numbers do not preserve one lossless common type")
-        if (self.baseline_value == 0) != isinstance(self.relative_delta, UndefinedRelativeDeltaV1):
+        if self.baseline_value == 0 and not (
+            isinstance(self.relative_delta, UndefinedRelativeDeltaV1)
+            and self.relative_delta.reason == "baseline_zero"
+        ):
             raise invalid("relative Delta baseline-zero status mismatch")
+        if (
+            self.baseline_value != 0
+            and isinstance(self.relative_delta, UndefinedRelativeDeltaV1)
+            and self.relative_delta.reason != "delta_unavailable"
+        ):
+            raise invalid("relative Delta unavailable status mismatch")
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)

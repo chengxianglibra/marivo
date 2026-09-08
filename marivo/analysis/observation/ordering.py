@@ -57,7 +57,9 @@ def rank(
         raise construction_error("registered rank direction and ties", "invalid rank policy")
     if any(field.field_id == RANK_FIELD_ID for field in dataset.schema.columns):
         raise construction_error("rows without an existing generated rank", "repeated rank")
-    selected = validate_field_ref(dataset, by, allowed_roles=("metric", "rank"))
+    selected = validate_field_ref(
+        dataset, by, allowed_roles=("metric", "rank", "comparison_value", "effect_value")
+    )
     if selected.logical_type_id not in (
         "integer",
         "int32",
@@ -142,8 +144,8 @@ def rank(
     return construct_operator(
         owner=owner_of(dataset),
         registry=dataset._registry,
-        operator_id="metric.rank",
-        contract_versions=producer_contract("metric.rank").versions,
+        operator_id=f"{dataset.kind}.rank",
+        contract_versions=producer_contract(f"{dataset.kind}.rank").versions,
         inputs=(dataset,),
         row_contract=row,
         row_set_contract=_make_row_set_contract(
@@ -186,8 +188,8 @@ def limit(dataset: Dataset, count: int) -> Dataset:
     return construct_operator(
         owner=owner_of(dataset),
         registry=dataset._registry,
-        operator_id="metric.limit",
-        contract_versions=producer_contract("metric.limit").versions,
+        operator_id=f"{dataset.kind}.limit",
+        contract_versions=producer_contract(f"{dataset.kind}.limit").versions,
         inputs=(dataset,),
         row_contract=dataset.row_contract,
         row_set_contract=_make_row_set_contract(

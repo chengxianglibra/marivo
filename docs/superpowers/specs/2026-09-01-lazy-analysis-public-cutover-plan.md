@@ -2357,7 +2357,7 @@ successful attribution method cannot stand in for the others.
 
 | Unit | Prerequisite | Bounded outcome and independent gate |
 | --- | --- | --- |
-| 5a: Metric comparison | 3b, 4d | Produce and cold-recover Delta for each admitted alignment and input-authority topology. Prove realization sharing, scope/key preservation, one-sided and unavailable values, and immutable materialized operands. Own the first registered multi-input local consumer, explicit operand roles, complete combined-input validation/budgets, and the real independent-source comparison journey allocated from parent Slice 4. |
+| 5a: Metric comparison (complete) | 3b, 4d | Produce and cold-recover Delta for each admitted alignment and input-authority topology. Prove realization sharing, scope/key preservation, one-sided and unavailable values, and immutable materialized operands. Own the first registered multi-input local consumer, explicit operand roles, complete combined-input validation/budgets, and the real independent-source comparison journey allocated from parent Slice 4. |
 | 5b: additive and component-mix attribution | 5a | Produce reconciled joint/hierarchy Attribution with exact component/partition admission, logical axis expansion, retained-state barriers, Top-K/Other/null masks, and scoped Finding identity. |
 | 5c: distinct-membership attribution | 5b's shared attribution contracts | Execute exact source-private membership preparation/allocation. Prove independent numerical reconciliation, sufficient-state admission, cold recovery, and identity redaction without origin replay or local raw-key transfer. |
 | 5d: distribution-Shapley attribution | 5b's shared attribution contracts | Execute exact source-side distribution/coalition work and its admitted bounded local combination. Prove independent numerical results, mapped-player limits, Top-K/Other semantics, complete-input guards, and fail-closed missing/corrupt-state recovery. |
@@ -2365,6 +2365,24 @@ successful attribution method cannot stand in for the others.
 5c and 5d may proceed independently after their common contracts are frozen.
 Their implementations extend the same Delta/Attribution registrations; neither
 creates a parallel family, continuation table, or publication mechanism.
+
+Slice 5a's private technical gate is recorded in its
+[private execution record](../plans/2026-09-08-lazy-analysis-slice-5a-execution.md).
+The accepted Typed Operators clarification preserves exact Population membership
+selection while permitting different Metric observation windows, and retains
+valid Delta Findings with either `baseline_zero` or `delta_unavailable` relative
+status. The unchanged candidate
+`8477c76aebc13e75f9faef35ea4af64eddbe0d18318b8915816641630413d1bc`
+passed `make check-agent` after review follow-up and pre-commit formatting on 2026-09-08:
+5,932 default tests, 764 Runtime tests
+with versioned MinIO and zero skips, full typing/lint and API documentation.
+Its execution record binds 35 new comparison records and 66 adjacent Runtime
+records to that candidate. This closes only 5a and its allocated multi-input
+extension; parent Slice 5, public cutover and public Agent acceptance remain open.
+This records technical completion under the owner's explicit implementation
+instruction. Independent review approval and release approval are separate
+decisions. Review follow-up fixes and their candidate-bound verification are
+recorded in the same execution record.
 
 ### Owned implementation
 
@@ -3381,11 +3399,11 @@ row or replacing its evidence with another family's requires review here.
 | Parameterized source bindings | 2a-2b, 4c complete | scope-exit execution, exact key separation, missing/extra input errors, exhaustive redaction; all-target fresh cold journeys in `test_lazy_binding_cold_acceptance.py` | Private 4c gate passed; H remains public Slice 9 acceptance |
 | Predicates, coordinates, sampling, Metric projection, rank/limit | 3a | filter order, contribution admission, deterministic ordering, source fusion | A; 9b economics |
 | Retained parts, aggregate/fold/rollup, checkpoint membership | 3b complete | `test_lazy_retained_fold_matrix.py`, `test_lazy_local_fold.py`, `test_lazy_retained_compiler.py`, `test_lazy_retained_membership.py`, `test_lazy_retained_failures.py`; exact variants and fresh-process evidence in the [3b record](../plans/2026-09-08-lazy-analysis-slice-3b-execution.md) | Private 3b gate passed; B, D, I, M remain public Slice 9 gates |
-| Source-prefix/local-suffix execution | 4a and parent 4 complete; multi-input extension owned by 5a | `test_lazy_local_guards.py`, `test_lazy_local_runtime_acceptance.py`, `test_lazy_slice4_boundaries.py`; complete unary/retained input, intermediate/output/deadline limits, fixed dispatch, exact real independent branches and no retry; multi-input consumption/combined-budget proof is mandatory in 5a | Private parent 4 gate passed on the 4d candidate under the approved allocation; F and 9b remain public gates |
+| Source-prefix/local-suffix execution | 4a and parent 4 complete; multi-input extension complete in 5a | `test_lazy_local_guards.py`, `test_lazy_local_runtime_acceptance.py`, `test_lazy_slice4_boundaries.py`, `test_lazy_compare_runtime.py`, `test_lazy_local_graph_lifetime.py`; complete unary/retained and combined input guards, intermediate/output/deadline limits, fixed dispatch, real independent-source comparison, immutable direct DataFrame handoff and no retry | Private parent 4 gate passed under the approved allocation; the [5a gate](../plans/2026-09-08-lazy-analysis-slice-5a-execution.md) closes the allocated multi-input proof. F and 9b remain public gates |
 | Local/engine/object storage | 2b, 4b | immutable receipts, reservations, required parts, mutation and overflow | F-G, I; 9b-9c |
 | Run admission, publication, concurrency, reconciliation | 2b, 4c complete | `test_lazy_runtime_concurrency.py`, `test_lazy_worker_recovery.py`, `test_lazy_adapter_crash_acceptance.py`, `test_lazy_reconciliation_snapshot.py`; exact variants and evidence in the [4c record](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md) | Private 4c gate passed; G and 9c remain public Slice 9 acceptance |
 | Session/Run/Artifact/Finding reads, graph, integrity | 4d and parent 4 complete | `test_lazy_runtime_reads.py`, `test_lazy_session_history.py`, `test_lazy_session_graph.py`, `test_lazy_finding_types.py`, `test_lazy_finding_reads.py`, `test_lazy_integrity_inspection.py`, `test_lazy_inspection_boundaries.py`, `test_lazy_runtime_read_acceptance.py`, `test_lazy_read_integrity_regressions.py`, `test_lazy_object_access_boundaries.py`; [exact evidence](../plans/2026-09-08-lazy-analysis-slice-4d-execution.md) | Private 4d and parent 4 gates passed; G2, N and 9c remain public gates |
-| Metric comparison | 5a | alignment, authority topology, shared sampling, scope/key preservation; explicit multi-input roles, complete combined validation/budgets before invocation, and real independent-source local comparison | C; multi-input/combined-budget extension of F |
+| Metric comparison | 5a complete | `test_lazy_compare_contracts.py`, `test_lazy_compare_numeric.py`, `test_lazy_compare_compiler.py`, `test_lazy_compare_runtime.py`, `test_lazy_compare_time_runtime.py`, `test_lazy_compare_runtime_acceptance.py`, `test_lazy_delta_publication.py`; five shapes, all state topologies, exact promotion and Decimal Finding order, sampling sharing, complete combined guards, repeated time-series coordinates, atomic Findings and three-storage cold recovery | Private [5a technical gate](../plans/2026-09-08-lazy-analysis-slice-5a-execution.md) passed after review follow-up; C and F remain integrated public acceptance |
 | Additive/component-mix attribution | 5b | endpoint reproduction, disjoint partitions, masks/Findings, barrier failures | C |
 | Distinct-membership attribution | 5c | exact membership allocation, source-private identity, reconciliation | C; 9b |
 | Distribution-Shapley attribution | 5d | coalition references, player bound, retained-state and local-budget failures | C; 9b |

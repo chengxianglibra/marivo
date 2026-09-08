@@ -5,8 +5,8 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager
-from dataclasses import dataclass, field
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,7 +16,7 @@ import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 import sqlglot
-from duckdb import DuckDBPyConnection
+from duckdb import DuckDBPyConnection, TransactionException
 from duckdb import __version__ as _duckdb_version
 from ibis.backends.duckdb import Backend
 from sqlglot import expressions as sge
@@ -72,9 +72,12 @@ from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.local import LocalPolicy
 from marivo.analysis.materialization.local_worker import (
     ArtifactInput,
+    LocalBoundary,
+    LocalGraphRequest,
+    LocalInputStreams,
     LocalPartInput,
-    LocalRequest,
     LocalResult,
+    LocalStage,
     StreamInput,
     supervise,
 )
@@ -119,7 +122,6 @@ from marivo.analysis.materialization.worker_lifetime import reserve_worker
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
     MetricPayload,
-    ObservationOwner,
     PopulationPayload,
     RetainedRowsPayload,
 )
@@ -129,6 +131,7 @@ from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
 )
+from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.analysis.operators.row import RowCall
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_graph, _lazy_history, _lazy_runtime_reads
@@ -261,7 +264,9 @@ def _engine_deadline(backend: Backend) -> Iterator[None]:
         timer.join()
 
 
-def _declared_table(entity: TargetEntityContract) -> ir.Table:
+def _declared_table(
+    entity: TargetEntityContract, physical_schema: ibis.Schema | None = None
+) -> ir.Table:
     source = entity.source
     if not isinstance(source, TableSourceIR) or not source.columns:
         raise _error("source_binding")
@@ -278,7 +283,12 @@ def _declared_table(entity: TargetEntityContract) -> ir.Table:
         else:
             raise _error("source_binding")
     physical = ibis.table(
-        {binding.source: binding.data_type for _, binding in source.columns},
+        {
+            binding.source: binding.data_type
+            if physical_schema is None
+            else physical_schema[binding.source]
+            for _, binding in source.columns
+        },
         name=source.table,
         database=namespace,
         catalog=catalog,
@@ -571,6 +581,12 @@ class DatasetRuntime:
         ):
             raise _error("authority_resolution")
 
+    def execute_delta(self, dataset: LogicalDeltaDataset) -> MaterializedDeltaDataset:
+        result = self._execute(dataset)
+        if not isinstance(result, MaterializedDeltaDataset):
+            raise _error("presentation")
+        return result
+
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset:
         result = self._execute(dataset)
         if not isinstance(result, MaterializedMetricDataset):
@@ -622,61 +638,68 @@ class DatasetRuntime:
             records = {
                 value.state.artifact_ref.ref: self._selected(value) for value in retained_inputs
             }
-            candidate_binding = (
-                source_binding(dataset) if isinstance(dataset._owner, ObservationOwner) else None
-            )
+            source_candidates: list[SourceBinding] = []
+
+            def discover_candidates(value: LogicalDataset | MaterializedDataset) -> None:
+                if isinstance(value, LogicalDataset):
+                    if isinstance(value._root, LogicalRootHandle) and isinstance(
+                        value._root.payload, (PopulationPayload, MetricPayload)
+                    ):
+                        binding = source_binding(value)
+                        if not any(binding.same_domain(item) for item in source_candidates):
+                            source_candidates.append(binding)
+                    for child in value._inputs:
+                        if isinstance(child, (LogicalDataset, MaterializedDataset)):
+                            discover_candidates(child)
+
+            discover_candidates(dataset)
 
             def admitted_binding(value: MaterializedDataset) -> ExecutionBinding | None:
                 receipt = records[value.state.artifact_ref.ref].descriptor.storage_receipt
-                if (
-                    candidate_binding is not None
-                    and isinstance(receipt, EngineReceipt)
-                    and value.kind in ("population", "metric")
-                    and receipt.datasource_ref == candidate_binding.datasource_id
-                    and receipt.execution_domain_id == engine_domain(candidate_binding)
-                ):
-                    return candidate_binding
-                if candidate_binding is None and isinstance(receipt, EngineReceipt):
-                    from marivo.analysis.operators.registry import admit_retained_rows
+                if not isinstance(receipt, EngineReceipt):
+                    return None
+                candidates = tuple(
+                    candidate
+                    for candidate in source_candidates
+                    if receipt.datasource_ref == candidate.datasource_id
+                    and receipt.execution_domain_id == engine_domain(candidate)
+                )
+                if len(candidates) == 1:
+                    return candidates[0]
+                from marivo.analysis.operators.registry import admit_retained_rows
 
-                    admit_retained_rows(value)
-                    return EngineBinding(
-                        self,
-                        receipt.datasource_ref,
-                        receipt.execution_domain_id,
-                        adapter_versions=(_duckdb_version, ibis.__version__),
-                    )
-                return None
+                admit_retained_rows(value)
+                return EngineBinding(
+                    self,
+                    receipt.datasource_ref,
+                    receipt.execution_domain_id,
+                    adapter_versions=(_duckdb_version, ibis.__version__),
+                )
 
             physical = place(dataset, artifact_binding=admitted_binding)
             source_steps = tuple(step for step in physical.steps if isinstance(step, SourceStep))
-            artifact_steps = tuple(
-                step for step in physical.steps if isinstance(step, ArtifactReadStep)
-            )
             if (
-                len(source_steps) + len(artifact_steps) != 1
-                or physical.steps[-1].output != physical.primary_output
+                physical.steps[-1].output != physical.primary_output
                 or physical.steps[-1].dataset is not dataset
             ):
                 raise _error("implementation_registration")
             source_step = source_steps[0] if source_steps else None
-            source_dataset = source_step.dataset if source_step is not None else None
-            entities = (
-                required_entities(source_dataset)
-                if source_dataset is not None
-                and source_step is not None
-                and isinstance(source_step.binding, SourceBinding)
-                else ()
+            entities = tuple(
+                entity
+                for step in source_steps
+                if isinstance(step.binding, SourceBinding)
+                for entity in required_entities(
+                    step.dataset, registry=step.binding.owner.semantic_registry
+                )
             )
-            captures = captured_parameters(source_dataset) if source_dataset is not None else ()
-            inherited = None
-            if records and source_step is not None:
-                if len(records) != 1:
-                    raise _error("implementation_registration")
-                inherited = next(iter(records.values())).descriptor
-            if artifact_steps:
-                inherited = self._selected(artifact_steps[0].dataset).descriptor
-            contract = materialization_contract(dataset, inherited=inherited)
+            inherited = next(iter(records.values())).descriptor if records else None
+            contract = materialization_contract(
+                dataset,
+                inherited=inherited,
+                input_descriptors=tuple(
+                    records[value.state.artifact_ref.ref].descriptor for value in retained_inputs
+                ),
+            )
             run = self.store.admit(
                 self.session_ref,
                 key,
@@ -686,9 +709,15 @@ class DatasetRuntime:
                     dataset._root.row_contract_fingerprint,
                     dataset._root.row_set_contract_fingerprint,
                     tuple(dict.fromkeys(root.operator_id for root in roots))[:64],
-                    tuple(f"{entity.ref.kind.value}:{entity.ref.path}" for entity in entities)[:64],
+                    tuple(
+                        dict.fromkeys(
+                            f"{entity.ref.kind.value}:{entity.ref.path}" for entity in entities
+                        )
+                    )[:64],
                 ),
-                input_artifact_refs=tuple(records),
+                input_artifact_refs=tuple(
+                    value.state.artifact_ref.ref for value in retained_inputs
+                ),
             )
             self.last_run_ref = run.run_ref
             backend: Backend | None = None
@@ -702,340 +731,209 @@ class DatasetRuntime:
                 self._validate_target(source_step, physical, target, object_bindings)
                 phase = "authority_resolution"
                 validations: list[tuple[str, int]] = []
-                sampling: list[SamplingRealization] = list(
-                    inherited.sampling_execution or () if inherited is not None else ()
-                )
-                if inherited is not None:
+                sampling: list[SamplingRealization] = []
+                sampling_by_root: dict[int, SamplingRealization] = {}
+                for input_record in records.values():
+                    descriptor = input_record.descriptor
+                    for realization in descriptor.sampling_execution or ():
+                        if realization not in sampling:
+                            sampling.append(realization)
                     validate_sampling_state(
-                        self.store.project_root, sampling_state_read(inherited), object_bindings
+                        self.store.project_root, sampling_state_read(descriptor), object_bindings
                     )
-                if source_step is not None and source_dataset is not None:
-                    domain = source_step.binding.datasource_id
-                    candidate: object
-                    if isinstance(source_step.binding, EngineBinding):
-                        from marivo.analysis.materialization.engine import checked_engine_path
-
-                        if len(records) != 1:
-                            raise _error("execution_boundary", run.run_ref)
-                        selected_receipt = next(iter(records.values())).descriptor.storage_receipt
-                        if not isinstance(selected_receipt, EngineReceipt):
-                            raise _error("execution_boundary", run.run_ref)
-                        path = checked_engine_path(self.store.project_root, selected_receipt)
-                        execution = backend_reservation(run.run_ref, domain)
-                        self.store.reserve(execution)
-                        self._event("resource_create")
-                        opening = True
-                        candidate = ibis.duckdb.connect(str(path), read_only=True)
-                    else:
-                        datasource = source_step.binding.owner.semantic_registry.datasources[domain]
-                        self._event("profile_resolution")
-                        require_profile_for_backend_type(datasource.backend_type)
-                        self._event("credential_resolution")
-                        effective = _effective_kwargs(datasource)
-                        execution = backend_reservation(run.run_ref, domain)
-                        self.store.reserve(execution)
-                        self._event("resource_create")
-                        opening = True
-                        candidate = _build_backend_from_effective(
-                            datasource, effective, read_only=True
-                        ).backend
-                    if not isinstance(candidate, Backend):
-                        raise _error("execution_boundary", run.run_ref)
-                    backend = candidate
-                    backend.raw_sql("SET threads=1")
-                    backend.raw_sql("SET memory_limit='256MiB'")
-                    backend.raw_sql("SET max_temp_directory_size='0B'")
-                    backend.raw_sql("BEGIN TRANSACTION")
-                    tables: dict[str, ir.Table] = {}
-                    fences: list[_JsonFence] = []
-                    captured = {item.entity_ref.path: item for item in captures}
-                    for entity in entities:
-                        source = entity.source
-                        if isinstance(source, TableSourceIR):
-                            tables[entity.ref.path] = _declared_table(entity)
-                        elif (
-                            isinstance(source, JsonSourceIR)
-                            and source.method == "GET"
-                            and source.records_path is None
-                        ):
-                            name = "mv_source_" + uuid4().hex
-                            capture = captured.get(entity.ref.path)
-                            values: dict[str, QueryParamScalar | QueryParamScalarList] = {}
-                            if capture is not None:
-                                values = dict(
-                                    zip(
-                                        capture.ordered_parameter_names,
-                                        capture.private_canonical_typed_values,
-                                        strict=True,
-                                    )
-                                )
-                            fences.append(
-                                _JsonFence(entity, source, name, name + "_reader", values)
-                            )
-                            tables[entity.ref.path] = ibis.table(dict(entity.columns), name=name)
-                        else:
-                            raise _error("source_binding", run.run_ref)
-                    phase = "ibis_expression_construction"
-                    engine_inputs: list[tuple[ir.Table, EngineReceipt, DatasetRowContract]] = []
-                    if isinstance(source_step.binding, EngineBinding):
-                        from marivo.analysis.compiler.lowering import compile_retained_rows
-
-                        tables["retained"] = backend.table("rows")
-                        descriptor = next(iter(records.values())).descriptor
-                        if not isinstance(descriptor.storage_receipt, EngineReceipt):
-                            raise _error("execution_boundary", run.run_ref)
-                        engine_inputs.append(
-                            (
-                                tables["retained"],
-                                descriptor.storage_receipt,
-                                descriptor.row_contract,
-                            )
-                        )
-                        retained_tables = self._engine_parts(backend, descriptor, source_dataset)
-                        recipe = compile_retained_rows(
-                            source_dataset, tables["retained"], parts=retained_tables
-                        )
-                    else:
-                        scans: dict[str, CompiledArtifactScan] = {}
-                        for reference, selected_record in records.items():
-                            descriptor = selected_record.descriptor
-                            receipt = descriptor.storage_receipt
-                            if not isinstance(receipt, EngineReceipt):
-                                raise _error("execution_boundary", run.run_ref)
-                            from marivo.analysis.materialization.engine import attach_engine_scan
-
-                            table = attach_engine_scan(backend, self.store.project_root, receipt)
-                            engine_inputs.append((table, receipt, descriptor.row_contract))
-                            entity = normalize_target_entity(
-                                source_step.binding.owner.semantic_registry,
-                                descriptor.population_authority.entity_ref,
-                            )
-                            scans[reference] = CompiledArtifactScan(table, entity)
-                        recipe = compile_dataset(source_dataset, tables, scans=scans)
-                    phase = "ibis_backend_compile"
-                    self._event("backend_compile")
-                    backend.compile(recipe.expression)
-                    for assertion in recipe.validations:
-                        backend.compile(assertion.expression)
-                    for preparation in recipe.preparations:
-                        if isinstance(preparation, CompiledSampleFence):
-                            sqlglot.parse_one(sample_statement(backend, preparation), read="duckdb")
-                        else:
-                            backend.compile(preparation.expression)
-                    phase = "source_binding"
-                    with _engine_deadline(backend):
-                        from marivo.analysis.materialization.engine import validate_engine_relation
-
-                        for table, receipt, row in engine_inputs:
-                            validate_engine_relation(
-                                backend, table, receipt, row, self._record_statement
-                            )
-                        for entity in entities:
-                            if isinstance(entity.source, TableSourceIR):
-                                self._validate_source_schema(backend, entity)
-                        for fence in fences:
-                            for name in (fence.reader_name, fence.relation_name):
-                                self.store.reserve(
-                                    ResourceRecord(
-                                        run_ref=run.run_ref,
-                                        resource_kind="planner_temporary_relation",
-                                        execution_domain_id=domain,
-                                        ownership_nonce=execution.ownership_nonce,
-                                        cleanup_capability_id="duckdb_process_lifetime@v1",
-                                        safe_locator=f"{execution.safe_locator}/{name}",
-                                    )
-                                )
-                            self._event("source_statement")
-                            source_table = read_json_source(
-                                _ReservedJsonReader(
-                                    backend, fence.reader_name, self._record_statement
-                                ),
-                                fence.source,
-                                source_params=fence.parameters,
-                            )
-                            self._record_statement(
-                                "source_fence",
-                                f'CREATE TEMPORARY TABLE "{fence.relation_name}" AS {backend.compile(source_table)}',
-                            )
-                            backend.create_table(fence.relation_name, source_table, temp=True)
-                            self.statistics.source_fences += 1
-                    phase = "stage_execution"
-                    with _engine_deadline(backend):
-                        for validation in recipe.preparations or recipe.validations:
-                            if isinstance(validation, CompiledSampleFence):
-                                self.store.reserve(
-                                    ResourceRecord(
-                                        run_ref=run.run_ref,
-                                        resource_kind="planner_temporary_relation",
-                                        execution_domain_id=domain,
-                                        ownership_nonce=execution.ownership_nonce,
-                                        cleanup_capability_id="duckdb_process_lifetime@v1",
-                                        safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
-                                    )
-                                )
-                                self._event("sampling_reserved")
-                                sampling.append(
-                                    execute_sample(
-                                        backend,
-                                        validation,
-                                        ordinal=len(sampling),
-                                        record=self._record_statement,
-                                        event=self._event,
-                                    )
-                                )
-                                self.statistics.sampling_fences += 1
-                                self.statistics.validation_queries += 1
-                                validations.append((f"sampling.{len(sampling) - 1}.identity", 0))
-                                continue
-                            self._event("source_statement")
-                            self.statistics.validation_queries += 1
-                            self._record_statement(
-                                "validation:" + validation.name,
-                                backend.compile(validation.expression),
-                            )
-                            value: object = backend.to_pyarrow(validation.expression)["violations"][
-                                0
-                            ].as_py()
-                            if type(value) is not int or value != 0:
-                                raise MaterializationError(
-                                    expected="zero violations of the declared source validation",
-                                    received=f"source validation failed: {validation.name}",
-                                    repair="Repair the governed source identity, temporal coverage or component reconciliation.",
-                                    stage="output_validation",
-                                    run_ref=run.run_ref,
-                                )
-                            validations.append((validation.name, value))
-                        if isinstance(target, EngineTarget):
-                            phase = "storage_staging"
-                            artifact_ref, storage = self._write_output(
-                                dataset,
-                                (),
+                with ExitStack() as source_contexts:
+                    prepared: dict[int, tuple[Backend, CompiledDataset, dict[str, ir.Table]]] = {}
+                    for source_boundary in source_steps:
+                        boundary_validations: list[tuple[str, int]] = []
+                        prepared[source_boundary.output] = source_contexts.enter_context(
+                            self._prepared_source(
                                 run.run_ref,
-                                sampling=tuple(sampling),
-                                source_key_validation=True,
-                                engine=(backend, source_step.binding, recipe),
-                                target=target,
-                                object_bindings=object_bindings,
+                                source_boundary,
+                                records,
+                                sampling,
+                                boundary_validations,
+                                sampling_by_root,
                             )
-                        else:
-                            batch_rows = self._batch_rows(backend, tables, recipe.expression)
-                            incoming = self._batches(backend, recipe.expression, batch_rows)
-                            output_parts = tuple(
-                                PartWriteSpec(
-                                    part.role,
-                                    part.contract_id,
-                                    part.contract_version,
-                                    part.column_names,
-                                )
-                                for part in recipe.retained_parts
+                        )
+                        validations.extend(
+                            (
+                                f"source.{source_boundary.output}.{name}"
+                                if len(source_steps) > 1
+                                else name,
+                                value,
                             )
-                            if physical.local_steps:
-                                from marivo.analysis.materialization.retained import (
-                                    component_schema,
+                            for name, value in boundary_validations
+                        )
+                    if not physical.local_steps:
+                        if source_step is None:
+                            raise _error("execution_boundary", run.run_ref)
+                        current_backend, recipe, tables = prepared[source_step.output]
+                        with _engine_deadline(current_backend):
+                            if isinstance(target, EngineTarget):
+                                phase = "storage_staging"
+                                artifact_ref, storage = self._write_output(
+                                    dataset,
+                                    (),
+                                    run.run_ref,
+                                    sampling=tuple(sampling),
+                                    source_key_validation=True,
+                                    engine=(current_backend, source_step.binding, recipe),
+                                    target=target,
+                                    object_bindings=object_bindings,
                                 )
-
-                                stream_schema = recipe.expression.schema().to_pyarrow()
-                                local_parts = tuple(
-                                    LocalPartInput(
+                            else:
+                                incoming = self._batches(
+                                    current_backend,
+                                    recipe.expression,
+                                    self._batch_rows(current_backend, tables, recipe.expression),
+                                )
+                                output_parts = tuple(
+                                    PartWriteSpec(
                                         part.role,
                                         part.contract_id,
                                         part.contract_version,
-                                        pa.schema(
-                                            [
-                                                stream_schema.field(name)
-                                                for name in part.column_names
-                                            ]
-                                        ),
-                                        component_schema(
-                                            source_dataset.row_contract,
-                                            part.role,
-                                            pa.schema(
-                                                [
-                                                    stream_schema.field(name)
-                                                    for name in part.column_names
-                                                ]
-                                            ),
-                                        ),
+                                        part.column_names,
                                     )
                                     for part in recipe.retained_parts
                                 )
-                                local_result = self._run_local(
-                                    physical,
-                                    StreamInput(
-                                        source_dataset.row_contract,
-                                        source_dataset.row_set_contract,
-                                        wide_parts=bool(local_parts),
-                                    ),
+                                phase = "storage_staging"
+                                artifact_ref, storage = self._write_output(
+                                    dataset,
                                     incoming,
                                     run.run_ref,
-                                    cancel_source=backend.con.interrupt,
-                                    parts=local_parts,
+                                    parts=output_parts,
+                                    sampling=tuple(sampling),
+                                    source_key_validation=True,
+                                    target=target,
+                                    object_bindings=object_bindings,
                                 )
-                                incoming = iter(local_result.table.to_batches(max_chunksize=1024))
-                                output_parts = self._local_output_parts(local_result)
-                                validations = [
-                                    (
-                                        "source_prefix.final_row_key_unique"
-                                        if name == "dataset.final_row_key_unique"
-                                        else name,
-                                        value,
+                    else:
+                        boundaries: list[LocalBoundary] = []
+                        streams: list[LocalInputStreams] = []
+                        for step in physical.steps:
+                            if isinstance(step, SourceStep):
+                                current_backend, recipe, tables = prepared[step.output]
+                                from marivo.analysis.materialization.retained import (
+                                    required_part_roles,
+                                )
+
+                                needed_roles = required_part_roles(
+                                    dataset, input_dataset=step.dataset
+                                )
+                                selected_specs = tuple(
+                                    part
+                                    for part in recipe.retained_parts
+                                    if part.role in needed_roles
+                                )
+                                names = tuple(
+                                    dict.fromkeys(
+                                        (
+                                            *recipe.primary_columns,
+                                            *(
+                                                name
+                                                for part in selected_specs
+                                                for name in part.column_names
+                                            ),
+                                        )
                                     )
-                                    for name, value in validations
-                                ]
-                                validations.append(("dataset.final_row_key_unique", 0))
-                            phase = "storage_staging"
-                            artifact_ref, storage = self._write_output(
-                                dataset,
-                                incoming,
-                                run.run_ref,
-                                parts=output_parts,
-                                sampling=tuple(sampling),
-                                target=target,
-                                object_bindings=object_bindings,
-                                source_key_validation=("dataset.final_row_key_unique", 0)
-                                in validations,
-                            )
-                else:
-                    if inherited is None:
-                        raise _error("authority_resolution", run.run_ref)
-                    phase = "stage_execution"
-                    local_parts, part_batches = self._local_input_parts(
-                        inherited, dataset, object_bindings
-                    )
-                    local_result = self._run_local(
-                        physical,
-                        ArtifactInput(
-                            self.store.project_root,
-                            inherited.storage_receipt,
-                            inherited.row_contract,
-                            inherited.row_set_contract,
+                                )
+                                recipe = replace(
+                                    recipe,
+                                    expression=recipe.expression.select(*names),
+                                    retained_parts=selected_specs,
+                                )
+                                local_parts = self._source_local_parts(step.dataset, recipe)
+                                boundaries.append(
+                                    LocalBoundary(
+                                        step.output,
+                                        StreamInput(
+                                            step.dataset.row_contract,
+                                            step.dataset.row_set_contract,
+                                            wide_parts=bool(local_parts),
+                                        ),
+                                        local_parts,
+                                    )
+                                )
+                                streams.append(
+                                    LocalInputStreams(
+                                        self._batches(
+                                            current_backend,
+                                            recipe.expression,
+                                            self._batch_rows(
+                                                current_backend, tables, recipe.expression
+                                            ),
+                                        )
+                                    )
+                                )
+                            elif isinstance(step, ArtifactReadStep):
+                                selected_descriptor = records[
+                                    step.dataset.state.artifact_ref.ref
+                                ].descriptor
+                                local_parts, part_batches = self._local_input_parts(
+                                    selected_descriptor,
+                                    dataset,
+                                    object_bindings,
+                                    input_dataset=step.dataset,
+                                )
+                                receipt = selected_descriptor.storage_receipt
+                                selected = (
+                                    ArtifactInput(
+                                        self.store.project_root,
+                                        receipt,
+                                        step.dataset.row_contract,
+                                        step.dataset.row_set_contract,
+                                    )
+                                    if isinstance(receipt, LocalReceipt)
+                                    else StreamInput(
+                                        step.dataset.row_contract, step.dataset.row_set_contract
+                                    )
+                                )
+                                boundaries.append(LocalBoundary(step.output, selected, local_parts))
+                                streams.append(
+                                    LocalInputStreams(
+                                        ()
+                                        if isinstance(receipt, LocalReceipt)
+                                        else self._artifact_batches(
+                                            selected_descriptor, object_bindings
+                                        ),
+                                        part_batches,
+                                    )
+                                )
+                        phase = "stage_execution"
+
+                        def cancel_sources() -> None:
+                            for current_backend, _, _ in prepared.values():
+                                current_backend.con.interrupt()
+
+                        local_result = self._run_local_graph(
+                            physical,
+                            tuple(boundaries),
+                            tuple(streams),
+                            run.run_ref,
+                            cancel_source=cancel_sources,
                         )
-                        if isinstance(inherited.storage_receipt, LocalReceipt)
-                        else StreamInput(
-                            inherited.row_contract,
-                            inherited.row_set_contract,
-                        ),
-                        self._artifact_batches(inherited, object_bindings)
-                        if not isinstance(inherited.storage_receipt, LocalReceipt)
-                        else (),
-                        run.run_ref,
-                        cancel_source=lambda: None,
-                        parts=local_parts,
-                        part_batches=part_batches,
-                    )
-                    validations = [("dataset.final_row_key_unique", 0)]
-                    phase = "storage_staging"
-                    artifact_ref, storage = self._write_output(
-                        dataset,
-                        local_result.table.to_batches(max_chunksize=1024),
-                        run.run_ref,
-                        parts=self._local_output_parts(local_result),
-                        sampling=tuple(sampling),
-                        source_key_validation=True,
-                        target=target,
-                        object_bindings=object_bindings,
-                    )
-                for input_record in records.values():
+                        validations = [
+                            (
+                                "source_prefix.final_row_key_unique"
+                                if name == "dataset.final_row_key_unique"
+                                else name,
+                                value,
+                            )
+                            for name, value in validations
+                        ]
+                        validations.append(("dataset.final_row_key_unique", 0))
+                        phase = "storage_staging"
+                        artifact_ref, storage = self._write_output(
+                            dataset,
+                            local_result.table.to_batches(max_chunksize=1024),
+                            run.run_ref,
+                            parts=self._local_output_parts(local_result),
+                            sampling=tuple(sampling),
+                            source_key_validation=True,
+                            target=target,
+                            object_bindings=object_bindings,
+                        )
+                for reference, input_record in records.items():
                     if isinstance(input_record.descriptor.storage_receipt, EngineReceipt):
                         from marivo.analysis.materialization.engine import checked_engine_path
 
@@ -1047,7 +945,15 @@ class DatasetRuntime:
                         ):
                             from marivo.analysis.materialization.retained import selected_parts
 
-                            for part in selected_parts(input_record.descriptor, dataset):
+                            for part in selected_parts(
+                                input_record.descriptor,
+                                dataset,
+                                input_dataset=next(
+                                    value
+                                    for value in retained_inputs
+                                    if value.state.artifact_ref.ref == reference
+                                ),
+                            ):
                                 if isinstance(part.storage_receipt, EngineReceipt):
                                     checked_engine_path(
                                         self.store.project_root, part.storage_receipt
@@ -1061,10 +967,37 @@ class DatasetRuntime:
                     tuple(validations),
                     tuple(sampling),
                     inherited=inherited,
+                    sampling_by_root=sampling_by_root,
+                    input_descriptors=tuple(
+                        records[value.state.artifact_ref.ref].descriptor
+                        for value in retained_inputs
+                    ),
                 )
                 validate_sampling_state(
                     self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
+                findings: tuple[Finding, ...] = ()
+                if dataset.kind == "delta":
+                    from marivo.analysis.materialization.comparison_publication import (
+                        build_delta_publication,
+                    )
+                    from marivo.analysis.materialization.reads import payload_batches
+
+                    rows = payload_batches(
+                        self.store.project_root,
+                        descriptor.storage_receipt,
+                        policy=_READ_POLICY,
+                        bindings=object_bindings,
+                        row=descriptor.row_contract,
+                        rows=descriptor.row_set_contract,
+                        audit=True,
+                    )
+                    descriptor, findings = build_delta_publication(
+                        descriptor,
+                        rows,
+                        artifact_ref=artifact_ref,
+                        session_ref=self.session_ref,
+                    )
                 phase = "evidence"
                 self._event("evidence")
                 if backend is not None and execution is not None:
@@ -1093,6 +1026,7 @@ class DatasetRuntime:
                     run.run_ref,
                     artifact_ref,
                     descriptor,
+                    findings=findings,
                     resolved_resources=(*outputs, *resolved),
                     event=self._event,
                 )
@@ -1144,6 +1078,272 @@ class DatasetRuntime:
             if pending_error is None:
                 raise _error("presentation", run.run_ref)
             raise pending_error from None
+
+    @contextmanager
+    def _prepared_source(
+        self,
+        run_ref: str,
+        source_step: SourceStep,
+        all_records: Mapping[str, ArtifactRecord],
+        sampling: list[SamplingRealization],
+        validations: list[tuple[str, int]],
+        sampling_by_root: dict[int, SamplingRealization],
+    ) -> Iterator[tuple[Backend, CompiledDataset, dict[str, ir.Table]]]:
+        source_dataset = source_step.dataset
+        records = {
+            value.state.artifact_ref.ref: all_records[value.state.artifact_ref.ref]
+            for value in artifact_inputs(source_dataset)
+        }
+        entities = (
+            required_entities(source_dataset, registry=source_step.binding.owner.semantic_registry)
+            if isinstance(source_step.binding, SourceBinding)
+            else ()
+        )
+        captures = captured_parameters(source_dataset)
+        backend: Backend | None = None
+        execution: ResourceRecord | None = None
+        opening = False
+        phase = "authority_resolution"
+        yielded = False
+        try:
+            domain = source_step.binding.datasource_id
+            candidate: object
+            if isinstance(source_step.binding, EngineBinding):
+                from marivo.analysis.materialization.engine import checked_engine_path
+
+                selected_receipt = next(iter(records.values())).descriptor.storage_receipt
+                if not isinstance(selected_receipt, EngineReceipt):
+                    raise _error("execution_boundary", run_ref)
+                path = checked_engine_path(self.store.project_root, selected_receipt)
+                execution = backend_reservation(run_ref, domain)
+                self.store.reserve(execution)
+                self._event("resource_create")
+                opening = True
+                candidate = ibis.duckdb.connect(str(path), read_only=True)
+            else:
+                datasource = source_step.binding.owner.semantic_registry.datasources[domain]
+                self._event("profile_resolution")
+                require_profile_for_backend_type(datasource.backend_type)
+                self._event("credential_resolution")
+                effective = _effective_kwargs(datasource)
+                execution = backend_reservation(run_ref, domain)
+                self.store.reserve(execution)
+                self._event("resource_create")
+                opening = True
+                candidate = _build_backend_from_effective(
+                    datasource, effective, read_only=True
+                ).backend
+            if not isinstance(candidate, Backend):
+                raise _error("execution_boundary", run_ref)
+            backend = candidate
+            backend.raw_sql("SET threads=1")
+            backend.raw_sql("SET memory_limit='256MiB'")
+            backend.raw_sql("SET max_temp_directory_size='0B'")
+            backend.raw_sql("BEGIN TRANSACTION")
+            tables: dict[str, ir.Table] = {}
+            fences: list[_JsonFence] = []
+            checked_schemas: set[str] = set()
+            captured = {item.entity_ref.path: item for item in captures}
+            for entity in entities:
+                source = entity.source
+                if isinstance(source, TableSourceIR):
+                    physical_schema = None
+                    if any(binding.data_type == "decimal" for _, binding in source.columns):
+                        physical_schema = self._validate_source_schema(backend, entity)
+                        checked_schemas.add(entity.ref.path)
+                    tables[entity.ref.path] = _declared_table(entity, physical_schema)
+                elif (
+                    isinstance(source, JsonSourceIR)
+                    and source.method == "GET"
+                    and source.records_path is None
+                ):
+                    name = "mv_source_" + uuid4().hex
+                    capture = captured.get(entity.ref.path)
+                    values: dict[str, QueryParamScalar | QueryParamScalarList] = {}
+                    if capture is not None:
+                        values = dict(
+                            zip(
+                                capture.ordered_parameter_names,
+                                capture.private_canonical_typed_values,
+                                strict=True,
+                            )
+                        )
+                    fences.append(_JsonFence(entity, source, name, name + "_reader", values))
+                    tables[entity.ref.path] = ibis.table(dict(entity.columns), name=name)
+                else:
+                    raise _error("source_binding", run_ref)
+            phase = "ibis_expression_construction"
+            engine_inputs: list[tuple[ir.Table, EngineReceipt, DatasetRowContract]] = []
+            if isinstance(source_step.binding, EngineBinding):
+                from marivo.analysis.compiler.lowering import compile_retained_rows
+                from marivo.analysis.materialization.engine import attach_engine_scan
+
+                retained_scans: dict[str, ir.Table] = {}
+                retained_parts: dict[str, dict[str, ir.Table]] = {}
+                for index, (reference, selected_record) in enumerate(records.items()):
+                    descriptor = selected_record.descriptor
+                    receipt = descriptor.storage_receipt
+                    if not isinstance(receipt, EngineReceipt):
+                        raise _error("execution_boundary", run_ref)
+                    table = (
+                        backend.table("rows")
+                        if index == 0
+                        else attach_engine_scan(backend, self.store.project_root, receipt)
+                    )
+                    retained_scans[reference] = table
+                    tables[reference] = table
+                    engine_inputs.append((table, receipt, descriptor.row_contract))
+                    retained_parts[reference] = self._engine_parts(
+                        backend,
+                        descriptor,
+                        source_dataset,
+                        input_dataset=next(
+                            value
+                            for value in artifact_inputs(source_dataset)
+                            if value.state.artifact_ref.ref == reference
+                        ),
+                    )
+                recipe = compile_retained_rows(
+                    source_dataset, retained_scans, input_parts=retained_parts
+                )
+            else:
+                scans: dict[str, CompiledArtifactScan] = {}
+                for reference, selected_record in records.items():
+                    descriptor = selected_record.descriptor
+                    receipt = descriptor.storage_receipt
+                    if not isinstance(receipt, EngineReceipt):
+                        raise _error("execution_boundary", run_ref)
+                    from marivo.analysis.materialization.engine import attach_engine_scan
+
+                    table = attach_engine_scan(backend, self.store.project_root, receipt)
+                    engine_inputs.append((table, receipt, descriptor.row_contract))
+                    entity = normalize_target_entity(
+                        source_step.binding.owner.semantic_registry,
+                        descriptor.population_authority.entity_ref,
+                    )
+                    scans[reference] = CompiledArtifactScan(table, entity)
+                recipe = compile_dataset(
+                    source_dataset, tables, scans=scans, source_owner=source_step.binding.owner
+                )
+            phase = "ibis_backend_compile"
+            self._event("backend_compile")
+            backend.compile(recipe.expression)
+            for assertion in recipe.validations:
+                backend.compile(assertion.expression)
+            for preparation in recipe.preparations:
+                if isinstance(preparation, CompiledSampleFence):
+                    sqlglot.parse_one(sample_statement(backend, preparation), read="duckdb")
+                else:
+                    backend.compile(preparation.expression)
+            phase = "source_binding"
+            with _engine_deadline(backend):
+                from marivo.analysis.materialization.engine import validate_engine_relation
+
+                for table, receipt, row in engine_inputs:
+                    validate_engine_relation(backend, table, receipt, row, self._record_statement)
+                for entity in entities:
+                    if (
+                        isinstance(entity.source, TableSourceIR)
+                        and entity.ref.path not in checked_schemas
+                    ):
+                        self._validate_source_schema(backend, entity)
+                for fence in fences:
+                    for name in (fence.reader_name, fence.relation_name):
+                        self.store.reserve(
+                            ResourceRecord(
+                                run_ref=run_ref,
+                                resource_kind="planner_temporary_relation",
+                                execution_domain_id=domain,
+                                ownership_nonce=execution.ownership_nonce,
+                                cleanup_capability_id="duckdb_process_lifetime@v1",
+                                safe_locator=f"{execution.safe_locator}/{name}",
+                            )
+                        )
+                    self._event("source_statement")
+                    source_table = read_json_source(
+                        _ReservedJsonReader(backend, fence.reader_name, self._record_statement),
+                        fence.source,
+                        source_params=fence.parameters,
+                    )
+                    self._record_statement(
+                        "source_fence",
+                        f'CREATE TEMPORARY TABLE "{fence.relation_name}" AS {backend.compile(source_table)}',
+                    )
+                    backend.create_table(fence.relation_name, source_table, temp=True)
+                    self.statistics.source_fences += 1
+            phase = "stage_execution"
+            with _engine_deadline(backend):
+                for validation in recipe.preparations or recipe.validations:
+                    if isinstance(validation, CompiledSampleFence):
+                        self.store.reserve(
+                            ResourceRecord(
+                                run_ref=run_ref,
+                                resource_kind="planner_temporary_relation",
+                                execution_domain_id=domain,
+                                ownership_nonce=execution.ownership_nonce,
+                                cleanup_capability_id="duckdb_process_lifetime@v1",
+                                safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
+                            )
+                        )
+                        self._event("sampling_reserved")
+                        sampling.append(
+                            execute_sample(
+                                backend,
+                                validation,
+                                ordinal=len(sampling),
+                                record=self._record_statement,
+                                event=self._event,
+                            )
+                        )
+                        sampling_by_root[validation.root_identity] = sampling[-1]
+                        self.statistics.sampling_fences += 1
+                        self.statistics.validation_queries += 1
+                        validations.append((f"sampling.{len(sampling) - 1}.identity", 0))
+                        continue
+                    self._event("source_statement")
+                    self.statistics.validation_queries += 1
+                    self._record_statement(
+                        "validation:" + validation.name,
+                        backend.compile(validation.expression),
+                    )
+                    value: object = backend.to_pyarrow(validation.expression)["violations"][
+                        0
+                    ].as_py()
+                    if type(value) is not int or value != 0:
+                        raise MaterializationError(
+                            expected="zero violations of the declared source validation",
+                            received=f"source validation failed: {validation.name}",
+                            repair="Repair the governed source identity, temporal coverage or component reconciliation.",
+                            stage="output_validation",
+                            run_ref=run_ref,
+                        )
+                    validations.append((validation.name, value))
+            yielded = True
+            yield backend, recipe, tables
+        except MaterializationError:
+            raise
+        except BaseException:
+            if yielded:
+                raise
+            raise _error(phase, run_ref) from None
+        finally:
+            if backend is not None:
+                try:
+                    backend.raw_sql("ROLLBACK")
+                except TransactionException as error:
+                    # Engine publication may have committed its fence already.
+                    # Disconnect below still proves the owned connection ended.
+                    if (
+                        str(error)
+                        != "TransactionContext Error: cannot rollback - no transaction is active"
+                    ):
+                        raise
+                finally:
+                    backend.disconnect()
+                    if execution is not None:
+                        prove_local_termination(execution)
+            elif execution is not None and not opening:
+                prove_local_termination(execution)
 
     def _write_output(
         self,
@@ -1272,7 +1472,12 @@ class DatasetRuntime:
         )
 
     def _engine_parts(
-        self, backend: Backend, descriptor: ArtifactDescriptor, dataset: LogicalDataset
+        self,
+        backend: Backend,
+        descriptor: ArtifactDescriptor,
+        dataset: LogicalDataset,
+        *,
+        input_dataset: MaterializedDataset | None = None,
     ) -> dict[str, ir.Table]:
         """Attach only consumed immutable states and verify native schema/support."""
         import hashlib
@@ -1289,7 +1494,7 @@ class DatasetRuntime:
         authorities = {fold_part_role(item): item for item in metric_parts(descriptor.row_contract)}
         tables: dict[str, ir.Table] = {}
         with _engine_deadline(backend):
-            for part in selected_parts(descriptor, dataset):
+            for part in selected_parts(descriptor, dataset, input_dataset=input_dataset):
                 receipt = part.storage_receipt
                 if not isinstance(receipt, EngineReceipt):
                     raise _error("execution_boundary", self.last_run_ref)
@@ -1330,6 +1535,8 @@ class DatasetRuntime:
         descriptor: ArtifactDescriptor,
         dataset: LogicalDataset,
         object_bindings: tuple[S3Access, ...],
+        *,
+        input_dataset: MaterializedDataset | None = None,
     ) -> tuple[tuple[LocalPartInput, ...], tuple[Iterable[pa.RecordBatch], ...]]:
         from marivo.analysis.materialization.reads import part_schema, read_part_batches
         from marivo.analysis.materialization.retained import (
@@ -1340,7 +1547,7 @@ class DatasetRuntime:
         from marivo.analysis.materialization.storage import _limited
 
         selected = (
-            *selected_parts(descriptor, dataset),
+            *selected_parts(descriptor, dataset, input_dataset=input_dataset),
             *(
                 part
                 for part in descriptor.retained_parts
@@ -1401,28 +1608,53 @@ class DatasetRuntime:
             if part.contract_id == "metric.sufficient_components"
         )
 
-    def _run_local(
+    @staticmethod
+    def _source_local_parts(
+        dataset: LogicalDataset, recipe: CompiledDataset
+    ) -> tuple[LocalPartInput, ...]:
+        from marivo.analysis.materialization.retained import component_schema
+
+        schema = recipe.expression.schema().to_pyarrow()
+        return tuple(
+            LocalPartInput(
+                part.role,
+                part.contract_id,
+                part.contract_version,
+                pa.schema([schema.field(name) for name in part.column_names]),
+                component_schema(
+                    dataset.row_contract,
+                    part.role,
+                    pa.schema([schema.field(name) for name in part.column_names]),
+                ),
+            )
+            for part in recipe.retained_parts
+        )
+
+    def _run_local_graph(
         self,
         physical: PhysicalStageGraph,
-        selected: StreamInput | ArtifactInput,
-        batches: Iterable[pa.RecordBatch],
+        boundaries: tuple[LocalBoundary, ...],
+        streams: tuple[LocalInputStreams, ...],
         run_ref: str,
         *,
         cancel_source: Callable[[], None],
-        parts: tuple[LocalPartInput, ...] = (),
-        part_batches: tuple[Iterable[pa.RecordBatch], ...] = (),
     ) -> LocalResult:
-        calls: list[RowCall] = []
+        from marivo.analysis.operators.contracts import ComparePayload, CompareSpecV1
+
+        stages: list[LocalStage] = []
         for step in physical.local_steps:
             root = step.dataset._root
-            if not isinstance(root, LogicalRootHandle) or not isinstance(
-                root.payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)
-            ):
+            if not isinstance(root, LogicalRootHandle):
                 raise _error("implementation_registration", run_ref)
-            source = step.dataset._inputs[0]
             payload = root.payload
-            calls.append(
-                RowCall(
+            call: RowCall | CompareSpecV1
+            if isinstance(payload, ComparePayload):
+                call = payload.spec
+            elif isinstance(payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)):
+                if len(step.inputs) != 1:
+                    raise _error("implementation_registration", run_ref)
+                source = step.dataset._inputs[0]
+                call = RowCall(
                     step.implementation.local_method or "",
                     source.row_contract,
                     source.row_set_contract,
@@ -1433,27 +1665,29 @@ class DatasetRuntime:
                     payload.limit_count if not isinstance(payload, RetainedFoldPayload) else None,
                     payload.spec if isinstance(payload, RetainedFoldPayload) else None,
                 )
-            )
+            else:
+                raise _error("implementation_registration", run_ref)
+            stages.append(LocalStage(step.output, step.inputs, call))
         reservation = reserve_worker(self.store, run_ref, self.session_ref)
         try:
             self._event("local_worker_reserved")
         except BaseException:
             prove_local_termination(reservation.execution)
             raise
-        request = LocalRequest(
-            selected,
-            tuple(calls),
+        request = LocalGraphRequest(
+            boundaries,
+            tuple(stages),
+            physical.primary_output,
             self.local_policy,
             time.monotonic() + self.local_policy.deadline_seconds,
-            parts,
         )
         result = supervise(
             request,
-            batches,
+            (),
             lifetime=reservation,
             cancel_source=cancel_source,
             terminal=lambda: prove_local_termination(reservation.execution),
-            part_batches=part_batches,
+            input_streams=streams,
         )
         self.statistics.local_handoffs = result.handoffs
         self.statistics.worker_pid = result.worker_pid
@@ -1497,7 +1731,9 @@ class DatasetRuntime:
         )
         return None
 
-    def _validate_source_schema(self, backend: Backend, entity: TargetEntityContract) -> None:
+    def _validate_source_schema(
+        self, backend: Backend, entity: TargetEntityContract
+    ) -> ibis.Schema:
         source = entity.source
         if not isinstance(source, TableSourceIR):
             raise _error("source_binding", self.last_run_ref)
@@ -1519,10 +1755,17 @@ class DatasetRuntime:
         actual = backend.get_schema(source.table, database=namespace, catalog=catalog)
         for _, binding in source.columns:
             declared = dt.dtype(binding.data_type).copy(nullable=True)
-            if (
-                binding.source not in actual
-                or actual[binding.source].copy(nullable=True) != declared
-            ):
+            physical_type = (
+                actual[binding.source].copy(nullable=True) if binding.source in actual else None
+            )
+            decimal_match = (
+                binding.data_type == "decimal"
+                and isinstance(physical_type, dt.Decimal)
+                and physical_type.precision is not None
+                and physical_type.scale is not None
+                and 0 <= physical_type.scale <= physical_type.precision <= 38
+            )
+            if physical_type != declared and not decimal_match:
                 raise MaterializationError(
                     expected="physical source columns matching their exact declared logical types",
                     received="the governed source schema differs from its declaration",
@@ -1530,6 +1773,7 @@ class DatasetRuntime:
                     stage="output_validation",
                     run_ref=self.last_run_ref,
                 )
+        return actual
 
     def _batch_rows(
         self, backend: Backend, tables: Mapping[str, ir.Table], expression: ir.Table
