@@ -29,6 +29,8 @@ from tests.lazy_materialization_fixtures import descriptor
 from tests.lazy_worker_recovery_helper import CRASH_EXIT
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
+pytestmark = pytest.mark.runtime
+
 _ROOT = Path(__file__).resolve().parents[1]
 _HELPER = "tests.lazy_worker_recovery_helper"
 

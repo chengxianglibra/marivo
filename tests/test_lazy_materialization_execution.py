@@ -35,6 +35,8 @@ from tests.lazy_execution_fixtures import (
     seed_execution_database,
 )
 
+pytestmark = pytest.mark.runtime
+
 _METRICS = tuple(
     ref.metric(f"sales.{name}")
     for name in (

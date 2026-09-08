@@ -18,6 +18,8 @@ from marivo.analysis.observation.predicates import eq, gt
 from marivo.refs import ref
 from tests.lazy_retained_fixtures import setup_retained
 
+pytestmark = pytest.mark.runtime
+
 MEAN = ref.metric("sales.mean_amount")
 DAY = ref.time_dimension("sales.orders.order_time")
 WINDOW = time_scope(start="2026-02-02", end="2026-02-05")

@@ -13,6 +13,8 @@ from tests.lazy_binding_cold_worker import ALPHA, BETA
 from tests.lazy_execution_fixtures import controlled_json_source, seed_execution_database
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
+pytestmark = pytest.mark.runtime
+
 
 def _run(
     mode: str, kind: str, project: Path, url: str, session: str, access: S3Access | None

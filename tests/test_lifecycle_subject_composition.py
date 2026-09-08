@@ -25,6 +25,8 @@ from tests.shared_fixtures import (
     seed_lifecycle_backend,
 )
 
+pytestmark = pytest.mark.runtime
+
 _WINDOW = mv.time_scope(start="2026-07-01T00:00:00Z", end="2026-08-01T00:00:00Z")
 _EVENT_PATHS = (
     "commerce.order_created",

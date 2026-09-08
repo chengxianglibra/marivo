@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import duckdb
+import pytest
 
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import EngineReceipt, ObjectReceipt
@@ -13,6 +14,8 @@ from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_local_fixtures import REVENUE, setup_local
+
+pytestmark = pytest.mark.runtime
 
 
 def test_engine_population_round_trip(tmp_path: Path) -> None:

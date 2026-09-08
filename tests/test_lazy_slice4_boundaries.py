@@ -27,6 +27,8 @@ from tests.lazy_execution_fixtures import make_execution_registry, seed_executio
 from tests.lazy_materialization_crash_worker import snapshot, statistics, versions
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
+pytestmark = pytest.mark.runtime
+
 
 def test_independent_equal_argument_sources_keep_exact_registered_unary_branches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

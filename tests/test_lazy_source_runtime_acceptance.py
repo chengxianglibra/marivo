@@ -10,6 +10,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.runtime
+
 _ROOT = Path(__file__).resolve().parents[1]
 
 

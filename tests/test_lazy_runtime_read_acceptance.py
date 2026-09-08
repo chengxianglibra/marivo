@@ -13,6 +13,8 @@ import pytest
 from marivo.analysis.materialization.targets import S3Access
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
+pytestmark = pytest.mark.runtime
+
 
 def _run(mode: str, kind: str, project: Path, access: S3Access | None) -> dict[str, object]:
     environment = {**os.environ, "MARIVO_TELEMETRY": "off"}

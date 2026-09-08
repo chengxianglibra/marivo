@@ -9,6 +9,8 @@ def test_private_dataset_core_has_no_early_public_surface() -> None:
     script = """
 import importlib
 import marivo.analysis as mv
+import sys
+assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import HelpTargetError

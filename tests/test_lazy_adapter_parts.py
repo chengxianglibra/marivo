@@ -22,6 +22,8 @@ from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 from tests.lazy_local_fixtures import REVENUE, setup_local
 
+pytestmark = pytest.mark.runtime
+
 
 def _access(request: pytest.FixtureRequest, kind: str) -> S3Access | None:
     if kind == "engine":

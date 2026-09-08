@@ -16,6 +16,8 @@ from marivo.analysis.operators import registry
 from marivo.analysis.operators.registry import ImplementationRegistration
 from tests.lazy_local_fixtures import COUNT, REVENUE, setup_local
 
+pytestmark = pytest.mark.runtime
+
 
 def test_artifact_suffix_publishes_and_reuses_without_source(tmp_path: Path) -> None:
     runtime, sources, database = setup_local(tmp_path)

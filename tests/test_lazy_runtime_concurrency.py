@@ -38,6 +38,8 @@ from marivo.refs import ref
 from tests.lazy_concurrency_runtime_worker import snapshot
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
+pytestmark = pytest.mark.runtime
+
 
 def _access(request: pytest.FixtureRequest, kind: str) -> tuple[S3Access, ...]:
     if kind != "object":

@@ -24,6 +24,8 @@ from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_retained_fixtures import setup_retained
 
+pytestmark = pytest.mark.runtime
+
 REVENUE = ref.metric("sales.revenue")
 MEAN = ref.metric("sales.mean_amount")
 CUSTOMERS = ref.entity("sales.customers")

@@ -109,8 +109,14 @@ cd site && npm run build
 
 ### 运行测试
 ```bash
-# 运行所有测试（并行）
+# 运行日常回归测试（并行）
 make test
+
+# 运行多阶段分析、真实数据源、worker 和进程恢复集成测试
+make runtime-test
+
+# 完整检查包括上述两组测试；agent 目标保持相同范围并精简输出
+make check-agent
 
 # 运行特定测试文件
 .venv/bin/pytest tests/test_sessions.py

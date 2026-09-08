@@ -19,6 +19,8 @@ from marivo.semantic.metric_graph import AggregateNodeV1
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import make_test_metric_meta_contract
 
+pytestmark = pytest.mark.runtime
+
 
 def _metric_pandas(frame):
     """Normalize an observe export for tests that exercise sampled-fold math."""

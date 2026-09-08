@@ -1,4 +1,4 @@
-.PHONY: test test-agent release-test typecheck typecheck-agent lint lint-agent format \
+.PHONY: test test-agent runtime-test runtime-test-agent release-test typecheck typecheck-agent lint lint-agent format \
 	check check-agent release-check docs-api docs-api-agent pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
@@ -34,12 +34,21 @@ test-agent:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(AGENT_PYTEST_FLAGS) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
 
+runtime-test:
+	@./scripts/require-venv.sh pytest
+	@$(VENV_PYTEST) -m runtime $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
+
+runtime-test-agent:
+	@./scripts/require-venv.sh pytest
+	@$(VENV_PYTEST) $(AGENT_PYTEST_FLAGS) -m runtime $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
+
 release-test: pypi-build pypi-check
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) -n 0 -m release \
 		tests/test_install_marivo_script.py \
 		tests/test_install_marivo_script_uv.py \
-		tests/test_analysis_runtime_wheel.py
+		tests/test_analysis_runtime_wheel.py \
+		tests/test_analysis_help_environment.py
 
 typecheck:
 	@./scripts/require-venv.sh mypy
@@ -73,9 +82,9 @@ format:
 	@$(VENV_RUFF) format .
 	@$(VENV_RUFF) check --fix .
 
-check: lint typecheck test docs-api
+check: lint typecheck test runtime-test docs-api
 
-check-agent: lint-agent typecheck-agent test-agent docs-api-agent
+check-agent: lint-agent typecheck-agent test-agent runtime-test-agent docs-api-agent
 
 release-check: check release-test
 

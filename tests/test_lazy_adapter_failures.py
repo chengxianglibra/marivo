@@ -25,6 +25,8 @@ from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget, 
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 
+pytestmark = pytest.mark.runtime
+
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
 

@@ -39,6 +39,8 @@ from tests.lazy_execution_fixtures import (
 )
 from tests.lazy_observation_fixtures import NoIoActionPort, make_sources
 
+pytestmark = pytest.mark.runtime
+
 REVENUE = ref.metric("sales.revenue")
 REGION = ref.dimension("sales.customers.region")
 CHANNEL = ref.dimension("sales.orders.channel")

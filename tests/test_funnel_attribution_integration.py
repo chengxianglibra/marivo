@@ -31,6 +31,8 @@ from tests.shared_fixtures import (
     two_scope_funnel_frames,
 )
 
+pytestmark = pytest.mark.runtime
+
 
 def _metric_delta(session: Any) -> DeltaFrame:
     metric = session.catalog.require(ms.ref.metric("commerce.order_count")).ref

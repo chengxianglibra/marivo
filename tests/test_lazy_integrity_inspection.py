@@ -28,6 +28,8 @@ from marivo.refs import ref
 from tests.lazy_adapter_fixtures import AdapterFixture, setup_adapter
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
+pytestmark = pytest.mark.runtime
+
 
 def _setup(
     root: Path, request: pytest.FixtureRequest, kind: Literal["local", "engine", "object"]

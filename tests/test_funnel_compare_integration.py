@@ -40,6 +40,8 @@ from tests.shared_fixtures import (
     two_scope_funnel_frames,
 )
 
+pytestmark = pytest.mark.runtime
+
 
 def _clone_event_frame(
     frame: EventFrame,
