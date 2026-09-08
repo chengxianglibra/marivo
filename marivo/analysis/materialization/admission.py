@@ -86,7 +86,6 @@ from marivo.analysis.materialization.resources import (
     discharge_resources,
     prove_local_termination,
     reserve_output,
-    worker_reservation,
 )
 from marivo.analysis.materialization.sampling import (
     admit_sampling,
@@ -111,6 +110,7 @@ from marivo.analysis.materialization.targets import (
     object_access,
     selection_error,
 )
+from marivo.analysis.materialization.worker_lifetime import reserve_worker
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
     MetricPayload,
@@ -307,21 +307,40 @@ class DatasetRuntime:
         object_bindings: tuple[S3Access, ...] = (),
     ) -> DatasetRuntime:
         store = SessionStore(project_root)
-        existing = store.session_by_name(name)
-        if existing is not None:
-            return cls(
-                store,
-                existing.session_ref,
-                event=event,
-                target=target,
-                object_bindings=object_bindings,
-            )
-        session_ref = "session_" + uuid4().hex
-        with session_writer_guard(store.layout.lock_path(session_ref)):
-            record = store.create_session(name, session_ref=session_ref)
-        return cls(
+        record = store.session_by_name(name)
+        if record is None:
+            candidate_ref = "session_" + uuid4().hex
+            with session_writer_guard(
+                store.layout.lock_path(candidate_ref), session_ref=candidate_ref
+            ):
+                record = store.create_session(name, session_ref=candidate_ref)
+                if record.session_ref == candidate_ref:
+                    return cls(
+                        store,
+                        record.session_ref,
+                        event=event,
+                        target=target,
+                        object_bindings=object_bindings,
+                    )
+            # A competing creator won this name. Its guard must be acquired only
+            # after the unused candidate guard has been released.
+        runtime = cls(
             store, record.session_ref, event=event, target=target, object_bindings=object_bindings
         )
+        with session_writer_guard(
+            store.layout.lock_path(record.session_ref), session_ref=record.session_ref
+        ):
+            resolved = store.session_by_name(name)
+            if resolved is None or resolved.session_ref != record.session_ref:
+                raise _error("authority_resolution")
+            reconcile_session(
+                store,
+                record.session_ref,
+                event=runtime._event,
+                object_bindings=object_bindings,
+            )
+            store.activate(record.session_ref)
+        return runtime
 
     @classmethod
     def open(
@@ -499,9 +518,11 @@ class DatasetRuntime:
             if isinstance(root.payload, PopulationPayload) and root.payload.sampling is not None:
                 admit_sampling(root.payload.sampling)
         key = execution_key(dataset.definition_fingerprint)
-        self.statistics = ExecutionStatistics()
-        self.last_run_ref = None
-        with session_writer_guard(self.store.layout.lock_path(self.session_ref)):
+        with session_writer_guard(
+            self.store.layout.lock_path(self.session_ref), session_ref=self.session_ref
+        ):
+            self.statistics = ExecutionStatistics()
+            self.last_run_ref = None
             reconcile_session(
                 self.store,
                 self.session_ref,
@@ -1328,12 +1349,11 @@ class DatasetRuntime:
                     payload.spec if isinstance(payload, RetainedFoldPayload) else None,
                 )
             )
-        resource = worker_reservation(run_ref)
-        self.store.reserve(resource)
+        reservation = reserve_worker(self.store, run_ref, self.session_ref)
         try:
             self._event("local_worker_reserved")
         except BaseException:
-            prove_local_termination(resource)
+            prove_local_termination(reservation.execution)
             raise
         request = LocalRequest(
             selected,
@@ -1345,8 +1365,9 @@ class DatasetRuntime:
         result = supervise(
             request,
             batches,
+            lifetime=reservation,
             cancel_source=cancel_source,
-            terminal=lambda: prove_local_termination(resource),
+            terminal=lambda: prove_local_termination(reservation.execution),
             part_batches=part_batches,
         )
         self.statistics.local_handoffs = result.handoffs

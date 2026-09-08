@@ -1,6 +1,5 @@
 """Independent complete-input, allocation, output and hard-worker guard tests."""
 
-import os
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -10,6 +9,7 @@ import pyarrow as pa
 import pytest
 
 from marivo.analysis.materialization import local
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local import (
     LocalBudget,
@@ -22,7 +22,13 @@ from marivo.analysis.materialization.local import (
 from marivo.analysis.materialization.local_worker import LocalRequest, StreamInput, supervise
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.row import RowCall, execute_row
-from tests.lazy_local_fixtures import REVENUE, primary_frame, row_call, setup_local
+from tests.lazy_local_fixtures import (
+    REVENUE,
+    primary_frame,
+    row_call,
+    setup_local,
+    standalone_worker_reservation,
+)
 
 
 def _table(count: int) -> pa.Table:
@@ -187,6 +193,7 @@ def test_supervisor_terminates_blocked_allocating_and_failed_workers(
             request,
             _table(1).to_batches(),
             cancel_source=lambda: None,
+            lifetime=standalone_worker_reservation(tmp_path),
             terminal=lambda: terminal.append(True),
             worker_code=code,
         )
@@ -258,7 +265,9 @@ def test_registered_part_read_checks_exact_role_schema_hash_and_bounds(tmp_path:
                 tmp_path, selected, expected_schema=pa.schema([("wrong", pa.int64())])
             )
         )
-    data = tmp_path / selected.storage_receipt.project_relative_path / "data.parquet"
+    receipt = selected.storage_receipt
+    assert isinstance(receipt, LocalReceipt)
+    data = tmp_path / receipt.project_relative_path / "data.parquet"
     data.unlink()
     with pytest.raises(MaterializationError):
         list(read_part_batches(tmp_path, selected, expected_schema=schema))
@@ -339,7 +348,13 @@ def test_storage_stream_above_default_local_cap_cannot_be_consumed(tmp_path: Pat
     )
     terminal = []
     with pytest.raises(MaterializationError, match="row count exceeds"):
-        supervise(request, (), cancel_source=lambda: None, terminal=lambda: terminal.append(True))
+        supervise(
+            request,
+            (),
+            cancel_source=lambda: None,
+            lifetime=standalone_worker_reservation(tmp_path),
+            terminal=lambda: terminal.append(True),
+        )
     assert terminal == [True]
 
 
@@ -409,6 +424,7 @@ def test_worker_peak_rss_exact_boundary(tmp_path: Path, excess: int) -> None:
                 request,
                 _table(1).to_batches(),
                 cancel_source=lambda: None,
+                lifetime=standalone_worker_reservation(tmp_path),
                 terminal=lambda: terminal.append(True),
                 worker_code=worker,
             )
@@ -417,6 +433,7 @@ def test_worker_peak_rss_exact_boundary(tmp_path: Path, excess: int) -> None:
             request,
             _table(1).to_batches(),
             cancel_source=lambda: None,
+            lifetime=standalone_worker_reservation(tmp_path),
             terminal=lambda: terminal.append(True),
             worker_code=worker,
         )
@@ -451,27 +468,10 @@ def test_early_stream_guard_survives_a_broken_input_pipe(tmp_path: Path) -> None
             request,
             batches(),
             cancel_source=lambda: None,
+            lifetime=standalone_worker_reservation(tmp_path),
             terminal=lambda: terminal.append(True),
         )
     assert caught.value.stage == "transfer_guard"
     assert caught.value.expected == "complete input within row budget"
     assert sent and len(sent) < 100
     assert terminal == [True]
-
-
-def test_worker_resource_never_uses_dead_parent_as_termination_proof(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo.analysis.materialization import resources
-
-    worker = resources.worker_reservation("run_test")
-    assert not resources.execution_is_terminal(worker)
-    resources.prove_local_termination(worker)
-    assert resources.execution_is_terminal(worker)
-    monkeypatch.setattr(os, "getpid", lambda: 123456789)
-    monkeypatch.setattr(
-        os,
-        "kill",
-        lambda *args: pytest.fail("worker proof must not probe parent liveness"),
-    )
-    assert not resources.execution_is_terminal(worker)

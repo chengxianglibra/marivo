@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from multiprocessing import Pipe
 from multiprocessing.connection import Connection
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 
 import pyarrow as pa
 
@@ -38,6 +38,11 @@ from marivo.analysis.materialization.storage import (
     _normalize_batch,
     _read,
     read_part_batches,
+)
+from marivo.analysis.materialization.worker_lifetime import (
+    WorkerReservation,
+    acquire_worker_lifetime,
+    validate_worker_lifetime,
 )
 from marivo.analysis.operators.row import PartFrame, RowCall
 
@@ -131,7 +136,9 @@ def _part_to_arrow(part: PartFrame) -> pa.Table:
 
 def worker_entry() -> None:
     connection = Connection(int(sys.argv[1]))
+    lifetime_fd = int(sys.argv[2])
     try:
+        validate_worker_lifetime(lifetime_fd, Path(sys.argv[4]), sys.argv[3])
         request: object = connection.recv()
         if not isinstance(request, LocalRequest) or not request.calls:
             fail(
@@ -319,6 +326,8 @@ def worker_entry() -> None:
         connection.send(failure)
     finally:
         connection.close()
+        # The operating system closes the inherited lifetime at process exit.
+        # Bootstrap cleanup and interpreter finalization remain covered too.
 
 
 _WORKER_CODE = (
@@ -336,11 +345,32 @@ def _rss(pid: int) -> int:
     return int(value.stdout.strip() or b"0") * 1024
 
 
+class _LifetimeDescriptors:
+    """Start-race-safe references: a late thread cannot borrow a recycled fd."""
+
+    def __init__(self, fd: int) -> None:
+        self._fd = fd
+        self._closed = False
+        self._lock = Lock()
+
+    def borrow(self) -> int:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("worker supervision already ended")
+            return os.dup(self._fd)
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            os.close(self._fd)
+
+
 def supervise(
     request: LocalRequest,
     batches: Iterable[pa.RecordBatch],
     *,
     cancel_source: Callable[[], None],
+    lifetime: WorkerReservation,
     terminal: Callable[[], None],
     worker_code: str = _WORKER_CODE,
     part_batches: tuple[Iterable[pa.RecordBatch], ...] = (),
@@ -348,6 +378,36 @@ def supervise(
     """Run one suffix; prove worker and input feeder termination before discharge."""
     if os.name != "posix":
         fail("a registered POSIX terminable worker", "unsupported platform", "execution_boundary")
+    lifetime_fd = acquire_worker_lifetime(lifetime)
+    descriptors = _LifetimeDescriptors(lifetime_fd)
+    try:
+        return _supervise(
+            request,
+            batches,
+            cancel_source=cancel_source,
+            terminal=terminal,
+            worker_code=worker_code,
+            part_batches=part_batches,
+            lifetime=lifetime,
+            lifetime_fd=lifetime_fd,
+            descriptors=descriptors,
+        )
+    finally:
+        descriptors.close()
+
+
+def _supervise(
+    request: LocalRequest,
+    batches: Iterable[pa.RecordBatch],
+    *,
+    cancel_source: Callable[[], None],
+    terminal: Callable[[], None],
+    worker_code: str,
+    part_batches: tuple[Iterable[pa.RecordBatch], ...],
+    lifetime: WorkerReservation,
+    lifetime_fd: int,
+    descriptors: _LifetimeDescriptors,
+) -> LocalResult:
     parent, child = Pipe(duplex=True)
     process: subprocess.Popen[bytes] | None = None
     feeder: Thread | None = None
@@ -359,17 +419,28 @@ def supervise(
         environment = os.environ.copy()
         environment["MARIVO_TELEMETRY"] = "off"
         process = subprocess.Popen(
-            [sys.executable, "-B", "-c", worker_code, str(child.fileno())],
+            [
+                sys.executable,
+                "-B",
+                "-c",
+                worker_code,
+                str(child.fileno()),
+                str(lifetime_fd),
+                lifetime.execution.ownership_nonce,
+                str(lifetime.path),
+            ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            pass_fds=(child.fileno(),),
+            pass_fds=(child.fileno(), lifetime_fd),
             env=environment,
         )
         child.close()
 
         def feed() -> None:
+            feeder_fd: int | None = None
             try:
+                feeder_fd = descriptors.borrow()
                 parent.send(request)
                 if isinstance(request.input, StreamInput):
                     for batch in batches:
@@ -388,6 +459,9 @@ def supervise(
                         parent.send(None)
             except BaseException as error:
                 feed_errors.append(error)
+            finally:
+                if feeder_fd is not None:
+                    os.close(feeder_fd)
 
         feeder = Thread(target=feed, name="marivo-local-input", daemon=True)
         feeder.start()
@@ -396,13 +470,17 @@ def supervise(
         # Receive independently: a guard can reject an early batch, and a partial
         # response must not block the supervising deadline or RSS checks.
         def receive() -> None:
+            receiver_fd: int | None = None
             try:
+                receiver_fd = descriptors.borrow()
                 response.append(parent.recv())
             except Exception:
                 # Missing or malformed IPC is reported through the bounded error below.
                 pass
             finally:
                 complete.set()
+                if receiver_fd is not None:
+                    os.close(receiver_fd)
 
         receiver = Thread(target=receive, name="marivo-local-result", daemon=True)
         receiver.start()
@@ -452,7 +530,7 @@ def supervise(
         if feeder is not None and feeder.is_alive():
             cancel_source()
             feeder.join(timeout=1)
-        if receiver is not None:
+        if receiver is not None and receiver.ident is not None:
             receiver.join(timeout=1)
         if (feeder is not None and feeder.is_alive()) or (
             receiver is not None and receiver.is_alive()

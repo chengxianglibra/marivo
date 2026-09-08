@@ -7,6 +7,7 @@ import sqlite3
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -30,6 +31,7 @@ from marivo.analysis.materialization.contracts import (
     invalid,
     run_input_payload,
 )
+from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.object_termination import forget_object_termination
 from marivo.analysis.materialization.ownership import (
@@ -120,6 +122,38 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryEntry:
+    """One selected producer and its obligations from a single Store snapshot."""
+
+    run: RunRecord
+    resources: tuple[ResourceRecord, ...]
+
+
+@contextmanager
+def _recovery_metadata(run_ref: str | None = None) -> Iterator[None]:
+    """Give selected nested decoders the recovery operation's diagnostic context."""
+    try:
+        yield
+    except IntegrityError as error:
+        if error.stage == "reconciliation":
+            raise
+        raise IntegrityError(
+            expected="valid admissions, terminals, Artifacts, Evidence and resource obligations for Session recovery",
+            received=error.received or "invalid selected recovery metadata",
+            repair="Preserve the selected Session's metadata, outputs and resource journal; inspect and repair the inconsistent metadata before retrying Session recovery.",
+            stage="reconciliation",
+            run_ref=run_ref,
+        ) from None
+
+
+def _forget_termination(resources: tuple[ResourceRecord, ...]) -> None:
+    from marivo.analysis.materialization.resources import forget_local_termination
+
+    forget_local_termination(resources)
+    forget_object_termination(resources)
 
 
 def _enable_wal(conn: sqlite3.Connection) -> None:
@@ -542,22 +576,112 @@ class SessionStore:
 
     def resources(self, session_ref: str) -> tuple[ResourceRecord, ...]:
         with self._read() as conn:
+            return self._resources(conn, session_ref)
+
+    @staticmethod
+    def _resources(conn: sqlite3.Connection, session_ref: str) -> tuple[ResourceRecord, ...]:
+        rows = _rows(
+            conn,
+            "SELECT j.* FROM action_resource_journal j JOIN analysis_action_runs a USING(run_ref) WHERE a.session_ref=? ORDER BY j.run_ref,j.resource_kind,j.execution_domain_id,j.safe_locator",
+            (session_ref,),
+        )
+        return tuple(
+            ResourceRecord(
+                _text(row, "run_ref"),
+                _text(row, "resource_kind"),
+                _text(row, "execution_domain_id"),
+                _text(row, "ownership_nonce"),
+                _text(row, "cleanup_capability_id"),
+                _text(row, "safe_locator"),
+            )
+            for row in rows
+        )
+
+    def recovery_snapshot(self, session_ref: str) -> tuple[RecoveryEntry, ...]:
+        """Validate only this Session's incomplete or still-obligated producers."""
+        with _recovery_metadata(), self._read() as conn:
+            if (
+                _one(conn, "SELECT session_ref FROM sessions WHERE session_ref=?", (session_ref,))
+                is None
+            ):
+                raise IntegrityError(
+                    expected="an existing Session selected for recovery",
+                    received="missing recovery Session",
+                    repair="Select an existing Session or restore its metadata before retrying recovery.",
+                    stage="reconciliation",
+                )
             rows = _rows(
                 conn,
-                "SELECT j.* FROM action_resource_journal j JOIN analysis_action_runs a USING(run_ref) WHERE a.session_ref=? ORDER BY j.run_ref,j.resource_kind,j.execution_domain_id,j.safe_locator",
+                "SELECT a.run_ref FROM analysis_action_runs a LEFT JOIN analysis_action_run_terminals t USING(run_ref) WHERE a.session_ref=? AND (t.run_ref IS NULL OR EXISTS (SELECT 1 FROM action_resource_journal j WHERE j.run_ref=a.run_ref)) ORDER BY a.admitted_at,a.run_ref",
                 (session_ref,),
             )
-            return tuple(
-                ResourceRecord(
-                    _text(row, "run_ref"),
-                    _text(row, "resource_kind"),
-                    _text(row, "execution_domain_id"),
-                    _text(row, "ownership_nonce"),
-                    _text(row, "cleanup_capability_id"),
-                    _text(row, "safe_locator"),
-                )
-                for row in rows
-            )
+            resources = self._resources(conn, session_ref)
+            entries: list[RecoveryEntry] = []
+            incomplete_count = 0
+            for row in rows:
+                run_ref = _text(row, "run_ref")
+                with _recovery_metadata(run_ref):
+                    run = self._run(conn, run_ref)
+                    if run is None or run.session_ref != session_ref:
+                        raise IntegrityError(
+                            expected="the selected producer owned by the recovering Session",
+                            received="selected recovery producer is absent or foreign",
+                            repair="Preserve the resource journal and repair the selected producer's Session ownership before retrying recovery.",
+                            stage="reconciliation",
+                            run_ref=run_ref,
+                        )
+                    owned = tuple(item for item in resources if item.run_ref == run.run_ref)
+                    if run.lifecycle == "incomplete":
+                        incomplete_count += 1
+                        if incomplete_count > 1:
+                            raise IntegrityError(
+                                expected="at most one incomplete producer in a serialized Session",
+                                received="multiple incomplete Runs in one Session",
+                                repair="Preserve the Run records and resource journal; repair the conflicting admissions before retrying Session recovery.",
+                                stage="reconciliation",
+                                run_ref=run_ref,
+                            )
+                        if (
+                            _one(
+                                conn,
+                                "SELECT artifact_ref FROM dataset_artifacts WHERE session_ref=? AND execution_key_digest=?",
+                                (session_ref, run.execution_key_digest),
+                            )
+                            is not None
+                        ):
+                            raise IntegrityError(
+                                expected="an incomplete producer without a committed output",
+                                received="incomplete producer has a committed output",
+                                repair="Preserve the Run and output; inspect their terminal and ownership metadata before retrying recovery. Do not reconstruct publication.",
+                                stage="reconciliation",
+                                run_ref=run_ref,
+                            )
+                    elif run.output_artifact_ref is not None:
+                        output = self._artifact(conn, run.output_artifact_ref)
+                        if output is None:
+                            raise IntegrityError(
+                                expected="the selected succeeded producer's complete output",
+                                received="succeeded Run has no Artifact",
+                                repair="Preserve the Run and resource journal; restore the complete committed output metadata before retrying Session recovery.",
+                                stage="reconciliation",
+                                run_ref=run_ref,
+                            )
+                        receipts = (
+                            output.descriptor.storage_receipt,
+                            *(part.storage_receipt for part in output.descriptor.retained_parts),
+                        )
+                        if any(
+                            owns_resource(receipt, item) for item in owned for receipt in receipts
+                        ):
+                            raise IntegrityError(
+                                expected="output ownership transferred in the publication transaction",
+                                received="committed output remains reserved for cleanup",
+                                repair="Preserve the committed output; inspect and repair its conflicting resource journal ownership before retrying Session recovery.",
+                                stage="reconciliation",
+                                run_ref=run_ref,
+                            )
+                    entries.append(RecoveryEntry(run, owned))
+            return tuple(entries)
 
     @staticmethod
     def _delete_resources(
@@ -583,7 +707,7 @@ class SessionStore:
     def discharge(self, resource: ResourceRecord) -> None:
         with self._write() as conn:
             self._delete_resources(conn, resource.run_ref, (resource,))
-        forget_object_termination((resource,))
+        _forget_termination((resource,))
 
     def fail(
         self,
@@ -603,7 +727,7 @@ class SessionStore:
                 (run_ref, run.session_ref, "failed", _now(), None, payload),
             )
             self._delete_resources(conn, run_ref, resolved_resources)
-        forget_object_termination(resolved_resources)
+        _forget_termination(resolved_resources)
 
     def _artifact(self, conn: sqlite3.Connection, artifact_ref: str) -> ArtifactRecord | None:
         row = _one(conn, "SELECT * FROM dataset_artifacts WHERE artifact_ref=?", (artifact_ref,))
@@ -762,7 +886,7 @@ class SessionStore:
                 raise invalid("newly published Artifact is absent")
             if event is not None:
                 event("before_commit")
-        forget_object_termination(resolved_resources)
+        _forget_termination(resolved_resources)
         if event is not None:
             event("after_commit")
         return result
