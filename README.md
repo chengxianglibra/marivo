@@ -182,20 +182,32 @@ uv pip install --python .venv/bin/python -e ".[dev,duckdb,trino]"
 Use the repository entrypoints for checks:
 
 ```bash
-make format
 make lint
 make typecheck
 make test
-make runtime-test
 make check
 ```
 
-`make test` runs the daily regression suite. `make runtime-test` retains the
-multi-stage analysis, real-source/worker, and process-recovery integration suite;
-`make check` runs both. The `test-agent`, `runtime-test-agent`, and
-`typecheck-agent` targets use the same checks with compact output. Use
+Before final checks, apply Ruff fixes and formatting only to the Python files
+owned by the change. `make format` formats the whole checkout.
+`make test` runs the daily regression suite with compact output, short failure
+tracebacks, and a five-failure limit. `make typecheck` also uses compact output;
+both preserve check failures and exit status. `make check` and `make check-agent`
+combine daily tests, static checks, and API documentation checks. Ordinary commits
+keep their installed hooks and do not run the full Runtime suite.
+
+`make release-check` adds the full multi-stage analysis, real-source/worker, and
+process-recovery Runtime suite plus packaging checks. Local release preparation
+requires a healthy, isolated MinIO test service explicitly selected through
+`MARIVO_TEST_S3_ENDPOINT`; the test fixture creates versioned buckets and cleans
+them up. See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites.
+Publishing CI owns its test service.
+Use
 `make runtime-test TESTS='tests/test_lazy_local_execution.py'` for a focused
-runtime test. Tests use work-stealing across workers to avoid slow-module tails.
+Runtime test only when needed to verify the development change; daily development
+does not automatically run the full Runtime suite. `runtime-test-agent` provides
+compact output for the same selected scope. Tests use work-stealing across workers
+to avoid slow-module tails.
 Typing remains strict and incremental; cache misses run the full check.
 Installed-environment fingerprints run with the packaging checks in
 `make release-test`. Statistical dependencies load when their operation runs,

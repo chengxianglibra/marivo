@@ -15,6 +15,8 @@ jobs:
   build:
     name: Build distribution
     runs-on: ubuntu-latest
+    env:
+      MARIVO_TEST_S3_ENDPOINT: http://127.0.0.1:9000
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,8 +35,21 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/pip install -e ".[dev,docs]"
 
-      - name: Run checks
+      - name: Start isolated Runtime storage
+        run: |
+          docker run --detach --name marivo-release-minio \
+            --publish 127.0.0.1:9000:9000 \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          curl --retry 30 --retry-all-errors --retry-delay 1 \
+            --max-time 5 --fail --silent --show-error \
+            "$MARIVO_TEST_S3_ENDPOINT/minio/health/ready"
+
+      - name: Run release checks including full Runtime acceptance
         run: make release-check
+
+      - name: Stop isolated Runtime storage
+        if: always()
+        run: docker rm --force marivo-release-minio
 
       - name: Build distributions
         run: make pypi-build

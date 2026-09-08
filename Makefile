@@ -1,4 +1,4 @@
-.PHONY: test test-agent runtime-test runtime-test-agent release-test typecheck typecheck-agent lint lint-agent format \
+.PHONY: test runtime-test runtime-test-agent release-test typecheck lint lint-agent format \
 	check check-agent release-check docs-api docs-api-agent pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
@@ -20,19 +20,15 @@ MYPY_PYTHON_VERSION ?= 3.10
 TYPECHECK_TARGETS ?= marivo tests/typing
 LINT_TARGETS ?= .
 
-AGENT_PYTEST_FLAGS := -q --tb=short --maxfail=5
-AGENT_MYPY_FLAGS := --no-pretty --no-color-output --no-warn-unused-configs
+PYTEST_FLAGS := -q --tb=short --maxfail=5
+MYPY_FLAGS := --no-pretty --no-color-output --no-warn-unused-configs
 AGENT_RUFF_FLAGS := --output-format concise
 
 PYPI_DIST_DIR := dist/pypi
 
 test:
 	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
-
-test-agent:
-	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) $(AGENT_PYTEST_FLAGS) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
 
 runtime-test:
 	@./scripts/require-venv.sh pytest
@@ -40,7 +36,7 @@ runtime-test:
 
 runtime-test-agent:
 	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) $(AGENT_PYTEST_FLAGS) -m runtime $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -m runtime $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
 
 release-test: pypi-build pypi-check
 	@./scripts/require-venv.sh pytest
@@ -52,19 +48,17 @@ release-test: pypi-build pypi-check
 
 typecheck:
 	@./scripts/require-venv.sh mypy
-	@$(VENV_MYPY) --python-version $(MYPY_PYTHON_VERSION) $(TYPECHECK_TARGETS)
-
-typecheck-agent:
-	@./scripts/require-venv.sh mypy
-	@$(VENV_MYPY) $(AGENT_MYPY_FLAGS) --python-version $(MYPY_PYTHON_VERSION) $(TYPECHECK_TARGETS)
+	@$(VENV_MYPY) $(MYPY_FLAGS) --python-version $(MYPY_PYTHON_VERSION) $(TYPECHECK_TARGETS)
 
 lint:
 	@./scripts/require-venv.sh ruff
+	@$(VENV_RUFF) format --check $(LINT_TARGETS)
 	@$(VENV_RUFF) check $(LINT_TARGETS)
 	@$(VENV_LINT_IMPORTS)
 
 lint-agent:
 	@./scripts/require-venv.sh ruff
+	@$(VENV_RUFF) format --check $(LINT_TARGETS)
 	@$(VENV_RUFF) check $(AGENT_RUFF_FLAGS) $(LINT_TARGETS)
 	@agent_log=$$(mktemp "$${TMPDIR:-/tmp}/marivo-import-linter.XXXXXX"); \
 		if $(VENV_LINT_IMPORTS) >"$$agent_log" 2>&1; then \
@@ -82,11 +76,16 @@ format:
 	@$(VENV_RUFF) format .
 	@$(VENV_RUFF) check --fix .
 
-check: lint typecheck test runtime-test docs-api
+check: lint typecheck test docs-api
 
-check-agent: lint-agent typecheck-agent test-agent runtime-test-agent docs-api-agent
+check-agent: lint-agent typecheck test docs-api-agent
 
-release-check: check release-test
+release-check:
+	@if [ -z "$$MARIVO_TEST_S3_ENDPOINT" ]; then \
+		echo "Set MARIVO_TEST_S3_ENDPOINT to the isolated versioned S3 test service before make release-check." >&2; \
+		exit 1; \
+	fi
+	@$(MAKE) check runtime-test release-test TESTS=
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
 	@./scripts/require-venv.sh sphinx-build
