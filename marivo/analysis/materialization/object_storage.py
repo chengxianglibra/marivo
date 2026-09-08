@@ -138,6 +138,7 @@ def _put(
     from botocore.exceptions import ClientError
 
     response: PutObjectOutputTypeDef | None = None
+    terminal = False
     try:
         response = s3.put_object(
             Bucket=access.bucket,
@@ -150,17 +151,21 @@ def _put(
     except ClientError as error:
         status: object = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         if isinstance(status, int) and 400 <= status < 600:
-            prove_local_termination(request)
+            terminal = True
     except Exception:
         pass
+    if response is not None or terminal:
+        # Persist the synchronous request's terminal response before callbacks or
+        # receipt validation. Its separately reserved object still needs cleanup.
+        # A crash before this discharge deliberately leaves cold recovery pending.
+        prove_local_termination(request)
+        store.discharge(request)
     if response is None:
         _fail(
             "an acknowledged immutable object write",
             "object write did not succeed",
             stage="storage_finalization",
         )
-    # A completed response proves this synchronous PUT is terminal; timeouts do not.
-    prove_local_termination(request)
     version = response.get("VersionId")
     if not version or version == "null":
         _fail(

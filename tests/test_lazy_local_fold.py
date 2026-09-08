@@ -57,6 +57,7 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.validator import Registry
 from tests.lazy_execution_fixtures import ExecutionFixture, execution_fixture
+from tests.lazy_local_fixtures import standalone_worker_reservation
 from tests.lazy_observation_fixtures import NoIoActionPort
 
 REVENUE = ref.metric("sales.revenue")
@@ -522,6 +523,7 @@ def test_one_wide_source_stream_counts_every_part_before_fold(tmp_path: Path, ex
                     request,
                     batches,
                     cancel_source=lambda: None,
+                    lifetime=standalone_worker_reservation(tmp_path),
                     terminal=lambda: terminal.append(True),
                 )
         else:
@@ -529,6 +531,7 @@ def test_one_wide_source_stream_counts_every_part_before_fold(tmp_path: Path, ex
                 request,
                 batches,
                 cancel_source=lambda: None,
+                lifetime=standalone_worker_reservation(tmp_path),
                 terminal=lambda: terminal.append(True),
             )
             assert result.table["revenue"].to_pylist() == [147]

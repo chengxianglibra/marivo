@@ -34,17 +34,8 @@ os.register_at_fork(
 )
 
 
-def _busy() -> SessionBusyError:
-    return SessionBusyError(
-        expected="one active writer for this Session",
-        received="an active Session writer",
-        repair="Wait for the current Session action to finish, then retry the same definition.",
-        stage="writer_guard",
-    )
-
-
 @contextmanager
-def session_writer_guard(lock_path: Path) -> Iterator[None]:
+def session_writer_guard(lock_path: Path, *, session_ref: str | None = None) -> Iterator[None]:
     """Hold process-local and OS exclusion without waiting or admitting a contender."""
     canonical = lock_path.absolute()
     if canonical.is_symlink() or any(parent.is_symlink() for parent in canonical.parents):
@@ -58,7 +49,7 @@ def session_writer_guard(lock_path: Path) -> Iterator[None]:
     with _MUTEX:
         process_lock = _LOCKS.setdefault(key, threading.Lock())
     if not process_lock.acquire(blocking=False):
-        raise _busy()
+        raise SessionBusyError(session_ref=session_ref)
     descriptor: int | None = None
     locked = False
     try:
@@ -69,7 +60,7 @@ def session_writer_guard(lock_path: Path) -> Iterator[None]:
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise _busy() from None
+            raise SessionBusyError(session_ref=session_ref) from None
         locked = True
         yield
     finally:

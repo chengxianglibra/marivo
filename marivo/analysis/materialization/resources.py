@@ -16,30 +16,19 @@ from marivo.analysis.materialization.object_termination import (
     prove_object_termination,
 )
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization.worker_lifetime import (
+    WORKER_CAPABILITY,
+    WORKSPACE_CAPABILITY,
+    worker_is_terminal,
+    worker_resource_path,
+)
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.targets import S3Access
 
-_TERMINATED: set[str] = set()
+_TERMINATED: set[ResourceRecord] = set()
 _LOCAL_CAPABILITY = "local_owned_path@v1"
 _DUCKDB_CAPABILITY = "duckdb_process_lifetime@v1"
-_WORKER_CAPABILITY = "pandas_worker@v1"
-
-
-def _worker_locator(nonce: str) -> str:
-    return f"worker/{os.getpid()}/{nonce}"
-
-
-def worker_reservation(run_ref: str) -> ResourceRecord:
-    nonce = uuid4().hex
-    return ResourceRecord(
-        run_ref=run_ref,
-        resource_kind="backend_execution",
-        execution_domain_id="pandas@v1",
-        ownership_nonce=nonce,
-        cleanup_capability_id=_WORKER_CAPABILITY,
-        safe_locator=_worker_locator(nonce),
-    )
 
 
 def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
@@ -59,20 +48,27 @@ def prove_local_termination(resource: ResourceRecord) -> None:
     if resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY:
         prove_object_termination(resource)
     else:
-        _TERMINATED.add(resource.ownership_nonce)
+        _TERMINATED.add(resource)
 
 
-def execution_is_terminal(resource: ResourceRecord) -> bool:
-    """Only this registered process-owned DuckDB route inherits process lifetime."""
+def forget_local_termination(resources: tuple[ResourceRecord, ...]) -> None:
+    """Retire exact in-process proof only after the Store removed its obligation."""
+    _TERMINATED.difference_update(resources)
+
+
+def confirm_execution_termination(
+    resource: ResourceRecord, store: SessionStore | None = None
+) -> bool:
+    """Validate exact termination and retain derived local proof until discharge.
+
+    A planner relation inherits its owning connection's proof. Retaining that
+    exact relation proof makes independent durable discharge order irrelevant.
+    Repeated confirmation is idempotent and never terminates an execution.
+    """
     if resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY:
         return object_request_is_terminal(resource)
-    if resource.cleanup_capability_id == _WORKER_CAPABILITY:
-        # A dead parent is not proof that its subprocess has stopped.
-        return (
-            resource.resource_kind == "backend_execution"
-            and resource.safe_locator == _worker_locator(resource.ownership_nonce)
-            and resource.ownership_nonce in _TERMINATED
-        )
+    if resource.cleanup_capability_id == WORKER_CAPABILITY:
+        return store is not None and worker_is_terminal(store, resource)
     if (
         resource.resource_kind not in ("backend_execution", "planner_temporary_relation")
         or resource.cleanup_capability_id != _DUCKDB_CAPABILITY
@@ -93,7 +89,22 @@ def execution_is_terminal(resource: ResourceRecord) -> bool:
     if pid <= 0:
         return False
     if pid == os.getpid():
-        return resource.ownership_nonce in _TERMINATED
+        if resource in _TERMINATED:
+            return True
+        owner = ResourceRecord(
+            resource.run_ref,
+            "backend_execution",
+            resource.execution_domain_id,
+            resource.ownership_nonce,
+            resource.cleanup_capability_id,
+            "/".join(parts[:3]),
+        )
+        if resource.resource_kind == "planner_temporary_relation" and owner in _TERMINATED:
+            # Keep the derived exact proof until this relation's own obligation
+            # is durably removed, even if its connection is discharged first.
+            _TERMINATED.add(resource)
+            return True
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -155,7 +166,7 @@ def discharge_resources(
         if resource.resource_kind in (
             "backend_execution",
             "planner_temporary_relation",
-        ) and not execution_is_terminal(resource):
+        ) and not confirm_execution_termination(resource, store):
             raise RecoveryPendingError(
                 expected="authoritative process or connection termination proof",
                 received="execution termination remains unproved",
@@ -182,6 +193,16 @@ def discharge_resources(
                 raise
             except MaterializationError:
                 # Proven-terminal exact object garbage can be maintained later.
+                pass
+            continue
+        if resource.cleanup_capability_id == WORKSPACE_CAPABILITY:
+            path = worker_resource_path(store, resource)
+            try:
+                if path.exists():
+                    shutil.rmtree(path)
+                resolved.append(resource)
+            except OSError:
+                # The execution is terminal; its exact workspace is harmless garbage.
                 pass
             continue
         if resource.cleanup_capability_id != _LOCAL_CAPABILITY:

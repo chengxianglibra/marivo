@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-08
 
-Status: Slices 0-3, 4a and 4b complete; remaining units require separate authorization
+Status: Slices 0-3 and 4a-4c complete; remaining units require separate authorization
 
 ## Outcome
 
@@ -1909,7 +1909,7 @@ internal DuckDB executor or storage-negotiation subsystem.
 | --- | --- | --- |
 | 4a: guarded local execution foundation | 2b, 3a | Authorize PyArrow primary/part reads, select exact pandas continuations before data work, and enforce complete-input, intermediate, output, and deadline guards. Use already registered Metric row operations to prove direct private DataFrame handoffs and no return to a source after the local frontier. This unit unblocks 3b; it does not implement Forecast. |
 | 4b: engine and object Artifact adapters | 4a | Add configured engine/object writers and readers to 2b's final receipt/publication protocol. Prove immutable round trips, required-part access, mutation and reservation failure handling, and an engine-backed identity checkpoint that can feed its admitted source domain. This unit also unblocks 3b. |
-| 4c: concurrency and cold reconciliation | 4b, 3b | Extend the reference-route guarantees to all admitted adapters, multi-process/thread/reentrant contention, name/current-pointer races, lost acknowledgement, external termination/fencing, and harmless deferred cleanup. Prove same-Session isolation without blocking unrelated Sessions. |
+| 4c: concurrency and cold reconciliation | 4b, 3b | Extend the reference-route guarantees to all admitted adapters, multi-process/thread/reentrant contention, name/current-pointer races, lost acknowledgement, exact cold termination proofs, conservative Session-local blocking for unknown S3 requests, and harmless deferred cleanup. Prove same-Session isolation without blocking unrelated Sessions; no automatic S3 fencing is required. |
 | 4d: private Session and runtime reads | 4c | Assemble the retained Session/Run/Artifact/Finding read models against v3 through private factories. Cover history/inspection, `runs`, `get_run`, Artifact opening, Finding pagination, read-only behavior, three-axis inspection, and same-Store foreign Artifact/Graph boundaries without scanning unrelated rows or parts. |
 
 Slice 2 owns the minimal final runtime protocol; 4a-4d extend its exact seams.
@@ -2127,7 +2127,9 @@ Implemented and verified:
   Unproved request termination remains recovery-blocked in its own Session;
   proven-terminal harmless garbage retains its cleanup obligation without
   blocking unrelated work. Access errors and exception chains redact injected
-  credentials. Full concurrent and cold-fencing proof remains with Slice 4c.
+  credentials. Full concurrent and cold-recovery proof belongs to Slice 4c:
+  exact termination where supported, and conservative Session-local blocking
+  for genuinely unknown S3 requests, as selected in its execution record.
 
 Initial gates: `make check-agent` passes lint/import contracts, typing for 365
 modules, **6,251 tests in 169.77 seconds**, and API documentation construction.
@@ -2174,6 +2176,88 @@ retains the final SQL, fixed-version requests, process identities, exact Store
 counts and cold binding results. It supersedes the initial 4b candidate evidence.
 Slice 4b remains accepted; Slice 3b, Slices 4c-4d and parent Slice 4 remain open.
 No commit, push, release or public surface switch was performed.
+
+### Slice 4c acceptance record: 2026-09-08
+
+**Slice 4c is implemented and accepted. Slice 4d and parent Slice 4 remain open.**
+Implementation began from the accepted Slice 3b review, committed as `8f922646`
+after planning. The [Slice 4c execution record](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md)
+freezes ownership, supported adapters, failure boundaries and reproduction.
+
+- Every admitted target now has real same/different-key contention evidence
+  across processes, threads and reentrant calls. Rejected contenders preserve
+  producer diagnostics and create no Run, source query or resource reservation.
+  Canonical-name races release candidate locks before acquiring the winner;
+  activation/current-pointer updates remain transactional and cannot redirect
+  existing handles. Three real DuckDB SQL barriers prove cross-Session overlap.
+- Worker execution and its independent workspace are reserved before creation.
+  One inherited locked file description covers child process lifetime and
+  transfer threads. A fresh guarded process proves termination through the
+  exact nonce-owned resource; an actual surviving orphan blocks only its own
+  Session. After actual exit, recovery records `process_lost` and cleans exact
+  resources. Harmless cleanup failures keep their obligations and allow work.
+- S3 terminal responses durably discharge their request obligations before
+  later callbacks or validation. Real forwarded PUTs with withheld responses
+  cover SDK timeout and caller death. Unknown requests remain incomplete even
+  with a healthy new client or absent key, without blocking other Sessions or
+  committed reads. No automatic S3 fencing markers are added.
+- One Session-scoped recovery snapshot validates all selected metadata before
+  external cleanup. Atomic publication, authoritative lost-acknowledgement
+  readback, required-part ownership and immutable committed outcomes are
+  preserved. Source/planner/request proofs retire only after durable discharge.
+- Fresh parameterized-source journeys cover all three targets: scopes end
+  before execution, changed values bind different Artifacts, and same values
+  recover with the source database and HTTP service offline. Execution-time
+  ambient lookup is forbidden, and raw binding values do not enter diagnostics
+  or persisted metadata.
+
+The final `make check-agent`, with the isolated pinned MinIO service enabled,
+passes lint/import contracts, typing for **371 source files**, **6,439 tests in
+655.59 seconds**, and API documentation construction. No S3 tests are skipped.
+All 22 modified/new Python files pass scoped typing and formatting checks.
+
+The gate and **60 fresh Runtime records** bind the unchanged **723-file**
+candidate SHA-256
+`d2d8fcc4ed6c978fb7bd32e13b51f79b640c01bc07e628bc3c00eb66df1dbf39`.
+The evidence includes 22 concurrency records, 27 adapter-crash/uncertainty
+records, four worker records, three binding journeys and four refreshed 3b/4b
+journeys. All 76 embedded candidate manifests agree. The execution record links
+the complete check log and per-record hash index.
+
+Only Slice 4c closes. Private read assembly, parent Slice 4, public exports,
+Help, site documentation and persistence cutover remain assigned to their later
+slices. No commit, push or release was performed.
+
+### Slice 4c review follow-up: 2026-09-08
+
+The [execution record's review decisions](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md#review-follow-up-2026-09-08)
+classify every submitted suggestion. Recovery integrity errors now retain the
+reconciliation stage, selected producer identity and relevant repair guidance,
+including failures in nested selected metadata decoders. Nine corruption cases
+prove that these failures precede all external cleanup and preserve Store state.
+The private termination-confirmation name and documentation disclose derived
+proof retention; worker tests explicitly cover live-holder cleanup rejection
+and retries after exact filesystem cleanup but before durable journal removal.
+
+The follow-up also removes the duplicated candidate manifest and avoidable
+test callback initialization dependency. A real-MinIO named-reopening case
+proves that missing access bindings preserve terminal garbage and its journal;
+restored explicit access removes only owned versions and preserves foreign ones.
+Guarded reconciliation followed by atomic Session/current-pointer activation,
+terminal HTTP error discharge, and conservative unknown-S3 blocking remain the
+authorized boundaries. No automatic fencing or additional supervisor abstraction
+is introduced.
+
+Fresh `make check-agent` passes lint/import contracts, typing for **371 source
+files**, **6,449 tests in 562.26 seconds**, and API documentation construction.
+Real MinIO is enabled with no S3 skips; all 22 changed Python files also pass
+scoped typing and formatting. The **60 fresh Runtime records** and **76 embedded
+manifests** bind the unchanged **723-file** candidate SHA-256
+`383a28ecf6367b378c813b736cbdac4d549829acf87ff5dc3b598208e0d4a251`.
+The linked record retains the separate follow-up gate, complete log and evidence
+index; these supersede the initial 4c candidate evidence. Slice 4c remains
+accepted, while Slice 4d, parent Slice 4 and public cutover remain open.
+No commit, push or release occurred.
 
 ## Slice 5: Compare and Attribution Vertical
 
@@ -3205,12 +3289,12 @@ row or replacing its evidence with another family's requires review here.
 | Core values, selectors, realization identity | 1 | paired registry, no-I/O descriptors, wrong/stale/foreign selectors, shared versus independent occurrences | 9a; A-C |
 | Semantic identity/versioning and Metric source construction | 2a, 3a | actual target normalizers, exact temporal selection, independent membership/observation scopes, safe component mapping | 9a; A, D, M |
 | First execution, terminal reads, exact-key recovery | 2b | same-family bundle, guarded reads, source-free cold reconstruction | A-B, H; 9c |
-| Parameterized source bindings | 2a-2b, 4c | scope-exit execution, exact key separation, missing/extra input errors, exhaustive redaction | H |
+| Parameterized source bindings | 2a-2b, 4c complete | scope-exit execution, exact key separation, missing/extra input errors, exhaustive redaction; all-target fresh cold journeys in `test_lazy_binding_cold_acceptance.py` | Private 4c gate passed; H remains public Slice 9 acceptance |
 | Predicates, coordinates, sampling, Metric projection, rank/limit | 3a | filter order, contribution admission, deterministic ordering, source fusion | A; 9b economics |
 | Retained parts, aggregate/fold/rollup, checkpoint membership | 3b complete | `test_lazy_retained_fold_matrix.py`, `test_lazy_local_fold.py`, `test_lazy_retained_compiler.py`, `test_lazy_retained_membership.py`, `test_lazy_retained_failures.py`; exact variants and fresh-process evidence in the [3b record](../plans/2026-09-08-lazy-analysis-slice-3b-execution.md) | Private 3b gate passed; B, D, I, M remain public Slice 9 gates |
 | Source-prefix/local-suffix execution | 4a | complete/combined input, intermediate/output/deadline limits, fixed dispatch and no retry | F; 9b |
 | Local/engine/object storage | 2b, 4b | immutable receipts, reservations, required parts, mutation and overflow | F-G, I; 9b-9c |
-| Run admission, publication, concurrency, reconciliation | 2b, 4c | live-work ordering, busy/hit bypass, precommit rollback, committed/unknown outcome readback, fencing | G; 9c |
+| Run admission, publication, concurrency, reconciliation | 2b, 4c complete | `test_lazy_runtime_concurrency.py`, `test_lazy_worker_recovery.py`, `test_lazy_adapter_crash_acceptance.py`, `test_lazy_reconciliation_snapshot.py`; exact variants and evidence in the [4c record](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md) | Private 4c gate passed; G and 9c remain public Slice 9 acceptance |
 | Session/Run/Artifact/Finding reads, graph, integrity | 4d | exact variants, pagination, scoped reads, read-only behavior, foreign ownership, three axes | G2, N; 9c |
 | Metric comparison | 5a | alignment, authority topology, shared sampling, scope/key preservation | C |
 | Additive/component-mix attribution | 5b | endpoint reproduction, disjoint partitions, masks/Findings, barrier failures | C |
