@@ -68,9 +68,21 @@ marivo/
 .venv/bin/pre-commit run --all-files
 ```
 
+普通提交保留已安装的格式、lint、typing 和默认测试 hooks；不执行完整 Runtime
+验收，也不为提交启动 MinIO。已有检查通过且文件未变时，提交准备不再重复运行同一批
+检查，提交 hooks 仍照常执行。
+
 ### 代码格式化
+在最终检查和候选版本摘要冻结前，只对本次修改的 Python 文件执行：
+
 ```bash
-# 自动格式化（包含 ruff format 和 ruff check --fix）
+.venv/bin/ruff check --fix path/to/changed.py
+.venv/bin/ruff format path/to/changed.py
+```
+
+需要格式化整个工作区时才使用：
+
+```bash
 make format
 ```
 
@@ -84,6 +96,9 @@ make lint
 ```bash
 make typecheck
 ```
+
+标准入口默认使用精简输出，并保留错误和退出状态。可通过
+`TYPECHECK_TARGETS='marivo/path/to/module.py'` 缩小检查范围。
 
 ### 构建 API 文档
 使用 Sphinx 从公共模块（`marivo.datasource` / `marivo.semantic` /
@@ -112,17 +127,17 @@ cd site && npm run build
 # 运行日常回归测试（并行）
 make test
 
-# 运行多阶段分析、真实数据源、worker 和进程恢复集成测试
-make runtime-test
+# Run focused Runtime checks when the change needs them
+make runtime-test TESTS='tests/test_lazy_local_execution.py'
 
-# 完整检查包括上述两组测试；agent 目标保持相同范围并精简输出
+# Run daily tests, static checks, and API documentation checks
 make check-agent
 
-# 运行特定测试文件
-.venv/bin/pytest tests/test_sessions.py
+# Run a specific test file with compact output
+make test TESTS='tests/test_sessions.py'
 
-# 运行特定测试方法
-.venv/bin/pytest tests/test_sessions.py::SessionAPITests::test_get_session_after_create
+# Run a specific test method
+make test TESTS='tests/test_sessions.py::SessionAPITests::test_get_session_after_create'
 
 # 显示详细输出
 .venv/bin/pytest -v
@@ -130,6 +145,20 @@ make check-agent
 # 显示print输出
 .venv/bin/pytest -s
 ```
+
+`make test` 默认精简输出，使用短 traceback，累计五项失败后停止，同时保留失败
+退出状态。需要更多诊断时，仅对失败范围使用 `.venv/bin/pytest` 并指定详细输出。
+日常开发仅在修改需要时执行相关的 `runtime-test TESTS=...`；不自动执行完整
+Runtime suite。`runtime-test-agent` 为同一指定范围提供精简输出。
+
+`make check` 和 `make check-agent` 均不执行完整 Runtime suite。完整多阶段分析、
+真实数据源、worker 和进程恢复验收归入发布准备与发布 CI，由 `make release-check`
+连同日常检查、安装和打包检查一起执行。发布前必须显式配置健康、隔离的 MinIO
+测试服务和 `MARIVO_TEST_S3_ENDPOINT`，测试 fixture 负责创建、启用版本控制和清理
+隔离 bucket；服务本身由发布操作者或 CI 管理。当前
+[`lazy_s3_access` fixture](tests/conftest.py) 使用仅供测试的
+`minioadmin` access key 和 secret key。保留验收候选版本、命令和结果，S3
+验收不能因缺少 endpoint 而跳过。
 
 ### 测试覆盖率
 ```bash
