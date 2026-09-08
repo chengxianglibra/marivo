@@ -562,6 +562,7 @@ def _worker_fixture(
     )
 
 
+@pytest.mark.runtime
 def test_supervised_collection_decodes_only_retained_authority(tmp_path: Path) -> None:
     result, contracts, _ = _worker_fixture(tmp_path)
     frame = storage.read_primary(
@@ -575,6 +576,7 @@ def test_supervised_collection_decodes_only_retained_authority(tmp_path: Path) -
     assert pd.isna(frame.loc[1, "revenue"])
 
 
+@pytest.mark.runtime
 def test_supervised_read_does_not_reexecute_unguarded_caller_script(tmp_path: Path) -> None:
     _, _, payload = _worker_fixture(tmp_path)
     payload_file = tmp_path / "request.json"
@@ -622,6 +624,7 @@ class _StartedCollectionClock:
 
 
 @pytest.mark.parametrize("phase", ["decode", "hash", "pandas"])
+@pytest.mark.runtime
 def test_supervisor_terminates_a_genuinely_blocked_collection_stage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str
 ) -> None:
@@ -656,6 +659,7 @@ def test_supervisor_terminates_a_genuinely_blocked_collection_stage(
     assert not any(thread.name == "marivo-primary-read" for thread in threading.enumerate())
 
 
+@pytest.mark.runtime
 def test_supervisor_preserves_safe_typed_failure_without_traceback(tmp_path: Path) -> None:
     _, _, payload = _worker_fixture(tmp_path)
     worker = (
@@ -690,6 +694,7 @@ def test_known_overlimit_collection_never_spawns_worker(
         )
 
 
+@pytest.mark.runtime
 def test_collection_worker_never_opens_store_or_origin_or_writes_state(tmp_path: Path) -> None:
     _, _, payload = _worker_fixture(tmp_path)
     before = {

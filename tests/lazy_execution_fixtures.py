@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from functools import cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Literal
 
 import duckdb
 import ibis
@@ -65,10 +68,23 @@ def make_execution_registry(
 
 
 def seed_execution_database(database: Path) -> None:
-    """Create isolated physical tables; no semantic runtime or result fixtures are used."""
-    connection = duckdb.connect(str(database))
+    """Copy immutable physical input tables into a new isolated database."""
+    with database.open("xb") as output:
+        output.write(_execution_database_template("v1"))
+
+
+@cache
+def _execution_database_template(version: Literal["v1"]) -> bytes:
+    """Keep closed database bytes in-process; never share a writable connection."""
+    with TemporaryDirectory(prefix=f"marivo-execution-{version}-") as directory:
+        database = Path(directory) / "template.duckdb"
+        _build_execution_database(database)
+        return database.read_bytes()
+
+
+def _build_execution_database(database: Path) -> None:
+    connection = duckdb.connect(str(database), config={"threads": 1})
     try:
-        connection.execute("SET threads = 1")
         for name in (
             "orders",
             "customers",

@@ -10,7 +10,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from tests.lazy_materialization_crash_worker import CRASH_EXIT, CRASH_POINTS
+
+pytestmark = pytest.mark.runtime
 
 _ROOT = Path(__file__).resolve().parents[1]
 _WORKER = "tests.lazy_materialization_crash_worker"

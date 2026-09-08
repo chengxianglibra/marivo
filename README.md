@@ -186,8 +186,20 @@ make format
 make lint
 make typecheck
 make test
+make runtime-test
 make check
 ```
+
+`make test` runs the daily regression suite. `make runtime-test` retains the
+multi-stage analysis, real-source/worker, and process-recovery integration suite;
+`make check` runs both. The `test-agent`, `runtime-test-agent`, and
+`typecheck-agent` targets use the same checks with compact output. Use
+`make runtime-test TESTS='tests/test_lazy_local_execution.py'` for a focused
+runtime test. Tests use work-stealing across workers to avoid slow-module tails.
+Typing remains strict and incremental; cache misses run the full check.
+Installed-environment fingerprints run with the packaging checks in
+`make release-test`. Statistical dependencies load when their operation runs,
+so ordinary worker startup does not import SciPy's statistics package.
 
 Read [`AGENTS.md`](AGENTS.md) before contributing. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.

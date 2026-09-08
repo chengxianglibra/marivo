@@ -16,6 +16,8 @@ from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
+pytestmark = pytest.mark.runtime
+
 _REVENUE = ref.metric("sales.revenue")
 _COMPOSITE = ref.entity("sales.composite")
 _VALUES: dict[int, float | None] = {1: 20.0, 2: 20.0, 3: 10.0, 4: 10.0, 5: 30.0, 6: None}

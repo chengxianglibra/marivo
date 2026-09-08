@@ -30,6 +30,8 @@ from tests.ref_helpers import make_ref
 from tests.run_read_helpers import run_queries
 from tests.shared_fixtures import fiscal_analysis_project_files, publish_fiscal_calendar_artifact
 
+pytestmark = pytest.mark.runtime
+
 
 def test_occurrence_scope_does_not_override_builtin_observation_timezone() -> None:
     occurrence = _new_time_scope(

@@ -58,6 +58,8 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.metric_graph_canonical import fingerprint, intern_nodes
 from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
+pytestmark = pytest.mark.runtime
+
 
 def _cum_marker() -> dict:
     return {

@@ -30,6 +30,8 @@ from tests.lazy_local_fixtures import (
     standalone_worker_reservation,
 )
 
+pytestmark = pytest.mark.runtime
+
 
 def _table(count: int) -> pa.Table:
     return pa.table(

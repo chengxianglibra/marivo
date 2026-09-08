@@ -21,6 +21,8 @@ from marivo.analysis.materialization.object_storage import client, decode_locato
 from marivo.analysis.materialization.targets import S3Access
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
+pytestmark = pytest.mark.runtime
+
 
 def _start(
     mode: str,

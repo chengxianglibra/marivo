@@ -46,6 +46,8 @@ from tests.lazy_execution_fixtures import (
 from tests.lazy_materialization_crash_worker import snapshot
 from tests.lazy_observation_fixtures import make_sources
 
+pytestmark = pytest.mark.runtime
+
 
 def _setup(
     project: Path, *, event: Callable[[str], None] | None = None

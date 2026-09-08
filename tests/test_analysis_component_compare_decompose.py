@@ -29,6 +29,8 @@ from tests.shared_fixtures import (
     make_test_metric_contract,
 )
 
+pytestmark = pytest.mark.runtime
+
 
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):

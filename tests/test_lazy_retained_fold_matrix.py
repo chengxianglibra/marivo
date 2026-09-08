@@ -28,6 +28,8 @@ from marivo.semantic.ir import (
 )
 from tests.lazy_retained_fixtures import setup_retained
 
+pytestmark = pytest.mark.runtime
+
 REVENUE = ref.metric("sales.revenue")
 MEAN = ref.metric("sales.mean_amount")
 WEIGHTED = ref.metric("sales.weighted_amount")

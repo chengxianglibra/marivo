@@ -147,7 +147,16 @@ make format
 make lint
 make typecheck
 make test
+make runtime-test
 make check
 ```
+
+`make test` 运行日常回归测试，`make runtime-test` 保留多阶段分析、真实数据源及 worker
+和进程恢复集成测试；`make check` 覆盖两者。`test-agent`、`runtime-test-agent`
+及 `typecheck-agent` 执行相同检查，仅精简输出。单独运行 runtime 用例请使用
+`make runtime-test TESTS='tests/test_lazy_local_execution.py'`。测试采用 work-stealing
+调度以减少慢模块拖尾。类型检查保持严格增量模式，缓存失效时执行全量检查。
+安装环境指纹随 `make release-test` 的打包检查运行。统计依赖在对应操作执行时加载，
+普通 worker 启动不再导入 SciPy 的统计包。
 
 贡献前请阅读 [`AGENTS.md`](AGENTS.md)。完整流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

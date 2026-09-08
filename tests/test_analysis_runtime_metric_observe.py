@@ -21,6 +21,8 @@ from marivo.semantic.unit_algebra import UnknownUnitV2
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
+pytestmark = pytest.mark.runtime
+
 
 @pytest.fixture(autouse=True)
 def _runtime_session_state(tmp_path, monkeypatch):

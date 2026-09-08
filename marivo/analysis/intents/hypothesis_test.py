@@ -9,7 +9,6 @@ from time import monotonic
 from typing import Any, Literal, cast
 
 import pandas as pd
-from scipy import stats
 
 from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
@@ -382,6 +381,8 @@ def _paired_t_row(
             "rejected": False,
             "reason_code": "constant_diff",
         }
+    from scipy import stats
+
     test_stat = mean_diff / (sd / sqrt(n))
     p_value = 2 * float(stats.t.sf(abs(test_stat), n - 1))
     crit = float(stats.t.ppf(1 - alpha / 2, n - 1))

@@ -11,6 +11,8 @@ import pytest
 
 from marivo.analysis.materialization.targets import S3Access
 
+pytestmark = pytest.mark.runtime
+
 
 def _manifest() -> dict[str, object]:
     root = Path(__file__).resolve().parents[1]

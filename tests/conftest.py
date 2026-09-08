@@ -37,9 +37,8 @@ _original_duckdb_connect = ibis.duckdb.connect
 
 
 def _duckdb_connect_single_thread(*args: object, **kwargs: object) -> object:
-    backend = _original_duckdb_connect(*args, **kwargs)
-    backend.raw_sql("SET threads=1")
-    return backend
+    kwargs["threads"] = 1
+    return _original_duckdb_connect(*args, **kwargs)
 
 
 ibis.duckdb.connect = _duckdb_connect_single_thread

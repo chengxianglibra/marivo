@@ -24,6 +24,8 @@ from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
+pytestmark = pytest.mark.runtime
+
 REVENUE = ref.metric("sales.revenue")
 DAY = ref.time_dimension("sales.orders.order_time")
 CHANNEL = ref.dimension("sales.orders.channel")

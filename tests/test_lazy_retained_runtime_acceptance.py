@@ -12,6 +12,8 @@ import pytest
 from tests.lazy_execution_fixtures import ORDER_VALUES
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
+pytestmark = pytest.mark.runtime
+
 
 def _run(
     mode: str, kind: str, project: Path, session: str = "", artifact: str = ""

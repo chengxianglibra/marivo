@@ -22,6 +22,8 @@ from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
+pytestmark = pytest.mark.runtime
+
 
 def _setup(
     project: Path, event: Callable[[str], None] | None = None
