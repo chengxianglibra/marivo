@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypeAlias
 
 import duckdb
 import ibis
@@ -23,20 +25,44 @@ class SourceBinding:
     adapter: str
     adapter_versions: tuple[str, str]
 
-    def same_domain(self, other: SourceBinding) -> bool:
+    def same_domain(self, other: ExecutionBinding) -> bool:
         return (
-            self.owner is other.owner
+            isinstance(other, SourceBinding)
+            and self.owner is other.owner
             and self.datasource_id == other.datasource_id
             and self.adapter == other.adapter
             and self.adapter_versions == other.adapter_versions
         )
 
 
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class EngineBinding:
+    """Runtime-admitted immutable scan domain without semantic origin authority."""
+
+    owner: object
+    datasource_id: str
+    domain_digest: str
+    adapter_versions: tuple[str, str]
+    adapter: str = "duckdb"
+
+    def same_domain(self, other: ExecutionBinding) -> bool:
+        return (
+            isinstance(other, EngineBinding)
+            and self.owner is other.owner
+            and self.datasource_id == other.datasource_id
+            and self.domain_digest == other.domain_digest
+            and self.adapter_versions == other.adapter_versions
+        )
+
+
+ExecutionBinding: TypeAlias = SourceBinding | EngineBinding
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class SourceStep:
     output: int
     dataset: LogicalDataset
-    binding: SourceBinding
+    binding: ExecutionBinding
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -80,8 +106,8 @@ def source_binding(dataset: LogicalDataset) -> SourceBinding:
 
 def source_eligible(
     registration: ImplementationRegistration,
-    inputs: tuple[SourceBinding | None, ...],
-    binding: SourceBinding,
+    inputs: tuple[ExecutionBinding | None, ...],
+    binding: ExecutionBinding,
 ) -> bool:
     return (
         registration.source_adapter == binding.adapter
@@ -90,17 +116,22 @@ def source_eligible(
     )
 
 
-def place(dataset: LogicalDataset) -> PhysicalStageGraph:
+def place(
+    dataset: LogicalDataset,
+    *,
+    artifact_binding: Callable[[MaterializedDataset], ExecutionBinding | None] | None = None,
+) -> PhysicalStageGraph:
     """Retain maximal admitted prefixes; unsupported source-required successors fail."""
-    placements: dict[int, SourceBinding | None] = {}
+    placements: dict[int, ExecutionBinding | None] = {}
     registrations: dict[int, ImplementationRegistration] = {}
 
-    def classify(value: Dataset) -> SourceBinding | None:
+    def classify(value: Dataset) -> ExecutionBinding | None:
         if id(value) in placements:
             return placements[id(value)]
         if isinstance(value, MaterializedDataset):
-            placements[id(value)] = None
-            return None
+            binding = artifact_binding(value) if artifact_binding is not None else None
+            placements[id(value)] = binding
+            return binding
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("typed Dataset graph", "invalid node")
         child_domains = tuple(classify(child) for child in value._inputs)
@@ -108,7 +139,11 @@ def place(dataset: LogicalDataset) -> PhysicalStageGraph:
         registrations[id(value)] = registration
         binding = None
         if all(item is not None for item in child_domains):
-            candidate = source_binding(value)
+            candidate = (
+                child_domains[0]
+                if child_domains and isinstance(child_domains[0], EngineBinding)
+                else source_binding(value)
+            )
             if source_eligible(registration, child_domains, candidate):
                 binding = candidate
         if binding is None:

@@ -8,7 +8,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.handles import BoundedLineage, CanonicalValue
@@ -178,7 +178,113 @@ class LocalReceipt:
         return digest(receipt_payload(self))
 
 
-def receipt_payload(value: LocalReceipt) -> dict[str, object]:
+@dataclass(frozen=True, slots=True, repr=False)
+class EngineReceipt:
+    datasource_ref: str
+    execution_domain_id: str
+    qualified_relation_ref: str
+    relation_version_or_snapshot_token: str
+    schema_fingerprint: str
+    realized_row_count: int
+    realized_byte_count: int | None
+    immutable_relation_protocol: str = "version_addressed_relation"
+
+    def __post_init__(self) -> None:
+        _text(self.datasource_ref)
+        _hash(self.execution_domain_id)
+        _relative(self.qualified_relation_ref)
+        if not self.qualified_relation_ref.endswith(".duckdb"):
+            raise invalid("unsupported immutable relation locator")
+        for value in (self.relation_version_or_snapshot_token, self.schema_fingerprint):
+            _hash(value)
+        _int(self.realized_row_count)
+        if self.realized_byte_count is not None:
+            _int(self.realized_byte_count)
+        if self.immutable_relation_protocol != "version_addressed_relation":
+            raise invalid("unsupported immutable relation protocol")
+
+    @property
+    def kind(self) -> Literal["engine"]:
+        return "engine"
+
+    @property
+    def identity_digest(self) -> str:
+        return digest(receipt_payload(self))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ObjectReceipt:
+    object_store_ref: str
+    immutable_prefix_or_manifest_ref: str
+    object_version_or_manifest_hash: str
+    manifest_hash: str
+    schema_fingerprint: str
+    realized_row_count: int
+    realized_byte_count: int
+    file_count: int = 1
+    parquet_contract_version: int = 1
+
+    def __post_init__(self) -> None:
+        _text(self.object_store_ref)
+        _relative(self.immutable_prefix_or_manifest_ref)
+        _text(self.object_version_or_manifest_hash)
+        if self.object_version_or_manifest_hash == "null":
+            raise invalid("unversioned object manifest")
+        for value in (self.manifest_hash, self.schema_fingerprint):
+            _hash(value)
+        _int(self.realized_row_count)
+        _int(self.realized_byte_count)
+        if self.file_count != 1 or self.parquet_contract_version != 1:
+            raise invalid("unsupported object Parquet protocol")
+
+    @property
+    def kind(self) -> Literal["object"]:
+        return "object"
+
+    @property
+    def format(self) -> Literal["parquet"]:
+        return "parquet"
+
+    @property
+    def identity_digest(self) -> str:
+        return digest(receipt_payload(self))
+
+
+StorageReceipt: TypeAlias = LocalReceipt | EngineReceipt | ObjectReceipt
+
+
+def receipt_payload(value: StorageReceipt) -> dict[str, object]:
+    byte_count: dict[str, object] = (
+        {"kind": "unavailable"}
+        if value.realized_byte_count is None
+        else {"kind": "exact", "byte_count": value.realized_byte_count}
+    )
+    if isinstance(value, EngineReceipt):
+        return {
+            "kind": "engine",
+            "datasource_ref": value.datasource_ref,
+            "execution_domain_id": value.execution_domain_id,
+            "qualified_relation_ref": value.qualified_relation_ref,
+            "immutable_relation_protocol": value.immutable_relation_protocol,
+            "relation_version_or_snapshot_token": value.relation_version_or_snapshot_token,
+            "schema_fingerprint": value.schema_fingerprint,
+            "realized_row_count": value.realized_row_count,
+            "realized_byte_count": byte_count,
+        }
+    if isinstance(value, ObjectReceipt):
+        return {
+            "kind": "object",
+            "object_store_ref": value.object_store_ref,
+            "immutable_prefix_or_manifest_ref": value.immutable_prefix_or_manifest_ref,
+            "object_version_or_manifest_hash": value.object_version_or_manifest_hash,
+            "format": "parquet",
+            "parquet_contract_version": value.parquet_contract_version,
+            "file_count": value.file_count,
+            "manifest_hash": value.manifest_hash,
+            "schema_fingerprint": value.schema_fingerprint,
+            "realized_row_count": value.realized_row_count,
+            "realized_byte_count": byte_count,
+        }
     return {
         "kind": "local",
         "project_relative_path": value.project_relative_path,
@@ -193,7 +299,48 @@ def receipt_payload(value: LocalReceipt) -> dict[str, object]:
     }
 
 
-def decode_receipt(value: object) -> LocalReceipt:
+def decode_receipt(value: object) -> StorageReceipt:
+    if isinstance(value, dict) and value.get("kind") == "engine":
+        obj = _obj(
+            value,
+            "kind datasource_ref execution_domain_id qualified_relation_ref immutable_relation_protocol relation_version_or_snapshot_token schema_fingerprint realized_row_count realized_byte_count",
+        )
+        size = obj["realized_byte_count"]
+        count = None
+        if size != {"kind": "unavailable"}:
+            size_obj = _obj(size, "kind byte_count")
+            if size_obj["kind"] != "exact":
+                raise invalid("unsupported engine byte count")
+            count = _int(size_obj["byte_count"])
+        return EngineReceipt(
+            _text(obj["datasource_ref"]),
+            _text(obj["execution_domain_id"]),
+            _text(obj["qualified_relation_ref"]),
+            _text(obj["relation_version_or_snapshot_token"]),
+            _text(obj["schema_fingerprint"]),
+            _int(obj["realized_row_count"]),
+            count,
+            _text(obj["immutable_relation_protocol"]),
+        )
+    if isinstance(value, dict) and value.get("kind") == "object":
+        obj = _obj(
+            value,
+            "kind object_store_ref immutable_prefix_or_manifest_ref object_version_or_manifest_hash format parquet_contract_version file_count manifest_hash schema_fingerprint realized_row_count realized_byte_count",
+        )
+        size_obj = _obj(obj["realized_byte_count"], "kind byte_count")
+        if obj["format"] != "parquet" or size_obj["kind"] != "exact":
+            raise invalid("unsupported object storage format or byte count")
+        return ObjectReceipt(
+            _text(obj["object_store_ref"]),
+            _text(obj["immutable_prefix_or_manifest_ref"]),
+            _text(obj["object_version_or_manifest_hash"]),
+            _text(obj["manifest_hash"]),
+            _text(obj["schema_fingerprint"]),
+            _int(obj["realized_row_count"]),
+            _int(size_obj["byte_count"]),
+            _int(obj["file_count"]),
+            _int(obj["parquet_contract_version"]),
+        )
     obj = _obj(
         value,
         "kind project_relative_path format parquet_contract_version file_manifest manifest_hash bytes_hash schema_fingerprint realized_row_count realized_byte_count",
@@ -228,7 +375,7 @@ class RetainedPart:
     role: str
     contract_id: str
     contract_version: int
-    storage_receipt: LocalReceipt
+    storage_receipt: StorageReceipt
 
     def __post_init__(self) -> None:
         _text(self.role)
@@ -435,7 +582,7 @@ class ArtifactDescriptor:
     sampling_execution: tuple[SamplingRealization, ...] | None
     operator_implementation_versions: tuple[tuple[str, int], ...]
     dataset_materialization_contract: MaterializationContract
-    storage_receipt: LocalReceipt
+    storage_receipt: StorageReceipt
     retained_parts: tuple[RetainedPart, ...]
     quality_summary: QualitySummary
     typed_issues: tuple[MaterializationIssue, ...] = ()
@@ -1187,6 +1334,13 @@ _PHASES = frozenset(
         "process_lost",
     ]
 )
+
+
+def run_failure_phase(stage: str, owning_phase: str) -> str:
+    """Project a reader/action error stage onto the closed persisted Run phases."""
+    if owning_phase not in _PHASES:
+        raise invalid("unsupported owning Run phase")
+    return stage if stage in _PHASES else owning_phase
 
 
 def failure_payload(value: RunFailure) -> dict[str, object]:

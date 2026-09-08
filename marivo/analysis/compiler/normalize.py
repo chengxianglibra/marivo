@@ -6,8 +6,8 @@ from collections.abc import Iterator
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.predicates import predicate_leaves
-from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity
+from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
+from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity, _EntityFieldIdentity
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.observation.contracts import MetricPayload, PopulationPayload, source_owner_of
 from marivo.analysis.observation.coordinates import functional_path, governed_path, path_entities
@@ -106,7 +106,48 @@ def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ..
                                     ids.update(path_entities(registry, source, (route,)))
         else:
             raise compilation_error("closed Observation payload", "unsupported definition payload")
+    # A direct retained Population supplies its own membership keys. No origin
+    # table is needed unless newly authored semantic work actually consumes it.
+    roots = tuple(logical_roots(dataset))
+    for retained in artifact_inputs(dataset):
+        if retained.kind != "population":
+            continue
+        identity = retained.schema.columns[0].identity
+        if not isinstance(identity, _EntityFieldIdentity):
+            raise compilation_error("a retained Population identity", "invalid membership shape")
+        entity = identity.entity_ref.path
+        needed = any(
+            isinstance(root.payload, MetricPayload)
+            and (
+                any(
+                    item.path == entity
+                    for metric in root.payload.definition.metrics
+                    for item in metric.computation_roots
+                )
+                or root.payload.definition.dimensions
+                or root.payload.definition.time_axis is not None
+                or root.payload.definition.entity.version is not None
+            )
+            for root in roots
+        )
+        if not needed:
+            ids.discard(entity)
     return tuple(normalize_target_entity(registry, name) for name in sorted(ids))
+
+
+def artifact_inputs(dataset: Dataset) -> tuple[MaterializedDataset, ...]:
+    """Walk exact retained leaves once, without opening backing or following origins."""
+    found: dict[str, MaterializedDataset] = {}
+
+    def visit(value: Dataset) -> None:
+        if isinstance(value, MaterializedDataset):
+            found.setdefault(value.state.artifact_ref.ref, value)
+        elif isinstance(value, LogicalDataset):
+            for child in value._inputs:
+                visit(child)
+
+    visit(dataset)
+    return tuple(found.values())
 
 
 def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV1, ...]:

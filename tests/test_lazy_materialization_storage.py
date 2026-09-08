@@ -20,13 +20,14 @@ import pytest
 
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.materialization import storage
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import (
     CollectionLimitError,
     IntegrityError,
     MaterializationError,
 )
 from marivo.analysis.materialization.storage import (
-    LocalWriteResult,
+    DatasetWriteResult,
     PartWriteSpec,
     ReadPolicy,
     StoragePolicy,
@@ -98,7 +99,7 @@ def _write(
     *,
     parts: tuple[PartWriteSpec, ...] = (),
     policy: StoragePolicy = _STORAGE_POLICY,
-) -> LocalWriteResult:
+) -> DatasetWriteResult[LocalReceipt]:
     row, rows = contracts
     return storage.write_local_dataset(
         project_root=tmp_path,
@@ -115,7 +116,7 @@ def _write(
 
 def _read(
     tmp_path: Path,
-    result: LocalWriteResult,
+    result: DatasetWriteResult[LocalReceipt],
     contracts: tuple[d.DatasetRowContract, d.DatasetRowSetContract],
     *,
     policy: ReadPolicy = _READ_POLICY,
@@ -169,6 +170,7 @@ def test_primary_and_parts_split_one_stream_with_exact_receipts(tmp_path: Path) 
     assert result.realized_schema.columns[0].physical_type_state.kind == "resolved"
     part = result.retained_parts[0]
     assert part.role == "components"
+    assert isinstance(part.storage_receipt, LocalReceipt)
     part_file = tmp_path / part.storage_receipt.project_relative_path / "data.parquet"
     assert pq.read_table(part_file).to_pydict() == {
         "id": [1, 2, 3],
@@ -176,6 +178,7 @@ def test_primary_and_parts_split_one_stream_with_exact_receipts(tmp_path: Path) 
         "count": [1, 0, 1],
     }
     for receipt in (result.primary_receipt, part.storage_receipt):
+        assert isinstance(receipt, LocalReceipt)
         target = tmp_path / receipt.project_relative_path
         assert receipt.realized_byte_count == sum(file.stat().st_size for file in target.iterdir())
         assert receipt.realized_row_count == 3
@@ -538,7 +541,9 @@ def test_primary_reader_rejects_large_row_group_before_decoding(
 
 def _worker_fixture(
     tmp_path: Path,
-) -> tuple[LocalWriteResult, tuple[d.DatasetRowContract, d.DatasetRowSetContract], str]:
+) -> tuple[
+    DatasetWriteResult[LocalReceipt], tuple[d.DatasetRowContract, d.DatasetRowSetContract], str
+]:
     logical = make_sources().observe(ref.metric("sales.revenue"))
     contracts = (logical.row_contract, logical.row_set_contract)
     table = pa.table(

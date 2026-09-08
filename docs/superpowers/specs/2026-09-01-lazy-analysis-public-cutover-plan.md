@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-08
 
-Status: Slices 0-2, 3a and 4a complete; remaining units require separate authorization
+Status: Slices 0-2, 3a, 4a and 4b complete; remaining units require separate authorization
 
 ## Outcome
 
@@ -1978,6 +1978,91 @@ No public export, Help, Session facade, public Store generation, or user-facing
 API documentation switches in this unit. Engine/object adapters, full row/part
 selection, fold/rollup, identity checkpoints and Forecast retain their later
 slice ownership. No commit, push or release was made.
+
+### Slice 4b acceptance record: 2026-09-08
+
+**Slice 4b is implemented and accepted. Slice 3b, Slices 4c-4d and the parent
+Slice 4 gate remain open.** Implementation began from clean accepted Slice 4a
+commit `73e085da` with a clean working tree. That commit already contained
+the Slice 4a work that had been uncommitted at planning time. The detailed scope, budgets, backend versions,
+acceptance matrix and evidence are in the
+[Slice 4b execution record](../plans/2026-09-08-lazy-analysis-slice-4b-execution.md).
+
+Implemented and verified:
+
+- Closed private local/engine/object receipts share the existing v3 reservation,
+  finalization, ownership validation and atomic metadata publication. A Runtime
+  captures one configured target and current access binding per action; binding
+  hits recover the committed Artifact before new placement or configuration.
+- DuckDB 1.5.3 / Ibis 12.0.0 writes primary and required parts to independently
+  addressable database files from a shared native producer realization. File
+  content digests fix exact versions after durable close; reads attach read-only
+  and verify size, schema, counts and backing identity. Replacement, mutation,
+  write attempts, combined budget overflow and reservation failures are covered.
+- Versioned MinIO acceptance uses the pinned RELEASE.2025-09-07T16-13-09Z image
+  and boto3/botocore 1.43.89. Bounded Parquet staging never becomes an intermediate
+  Artifact. Exact data and manifest keys are reserved before PUT; receipts pin
+  bounded manifests and every payload VersionId, size and digest. Readers use
+  fixed-version bounded GETs, never latest-version or prefix discovery. New
+  versions preserve old results; deleted or corrupted selected versions fail.
+- Runtime-admitted engine Population scan leaves stop at committed identity and
+  support non-versioned, unsampled same-domain `observe`. Primary-only retained
+  Metric row methods can continue natively without origin access. Different
+  source bindings and local/object Population inputs cannot implicitly enter
+  the source domain; pandas results cannot upload into an engine target.
+- Failures at reservation, writes, required parts, manifest finalization and
+  publication expose no partial Artifact/Evidence. Exact-key collisions preserve
+  foreign objects; lost commit acknowledgement recovers committed success.
+  Unproved request termination remains recovery-blocked in its own Session;
+  proven-terminal harmless garbage retains its cleanup obligation without
+  blocking unrelated work. Access errors and exception chains redact injected
+  credentials. Full concurrent and cold-fencing proof remains with Slice 4c.
+
+Initial gates: `make check-agent` passes lint/import contracts, typing for 365
+modules, **6,251 tests in 169.77 seconds**, and API documentation construction.
+Scoped implementation/test typing, Python formatting and `git diff --check`
+also pass. The real object endpoint is enabled for this gate.
+
+The engine and object journeys each use three fresh interpreters for production,
+continuation and cold binding. Engine membership continues after its origin
+table is dropped; object rows continue after the source file is moved offline.
+Each journey ends with two terminal Runs, two Artifacts/Evidence envelopes, one
+input edge and zero resource obligations. Cold reuse returns the same Artifact
+with no new Run, query, object request, storage copy or worker.
+
+The initial 697-file candidate SHA-256 is
+`3f7935bf21d6ab8420de43964a2d8cbb33e1552f348e8b7cf76429b777e56012`. Its protocol and matching
+before/after SQL, request, process and Store evidence are retained in the linked
+execution record. These are library Runtime/service acceptance journeys; final
+real-Agent acceptance remains Slice 9. No public export, Help, Session facade or
+public persistence generation changes. No commit, push or release was made.
+
+### Slice 4b review follow-up: 2026-09-08
+
+The [execution record's review decisions](../plans/2026-09-08-lazy-analysis-slice-4b-execution.md#adversarial-review-decisions-2026-09-08)
+classify every submitted finding. The accepted fixes release exact S3 termination
+proofs only after durable journal removal, remove the storage/external-reader
+import cycle and duplicate worker decoding, restrict serial Parquet decoding to
+the object stream, require actual Runtime adapter versions, and centralize the
+object prefix and closed Run-phase projection. Entry-state and service-port
+wording are clarified.
+
+The alleged missing native Metric projection is disproved by real two-metric
+projection after origin removal: the output schema already drives the compiler's
+selection. A real parameterized engine checkpoint also verifies that immutable
+membership and a new observation's captured source values retain their separate
+authorities. Private dev-only boto3 and content-version receipts remain consistent
+with the authorized scope and owning design; no public extra or historical
+writer-version reuse gate is added.
+
+Fresh `make check-agent` passes lint/import contracts, typing for 366 modules,
+**6,256 tests in 230.57 seconds**, and API documentation construction. Real engine
+and object three-process journeys have matching 698-file before/after
+candidate SHA-256 `b3770bb32139cc17a38c61fe7d4d06ecc6ac9ad5158cc291c777919947c8c763`. The linked record
+retains the final SQL, fixed-version requests, process identities, exact Store
+counts and cold binding results. It supersedes the initial 4b candidate evidence.
+Slice 4b remains accepted; Slice 3b, Slices 4c-4d and parent Slice 4 remain open.
+No commit, push, release or public surface switch was performed.
 
 ## Slice 5: Compare and Attribution Vertical
 

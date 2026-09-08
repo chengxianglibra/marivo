@@ -31,6 +31,12 @@ from marivo.analysis.materialization.contracts import (
     run_input_payload,
 )
 from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.materialization.object_termination import forget_object_termination
+from marivo.analysis.materialization.ownership import (
+    object_artifact_prefix,
+    owns_resource,
+    validate_receipt_owner,
+)
 
 _SCHEMA = """
 CREATE TABLE sessions (
@@ -577,6 +583,7 @@ class SessionStore:
     def discharge(self, resource: ResourceRecord) -> None:
         with self._write() as conn:
             self._delete_resources(conn, resource.run_ref, (resource,))
+        forget_object_termination((resource,))
 
     def fail(
         self,
@@ -596,6 +603,7 @@ class SessionStore:
                 (run_ref, run.session_ref, "failed", _now(), None, payload),
             )
             self._delete_resources(conn, run_ref, resolved_resources)
+        forget_object_termination(resolved_resources)
 
     def _artifact(self, conn: sqlite3.Connection, artifact_ref: str) -> ArtifactRecord | None:
         row = _one(conn, "SELECT * FROM dataset_artifacts WHERE artifact_ref=?", (artifact_ref,))
@@ -658,20 +666,30 @@ class SessionStore:
             descriptor.storage_receipt,
             *(part.storage_receipt for part in descriptor.retained_parts),
         )
-        if any(
-            receipt.project_relative_path != prefix
-            and not receipt.project_relative_path.startswith(prefix + "/")
-            for receipt in receipts
-        ):
-            raise invalid("receipt is outside its owning Artifact directory")
+        for receipt in receipts:
+            validate_receipt_owner(
+                receipt, prefix, object_artifact_prefix(session_ref, artifact_ref)
+            )
         obligations = _rows(
             conn,
-            "SELECT safe_locator FROM action_resource_journal WHERE run_ref=?",
+            "SELECT * FROM action_resource_journal WHERE run_ref=?",
             (producer.run_ref,),
         )
         for obligation in obligations:
-            locator = _text(obligation, "safe_locator")
-            if locator == prefix or locator.startswith(prefix + "/"):
+            resource = ResourceRecord(
+                *(
+                    _text(obligation, name)
+                    for name in (
+                        "run_ref",
+                        "resource_kind",
+                        "execution_domain_id",
+                        "ownership_nonce",
+                        "cleanup_capability_id",
+                        "safe_locator",
+                    )
+                )
+            )
+            if any(owns_resource(receipt, resource) for receipt in receipts):
                 raise invalid("committed output remains a cleanup obligation")
         return ArtifactRecord(
             artifact_ref,
@@ -744,6 +762,7 @@ class SessionStore:
                 raise invalid("newly published Artifact is absent")
             if event is not None:
                 event("before_commit")
+        forget_object_termination(resolved_resources)
         if event is not None:
             event("after_commit")
         return result

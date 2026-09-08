@@ -7,6 +7,13 @@ from dataclasses import dataclass
 import ibis.expr.types as ir
 
 from marivo.analysis.observation.sampling import EntitySamplingPolicy
+from marivo.semantic.ir import TargetEntityContract
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CompiledArtifactScan:
+    expression: ir.Table
+    entity: TargetEntityContract
 
 
 @dataclass(frozen=True, slots=True, repr=False)

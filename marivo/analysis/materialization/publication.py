@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from marivo.analysis.compiler.normalize import logical_roots
+from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.evidence.types import QualitySummary
@@ -13,12 +13,14 @@ from marivo.analysis.materialization.contracts import (
     MaterializationContract,
     PopulationAuthority,
     SamplingRealization,
+    StorageReceipt,
     required_retained_contracts,
 )
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.storage import LocalWriteResult
+from marivo.analysis.materialization.storage import DatasetWriteResult
 from marivo.analysis.observation.contracts import (
     MetricPayload,
+    ObservationOwner,
     PopulationPayload,
     _version_selection_payload,
     producer_contract,
@@ -72,7 +74,7 @@ def materialization_contract(dataset: LogicalDataset) -> MaterializationContract
 def make_descriptor(
     dataset: LogicalDataset,
     materialization: MaterializationContract,
-    storage: LocalWriteResult,
+    storage: DatasetWriteResult[StorageReceipt],
     validations: tuple[tuple[str, int], ...],
     sampling: tuple[SamplingRealization, ...] = (),
     *,
@@ -102,6 +104,17 @@ def make_descriptor(
             row_set_contract=dataset.row_set_contract,
             realized_schema=storage.realized_schema,
             bounded_lineage=dataset._lineage,
+            semantic_dependency_digest=(
+                semantic_dependency_digest(
+                    dataset,
+                    retained_semantic_digests={
+                        leaf.state.artifact_ref.ref: inherited.semantic_dependency_digest
+                        for leaf in artifact_inputs(dataset)
+                    },
+                )
+                if isinstance(dataset._owner, ObservationOwner)
+                else inherited.semantic_dependency_digest
+            ),
             population_authority=replace(
                 inherited.population_authority, validation_results=validations
             ),

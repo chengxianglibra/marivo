@@ -13,6 +13,7 @@ import ibis.expr.types as ir
 from marivo._temporal import Grain, PeriodCalendarSnapshotV1, builtin_grain
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.nodes import (
+    CompiledArtifactScan,
     CompiledDataset,
     CompiledSampleFence,
     CompiledValidation,
@@ -20,7 +21,7 @@ from marivo.analysis.compiler.nodes import (
 )
 from marivo.analysis.compiler.normalize import logical_roots, required_entities
 from marivo.analysis.compiler.predicates import lower_bound_predicate, predicate_leaves
-from marivo.analysis.datasets.base import LogicalDataset
+from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
     _canonical_digest,
     _CatalogFieldIdentity,
@@ -32,6 +33,7 @@ from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
     RankSpec,
+    RetainedRowsPayload,
     metric_contracts,
     source_owner_of,
 )
@@ -121,11 +123,17 @@ def _state_names(metric: TargetMetricContract) -> tuple[str, ...]:
 
 
 class _Compiler:
-    def __init__(self, dataset: LogicalDataset, tables: Mapping[str, ir.Table]) -> None:
+    def __init__(
+        self,
+        dataset: LogicalDataset,
+        tables: Mapping[str, ir.Table],
+        scans: Mapping[str, CompiledArtifactScan],
+    ) -> None:
         self.dataset = dataset
         self.owner = source_owner_of(dataset)
         self.registry = self.owner.semantic_registry
         self.tables = tables
+        self.scans = scans
         self.validations: list[CompiledValidation] = []
         self.validation_occurrences: dict[str, int] = {}
         self.preparations: list[CompiledValidation | CompiledSampleFence] = []
@@ -1054,9 +1062,24 @@ class _Compiler:
 
     def _visit(self, root: LogicalRootHandle | MaterializedScanLeafHandle) -> _Rows:
         if isinstance(root, MaterializedScanLeafHandle):
-            raise compilation_error(
-                "logical source recipe", "retained input needs registered later recipe"
-            )
+            scan = self.scans.get(root.artifact_ref.ref)
+            if (
+                scan is None
+                or root.shape_id.family_id != "population"
+                or scan.entity.version is not None
+            ):
+                raise compilation_error(
+                    "an admitted non-versioned engine Population scan",
+                    "unsupported retained source input",
+                )
+            table, entity = scan.expression, scan.entity
+            identity = table["entity_identity"]
+            if not isinstance(identity, ir.StructValue):
+                raise compilation_error(
+                    "the exact retained identity struct", "invalid engine identity"
+                )
+            membership = table.select(**{name: identity[name] for name in entity.primary_key})
+            return _Rows(table, membership, entity)
         if id(root) in self.cache:
             return self.cache[id(root)]
         payload = root.payload
@@ -1210,6 +1233,69 @@ class _Compiler:
         )
 
 
-def compile_dataset(dataset: LogicalDataset, tables: Mapping[str, ir.Table]) -> CompiledDataset:
+def compile_dataset(
+    dataset: LogicalDataset,
+    tables: Mapping[str, ir.Table],
+    *,
+    scans: Mapping[str, CompiledArtifactScan] | None = None,
+) -> CompiledDataset:
     """Lower a logical Dataset using exact source tables without executing or reading rows."""
-    return _Compiler(dataset, tables).compile()
+    return _Compiler(dataset, tables, {} if scans is None else scans).compile()
+
+
+def compile_retained_rows(dataset: LogicalDataset, table: ir.Table) -> CompiledDataset:
+    """Lower only the admitted primary-only row algebra against an immutable engine leaf."""
+    from marivo.analysis.operators.registry import admit_primary_only
+
+    def visit(value: Dataset) -> ir.Table:
+        admit_primary_only(value)
+        if isinstance(value, MaterializedDataset):
+            return table
+        if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
+            raise compilation_error("an exact retained row graph", "invalid retained row node")
+        payload = value._root.payload
+        if not isinstance(payload, RetainedRowsPayload) or len(value._inputs) != 1:
+            raise compilation_error(
+                "a registered primary-only row operation", "unsupported retained source method"
+            )
+        result = visit(value._inputs[0])
+        keys = tuple(
+            field.name
+            for field in value.schema.columns
+            if field.field_id in value.row_contract.key_field_ids
+        )
+        if payload.predicate is not None:
+            result = result.filter(lower_bound_predicate(result, payload.predicate))
+        if payload.rank is not None:
+            result, _ = _Compiler._rank(result, payload.rank, keys)
+        ordering = value.row_set_contract.ordering
+        if isinstance(ordering, _OrderedOrdering):
+            names = {field.field_id: field.name for field in value.schema.columns}
+            result = _Compiler._order(
+                result,
+                tuple(
+                    (names[term.field_id], term.direction, term.nulls) for term in ordering.terms
+                ),
+            )
+        if payload.limit_count is not None:
+            result = result.limit(payload.limit_count)
+        return result.select(tuple(field.name for field in value.schema.columns))
+
+    expression = visit(dataset)
+    keys = tuple(
+        field.name
+        for field in dataset.schema.columns
+        if field.field_id in dataset.row_contract.key_field_ids
+    )
+    validations: tuple[CompiledValidation, ...] = ()
+    if keys:
+        counts = expression.group_by(keys).aggregate(__mv_count=expression.count())
+        validations = (
+            CompiledValidation(
+                "dataset.final_row_key_unique",
+                counts.filter(counts.__mv_count > 1).aggregate(
+                    violations=counts.filter(counts.__mv_count > 1).count()
+                ),
+            ),
+        )
+    return CompiledDataset(expression, validations, tuple(expression.columns), ())
