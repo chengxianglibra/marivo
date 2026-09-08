@@ -14,6 +14,8 @@ from typing import Literal, SupportsIndex, TypeAlias
 from marivo._compat import Never
 from marivo.analysis.datasets.descriptors import (
     DatasetField,
+    _bool_tuple_arity,
+    _bool_tuple_value,
     _canonical_digest,
     _field_binding_fingerprint,
 )
@@ -32,7 +34,9 @@ PredicateField: TypeAlias = (
     | DimensionEntry
     | TimeDimensionEntry
 )
-PredicateLiteral: TypeAlias = str | bool | int | float | Decimal | date | datetime
+PredicateLiteral: TypeAlias = (
+    str | bool | int | float | Decimal | date | datetime | tuple[bool, ...]
+)
 ComparisonKind: TypeAlias = Literal["eq", "not_eq", "lt", "lte", "gt", "gte"]
 PredicateKind: TypeAlias = Literal[
     "eq",
@@ -105,6 +109,14 @@ def _operand(operand: PredicateField) -> None:
 
 
 def _scalar(value: PredicateLiteral, *, kind: PredicateKind) -> None:
+    if type(value) is tuple:
+        if (
+            not value
+            or any(type(item) is not bool for item in value)
+            or kind not in _EQUALITY_KINDS
+        ):
+            _error("non-empty bool tuple for mask equality or membership", "invalid mask literal")
+        return
     if value is None:
         repair = (
             "Use is_not_null(field) for a non-null condition."
@@ -312,6 +324,12 @@ def _decimal_text(value: Decimal) -> str:
 
 def _literal(field: DatasetField, value: PredicateLiteral, kind: PredicateKind) -> CanonicalValue:
     logical = field.logical_type_id
+    width = _bool_tuple_arity(logical)
+    if width is not None and type(value) is tuple and kind in _EQUALITY_KINDS:
+        mask = _bool_tuple_value(value, arity=width)
+        if mask is None:
+            _error("exact authored-axis bool mask length", "incompatible mask literal")
+        return ("bool_tuple", mask)
     if logical in ("integer", "int64", "int32", "int16", "int8") and type(value) is int:
         return ("integer", value)
     if logical in ("floating", "float64", "float32", "numeric") and (
@@ -374,6 +392,9 @@ def _compare_literals(left: CanonicalValue, right: CanonicalValue) -> int | None
             return (one > two) - (one < two)
         # Canonical UTC instants and ISO dates have the same order as their values.
         return (first > second) - (first < second)
+    if left[0] == "bool_tuple" and isinstance(first, tuple) and isinstance(second, tuple):
+        # Only canonical bool tuples reach this comparison; no ordering predicate is admitted.
+        return 0 if first == second else None
     return None
 
 
@@ -512,9 +533,12 @@ def bind_predicates(
             resolved.field_id.value == f"generated.compare.{resolved.name}@v1"
             and comparison_roles.get(resolved.name) == resolved.role_id
         )
+        from marivo.analysis.operators.attribution_contracts import attribution_filterable_field
+
         if (
             resolved.role_id not in ("metric", "dimension", "time_dimension", "rank")
             and not comparison_field
+            and not attribution_filterable_field(resolved)
         ):
             _error("retained Metric, Dimension or exact generated row field", resolved.role_id)
         literal: CanonicalValue

@@ -9,6 +9,7 @@ from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedD
 from marivo.analysis.datasets.descriptors import _CORE_TOKEN, DatasetField
 from marivo.analysis.datasets.fields import DatasetFieldRef, validate_field_ref
 from marivo.analysis.observation.contracts import (
+    DimensionInput,
     RetainedRowsPayload,
     owner_of,
     producer_contract,
@@ -25,12 +26,31 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
+    from marivo.analysis.operators.attribution import LogicalAttributionDataset
 
 
 class LogicalDeltaDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="delta"):
     """Complete logical comparison rows; execution belongs to the runtime."""
 
     __slots__ = ()
+
+    def attribute(
+        self,
+        *,
+        axes: tuple[DimensionInput, ...] | list[DimensionInput],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+    ) -> LogicalAttributionDataset:
+        """Decompose this Delta into exact scoped contributions.
+
+        Args: axes: Ordered governed Dimensions. mode: Joint or authored prefixes.
+            top_k: Optional number of retained members per mapped parent.
+        Returns: Logical Attribution. Example: ``delta.attribute(axes=(region,))``.
+        Constraints: Requires exact additive partitions and retained components.
+        """
+        from marivo.analysis.operators.attribute import attribute
+
+        return attribute(self, axes=axes, mode=mode, top_k=top_k)
 
     def where(self, *predicates: AnalysisPredicate) -> LogicalDeltaDataset:
         """Select rows by predicates and return a new Logical Delta.
@@ -80,6 +100,24 @@ class MaterializedDeltaDataset(MaterializedDataset, _token=_CORE_TOKEN, family_i
     """Committed immutable comparison rows with original Evidence and Findings."""
 
     __slots__ = ()
+
+    def attribute(
+        self,
+        *,
+        axes: tuple[DimensionInput, ...] | list[DimensionInput],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+    ) -> LogicalAttributionDataset:
+        """Decompose this Delta into exact scoped contributions.
+
+        Args: axes: Ordered governed Dimensions. mode: Joint or authored prefixes.
+            top_k: Optional number of retained members per mapped parent.
+        Returns: Logical Attribution. Example: ``delta.attribute(axes=(region,))``.
+        Constraints: Requires exact additive partitions and retained components.
+        """
+        from marivo.analysis.operators.attribute import attribute
+
+        return attribute(self, axes=axes, mode=mode, top_k=top_k)
 
     def where(self, *predicates: AnalysisPredicate) -> LogicalDeltaDataset:
         """Select retained rows by predicates and return Logical Delta.

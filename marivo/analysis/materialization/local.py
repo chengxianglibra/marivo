@@ -15,6 +15,8 @@ from marivo._compat import Never
 from marivo.analysis.datasets.descriptors import (
     DatasetRowContract,
     DatasetRowSetContract,
+    _bool_tuple_arity,
+    _bool_tuple_value,
     _EntityFieldIdentity,
 )
 from marivo.analysis.materialization.errors import MaterializationError
@@ -33,6 +35,7 @@ from marivo.analysis.operators.row import (
     frame_comparator,
     select_parts,
 )
+from marivo.analysis.operators.row_values import frame_keys
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,15 +247,20 @@ def validate_frame(
         fail("exact ordered local result fields", "local fields differ", "output_validation")
     for field in row.schema.columns:
         dtype = frame[field.name].dtype
-        if not isinstance(field.identity, _EntityFieldIdentity) and (
+        width = _bool_tuple_arity(field.logical_type_id)
+        if width is not None:
+            if any(_bool_tuple_value(value, arity=width) is None for value in frame[field.name]):
+                fail("exact non-null boolean mask arity", "invalid local mask", "output_validation")
+        elif not isinstance(field.identity, _EntityFieldIdentity) and (
             not isinstance(dtype, pd.ArrowDtype)
             or not _matches_type(field.logical_type_id, dtype.pyarrow_dtype)
         ):
             fail("exact registered local column types", "local type mismatch", "output_validation")
         if not field.nullable and frame[field.name].isna().any():
             fail("non-null required fields", "null local field", "output_validation")
-    keys = [names[key] for key in row.key_field_ids]
-    if keys and frame.duplicated(subset=keys).any():
+    keys = tuple(names[key] for key in row.key_field_ids)
+    normalized_keys = frame_keys(frame, keys)
+    if keys and len(set(normalized_keys)) != len(normalized_keys):
         fail("unique local result keys", "duplicate local key", "output_validation")
     if rows.cardinality.kind == "singleton" and len(frame) != 1:
         fail("exact singleton result", "invalid singleton", "output_validation")
@@ -294,7 +302,11 @@ def execute_retained_suffix(
         size = frame_bytes(frame) + sum(frame_bytes(part.frame) for part in parts)
         # Covers row copies, comparison columns, masks, index arrays and sorting workspace.
         budget.allocation(size * 4 + len(frame) * (512 + 128 * len(frame.columns)))
-        if parts:
+        if call.input_row.shape_id.family_id == "delta":
+            from marivo.analysis.operators.delta_state import validate_delta_parts
+
+            validate_delta_parts(frame, parts, call.input_row)
+        elif parts:
             from marivo.analysis.operators.rollup import validate_parts
 
             validate_parts(frame, parts, call.input_row)

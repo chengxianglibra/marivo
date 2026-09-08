@@ -14,6 +14,7 @@ from marivo.semantic.ir import TargetEntityContract
 class CompiledArtifactScan:
     expression: ir.Table
     entity: TargetEntityContract
+    parts: tuple[tuple[str, ir.Table], ...] = ()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -56,3 +57,4 @@ class CompiledDataset:
     primary_columns: tuple[str, ...]
     retained_parts: tuple[RetainedPartSpec, ...]
     preparations: tuple[CompiledValidation | CompiledSampleFence, ...] = ()
+    attribution_proof: ir.Table | None = None

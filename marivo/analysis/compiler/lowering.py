@@ -52,6 +52,12 @@ from marivo.analysis.observation.fold_contracts import (
     fold_part_role,
     fold_state_names,
 )
+from marivo.analysis.operators.attribution_contracts import (
+    AttributePayload,
+    delta_part_authorities,
+    delta_presence_name,
+    delta_state_name,
+)
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.refs import SemanticKind
 from marivo.semantic.ir import (
@@ -92,6 +98,25 @@ class _Rows:
     definition: MetricDefinition | None = None
     selections: tuple[_Selection, ...] = ()
     ordering: tuple[tuple[str, str, str], ...] = ()
+
+
+def _named_validations(
+    validations: tuple[CompiledValidation, ...],
+    preparations: tuple[CompiledValidation | CompiledSampleFence, ...] = (),
+) -> tuple[tuple[CompiledValidation, ...], tuple[CompiledValidation | CompiledSampleFence, ...]]:
+    """Give every executed assertion a stable distinct receipt name across shared branches."""
+    counts: dict[str, int] = {}
+    renamed: dict[int, CompiledValidation] = {}
+    for check in validations:
+        occurrence = counts.get(check.name, 0) + 1
+        counts[check.name] = occurrence
+        renamed[id(check)] = replace(
+            check, name=check.name if occurrence == 1 else f"{check.name}.occurrence_{occurrence}"
+        )
+    return tuple(renamed[id(check)] for check in validations), tuple(
+        renamed[id(check)] if isinstance(check, CompiledValidation) else check
+        for check in preparations
+    )
 
 
 def _boolean(value: ir.Value) -> ir.BooleanValue:
@@ -140,6 +165,26 @@ def _state_names(metric: TargetMetricContract) -> tuple[str, ...]:
 def retained_part_specs(row: DatasetRowContract) -> tuple[RetainedPartSpec, ...]:
     """Resolve exact required Metric roles from the frozen current row contract."""
     semantics = row.family_semantics
+    if row.shape_id.family_id == "delta":
+        keys = tuple(
+            field.name for field in row.schema.columns if field.field_id in row.key_field_ids
+        )
+        return tuple(
+            RetainedPartSpec(
+                role,
+                "delta.sufficient_components",
+                1,
+                (
+                    *keys,
+                    *(
+                        delta_state_name(role.rsplit(".", 1)[1], name)
+                        for name in fold_state_names(authority)
+                    ),
+                    delta_presence_name(role.rsplit(".", 1)[1]),
+                ),
+            )
+            for role, authority in delta_part_authorities(row)
+        )
     if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
         return ()
     required = {binding[0].value for binding in semantics.metric_bindings if binding[3]}
@@ -445,6 +490,7 @@ class _Compiler:
 
         collect(dataset)
         self.validations: list[CompiledValidation] = []
+        self.attribution_proof: ir.Table | None = None
         self.validation_occurrences: dict[str, int] = {}
         self.preparations: list[CompiledValidation | CompiledSampleFence] = []
         self.prepared_validation_count = 0
@@ -1419,17 +1465,21 @@ class _Compiler:
             scan = self.scans.get(root.artifact_ref.ref)
             dataset = self.datasets[id(root)]
             semantics = dataset.row_contract.family_semantics
-            if scan is None or (
-                root.shape_id.family_id != "population"
-                and (
-                    not isinstance(
-                        semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
-                    )
-                    or (
-                        isinstance(semantics, EntityPresentMetricSemantics)
-                        and any(
-                            not facts or facts[0] != "entity_unique"
-                            for _, _, facts in semantics.coordinate_semantics
+            if (
+                scan is None
+                or not isinstance(dataset, MaterializedDataset)
+                or (
+                    root.shape_id.family_id != "population"
+                    and (
+                        not isinstance(
+                            semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
+                        )
+                        or (
+                            isinstance(semantics, EntityPresentMetricSemantics)
+                            and any(
+                                not facts or facts[0] != "entity_unique"
+                                for _, _, facts in semantics.coordinate_semantics
+                            )
                         )
                     )
                 )
@@ -1439,6 +1489,9 @@ class _Compiler:
                     "unsupported retained source input",
                 )
             table, entity = scan.expression, scan.entity
+            if root.shape_id.family_id == "metric":
+                table, checks = _lower_retained_scan(dataset.row_contract, table, dict(scan.parts))
+                self.validations.extend(checks)
             identities = tuple(
                 field.identity
                 for field in dataset.schema.columns
@@ -1475,11 +1528,31 @@ class _Compiler:
             )
             self.validations.extend(validations)
             result = _Rows(table, current.membership, current.entity)
+        elif isinstance(payload, AttributePayload):
+            from marivo.analysis.compiler.attribution import (
+                lower_attribute,
+                lower_expanded_attribute,
+            )
+
+            previous = self._visit(root.inputs[0].root)
+            if payload.spec.expanded_compare is None:
+                table, validations = lower_attribute(previous.expression, payload.spec)
+            else:
+                current = self._visit(root.inputs[1].root)
+                baseline = self._visit(root.inputs[2].root)
+                table, validations = lower_expanded_attribute(
+                    previous.expression, current.expression, baseline.expression, payload.spec
+                )
+            self.validations.extend(validations)
+            result = _Rows(table, previous.membership, previous.entity)
+            self.attribution_proof = table
         elif isinstance(payload, RetainedFoldPayload):
             previous = self._visit(root.inputs[0].root)
             table, validations = lower_fold(previous.expression, payload.spec)
             self.validations.extend(validations)
-            result = _Rows(table, previous.membership, previous.entity)
+            result = _Rows(
+                table, previous.membership, previous.entity, selections=previous.selections
+            )
         elif isinstance(payload, RetainedRowsPayload):
             previous = self._visit(root.inputs[0].root)
             value = self.datasets[id(root)]
@@ -1516,6 +1589,8 @@ class _Compiler:
                 ),
                 previous.membership,
                 previous.entity,
+                previous.definition,
+                previous.selections,
             )
         elif isinstance(payload, MetricPayload):
             previous = self._visit(root.inputs[0].root)
@@ -1528,6 +1603,23 @@ class _Compiler:
                 "metric.aggregate",
             ):
                 result = self._evaluate(definition, previous.membership, previous.selections)
+            elif root.operator_id == "metric.expand_axes":
+                original = self.datasets[id(root.inputs[0].root)]
+                from marivo.analysis.operators.attribute_expansion import _definition
+
+                previous_definition = _definition(original)
+                keys = tuple(
+                    field.name
+                    for field in original.schema.columns
+                    if field.field_id in original.row_contract.key_field_ids
+                )
+                selections = previous.selections
+                if keys:
+                    selections = (
+                        *selections,
+                        _Selection(previous.expression.select(*keys), previous_definition),
+                    )
+                result = self._evaluate(definition, previous.membership, selections)
             else:
                 table = previous.expression
                 ordering = previous.ordering
@@ -1637,8 +1729,16 @@ class _Compiler:
             )
         if self.preparations:
             self._flush_validations()
+        validations, preparations = _named_validations(
+            tuple(self.validations), tuple(self.preparations)
+        )
         return CompiledDataset(
-            expression, tuple(self.validations), primary, tuple(parts), tuple(self.preparations)
+            expression,
+            validations,
+            primary,
+            tuple(parts),
+            preparations,
+            self.attribution_proof,
         )
 
 
@@ -1653,6 +1753,110 @@ def compile_dataset(
     return _Compiler(dataset, tables, {} if scans is None else scans, source_owner).compile()
 
 
+def _lower_retained_scan(
+    row: DatasetRowContract,
+    selected_table: ir.Table,
+    selected_parts: Mapping[str, ir.Table] | None,
+) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
+    """Attach and reconcile only the consumer-selected immutable component roles."""
+    validations: list[CompiledValidation] = []
+
+    def assertion(name: str, invalid: ir.Table) -> None:
+        validations.append(CompiledValidation(name, invalid.aggregate(violations=invalid.count())))
+
+    expected = {part.role: part for part in retained_part_specs(row)}
+    result = selected_table
+    keys = tuple(field.name for field in row.schema.columns if field.field_id in row.key_field_ids)
+    for role, incoming in () if selected_parts is None else selected_parts.items():
+        spec = expected.get(role)
+        if spec is None or tuple(incoming.columns) != spec.column_names:
+            raise compilation_error(
+                "the exact registered Metric part columns",
+                "unknown role or invalid part schema",
+            )
+        if keys:
+            counts = incoming.group_by(keys).aggregate(__mv_count=incoming.count())
+            assertion(f"{role}.keys_unique", counts.filter(counts.__mv_count > 1))
+            right = incoming.view()
+            conditions = [selected_table[key].identical_to(right[key]) for key in keys]
+            assertion(
+                f"{role}.primary_keys_complete",
+                selected_table.join(right, conditions, how="anti"),
+            )
+            assertion(
+                f"{role}.part_keys_complete", right.join(selected_table, conditions, how="anti")
+            )
+            joined = result.join(
+                right, [result[key].identical_to(right[key]) for key in keys], how="left"
+            )
+            result = joined.select(
+                *result.columns,
+                *[right[name] for name in spec.column_names if name not in keys],
+            )
+        else:
+            count = incoming.aggregate(__mv_count=incoming.count())
+            assertion(f"{role}.singleton", count.filter(count.__mv_count != 1))
+            result = result.cross_join(incoming)
+    semantics = row.family_semantics
+    if isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
+        fields = {field.field_id.value: field for field in row.schema.columns}
+        selected = {} if selected_parts is None else selected_parts
+        for authority in semantics.metric_folds:
+            role = fold_part_role(authority)
+            if role not in selected:
+                continue
+            field = fields[authority.field_id]
+            finalized = _declared_cast(_fold_value(result, authority), field.logical_type_id)
+            assertion(
+                f"{role}.primary_value_reconciliation",
+                result.filter(~result[field.name].identical_to(finalized)),
+            )
+            for component in authority.components:
+                names = dict(component.state_columns)
+                counters = tuple(
+                    column for state, column in component.state_columns if state.endswith("count")
+                )
+                for column in counters:
+                    bad = result[column].isnull() | (result[column] < 0)
+                    if "row_count" in names and column != names["row_count"]:
+                        bad = bad | (result[column] > result[names["row_count"]])
+                    assertion(f"{role}.{column}.support_valid", result.filter(bad))
+            if authority.cumulative:
+                endpoint, start, end, seconds, complete = coverage_columns(authority)
+                duration = _duration_seconds(result[start], result[end])
+                empty = (
+                    _and([result[name].isnull() for name in (endpoint, start, end)])
+                    & result[seconds].identical_to(0)
+                    & result[complete].identical_to(False)
+                )
+                for component in authority.components:
+                    empty = empty & _and(
+                        [
+                            result[column].identical_to(0)
+                            for state, column in component.state_columns
+                            if state.endswith("count")
+                        ]
+                    )
+                populated = (
+                    _and(
+                        [
+                            result[name].notnull()
+                            for name in (endpoint, start, end, seconds, complete)
+                        ]
+                    )
+                    & (result[start] <= result[end])
+                    & (result[endpoint] == result[end])
+                    & (result[seconds] >= 0)
+                    & (result[seconds] <= duration)
+                    & (~_boolean(result[complete]) | (result[seconds] == duration))
+                )
+                assertion(
+                    f"{role}.coverage_valid",
+                    result.filter(~(empty | populated).fill_null(False)),
+                )
+    return result, tuple(validations)
+
+
 def compile_retained_rows(
     dataset: LogicalDataset,
     table: ir.Table | Mapping[str, ir.Table],
@@ -1664,9 +1868,7 @@ def compile_retained_rows(
     from marivo.analysis.operators.registry import admit_retained_rows
 
     validations: list[CompiledValidation] = []
-
-    def assertion(name: str, invalid: ir.Table) -> None:
-        validations.append(CompiledValidation(name, invalid.aggregate(violations=invalid.count())))
+    attribution_proof: ir.Table | None = None
 
     def read(value: MaterializedDataset) -> ir.Table:
         selected_table = (
@@ -1675,105 +1877,12 @@ def compile_retained_rows(
         selected_parts = (
             parts if input_parts is None else input_parts.get(value.state.artifact_ref.ref)
         )
-        expected = {part.role: part for part in retained_part_specs(value.row_contract)}
-        result = selected_table
-        keys = tuple(
-            field.name
-            for field in value.schema.columns
-            if field.field_id in value.row_contract.key_field_ids
-        )
-        for role, incoming in () if selected_parts is None else selected_parts.items():
-            spec = expected.get(role)
-            if spec is None or tuple(incoming.columns) != spec.column_names:
-                raise compilation_error(
-                    "the exact registered Metric part columns",
-                    "unknown role or invalid part schema",
-                )
-            if keys:
-                counts = incoming.group_by(keys).aggregate(__mv_count=incoming.count())
-                assertion(f"{role}.keys_unique", counts.filter(counts.__mv_count > 1))
-                right = incoming.view()
-                conditions = [selected_table[key].identical_to(right[key]) for key in keys]
-                assertion(
-                    f"{role}.primary_keys_complete",
-                    selected_table.join(right, conditions, how="anti"),
-                )
-                assertion(
-                    f"{role}.part_keys_complete", right.join(selected_table, conditions, how="anti")
-                )
-                joined = result.join(
-                    right, [result[key].identical_to(right[key]) for key in keys], how="left"
-                )
-                result = joined.select(
-                    *result.columns,
-                    *[right[name] for name in spec.column_names if name not in keys],
-                )
-            else:
-                count = incoming.aggregate(__mv_count=incoming.count())
-                assertion(f"{role}.singleton", count.filter(count.__mv_count != 1))
-                result = result.cross_join(incoming)
-        semantics = value.row_contract.family_semantics
-        if isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
-            fields = {field.field_id.value: field for field in value.schema.columns}
-            selected = {} if selected_parts is None else selected_parts
-            for authority in semantics.metric_folds:
-                role = fold_part_role(authority)
-                if role not in selected:
-                    continue
-                field = fields[authority.field_id]
-                finalized = _declared_cast(_fold_value(result, authority), field.logical_type_id)
-                assertion(
-                    f"{role}.primary_value_reconciliation",
-                    result.filter(~result[field.name].identical_to(finalized)),
-                )
-                for component in authority.components:
-                    names = dict(component.state_columns)
-                    counters = tuple(
-                        column
-                        for state, column in component.state_columns
-                        if state.endswith("count")
-                    )
-                    for column in counters:
-                        bad = result[column].isnull() | (result[column] < 0)
-                        if "row_count" in names and column != names["row_count"]:
-                            bad = bad | (result[column] > result[names["row_count"]])
-                        assertion(f"{role}.{column}.support_valid", result.filter(bad))
-                if authority.cumulative:
-                    endpoint, start, end, seconds, complete = coverage_columns(authority)
-                    duration = _duration_seconds(result[start], result[end])
-                    empty = (
-                        _and([result[name].isnull() for name in (endpoint, start, end)])
-                        & result[seconds].identical_to(0)
-                        & result[complete].identical_to(False)
-                    )
-                    for component in authority.components:
-                        empty = empty & _and(
-                            [
-                                result[column].identical_to(0)
-                                for state, column in component.state_columns
-                                if state.endswith("count")
-                            ]
-                        )
-                    populated = (
-                        _and(
-                            [
-                                result[name].notnull()
-                                for name in (endpoint, start, end, seconds, complete)
-                            ]
-                        )
-                        & (result[start] <= result[end])
-                        & (result[endpoint] == result[end])
-                        & (result[seconds] >= 0)
-                        & (result[seconds] <= duration)
-                        & (~_boolean(result[complete]) | (result[seconds] == duration))
-                    )
-                    assertion(
-                        f"{role}.coverage_valid",
-                        result.filter(~(empty | populated).fill_null(False)),
-                    )
+        result, checks = _lower_retained_scan(value.row_contract, selected_table, selected_parts)
+        validations.extend(checks)
         return result
 
     def visit(value: Dataset) -> ir.Table:
+        nonlocal attribution_proof
         admit_retained_rows(value)
         if isinstance(value, MaterializedDataset):
             return read(value)
@@ -1785,6 +1894,17 @@ def compile_retained_rows(
                 visit(value._inputs[0]), visit(value._inputs[1]), payload.spec
             )
             validations.extend(checks)
+            return result
+        if isinstance(payload, AttributePayload):
+            from marivo.analysis.compiler.attribution import lower_attribute
+
+            if payload.spec.expanded_compare is not None:
+                raise compilation_error(
+                    "logical source axis expansion", "retained expansion boundary"
+                )
+            result, checks = lower_attribute(visit(value._inputs[0]), payload.spec)
+            validations.extend(checks)
+            attribution_proof = result
             return result
         if (
             not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload))
@@ -1856,9 +1976,11 @@ def compile_retained_rows(
         )
     elif keys:
         expression = _Compiler._order(expression, tuple((key, "ascending", "last") for key in keys))
+    checks, _ = _named_validations(tuple(validations))
     return CompiledDataset(
         expression,
-        tuple(validations),
+        checks,
         tuple(field.name for field in dataset.schema.columns),
         retained_part_specs(dataset.row_contract),
+        attribution_proof=attribution_proof,
     )

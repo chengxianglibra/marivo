@@ -124,12 +124,21 @@ def test_engine_metric_identity_projection_uses_exact_checkpoint(tmp_path: Path)
     fixture = setup_retained(tmp_path, "engine")
     metric = fixture.sources.observe(REVENUE, population=fixture.sources.population(CUSTOMERS))
     checkpoint = metric.where(gt(REVENUE, 10)).execute()
+    retained = fixture.runtime.store.artifact(checkpoint.state.artifact_ref.ref)
+    assert retained is not None
+    for part in retained.descriptor.retained_parts:
+        receipt = part.storage_receipt
+        assert isinstance(receipt, EngineReceipt)
+        (tmp_path / receipt.qualified_relation_ref).unlink()
     with duckdb.connect(str(fixture.database)) as backend:
         backend.execute("DROP TABLE customers")
     output = fixture.sources.observe(MEAN, population=checkpoint).execute()
     assert output.to_pandas()["entity_identity"].tolist() == [(1,), (2,)]
     assert output.to_pandas()["mean_amount"].tolist() == [20, 100]
     assert not any('"customers"' in sql for _, sql in fixture.runtime.statistics.statements)
+    assert not any(
+        name == "engine_check.part_schema" for name, _ in fixture.runtime.statistics.statements
+    )
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 

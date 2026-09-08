@@ -20,6 +20,7 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.operators import registry
+from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.registry import ImplementationRegistration
 
@@ -151,7 +152,8 @@ def place(
                 child_domains[0]
                 if child_domains
                 and isinstance(
-                    value._root.payload, (RetainedRowsPayload, RetainedFoldPayload, ComparePayload)
+                    value._root.payload,
+                    (RetainedRowsPayload, RetainedFoldPayload, ComparePayload, AttributePayload),
                 )
                 else source_binding(value)
             )

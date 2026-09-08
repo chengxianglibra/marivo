@@ -16,6 +16,7 @@ from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.datasets.descriptors import (
     DatasetRowContract,
     DatasetRowSetContract,
+    _bool_tuple_value,
     _OrderedOrdering,
 )
 from marivo.analysis.datasets.handles import CanonicalValue
@@ -91,17 +92,46 @@ def select_parts(
     from marivo.analysis.observation.fold_contracts import fold_part_role
 
     semantics = call.output_row.family_semantics
+    from marivo.analysis.operators.attribution_contracts import (
+        AttributionSemantics,
+        delta_part_authorities,
+    )
     from marivo.analysis.operators.contracts import DeltaSemantics
 
-    if isinstance(semantics, DeltaSemantics):
+    if isinstance(semantics, AttributionSemantics):
         return ()
+    if isinstance(semantics, DeltaSemantics):
+        retained_roles = {role for role, _ in delta_part_authorities(call.input_row)}
+        keys = row_key_names(call.input_row)
+        expected = frame_keys(primary, keys)
+        selected = frame_keys(output, keys)
+        result: list[PartFrame] = []
+        for part in parts:
+            if part.role == "population_sampling_state":
+                result.append(part)
+            elif part.role in retained_roles:
+                positions = aligned_part_positions(part, keys, expected)
+                selected_frame = part.frame.iloc[[positions[key] for key in selected]].reset_index(
+                    drop=True
+                )
+                result.append(
+                    PartFrame(
+                        part.role,
+                        part.contract_id,
+                        part.contract_version,
+                        part.schema,
+                        keys,
+                        selected_frame,
+                    )
+                )
+        return tuple(result)
     if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
         raise compilation_error("Metric retained row semantics", "invalid row selection output")
     retained_roles = {fold_part_role(item) for item in semantics.metric_folds}
     keys = row_key_names(call.input_row)
     expected = frame_keys(primary, keys)
     selected = frame_keys(output, keys)
-    result: list[PartFrame] = []
+    result = []
     for part in parts:
         if part.role == "population_sampling_state":
             result.append(part)
@@ -116,10 +146,16 @@ def select_parts(
     return tuple(result)
 
 
-def _literal(value: CanonicalValue) -> bool | int | float | str | Decimal | date | datetime:
+def _literal(
+    value: CanonicalValue,
+) -> bool | int | float | str | Decimal | date | datetime | tuple[bool, ...]:
     if not isinstance(value, tuple) or len(value) != 2:
         raise compilation_error("canonical scalar literal", "invalid local predicate")
     kind, body = value
+    if kind == "bool_tuple" and isinstance(body, tuple):
+        mask = _bool_tuple_value(body)
+        if mask is not None:
+            return mask
     if kind == "decimal" and isinstance(body, str):
         return Decimal(body)
     if kind == "date" and isinstance(body, str):
@@ -154,10 +190,24 @@ def predicate_mask(frame: pd.DataFrame, predicate: BoundPredicate) -> pd.Series:
     if predicate.kind == "is_in":
         if not isinstance(predicate.literal, tuple):
             raise compilation_error("typed membership literals", "invalid local membership")
-        result = column.isin([_literal(item) for item in predicate.literal])
+        literals = [_literal(item) for item in predicate.literal]
+        if any(isinstance(value, tuple) for value in literals):
+            result = column.map(
+                lambda value: any(compare_value(value, candidate) == 0 for candidate in literals)
+            )
+        else:
+            result = column.isin(literals)
     else:
         literal = _literal(predicate.literal)
-        if predicate.kind == "eq":
+        if isinstance(literal, tuple):
+            result = column.map(
+                lambda value: (
+                    compare_value(tuple(value) if isinstance(value, list) else value, literal) == 0
+                )
+            )
+            if predicate.kind == "not_eq":
+                result = ~result
+        elif predicate.kind == "eq":
             result = column == literal
         elif predicate.kind == "not_eq":
             result = column != literal
@@ -270,15 +320,21 @@ def _rank(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
 
 def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
     """Consume a validated private frame without mutating or serializing it."""
-    if call.method in ("metric.where", "delta.where") and call.predicate is not None:
+    if (
+        call.method in ("metric.where", "delta.where", "attribution.where")
+        and call.predicate is not None
+    ):
         result = frame.loc[predicate_mask(frame, call.predicate).fillna(False)].copy(deep=True)
     elif call.method == "metric.metric":
         result = frame.loc[:, [field.name for field in call.output_row.schema.columns]].copy(
             deep=True
         )
-    elif call.method in ("metric.rank", "delta.rank"):
+    elif call.method in ("metric.rank", "delta.rank", "attribution.rank"):
         result = _rank(frame, call)
-    elif call.method in ("metric.limit", "delta.limit") and call.limit is not None:
+    elif (
+        call.method in ("metric.limit", "delta.limit", "attribution.limit")
+        and call.limit is not None
+    ):
         result = frame.iloc[: call.limit].copy(deep=True)
     else:
         raise compilation_error(

@@ -29,6 +29,8 @@ import marivo.analysis.materialization.admission as admission
 import marivo.analysis.materialization.storage as storage
 import marivo.analysis.observation.ordering
 import marivo.analysis.operators.compare
+import marivo.analysis.operators.attribute
+import marivo.analysis.operators.attribute_expansion
 import marivo.datasource.backends as backends
 import marivo.datasource.metadata as metadata
 import marivo.datasource.secrets as secrets
@@ -287,6 +289,12 @@ with ExitStack() as stack:
         delta_ranked = delta_filtered.rank(delta_filtered.fields.get('delta'))
         delta_limited = delta_ranked.limit(2)
         assert delta_limited._root.operator_id == 'delta.limit'
+        attributed = comparisons[2].attribute(axes=[region])
+        component_attributed = aggregate_results[2].compare(aggregate_results[2]).attribute(axes=[region])
+        expanded_attributed = comparisons[1].attribute(axes=[region])
+        attributed_selected = attributed.where(eq(attributed.fields.get('active_axis_mask'), (True,)))
+        assert 'metric.expand_axes' not in original.contract().render()
+        assert 'delta.attribute_expanded' not in comparisons[1].contract().render()
         scalar_delta = comparisons[1]
 
         negative_failures = 0
@@ -325,7 +333,8 @@ with ExitStack() as stack:
         values = (original, dimensional, *filtered, canonical, eligible, sampled,
                   sampled_metrics, reduced, *grain_results, *aggregate_results,
                   folded, *ranked, *limited, *comparisons,
-                  delta_filtered, delta_ranked, delta_limited)
+                  delta_filtered, delta_ranked, delta_limited, attributed, component_attributed,
+                  expanded_attributed, attributed_selected)
         for index, value in enumerate(values):
             assert value.state.kind == 'logical'
             assert value.schema is value.row_contract.schema
@@ -367,7 +376,7 @@ def test_complete_source_construction_has_no_io() -> None:
     assert evidence["ties"] == 4
     assert evidence["guarded_negative_failures"] == 19
     assert evidence["guarded_entrypoints"] == 63
-    assert evidence["checked_definitions"] == 53
+    assert evidence["checked_definitions"] == 57
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "source",

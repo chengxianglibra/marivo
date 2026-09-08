@@ -50,9 +50,13 @@ def ordered_relation(
     row: DatasetRowContract,
     rows: DatasetRowSetContract,
 ) -> ir.Table:
-    if not isinstance(rows.ordering, _OrderedOrdering):
-        return table
     fields = {str(field.field_id): field.name for field in row.schema.columns}
+    if not isinstance(rows.ordering, _OrderedOrdering):
+        if not row.key_field_ids:
+            return table
+        return table.order_by(
+            [ibis.asc(table[fields[str(key)]], nulls_first=False) for key in row.key_field_ids]
+        )
     return table.order_by(
         [
             ibis.asc(table[fields[str(term.field_id)]], nulls_first=term.nulls == "first")

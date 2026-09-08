@@ -22,6 +22,8 @@ from marivo.analysis.materialization.local_worker import (
     LocalStage,
     StreamInput,
 )
+from marivo.analysis.observation.contracts import EntityReducedMetricSemantics
+from marivo.analysis.observation.fold_contracts import fold_part_role
 from marivo.analysis.operators.row import PartFrame, RowCall
 from tests.lazy_compare_fixtures import comparison_spec
 
@@ -30,6 +32,9 @@ def test_comparison_releases_row_method_parts_before_next_stage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     spec = comparison_spec()
+    semantics = spec.current_row.family_semantics
+    assert isinstance(semantics, EntityReducedMetricSemantics)
+    authority = semantics.metric_folds[0]
     released: list[weakref.ReferenceType[pd.DataFrame]] = []
     tail_checked = False
 
@@ -58,20 +63,35 @@ def test_comparison_releases_row_method_parts_before_next_stage(
         result = frame.copy(deep=True)
         output_parts: tuple[PartFrame, ...] = ()
         if calls[0].method == "metric.where":
-            retained = pd.DataFrame(
-                {"state": pd.Series(["x" * 2048], dtype=pd.ArrowDtype(pa.string()))}
-            )
+            retained = pd.DataFrame({"region": result["region"]})
+            for component in authority.components:
+                for kind, name in component.state_columns:
+                    retained[name] = pd.Series(
+                        [4.0] if kind == "sum" else [1],
+                        dtype="double[pyarrow]" if kind == "sum" else "int64[pyarrow]",
+                    )
             released.append(weakref.ref(retained))
             output_parts = (
                 PartFrame(
-                    "test_state", "test_state", 1, pa.Schema.from_pandas(retained), (), retained
+                    fold_part_role(authority),
+                    "metric.sufficient_components",
+                    1,
+                    pa.Schema.from_pandas(retained),
+                    ("region",),
+                    retained,
                 ),
             )
         else:
             gc.collect()
             assert len(released) == 1 and released[0]() is None
-            assert parts == ()
-            assert budget.live_bytes == frame_bytes(frame)
+            assert {part.role for part in parts} == {
+                "delta_components.current",
+                "delta_components.baseline",
+            }
+            assert budget.live_bytes == frame_bytes(frame) + sum(
+                frame_bytes(part.frame) for part in parts
+            )
+            output_parts = parts
             tail_checked = True
         old_size = frame_bytes(frame) + sum(frame_bytes(part.frame) for part in parts)
         new_size = frame_bytes(result) + sum(frame_bytes(part.frame) for part in output_parts)
@@ -113,7 +133,7 @@ def test_comparison_releases_row_method_parts_before_next_stage(
     )
     parent, child = Pipe()
     try:
-        output, _, _, _ = local_worker._execute_graph(
+        output, _, _, _, _ = local_worker._execute_graph(
             parent, request, LocalBudget(request.policy, request.deadline)
         )
     finally:

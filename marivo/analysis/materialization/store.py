@@ -915,8 +915,8 @@ class SessionStore:
             finding_set_digest,
         )
         from marivo.analysis.evidence._dataset_reads import _validate
-        from marivo.analysis.materialization.comparison_publication import (
-            delta_finding_registration,
+        from marivo.analysis.materialization.attribution_publication import (
+            finding_registration,
         )
 
         if (
@@ -929,7 +929,7 @@ class SessionStore:
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("publication requires one incomplete producer")
             now = _now()
-            registration = delta_finding_registration(checked)
+            registration = finding_registration(checked)
             envelope = ArtifactRecord(
                 artifact_ref,
                 run.session_ref,

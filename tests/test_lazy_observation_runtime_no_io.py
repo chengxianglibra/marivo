@@ -21,6 +21,8 @@ import marivo.analysis.evidence.store as evidence_store
 import marivo.datasource.backends as backends
 import marivo.analysis.observation.ordering
 import marivo.analysis.operators.compare
+import marivo.analysis.operators.attribute
+import marivo.analysis.operators.attribute_expansion
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.session.core import Session
@@ -101,6 +103,7 @@ guards = (
     (evidence_store.EvidenceStore, '__init__', 'evidence'),
     (evidence_store.EvidenceStore, 'transaction', 'evidence'),
     (NoIoActionPort, 'execute_delta', 'run'),
+    (NoIoActionPort, 'execute_attribution', 'run'),
 )
 with ExitStack() as stack:
     for owner, name, kind in guards:
@@ -129,6 +132,11 @@ with ExitStack() as stack:
     delta_limited = delta_ranked.limit(3)
     assert delta_limited.kind == 'delta'
     assert delta_limited._root.operator_id == 'delta.limit'
+    attributed = comparison.attribute(axes=[region])
+    selected_attribution = attributed.where(eq(attributed.fields.get('other_mask'), (False,)))
+    ranked_attribution = selected_attribution.rank(selected_attribution.fields.get('contribution'))
+    limited_attribution = ranked_attribution.limit(3)
+    assert 'delta.attribute_expanded' not in comparison.contract().render()
     tip = filtered
     for _ in range(80):
         tip = tip.where(gt(tip.fields.metric(revenue), 0))
@@ -140,7 +148,8 @@ with ExitStack() as stack:
         changed = sources.observe(api_value, time_scope=window)
     assert captured.definition_fingerprint != changed.definition_fingerprint
     values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
-              comparison, delta_filtered, delta_ranked, delta_limited)
+              comparison, delta_filtered, delta_ranked, delta_limited,
+              attributed, selected_attribution, ranked_attribution, limited_attribution)
     for value in values:
         assert value.schema is value.row_contract.schema
         assert value.state.kind == 'logical'
@@ -200,9 +209,9 @@ def test_actual_private_observation_chain_is_pure() -> None:
     evidence = json.loads(result.stdout)
     assert evidence["final_shape"] == "metric/dimension-time@v1"
     assert evidence["deep_filter_nodes"] == 80
-    assert evidence["checked_definitions"] == 13
+    assert evidence["checked_definitions"] == 17
     assert evidence["guarded_negative_failures"] == 5
-    assert evidence["guarded_entrypoints"] == 28
+    assert evidence["guarded_entrypoints"] == 29
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "datasource",

@@ -168,6 +168,9 @@ class DeltaSemantics(DatasetFamilyRowSemantics, _token=_CORE_TOKEN):
     exact_empty_zero: bool
     current_time_field_name: str | None
     baseline_time_field_name: str | None
+    current_fold_authority: str
+    baseline_fold_authority: str
+    approximation_class: Literal["exact", "sampled_population"]
     kind: Literal["delta/metric@v1"] = field(default="delta/metric@v1", init=False)
 
 

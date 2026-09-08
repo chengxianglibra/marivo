@@ -71,6 +71,7 @@ class FindingRegistration:
     source_fields: tuple[d.DatasetFieldId, ...]
     canonical_item_key: Callable[[t.Finding], str]
     contribution_method: str | None = None
+    active_axis_masks: tuple[tuple[bool, ...], ...] = ()
 
     def __post_init__(self) -> None:
         for value in (
@@ -192,8 +193,13 @@ def _validate(
         raise invalid("Finding body contradicts its exact producer/extractor registration")
     if isinstance(finding.value, t.ContributionFindingValueV1):
         axes = sum(rule.decomposition_axis_index is not None for rule in registration.coordinates)
-        if len(finding.value.active_axis_mask) != axes or (
-            finding.value.method != registration.contribution_method
+        if (
+            len(finding.value.active_axis_mask) != axes
+            or (finding.value.method != registration.contribution_method)
+            or (
+                registration.active_axis_masks
+                and finding.value.active_axis_mask not in registration.active_axis_masks
+            )
         ):
             raise invalid("Contribution mask or method contradicts its registration")
     for coordinate, rule in zip(finding.coordinates, registration.coordinates, strict=True):
@@ -259,11 +265,11 @@ def findings(
             raise _selection_error()
         ordinal = position
     if registration is None:
-        from marivo.analysis.materialization.comparison_publication import (
-            delta_finding_registration,
+        from marivo.analysis.materialization.attribution_publication import (
+            finding_registration,
         )
 
-        registration = delta_finding_registration(record.descriptor)
+        registration = finding_registration(record.descriptor)
     _registration(record, registration)
     selected = conn.execute(
         "SELECT finding_ref,finding_ordinal FROM findings "
@@ -306,11 +312,11 @@ def finding(
     if type(finding_id) is not str or not finding_id or len(finding_id) > 4096:
         raise _selection_error()
     if registration is None:
-        from marivo.analysis.materialization.comparison_publication import (
-            delta_finding_registration,
+        from marivo.analysis.materialization.attribution_publication import (
+            finding_registration,
         )
 
-        registration = delta_finding_registration(record.descriptor)
+        registration = finding_registration(record.descriptor)
     _registration(record, registration)
     row = conn.execute(
         "SELECT finding_ref,finding_ordinal,finding_identity_digest,finding_body_payload FROM findings "
@@ -342,11 +348,11 @@ def audit_findings(
 ) -> None:
     """Stream the complete ordinal set and validate count, bodies, and canonical digest."""
     if registration is None:
-        from marivo.analysis.materialization.comparison_publication import (
-            delta_finding_registration,
+        from marivo.analysis.materialization.attribution_publication import (
+            finding_registration,
         )
 
-        registration = delta_finding_registration(record.descriptor)
+        registration = finding_registration(record.descriptor)
     _registration(record, registration)
     if check is not None:
         check()
