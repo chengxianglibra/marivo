@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from marivo.analysis.materialization.contracts import RunFailure
 from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.materialization.ownership import owns_resource
 from marivo.analysis.materialization.resources import discharge_resources
 from marivo.analysis.materialization.store import SessionStore
 
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.targets import S3Access
+
 
 def reconcile_session(
-    store: SessionStore, session_ref: str, *, event: Callable[[str], None]
+    store: SessionStore,
+    session_ref: str,
+    *,
+    event: Callable[[str], None],
+    object_bindings: tuple[S3Access, ...] = (),
 ) -> None:
     """Resolve only the guarded Session's admissions and exact resource obligations."""
     event("reconciliation")
@@ -34,7 +43,7 @@ def reconcile_session(
                 run_ref=run.run_ref,
             )
         owned = tuple(item for item in resources if item.run_ref == run.run_ref)
-        resolved = discharge_resources(store, owned)
+        resolved = discharge_resources(store, owned, object_bindings)
         store.fail(
             run.run_ref,
             RunFailure(
@@ -65,12 +74,11 @@ def reconcile_session(
                     stage="reconciliation",
                     run_ref=run_ref,
                 )
-            prefix = (
-                store.layout.artifact_dir(session_ref, output.artifact_ref)
-                .relative_to(store.project_root)
-                .as_posix()
+            receipts = (
+                output.descriptor.storage_receipt,
+                *(part.storage_receipt for part in output.descriptor.retained_parts),
             )
-            if any(item.safe_locator == prefix for item in owned):
+            if any(owns_resource(receipt, item) for item in owned for receipt in receipts):
                 raise IntegrityError(
                     expected="output ownership transferred in the publication transaction",
                     received="a committed output still reserved for cleanup",
@@ -78,5 +86,5 @@ def reconcile_session(
                     stage="reconciliation",
                     run_ref=run_ref,
                 )
-        for resource in discharge_resources(store, owned):
+        for resource in discharge_resources(store, owned, object_bindings):
             store.discharge(resource)

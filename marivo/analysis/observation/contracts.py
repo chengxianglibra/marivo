@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast
 
@@ -666,7 +667,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         admitted_types=types,
         physical_type_classes=frozenset((kind, kind) for kind in types),
         value_orders=frozenset({"observation.identity_tuple@v1", "observation.scalar_order@v1"}),
-        storage_kinds=frozenset({"parquet"}),
+        storage_kinds=frozenset({"parquet", "engine", "object"}),
         byte_unavailable_reasons=frozenset({"not_measured"}),
     )
 
@@ -1211,16 +1212,28 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     return registry
 
 
-def semantic_dependency_digest(dataset: Dataset) -> str:
+def semantic_dependency_digest(
+    dataset: Dataset,
+    *,
+    retained_semantic_digests: Mapping[str, str] | None = None,
+) -> str:
     """Hash the complete frozen semantic closure without inspecting live authoring state."""
     from marivo.analysis.datasets.descriptors import _field_binding_fingerprint
-    from marivo.analysis.datasets.handles import LogicalRootHandle
+    from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 
     facts: set[str] = set()
     visited: set[int] = set()
     roots = [dataset._root]
     while roots:
         root = roots.pop()
+        if isinstance(root, MaterializedScanLeafHandle) and retained_semantic_digests is not None:
+            retained = retained_semantic_digests.get(root.artifact_ref.ref)
+            if retained is None:
+                raise construction_error(
+                    "selected committed semantic dependency authority", "missing retained authority"
+                )
+            facts.add(retained)
+            continue
         if not isinstance(root, LogicalRootHandle):
             raise construction_error(
                 "frozen logical Observation semantic dependencies",

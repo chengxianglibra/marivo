@@ -17,30 +17,45 @@ import pandas as pd
 import pyarrow as pa
 import sqlglot
 from duckdb import DuckDBPyConnection
+from duckdb import __version__ as _duckdb_version
 from ibis.backends.duckdb import Backend
 from sqlglot import expressions as sge
 
 from marivo.analysis.compiler import captured_parameters, compile_dataset, required_entities
-from marivo.analysis.compiler.nodes import CompiledSampleFence
-from marivo.analysis.compiler.normalize import logical_roots
+from marivo.analysis.compiler.nodes import (
+    CompiledArtifactScan,
+    CompiledDataset,
+    CompiledSampleFence,
+)
+from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
 from marivo.analysis.compiler.placement import (
     ArtifactReadStep,
+    EngineBinding,
+    ExecutionBinding,
     PhysicalStageGraph,
+    SourceBinding,
     SourceStep,
     place,
+    source_binding,
 )
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
+from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
 from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
 from marivo.analysis.evidence.types import ArtifactDigest
 from marivo.analysis.materialization import recovery
 from marivo.analysis.materialization.contracts import (
+    ArtifactDescriptor,
     ArtifactRecord,
+    EngineReceipt,
+    LocalReceipt,
     ResourceRecord,
     RunDatasetInput,
     RunFailure,
     RunRecord,
     SamplingRealization,
+    StorageReceipt,
+    run_failure_phase,
 )
 from marivo.analysis.materialization.errors import (
     IntegrityError,
@@ -57,7 +72,13 @@ from marivo.analysis.materialization.local_worker import (
     StreamInput,
     supervise,
 )
+from marivo.analysis.materialization.ownership import owns_resource
 from marivo.analysis.materialization.publication import make_descriptor, materialization_contract
+from marivo.analysis.materialization.reads import (
+    read_preview,
+    read_primary,
+    validate_sampling_state,
+)
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.resources import (
     backend_reservation,
@@ -72,19 +93,27 @@ from marivo.analysis.materialization.sampling import (
     sample_statement,
 )
 from marivo.analysis.materialization.storage import (
-    LocalWriteResult,
+    DatasetWriteResult,
     PartWriteSpec,
     ReadPolicy,
-    read_preview,
-    read_primary,
     sampling_state_read,
-    validate_sampling_state,
     write_local_dataset,
 )
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization.targets import (
+    EngineTarget,
+    LocalTarget,
+    MaterializationTarget,
+    ObjectTarget,
+    S3Access,
+    engine_domain,
+    object_access,
+    selection_error,
+)
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
     MetricPayload,
+    ObservationOwner,
     PopulationPayload,
     RetainedRowsPayload,
 )
@@ -102,7 +131,7 @@ from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScala
 from marivo.datasource.json_source import read_json_source
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import TargetEntityContract
-from marivo.semantic.validator import Registry
+from marivo.semantic.validator import Registry, normalize_target_entity
 
 _MAX_BATCH_BYTES = 8_388_608
 # Engine work and retained collection have separate deadlines and cancellation owners.
@@ -110,6 +139,7 @@ _SOURCE_EXECUTION_DEADLINE_SECONDS = 60.0
 _PREVIEW_MAX_OUTPUT_BYTES = 8192
 _READ_POLICY = ReadPolicy()
 _LOCAL_POLICY = LocalPolicy()
+_DEFAULT_TARGET = LocalTarget()
 
 
 @dataclass(slots=True)
@@ -250,10 +280,14 @@ class DatasetRuntime:
         *,
         event: Callable[[str], None] | None = None,
         local_policy: LocalPolicy = _LOCAL_POLICY,
+        target: MaterializationTarget = _DEFAULT_TARGET,
+        object_bindings: tuple[S3Access, ...] = (),
     ) -> None:
         if store.session(session_ref) is None:
             raise _error("authority_resolution")
         self.store = store
+        self.target = target
+        self.object_bindings = object_bindings
         self.local_policy = local_policy
         self.session_ref = session_ref
         self._hook = event
@@ -262,24 +296,50 @@ class DatasetRuntime:
 
     @classmethod
     def create(
-        cls, project_root: Path, name: str, *, event: Callable[[str], None] | None = None
+        cls,
+        project_root: Path,
+        name: str,
+        *,
+        event: Callable[[str], None] | None = None,
+        target: MaterializationTarget = _DEFAULT_TARGET,
+        object_bindings: tuple[S3Access, ...] = (),
     ) -> DatasetRuntime:
         store = SessionStore(project_root)
         existing = store.session_by_name(name)
         if existing is not None:
-            return cls(store, existing.session_ref, event=event)
+            return cls(
+                store,
+                existing.session_ref,
+                event=event,
+                target=target,
+                object_bindings=object_bindings,
+            )
         session_ref = "session_" + uuid4().hex
         with session_writer_guard(store.layout.lock_path(session_ref)):
             record = store.create_session(name, session_ref=session_ref)
-        return cls(store, record.session_ref, event=event)
+        return cls(
+            store, record.session_ref, event=event, target=target, object_bindings=object_bindings
+        )
 
     @classmethod
     def open(
-        cls, project_root: Path, session_ref: str, *, event: Callable[[str], None] | None = None
+        cls,
+        project_root: Path,
+        session_ref: str,
+        *,
+        event: Callable[[str], None] | None = None,
+        target: MaterializationTarget = _DEFAULT_TARGET,
+        object_bindings: tuple[S3Access, ...] = (),
     ) -> DatasetRuntime:
         if not MaterializationLayout(project_root).store_db.is_file():
             raise _error("authority_resolution")
-        return cls(SessionStore(project_root), session_ref, event=event)
+        return cls(
+            SessionStore(project_root),
+            session_ref,
+            event=event,
+            target=target,
+            object_bindings=object_bindings,
+        )
 
     def sources(
         self, *, semantic_registry: Registry, sidecar: CompiledExpressionSidecar
@@ -298,6 +358,9 @@ class DatasetRuntime:
             self._hook(point)
 
     def _record_statement(self, kind: str, sql: str) -> None:
+        if kind.startswith("engine_check."):
+            self.statistics.validation_queries += 1
+            self._event("source_statement")
         # Diagnostics retain SQL structure only; source parameters and literals stay private.
         expression = sqlglot.parse_one(sql, read="duckdb")
         safe = expression.transform(
@@ -347,6 +410,7 @@ class DatasetRuntime:
             row_contract=dataset.row_contract,
             row_set_contract=dataset.row_set_contract,
             policy=_READ_POLICY,
+            bindings=self.object_bindings,
         )
         limit = min(
             _PREVIEW_MAX_OUTPUT_BYTES,
@@ -387,6 +451,7 @@ class DatasetRuntime:
             row_contract=dataset.row_contract,
             row_set_contract=dataset.row_set_contract,
             policy=_READ_POLICY,
+            bindings=self.object_bindings,
         )
 
     def evidence_digest(self, dataset: MaterializedDataset) -> ArtifactDigest:
@@ -435,12 +500,47 @@ class DatasetRuntime:
         self.statistics = ExecutionStatistics()
         self.last_run_ref = None
         with session_writer_guard(self.store.layout.lock_path(self.session_ref)):
-            reconcile_session(self.store, self.session_ref, event=self._event)
+            reconcile_session(
+                self.store,
+                self.session_ref,
+                event=self._event,
+                object_bindings=self.object_bindings,
+            )
             hit = self.store.lookup(self.session_ref, key)
             if hit is not None:
                 self.last_run_ref = hit.producing_run_ref
                 return self._recover(hit)
-            physical = place(dataset)
+            retained_inputs = artifact_inputs(dataset)
+            records = {
+                value.state.artifact_ref.ref: self._selected(value) for value in retained_inputs
+            }
+            candidate_binding = (
+                source_binding(dataset) if isinstance(dataset._owner, ObservationOwner) else None
+            )
+
+            def admitted_binding(value: MaterializedDataset) -> ExecutionBinding | None:
+                receipt = records[value.state.artifact_ref.ref].descriptor.storage_receipt
+                if (
+                    candidate_binding is not None
+                    and isinstance(receipt, EngineReceipt)
+                    and value.kind == "population"
+                    and receipt.datasource_ref == candidate_binding.datasource_id
+                    and receipt.execution_domain_id == engine_domain(candidate_binding)
+                ):
+                    return candidate_binding
+                if candidate_binding is None and isinstance(receipt, EngineReceipt):
+                    from marivo.analysis.operators.registry import admit_primary_only
+
+                    admit_primary_only(value)
+                    return EngineBinding(
+                        self,
+                        receipt.datasource_ref,
+                        receipt.execution_domain_id,
+                        adapter_versions=(_duckdb_version, ibis.__version__),
+                    )
+                return None
+
+            physical = place(dataset, artifact_binding=admitted_binding)
             source_steps = tuple(step for step in physical.steps if isinstance(step, SourceStep))
             artifact_steps = tuple(
                 step for step in physical.steps if isinstance(step, ArtifactReadStep)
@@ -453,9 +553,19 @@ class DatasetRuntime:
                 raise _error("implementation_registration")
             source_step = source_steps[0] if source_steps else None
             source_dataset = source_step.dataset if source_step is not None else None
-            entities = required_entities(source_dataset) if source_dataset is not None else ()
+            entities = (
+                required_entities(source_dataset)
+                if source_dataset is not None
+                and source_step is not None
+                and isinstance(source_step.binding, SourceBinding)
+                else ()
+            )
             captures = captured_parameters(source_dataset) if source_dataset is not None else ()
             inherited = None
+            if records and source_step is not None:
+                if len(records) != 1:
+                    raise _error("implementation_registration")
+                inherited = next(iter(records.values())).descriptor
             if artifact_steps:
                 inherited = self._selected(artifact_steps[0].dataset).descriptor
                 if inherited.retained_parts or inherited.sampling_execution:
@@ -476,33 +586,51 @@ class DatasetRuntime:
                     tuple(dict.fromkeys(root.operator_id for root in roots))[:64],
                     tuple(f"{entity.ref.kind.value}:{entity.ref.path}" for entity in entities)[:64],
                 ),
-                input_artifact_refs=tuple(
-                    step.dataset.state.artifact_ref.ref for step in artifact_steps
-                ),
+                input_artifact_refs=tuple(records),
             )
             self.last_run_ref = run.run_ref
             backend: Backend | None = None
             execution: ResourceRecord | None = None
             opening = False
-            phase = "authority_resolution"
+            phase = "storage_selection"
             pending_error: MaterializationError | None = None
             try:
+                target = self.target
+                object_bindings = self.object_bindings
+                self._validate_target(source_step, physical, target, object_bindings)
+                phase = "authority_resolution"
                 validations: list[tuple[str, int]] = []
                 sampling: list[SamplingRealization] = []
                 if source_step is not None and source_dataset is not None:
                     domain = source_step.binding.datasource_id
-                    datasource = source_step.binding.owner.semantic_registry.datasources[domain]
-                    self._event("profile_resolution")
-                    require_profile_for_backend_type(datasource.backend_type)
-                    self._event("credential_resolution")
-                    effective = _effective_kwargs(datasource)
-                    execution = backend_reservation(run.run_ref, domain)
-                    self.store.reserve(execution)
-                    self._event("resource_create")
-                    opening = True
-                    candidate: object = _build_backend_from_effective(
-                        datasource, effective, read_only=True
-                    ).backend
+                    candidate: object
+                    if isinstance(source_step.binding, EngineBinding):
+                        from marivo.analysis.materialization.engine import checked_engine_path
+
+                        if len(records) != 1:
+                            raise _error("execution_boundary", run.run_ref)
+                        selected_receipt = next(iter(records.values())).descriptor.storage_receipt
+                        if not isinstance(selected_receipt, EngineReceipt):
+                            raise _error("execution_boundary", run.run_ref)
+                        path = checked_engine_path(self.store.project_root, selected_receipt)
+                        execution = backend_reservation(run.run_ref, domain)
+                        self.store.reserve(execution)
+                        self._event("resource_create")
+                        opening = True
+                        candidate = ibis.duckdb.connect(str(path), read_only=True)
+                    else:
+                        datasource = source_step.binding.owner.semantic_registry.datasources[domain]
+                        self._event("profile_resolution")
+                        require_profile_for_backend_type(datasource.backend_type)
+                        self._event("credential_resolution")
+                        effective = _effective_kwargs(datasource)
+                        execution = backend_reservation(run.run_ref, domain)
+                        self.store.reserve(execution)
+                        self._event("resource_create")
+                        opening = True
+                        candidate = _build_backend_from_effective(
+                            datasource, effective, read_only=True
+                        ).backend
                     if not isinstance(candidate, Backend):
                         raise _error("execution_boundary", run.run_ref)
                     backend = candidate
@@ -540,7 +668,41 @@ class DatasetRuntime:
                         else:
                             raise _error("source_binding", run.run_ref)
                     phase = "ibis_expression_construction"
-                    recipe = compile_dataset(source_dataset, tables)
+                    engine_inputs: list[tuple[ir.Table, EngineReceipt, DatasetRowContract]] = []
+                    if isinstance(source_step.binding, EngineBinding):
+                        from marivo.analysis.compiler.lowering import compile_retained_rows
+
+                        tables["retained"] = backend.table("rows")
+                        descriptor = next(iter(records.values())).descriptor
+                        if not isinstance(descriptor.storage_receipt, EngineReceipt):
+                            raise _error("execution_boundary", run.run_ref)
+                        engine_inputs.append(
+                            (
+                                tables["retained"],
+                                descriptor.storage_receipt,
+                                descriptor.row_contract,
+                            )
+                        )
+                        recipe = compile_retained_rows(source_dataset, tables["retained"])
+                    else:
+                        scans: dict[str, CompiledArtifactScan] = {}
+                        for reference, selected_record in records.items():
+                            descriptor = selected_record.descriptor
+                            receipt = descriptor.storage_receipt
+                            if not isinstance(receipt, EngineReceipt):
+                                raise _error("execution_boundary", run.run_ref)
+                            if descriptor.sampling_execution or descriptor.retained_parts:
+                                raise _error("implementation_registration", run.run_ref)
+                            from marivo.analysis.materialization.engine import attach_engine_scan
+
+                            table = attach_engine_scan(backend, self.store.project_root, receipt)
+                            engine_inputs.append((table, receipt, descriptor.row_contract))
+                            entity = normalize_target_entity(
+                                source_step.binding.owner.semantic_registry,
+                                descriptor.population_authority.entity_ref,
+                            )
+                            scans[reference] = CompiledArtifactScan(table, entity)
+                        recipe = compile_dataset(source_dataset, tables, scans=scans)
                     if physical.local_steps and recipe.retained_parts:
                         raise _error("implementation_registration", run.run_ref)
                     phase = "ibis_backend_compile"
@@ -555,6 +717,12 @@ class DatasetRuntime:
                             backend.compile(preparation.expression)
                     phase = "source_binding"
                     with _engine_deadline(backend):
+                        from marivo.analysis.materialization.engine import validate_engine_relation
+
+                        for table, receipt, row in engine_inputs:
+                            validate_engine_relation(
+                                backend, table, receipt, row, self._record_statement
+                            )
                         for entity in entities:
                             if isinstance(entity.source, TableSourceIR):
                                 self._validate_source_schema(backend, entity)
@@ -630,49 +798,64 @@ class DatasetRuntime:
                                     run_ref=run.run_ref,
                                 )
                             validations.append((validation.name, value))
-                        batch_rows = self._batch_rows(backend, tables, recipe.expression)
-                        incoming = self._batches(backend, recipe.expression, batch_rows)
-                        if physical.local_steps:
-                            if recipe.retained_parts:
-                                raise _error("implementation_registration", run.run_ref)
-                            local_result = self._run_local(
-                                physical,
-                                StreamInput(
-                                    source_dataset.row_contract, source_dataset.row_set_contract
-                                ),
+                        if isinstance(target, EngineTarget):
+                            phase = "storage_staging"
+                            artifact_ref, storage = self._write_output(
+                                dataset,
+                                (),
+                                run.run_ref,
+                                sampling=tuple(sampling),
+                                source_key_validation=True,
+                                engine=(backend, source_step.binding, recipe),
+                                target=target,
+                                object_bindings=object_bindings,
+                            )
+                        else:
+                            batch_rows = self._batch_rows(backend, tables, recipe.expression)
+                            incoming = self._batches(backend, recipe.expression, batch_rows)
+                            if physical.local_steps:
+                                if recipe.retained_parts:
+                                    raise _error("implementation_registration", run.run_ref)
+                                local_result = self._run_local(
+                                    physical,
+                                    StreamInput(
+                                        source_dataset.row_contract, source_dataset.row_set_contract
+                                    ),
+                                    incoming,
+                                    run.run_ref,
+                                    cancel_source=backend.con.interrupt,
+                                )
+                                incoming = iter(local_result.table.to_batches(max_chunksize=1024))
+                                validations = [
+                                    (
+                                        "source_prefix.final_row_key_unique"
+                                        if name == "dataset.final_row_key_unique"
+                                        else name,
+                                        value,
+                                    )
+                                    for name, value in validations
+                                ]
+                                validations.append(("dataset.final_row_key_unique", 0))
+                            phase = "storage_staging"
+                            artifact_ref, storage = self._write_output(
+                                dataset,
                                 incoming,
                                 run.run_ref,
-                                cancel_source=backend.con.interrupt,
+                                parts=tuple(
+                                    PartWriteSpec(
+                                        part.role,
+                                        part.contract_id,
+                                        part.contract_version,
+                                        part.column_names,
+                                    )
+                                    for part in recipe.retained_parts
+                                ),
+                                sampling=tuple(sampling),
+                                target=target,
+                                object_bindings=object_bindings,
+                                source_key_validation=("dataset.final_row_key_unique", 0)
+                                in validations,
                             )
-                            incoming = iter(local_result.table.to_batches(max_chunksize=1024))
-                            validations = [
-                                (
-                                    "source_prefix.final_row_key_unique"
-                                    if name == "dataset.final_row_key_unique"
-                                    else name,
-                                    value,
-                                )
-                                for name, value in validations
-                            ]
-                            validations.append(("dataset.final_row_key_unique", 0))
-                        phase = "storage_staging"
-                        artifact_ref, storage = self._write_output(
-                            dataset,
-                            incoming,
-                            run.run_ref,
-                            parts=tuple(
-                                PartWriteSpec(
-                                    part.role,
-                                    part.contract_id,
-                                    part.contract_version,
-                                    part.column_names,
-                                )
-                                for part in recipe.retained_parts
-                            ),
-                            sampling=tuple(sampling),
-                            source_key_validation=("dataset.final_row_key_unique", 0)
-                            in validations,
-                        )
                 else:
                     if inherited is None:
                         raise _error("authority_resolution", run.run_ref)
@@ -684,8 +867,15 @@ class DatasetRuntime:
                             inherited.storage_receipt,
                             inherited.row_contract,
                             inherited.row_set_contract,
+                        )
+                        if isinstance(inherited.storage_receipt, LocalReceipt)
+                        else StreamInput(
+                            inherited.row_contract,
+                            inherited.row_set_contract,
                         ),
-                        (),
+                        self._artifact_batches(inherited, object_bindings)
+                        if not isinstance(inherited.storage_receipt, LocalReceipt)
+                        else (),
                         run.run_ref,
                         cancel_source=lambda: None,
                     )
@@ -696,7 +886,16 @@ class DatasetRuntime:
                         local_result.table.to_batches(max_chunksize=1024),
                         run.run_ref,
                         source_key_validation=True,
+                        target=target,
+                        object_bindings=object_bindings,
                     )
+                for input_record in records.values():
+                    if isinstance(input_record.descriptor.storage_receipt, EngineReceipt):
+                        from marivo.analysis.materialization.engine import checked_engine_path
+
+                        checked_engine_path(
+                            self.store.project_root, input_record.descriptor.storage_receipt
+                        )
                 phase = "quality"
                 self._event("quality")
                 descriptor = make_descriptor(
@@ -707,7 +906,9 @@ class DatasetRuntime:
                     tuple(sampling),
                     inherited=inherited,
                 )
-                validate_sampling_state(self.store.project_root, sampling_state_read(descriptor))
+                validate_sampling_state(
+                    self.store.project_root, sampling_state_read(descriptor), object_bindings
+                )
                 phase = "evidence"
                 self._event("evidence")
                 if backend is not None and execution is not None:
@@ -721,11 +922,22 @@ class DatasetRuntime:
                     for item in self.store.resources(self.session_ref)
                     if item.run_ref == run.run_ref
                 )
+                receipts = (
+                    descriptor.storage_receipt,
+                    *(part.storage_receipt for part in descriptor.retained_parts),
+                )
+                outputs = tuple(
+                    item
+                    for item in resources
+                    if any(owns_resource(receipt, item) for receipt in receipts)
+                )
+                garbage = tuple(item for item in resources if item not in outputs)
+                resolved = discharge_resources(self.store, garbage, object_bindings)
                 record = self.store.publish(
                     run.run_ref,
                     artifact_ref,
                     descriptor,
-                    resolved_resources=resources,
+                    resolved_resources=(*outputs, *resolved),
                     event=self._event,
                 )
                 phase = "presentation"
@@ -744,7 +956,9 @@ class DatasetRuntime:
                 # Retain only owner-safe error facts, never a datasource exception chain.
                 safe = exc if isinstance(exc, MaterializationError) else _error(phase, run.run_ref)
                 try:
-                    recovered = self._resolve_outcome(run, safe, safe.stage)
+                    recovered = self._resolve_outcome(
+                        run, safe, run_failure_phase(safe.stage, phase), object_bindings
+                    )
                     if recovered is not None:
                         return recovered
                     pending_error = MaterializationError(
@@ -784,7 +998,10 @@ class DatasetRuntime:
         parts: tuple[PartWriteSpec, ...] = (),
         sampling: tuple[SamplingRealization, ...] = (),
         source_key_validation: bool,
-    ) -> tuple[str, LocalWriteResult]:
+        target: MaterializationTarget,
+        object_bindings: tuple[S3Access, ...],
+        engine: tuple[Backend, ExecutionBinding, CompiledDataset] | None = None,
+    ) -> tuple[str, DatasetWriteResult[StorageReceipt]]:
         nonce = uuid4().hex
         artifact_ref = "artifact_" + nonce
         staging, final, _ = reserve_output(
@@ -793,8 +1010,34 @@ class DatasetRuntime:
             session_ref=self.session_ref,
             artifact_ref=artifact_ref,
             nonce=nonce,
+            storage_kind="engine" if isinstance(target, EngineTarget) else "local",
         )
         self._event("output_reserved")
+        if isinstance(target, EngineTarget):
+            from marivo.analysis.materialization.engine import write_engine_dataset
+
+            if engine is None:
+                raise _error("storage_selection", run_ref)
+            backend, binding, recipe = engine
+            result = write_engine_dataset(
+                store=self.store,
+                run_ref=run_ref,
+                session_ref=self.session_ref,
+                artifact_ref=artifact_ref,
+                staging=staging,
+                final=final,
+                backend=backend,
+                binding=binding,
+                recipe=recipe,
+                row=dataset.row_contract,
+                rows=dataset.row_set_contract,
+                sampling=sampling,
+                policy=target.policy,
+                event=self._event,
+                record=self._record_statement,
+            )
+            self.statistics.primary_queries += 1
+            return artifact_ref, result
         storage = write_local_dataset(
             project_root=self.store.project_root,
             staging_path=staging,
@@ -805,9 +1048,72 @@ class DatasetRuntime:
             parts=parts,
             sampling=sampling,
             source_key_validation=source_key_validation,
+            policy=target.policy,
             event=self._event,
         )
+        if isinstance(target, ObjectTarget):
+            from marivo.analysis.materialization.object_storage import write_object_dataset
+
+            return artifact_ref, write_object_dataset(
+                store=self.store,
+                run_ref=run_ref,
+                session_ref=self.session_ref,
+                artifact_ref=artifact_ref,
+                source=storage,
+                access=object_access(object_bindings, target.object_store_ref),
+                max_stored_bytes=target.policy.max_stored_bytes,
+                event=self._event,
+            )
         return artifact_ref, storage
+
+    def _validate_target(
+        self,
+        source: SourceStep | None,
+        physical: PhysicalStageGraph,
+        target: MaterializationTarget,
+        object_bindings: tuple[S3Access, ...],
+    ) -> None:
+        if not isinstance(target, (LocalTarget, EngineTarget, ObjectTarget)):
+            selection_error("one supported configured target", "unknown target")
+        if any(
+            type(value) is not int or value <= 0
+            for value in (
+                target.policy.max_stored_bytes,
+                target.policy.max_batch_bytes,
+                target.policy.row_group_rows,
+            )
+        ):
+            selection_error("positive fixed storage budgets", "invalid storage policy")
+        if isinstance(target, EngineTarget) and (
+            source is None
+            or physical.local_steps
+            or source.binding.datasource_id != target.datasource_ref
+        ):
+            selection_error(
+                "an engine target in the exact existing producer domain",
+                "incompatible engine output domain",
+            )
+        if isinstance(target, ObjectTarget):
+            from marivo.analysis.materialization.object_storage import validate_target
+
+            validate_target(object_access(object_bindings, target.object_store_ref))
+
+    def _artifact_batches(
+        self, descriptor: ArtifactDescriptor, object_bindings: tuple[S3Access, ...]
+    ) -> Iterator[pa.RecordBatch]:
+        from marivo.analysis.materialization.reads import payload_batches
+        from marivo.analysis.materialization.storage import _limited
+
+        if descriptor.storage_receipt.realized_row_count > _READ_POLICY.max_rows:
+            _limited("committed row count exceeds the complete local input limit")
+        return payload_batches(
+            self.store.project_root,
+            descriptor.storage_receipt,
+            policy=_READ_POLICY,
+            bindings=object_bindings,
+            row=descriptor.row_contract,
+            rows=descriptor.row_set_contract,
+        )
 
     def _run_local(
         self,
@@ -865,7 +1171,11 @@ class DatasetRuntime:
         return result
 
     def _resolve_outcome(
-        self, run: RunRecord, error: MaterializationError, phase: str
+        self,
+        run: RunRecord,
+        error: MaterializationError,
+        phase: str,
+        object_bindings: tuple[S3Access, ...],
     ) -> MaterializedDataset | None:
         self._event("readback")
         current = self.store.run(run.run_ref)
@@ -880,7 +1190,7 @@ class DatasetRuntime:
         resources = tuple(
             item for item in self.store.resources(self.session_ref) if item.run_ref == run.run_ref
         )
-        resolved = discharge_resources(self.store, resources)
+        resolved = discharge_resources(self.store, resources, object_bindings)
         self.store.fail(
             run.run_ref,
             RunFailure(

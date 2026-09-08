@@ -5,11 +5,20 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from marivo.analysis.materialization.contracts import ResourceRecord
 from marivo.analysis.materialization.errors import IntegrityError, RecoveryPendingError
+from marivo.analysis.materialization.object_termination import (
+    OBJECT_REQUEST_CAPABILITY,
+    object_request_is_terminal,
+    prove_object_termination,
+)
 from marivo.analysis.materialization.store import SessionStore
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.targets import S3Access
 
 _TERMINATED: set[str] = set()
 _LOCAL_CAPABILITY = "local_owned_path@v1"
@@ -47,11 +56,16 @@ def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
 
 def prove_local_termination(resource: ResourceRecord) -> None:
     """Record proof only after synchronous work and strict connection close finish."""
-    _TERMINATED.add(resource.ownership_nonce)
+    if resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY:
+        prove_object_termination(resource)
+    else:
+        _TERMINATED.add(resource.ownership_nonce)
 
 
 def execution_is_terminal(resource: ResourceRecord) -> bool:
     """Only this registered process-owned DuckDB route inherits process lifetime."""
+    if resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY:
+        return object_request_is_terminal(resource)
     if resource.cleanup_capability_id == _WORKER_CAPABILITY:
         # A dead parent is not proof that its subprocess has stopped.
         return (
@@ -97,6 +111,7 @@ def reserve_output(
     session_ref: str,
     artifact_ref: str,
     nonce: str,
+    storage_kind: str = "local",
 ) -> tuple[Path, Path, tuple[ResourceRecord, ...]]:
     layout = store.layout
     staging = layout.run_dir(session_ref, run_ref) / f"output-{nonce}"
@@ -104,8 +119,12 @@ def reserve_output(
     records = tuple(
         ResourceRecord(
             run_ref=run_ref,
-            resource_kind="local_storage_staging",
-            execution_domain_id="local_parquet@v1",
+            resource_kind="engine_storage_staging"
+            if storage_kind == "engine"
+            else "local_storage_staging",
+            execution_domain_id="duckdb_artifact@v1"
+            if storage_kind == "engine"
+            else "local_parquet@v1",
             ownership_nonce=nonce,
             cleanup_capability_id=_LOCAL_CAPABILITY,
             safe_locator=path.relative_to(layout.project_root).as_posix(),
@@ -127,7 +146,9 @@ def reserve_output(
 
 
 def discharge_resources(
-    store: SessionStore, resources: tuple[ResourceRecord, ...]
+    store: SessionStore,
+    resources: tuple[ResourceRecord, ...],
+    object_bindings: tuple[S3Access, ...] = (),
 ) -> tuple[ResourceRecord, ...]:
     """Clean exact unpublished paths only after every execution is proven terminal."""
     for resource in resources:
@@ -146,6 +167,22 @@ def discharge_resources(
     for resource in resources:
         if resource.resource_kind in ("backend_execution", "planner_temporary_relation"):
             resolved.append(resource)
+            continue
+        if resource.cleanup_capability_id == "s3_versioned_key@v1":
+            from marivo.analysis.materialization.errors import MaterializationError
+            from marivo.analysis.materialization.object_storage import cleanup_object
+            from marivo.analysis.materialization.targets import object_access
+
+            try:
+                if cleanup_object(
+                    store, resource, object_access(object_bindings, resource.execution_domain_id)
+                ):
+                    resolved.append(resource)
+            except IntegrityError:
+                raise
+            except MaterializationError:
+                # Proven-terminal exact object garbage can be maintained later.
+                pass
             continue
         if resource.cleanup_capability_id != _LOCAL_CAPABILITY:
             raise RecoveryPendingError(

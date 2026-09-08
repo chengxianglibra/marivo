@@ -20,7 +20,7 @@ from multiprocessing import Pipe
 from multiprocessing.connection import Connection
 from pathlib import Path
 from threading import Event, Thread
-from typing import BinaryIO, TypeAlias
+from typing import BinaryIO, Generic, TypeAlias, TypeVar
 
 import pandas as pd
 import pyarrow as pa
@@ -45,6 +45,7 @@ from marivo.analysis.materialization.contracts import (
     FileEntry,
     LocalReceipt,
     RetainedPart,
+    StorageReceipt,
     manifest_digest,
     schema_fingerprint,
 )
@@ -88,9 +89,12 @@ class PartWriteSpec:
     column_names: tuple[str, ...]
 
 
+_ReceiptT = TypeVar("_ReceiptT", bound=StorageReceipt, covariant=True)
+
+
 @dataclass(frozen=True, slots=True)
-class LocalWriteResult:
-    primary_receipt: LocalReceipt
+class DatasetWriteResult(Generic[_ReceiptT]):
+    primary_receipt: _ReceiptT
     retained_parts: tuple[RetainedPart, ...]
     realized_schema: DatasetSchema
     realized_row_count: int
@@ -99,7 +103,7 @@ class LocalWriteResult:
 @dataclass(frozen=True, slots=True)
 class SamplingStateRead:
     sampling: tuple[codec.SamplingRealization, ...]
-    receipt: LocalReceipt
+    receipt: StorageReceipt
 
 
 def sampling_state_read(descriptor: codec.ArtifactDescriptor) -> SamplingStateRead | None:
@@ -502,7 +506,7 @@ def write_local_dataset(
     source_key_validation: bool = False,
     event: Callable[[str], None],
     policy: StoragePolicy = _STORAGE_POLICY,
-) -> LocalWriteResult:
+) -> DatasetWriteResult[LocalReceipt]:
     """Write one pre-reserved ordered stream; metadata publication belongs to Runtime."""
     staging = _checked_path(project_root, staging_path)
     final = _checked_path(project_root, final_path)
@@ -669,7 +673,7 @@ def write_local_dataset(
         _fsync_directory(final.parent)
         _fsync_directory(staging.parent)
         event("after_rename")
-        return LocalWriteResult(
+        return DatasetWriteResult(
             receipts[0],
             tuple(
                 RetainedPart(role, contract_id, version, receipt)
@@ -695,6 +699,8 @@ def validate_sampling_state(project_root: Path, state: SamplingStateRead | None)
         return
     sampling = state.sampling
     receipt = state.receipt
+    if not isinstance(receipt, LocalReceipt):
+        _integrity("the local sampling reader", "non-local sampling receipt")
     root = _checked_path(project_root, Path(receipt.project_relative_path))
     if len(receipt.file_manifest) != 1 or receipt.realized_row_count != 1:
         _integrity("one bounded sampling state row", "invalid sampling state receipt")
@@ -813,6 +819,8 @@ def read_part_batches(
 ) -> Iterator[pa.RecordBatch]:
     """Read exactly one registered part; closing early never constitutes validation."""
     receipt = part.storage_receipt
+    if not isinstance(receipt, LocalReceipt):
+        _integrity("the local part reader", "non-local part receipt")
     if receipt.realized_row_count > policy.max_rows:
         _limited("required part row count exceeds the collection limit")
     expected_hash = hashlib.sha256(expected_schema.serialize().to_pybytes()).hexdigest()
@@ -859,7 +867,7 @@ def _to_dataframe(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
 
 
 def _bounded_batches(
-    parquet: pq.ParquetFile, policy: ReadPolicy, *, preview: bool
+    parquet: pq.ParquetFile, policy: ReadPolicy, *, preview: bool, use_threads: bool = True
 ) -> Iterator[pa.RecordBatch]:
     remaining = policy.preview_rows
     for index in range(parquet.metadata.num_row_groups):
@@ -867,7 +875,9 @@ def _bounded_batches(
         if group.total_byte_size > policy.max_batch_bytes:
             _limited("declared uncompressed row group exceeds the decoded batch limit")
         size = min(1024, remaining) if preview else 1024
-        for batch in parquet.iter_batches(batch_size=max(1, size), row_groups=[index]):
+        for batch in parquet.iter_batches(
+            batch_size=max(1, size), row_groups=[index], use_threads=use_threads
+        ):
             yield batch
             remaining -= batch.num_rows
             if preview and remaining <= 0:
@@ -988,7 +998,7 @@ _WORKER_CODE = (
 
 def _read_request(
     project_root: Path,
-    receipt: LocalReceipt,
+    receipt: StorageReceipt,
     row: DatasetRowContract,
     rows: DatasetRowSetContract,
     policy: ReadPolicy,
@@ -1014,7 +1024,8 @@ def _read_request(
 def _read_request_value(text: str) -> pd.DataFrame:
     from marivo.analysis.observation.contracts import make_ids
 
-    obj = codec._obj(codec.parse_json(text), "schema project_root receipt row row_set policy")
+    raw = codec.parse_json(text)
+    obj = codec._obj(raw, "schema project_root receipt row row_set policy")
     if obj["schema"] != "marivo.primary_read/v1":
         _integrity("the supported read request version", "unsupported read request")
     policy_obj = codec._obj(
@@ -1036,23 +1047,28 @@ def _read_request_value(text: str) -> pd.DataFrame:
         max_batch_bytes=codec._int(policy_obj["max_batch_bytes"], minimum=1),
     )
     ids = make_ids(())
+    receipt = codec.decode_receipt(obj["receipt"])
+    if not isinstance(receipt, LocalReceipt):
+        _integrity("the local read worker", "non-local receipt")
     return _read_primary(
         project_root=Path(codec._text(obj["project_root"])),
-        receipt=codec.decode_receipt(obj["receipt"]),
+        receipt=receipt,
         row_contract=codec.decode_row(obj["row"], ids),
         row_set_contract=codec.decode_row_set(obj["row_set"], ids),
         policy=policy,
     )
 
 
-def _read_worker_entry() -> None:
-    """A fresh interpreter reads only closed metadata and the selected local backing."""
+def _read_worker_entry(
+    read_value: Callable[[str], pd.DataFrame] = _read_request_value,
+) -> None:
+    """Run the selected reader behind the shared bounded IPC/error envelope."""
     connection = Connection(int(sys.argv[1]), readable=False, writable=True)
     try:
         payload = sys.stdin.buffer.read(1_048_577)
         if len(payload) > 1_048_576:
             _integrity("a bounded canonical read request", "read request exceeded its limit")
-        result = _read_request_value(payload.decode("utf-8"))
+        result = read_value(payload.decode("utf-8"))
         connection.send(("dataframe", result))
     except MaterializationError as error:
         kind = (

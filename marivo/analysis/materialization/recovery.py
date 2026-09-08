@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from marivo.analysis.datasets.base import MaterializedDataset, _make_materialized_dataset
-from marivo.analysis.datasets.descriptors import _exact_byte_count
+from marivo.analysis.datasets.descriptors import _exact_byte_count, _unavailable_byte_count
 from marivo.analysis.datasets.state import _materialized_state
 from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
 from marivo.analysis.evidence.types import (
@@ -44,10 +44,16 @@ def recover_dataset(
         artifact_ref=ArtifactRef(ref=record.artifact_ref),
         artifact_session_ref=record.session_ref,
         content_authority_digest=descriptor.storage_receipt.identity_digest,
-        storage_kind_id="parquet",
+        storage_kind_id="parquet"
+        if descriptor.storage_receipt.kind == "local"
+        else descriptor.storage_receipt.kind,
         realized_schema=descriptor.realized_schema,
         realized_row_count=descriptor.storage_receipt.realized_row_count,
-        realized_byte_count=_exact_byte_count(descriptor.storage_receipt.realized_byte_count),
+        realized_byte_count=(
+            _exact_byte_count(descriptor.storage_receipt.realized_byte_count)
+            if descriptor.storage_receipt.realized_byte_count is not None
+            else _unavailable_byte_count("not_measured", ids=ids)
+        ),
         producing_run_ref=record.producing_run_ref,
         quality_authority_digest=record.evidence.quality_summary_digest,
         evidence_authority_digest=record.evidence.evidence_digest,
