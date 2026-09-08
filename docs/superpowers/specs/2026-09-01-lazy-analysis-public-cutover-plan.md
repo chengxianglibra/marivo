@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-08
 
-Status: Slices 0-2, 3a, 4a and 4b complete; remaining units require separate authorization
+Status: Slices 0-3, 4a and 4b complete; remaining units require separate authorization
 
 ## Outcome
 
@@ -1783,6 +1783,117 @@ Their Python ASTs are unchanged from the reviewed candidate. The recorded
 runtime evidence identifies the pre-formatting bytes; production files remain
 identical to that accepted candidate.
 
+### Slice 3b acceptance record: 2026-09-08
+
+**Slice 3b is implemented and accepted; the combined Slice 3 gate is complete.**
+This supersedes the open Slice 3 status in the earlier 3a/4a/4b records. Work
+began from committed Slice 4b `431492b2`, after verifying its accepted candidate
+and 64 focused prerequisite tests. The exact ownership, variant matrix and
+evidence locations are recorded in the
+[Slice 3b execution record](../plans/2026-09-08-lazy-analysis-slice-3b-execution.md).
+
+- Metric row semantics now retain a closed, versioned fold graph, per-axis
+  contribution proofs and temporal coverage authority. Cold recovery validates
+  those facts without traversing a source definition or querying a catalog.
+- `where`, `rank`, `limit` and Metric projection transform the current primary
+  rows and selected component parts together using complete Entity, Dimension
+  and time contribution keys. Generated rank is excluded from the key; the
+  selected dependency closure and original sampling realization are preserved.
+  Receipt/schema/key/support/coverage and primary-state reconciliation reject
+  inconsistent required parts before computation or publication. Unrelated
+  parts remain independent of primary reading and otherwise valid projection.
+- Logical `aggregate()` retains governed source recomputation. Materialized
+  aggregate and both rollup registrations fold current rows through exact
+  Ibis/pandas algorithms: sum/count/extrema, linear, mean/weighted-mean/ratio
+  component state, specialized Entity-key distinct and admitted temporal folds.
+  Combined rollup normalizes to the same time-then-Dimension nodes as two calls.
+  Strict coarser grain, interval containment, partial periods, time removal and
+  empty scalar rules have independent coverage.
+- Cumulative time folds retain their actual selected endpoint and observed
+  coverage. Cumulative Dimension folds require aligned endpoints and a provably
+  contiguous observed interval, or canonical empty state. Clipped intervals do
+  not claim complete calendar coverage. Different internal gaps, asynchronous
+  endpoints, projected device peaks and overlapping tags cannot silently become
+  a spatial total. Unproved distinct/distribution and cumulative Entity folds
+  reject at construction with an owned repair.
+- One guarded worker receives all consumed local/object parts, or one wide
+  stream from a legal Ibis prefix, and passes private DataFrames directly through
+  the local suffix. Combined input, intermediate/output, RSS and deadline guards
+  retain 4a's values. Existing writers, receipts and atomic publication are
+  reused. Failure at output finalization or Store publication leaves the input
+  checkpoint unchanged and exposes no partial Artifact/Evidence.
+- Direct Population and Entity-unique Metric engine checkpoints supply exact
+  membership to two independent observations. Scoped, sampled and resolved
+  snapshot/validity membership are covered. January membership, February
+  observation and omitted observation scope retain independent authority after
+  recovery. Consecutive observations preserve the nearest selected membership
+  fingerprint at publication. True Entity-by-time multiplicity, foreign Session
+  or incompatible domain, and implicit local/object identity import remain
+  rejected.
+
+The final `make check-agent`, with the real isolated MinIO service enabled,
+passes lint/import contracts, typing for **370 source files**, **6,352 tests in
+437.82 seconds**, and API documentation construction. The 23-case Runtime fold
+matrix, source/retained construction no-I/O checks and shared adapter regressions
+are included in that gate. No S3 acceptance tests are skipped.
+
+All four fresh three-process journeys have matching before/after **711-file**
+source/test/configuration candidate SHA-256
+`170ed26d8f829192c968509f0c069608130c68915dc54c14decee64ad4e97774`.
+The Parquet journey moves the source database offline before two retained folds;
+the engine journey removes the sampled membership origin before two independent
+observations. Each ends with exactly three succeeded Runs, three Artifacts,
+three Evidence records, two input edges to the same checkpoint, and an empty
+resource journal. Cold `execute()` reuses the same bindings with no query,
+transfer, copy, worker or new Run. Fresh shared engine/object journeys also pass,
+including fixed-version S3 reads and the unchanged publication protocol.
+
+The execution record links the final gate log, SQL and process records, part
+receipts, Store input-edge audit and immutable adapter evidence. New capabilities
+remain private. Slices 4c-4d, the parent Slice 4 gate and Slices 5-9 remain open;
+public Help, exports, site documentation and persistence cutover remain Slice 8.
+No commit, push or release was performed.
+
+### Slice 3b review follow-up: 2026-09-08
+
+The supplied review was checked against the owning contracts and fresh Runtime
+evidence. The execution record now has an explicit `.gitignore` exception, so
+the links above and in the acceptance matrix will resolve when this change is
+committed.
+Shared part-key alignment and builtin grain widths have one implementation;
+component schema dispatch is a typed table, and malformed catalog identity
+separators follow the existing structured error. The unproducible `allocated`
+partition label is removed from decoding/admission. Actual governed allocated
+contribution values remain foldable through their proven disjoint partition.
+
+No version-equality guard was added. The Observation Model explicitly permits
+January membership to feed independently anchored February observations.
+New snapshot/validity tests prove the checkpoint keeps its January members while
+fresh versioned Metric facts are read from the correct source; removing that
+required source blocks a new action. Entity-only uniqueness already has both
+functional-path construction proof and realized-row validation. A filter that
+incidentally leaves one row cannot manufacture a missing proof. Existing
+sampling realization, retained state and approximation disclosure survive
+Population/Metric checkpoints and cold recovery.
+
+Eleven additional Runtime cases cover these boundaries, exact mean folds with
+unequal retained counts/coverage, governed `40+60=100` allocation with selected
+value `40`, and a real 20,000-row object checkpoint with two retained parts.
+The latter continues after source removal under unchanged local limits and
+still rejects implicit object-membership import into a source. Backend-specific
+Ibis/pandas interpreters and calendar lowering remain separate; no generic
+interpreter, speculative allocation API or new approximation field was added.
+
+Fresh `make check-agent` passes lint/import contracts, typing for **370 modules**,
+**6,363 tests in 462.66 seconds**, and API documentation construction. Real MinIO
+is enabled; no S3 acceptance test is skipped. All four fresh three-process
+journeys match the **713-file** candidate SHA-256
+`34c8cb9458d0e83529092e6279639f68c3ac2a02302b246ef319416efeb6f78b`.
+The [execution record](../plans/2026-09-08-lazy-analysis-slice-3b-execution.md#review-follow-up-2026-09-08)
+contains every review disposition and the refreshed evidence locations. This
+follow-up supersedes the initial 3b candidate evidence; Slice 3b and parent
+Slice 3 remain complete. No commit, push, release or public cutover occurred.
+
 ## Slice 4: Compiler Boundaries and Runtime Reliability
 
 ### Outcome
@@ -3096,7 +3207,7 @@ row or replacing its evidence with another family's requires review here.
 | First execution, terminal reads, exact-key recovery | 2b | same-family bundle, guarded reads, source-free cold reconstruction | A-B, H; 9c |
 | Parameterized source bindings | 2a-2b, 4c | scope-exit execution, exact key separation, missing/extra input errors, exhaustive redaction | H |
 | Predicates, coordinates, sampling, Metric projection, rank/limit | 3a | filter order, contribution admission, deterministic ordering, source fusion | A; 9b economics |
-| Retained parts, aggregate/fold/rollup, checkpoint membership | 3b | logical/materialized parity, part corruption, fold rejection, engine identity input | B, D, I, M |
+| Retained parts, aggregate/fold/rollup, checkpoint membership | 3b complete | `test_lazy_retained_fold_matrix.py`, `test_lazy_local_fold.py`, `test_lazy_retained_compiler.py`, `test_lazy_retained_membership.py`, `test_lazy_retained_failures.py`; exact variants and fresh-process evidence in the [3b record](../plans/2026-09-08-lazy-analysis-slice-3b-execution.md) | Private 3b gate passed; B, D, I, M remain public Slice 9 gates |
 | Source-prefix/local-suffix execution | 4a | complete/combined input, intermediate/output/deadline limits, fixed dispatch and no retry | F; 9b |
 | Local/engine/object storage | 2b, 4b | immutable receipts, reservations, required parts, mutation and overflow | F-G, I; 9b-9c |
 | Run admission, publication, concurrency, reconciliation | 2b, 4c | live-work ordering, busy/hit bypass, precommit rollback, committed/unknown outcome readback, fencing | G; 9c |

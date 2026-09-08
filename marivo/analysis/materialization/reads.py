@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import pandas as pd
@@ -176,7 +176,7 @@ def payload_batches(
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
-) -> Iterator[pa.RecordBatch]:
+) -> Generator[pa.RecordBatch, None, None]:
     """Keep native reader diagnostics and raw locators outside error chains."""
     try:
         yield from _payload_batches(
@@ -194,6 +194,34 @@ def payload_batches(
     except Exception:
         pass
     _integrity("accessible valid selected immutable backing", "selected payload read failed")
+
+
+def part_schema(
+    project_root: Path,
+    part: RetainedPart,
+    *,
+    policy: ReadPolicy = _DEFAULT_READ_POLICY,
+    bindings: tuple[S3Access, ...] = (),
+) -> pa.Schema:
+    """Read selected storage schema and bind it to its immutable receipt.
+
+    Family consumers independently check the returned fields against their
+    registered key/state contracts. Reading a header is not content validation;
+    a consuming action must exhaust the subsequent guarded part read.
+    """
+    stream = payload_batches(project_root, part.storage_receipt, policy=policy, bindings=bindings)
+    try:
+        batch = next(stream, None)
+        if batch is None or batch.num_rows:
+            _integrity("a bounded selected part schema header", "missing part schema header")
+        schema = batch.schema
+        if hashlib.sha256(schema.serialize().to_pybytes()).hexdigest() != (
+            part.storage_receipt.schema_fingerprint
+        ):
+            _integrity("the receipt-bound exact part schema", "part schema fingerprint differs")
+        return schema
+    finally:
+        stream.close()
 
 
 def read_table(

@@ -319,13 +319,14 @@ def test_materialized_rows_only_admit_exact_scans_and_new_sources() -> None:
     assert isinstance(parent, LogicalRootHandle)
     assert isinstance(parent.inputs[0].root, MaterializedScanLeafHandle)
     assert not hasattr(parent.inputs[0].root, "payload")
-    for action in (
-        retained.aggregate,
-        lambda: retained.with_dimensions(REGION),
-        lambda: filtered.aggregate(),
-    ):
-        with pytest.raises(DatasetConstructionError, match="retained rows"):
-            action()
+    for reduced in (retained.aggregate(), filtered.aggregate()):
+        assert reduced.row_contract.shape_id.local_shape_id == "scalar"
+        assert isinstance(reduced._root, LogicalRootHandle)
+        from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
+
+        assert isinstance(reduced._root.payload, RetainedFoldPayload)
+    with pytest.raises(DatasetConstructionError, match="retained rows"):
+        retained.with_dimensions(REGION)
     followup = make_sources(session_id="next-session").observe(
         REVENUE, population=retained, time_scope=WINDOW
     )
@@ -580,3 +581,263 @@ def test_semi_additive_contract_requires_source_recomputation() -> None:
     assert "projected retained values" in source.contract().render()
     versioned = make_sources().population(ref.entity("sales.snapshots"), time_scope=WINDOW)
     assert "population.where:" not in versioned.contract().render()
+
+
+def test_rollup_normalizes_time_before_dimension_without_source_recompute() -> None:
+    from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
+
+    source = (
+        make_sources()
+        .observe([REVENUE, ref.metric("sales.conversion_rate")], time_scope=WINDOW)
+        .with_dimensions(REGION)
+        .with_time_axis(DAY, grain=grain("day"))
+        .aggregate()
+    )
+    combined = source.rollup(drop_dimensions=(REGION,), grain=grain("month"))
+    separate = source.rollup(grain=grain("month")).rollup(drop_dimensions=(REGION,))
+    assert combined.definition_fingerprint == separate.definition_fingerprint
+    assert isinstance(combined._root, LogicalRootHandle)
+    assert isinstance(combined._root.payload, RetainedFoldPayload)
+    assert combined._root.payload.spec.axis == "dimension"
+    temporal = combined._root.inputs[0].root
+    assert isinstance(temporal, LogicalRootHandle)
+    assert isinstance(temporal.payload, RetainedFoldPayload)
+    assert temporal.payload.spec.axis == "time"
+    assert temporal.inputs[0].root is source._root
+    dropped = source.rollup(drop_dimensions=(REGION,), drop_time=True)
+    assert dropped.row_contract.shape_id.local_shape_id == "scalar"
+    assert dropped.row_set_contract.cardinality.kind == "singleton"
+    assert (
+        dropped.definition_fingerprint
+        == source.rollup(drop_time=True).rollup(drop_dimensions=(REGION,)).definition_fingerprint
+    )
+
+
+def test_cold_fold_authority_is_closed_and_projection_keeps_one_dependency_graph() -> None:
+    from marivo.analysis.materialization.contracts import decode_row, row_payload
+    from marivo.analysis.observation.fold_contracts import decode_fold_authority, fold_state_names
+
+    source = make_sources().observe(
+        [REVENUE, ref.metric("sales.conversion_rate")], time_scope=WINDOW
+    )
+    original = source.row_contract.family_semantics
+    assert isinstance(original, EntityPresentMetricSemantics)
+    cold = decode_row(
+        __import__("json").loads(__import__("json").dumps(row_payload(source.row_contract))),
+        source._registration.ids,
+    )
+    assert cold == source.row_contract
+    assert not any(
+        token in original.fold_authority
+        for token in ("CsvSource", "computation_root", "source_requirements", "source_dependency")
+    )
+    retained = _retained(source)
+    assert isinstance(retained, MaterializedMetricDataset)
+    selected = retained.metric(ref.metric("sales.conversion_rate"))
+    semantics = selected.row_contract.family_semantics
+    assert isinstance(semantics, EntityPresentMetricSemantics)
+    authority = decode_fold_authority(semantics.fold_authority)
+    assert len(authority.metrics) == 1
+    assert authority.metrics[0].metric_ref == "sales.conversion_rate"
+    assert len(authority.metrics[0].components) == 2
+    assert fold_state_names(authority.metrics[0])
+    assert selected.aggregate().row_contract.shape_id.local_shape_id == "scalar"
+
+
+def test_rollup_rejects_invalid_axes_and_non_contained_grains() -> None:
+    source = make_sources().observe(REVENUE, time_scope=WINDOW)
+    daily = source.with_dimensions(REGION).with_time_axis(DAY, grain=grain("day")).aggregate()
+    for action in (
+        lambda: source.rollup(drop_time=True),
+        lambda: daily.rollup(),
+        lambda: daily.rollup(drop_time=1),
+        lambda: daily.rollup(grain=grain("month"), drop_time=True),
+        lambda: daily.rollup(drop_dimensions=(REGION, REGION)),
+        lambda: daily.rollup(drop_dimensions=(DAY,)),
+        lambda: daily.rollup(grain=grain("hour")),
+        lambda: daily.rollup(grain=grain("day")),
+        lambda: daily.rollup(
+            grain=grain("week"), drop_dimensions=(ref.dimension("sales.orders.channel"),)
+        ),
+        lambda: daily.rollup(drop_time=True).rollup(grain=grain("month")),
+    ):
+        with pytest.raises(DatasetConstructionError):
+            action()
+    weekly = source.with_time_axis(DAY, grain=grain("week")).aggregate()
+    with pytest.raises(DatasetConstructionError, match="containment"):
+        weekly.rollup(grain=grain("month"))
+
+
+def test_retained_distribution_and_unsafe_semi_additive_entity_folds_reject() -> None:
+    from marivo.semantic.ir import SemiAdditive, TimeFoldIR
+
+    for kind in ("median", "peak"):
+        registry, sidecar = _editable_authority()
+        if kind == "median":
+            registry.metrics[REVENUE.path] = replace(
+                registry.metrics[REVENUE.path], aggregation="median"
+            )
+        else:
+            registry.measures["sales.orders.amount"] = replace(
+                registry.measures["sales.orders.amount"],
+                additivity=SemiAdditive(DAY.path, TimeFoldIR("max")),
+            )
+        source = _sources_from(registry, sidecar).observe(REVENUE, time_scope=WINDOW)
+        retained = _retained(source)
+        assert isinstance(retained, MaterializedMetricDataset)
+        with pytest.raises(DatasetConstructionError, match="component fold") as error:
+            retained.aggregate()
+        assert "fresh observation" in error.value.repair.action
+
+
+def test_fold_codec_rejects_unknown_schema_and_non_closed_graph() -> None:
+    import json
+
+    from marivo.analysis.observation.fold_contracts import decode_fold_authority
+
+    source = make_sources().observe(REVENUE)
+    semantics = source.row_contract.family_semantics
+    assert isinstance(semantics, EntityPresentMetricSemantics)
+    authority = json.loads(semantics.fold_authority)
+    authority["schema_version"] = 2
+    with pytest.raises(ValueError):
+        decode_fold_authority(json.dumps(authority))
+    authority["schema_version"] = 1
+    authority["metrics"][0]["root_id"] = "missing-root"
+    with pytest.raises(ValueError, match="missing retained fold root"):
+        decode_fold_authority(json.dumps(authority))
+    authority = json.loads(semantics.fold_authority)
+    authority["metrics"][0]["axis_partitions"] = [["entity_identity", "allocated"]]
+    with pytest.raises(ValueError, match="invalid retained contribution partition"):
+        decode_fold_authority(json.dumps(authority))
+
+
+def test_cumulative_time_fold_retains_endpoint_authority_but_entity_fold_rejects() -> None:
+    from marivo.analysis.observation.fold_contracts import coverage_columns, fold_state_names
+    from marivo.semantic.ir import CumulativeComposition
+
+    registry, sidecar = _editable_authority()
+    template = registry.metrics["sales.conversion_rate"]
+    registry.metrics["sales.running"] = replace(
+        template,
+        semantic_id="sales.running",
+        name="running",
+        composition=CumulativeComposition(REVENUE.path, DAY.path),
+    )
+    source = (
+        _sources_from(registry, sidecar)
+        .observe(ref.metric("sales.running"), time_scope=WINDOW)
+        .with_dimensions(REGION)
+        .with_time_axis(DAY, grain=grain("day"))
+    )
+    retained = _retained(source)
+    assert isinstance(retained, MaterializedMetricDataset)
+    with pytest.raises(DatasetConstructionError, match="component fold"):
+        retained.aggregate()
+    monthly = source.aggregate().rollup(grain=grain("month"))
+    semantics = monthly.row_contract.family_semantics
+    assert isinstance(semantics, EntityReducedMetricSemantics)
+    authority = semantics.metric_folds[0]
+    assert authority.cumulative
+    assert all(component.time_merge == "last" for component in authority.components)
+    assert len(coverage_columns(authority)) == 5
+    assert set(coverage_columns(authority)) <= set(fold_state_names(authority))
+    assert monthly.rollup(drop_dimensions=(REGION,)).row_contract.shape_id.local_shape_id == "time"
+
+
+def test_semi_additive_time_extremum_is_exact_without_spatial_commutation() -> None:
+    from marivo.semantic.ir import SemiAdditive, TimeFoldIR
+
+    registry, sidecar = _editable_authority()
+    registry.measures["sales.orders.amount"] = replace(
+        registry.measures["sales.orders.amount"],
+        additivity=SemiAdditive(DAY.path, TimeFoldIR("max")),
+    )
+    source = (
+        _sources_from(registry, sidecar)
+        .observe(REVENUE, time_scope=WINDOW)
+        .with_time_axis(DAY, grain=grain("day"))
+    )
+    component = source.row_contract.family_semantics.metric_folds[0].components[0]
+    assert component.spatial_merge == "blocked"
+    assert component.time_merge == "max"
+    assert component.kind == "opaque"
+    assert component.state_columns
+    reduced = source.aggregate().rollup(drop_time=True)
+    assert reduced.row_set_contract.cardinality.kind == "singleton"
+
+
+def test_exact_entity_key_distinct_can_reduce_entity_but_not_generic_measure_distinct() -> None:
+    for target in ("entity", "measure"):
+        registry, sidecar = _editable_authority()
+        registry.metrics[REVENUE.path] = replace(
+            registry.metrics[REVENUE.path],
+            aggregation="count_distinct",
+            measure=None if target == "entity" else "sales.orders.amount",
+            aggregation_target="sales.orders" if target == "entity" else "sales.orders.amount",
+            aggregation_target_kind=target,
+        )
+        retained = _retained(_sources_from(registry, sidecar).observe(REVENUE))
+        assert isinstance(retained, MaterializedMetricDataset)
+        if target == "entity":
+            assert retained.aggregate().row_set_contract.cardinality.kind == "singleton"
+        else:
+            with pytest.raises(DatasetConstructionError, match="component fold"):
+                retained.aggregate()
+
+
+def test_multi_metric_fold_closure_has_a_typed_metadata_bound_not_a_text_label_bound() -> None:
+    import json
+
+    from marivo.analysis.materialization.contracts import decode_row, row_payload
+
+    sources = make_sources()
+    dataset = sources.observe(
+        tuple(
+            ref.metric("sales." + name)
+            for name in (
+                "revenue",
+                "order_count",
+                "mean_amount",
+                "weighted_amount",
+                "conversion_rate",
+                "cross_root_ratio",
+            )
+        ),
+        population=sources.population(ref.entity("sales.customers")),
+    )
+    semantics = dataset.row_contract.family_semantics
+    assert isinstance(semantics, EntityPresentMetricSemantics)
+    assert len(semantics.fold_authority.encode()) > 4096
+    encoded = json.loads(json.dumps(row_payload(dataset.row_contract)))
+    recovered = decode_row(encoded, dataset._registration.ids)
+    assert recovered == dataset.row_contract
+
+
+def test_fold_semantic_dependencies_stop_at_retained_leaf_authority() -> None:
+    from marivo.analysis.observation.contracts import semantic_dependency_digest
+
+    source = (
+        make_sources()
+        .observe(REVENUE, time_scope=WINDOW)
+        .with_dimensions(REGION)
+        .with_time_axis(DAY, grain=grain("day"))
+        .aggregate()
+    )
+    combined = source.rollup(drop_dimensions=(REGION,), grain=grain("month"))
+    separate = source.rollup(grain=grain("month")).rollup(drop_dimensions=(REGION,))
+    assert semantic_dependency_digest(combined) == semantic_dependency_digest(separate)
+    retained = _retained(source)
+    assert isinstance(retained, MaterializedMetricDataset)
+    closure = retained.where(gt(REVENUE, 0)).rollup(drop_time=True)
+    with pytest.raises(DatasetConstructionError, match="committed dependency"):
+        semantic_dependency_digest(closure)
+    first = semantic_dependency_digest(
+        closure,
+        retained_semantic_digests={retained.state.artifact_ref.ref: "first-committed-authority"},
+    )
+    second = semantic_dependency_digest(
+        closure,
+        retained_semantic_digests={retained.state.artifact_ref.ref: "second-committed-authority"},
+    )
+    assert first != second

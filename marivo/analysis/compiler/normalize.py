@@ -9,8 +9,14 @@ from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity, _EntityFieldIdentity
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
-from marivo.analysis.observation.contracts import MetricPayload, PopulationPayload, source_owner_of
+from marivo.analysis.observation.contracts import (
+    MetricPayload,
+    PopulationPayload,
+    RetainedRowsPayload,
+    source_owner_of,
+)
 from marivo.analysis.observation.coordinates import functional_path, governed_path, path_entities
+from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.metric_graph import AggregateNodeV1, WeightedMeanAggregateNodeV1
@@ -104,17 +110,22 @@ def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ..
                                         registry, source, dimension.entity_ref.path
                                     )
                                     ids.update(path_entities(registry, source, (route,)))
-        else:
+        elif not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload)):
             raise compilation_error("closed Observation payload", "unsupported definition payload")
-    # A direct retained Population supplies its own membership keys. No origin
+    # A retained identity input supplies its own membership keys. No origin
     # table is needed unless newly authored semantic work actually consumes it.
     roots = tuple(logical_roots(dataset))
     for retained in artifact_inputs(dataset):
-        if retained.kind != "population":
+        if retained.kind not in ("population", "metric"):
             continue
-        identity = retained.schema.columns[0].identity
-        if not isinstance(identity, _EntityFieldIdentity):
-            raise compilation_error("a retained Population identity", "invalid membership shape")
+        identities = tuple(
+            field.identity
+            for field in retained.schema.columns
+            if isinstance(field.identity, _EntityFieldIdentity)
+        )
+        if len(identities) != 1:
+            raise compilation_error("one retained Entity identity", "invalid membership shape")
+        identity = identities[0]
         entity = identity.entity_ref.path
         needed = any(
             isinstance(root.payload, MetricPayload)
@@ -126,7 +137,6 @@ def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ..
                 )
                 or root.payload.definition.dimensions
                 or root.payload.definition.time_axis is not None
-                or root.payload.definition.entity.version is not None
             )
             for root in roots
         )

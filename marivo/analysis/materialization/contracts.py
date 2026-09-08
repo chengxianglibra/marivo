@@ -753,6 +753,7 @@ def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
     if isinstance(value, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
         result: dict[str, object] = {
             "kind": value.kind,
+            "fold_authority": value.fold_authority,
             "metric_bindings": [
                 (field.value, unit, dependency, state, nulls, empty)
                 for field, unit, dependency, state, nulls, empty in value.metric_bindings
@@ -767,6 +768,19 @@ def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
             result["reduced_identity_signature"] = value.reduced_identity_signature
         return result
     raise invalid("unsupported family row semantics")
+
+
+def _retained_fold_payload(value: object) -> str:
+    """Decode the bounded typed fold closure, rather than an ordinary text label."""
+    from marivo.analysis.observation.fold_contracts import decode_fold_authority
+
+    if type(value) is not str or not value or len(value.encode("utf-8")) > _MAX_PAYLOAD_BYTES:
+        raise invalid("invalid retained fold authority byte bound")
+    try:
+        decode_fold_authority(value)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise invalid("invalid retained fold authority") from exc
+    return value
 
 
 def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
@@ -787,7 +801,7 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
         raise invalid("unregistered family row semantics")
     obj = _obj(
         value,
-        "kind metric_bindings coordinate_semantics"
+        "kind fold_authority metric_bindings coordinate_semantics"
         + (
             " reduced_entity_ref reduced_identity_signature"
             if kind == "metric/entity-reduced@v1"
@@ -816,9 +830,11 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
         if len(parts) != 3:
             raise invalid("invalid coordinate binding")
         coordinates.append((d._make_field_id(_text(parts[0])), _text(parts[1]), _texts(parts[2])))
+    fold_authority = _retained_fold_payload(obj["fold_authority"])
     if kind == "metric/entity-present@v1":
         return EntityPresentMetricSemantics(
             _token=d._CORE_TOKEN,
+            fold_authority=fold_authority,
             metric_bindings=tuple(metrics),
             coordinate_semantics=tuple(coordinates),
         )
@@ -826,6 +842,7 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
         _token=d._CORE_TOKEN,
         reduced_entity_ref=_text(obj["reduced_entity_ref"]),
         reduced_identity_signature=_signature(obj["reduced_identity_signature"]),
+        fold_authority=fold_authority,
         metric_bindings=tuple(metrics),
         coordinate_semantics=tuple(coordinates),
     )

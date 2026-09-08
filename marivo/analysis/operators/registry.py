@@ -14,6 +14,7 @@ from marivo.analysis.observation.contracts import (
     RetainedRowsPayload,
     producer_contract,
 )
+from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,7 @@ class ImplementationRegistration:
 
 
 _ROW_METHODS = frozenset({"metric.where", "metric.metric", "metric.rank", "metric.limit"})
+_FOLD_METHODS = frozenset({"metric.aggregate", "metric.rollup"})
 
 
 def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
@@ -46,29 +48,30 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         root.operator_id,
         roles,
         "duckdb",
-        root.operator_id if root.operator_id in _ROW_METHODS else None,
+        root.operator_id
+        if root.operator_id in _ROW_METHODS
+        or (root.operator_id in _FOLD_METHODS and isinstance(root.payload, RetainedFoldPayload))
+        else None,
     )
 
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
     if (
-        registration.local_method not in _ROW_METHODS
+        registration.local_method not in (_ROW_METHODS | _FOLD_METHODS)
         or not isinstance(root, LogicalRootHandle)
-        or not isinstance(root.payload, (MetricPayload, RetainedRowsPayload))
+        or not isinstance(root.payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload))
         or len(dataset._inputs) != 1
     ):
         raise compilation_error("an exact registered pandas input role", "source-required method")
     for value in (*dataset._inputs, dataset):
-        admit_primary_only(value)
+        admit_retained_rows(value)
 
 
-def admit_primary_only(dataset: Dataset) -> None:
+def admit_retained_rows(dataset: Dataset) -> None:
     semantics = dataset.row_contract.family_semantics
-    if not isinstance(
-        semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
-    ) or any(binding[3] for binding in semantics.metric_bindings):
+    if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
         raise compilation_error(
-            "Metric rows without contribution-part transformations",
-            "required retained state needs its registered Slice 3b continuation",
+            "Metric rows with their exact retained computational roles",
+            "unsupported retained family",
         )

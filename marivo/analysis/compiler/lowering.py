@@ -23,12 +23,16 @@ from marivo.analysis.compiler.normalize import logical_roots, required_entities
 from marivo.analysis.compiler.predicates import lower_bound_predicate, predicate_leaves
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
+    DatasetRowContract,
     _canonical_digest,
     _CatalogFieldIdentity,
+    _EntityFieldIdentity,
     _OrderedOrdering,
 )
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.observation.contracts import (
+    EntityPresentMetricSemantics,
+    EntityReducedMetricSemantics,
     MetricDefinition,
     MetricPayload,
     PopulationPayload,
@@ -38,6 +42,14 @@ from marivo.analysis.observation.contracts import (
     source_owner_of,
 )
 from marivo.analysis.observation.coordinates import functional_path, governed_path
+from marivo.analysis.observation.fold_contracts import (
+    FoldSpecV1,
+    MetricFoldAuthorityV1,
+    RetainedFoldPayload,
+    coverage_columns,
+    fold_part_role,
+    fold_state_names,
+)
 from marivo.refs import SemanticKind
 from marivo.semantic.ir import (
     DateParse,
@@ -122,6 +134,275 @@ def _state_names(metric: TargetMetricContract) -> tuple[str, ...]:
     )
 
 
+def retained_part_specs(row: DatasetRowContract) -> tuple[RetainedPartSpec, ...]:
+    """Resolve exact required Metric roles from the frozen current row contract."""
+    semantics = row.family_semantics
+    if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
+        return ()
+    required = {binding[0].value for binding in semantics.metric_bindings if binding[3]}
+    keys = tuple(field.name for field in row.schema.columns if field.field_id in row.key_field_ids)
+    return tuple(
+        RetainedPartSpec(
+            fold_part_role(authority),
+            "metric.sufficient_components",
+            1,
+            (*keys, *fold_state_names(authority)),
+        )
+        for authority in semantics.metric_folds
+        if authority.field_id in required
+    )
+
+
+def _state_projection(row: DatasetRowContract) -> tuple[str, ...]:
+    keys = {field.name for field in row.schema.columns if field.field_id in row.key_field_ids}
+    return tuple(
+        dict.fromkeys(
+            name
+            for part in retained_part_specs(row)
+            for name in part.column_names
+            if name not in keys
+        )
+    )
+
+
+def _physical_casts(expression: ir.Table) -> ir.Table:
+    # DuckDB widens integer SUM physically while Ibis retains its int64 type.
+    return expression.select(
+        **{
+            name: ops.Cast(expression[name], to=expression[name].type()).to_expr()
+            if expression[name].type().is_numeric() or expression[name].type().is_temporal()
+            else expression[name]
+            for name in expression.columns
+        }
+    )
+
+
+def _duration_seconds(start: ir.Value, end: ir.Value) -> ir.NumericValue:
+    left, right = start.cast("timestamp"), end.cast("timestamp")
+    if not isinstance(left, ir.TimestampValue) or not isinstance(right, ir.TimestampValue):
+        raise compilation_error("exact retained interval endpoints", "invalid coverage interval")
+    return right.delta(left, unit="microsecond") / 1_000_000
+
+
+def _fold_value(table: ir.Table, authority: MetricFoldAuthorityV1) -> ir.Value:
+    nodes = {node.node_id: node for node in authority.nodes}
+    components = {component.node_id: component for component in authority.components}
+
+    def value(node_id: str) -> ir.Value:
+        node = nodes[node_id]
+        if node.kind == "component":
+            component = components[node_id]
+            names = dict(component.state_columns)
+            if component.kind == "count":
+                return table[names["count"]].fill_null(0)
+            if component.kind in ("min", "max"):
+                return table[names[component.kind]]
+            if component.kind == "mean":
+                return _numeric(table[names["sum"]]) / _numeric(
+                    table[names["non_null_count"]]
+                ).nullif(0)
+            if component.kind == "weighted_mean":
+                return _numeric(table[names["weighted_numerator"]]) / _numeric(
+                    table[names["weight_sum"]]
+                ).nullif(0)
+            result = table[names["sum" if component.kind == "sum" else "value"]]
+            return result.fill_null(0) if component.empty_rule == "zero" else result
+        if node.kind == "identity":
+            return value(node.children[0])
+        if node.kind == "ratio":
+            return _numeric(value(node.children[0])) / _numeric(value(node.children[1])).nullif(0)
+        result = _numeric(value(node.children[0])) * node.coefficients[0]
+        for child, coefficient in zip(node.children[1:], node.coefficients[1:], strict=True):
+            result = result + _numeric(value(child)) * coefficient
+        return result
+
+    return value(authority.root_id)
+
+
+def lower_fold(
+    table: ir.Table, spec: FoldSpecV1
+) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
+    """Merge the exact current rows/state; never evaluate a source Metric graph."""
+    semantics = spec.input_row.family_semantics
+    if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
+        raise compilation_error("exact retained Metric fold authority", "invalid fold input")
+    output_fields = {field.field_id.value: field for field in spec.output_row.schema.columns}
+    keys = tuple(
+        field.name
+        for field in spec.output_row.schema.columns
+        if field.field_id in spec.output_row.key_field_ids
+    )
+    source_time = next(
+        (
+            field.name
+            for field in spec.input_row.schema.columns
+            if field.role_id == "time_dimension"
+        ),
+        None,
+    )
+    target_time = next(
+        (
+            field.name
+            for field in spec.output_row.schema.columns
+            if field.role_id == "time_dimension"
+        ),
+        None,
+    )
+    if spec.axis == "time" and spec.grain is not None:
+        if source_time is None or target_time is None:
+            raise compilation_error("one exact current time coordinate", "missing fold coordinate")
+        table = table.mutate(
+            **{
+                target_time: _Compiler._bucket(
+                    table[source_time], spec.grain, semantics.fold_temporal_snapshot
+                )
+            }
+        )
+    aggregates: dict[str, ir.Value] = {}
+    unpack: dict[str, tuple[str, str]] = {}
+    validations: list[CompiledValidation] = []
+    for authority in semantics.metric_folds:
+        for component in authority.components:
+            merge = component.time_merge if spec.axis == "time" else component.spatial_merge
+            if merge == "blocked":
+                raise compilation_error(
+                    "one registered exact axis fold", f"{authority.metric_ref}: blocked fold"
+                )
+            if merge in ("first", "last"):
+                endpoint = coverage_columns(authority)[0]
+                name = (
+                    "__mv_fold_" + _canonical_digest((authority.metric_ref, component.node_id))[:20]
+                )
+                selected = ibis.struct(
+                    {state: table[column] for state, column in component.state_columns}
+                )
+                aggregates[name] = (
+                    selected.argmin(table[endpoint])
+                    if merge == "first"
+                    else selected.argmax(table[endpoint])
+                )
+                for state, column in component.state_columns:
+                    unpack[column] = (name, state)
+            else:
+                for state, column in component.state_columns:
+                    value = _numeric(table[column])
+                    aggregates[column] = (
+                        value.min()
+                        if merge == "min" and state in ("value", "min", "max")
+                        else value.max()
+                        if merge == "max" and state in ("value", "min", "max")
+                        else value.sum()
+                    )
+        if authority.cumulative:
+            endpoint, start, end, seconds, complete = coverage_columns(authority)
+            if spec.axis != "time":
+                equality = _and(
+                    [
+                        table[name].identical_to(
+                            table[name]
+                            .first()
+                            .over(ibis.window(group_by=[table[key] for key in keys]))
+                        )
+                        for name in (endpoint, start, end, seconds, complete)
+                    ]
+                )
+                invalid = table.filter(~equality)
+                validations.append(
+                    CompiledValidation(
+                        f"{authority.metric_ref}.fold_endpoint_coverage_alignment",
+                        invalid.aggregate(violations=invalid.count()),
+                    )
+                )
+                empty = (
+                    _and([table[name].isnull() for name in (endpoint, start, end)])
+                    & table[seconds].identical_to(0)
+                    & table[complete].identical_to(False)
+                )
+                contiguous = table[seconds] == _duration_seconds(table[start], table[end])
+                invalid = table.filter(~(empty | contiguous).fill_null(False))
+                validations.append(
+                    CompiledValidation(
+                        f"{authority.metric_ref}.fold_contiguous_coverage",
+                        invalid.aggregate(violations=invalid.count()),
+                    )
+                )
+                for name in (endpoint, start, end, seconds, complete):
+                    aggregates[name] = table[name].first()
+            else:
+                aggregates[endpoint] = table[endpoint].max()
+                aggregates[start] = table[start].min()
+                aggregates[end] = table[end].max()
+                aggregates[seconds] = _numeric(table[seconds]).sum()
+                aggregates[complete] = _boolean(table[complete]).all()
+    grouped = (
+        table.group_by(keys).aggregate(**aggregates) if keys else table.aggregate(**aggregates)
+    )
+    if unpack:
+        grouped = grouped.mutate(
+            **{column: grouped[parent][child] for column, (parent, child) in unpack.items()}
+        )
+    counters = {
+        column
+        for authority in semantics.metric_folds
+        for component in authority.components
+        for state, column in component.state_columns
+        if state.endswith("count")
+    }
+    grouped = grouped.mutate(
+        **{column: grouped[column].fill_null(0) for column in sorted(counters)}
+    )
+    for authority in semantics.metric_folds:
+        if authority.cumulative and spec.axis == "time":
+            _, start, end, seconds, complete = coverage_columns(authority)
+            grouped = grouped.mutate(
+                **{
+                    seconds: grouped[seconds].fill_null(0),
+                    complete: grouped[complete].fill_null(False),
+                }
+            )
+            if spec.grain is not None and target_time is not None:
+                target_start = grouped[target_time].cast("timestamp")
+                target_end = _Compiler._bucket_end(
+                    target_start, spec.grain, semantics.fold_temporal_snapshot
+                )
+            elif semantics.fold_time_scope is not None:
+                target_start = ibis.literal(semantics.fold_time_scope.start).cast("timestamp")
+                target_end = ibis.literal(semantics.fold_time_scope.end).cast("timestamp")
+            else:
+                target_start, target_end = grouped[start], grouped[end]
+            duration = _duration_seconds(target_start, target_end)
+            grouped = grouped.mutate(
+                **{
+                    complete: _boolean(grouped[complete])
+                    & (grouped[start] == target_start)
+                    & (grouped[end] == target_end)
+                    & (grouped[seconds] == duration)
+                }
+            )
+        for node in authority.nodes:
+            if node.kind == "ratio" and node.zero_division == "error":
+                child_authority = authority.model_copy(update={"root_id": node.children[1]})
+                invalid = grouped.filter(_fold_value(grouped, child_authority) == 0)
+                validations.append(
+                    CompiledValidation(
+                        f"{authority.metric_ref}.nonzero_denominator",
+                        invalid.aggregate(violations=invalid.count()),
+                    )
+                )
+    values = {
+        output_fields[authority.field_id].name: ops.Cast(
+            _fold_value(grouped, authority),
+            to=dt.dtype(output_fields[authority.field_id].logical_type_id),
+        ).to_expr()
+        for authority in semantics.metric_folds
+    }
+    result = grouped.mutate(**values)
+    return result.select(
+        *[field.name for field in spec.output_row.schema.columns],
+        *_state_projection(spec.output_row),
+    ), tuple(validations)
+
+
 class _Compiler:
     def __init__(
         self,
@@ -134,6 +415,15 @@ class _Compiler:
         self.registry = self.owner.semantic_registry
         self.tables = tables
         self.scans = scans
+        self.datasets: dict[int, Dataset] = {}
+
+        def collect(value: Dataset) -> None:
+            self.datasets[id(value._root)] = value
+            if isinstance(value, LogicalDataset):
+                for child in value._inputs:
+                    collect(child)
+
+        collect(dataset)
         self.validations: list[CompiledValidation] = []
         self.validation_occurrences: dict[str, int] = {}
         self.preparations: list[CompiledValidation | CompiledSampleFence] = []
@@ -527,8 +817,9 @@ class _Compiler:
             )
         return table
 
+    @staticmethod
     def _bucket(
-        self, value: ir.Value, grain: Grain | None, snapshot: PeriodCalendarSnapshotV1 | None = None
+        value: ir.Value, grain: Grain | None, snapshot: PeriodCalendarSnapshotV1 | None = None
     ) -> ir.Value:
         if grain is not None and grain.kind == "semantic":
             if snapshot is None or snapshot.calendar_ref != grain.calendar:
@@ -573,8 +864,9 @@ class _Compiler:
         bucket = timestamp.bucket(interval)
         return bucket.cast("date") if isinstance(value, ir.DateValue) else bucket
 
+    @staticmethod
     def _bucket_end(
-        self, start: ir.Value, grain: Grain, snapshot: PeriodCalendarSnapshotV1 | None
+        start: ir.Value, grain: Grain, snapshot: PeriodCalendarSnapshotV1 | None
     ) -> ir.Value:
         if grain.kind == "builtin":
             if grain.unit is None or grain.count is None:
@@ -1048,6 +1340,43 @@ class _Compiler:
             )
         if "__mv_scalar" in table.columns:
             table = table.drop("__mv_scalar")
+        row, _ = metric_contracts(
+            definition, self.dataset._registry.get("metric").ids, self.registry
+        )
+        semantics = row.family_semantics
+        if isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
+            for authority in semantics.metric_folds:
+                if not authority.cumulative:
+                    continue
+                endpoint, start_name, end_name, seconds, complete = coverage_columns(authority)
+                if definition.time_axis is not None and definition.grain is not None:
+                    axis = definition.time_axis.ref.path.rsplit(".", 1)[-1]
+                    bucket_start = table[axis].cast("timestamp")
+                    bucket_end = self._bucket_end(
+                        bucket_start, definition.grain, definition.temporal_snapshot
+                    )
+                elif definition.time_scope is not None:
+                    bucket_start = ibis.literal(definition.time_scope.start).cast("timestamp")
+                    bucket_end = ibis.literal(definition.time_scope.end).cast("timestamp")
+                else:
+                    raise compilation_error(
+                        "an exact cumulative evaluation boundary", "missing endpoint"
+                    )
+                start, end = bucket_start, bucket_end
+                if definition.time_scope is not None:
+                    start = ibis.greatest(
+                        start, ibis.literal(definition.time_scope.start).cast("timestamp")
+                    )
+                    end = ibis.least(end, ibis.literal(definition.time_scope.end).cast("timestamp"))
+                table = table.mutate(
+                    **{
+                        endpoint: end,
+                        start_name: start,
+                        end_name: end,
+                        seconds: _duration_seconds(start, end),
+                        complete: (start == bucket_start) & (end == bucket_end),
+                    }
+                )
         return _Rows(table, membership, definition.entity, definition, selections)
 
     def _observe(self, payload: MetricPayload, previous: _Rows) -> _Rows:
@@ -1063,28 +1392,91 @@ class _Compiler:
     def _visit(self, root: LogicalRootHandle | MaterializedScanLeafHandle) -> _Rows:
         if isinstance(root, MaterializedScanLeafHandle):
             scan = self.scans.get(root.artifact_ref.ref)
-            if (
-                scan is None
-                or root.shape_id.family_id != "population"
-                or scan.entity.version is not None
+            dataset = self.datasets[id(root)]
+            semantics = dataset.row_contract.family_semantics
+            if scan is None or (
+                root.shape_id.family_id != "population"
+                and (
+                    not isinstance(semantics, EntityPresentMetricSemantics)
+                    or any(
+                        not facts or facts[0] != "entity_unique"
+                        for _, _, facts in semantics.coordinate_semantics
+                    )
+                )
             ):
                 raise compilation_error(
-                    "an admitted non-versioned engine Population scan",
+                    "an admitted engine membership or Entity-unique Metric scan",
                     "unsupported retained source input",
                 )
             table, entity = scan.expression, scan.entity
+            identities = tuple(
+                field.identity
+                for field in dataset.schema.columns
+                if isinstance(field.identity, _EntityFieldIdentity)
+            )
+            if (
+                len(identities) != 1
+                or identities[0].entity_ref.path != entity.ref.path
+                or identities[0].identity_signature != entity.identity_signature
+            ):
+                raise compilation_error(
+                    "the retained Entity identity signature", "changed identity"
+                )
             identity = table["entity_identity"]
             if not isinstance(identity, ir.StructValue):
                 raise compilation_error(
                     "the exact retained identity struct", "invalid engine identity"
                 )
             membership = table.select(**{name: identity[name] for name in entity.primary_key})
+            self._unique("population.retained_identity_unique", membership, entity.primary_key)
             return _Rows(table, membership, entity)
         if id(root) in self.cache:
             return self.cache[id(root)]
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
+        elif isinstance(payload, RetainedFoldPayload):
+            previous = self._visit(root.inputs[0].root)
+            table, validations = lower_fold(previous.expression, payload.spec)
+            self.validations.extend(validations)
+            result = _Rows(table, previous.membership, previous.entity)
+        elif isinstance(payload, RetainedRowsPayload):
+            previous = self._visit(root.inputs[0].root)
+            value = self.datasets[id(root)]
+            table = previous.expression
+            keys = tuple(
+                field.name
+                for field in value.schema.columns
+                if field.field_id in value.row_contract.key_field_ids
+            )
+            if payload.predicate is not None:
+                table = table.filter(lower_bound_predicate(table, payload.predicate))
+            if payload.rank is not None:
+                table, _ = self._rank(table, payload.rank, keys)
+            retained_ordering = value.row_set_contract.ordering
+            if isinstance(retained_ordering, _OrderedOrdering):
+                names = {field.field_id: field.name for field in value.schema.columns}
+                table = self._order(
+                    table,
+                    tuple(
+                        (names[term.field_id], term.direction, term.nulls)
+                        for term in retained_ordering.terms
+                    ),
+                )
+            if payload.limit_count is not None:
+                table = table.limit(payload.limit_count)
+            result = _Rows(
+                table.select(
+                    *[field.name for field in value.schema.columns],
+                    *[
+                        name
+                        for name in _state_projection(value.row_contract)
+                        if name in table.columns
+                    ],
+                ),
+                previous.membership,
+                previous.entity,
+            )
         elif isinstance(payload, MetricPayload):
             previous = self._visit(root.inputs[0].root)
             definition = payload.definition
@@ -1127,6 +1519,7 @@ class _Compiler:
                 state_names = tuple(
                     name for metric in definition.metrics for name in _state_names(metric)
                 )
+                state_names = tuple(dict.fromkeys((*state_names, *_state_projection(row))))
                 table = table.select(*visible, *generated, *state_names)
                 result = _Rows(
                     table, previous.membership, previous.entity, definition, selections, ordering
@@ -1180,34 +1573,10 @@ class _Compiler:
     def compile(self) -> CompiledDataset:
         rows = self._visit(self.dataset._root)
         primary = tuple(field.name for field in self.dataset.schema.columns)
-        parts: list[RetainedPartSpec] = []
-        hidden: tuple[str, ...] = ()
-        if rows.definition is not None:
-            keys = tuple(
-                field.name
-                for field in self.dataset.schema.columns
-                if field.field_id in self.dataset.row_contract.key_field_ids
-            )
-            for metric in rows.definition.metrics:
-                if not metric.required_state:
-                    continue
-                names = _state_names(metric)
-                role = f"metric_components.{_canonical_digest(metric.ref.path)[:20]}"
-                parts.append(
-                    RetainedPartSpec(role, "metric.sufficient_components", 1, (*keys, *names))
-                )
-                hidden += names
+        parts = retained_part_specs(self.dataset.row_contract)
+        hidden = _state_projection(self.dataset.row_contract)
         expression = rows.expression.select(*primary, *hidden)
-        # DuckDB widens integer SUM physically while Ibis retains its int64 type.
-        # Keep an explicit source cast: Value.cast elides same-type conversions.
-        expression = expression.select(
-            **{
-                name: ops.Cast(expression[name], to=expression[name].type()).to_expr()
-                if expression[name].type().is_numeric() or expression[name].type().is_temporal()
-                else expression[name]
-                for name in expression.columns
-            }
-        )
+        expression = _physical_casts(expression)
         key_names = tuple(
             field.name
             for field in self.dataset.schema.columns
@@ -1243,22 +1612,140 @@ def compile_dataset(
     return _Compiler(dataset, tables, {} if scans is None else scans).compile()
 
 
-def compile_retained_rows(dataset: LogicalDataset, table: ir.Table) -> CompiledDataset:
-    """Lower only the admitted primary-only row algebra against an immutable engine leaf."""
-    from marivo.analysis.operators.registry import admit_primary_only
+def compile_retained_rows(
+    dataset: LogicalDataset,
+    table: ir.Table,
+    *,
+    parts: Mapping[str, ir.Table] | None = None,
+) -> CompiledDataset:
+    """Compose exact row/state operations over one immutable engine Artifact."""
+    from marivo.analysis.operators.registry import admit_retained_rows
+
+    validations: list[CompiledValidation] = []
+
+    def assertion(name: str, invalid: ir.Table) -> None:
+        validations.append(CompiledValidation(name, invalid.aggregate(violations=invalid.count())))
+
+    def read(value: MaterializedDataset) -> ir.Table:
+        expected = {part.role: part for part in retained_part_specs(value.row_contract)}
+        result = table
+        keys = tuple(
+            field.name
+            for field in value.schema.columns
+            if field.field_id in value.row_contract.key_field_ids
+        )
+        for role, incoming in () if parts is None else parts.items():
+            spec = expected.get(role)
+            if spec is None or tuple(incoming.columns) != spec.column_names:
+                raise compilation_error(
+                    "the exact registered Metric part columns",
+                    "unknown role or invalid part schema",
+                )
+            if keys:
+                counts = incoming.group_by(keys).aggregate(__mv_count=incoming.count())
+                assertion(f"{role}.keys_unique", counts.filter(counts.__mv_count > 1))
+                right = incoming.view()
+                conditions = [table[key].identical_to(right[key]) for key in keys]
+                assertion(
+                    f"{role}.primary_keys_complete", table.join(right, conditions, how="anti")
+                )
+                assertion(f"{role}.part_keys_complete", right.join(table, conditions, how="anti"))
+                joined = result.join(
+                    right, [result[key].identical_to(right[key]) for key in keys], how="left"
+                )
+                result = joined.select(
+                    *result.columns,
+                    *[right[name] for name in spec.column_names if name not in keys],
+                )
+            else:
+                count = incoming.aggregate(__mv_count=incoming.count())
+                assertion(f"{role}.singleton", count.filter(count.__mv_count != 1))
+                result = result.cross_join(incoming)
+        semantics = value.row_contract.family_semantics
+        if isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
+            fields = {field.field_id.value: field for field in value.schema.columns}
+            selected = {} if parts is None else parts
+            for authority in semantics.metric_folds:
+                role = fold_part_role(authority)
+                if role not in selected:
+                    continue
+                field = fields[authority.field_id]
+                finalized = _fold_value(result, authority).cast(dt.dtype(field.logical_type_id))
+                assertion(
+                    f"{role}.primary_value_reconciliation",
+                    result.filter(~result[field.name].identical_to(finalized)),
+                )
+                for component in authority.components:
+                    names = dict(component.state_columns)
+                    counters = tuple(
+                        column
+                        for state, column in component.state_columns
+                        if state.endswith("count")
+                    )
+                    for column in counters:
+                        bad = result[column].isnull() | (result[column] < 0)
+                        if "row_count" in names and column != names["row_count"]:
+                            bad = bad | (result[column] > result[names["row_count"]])
+                        assertion(f"{role}.{column}.support_valid", result.filter(bad))
+                if authority.cumulative:
+                    endpoint, start, end, seconds, complete = coverage_columns(authority)
+                    duration = _duration_seconds(result[start], result[end])
+                    empty = (
+                        _and([result[name].isnull() for name in (endpoint, start, end)])
+                        & result[seconds].identical_to(0)
+                        & result[complete].identical_to(False)
+                    )
+                    for component in authority.components:
+                        empty = empty & _and(
+                            [
+                                result[column].identical_to(0)
+                                for state, column in component.state_columns
+                                if state.endswith("count")
+                            ]
+                        )
+                    populated = (
+                        _and(
+                            [
+                                result[name].notnull()
+                                for name in (endpoint, start, end, seconds, complete)
+                            ]
+                        )
+                        & (result[start] <= result[end])
+                        & (result[endpoint] == result[end])
+                        & (result[seconds] >= 0)
+                        & (result[seconds] <= duration)
+                        & (~_boolean(result[complete]) | (result[seconds] == duration))
+                    )
+                    assertion(
+                        f"{role}.coverage_valid",
+                        result.filter(~(empty | populated).fill_null(False)),
+                    )
+        return result
 
     def visit(value: Dataset) -> ir.Table:
-        admit_primary_only(value)
+        admit_retained_rows(value)
         if isinstance(value, MaterializedDataset):
-            return table
+            return read(value)
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
-        if not isinstance(payload, RetainedRowsPayload) or len(value._inputs) != 1:
+        if (
+            not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload))
+            or len(value._inputs) != 1
+        ):
             raise compilation_error(
-                "a registered primary-only row operation", "unsupported retained source method"
+                "a registered retained row or fold operation", "unsupported retained source method"
             )
         result = visit(value._inputs[0])
+        if isinstance(payload, RetainedFoldPayload):
+            missing = set(_state_projection(payload.spec.input_row)) - set(result.columns)
+            if missing:
+                raise compilation_error(
+                    "complete named sufficient state", "missing required fold part"
+                )
+            result, checks = lower_fold(result, payload.spec)
+            validations.extend(checks)
+            return result
         keys = tuple(
             field.name
             for field in value.schema.columns
@@ -1279,23 +1766,42 @@ def compile_retained_rows(dataset: LogicalDataset, table: ir.Table) -> CompiledD
             )
         if payload.limit_count is not None:
             result = result.limit(payload.limit_count)
-        return result.select(tuple(field.name for field in value.schema.columns))
+        return result.select(
+            *[field.name for field in value.schema.columns],
+            *[name for name in _state_projection(value.row_contract) if name in result.columns],
+        )
 
-    expression = visit(dataset)
+    expression = _physical_casts(visit(dataset))
     keys = tuple(
         field.name
         for field in dataset.schema.columns
         if field.field_id in dataset.row_contract.key_field_ids
     )
-    validations: tuple[CompiledValidation, ...] = ()
+    missing = set(_state_projection(dataset.row_contract)) - set(expression.columns)
+    if missing:
+        raise compilation_error("complete output Metric state", "missing required output part")
     if keys:
         counts = expression.group_by(keys).aggregate(__mv_count=expression.count())
-        validations = (
+        validations.append(
             CompiledValidation(
                 "dataset.final_row_key_unique",
                 counts.filter(counts.__mv_count > 1).aggregate(
                     violations=counts.filter(counts.__mv_count > 1).count()
                 ),
-            ),
+            )
         )
-    return CompiledDataset(expression, validations, tuple(expression.columns), ())
+    ordering = dataset.row_set_contract.ordering
+    if isinstance(ordering, _OrderedOrdering):
+        names = {field.field_id: field.name for field in dataset.schema.columns}
+        expression = _Compiler._order(
+            expression,
+            tuple((names[term.field_id], term.direction, term.nulls) for term in ordering.terms),
+        )
+    elif keys:
+        expression = _Compiler._order(expression, tuple((key, "ascending", "last") for key in keys))
+    return CompiledDataset(
+        expression,
+        tuple(validations),
+        tuple(field.name for field in dataset.schema.columns),
+        retained_part_specs(dataset.row_contract),
+    )
