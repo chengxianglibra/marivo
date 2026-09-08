@@ -118,6 +118,8 @@ with ExitStack() as stack:
     result = filtered.with_dimensions(region).with_time_axis(
         order_time, grain=day
     ).aggregate().metric(revenue)
+    rolled = result.rollup(drop_time=True).rollup(drop_dimensions=(region,))
+    assert rolled.row_contract.shape_id.local_shape_id == "scalar"
     tip = filtered
     for _ in range(80):
         tip = tip.where(gt(tip.fields.metric(revenue), 0))
@@ -128,7 +130,7 @@ with ExitStack() as stack:
     with sources.source_bindings({api: {'tenant': 'DIFFERENT_CAPTURE_2A'}}):
         changed = sources.observe(api_value, time_scope=window)
     assert captured.definition_fingerprint != changed.definition_fingerprint
-    values = (population, observed, filtered, result, tip, snapshot, validity, captured)
+    values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled)
     for value in values:
         assert value.schema is value.row_contract.schema
         assert value.state.kind == 'logical'
@@ -188,7 +190,7 @@ def test_actual_private_observation_chain_is_pure() -> None:
     evidence = json.loads(result.stdout)
     assert evidence["final_shape"] == "metric/dimension-time@v1"
     assert evidence["deep_filter_nodes"] == 80
-    assert evidence["checked_definitions"] == 8
+    assert evidence["checked_definitions"] == 9
     assert evidence["guarded_negative_failures"] == 5
     assert evidence["guarded_entrypoints"] == 27
     assert evidence["telemetry_enabled"] is True

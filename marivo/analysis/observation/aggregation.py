@@ -18,6 +18,13 @@ from marivo.analysis.observation.coordinates import bind_aggregation
 
 def aggregate(dataset: Dataset) -> Dataset:
     """Remove Entity once while retaining exact selected contribution boundaries."""
+    from marivo.analysis.datasets.handles import LogicalRootHandle
+
+    root = dataset._root
+    if not isinstance(root, LogicalRootHandle) or not isinstance(root.payload, MetricPayload):
+        from marivo.analysis.observation.rollup import retained_aggregate
+
+        return retained_aggregate(dataset)
     definition = metric_definition(dataset)
     if not definition.entity_present:
         raise construction_error("Entity axis present before reduction", "already reduced Metric")

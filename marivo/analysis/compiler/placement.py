@@ -13,7 +13,12 @@ from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.normalize import required_entities
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.observation.contracts import ObservationOwner, source_owner_of
+from marivo.analysis.observation.contracts import (
+    ObservationOwner,
+    RetainedRowsPayload,
+    source_owner_of,
+)
+from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.registry import ImplementationRegistration
 
@@ -141,10 +146,14 @@ def place(
         if all(item is not None for item in child_domains):
             candidate = (
                 child_domains[0]
-                if child_domains and isinstance(child_domains[0], EngineBinding)
+                if child_domains
+                and (
+                    isinstance(child_domains[0], EngineBinding)
+                    or isinstance(value._root.payload, (RetainedRowsPayload, RetainedFoldPayload))
+                )
                 else source_binding(value)
             )
-            if source_eligible(registration, child_domains, candidate):
+            if candidate is not None and source_eligible(registration, child_domains, candidate):
                 binding = candidate
         if binding is None:
             registry.admit_local(value, registration)

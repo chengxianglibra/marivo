@@ -65,16 +65,34 @@ def test_binding_identity_never_uses_connection_argument_equality(tmp_path: Path
     assert not source_eligible(registration, (), replace(a, adapter_versions=("future", "future")))
 
 
-def test_required_parts_fail_before_any_worker_or_origin_work(tmp_path: Path) -> None:
+def test_required_parts_place_locally_without_worker_or_origin_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     runtime, sources, _ = setup_local(tmp_path)
+    import pyarrow.parquet as pq
+
+    from marivo.analysis.materialization import admission
     from marivo.refs import ref
+    from tests.lazy_materialization_crash_worker import snapshot
 
     retained = sources.observe(ref.metric("sales.mean_amount")).execute()
+    before = snapshot(runtime)
+    queries = runtime.statistics.primary_queries
+    monkeypatch.setattr(
+        admission,
+        "_build_backend_from_effective",
+        lambda *args, **kwargs: pytest.fail("placement touched an origin"),
+    )
+    monkeypatch.setattr(
+        pq, "ParquetFile", lambda *args, **kwargs: pytest.fail("placement read a retained part")
+    )
     target = retained.where(gt(retained.fields.get("mean_amount"), 0))
-    with pytest.raises(DatasetCompilationError, match="Slice 3b"):
-        target.execute()
+    placed = place(target)
+    assert len(placed.local_steps) == 1
+    assert placed.local_steps[0].implementation.local_method == "metric.where"
+    assert snapshot(runtime) == before
     assert runtime.statistics.worker_pid is None
-    assert runtime.statistics.primary_queries == 0
+    assert runtime.statistics.primary_queries == queries
 
 
 @pytest.mark.parametrize("dependency", ["duckdb", "ibis"])

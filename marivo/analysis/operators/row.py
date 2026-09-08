@@ -1,4 +1,4 @@
-"""Exact pandas implementations of primary-only Metric row operations."""
+"""Exact pandas Metric row operations and keyed retained-role transformations."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from decimal import Decimal
 from functools import cmp_to_key
 
 import pandas as pd
+import pyarrow as pa
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.datasets.descriptors import (
@@ -18,7 +19,12 @@ from marivo.analysis.datasets.descriptors import (
     _OrderedOrdering,
 )
 from marivo.analysis.datasets.handles import CanonicalValue
-from marivo.analysis.observation.contracts import RankSpec
+from marivo.analysis.observation.contracts import (
+    EntityPresentMetricSemantics,
+    EntityReducedMetricSemantics,
+    RankSpec,
+)
+from marivo.analysis.observation.fold_contracts import FoldSpecV1
 from marivo.analysis.observation.predicates import BoundPredicate
 
 
@@ -32,6 +38,81 @@ class RowCall:
     predicate: BoundPredicate | None = None
     rank: RankSpec | None = None
     limit: int | None = None
+    fold: FoldSpecV1 | None = None
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class PartFrame:
+    """One private, completely validated retained role in the local suffix."""
+
+    role: str
+    contract_id: str
+    contract_version: int
+    schema: pa.Schema
+    keys: tuple[str, ...]
+    frame: pd.DataFrame
+
+
+def row_key_names(row: DatasetRowContract) -> tuple[str, ...]:
+    names = {field.field_id: field.name for field in row.schema.columns}
+    return tuple(names[key] for key in row.key_field_ids)
+
+
+def frame_keys(frame: pd.DataFrame, keys: tuple[str, ...]) -> list[tuple[object, ...]]:
+    """Normalize SQL-null coordinates consistently across primary and retained roles."""
+    if not keys:
+        return [()] * len(frame)
+    return [
+        tuple(None if _missing(value) else value for value in row)
+        for row in frame.loc[:, list(keys)].itertuples(index=False, name=None)
+    ]
+
+
+def aligned_part_positions(
+    part: PartFrame, keys: tuple[str, ...], expected: list[tuple[object, ...]]
+) -> dict[tuple[object, ...], int]:
+    """Require one exact state row per primary contribution key and return its position."""
+    available = frame_keys(part.frame, part.keys)
+    if (
+        part.keys != keys
+        or len(set(available)) != len(available)
+        or set(available) != set(expected)
+    ):
+        raise compilation_error(
+            "retained state for exactly the current row keys", "part key alignment differs"
+        )
+    return {key: position for position, key in enumerate(available)}
+
+
+def select_parts(
+    primary: pd.DataFrame,
+    output: pd.DataFrame,
+    call: RowCall,
+    parts: tuple[PartFrame, ...],
+) -> tuple[PartFrame, ...]:
+    """Apply precisely the primary row selection to each computational role."""
+    from marivo.analysis.observation.fold_contracts import fold_part_role
+
+    semantics = call.output_row.family_semantics
+    if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
+        raise compilation_error("Metric retained row semantics", "invalid row selection output")
+    retained_roles = {fold_part_role(item) for item in semantics.metric_folds}
+    keys = row_key_names(call.input_row)
+    expected = frame_keys(primary, keys)
+    selected = frame_keys(output, keys)
+    result: list[PartFrame] = []
+    for part in parts:
+        if part.role == "population_sampling_state":
+            result.append(part)
+            continue
+        if part.role not in retained_roles:
+            continue
+        positions = aligned_part_positions(part, keys, expected)
+        frame = part.frame.iloc[[positions[key] for key in selected]].reset_index(drop=True)
+        result.append(
+            PartFrame(part.role, part.contract_id, part.contract_version, part.schema, keys, frame)
+        )
+    return tuple(result)
 
 
 def _literal(value: CanonicalValue) -> bool | int | float | str | Decimal | date | datetime:

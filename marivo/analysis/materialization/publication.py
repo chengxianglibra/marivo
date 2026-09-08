@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.datasets.handles import LogicalRootHandle
+from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -29,7 +29,9 @@ from marivo.analysis.observation.contracts import (
 )
 
 
-def materialization_contract(dataset: LogicalDataset) -> MaterializationContract:
+def materialization_contract(
+    dataset: LogicalDataset, *, inherited: ArtifactDescriptor | None = None
+) -> MaterializationContract:
     """Resolve the exact family registration before a producing Run can be admitted."""
     root = dataset._root
     if not isinstance(root, LogicalRootHandle):
@@ -62,7 +64,8 @@ def materialization_contract(dataset: LogicalDataset) -> MaterializationContract
         retained_private_state_contract_ids=required_retained_contracts(
             dataset.row_contract,
             registration.retained_contract_ids,
-            sampled=any(
+            sampled=(inherited is not None and inherited.sampling_execution is not None)
+            or any(
                 isinstance(item.payload, PopulationPayload) and item.payload.sampling is not None
                 for item in logical_roots(dataset)
             ),
@@ -90,13 +93,22 @@ def make_descriptor(
         )
     roots = tuple(logical_roots(dataset))
     if inherited is not None:
-        if inherited.retained_parts or inherited.sampling_execution or sampling:
+        if sampling != (inherited.sampling_execution or ()):
             raise MaterializationError(
-                expected="a primary-only committed input authority",
-                received="required retained state needs its registered continuation",
-                repair="Apply the row operation before the materialization boundary.",
-                stage="implementation_registration",
+                expected="the exact committed sampling realization of the input Artifact",
+                received="retained continuation changed its sampling realization",
+                repair="Consume the selected checkpoint without resampling its membership.",
+                stage="publication",
             )
+        population_definition = inherited.population_authority.definition_fingerprint
+        for root in roots:
+            if root.operator_id == "session.observe":
+                selected = root.inputs[0].root
+                population_definition = (
+                    inherited.definition_fingerprint
+                    if isinstance(selected, MaterializedScanLeafHandle)
+                    else selected.definition_fingerprint
+                )
         return replace(
             inherited,
             definition_fingerprint=dataset.definition_fingerprint,
@@ -116,10 +128,17 @@ def make_descriptor(
                 else inherited.semantic_dependency_digest
             ),
             population_authority=replace(
-                inherited.population_authority, validation_results=validations
+                inherited.population_authority,
+                definition_fingerprint=population_definition,
+                validation_results=validations,
             ),
             operator_implementation_versions=tuple(
-                (name, 1) for name in dict.fromkeys(root.operator_id for root in roots)
+                dict.fromkeys(
+                    (
+                        *inherited.operator_implementation_versions,
+                        *((root.operator_id, 1) for root in roots),
+                    )
+                )
             ),
             dataset_materialization_contract=materialization,
             storage_receipt=storage.primary_receipt,
@@ -149,10 +168,24 @@ def make_descriptor(
             repair="Execute the complete sampled Population through its registered physical fence.",
             stage="publication",
         )
-    current_payload = current_root.payload
+    owning_root = current_root
+    while not isinstance(owning_root.payload, (PopulationPayload, MetricPayload)):
+        # A retained row/fold suffix keeps the nearest observation's selected
+        # membership. Earlier observations may have a different Population.
+        if len(owning_root.inputs) != 1 or not isinstance(
+            owning_root.inputs[0].root, LogicalRootHandle
+        ):
+            raise MaterializationError(
+                expected="one logical input leading to the owning Observation definition",
+                received="a missing or ambiguous Observation owner",
+                repair="Reconstruct the logical definition with the private source factory.",
+                stage="publication",
+            )
+        owning_root = owning_root.inputs[0].root
+    current_payload = owning_root.payload
     population: LogicalRootHandle | None
     if isinstance(current_payload, PopulationPayload):
-        population = current_root
+        population = owning_root
     elif isinstance(current_payload, MetricPayload):
         population = next(
             (

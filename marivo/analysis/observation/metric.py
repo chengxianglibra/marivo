@@ -43,12 +43,14 @@ from marivo.analysis.observation.contracts import (
     producer_contract,
     retained_field,
 )
+from marivo.analysis.observation.fold_contracts import decode_fold_authority
 from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
     make_population,
 )
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
+from marivo.analysis.observation.rollup import rollup as _rollup
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import MetricEntry
 from marivo.semantic.ir import TargetDimensionContract
@@ -133,6 +135,25 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
         """
         return _checked(aggregation.aggregate(self))
 
+    def rollup(
+        self,
+        *,
+        drop_dimensions: tuple[DimensionInput, ...] = (),
+        grain: Grain | None = None,
+        drop_time: bool = False,
+    ) -> LogicalMetricDataset:
+        """Fold current rows across specified coordinates.
+
+        Args: drop_dimensions: Exact retained Dimensions to remove.
+            grain: Strictly coarser time grain. drop_time: Remove time instead.
+        Returns: A Logical Metric over the same current contribution state.
+        Example: ``metrics.aggregate().rollup(drop_time=True)``.
+        Constraints: Entity must be absent; every component fold must be exact.
+        """
+        return _checked(
+            _rollup(self, drop_dimensions=drop_dimensions, grain=grain, drop_time=drop_time)
+        )
+
     def metric(self, metric: MetricInput) -> LogicalMetricDataset:
         """Project one retained metric identity and return a Logical Metric.
 
@@ -212,9 +233,28 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
         """Request Entity reduction of retained rows; no parameters.
 
         Returns: Logical Metric when admitted. Example: ``metrics.aggregate()``.
-        Constraints: Retained folds are not implemented in this slice.
+        Constraints: Every retained component requires an exact Entity-axis fold.
         """
         return _checked(aggregation.aggregate(self))
+
+    def rollup(
+        self,
+        *,
+        drop_dimensions: tuple[DimensionInput, ...] = (),
+        grain: Grain | None = None,
+        drop_time: bool = False,
+    ) -> LogicalMetricDataset:
+        """Fold current rows across specified coordinates.
+
+        Args: drop_dimensions: Exact retained Dimensions to remove.
+            grain: Strictly coarser time grain. drop_time: Remove time instead.
+        Returns: A Logical Metric over the same current contribution state.
+        Example: ``metrics.aggregate().rollup(drop_time=True)``.
+        Constraints: Entity must be absent; every component fold must be exact.
+        """
+        return _checked(
+            _rollup(self, drop_dimensions=drop_dimensions, grain=grain, drop_time=drop_time)
+        )
 
     def metric(self, metric: MetricInput) -> LogicalMetricDataset:
         """Project one retained metric identity and return Logical Metric.
@@ -538,6 +578,17 @@ def _project(dataset: Dataset, metric: MetricInput) -> LogicalMetricDataset:
         metric_bindings=tuple(
             item for item in semantics.metric_bindings if item[0] == selected.field_id
         ),
+        fold_authority=decode_fold_authority(semantics.fold_authority)
+        .model_copy(
+            update={
+                "metrics": tuple(
+                    item
+                    for item in semantics.metric_folds
+                    if item.field_id == selected.field_id.value
+                )
+            }
+        )
+        .to_json(),
     )
     row = _make_row_contract(
         schema_version=dataset.row_contract.schema_version,

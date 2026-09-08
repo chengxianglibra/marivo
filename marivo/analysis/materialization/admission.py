@@ -67,6 +67,7 @@ from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.local import LocalPolicy
 from marivo.analysis.materialization.local_worker import (
     ArtifactInput,
+    LocalPartInput,
     LocalRequest,
     LocalResult,
     StreamInput,
@@ -117,6 +118,7 @@ from marivo.analysis.observation.contracts import (
     PopulationPayload,
     RetainedRowsPayload,
 )
+from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
@@ -523,15 +525,15 @@ class DatasetRuntime:
                 if (
                     candidate_binding is not None
                     and isinstance(receipt, EngineReceipt)
-                    and value.kind == "population"
+                    and value.kind in ("population", "metric")
                     and receipt.datasource_ref == candidate_binding.datasource_id
                     and receipt.execution_domain_id == engine_domain(candidate_binding)
                 ):
                     return candidate_binding
                 if candidate_binding is None and isinstance(receipt, EngineReceipt):
-                    from marivo.analysis.operators.registry import admit_primary_only
+                    from marivo.analysis.operators.registry import admit_retained_rows
 
-                    admit_primary_only(value)
+                    admit_retained_rows(value)
                     return EngineBinding(
                         self,
                         receipt.datasource_ref,
@@ -568,13 +570,7 @@ class DatasetRuntime:
                 inherited = next(iter(records.values())).descriptor
             if artifact_steps:
                 inherited = self._selected(artifact_steps[0].dataset).descriptor
-                if inherited.retained_parts or inherited.sampling_execution:
-                    raise _error("implementation_registration")
-            if physical.local_steps and any(
-                isinstance(root.payload, PopulationPayload) and root.payload.sampling is not None
-                for root in roots
-            ):
-                raise _error("implementation_registration")
+            contract = materialization_contract(dataset, inherited=inherited)
             run = self.store.admit(
                 self.session_ref,
                 key,
@@ -600,7 +596,13 @@ class DatasetRuntime:
                 self._validate_target(source_step, physical, target, object_bindings)
                 phase = "authority_resolution"
                 validations: list[tuple[str, int]] = []
-                sampling: list[SamplingRealization] = []
+                sampling: list[SamplingRealization] = list(
+                    inherited.sampling_execution or () if inherited is not None else ()
+                )
+                if inherited is not None:
+                    validate_sampling_state(
+                        self.store.project_root, sampling_state_read(inherited), object_bindings
+                    )
                 if source_step is not None and source_dataset is not None:
                     domain = source_step.binding.datasource_id
                     candidate: object
@@ -683,7 +685,10 @@ class DatasetRuntime:
                                 descriptor.row_contract,
                             )
                         )
-                        recipe = compile_retained_rows(source_dataset, tables["retained"])
+                        retained_tables = self._engine_parts(backend, descriptor, source_dataset)
+                        recipe = compile_retained_rows(
+                            source_dataset, tables["retained"], parts=retained_tables
+                        )
                     else:
                         scans: dict[str, CompiledArtifactScan] = {}
                         for reference, selected_record in records.items():
@@ -691,8 +696,6 @@ class DatasetRuntime:
                             receipt = descriptor.storage_receipt
                             if not isinstance(receipt, EngineReceipt):
                                 raise _error("execution_boundary", run.run_ref)
-                            if descriptor.sampling_execution or descriptor.retained_parts:
-                                raise _error("implementation_registration", run.run_ref)
                             from marivo.analysis.materialization.engine import attach_engine_scan
 
                             table = attach_engine_scan(backend, self.store.project_root, receipt)
@@ -703,8 +706,6 @@ class DatasetRuntime:
                             )
                             scans[reference] = CompiledArtifactScan(table, entity)
                         recipe = compile_dataset(source_dataset, tables, scans=scans)
-                    if physical.local_steps and recipe.retained_parts:
-                        raise _error("implementation_registration", run.run_ref)
                     phase = "ibis_backend_compile"
                     self._event("backend_compile")
                     backend.compile(recipe.expression)
@@ -813,19 +814,59 @@ class DatasetRuntime:
                         else:
                             batch_rows = self._batch_rows(backend, tables, recipe.expression)
                             incoming = self._batches(backend, recipe.expression, batch_rows)
+                            output_parts = tuple(
+                                PartWriteSpec(
+                                    part.role,
+                                    part.contract_id,
+                                    part.contract_version,
+                                    part.column_names,
+                                )
+                                for part in recipe.retained_parts
+                            )
                             if physical.local_steps:
-                                if recipe.retained_parts:
-                                    raise _error("implementation_registration", run.run_ref)
+                                from marivo.analysis.materialization.retained import (
+                                    component_schema,
+                                )
+
+                                stream_schema = recipe.expression.schema().to_pyarrow()
+                                local_parts = tuple(
+                                    LocalPartInput(
+                                        part.role,
+                                        part.contract_id,
+                                        part.contract_version,
+                                        pa.schema(
+                                            [
+                                                stream_schema.field(name)
+                                                for name in part.column_names
+                                            ]
+                                        ),
+                                        component_schema(
+                                            source_dataset.row_contract,
+                                            part.role,
+                                            pa.schema(
+                                                [
+                                                    stream_schema.field(name)
+                                                    for name in part.column_names
+                                                ]
+                                            ),
+                                        ),
+                                    )
+                                    for part in recipe.retained_parts
+                                )
                                 local_result = self._run_local(
                                     physical,
                                     StreamInput(
-                                        source_dataset.row_contract, source_dataset.row_set_contract
+                                        source_dataset.row_contract,
+                                        source_dataset.row_set_contract,
+                                        wide_parts=bool(local_parts),
                                     ),
                                     incoming,
                                     run.run_ref,
                                     cancel_source=backend.con.interrupt,
+                                    parts=local_parts,
                                 )
                                 incoming = iter(local_result.table.to_batches(max_chunksize=1024))
+                                output_parts = self._local_output_parts(local_result)
                                 validations = [
                                     (
                                         "source_prefix.final_row_key_unique"
@@ -841,15 +882,7 @@ class DatasetRuntime:
                                 dataset,
                                 incoming,
                                 run.run_ref,
-                                parts=tuple(
-                                    PartWriteSpec(
-                                        part.role,
-                                        part.contract_id,
-                                        part.contract_version,
-                                        part.column_names,
-                                    )
-                                    for part in recipe.retained_parts
-                                ),
+                                parts=output_parts,
                                 sampling=tuple(sampling),
                                 target=target,
                                 object_bindings=object_bindings,
@@ -860,6 +893,9 @@ class DatasetRuntime:
                     if inherited is None:
                         raise _error("authority_resolution", run.run_ref)
                     phase = "stage_execution"
+                    local_parts, part_batches = self._local_input_parts(
+                        inherited, dataset, object_bindings
+                    )
                     local_result = self._run_local(
                         physical,
                         ArtifactInput(
@@ -878,6 +914,8 @@ class DatasetRuntime:
                         else (),
                         run.run_ref,
                         cancel_source=lambda: None,
+                        parts=local_parts,
+                        part_batches=part_batches,
                     )
                     validations = [("dataset.final_row_key_unique", 0)]
                     phase = "storage_staging"
@@ -885,6 +923,8 @@ class DatasetRuntime:
                         dataset,
                         local_result.table.to_batches(max_chunksize=1024),
                         run.run_ref,
+                        parts=self._local_output_parts(local_result),
+                        sampling=tuple(sampling),
                         source_key_validation=True,
                         target=target,
                         object_bindings=object_bindings,
@@ -896,6 +936,16 @@ class DatasetRuntime:
                         checked_engine_path(
                             self.store.project_root, input_record.descriptor.storage_receipt
                         )
+                        if source_step is not None and isinstance(
+                            source_step.binding, EngineBinding
+                        ):
+                            from marivo.analysis.materialization.retained import selected_parts
+
+                            for part in selected_parts(input_record.descriptor, dataset):
+                                if isinstance(part.storage_receipt, EngineReceipt):
+                                    checked_engine_path(
+                                        self.store.project_root, part.storage_receipt
+                                    )
                 phase = "quality"
                 self._event("quality")
                 descriptor = make_descriptor(
@@ -1115,6 +1165,136 @@ class DatasetRuntime:
             rows=descriptor.row_set_contract,
         )
 
+    def _engine_parts(
+        self, backend: Backend, descriptor: ArtifactDescriptor, dataset: LogicalDataset
+    ) -> dict[str, ir.Table]:
+        """Attach only consumed immutable states and verify native schema/support."""
+        import hashlib
+
+        from marivo.analysis.materialization.engine import attach_engine_scan
+        from marivo.analysis.materialization.retained import (
+            component_schema,
+            metric_parts,
+            selected_parts,
+        )
+        from marivo.analysis.materialization.storage import _integrity
+        from marivo.analysis.observation.fold_contracts import fold_part_role, fold_state_columns
+
+        authorities = {fold_part_role(item): item for item in metric_parts(descriptor.row_contract)}
+        tables: dict[str, ir.Table] = {}
+        with _engine_deadline(backend):
+            for part in selected_parts(descriptor, dataset):
+                receipt = part.storage_receipt
+                if not isinstance(receipt, EngineReceipt):
+                    raise _error("execution_boundary", self.last_run_ref)
+                table = attach_engine_scan(backend, self.store.project_root, receipt)
+                self._record_statement("engine_check.part_schema", backend.compile(table.limit(0)))
+                schema = backend.to_pyarrow(table.limit(0)).schema
+                if (
+                    hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
+                    != receipt.schema_fingerprint
+                ):
+                    _integrity("the exact immutable part schema", "engine part schema differs")
+                component_schema(descriptor.row_contract, part.role, schema)
+                self._record_statement("engine_check.part_count", backend.compile(table.count()))
+                count: object = backend.execute(table.count())
+                if count != receipt.realized_row_count:
+                    _integrity("the exact committed part row count", "engine part count differs")
+                required = [
+                    table[name].isnull()
+                    for name, _, nullable in fold_state_columns(authorities[part.role])
+                    if not nullable
+                ]
+                if required:
+                    invalid = required[0]
+                    for predicate in required[1:]:
+                        invalid = invalid | predicate
+                    check = table.filter(invalid).count()
+                    self._record_statement("engine_check.part_support", backend.compile(check))
+                    failures: object = backend.execute(check)
+                    if failures != 0:
+                        _integrity(
+                            "non-null component support and coverage", "null required engine state"
+                        )
+                tables[part.role] = table
+        return tables
+
+    def _local_input_parts(
+        self,
+        descriptor: ArtifactDescriptor,
+        dataset: LogicalDataset,
+        object_bindings: tuple[S3Access, ...],
+    ) -> tuple[tuple[LocalPartInput, ...], tuple[Iterable[pa.RecordBatch], ...]]:
+        from marivo.analysis.materialization.reads import part_schema, read_part_batches
+        from marivo.analysis.materialization.retained import (
+            checked_component_batches,
+            component_schema,
+            selected_parts,
+        )
+        from marivo.analysis.materialization.storage import _limited
+
+        selected = (
+            *selected_parts(descriptor, dataset),
+            *(
+                part
+                for part in descriptor.retained_parts
+                if part.role == "population_sampling_state"
+            ),
+        )
+        if any(
+            part.storage_receipt.realized_row_count > self.local_policy.max_input_rows
+            for part in selected
+        ):
+            _limited("committed part row count exceeds the complete local input limit")
+        inputs: list[LocalPartInput] = []
+        streams: list[Iterable[pa.RecordBatch]] = []
+        for part in selected:
+            schema = (
+                pa.schema([pa.field("sampling_execution_digest", pa.string(), nullable=False)])
+                if part.role == "population_sampling_state"
+                else part_schema(self.store.project_root, part, bindings=object_bindings)
+            )
+            keys = (
+                ()
+                if part.role == "population_sampling_state"
+                else component_schema(descriptor.row_contract, part.role, schema)
+            )
+            receipt = part.storage_receipt
+            inputs.append(
+                LocalPartInput(
+                    part.role,
+                    part.contract_id,
+                    part.contract_version,
+                    schema,
+                    keys,
+                    receipt if isinstance(receipt, LocalReceipt) else None,
+                )
+            )
+            if not isinstance(receipt, LocalReceipt):
+                incoming = read_part_batches(
+                    self.store.project_root,
+                    part,
+                    expected_schema=schema,
+                    policy=_READ_POLICY,
+                    bindings=object_bindings,
+                )
+                streams.append(
+                    incoming
+                    if part.role == "population_sampling_state"
+                    else checked_component_batches(incoming, descriptor.row_contract, part.role)
+                )
+        return tuple(inputs), tuple(streams)
+
+    @staticmethod
+    def _local_output_parts(result: LocalResult) -> tuple[PartWriteSpec, ...]:
+        return tuple(
+            PartWriteSpec(
+                part.role, part.contract_id, part.contract_version, tuple(part.table.column_names)
+            )
+            for part in result.parts
+            if part.contract_id == "metric.sufficient_components"
+        )
+
     def _run_local(
         self,
         physical: PhysicalStageGraph,
@@ -1123,12 +1303,14 @@ class DatasetRuntime:
         run_ref: str,
         *,
         cancel_source: Callable[[], None],
+        parts: tuple[LocalPartInput, ...] = (),
+        part_batches: tuple[Iterable[pa.RecordBatch], ...] = (),
     ) -> LocalResult:
         calls: list[RowCall] = []
         for step in physical.local_steps:
             root = step.dataset._root
             if not isinstance(root, LogicalRootHandle) or not isinstance(
-                root.payload, (MetricPayload, RetainedRowsPayload)
+                root.payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)
             ):
                 raise _error("implementation_registration", run_ref)
             source = step.dataset._inputs[0]
@@ -1140,9 +1322,10 @@ class DatasetRuntime:
                     source.row_set_contract,
                     step.dataset.row_contract,
                     step.dataset.row_set_contract,
-                    payload.predicate,
-                    payload.rank,
-                    payload.limit_count,
+                    payload.predicate if not isinstance(payload, RetainedFoldPayload) else None,
+                    payload.rank if not isinstance(payload, RetainedFoldPayload) else None,
+                    payload.limit_count if not isinstance(payload, RetainedFoldPayload) else None,
+                    payload.spec if isinstance(payload, RetainedFoldPayload) else None,
                 )
             )
         resource = worker_reservation(run_ref)
@@ -1157,12 +1340,14 @@ class DatasetRuntime:
             tuple(calls),
             self.local_policy,
             time.monotonic() + self.local_policy.deadline_seconds,
+            parts,
         )
         result = supervise(
             request,
             batches,
             cancel_source=cancel_source,
             terminal=lambda: prove_local_termination(resource),
+            part_batches=part_batches,
         )
         self.statistics.local_handoffs = result.handoffs
         self.statistics.worker_pid = result.worker_pid

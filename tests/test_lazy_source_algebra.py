@@ -360,7 +360,15 @@ def test_semantic_calendar_validations_publish_each_required_occurrence(
     assert sum(name.startswith("calendar.coordinate_coverage") for name in names) >= 2
     assert all(violations == 0 for _, violations in validations)
     if metric_name == "running":
-        assert record.descriptor.retained_parts == ()
+        from marivo.analysis.materialization.reads import part_schema
+
+        assert len(record.descriptor.retained_parts) == 1
+        part = record.descriptor.retained_parts[0]
+        assert part.contract_id == "metric.sufficient_components"
+        part_names = part_schema(tmp_path, part).names
+        assert any(name.endswith("_sum") for name in part_names)
+        assert any(name.endswith("_evaluation_end") for name in part_names)
+        assert any(name.endswith("_coverage_complete") for name in part_names)
 
 
 @pytest.mark.parametrize("end", ["2026-02-01", "2026-02-06"])

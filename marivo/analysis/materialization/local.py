@@ -6,6 +6,7 @@ import math
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 
 import pandas as pd
 import pyarrow as pa
@@ -25,7 +26,13 @@ from marivo.analysis.materialization.storage import (
     _to_dataframe,
     _value,
 )
-from marivo.analysis.operators.row import RowCall, execute_row, frame_comparator
+from marivo.analysis.operators.row import (
+    PartFrame,
+    RowCall,
+    execute_row,
+    frame_comparator,
+    select_parts,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,32 +169,67 @@ def collect_part(
     budget: LocalBudget,
 ) -> pa.Table:
     """Validate a complete required role against its owner's exact physical contract."""
-    retained: list[pa.RecordBatch] = []
-    count = decoded = 0
-    seen: set[tuple[object, ...]] = set()
+    collector = PartCollector(schema, keys, budget)
     for incoming in batches:
+        collector.accept(incoming)
+    return collector.finish()
+
+
+@dataclass(slots=True)
+class PartCollector:
+    """Incrementally guard a named role while one wide source stream is consumed."""
+
+    schema: pa.Schema
+    keys: tuple[str, ...]
+    budget: LocalBudget
+    retained: list[pa.RecordBatch] = dataclass_field(default_factory=list)
+    count: int = 0
+    decoded: int = 0
+    seen: set[tuple[object, ...]] = dataclass_field(default_factory=set)
+
+    def accept(self, incoming: pa.RecordBatch) -> None:
+        budget = self.budget
         budget.check()
         batch = _normalize_batch(incoming, budget.policy.max_batch_bytes)
-        if not schema.equals(batch.schema, check_metadata=False):
+        if not self.schema.equals(batch.schema, check_metadata=False):
             fail("exact required part schema", "part schema mismatch", "transfer_guard")
-        count += batch.num_rows
-        if count > budget.policy.max_input_rows:
+        self.count += batch.num_rows
+        if self.count > budget.policy.max_input_rows:
             fail("complete required part within row budget", "part row overflow")
         budget.input(batch.nbytes)
-        decoded += batch.nbytes
-        budget.allocation(decoded)
-        if keys:
-            budget.allocation(budget.input_bytes + count * (160 + 64 * len(keys)))
-        for field in schema:
-            if not field.nullable and batch.column(field.name).null_count:
+        self.decoded += batch.nbytes
+        budget.allocation(self.decoded)
+        if self.keys:
+            budget.allocation(budget.input_bytes + self.count * (160 + 64 * len(self.keys)))
+        for column in self.schema:
+            if not column.nullable and batch.column(column.name).null_count:
                 fail("non-null required part fields", "null required part field", "transfer_guard")
         for index in range(batch.num_rows):
-            key = tuple(_value(batch.column(name)[index]) for name in keys)
-            if keys and key in seen:
+            key = tuple(_value(batch.column(name)[index]) for name in self.keys)
+            if self.keys and key in self.seen:
                 fail("unique required part keys", "duplicate part key", "transfer_guard")
-            seen.add(key)
-        retained.append(batch)
-    return pa.Table.from_batches(retained, schema=schema)
+            self.seen.add(key)
+        self.retained.append(batch)
+
+    def finish(self) -> pa.Table:
+        return pa.Table.from_batches(self.retained, schema=self.schema)
+
+
+def to_part_frame(table: pa.Table, row: DatasetRowContract, budget: LocalBudget) -> pd.DataFrame:
+    """Convert exact named state with the same identity representation as primary rows."""
+    budget.allocation(table.nbytes * 4 + table.num_rows * (256 + 64 * table.num_columns))
+    frame: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
+    for column in row.schema.columns:
+        if isinstance(column.identity, _EntityFieldIdentity) and column.name in frame:
+            frame[column.name] = pd.Series(
+                [_value(value) for value in table[column.name]], dtype=object
+            )
+    size = frame_bytes(frame)
+    budget.allocation(table.nbytes + size)
+    if budget.live_bytes + size > budget.policy.max_input_bytes:
+        fail("complete converted inputs and parts within decoded budget", "conversion overflow")
+    budget.live_bytes += size
+    return frame
 
 
 def frame_bytes(frame: pd.DataFrame) -> int:
@@ -233,21 +275,42 @@ def execute_suffix(
     calls: tuple[RowCall, ...],
     budget: LocalBudget,
 ) -> tuple[pd.DataFrame, tuple[tuple[int, int], ...]]:
+    frame, _, handoffs = execute_retained_suffix(frame, (), calls, budget)
+    return frame, handoffs
+
+
+def execute_retained_suffix(
+    frame: pd.DataFrame,
+    parts: tuple[PartFrame, ...],
+    calls: tuple[RowCall, ...],
+    budget: LocalBudget,
+) -> tuple[pd.DataFrame, tuple[PartFrame, ...], tuple[tuple[int, int], ...]]:
     handoffs: list[tuple[int, int]] = []
     for call in calls:
         budget.check()
         validate_frame(frame, call.input_row, call.input_rows)
         if len(frame) > budget.policy.max_method_rows:
             fail("registered bounded row-method problem size", "method size overflow")
-        size = frame_bytes(frame)
+        size = frame_bytes(frame) + sum(frame_bytes(part.frame) for part in parts)
         # Covers row copies, comparison columns, masks, index arrays and sorting workspace.
         budget.allocation(size * 4 + len(frame) * (512 + 128 * len(frame.columns)))
+        if parts:
+            from marivo.analysis.operators.rollup import validate_parts
+
+            validate_parts(frame, parts, call.input_row)
         incoming = id(frame)
-        result = execute_row(frame, call)
+        if call.fold is not None:
+            from marivo.analysis.operators.rollup import execute_fold
+
+            result, output_parts = execute_fold(frame, parts, call)
+        else:
+            result = execute_row(frame, call)
+            output_parts = select_parts(frame, result, call, parts) if parts else ()
         budget.check()
-        output_bytes = frame_bytes(result)
+        output_bytes = frame_bytes(result) + sum(frame_bytes(part.frame) for part in output_parts)
         if (
             len(result) > budget.policy.max_output_rows
+            or any(len(part.frame) > budget.policy.max_output_rows for part in output_parts)
             or output_bytes > budget.policy.max_output_bytes
         ):
             fail("complete local output within row and byte budgets", "local output overflow")
@@ -256,7 +319,8 @@ def execute_suffix(
         handoffs.append((incoming, id(result)))
         budget.live_bytes += output_bytes - size
         frame = result
-    return frame, tuple(handoffs)
+        parts = output_parts
+    return frame, parts, tuple(handoffs)
 
 
 def frame_to_arrow(

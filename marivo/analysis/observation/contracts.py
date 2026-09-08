@@ -45,6 +45,13 @@ from marivo.analysis.datasets.registry import (
 )
 from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
 from marivo.analysis.observation.errors import ObservationConstructionError
+from marivo.analysis.observation.fold_contracts import (
+    MetricFoldAuthorityV1,
+    RetainedFoldPayload,
+    decode_fold_authority,
+    fold_state_names,
+    make_fold_authority,
+)
 from marivo.analysis.observation.predicates import BoundPredicate, PredicateField
 from marivo.analysis.observation.sampling import EntitySamplingPolicy
 from marivo.datasource.ir import (
@@ -178,6 +185,7 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("metric.with_dimensions", "metric_coordinate"),
     ObservationProducerContract("metric.with_time_axis", "metric_coordinate"),
     ObservationProducerContract("metric.aggregate", "metric_aggregation"),
+    ObservationProducerContract("metric.rollup", "metric_rollup"),
     ObservationProducerContract("metric.rank", "metric_rank"),
     ObservationProducerContract("metric.limit", "metric_limit"),
 )
@@ -609,22 +617,56 @@ CoordinateBinding: TypeAlias = tuple[DatasetFieldId, str, tuple[str, ...]]
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class EntityPresentMetricSemantics(DatasetFamilyRowSemantics, _token=_CORE_TOKEN):
+    fold_authority: str
     metric_bindings: tuple[MetricBinding, ...]
     coordinate_semantics: tuple[CoordinateBinding, ...]
     kind: Literal["metric/entity-present@v1"] = field(
         default="metric/entity-present@v1", init=False
     )
 
+    @property
+    def metric_folds(self) -> tuple[MetricFoldAuthorityV1, ...]:
+        return decode_fold_authority(self.fold_authority).metrics
+
+    @property
+    def fold_time_grain(self) -> Grain | None:
+        return decode_fold_authority(self.fold_authority).time_grain()
+
+    @property
+    def fold_time_scope(self) -> TimeScope | None:
+        return decode_fold_authority(self.fold_authority).time_scope()
+
+    @property
+    def fold_temporal_snapshot(self) -> PeriodCalendarSnapshotV1 | None:
+        return decode_fold_authority(self.fold_authority).temporal_snapshot()
+
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class EntityReducedMetricSemantics(DatasetFamilyRowSemantics, _token=_CORE_TOKEN):
     reduced_entity_ref: str
     reduced_identity_signature: tuple[tuple[str, str], ...]
+    fold_authority: str
     metric_bindings: tuple[MetricBinding, ...]
     coordinate_semantics: tuple[CoordinateBinding, ...]
     kind: Literal["metric/entity-reduced@v1"] = field(
         default="metric/entity-reduced@v1", init=False
     )
+
+    @property
+    def metric_folds(self) -> tuple[MetricFoldAuthorityV1, ...]:
+        return decode_fold_authority(self.fold_authority).metrics
+
+    @property
+    def fold_time_grain(self) -> Grain | None:
+        return decode_fold_authority(self.fold_authority).time_grain()
+
+    @property
+    def fold_time_scope(self) -> TimeScope | None:
+        return decode_fold_authority(self.fold_authority).time_scope()
+
+    @property
+    def fold_temporal_snapshot(self) -> PeriodCalendarSnapshotV1 | None:
+        return decode_fold_authority(self.fold_authority).temporal_snapshot()
 
 
 def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
@@ -764,6 +806,8 @@ def population_contracts(
 def metric_contracts(
     definition: MetricDefinition, ids: _StableIdRegistry, registry: Registry
 ) -> tuple[DatasetRowContract, DatasetRowSetContract]:
+    fold_authority = make_fold_authority(definition)
+    fold_metrics = {item.metric_ref: item for item in decode_fold_authority(fold_authority).metrics}
     coordinates: list[DatasetField] = []
     if definition.entity_present:
         coordinates.append(identity_field(definition.entity, ids))
@@ -811,7 +855,14 @@ def metric_contracts(
                 field_id,
                 metric.unit,
                 metric.dependency_fingerprint,
-                metric.required_state,
+                metric.required_state
+                or tuple(
+                    dict.fromkeys(
+                        state
+                        for component in fold_metrics[metric.ref.path].components
+                        for state, _ in component.state_columns
+                    )
+                ),
                 metric.null_rule,
                 metric.empty_rule,
             )
@@ -837,6 +888,7 @@ def metric_contracts(
     if definition.entity_present:
         semantics: DatasetFamilyRowSemantics = EntityPresentMetricSemantics(
             _token=_CORE_TOKEN,
+            fold_authority=fold_authority,
             metric_bindings=tuple(bindings),
             coordinate_semantics=coordinate_semantics,
         )
@@ -845,6 +897,7 @@ def metric_contracts(
             _token=_CORE_TOKEN,
             reduced_entity_ref=definition.entity.ref.path,
             reduced_identity_signature=definition.entity.identity_signature,
+            fold_authority=fold_authority,
             metric_bindings=tuple(bindings),
             coordinate_semantics=coordinate_semantics,
         )
@@ -953,6 +1006,18 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
     semantics = row.family_semantics
     if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
         raise construction_error("closed Metric row semantics", "invalid row semantics")
+    try:
+        authority = decode_fold_authority(semantics.fold_authority)
+    except (ValueError, TypeError) as exc:
+        raise construction_error(
+            "complete current retained fold authority", "invalid fold authority"
+        ) from exc
+    if tuple(item.field_id for item in authority.metrics) != tuple(
+        item[0].value for item in semantics.metric_bindings
+    ):
+        raise construction_error(
+            "one exact fold closure per Metric binding", "mismatched fold authority"
+        )
     shape = row.shape_id.local_shape_id
     entity_present = shape.startswith("entity")
     if entity_present != isinstance(semantics, EntityPresentMetricSemantics):
@@ -982,6 +1047,14 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
     if any(not isinstance(column.identity, _CatalogFieldIdentity) for column in values):
         raise construction_error(
             "exact initial catalog Metric identities", "invalid value identity"
+        )
+    if any(
+        bool(binding[3]) != bool(fold_state_names(fold))
+        for binding, fold in zip(semantics.metric_bindings, authority.metrics, strict=True)
+    ):
+        raise construction_error(
+            "retained state requirements matching fold authority",
+            "mismatched component part requirements",
         )
     if tuple(column.field_id for column in values) != tuple(
         binding[0] for binding in semantics.metric_bindings
@@ -1041,6 +1114,15 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
         raise construction_error(
             "exact ordered coordinate semantics", "mismatched coordinate meaning"
         )
+    retained_grain = authority.time_grain()
+    if bool(times) != (retained_grain is not None) or any(
+        kind != retained_grain.to_token()
+        for field_id, kind, _ in semantics.coordinate_semantics
+        if field_id in {item.field_id for item in times} and retained_grain is not None
+    ):
+        raise construction_error(
+            "time coordinates matching retained fold authority", "mismatched retained grain"
+        )
     if row_set.cardinality.kind != ("singleton" if shape == "scalar" else "keyed"):
         raise construction_error("shape-exact cardinality", "invalid row-set cardinality")
 
@@ -1059,7 +1141,37 @@ def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
             return False
         entity = owner.semantic_registry.entities.get(identity.entity_ref.path)
         return entity is not None and entity.versioning is None
-    if consumer_id in ("metric.aggregate", "metric.with_dimensions", "metric.with_time_axis"):
+    if consumer_id == "metric.aggregate":
+        from marivo.analysis.datasets.handles import LogicalRootHandle
+        from marivo.analysis.observation.rollup import _admit
+
+        root = dataset._root
+        if isinstance(root, LogicalRootHandle) and isinstance(root.payload, MetricPayload):
+            return root.payload.definition.entity_present
+        if not isinstance(dataset.row_contract.family_semantics, EntityPresentMetricSemantics):
+            return False
+        try:
+            _admit(dataset, "entity", (IDENTITY_FIELD_ID,))
+        except ObservationConstructionError:
+            return False
+        return True
+    if consumer_id == "metric.rollup":
+        from marivo.analysis.observation.rollup import _admit
+
+        for coordinate in dataset.schema.columns:
+            if coordinate.role_id not in ("dimension", "time_dimension"):
+                continue
+            try:
+                _admit(
+                    dataset,
+                    "time" if coordinate.role_id == "time_dimension" else "dimension",
+                    (coordinate.field_id,),
+                )
+            except ObservationConstructionError:
+                continue
+            return True
+        return False
+    if consumer_id in ("metric.with_dimensions", "metric.with_time_axis"):
         from marivo.analysis.datasets.handles import LogicalRootHandle
 
         root = dataset._root
@@ -1180,6 +1292,7 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             ("with_dimensions", entity_shapes),
             ("with_time_axis", entity_shapes),
             ("aggregate", entity_shapes),
+            ("rollup", shapes[5:]),
             (
                 "rank",
                 tuple(
@@ -1203,7 +1316,7 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             consumers=consumers,
             repr_renderer=_dataset_repr,
             materialized_state_decoder=state_decoder,
-            node_payload_types=(MetricPayload, RetainedRowsPayload),
+            node_payload_types=(MetricPayload, RetainedRowsPayload, RetainedFoldPayload),
             consumer_admission=_consumer_admission,
             contract_facts=_contract_facts,
         )
@@ -1272,13 +1385,33 @@ def semantic_dependency_digest(
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
             )
+        elif isinstance(payload, RetainedFoldPayload):
+            semantic_facts = ("retained_fold", payload.spec.identity_payload())
+        elif isinstance(payload, RetainedRowsPayload):
+            semantic_facts = (
+                "retained_rows",
+                payload.selected_metric,
+                None
+                if payload.rank is None
+                else (
+                    _field_binding_fingerprint(payload.rank.by),
+                    tuple(
+                        _field_binding_fingerprint(field) for field in payload.rank.partition_fields
+                    ),
+                ),
+            )
         else:
             raise construction_error(
                 "closed logical Observation semantic payload",
                 "unsupported semantic dependency payload",
             )
         facts.add(_canonical_digest(semantic_facts))
-        predicates = [payload.predicate] if payload.predicate is not None else []
+        predicates = (
+            [payload.predicate]
+            if isinstance(payload, (PopulationPayload, MetricPayload, RetainedRowsPayload))
+            and payload.predicate is not None
+            else []
+        )
         while predicates:
             predicate = predicates.pop()
             if predicate.field is not None:
