@@ -49,8 +49,7 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.datasets.registry import DatasetFamilyRegistration, DatasetFamilyRegistry
-    from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
-    from marivo.analysis.evidence.types import ArtifactDigest
+    from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.semantic.runtime_metric import RuntimeMetricExpr
 
 

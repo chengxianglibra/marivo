@@ -56,8 +56,7 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.datasets.descriptors import DatasetField
-    from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
-    from marivo.analysis.evidence.types import ArtifactDigest
+    from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
 
 
 def _is_membership_dimension(operand: PredicateField) -> TypeGuard[DimensionInput]:

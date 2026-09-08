@@ -18,7 +18,13 @@ import duckdb
 from marivo._compat import Never
 from marivo.analysis.materialization import admission, object_storage
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import ResourceRecord, receipt_payload
+from marivo.analysis.materialization.contracts import (
+    ResourceRecord,
+    RunRecord,
+    failure_payload,
+    receipt_payload,
+    run_input_payload,
+)
 from marivo.analysis.materialization.errors import RecoveryPendingError
 from marivo.analysis.materialization.object_termination import OBJECT_REQUEST_CAPABILITY
 from marivo.analysis.materialization.store import SessionStore
@@ -38,6 +44,22 @@ _REQUESTS: dict[str, int] = {}
 
 def forbidden(*args: object, **kwargs: object) -> Never:
     raise AssertionError("cold recovery or binding hit replayed origin or placement")
+
+
+def _run_evidence(value: RunRecord) -> dict[str, object]:
+    """Project the exact Run envelope through its owning value codecs."""
+    return {
+        "run_ref": value.run_ref,
+        "session_ref": value.session_ref,
+        "execution_key_digest": value.execution_key_digest,
+        "admitted_at": value.admitted_at,
+        "dataset_input": run_input_payload(value.dataset_input),
+        "input_artifact_refs": value.input_artifact_refs,
+        "lifecycle": value.lifecycle,
+        "terminal_at": value.terminal_at,
+        "output_artifact_ref": value.output_artifact_ref,
+        "failure": None if value.failure is None else failure_payload(value.failure),
+    }
 
 
 def describe(runtime: DatasetRuntime) -> dict[str, object]:
@@ -69,7 +91,7 @@ def describe(runtime: DatasetRuntime) -> dict[str, object]:
         "session": runtime.session_ref,
         "last_run": runtime.last_run_ref,
         "counts": snapshot(runtime),
-        "runs": [asdict(value) for value in records],
+        "runs": [_run_evidence(value) for value in records],
         "artifacts": artifacts,
         "resources": [asdict(value) for value in runtime.store.resources(runtime.session_ref)],
         "statistics": asdict(runtime.statistics),

@@ -6,6 +6,7 @@ import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 import ibis
@@ -24,6 +25,7 @@ from marivo.analysis.datasets.descriptors import (
 )
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import EngineReceipt, ResourceRecord, RetainedPart
+from marivo.analysis.materialization.errors import StorageAccessError
 from marivo.analysis.materialization.storage import (
     DatasetWriteResult,
     StoragePolicy,
@@ -64,22 +66,26 @@ def ordered_relation(
 def checked_engine_path(project_root: Path, receipt: EngineReceipt) -> Path:
     path = _checked_path(project_root, Path(receipt.qualified_relation_ref))
     failed = False
+    failure: Literal["missing", "unauthorized", "unknown"] | None = None
     try:
         failed = (
-            not path.is_file()
-            or (
+            (
                 receipt.realized_byte_count is not None
                 and path.stat().st_size != receipt.realized_byte_count
             )
             or _hash_file(path) != receipt.relation_version_or_snapshot_token
             or Path(str(path) + ".wal").exists()
         )
+    except FileNotFoundError:
+        failure = "missing"
+    except PermissionError:
+        failure = "unauthorized"
     except OSError:
-        failed = True
+        failure = "unknown"
+    if failure is not None:
+        raise StorageAccessError(failure)
     if failed:
-        _integrity(
-            "the exact finalized immutable engine version", "engine backing is missing or changed"
-        )
+        raise StorageAccessError("mutated")
     return path
 
 

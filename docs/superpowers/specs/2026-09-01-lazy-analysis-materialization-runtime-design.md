@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-07
+Revised: 2026-09-08
 
 Status: accepted
 
@@ -47,6 +47,14 @@ prefix and executes the admitted terminal suffix in pandas. DuckDB remains an
 ordinary datasource, with no internal analysis executor. One configured storage
 target, executor-specific budgets and the prohibition on hidden durable stages
 remain unchanged.
+
+The owner-approved 2026-09-08 delivery allocation in the
+[public-cutover plan](2026-09-01-lazy-analysis-public-cutover-plan.md) assigns the
+first registered multi-input local consumer and its combined-input validation
+and budget acceptance to Slice 5a. Slice 4 proves independent source-domain
+identity and existing unary/retained-part execution. The final multi-input
+contracts below remain mandatory for Slice 5a; this allocation does not weaken
+complete-input validation or permit invocation before all combined guards pass.
 
 ### Observation amendment dependencies
 
@@ -552,6 +560,16 @@ count, ordered Finding-set digest, and extractor contract versions; readers
 verify the digest against the assembled envelope. It excludes `artifact_ref`
 and itself and is not unique across Artifacts. There is no separately stored
 full envelope or duplicate quality payload.
+
+The private Slice 4d descriptor codec closes each typed issue over `kind`,
+`severity` (`warning` or `blocking`), `expected`, `received`, and `repair`.
+Severity is required to derive exact bounded issue counts. This tightens the
+pre-cutover private v1 shape: synthetic nonempty issue lists written with the
+4c codec and no severity are rejected, with no legacy decoder or migration.
+The 4c production descriptor constructor emitted only the default empty issue
+tuple; this is a producer fact independent of its zero-Finding registration.
+Existing production empty-issue descriptors retain their shape. Public cutover
+remains Slice 8; future producers must persist the exact current issue contract.
 
 Finding bodies exclude relation-owned refs, Session identity, and commit time.
 Those facts derive from the owning Artifact. Ordinals are the contiguous
@@ -2010,6 +2028,12 @@ verdict, expiry policy, reusable flag, or overall approval. Producer versions an
 times remain factual provenance. New operators validate only current semantic
 inputs they explicitly request. Inspection never contacts origin sources, changes
 metadata, repairs Evidence, reruns analysis, or creates a Run.
+
+When different declared payloads have different storage outcomes, the summary
+uses this deterministic priority: `mutated`, `missing`, `unauthorized`, then
+`unknown`. Every observed problem remains in `issues`; `readable` requires all
+declared storage checks to succeed. This summary does not combine the Artifact
+or Evidence axes into an overall approval.
 
 ## Multi-Downstream Reuse
 

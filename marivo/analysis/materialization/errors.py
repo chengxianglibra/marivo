@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from marivo.analysis.datasets.errors import DatasetConstructionError
 
 
@@ -30,6 +32,24 @@ class MaterializationError(DatasetConstructionError):
 
 class IntegrityError(MaterializationError):
     """Selected committed metadata or backing contradicts its immutable contract."""
+
+
+class StorageAccessError(IntegrityError):
+    """A safe storage classification, independent of Artifact and Evidence integrity."""
+
+    def __init__(
+        self,
+        status: Literal["unauthorized", "missing", "mutated", "unknown"],
+        *,
+        stage: str = "storage_access",
+    ) -> None:
+        self.storage_status = status
+        super().__init__(
+            expected="authorized access to the exact committed storage version",
+            received=f"selected storage is {status}",
+            repair="Restore access to the exact committed backing and inspect the selected Artifact again.",
+            stage=stage,
+        )
 
 
 class RecoveryPendingError(MaterializationError):

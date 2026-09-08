@@ -41,8 +41,13 @@ from marivo.analysis.compiler.placement import (
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
-from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
-from marivo.analysis.evidence.types import ArtifactDigest
+from marivo.analysis.evidence import _dataset_reads
+from marivo.analysis.evidence._dataset_types import (
+    ArtifactDigest,
+    ArtifactRevalidation,
+    Finding,
+    FindingPage,
+)
 from marivo.analysis.materialization import recovery
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -126,6 +131,18 @@ from marivo.analysis.observation.population import (
 )
 from marivo.analysis.operators.row import RowCall
 from marivo.analysis.refs import ArtifactRef
+from marivo.analysis.session import _lazy_graph, _lazy_history, _lazy_runtime_reads
+from marivo.analysis.session._lazy_read_model import (
+    GraphDirection,
+    RunLifecycle,
+    RunPage,
+    SessionGraph,
+    SessionInspection,
+    SessionSummaryPage,
+)
+from marivo.analysis.session._lazy_read_model import (
+    RunRecord as ReadRunRecord,
+)
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.backends import _build_backend_from_effective, _effective_kwargs
 from marivo.datasource.engines import require_profile_for_backend_type
@@ -355,7 +372,7 @@ class DatasetRuntime:
         if not MaterializationLayout(project_root).store_db.is_file():
             raise _error("authority_resolution")
         return cls(
-            SessionStore(project_root),
+            SessionStore.open_existing(project_root),
             session_ref,
             event=event,
             target=target,
@@ -371,6 +388,27 @@ class DatasetRuntime:
             action_port=self,
             session_id=self.session_ref,
             store_id=self.store.store_id,
+        )
+
+    @staticmethod
+    def recent(
+        project_root: Path, *, limit: int = 20, cursor: str | None = None
+    ) -> SessionSummaryPage:
+        """Read existing v3 Session history without creating or activating a Session."""
+        return _lazy_history.recent(
+            SessionStore.open_existing(project_root), limit=limit, cursor=cursor
+        )
+
+    @staticmethod
+    def inspect(
+        project_root: Path, name: str, *, run_limit: int = 5, run_cursor: str | None = None
+    ) -> SessionInspection:
+        """Read a named existing v3 Session and one bounded Run page."""
+        return _lazy_history.inspect(
+            SessionStore.open_existing(project_root),
+            name,
+            run_limit=run_limit,
+            run_cursor=run_cursor,
         )
 
     def _event(self, point: str) -> None:
@@ -392,13 +430,43 @@ class DatasetRuntime:
     def artifact(self, reference: str | ArtifactRef) -> MaterializedDataset:
         record = self.store.artifact(str(reference))
         if record is None:
-            raise IntegrityError(
-                expected="an exact Artifact in this Store generation",
-                received="the selected Artifact is absent",
-                repair="Use a committed Artifact ref from this Store.",
-                stage="presentation",
-            )
+            raise _lazy_runtime_reads.missing_artifact(str(reference))
         return self._recover(record)
+
+    def runs(
+        self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
+    ) -> RunPage:
+        """Read a bounded newest-first page without admitting or reconciling work."""
+        return _lazy_runtime_reads.runs(
+            self.store, self.session_ref, status=status, limit=limit, cursor=cursor
+        )
+
+    def get_run(self, run_id: str) -> ReadRunRecord:
+        """Read one exact Run owned by this execution Session."""
+        return _lazy_runtime_reads.get_run(self.store, self.session_ref, run_id)
+
+    def graph(
+        self,
+        *,
+        artifact_ref: str | ArtifactRef | None = None,
+        direction: GraphDirection = "ancestors",
+        max_nodes: int = 100,
+    ) -> SessionGraph:
+        """Read bounded local topology and exact consumed foreign boundaries."""
+        ref = ArtifactRef(ref=artifact_ref) if isinstance(artifact_ref, str) else artifact_ref
+        return _lazy_graph.graph(
+            self.store, self.session_ref, artifact_ref=ref, direction=direction, max_nodes=max_nodes
+        )
+
+    def show_session(self) -> None:
+        """Render the bounded Session recap from one read-only snapshot."""
+        _lazy_runtime_reads.recap(self.store, self.session_ref).show()
+
+    def revalidate(self, reference: str | ArtifactRef) -> ArtifactRevalidation:
+        """Explicitly inspect metadata, all committed storage and complete Evidence."""
+        from marivo.analysis.materialization.inspection import revalidate
+
+        return revalidate(self.store, reference, bindings=self.object_bindings)
 
     def _recover(self, record: ArtifactRecord) -> MaterializedDataset:
         return recovery.recover_dataset(
@@ -476,15 +544,32 @@ class DatasetRuntime:
         )
 
     def evidence_digest(self, dataset: MaterializedDataset) -> ArtifactDigest:
-        return recovery.evidence_digest(self._selected(dataset))
+        return _dataset_reads.evidence_digest(self._selected(dataset))
 
     def findings(
         self, dataset: MaterializedDataset, *, limit: int, cursor: str | None
     ) -> FindingPage:
-        return recovery.empty_findings(self._selected(dataset), limit=limit, cursor=cursor)
+        self._validate_reader_owner(dataset)
+        with self.store._read() as conn:
+            record = self.store._artifact(conn, dataset.state.artifact_ref.ref)
+            if record is None:
+                raise _error("presentation")
+            return _dataset_reads.findings(conn, record, limit=limit, cursor=cursor)
 
     def finding(self, dataset: MaterializedDataset, finding_id: str) -> Finding:
-        return recovery.missing_finding(self._selected(dataset), finding_id)
+        self._validate_reader_owner(dataset)
+        with self.store._read() as conn:
+            record = self.store._artifact(conn, dataset.state.artifact_ref.ref)
+            if record is None:
+                raise _error("presentation")
+            return _dataset_reads.finding(conn, record, finding_id)
+
+    def _validate_reader_owner(self, dataset: MaterializedDataset) -> None:
+        if (
+            dataset._owner.store_id != self.store.store_id
+            or dataset._owner.session_id != self.session_ref
+        ):
+            raise _error("authority_resolution")
 
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset:
         result = self._execute(dataset)
@@ -597,7 +682,7 @@ class DatasetRuntime:
                 key,
                 RunDatasetInput(
                     dataset.definition_fingerprint,
-                    str(dataset.row_contract.shape_id),
+                    dataset.row_contract.shape_id,
                     dataset._root.row_contract_fingerprint,
                     dataset._root.row_set_contract_fingerprint,
                     tuple(dict.fromkeys(root.operator_id for root in roots))[:64],
@@ -1400,13 +1485,13 @@ class DatasetRuntime:
         self.store.fail(
             run.run_ref,
             RunFailure(
-                phase=phase,
+                phase=run_failure_phase(phase, phase),
                 kind="execution_failed",
                 safe_message="The Dataset action failed before publication.",
                 safe_location=f"dataset.{phase}",
                 expected=error.expected or "a complete registered execution",
                 received=error.received or "the action failed",
-                repair=error.hint or "Inspect the safe Run phase and retry.",
+                repair=error.repair,
             ),
             resolved_resources=resolved,
         )

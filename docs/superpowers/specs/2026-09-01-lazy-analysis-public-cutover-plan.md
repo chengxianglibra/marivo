@@ -721,12 +721,12 @@ Cross-Slice Change Protocol before either slice edits the path.
 | Dataset Core | `marivo/analysis/datasets/__init__.py`<br>`marivo/analysis/datasets/base.py`<br>`marivo/analysis/datasets/descriptors.py`<br>`marivo/analysis/datasets/fields.py`<br>`marivo/analysis/datasets/state.py`<br>`marivo/analysis/datasets/contract.py`<br>`marivo/analysis/datasets/registry.py`<br>`marivo/analysis/datasets/handles.py`<br>`marivo/analysis/datasets/actions.py`<br>`marivo/analysis/datasets/errors.py` | Population meaning, physical plan, storage receipts |
 | Observation | `marivo/analysis/observation/__init__.py`<br>`marivo/analysis/observation/population.py`<br>`marivo/analysis/observation/predicates.py`<br>`marivo/analysis/observation/source_bindings.py`<br>`marivo/analysis/observation/metric.py`<br>`marivo/analysis/observation/coordinates.py`<br>`marivo/analysis/observation/aggregation.py`<br>`marivo/analysis/observation/rollup.py`<br>`marivo/analysis/observation/contracts.py`<br>`marivo/analysis/observation/errors.py` | Ibis placement, commit ordering |
 | Compiler | `marivo/analysis/compiler/__init__.py`<br>`marivo/analysis/compiler/nodes.py`<br>`marivo/analysis/compiler/normalize.py`<br>`marivo/analysis/compiler/manifest.py`<br>`marivo/analysis/compiler/lowering.py`<br>`marivo/analysis/compiler/placement.py`<br>`marivo/analysis/compiler/stages.py`<br>`marivo/analysis/compiler/exchange.py`<br>`marivo/analysis/compiler/errors.py` | public Dataset semantics, Run publication |
-| Materialization runtime | `marivo/analysis/materialization/__init__.py`<br>`marivo/analysis/materialization/contracts.py`<br>`marivo/analysis/materialization/execution_key.py`<br>`marivo/analysis/materialization/admission.py`<br>`marivo/analysis/materialization/writer_guard.py`<br>`marivo/analysis/materialization/resources.py`<br>`marivo/analysis/materialization/storage.py`<br>`marivo/analysis/materialization/publication.py`<br>`marivo/analysis/materialization/recovery.py`<br>`marivo/analysis/materialization/reconciliation.py`<br>`marivo/analysis/materialization/store.py`<br>`marivo/analysis/materialization/layout.py`<br>`marivo/analysis/materialization/errors.py` | operator algorithms, public row meaning |
+| Materialization runtime | `marivo/analysis/materialization/__init__.py`<br>`marivo/analysis/materialization/contracts.py`<br>`marivo/analysis/materialization/execution_key.py`<br>`marivo/analysis/materialization/admission.py`<br>`marivo/analysis/materialization/writer_guard.py`<br>`marivo/analysis/materialization/resources.py`<br>`marivo/analysis/materialization/storage.py`<br>`marivo/analysis/materialization/publication.py`<br>`marivo/analysis/materialization/recovery.py`<br>`marivo/analysis/materialization/reconciliation.py`<br>`marivo/analysis/materialization/inspection.py`<br>`marivo/analysis/materialization/store.py`<br>`marivo/analysis/materialization/layout.py`<br>`marivo/analysis/materialization/errors.py` | operator algorithms, public row meaning |
 | Typed operators | `marivo/analysis/operators/__init__.py`<br>`marivo/analysis/operators/registry.py`<br>`marivo/analysis/operators/row.py`<br>`marivo/analysis/operators/rollup.py`<br>`marivo/analysis/operators/compare.py`<br>`marivo/analysis/operators/attribute.py`<br>`marivo/analysis/operators/correlate.py`<br>`marivo/analysis/operators/forecast.py`<br>`marivo/analysis/operators/discovery.py`<br>`marivo/analysis/operators/contracts.py`<br>`marivo/analysis/operators/errors.py` | Session management, generic fallback execution |
 | Subject/Event/Lifecycle | `marivo/analysis/domains/__init__.py`<br>`marivo/analysis/domains/subject.py`<br>`marivo/analysis/domains/event.py`<br>`marivo/analysis/domains/lifecycle.py`<br>`marivo/analysis/domains/completeness.py`<br>`marivo/analysis/domains/contracts.py`<br>`marivo/analysis/domains/errors.py` | common Dataset state, generic planner/runtime state |
-| Session facade and reads | `marivo/analysis/session/__init__.py`<br>`marivo/analysis/session/core.py`<br>`marivo/analysis/session/history.py`<br>`marivo/analysis/session/_read_model.py`<br>`marivo/analysis/session/_runtime_reads.py`<br>`marivo/analysis/session/_resolve.py`<br>`marivo/analysis/session/_connections.py`<br>`marivo/analysis/session/_lazy_sources.py` | Dataset-owned downstream operators or captured-value execution lookup |
+| Session facade and reads | `marivo/analysis/session/__init__.py`<br>`marivo/analysis/session/core.py`<br>`marivo/analysis/session/history.py`<br>`marivo/analysis/session/_read_model.py`<br>`marivo/analysis/session/_runtime_reads.py`<br>`marivo/analysis/session/_resolve.py`<br>`marivo/analysis/session/_connections.py`<br>`marivo/analysis/session/_lazy_sources.py`<br>`marivo/analysis/session/_lazy_read_model.py`<br>`marivo/analysis/session/_lazy_runtime_reads.py`<br>`marivo/analysis/session/_lazy_history.py`<br>`marivo/analysis/session/_lazy_graph.py` | Dataset-owned downstream operators or captured-value execution lookup |
 | Capability and public-surface integration | `marivo/analysis/__init__.py`<br>`marivo/analysis/errors.py`<br>`marivo/analysis/constraints.py`<br>`marivo/analysis/_contract_budget.py`<br>`marivo/analysis/_capabilities/__init__.py`<br>`marivo/analysis/_capabilities/model.py`<br>`marivo/analysis/_capabilities/registry.py`<br>`marivo/analysis/_capabilities/render.py`<br>`marivo/analysis/_capabilities/surface.py`<br>`marivo/analysis/_capabilities/validation.py` | family algorithms, copied continuation inventories |
-| Evidence records and terminal reads | `marivo/analysis/evidence/__init__.py`<br>`marivo/analysis/evidence/types.py`<br>`marivo/analysis/evidence/identity.py`<br>`marivo/analysis/evidence/digest.py`<br>`marivo/analysis/evidence/store.py`<br>`marivo/analysis/evidence/pipeline.py`<br>`marivo/analysis/evidence/audit.py`<br>`marivo/analysis/evidence/artifact_reads.py`<br>`marivo/analysis/evidence/summary.py`<br>`marivo/analysis/evidence/finding_render.py`<br>`marivo/analysis/evidence/extraction/__init__.py`<br>`marivo/analysis/evidence/extraction/_coordinates.py`<br>`marivo/analysis/evidence/extraction/observation.py`<br>`marivo/analysis/evidence/extraction/delta.py`<br>`marivo/analysis/evidence/extraction/composition.py`<br>`marivo/analysis/evidence/extraction/correlation.py`<br>`marivo/analysis/evidence/extraction/forecast.py`<br>`marivo/analysis/evidence/extraction/anomaly.py`<br>`marivo/analysis/evidence/extraction/event.py`<br>`marivo/analysis/evidence/extraction/funnel.py`<br>`marivo/analysis/evidence/extraction/lifecycle.py`<br>`marivo/analysis/evidence/extraction/subject.py` | executable Dataset origin graphs |
+| Evidence records and terminal reads | `marivo/analysis/evidence/__init__.py`<br>`marivo/analysis/evidence/types.py`<br>`marivo/analysis/evidence/_dataset_types.py`<br>`marivo/analysis/evidence/_dataset_codec.py`<br>`marivo/analysis/evidence/_dataset_reads.py`<br>`marivo/analysis/evidence/identity.py`<br>`marivo/analysis/evidence/digest.py`<br>`marivo/analysis/evidence/store.py`<br>`marivo/analysis/evidence/pipeline.py`<br>`marivo/analysis/evidence/audit.py`<br>`marivo/analysis/evidence/artifact_reads.py`<br>`marivo/analysis/evidence/summary.py`<br>`marivo/analysis/evidence/finding_render.py`<br>`marivo/analysis/evidence/extraction/__init__.py`<br>`marivo/analysis/evidence/extraction/_coordinates.py`<br>`marivo/analysis/evidence/extraction/observation.py`<br>`marivo/analysis/evidence/extraction/delta.py`<br>`marivo/analysis/evidence/extraction/composition.py`<br>`marivo/analysis/evidence/extraction/correlation.py`<br>`marivo/analysis/evidence/extraction/forecast.py`<br>`marivo/analysis/evidence/extraction/anomaly.py`<br>`marivo/analysis/evidence/extraction/event.py`<br>`marivo/analysis/evidence/extraction/funnel.py`<br>`marivo/analysis/evidence/extraction/lifecycle.py`<br>`marivo/analysis/evidence/extraction/subject.py` | executable Dataset origin graphs |
 
 The current `marivo/analysis/frames/`, `marivo/analysis/intents/`, and
 `marivo/analysis/executor/` files are eager implementation sources, not target
@@ -810,7 +810,7 @@ Slice 8 retains Python plus Help as the Analysis entry and adds no
 | CLI/bootstrap boundary | `tests/test_cli.py` |
 | dynamic Artifact disclosure | `tests/test_agent_result_protocol.py`, `tests/test_analysis_artifact_protocol.py`, `tests/test_analysis_result_surface_identity.py` |
 | authority, family, and admission | `tests/test_analysis_authority_inventory.py`, `tests/test_analysis_family_gate.py`, `tests/test_analysis_operator_admission.py` |
-| retained Session/Run/Artifact reads, graph scope, and selected Finding reads | `tests/test_analysis_runtime_reads.py`, `tests/test_analysis_session_graph.py`, `tests/test_analysis_artifact_evidence_reads.py`; Slice 4d owns private v3 coverage and Slice 8 switches public assertions |
+| retained Session/Run/Artifact reads, graph scope, and selected Finding reads | `tests/test_analysis_runtime_reads.py`, `tests/test_analysis_session_graph.py`, `tests/test_analysis_artifact_evidence_reads.py`; private v3: `tests/test_lazy_runtime_reads.py`, `tests/test_lazy_session_history.py`, `tests/test_lazy_session_graph.py`, `tests/test_lazy_finding_types.py`, `tests/test_lazy_finding_reads.py`, `tests/test_lazy_integrity_inspection.py`, `tests/test_lazy_inspection_boundaries.py`, `tests/test_lazy_runtime_read_acceptance.py`; Slice 8 switches public assertions |
 | executable Analysis Help examples | planned `tests/test_analysis_help_examples_execute.py` |
 | executable current English/Chinese examples | planned `tests/test_lazy_analysis_current_docs_examples.py` |
 
@@ -1917,6 +1917,13 @@ The complete Forecast family, models, uncertainty, and local execution proof
 belong to 6b. Slice 4 must not introduce an unregistered forecast recipe or a
 temporary Forecast output merely to exercise the worker.
 
+The owner-approved 2026-09-08 allocation keeps independent source-domain
+identity, real branch execution and registered unary local continuations in
+Slice 4. Slice 5a owns the first registered multi-input local consumer, its
+explicit operand roles, and combined-input collection validation and budgets.
+These obligations remain mandatory at 5a's gate; they are not inferred from
+Slice 4's unary evidence.
+
 ### Owned implementation
 
 - typed graph validation and deterministic traversal of registered source support;
@@ -1929,13 +1936,14 @@ temporary Forecast output merely to exercise the worker.
 - authorized PyArrow local/object Artifact readers and exact pandas
   continuations for already registered Metric operations;
 - actual Arrow source/storage validation and complete guarded local inputs,
-  including combined inputs and required retained parts;
+  including each unary input and all its required retained parts;
 - private DataFrame handoffs without per-operator serialization;
 - Runtime-owned source/local/storage budgets, intermediate-memory and method-size
   guards, worker cancellation and staging;
 - one configured local/engine/object target and exact writer/receipt protocol;
-- explicit multi-source pandas input roles without federation discovery,
-  local-output upload, failed-query retry or sink-ranking handshake;
+- independent source branches feeding registered unary pandas consumers,
+  without federation discovery, local-output upload, failed-query retry or
+  sink-ranking handshake;
 - execution keys, unique Artifact lookup, Session writer guards, normalized
   Artifact descriptors, one metadata publication transaction, external-resource
   obligations, cleanup, and Session-scoped cold reconciliation;
@@ -1957,11 +1965,12 @@ temporary Forecast output merely to exercise the worker.
   unsupported required methods and compile-rejected outcomes; no compile-and-catch
   split discovery, local retry or SQL postprocessing;
 - independent equal-argument DuckDB datasource connections with conflicting
-  same-named tables never fuse as one source domain; an admitted local consumer
-  reads exact independent branches, and a source-required combination fails;
+  same-named tables never fuse as one source domain; registered unary local
+  continuations preserve each exact branch, and a source-required combination
+  fails; the single multi-input consumer proof belongs to Slice 5a;
 - actual Arrow integer-SUM widening, overflow, null/time/decimal/dictionary and
   bounded variable-width reader tests;
-- pandas complete-input, combined-input/retained-part, output, intermediate-memory,
+- pandas complete unary-input/retained-part, output, intermediate-memory,
   method-size and hard-deadline
   tests at and above the bound Runtime defaults/configuration;
 - a local/object Parquet input above the local collection cap fails before its
@@ -1972,7 +1981,7 @@ temporary Forecast output merely to exercise the worker.
   its continuation receives private DataFrames without upload or Arrow round
   trips; the numerical Forecast worker journey is added in 6b;
 - a source-supported operator following a local frontier stays local; independent
-  source branches still execute and feed only registered consumer roles;
+  source branches still execute and feed registered unary consumer roles;
 - local Artifact continuations create no DuckDB connection or origin query;
 - local, engine and object receipt round trips and mutation detection;
 - one configured target validates or fails without choosing another sink or
@@ -2259,6 +2268,75 @@ index; these supersede the initial 4c candidate evidence. Slice 4c remains
 accepted, while Slice 4d, parent Slice 4 and public cutover remain open.
 No commit, push or release occurred.
 
+### Slice 4d acceptance and composed parent gate: 2026-09-08
+
+**Slice 4d and parent Slice 4 are implemented and accepted.** The
+[4d execution record](../plans/2026-09-08-lazy-analysis-slice-4d-execution.md)
+contains exact ownership, selectors, reproduction, the approved allocation and
+the fresh 4a-4d/3b evidence index.
+
+Private `session/_lazy_*` and `evidence/_dataset_*` modules now supply closed
+Run/Finding/Artifact/history/Graph read models. Existing-v3 factories do not
+initialize, activate or reconcile state. Operation-scoped reads select one
+snapshot and decode only selected dependencies; Run-only reads do not decode
+an output Artifact body, and ordinary Artifact reads do not scan Findings or
+backing parts. Full inspection independently checks metadata, all declared
+storage and the complete Finding set under one deadline. Storage priority is
+`mutated`, `missing`, `unauthorized`, `unknown`, preserving every issue.
+
+Fresh `make check-agent` passes lint/import contracts, **379-file typing**,
+**6,576 tests in 636.12 seconds**, and API documentation construction, with
+versioned MinIO enabled and no S3 skips. All **41 touched Python files** pass
+scoped typing/lint/formatting. The **67 Runtime records** and **90 embedded
+candidate manifests** match the unchanged **742-file** candidate
+`582e89c929afafd311e988a639841c8cce82d35afe211c2b88bec74148be3673`.
+The real local/engine/object composed journeys include production, terminal
+failure without partial publication, retained continuation, cross-Session
+consumption, cold reads and exact no-op binding reuse. Prior 4a-4c and relevant
+3b paths were rerun on this same candidate.
+
+The two parent evidence additions prove actual Arrow integer-SUM widening and
+atomic overflow failure, plus independent equal-argument DuckDB connections
+whose conflicting `orders` values remain distinct through registered unary
+continuations. On 2026-09-08 the owner approved assigning multi-input consumption
+and combined-budget acceptance to Slice 5a's first registered comparison. Its
+explicit roles, complete operand validation, combined resource guards and real
+independent-branch consumer journey remain required by the 5a gate below.
+The approved allocation and the unchanged full-gate candidate close 4d and
+parent Slice 4 together; unary evidence is not relabeled as multi-input proof.
+The allocation changes documentation only, and the current candidate and all
+indexed evidence hashes were reverified without repeating the unchanged suite.
+Public facade/exports/Help/site switching remains Slice 8 and final public
+real-Agent acceptance remains Slice 9.
+No commit, push or release occurred.
+
+### Slice 4d review follow-up acceptance: 2026-09-08
+
+The [review disposition and final evidence](../plans/2026-09-08-lazy-analysis-slice-4d-execution.md#review-disposition-2026-09-08)
+close the requested review on the **745-file** candidate
+`6f154184ace46a2f7f02a4888693c04cc28b1fae34d709a28b09931f1ceb2361`.
+Private read arguments now use structured errors, malformed cursors have safe
+diagnostic chains, the history invariant is typed, and object target selection
+retains writer repair while read authority remains independently classified.
+The required private issue severity shape is documented without legacy decoding;
+real corrupted-Store tests disprove the alleged failed-Run output bypass.
+
+Fresh `make check-agent` passes lint/import contracts, **379-file typing**,
+**5,884 daily tests**, **721 Runtime tests**, and API documentation construction.
+The three Help environment tests moved by the parallel performance change also
+pass as a supplement, preserving the earlier scope: **6,608 tests, zero skips**,
+with the separate pinned MinIO service enabled. All **67 fresh Runtime records**,
+**90 embedded manifests**, source manifests and test-configuration hashes bind
+the same unchanged candidate. The exact daily/Runtime union is independently
+verified. The record distinguishes the successful 12-file review typing check
+from an exploratory broader check's unchanged older test diagnostics.
+
+This gate supersedes the initial 4d candidate for the reviewed source and keeps
+4d and parent Slice 4 accepted. The two attempts affected by concurrent edits
+remain excluded. Multi-input consumption and combined-budget proof stay assigned
+to Slice 5a; public cutover and public Agent acceptance remain Slices 8 and 9.
+No commit, push or release occurred.
+
 ## Slice 5: Compare and Attribution Vertical
 
 ### Outcome
@@ -2279,7 +2357,7 @@ successful attribution method cannot stand in for the others.
 
 | Unit | Prerequisite | Bounded outcome and independent gate |
 | --- | --- | --- |
-| 5a: Metric comparison | 3b, 4d | Produce and cold-recover Delta for each admitted alignment and input-authority topology. Prove realization sharing, scope/key preservation, one-sided and unavailable values, and immutable materialized operands. |
+| 5a: Metric comparison | 3b, 4d | Produce and cold-recover Delta for each admitted alignment and input-authority topology. Prove realization sharing, scope/key preservation, one-sided and unavailable values, and immutable materialized operands. Own the first registered multi-input local consumer, explicit operand roles, complete combined-input validation/budgets, and the real independent-source comparison journey allocated from parent Slice 4. |
 | 5b: additive and component-mix attribution | 5a | Produce reconciled joint/hierarchy Attribution with exact component/partition admission, logical axis expansion, retained-state barriers, Top-K/Other/null masks, and scoped Finding identity. |
 | 5c: distinct-membership attribution | 5b's shared attribution contracts | Execute exact source-private membership preparation/allocation. Prove independent numerical reconciliation, sufficient-state admission, cold recovery, and identity redaction without origin replay or local raw-key transfer. |
 | 5d: distribution-Shapley attribution | 5b's shared attribution contracts | Execute exact source-side distribution/coalition work and its admitted bounded local combination. Prove independent numerical results, mapped-player limits, Top-K/Other semantics, complete-input guards, and fail-closed missing/corrupt-state recovery. |
@@ -2291,6 +2369,8 @@ creates a parallel family, continuation table, or publication mechanism.
 ### Owned implementation
 
 - Metric `compare` variant and complete Delta row and row-set contracts;
+- registered multi-input local execution with explicit operand roles and
+  complete combined-input validation and collection budgets before invocation;
 - alignment policies retained by the accepted operator contract;
 - additive, component-mix, distinct-membership, and distribution-Shapley
   attribution variants;
@@ -2308,6 +2388,15 @@ creates a parallel family, continuation table, or publication mechanism.
 ### Required evidence
 
 - all-logical, all-materialized, and role-distinct mixed input topologies;
+- one registered local comparison consuming exact independent equal-argument
+  DuckDB connections with conflicting same-named tables; neither branch may be
+  fused into the other source domain;
+- both complete operands and every required retained part pass validation and
+  the combined collection guard before the local consumer starts, including
+  cases where each operand fits separately but their combined input exceeds
+  the bound; an oversized or invalid later operand must prevent invocation;
+- source-required cross-domain combinations fail before admission, and no
+  source work resumes after the composed local frontier;
 - on a fixed source, a finite non-null sampled scalar `d.compare(d)` shares one
   realization and yields zero delta; a comparison of separately constructed equal
   sampled branches has a different Core fingerprint and execution key and
@@ -3292,11 +3381,11 @@ row or replacing its evidence with another family's requires review here.
 | Parameterized source bindings | 2a-2b, 4c complete | scope-exit execution, exact key separation, missing/extra input errors, exhaustive redaction; all-target fresh cold journeys in `test_lazy_binding_cold_acceptance.py` | Private 4c gate passed; H remains public Slice 9 acceptance |
 | Predicates, coordinates, sampling, Metric projection, rank/limit | 3a | filter order, contribution admission, deterministic ordering, source fusion | A; 9b economics |
 | Retained parts, aggregate/fold/rollup, checkpoint membership | 3b complete | `test_lazy_retained_fold_matrix.py`, `test_lazy_local_fold.py`, `test_lazy_retained_compiler.py`, `test_lazy_retained_membership.py`, `test_lazy_retained_failures.py`; exact variants and fresh-process evidence in the [3b record](../plans/2026-09-08-lazy-analysis-slice-3b-execution.md) | Private 3b gate passed; B, D, I, M remain public Slice 9 gates |
-| Source-prefix/local-suffix execution | 4a | complete/combined input, intermediate/output/deadline limits, fixed dispatch and no retry | F; 9b |
+| Source-prefix/local-suffix execution | 4a and parent 4 complete; multi-input extension owned by 5a | `test_lazy_local_guards.py`, `test_lazy_local_runtime_acceptance.py`, `test_lazy_slice4_boundaries.py`; complete unary/retained input, intermediate/output/deadline limits, fixed dispatch, exact real independent branches and no retry; multi-input consumption/combined-budget proof is mandatory in 5a | Private parent 4 gate passed on the 4d candidate under the approved allocation; F and 9b remain public gates |
 | Local/engine/object storage | 2b, 4b | immutable receipts, reservations, required parts, mutation and overflow | F-G, I; 9b-9c |
 | Run admission, publication, concurrency, reconciliation | 2b, 4c complete | `test_lazy_runtime_concurrency.py`, `test_lazy_worker_recovery.py`, `test_lazy_adapter_crash_acceptance.py`, `test_lazy_reconciliation_snapshot.py`; exact variants and evidence in the [4c record](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md) | Private 4c gate passed; G and 9c remain public Slice 9 acceptance |
-| Session/Run/Artifact/Finding reads, graph, integrity | 4d | exact variants, pagination, scoped reads, read-only behavior, foreign ownership, three axes | G2, N; 9c |
-| Metric comparison | 5a | alignment, authority topology, shared sampling, scope/key preservation | C |
+| Session/Run/Artifact/Finding reads, graph, integrity | 4d and parent 4 complete | `test_lazy_runtime_reads.py`, `test_lazy_session_history.py`, `test_lazy_session_graph.py`, `test_lazy_finding_types.py`, `test_lazy_finding_reads.py`, `test_lazy_integrity_inspection.py`, `test_lazy_inspection_boundaries.py`, `test_lazy_runtime_read_acceptance.py`, `test_lazy_read_integrity_regressions.py`, `test_lazy_object_access_boundaries.py`; [exact evidence](../plans/2026-09-08-lazy-analysis-slice-4d-execution.md) | Private 4d and parent 4 gates passed; G2, N and 9c remain public gates |
+| Metric comparison | 5a | alignment, authority topology, shared sampling, scope/key preservation; explicit multi-input roles, complete combined validation/budgets before invocation, and real independent-source local comparison | C; multi-input/combined-budget extension of F |
 | Additive/component-mix attribution | 5b | endpoint reproduction, disjoint partitions, masks/Findings, barrier failures | C |
 | Distinct-membership attribution | 5c | exact membership allocation, source-private identity, reconciliation | C; 9b |
 | Distribution-Shapley attribution | 5d | coalition references, player bound, retained-state and local-budget failures | C; 9b |
