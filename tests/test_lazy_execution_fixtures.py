@@ -3,9 +3,27 @@
 from pathlib import Path
 
 import duckdb
+import ibis
 import pytest
 
+from marivo.analysis.compiler.nodes import CompiledValidation
 from tests import lazy_execution_fixtures as fixtures
+
+
+@pytest.mark.parametrize("counts", [(), (0,), (0, 0), (0, 1), (1, 0), (2, 1)])
+def test_batched_validations_preserve_each_result_and_first_failure(
+    counts: tuple[int, ...],
+) -> None:
+    checks = tuple(
+        CompiledValidation(f"check.{index}", ibis.memtable({"violations": [count]}))
+        for index, count in enumerate(counts)
+    )
+    failures = [index for index, count in enumerate(counts) if count]
+    if failures:
+        with pytest.raises(AssertionError, match=rf"check\.{failures[0]}"):
+            fixtures.assert_compiled_validations(checks)
+    else:
+        fixtures.assert_compiled_validations(checks)
 
 
 def test_execution_template_preserves_all_tables_and_isolates_warm_copies(

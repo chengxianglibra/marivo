@@ -10,7 +10,7 @@ from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.refs import ref
-from tests.lazy_execution_fixtures import execution_fixture
+from tests.lazy_execution_fixtures import assert_compiled_validations, execution_fixture
 
 METRICS = tuple(
     ref.metric(f"sales.{name}")
@@ -30,8 +30,7 @@ def test_independent_components_share_population_without_fanout(tmp_path: Path) 
         population = fixture.sources.population(ref.entity("sales.customers"))
         dataset = fixture.sources.observe(METRICS, population=population)
         compiled = compile_dataset(dataset, fixture.tables(dataset))
-        for validation in compiled.validations:
-            assert validation.expression.to_pyarrow()["violations"][0].as_py() == 0, validation.name
+        assert_compiled_validations(compiled.validations)
         rows = compiled.expression.select(*compiled.primary_columns).to_pyarrow().to_pylist()
         assert [row["entity_identity"] for row in rows] == [
             {"id": number} for number in (1, 2, 3, 4)
@@ -143,10 +142,7 @@ def test_population_filter_and_version_resolution(tmp_path: Path) -> None:
         )
         for dataset, identities in zip(sources, expected, strict=True):
             compiled = compile_dataset(dataset, fixture.tables(dataset))
-            for validation in compiled.validations:
-                assert validation.expression.to_pyarrow()["violations"][0].as_py() == 0, (
-                    validation.name
-                )
+            assert_compiled_validations(compiled.validations)
             assert compiled.expression.to_pyarrow()["entity_identity"].to_pylist() == identities
 
 
@@ -286,8 +282,7 @@ def test_version_selected_population_filters_fact_contributions(
             time_scope=time_scope(start="2026-02-02", end="2026-02-03"),
         )
         compiled = compile_dataset(dataset, fixture.tables(dataset))
-        for validation in compiled.validations:
-            assert validation.expression.to_pyarrow()["violations"][0].as_py() == 0
+        assert_compiled_validations(compiled.validations)
         rows = compiled.expression.to_pyarrow().to_pylist()
         assert [row["entity_identity"] for row in rows] == [{"id": 1}, {"id": 2}]
         assert [row["revenue"] for row in rows] == [10, 100]

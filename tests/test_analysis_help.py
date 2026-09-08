@@ -2061,17 +2061,20 @@ def test_every_public_type_and_error_contract_obeys_its_budget() -> None:
         assert "  Example:" not in text
 
 
-def test_default_error_instances_obey_current_briefing_budget() -> None:
+@pytest.mark.parametrize(
+    "error_type", tuple(dict.fromkeys(ERROR_TYPES.values())), ids=lambda error: error.__name__
+)
+def test_default_error_instances_obey_current_briefing_budget(
+    error_type: type[AnalysisError],
+) -> None:
     budget = REGISTRY.render_budget("current_briefing")
-
-    for error_type in dict.fromkeys(ERROR_TYPES.values()):
-        if "message" not in inspect.signature(error_type).parameters:
-            continue
-        text = _text(error_type(message="budget audit"))
-        assert len(text.splitlines()) <= budget.max_lines
-        assert len(text) <= budget.max_codepoints
-        assert len(_rendered_help_targets(text)) <= budget.max_outgoing_routes
-        assert text.count("    snippet:") <= budget.max_examples_or_snippets
+    if "message" not in inspect.signature(error_type).parameters:
+        return
+    text = _text(error_type(message="budget audit"))
+    assert len(text.splitlines()) <= budget.max_lines
+    assert len(text) <= budget.max_codepoints
+    assert len(_rendered_help_targets(text)) <= budget.max_outgoing_routes
+    assert text.count("    snippet:") <= budget.max_examples_or_snippets
 
 
 def test_every_exact_callable_docstring_example_parses_and_binds_live_signature() -> None:
