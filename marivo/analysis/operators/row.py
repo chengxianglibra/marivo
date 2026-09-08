@@ -26,6 +26,18 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.fold_contracts import FoldSpecV1
 from marivo.analysis.observation.predicates import BoundPredicate
+from marivo.analysis.operators.row_values import (
+    _missing as _missing,
+)
+from marivo.analysis.operators.row_values import (
+    compare_value as compare_value,
+)
+from marivo.analysis.operators.row_values import (
+    frame_keys as frame_keys,
+)
+from marivo.analysis.operators.row_values import (
+    row_key_names as row_key_names,
+)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -51,21 +63,6 @@ class PartFrame:
     schema: pa.Schema
     keys: tuple[str, ...]
     frame: pd.DataFrame
-
-
-def row_key_names(row: DatasetRowContract) -> tuple[str, ...]:
-    names = {field.field_id: field.name for field in row.schema.columns}
-    return tuple(names[key] for key in row.key_field_ids)
-
-
-def frame_keys(frame: pd.DataFrame, keys: tuple[str, ...]) -> list[tuple[object, ...]]:
-    """Normalize SQL-null coordinates consistently across primary and retained roles."""
-    if not keys:
-        return [()] * len(frame)
-    return [
-        tuple(None if _missing(value) else value for value in row)
-        for row in frame.loc[:, list(keys)].itertuples(index=False, name=None)
-    ]
 
 
 def aligned_part_positions(
@@ -94,6 +91,10 @@ def select_parts(
     from marivo.analysis.observation.fold_contracts import fold_part_role
 
     semantics = call.output_row.family_semantics
+    from marivo.analysis.operators.contracts import DeltaSemantics
+
+    if isinstance(semantics, DeltaSemantics):
+        return ()
     if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
         raise compilation_error("Metric retained row semantics", "invalid row selection output")
     retained_roles = {fold_part_role(item) for item in semantics.metric_folds}
@@ -177,34 +178,6 @@ def predicate_mask(frame: pd.DataFrame, predicate: BoundPredicate) -> pd.Series:
         result = result.mask(nan, predicate.kind in ("not_eq", "gt", "gte"))
     # pandas isin and NumPy comparisons otherwise turn SQL UNKNOWN into False.
     return result.astype("boolean").mask(column.isna(), pd.NA)
-
-
-def _missing(value: object) -> bool:
-    return value is None or value is pd.NA or value is pd.NaT
-
-
-def compare_value(left: object, right: object) -> int:
-    if _missing(left) or _missing(right):
-        return 0 if _missing(left) and _missing(right) else (1 if _missing(left) else -1)
-    if isinstance(left, tuple) and isinstance(right, tuple):
-        for a, b in zip(left, right, strict=True):
-            result = compare_value(a, b)
-            if result:
-                return result
-        return 0
-    if type(left) is not type(right):
-        raise compilation_error("one exact scalar type", "mixed local ordering types")
-    if isinstance(left, (bool, int, float, Decimal)) and isinstance(
-        right, (bool, int, float, Decimal)
-    ):
-        return int(left > right) - int(left < right)
-    if isinstance(left, str) and isinstance(right, str):
-        return int(left > right) - int(left < right)
-    if isinstance(left, datetime) and isinstance(right, datetime):
-        return int(left > right) - int(left < right)
-    if isinstance(left, date) and isinstance(right, date):
-        return int(left > right) - int(left < right)
-    raise compilation_error("comparable exact retained scalars", "unsupported local ordering")
 
 
 def frame_comparator(
@@ -297,15 +270,15 @@ def _rank(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
 
 def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
     """Consume a validated private frame without mutating or serializing it."""
-    if call.method == "metric.where" and call.predicate is not None:
+    if call.method in ("metric.where", "delta.where") and call.predicate is not None:
         result = frame.loc[predicate_mask(frame, call.predicate).fillna(False)].copy(deep=True)
     elif call.method == "metric.metric":
         result = frame.loc[:, [field.name for field in call.output_row.schema.columns]].copy(
             deep=True
         )
-    elif call.method == "metric.rank":
+    elif call.method in ("metric.rank", "delta.rank"):
         result = _rank(frame, call)
-    elif call.method == "metric.limit" and call.limit is not None:
+    elif call.method in ("metric.limit", "delta.limit") and call.limit is not None:
         result = frame.iloc[: call.limit].copy(deep=True)
     else:
         raise compilation_error(

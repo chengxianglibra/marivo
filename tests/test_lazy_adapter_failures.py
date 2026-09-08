@@ -158,9 +158,16 @@ def test_engine_storage_budget_aborts_without_another_target(tmp_path: Path) -> 
     fixture.runtime.target = replace(
         fixture.runtime.target, policy=StoragePolicy(max_stored_bytes=1)
     )
-    with pytest.raises(MaterializationError, match="storage budget"):
+    with pytest.raises(MaterializationError, match="storage budget") as caught:
         fixture.sources.population(ref.entity("sales.customers")).execute()
+    assert caught.value.stage == "transfer_guard"
+    assert caught.value.received == "engine storage budget exceeded"
     _assert_failed(fixture.runtime)
+    assert fixture.runtime.last_run_ref is not None
+    run = fixture.runtime.store.run(fixture.runtime.last_run_ref)
+    assert run is not None and run.failure is not None
+    assert run.failure.phase == "transfer_guard"
+    assert run.failure.received == "engine storage budget exceeded"
     assert not tuple(tmp_path.rglob("*.parquet"))
 
 

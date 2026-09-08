@@ -14,6 +14,7 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 from threading import Event, Lock, Thread
 
+import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
@@ -28,9 +29,11 @@ from marivo.analysis.materialization.local import (
     collect_primary,
     execute_retained_suffix,
     fail,
+    frame_bytes,
     frame_to_arrow,
     to_local_frame,
     to_part_frame,
+    validate_frame,
 )
 from marivo.analysis.materialization.retained import checked_component_batches
 from marivo.analysis.materialization.storage import (
@@ -44,6 +47,7 @@ from marivo.analysis.materialization.worker_lifetime import (
     acquire_worker_lifetime,
     validate_worker_lifetime,
 )
+from marivo.analysis.operators.contracts import CompareSpecV1
 from marivo.analysis.operators.row import PartFrame, RowCall
 
 
@@ -134,118 +138,262 @@ def _part_to_arrow(part: PartFrame) -> pa.Table:
     return pa.Table.from_arrays(arrays, schema=part.schema)
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class LocalBoundary:
+    output: int
+    input: StreamInput | ArtifactInput
+    parts: tuple[LocalPartInput, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LocalStage:
+    output: int
+    inputs: tuple[int, ...]
+    call: RowCall | CompareSpecV1
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LocalGraphRequest:
+    boundaries: tuple[LocalBoundary, ...]
+    stages: tuple[LocalStage, ...]
+    primary_output: int
+    policy: LocalPolicy
+    deadline: float
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LocalInputStreams:
+    batches: Iterable[pa.RecordBatch]
+    parts: tuple[Iterable[pa.RecordBatch], ...] = ()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _Frames:
+    frame: pd.DataFrame
+    parts: tuple[PartFrame, ...]
+    schema: pa.Schema
+
+    @property
+    def size(self) -> int:
+        return frame_bytes(self.frame) + sum(frame_bytes(part.frame) for part in self.parts)
+
+
+def _collect_input(
+    connection: Connection,
+    selected: StreamInput | ArtifactInput,
+    parts: tuple[LocalPartInput, ...],
+    budget: LocalBudget,
+) -> tuple[_Frames, int]:
+    if len({part.role for part in parts}) != len(parts):
+        fail("one input per selected retained role", "duplicate part input")
+    policy = budget.policy
+    read_policy = ReadPolicy(
+        max_rows=policy.max_input_rows,
+        max_decoded_bytes=min(policy.max_input_bytes, policy.max_intermediate_bytes),
+        max_batch_bytes=policy.max_batch_bytes,
+        deadline_seconds=max(0.001, budget.deadline - time.monotonic()),
+    )
+    wide = isinstance(selected, StreamInput) and selected.wide_parts
+    collectors = tuple(PartCollector(part.schema, part.keys, budget) for part in parts)
+    if isinstance(selected, ArtifactInput):
+        table = _read(
+            project_root=selected.project_root,
+            receipt=selected.receipt,
+            row_contract=selected.row,
+            row_set_contract=selected.rows,
+            preview=False,
+            policy=read_policy,
+        )
+        table = collect_primary(table.to_batches(), selected.row, selected.rows, budget)
+    else:
+
+        def primary_batches() -> Iterable[pa.RecordBatch]:
+            for incoming in _batches(connection):
+                if wide:
+                    incoming = _normalize_batch(incoming, policy.max_batch_bytes)
+                    for part, collector in zip(parts, collectors, strict=True):
+                        for part_batch in checked_component_batches(
+                            (incoming.select(part.schema.names),), selected.row, part.role
+                        ):
+                            collector.accept(part_batch)
+                    yield incoming.select([field.name for field in selected.row.schema.columns])
+                else:
+                    yield incoming
+
+        table = collect_primary(primary_batches(), selected.row, selected.rows, budget)
+    frame = to_local_frame(table, selected.row, budget)
+    schema = table.schema
+    count = table.num_rows
+    del table
+    part_frames: list[PartFrame] = []
+    for part, collector in zip(parts, collectors, strict=True):
+        if wide:
+            part_table = collector.finish()
+        elif part.receipt is not None:
+            if not isinstance(selected, ArtifactInput):
+                fail("a local project for retained part receipts", "invalid part input")
+            incoming_part: Iterable[pa.RecordBatch] = read_part_batches(
+                selected.project_root,
+                RetainedPart(part.role, part.contract_id, part.contract_version, part.receipt),
+                expected_schema=part.schema,
+                policy=read_policy,
+            )
+            part_table = collect_part(
+                incoming_part
+                if part.role == "population_sampling_state"
+                else checked_component_batches(incoming_part, selected.row, part.role),
+                part.schema,
+                part.keys,
+                budget,
+            )
+        else:
+            incoming_part = _batches(connection)
+            part_table = collect_part(
+                incoming_part
+                if part.role == "population_sampling_state"
+                else checked_component_batches(incoming_part, selected.row, part.role),
+                part.schema,
+                part.keys,
+                budget,
+            )
+        part_frames.append(
+            PartFrame(
+                part.role,
+                part.contract_id,
+                part.contract_version,
+                part.schema,
+                part.keys,
+                to_part_frame(part_table, selected.row, budget),
+            )
+        )
+        del part_table
+    for collector in collectors:
+        collector.retained.clear()
+        collector.seen.clear()
+    collectors = ()
+    return _Frames(frame, tuple(part_frames), schema), count
+
+
+def _execute_graph(
+    connection: Connection, request: LocalGraphRequest, budget: LocalBudget
+) -> tuple[_Frames, tuple[tuple[int, int], ...], int, DatasetRowContract]:
+    from marivo.analysis.operators.compare import execute_compare
+
+    values: dict[int, _Frames] = {}
+    total_rows = 0
+    for boundary in request.boundaries:
+        if boundary.output in values:
+            fail("unique physical boundary identities", "duplicate graph input")
+        value, count = _collect_input(connection, boundary.input, boundary.parts, budget)
+        total_rows += count
+        values[boundary.output] = value
+    # Every boundary and required role is complete before any method is invoked.
+    users: dict[int, int] = {}
+    for stage in request.stages:
+        for key in stage.inputs:
+            users[key] = users.get(key, 0) + 1
+    users[request.primary_output] = users.get(request.primary_output, 0) + 1
+    handoffs: list[tuple[int, int]] = []
+    output_row: DatasetRowContract | None = None
+    for stage in request.stages:
+        budget.check()
+        if stage.output in values or any(key not in values for key in stage.inputs):
+            fail("a complete ordered local dependency graph", "invalid stage dependencies")
+        incoming = tuple(values[key] for key in stage.inputs)
+        call = stage.call
+        if isinstance(call, RowCall):
+            if len(incoming) != 1:
+                fail("one row method operand", "invalid row method arity")
+            source = incoming[0]
+            result, parts, transfers = execute_retained_suffix(
+                source.frame, source.parts, (call,), budget
+            )
+            # The suffix accounts for replacement; shared graph inputs remain alive.
+            budget.live_bytes += source.size
+            value = _Frames(result, parts, source.schema)
+            del parts
+            handoffs.extend(transfers)
+            output_row = call.output_row
+            del source
+        else:
+            if len(incoming) != 2:
+                fail("ordered current and baseline operands", "invalid comparison arity")
+            current, baseline = incoming
+            validate_frame(current.frame, call.current_row, call.current_rows)
+            validate_frame(baseline.frame, call.baseline_row, call.baseline_rows)
+            count = len(current.frame) + len(baseline.frame)
+            if count > budget.policy.max_method_rows:
+                fail("bounded complete comparison problem size", "method size overflow")
+            budget.allocation((current.size + baseline.size) * 6 + count * 1024)
+            result = execute_compare(current.frame, baseline.frame, call)
+            budget.check()
+            result_size = frame_bytes(result)
+            if (
+                len(result) > budget.policy.max_output_rows
+                or result_size > budget.policy.max_output_bytes
+            ):
+                fail("complete comparison output within budgets", "local output overflow")
+            budget.allocation(result_size)
+            validate_frame(result, call.output_row, call.output_rows)
+            budget.live_bytes += result_size
+            fields: list[pa.Field] = []
+            for field in call.output_row.schema.columns:
+                dtype = result[field.name].dtype
+                if not isinstance(dtype, pd.ArrowDtype):
+                    fail(
+                        "exact Arrow comparison result types",
+                        "untyped comparison output",
+                        "output_validation",
+                    )
+                fields.append(pa.field(field.name, dtype.pyarrow_dtype, field.nullable))
+            schema = pa.schema(fields)
+            value = _Frames(result, (), schema)
+            handoffs.extend((id(item.frame), id(result)) for item in incoming)
+            output_row = call.output_row
+            del current, baseline
+        values[stage.output] = value
+        for key in stage.inputs:
+            users[key] -= 1
+            if users[key] == 0:
+                budget.live_bytes -= values.pop(key).size
+        del incoming
+    if output_row is None or request.primary_output not in values:
+        fail("one complete local graph result", "missing graph output")
+    return values[request.primary_output], tuple(handoffs), total_rows, output_row
+
+
 def worker_entry() -> None:
     connection = Connection(int(sys.argv[1]))
     lifetime_fd = int(sys.argv[2])
     try:
         validate_worker_lifetime(lifetime_fd, Path(sys.argv[4]), sys.argv[3])
         request: object = connection.recv()
-        if not isinstance(request, LocalRequest) or not request.calls:
+        if not isinstance(request, (LocalRequest, LocalGraphRequest)):
             fail(
-                "one registered suffix request",
+                "one registered local request",
                 "invalid worker request",
                 "implementation_registration",
             )
         policy = request.policy
-        if len({part.role for part in request.parts}) != len(request.parts):
-            fail("one input per selected retained role", "duplicate part input")
         policy.__post_init__()
         budget = LocalBudget(policy, request.deadline)
-        selected = request.input
-        read_policy = ReadPolicy(
-            max_rows=policy.max_input_rows,
-            max_decoded_bytes=min(policy.max_input_bytes, policy.max_intermediate_bytes),
-            max_batch_bytes=policy.max_batch_bytes,
-            deadline_seconds=max(0.001, request.deadline - time.monotonic()),
-        )
-        wide = isinstance(selected, StreamInput) and selected.wide_parts
-        collectors = tuple(PartCollector(part.schema, part.keys, budget) for part in request.parts)
-        if isinstance(selected, ArtifactInput):
-            table = _read(
-                project_root=selected.project_root,
-                receipt=selected.receipt,
-                row_contract=selected.row,
-                row_set_contract=selected.rows,
-                preview=False,
-                policy=read_policy,
-            )
-            table = collect_primary(table.to_batches(), selected.row, selected.rows, budget)
+        if isinstance(request, LocalGraphRequest):
+            completed, handoffs, count, output_row = _execute_graph(connection, request, budget)
+            frame, output_parts, schema = completed.frame, completed.parts, completed.schema
         else:
-
-            def primary_batches() -> Iterable[pa.RecordBatch]:
-                for incoming in _batches(connection):
-                    if wide:
-                        incoming = _normalize_batch(incoming, policy.max_batch_bytes)
-                        for part, collector in zip(request.parts, collectors, strict=True):
-                            for part_batch in checked_component_batches(
-                                (incoming.select(part.schema.names),), selected.row, part.role
-                            ):
-                                collector.accept(part_batch)
-                        yield incoming.select([field.name for field in selected.row.schema.columns])
-                    else:
-                        yield incoming
-
-            table = collect_primary(primary_batches(), selected.row, selected.rows, budget)
-        frame = to_local_frame(table, selected.row, budget)
-        schema = table.schema
-        count = table.num_rows
-        del table
-        part_frames: list[PartFrame] = []
-        for part, collector in zip(request.parts, collectors, strict=True):
-            if wide:
-                part_table = collector.finish()
-            elif part.receipt is not None:
-                if not isinstance(selected, ArtifactInput):
-                    fail("a local project for retained part receipts", "invalid part input")
-                incoming_part: Iterable[pa.RecordBatch] = read_part_batches(
-                    selected.project_root,
-                    RetainedPart(part.role, part.contract_id, part.contract_version, part.receipt),
-                    expected_schema=part.schema,
-                    policy=read_policy,
-                )
-                part_table = collect_part(
-                    incoming_part
-                    if part.role == "population_sampling_state"
-                    else checked_component_batches(incoming_part, selected.row, part.role),
-                    part.schema,
-                    part.keys,
-                    budget,
-                )
-            else:
-                incoming_part = _batches(connection)
-                part_table = collect_part(
-                    incoming_part
-                    if part.role == "population_sampling_state"
-                    else checked_component_batches(incoming_part, selected.row, part.role),
-                    part.schema,
-                    part.keys,
-                    budget,
-                )
-            part_frames.append(
-                PartFrame(
-                    part.role,
-                    part.contract_id,
-                    part.contract_version,
-                    part.schema,
-                    part.keys,
-                    to_part_frame(part_table, selected.row, budget),
-                )
+            if not request.calls:
+                fail("one registered suffix request", "empty suffix", "implementation_registration")
+            incoming, count = _collect_input(connection, request.input, request.parts, budget)
+            schema = incoming.schema
+            frame, output_parts, handoffs = execute_retained_suffix(
+                incoming.frame,
+                incoming.parts,
+                request.calls,
+                budget,
             )
-            del part_table
-        for collector in collectors:
-            collector.retained.clear()
-            collector.seen.clear()
-        collectors = ()
-        incoming_frames = [frame]
-        del frame
-        frame, output_parts, handoffs = execute_retained_suffix(
-            incoming_frames.pop(),
-            tuple(part_frames.pop(0) for _ in range(len(part_frames))),
-            request.calls,
-            budget,
-        )
+            output_row = request.calls[-1].output_row
         budget.allocation(budget.live_bytes * 2)
-        result = frame_to_arrow(frame, request.calls[-1].output_row, schema)
+        result = frame_to_arrow(frame, output_row, schema)
         completed_parts: list[LocalPartResult] = []
         total_output_bytes = result.nbytes
         for output_part in output_parts:
@@ -261,9 +409,7 @@ def worker_entry() -> None:
             )
             if output_part.role != "population_sampling_state":
                 tuple(
-                    checked_component_batches(
-                        part_table.to_batches(), request.calls[-1].output_row, output_part.role
-                    )
+                    checked_component_batches(part_table.to_batches(), output_row, output_part.role)
                 )
                 if len(output_part.frame) != len(frame):
                     fail(
@@ -366,7 +512,7 @@ class _LifetimeDescriptors:
 
 
 def supervise(
-    request: LocalRequest,
+    request: LocalRequest | LocalGraphRequest,
     batches: Iterable[pa.RecordBatch],
     *,
     cancel_source: Callable[[], None],
@@ -374,6 +520,7 @@ def supervise(
     terminal: Callable[[], None],
     worker_code: str = _WORKER_CODE,
     part_batches: tuple[Iterable[pa.RecordBatch], ...] = (),
+    input_streams: tuple[LocalInputStreams, ...] = (),
 ) -> LocalResult:
     """Run one suffix; prove worker and input feeder termination before discharge."""
     if os.name != "posix":
@@ -388,6 +535,7 @@ def supervise(
             terminal=terminal,
             worker_code=worker_code,
             part_batches=part_batches,
+            input_streams=input_streams,
             lifetime=lifetime,
             lifetime_fd=lifetime_fd,
             descriptors=descriptors,
@@ -397,13 +545,14 @@ def supervise(
 
 
 def _supervise(
-    request: LocalRequest,
+    request: LocalRequest | LocalGraphRequest,
     batches: Iterable[pa.RecordBatch],
     *,
     cancel_source: Callable[[], None],
     terminal: Callable[[], None],
     worker_code: str,
     part_batches: tuple[Iterable[pa.RecordBatch], ...],
+    input_streams: tuple[LocalInputStreams, ...],
     lifetime: WorkerReservation,
     lifetime_fd: int,
     descriptors: _LifetimeDescriptors,
@@ -442,21 +591,33 @@ def _supervise(
             try:
                 feeder_fd = descriptors.borrow()
                 parent.send(request)
-                if isinstance(request.input, StreamInput):
-                    for batch in batches:
-                        parent.send(batch)
-                    parent.send(None)
-                if not (isinstance(request.input, StreamInput) and request.input.wide_parts):
-                    expected = sum(part.receipt is None for part in request.parts)
-                    if len(part_batches) != expected:
-                        fail(
-                            "one stream for each selected nonlocal part",
-                            "part stream count differs",
-                        )
-                    for stream in part_batches:
-                        for batch in stream:
+                if isinstance(request, LocalGraphRequest):
+                    if len(input_streams) != len(request.boundaries):
+                        fail("one stream bundle per graph boundary", "input stream count differs")
+                    inputs = tuple(
+                        (boundary.input, boundary.parts, streams)
+                        for boundary, streams in zip(request.boundaries, input_streams, strict=True)
+                    )
+                else:
+                    inputs = (
+                        (request.input, request.parts, LocalInputStreams(batches, part_batches)),
+                    )
+                for selected, parts, streams in inputs:
+                    if isinstance(selected, StreamInput):
+                        for batch in streams.batches:
                             parent.send(batch)
                         parent.send(None)
+                    if not (isinstance(selected, StreamInput) and selected.wide_parts):
+                        expected = sum(part.receipt is None for part in parts)
+                        if len(streams.parts) != expected:
+                            fail(
+                                "one stream for each selected nonlocal part",
+                                "part stream count differs",
+                            )
+                        for stream in streams.parts:
+                            for batch in stream:
+                                parent.send(batch)
+                            parent.send(None)
             except BaseException as error:
                 feed_errors.append(error)
             finally:

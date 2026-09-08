@@ -15,6 +15,7 @@ from marivo.analysis.observation.contracts import (
     producer_contract,
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
+from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +28,17 @@ class ImplementationRegistration:
     source_versions: tuple[str, str] = ("1.5.3", "12.0.0")
 
 
-_ROW_METHODS = frozenset({"metric.where", "metric.metric", "metric.rank", "metric.limit"})
+_ROW_METHODS = frozenset(
+    {
+        "metric.where",
+        "metric.metric",
+        "metric.rank",
+        "metric.limit",
+        "delta.where",
+        "delta.rank",
+        "delta.limit",
+    }
+)
 _FOLD_METHODS = frozenset({"metric.aggregate", "metric.rollup"})
 
 
@@ -39,24 +50,50 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     if root.contract_versions != registration.versions:
         raise compilation_error("exact registered contract versions", "method version mismatch")
     roles = tuple(item.role for item in root.inputs)
-    if dataset._inputs and root.operator_id.startswith("metric."):
+    if dataset._inputs and root.operator_id.startswith(("metric.", "delta.")):
         consumer = dataset._registry.consumer(dataset._inputs[0], root.operator_id)
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
+    entity_delta = (
+        dataset.kind == "delta" and dataset.row_contract.shape_id.local_shape_id == "entity"
+    )
     # Source behavior is owned by the existing complete Observation lowerer.
     return ImplementationRegistration(
         root.operator_id,
         roles,
         "duckdb",
         root.operator_id
-        if root.operator_id in _ROW_METHODS
-        or (root.operator_id in _FOLD_METHODS and isinstance(root.payload, RetainedFoldPayload))
+        if not entity_delta
+        and (
+            (
+                root.operator_id == "metric.compare"
+                and dataset.row_contract.shape_id.local_shape_id != "entity"
+            )
+            or root.operator_id in _ROW_METHODS
+            or (root.operator_id in _FOLD_METHODS and isinstance(root.payload, RetainedFoldPayload))
+        )
         else None,
     )
 
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
+    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, ComparePayload):
+        if (
+            registration.local_method != "metric.compare"
+            or len(dataset._inputs) != 2
+            or root.payload.spec.output_row.shape_id.local_shape_id == "entity"
+        ):
+            raise compilation_error(
+                "non-Entity registered two-operand comparison", "source-required comparison"
+            )
+        for value in (*dataset._inputs, dataset):
+            admit_retained_rows(value)
+        return
+    if dataset.kind == "delta" and dataset.row_contract.shape_id.local_shape_id == "entity":
+        raise compilation_error(
+            "source execution for Entity Delta row operations", "source-required identity rows"
+        )
     if (
         registration.local_method not in (_ROW_METHODS | _FOLD_METHODS)
         or not isinstance(root, LogicalRootHandle)
@@ -70,7 +107,9 @@ def admit_local(dataset: LogicalDataset, registration: ImplementationRegistratio
 
 def admit_retained_rows(dataset: Dataset) -> None:
     semantics = dataset.row_contract.family_semantics
-    if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
+    if not isinstance(
+        semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics, DeltaSemantics)
+    ):
         raise compilation_error(
             "Metric rows with their exact retained computational roles",
             "unsupported retained family",

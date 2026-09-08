@@ -71,6 +71,23 @@ def _delta() -> t.DeltaFindingValueV1:
     )
 
 
+def test_finite_delta_remains_eligible_when_relative_arithmetic_is_unavailable() -> None:
+    value = replace(_delta(), relative_delta=t.UndefinedRelativeDeltaV1(reason="delta_unavailable"))
+    finding = _finding(value)
+    restored = decode_finding_body(
+        encode_finding_body(finding),
+        finding_id=finding.finding_id,
+        artifact_ref=finding.artifact_ref.ref,
+        session_id=finding.session_id,
+        committed_at=finding.committed_at,
+    )
+    assert restored == finding
+    with pytest.raises(IntegrityError):
+        replace(value, baseline_value=Decimal("0"))
+    with pytest.raises(IntegrityError):
+        replace(value, relative_delta=t.UndefinedRelativeDeltaV1(reason="baseline_zero"))
+
+
 def _contribution() -> t.ContributionFindingValueV1:
     return t.ContributionFindingValueV1(
         method="additive_difference@v1",

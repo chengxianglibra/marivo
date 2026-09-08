@@ -1060,6 +1060,13 @@ Multi-Metric inputs fail locally with the exact repair
 `dataset.metric(metric_ref)`. The first cutover accepts no alternate alignment
 policy and no implicit current/baseline inference.
 
+The accepted Slice 5a clarification keeps the Population selection authority,
+including its membership reference scope and version selection, identical.
+Only the Metric observation reference windows may differ under
+`window_bucket()`. Sampling definition compatibility does not equate independent
+realized samples. Private comparison compatibility snapshots belong to
+definition/Artifact metadata, never row-semantics fingerprints or display lineage.
+
 Entity and Dimension shapes align by exact row key and require equal Population
 membership authority. Time-bearing shapes pair buckets by ordinal position
 inside each Dimension series. Unequal bucket counts fail; they are not silently
@@ -1103,6 +1110,14 @@ For a matched row, `delta = current_value - baseline_value` after the
 registered lossless signed numeric promotion. `current_value`, `baseline_value`,
 and `delta` share that promoted logical type; construction fails when no
 lossless common type exists. A null side yields `null_input` and a null delta.
+
+The private Slice 5a promotion table maps supported signed integer logical
+types to `int64`, floating types to `float64`, and Decimal to exact decimal
+arithmetic with validated realized precision and scale. It does not introduce
+cross-type Metric compatibility, unsigned arithmetic, or pandas inference as
+type authority. An integer or decimal result outside its admitted output
+representation fails the complete action rather than wrapping or narrowing.
+
 For a one-sided Entity or Dimension coordinate, the absent side becomes zero
 only when the Metric aggregation contract declares zero as its exact empty
 value. Otherwise it stays null and the row is `missing_side`.
@@ -1128,6 +1143,11 @@ The derived continuations are `where`, `rank`, `limit`, `attribute`,
 `discover.period_shifts` for time-bearing shapes, `discover.driver_axes`, and
 state-specific actions. The one approximation binding for this arity-one comparison is
 definition metadata, not a repeated row field.
+
+The scalar shape retains Dataset Core's exact singleton cardinality and rejects
+row filtering, ranking and limiting. Other shapes admit those operations under
+their exact field and ordering contracts. Entity-preserving comparison and row
+continuation remain source-required under the identity boundary above.
 
 Compare consumes the exact rows represented by each selected input authority
 token. Logical and materialized inputs may be mixed. It never re-executes a
@@ -2184,7 +2204,7 @@ The exact Module 5-owned `FindingValueV1` variants are:
 | Variant | Exact immutable fields | Invariants |
 | --- | --- | --- |
 | `AssociationFindingValueV1` | `kind="association"`, `method: pearson\|spearman\|kendall`, `coefficient`, `input_observation_count`, `null_pair_count`, `complete_pair_count`, `lag`, `causal_claim="none"` | `coefficient` is finite; complete pairs are at least two; null plus complete pairs do not exceed input count. `lag` is a discriminated `none` variant for non-lag shapes or a `lag` variant with signed `lag_offset`, `selected_for_pair`, non-negative `matched_observation_count`, and `lag_boundary_drop_count`. |
-| `DeltaFindingValueV1` | `kind="delta"`, `coordinate_presence`, `current_value`, `baseline_value`, `delta`, `relative_delta`, `calculation_status="ok"` | Numeric values are finite and use the registered lossless common type. `relative_delta` is a discriminated finite `defined(value)` or `undefined(reason="baseline_zero")` value. Only calculation-status `ok` rows are eligible. |
+| `DeltaFindingValueV1` | `kind="delta"`, `coordinate_presence`, `current_value`, `baseline_value`, `delta`, `relative_delta`, `calculation_status="ok"` | Numeric values are finite and use the registered lossless common type. `relative_delta` is a discriminated finite `defined(value)` or `undefined(reason="baseline_zero"\|"delta_unavailable")` value, matching the comparison row's exact relative status. Only calculation-status `ok` rows are eligible. |
 | `ContributionFindingValueV1` | `kind="contribution"`, registered `method`, `active_axis_mask`, `other_mask`, `contribution_kind`, `current_value`, `baseline_value`, `overall_delta`, `contribution`, three typed share values, positive `contribution_rank`, `status`, `causal_claim="none"` | Module 5 admits `contribution_kind="metric"`; Module 6 adds `loss` and `denominator_mix`. Each share is discriminated as finite `defined(value)` or `undefined` with `zero_total_delta`, `empty_positive_pool`, or `empty_negative_pool`. Masks have equal length and match authored axes; the row passed exact reconciliation within its complete retained scope and resolution. Entity-scoped rows are ineligible. |
 | `ForecastPointFindingValueV1` | `kind="forecast_point"`, `model`, `interval_method="normal_residual@v1"`, `interval_level`, `horizon_ordinal`, `forecast_value`, `interval_lower`, `interval_upper`, `training_row_count` | Model is `naive@v1`, `drift@v1`, or `seasonal_naive@v1`; all values are finite, `0 < interval_level < 1`, horizon is positive, and lower <= forecast <= upper. The bound Artifact proves positive model-specific residual degrees of freedom and the registered innovation/horizon-variance equation; its fixed assumption contract qualifies the nominal interval. |
 

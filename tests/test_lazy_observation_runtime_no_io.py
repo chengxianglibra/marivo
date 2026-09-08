@@ -19,6 +19,8 @@ import marivo.analysis as mv
 import marivo.analysis.session._runtime as runtime
 import marivo.analysis.evidence.store as evidence_store
 import marivo.datasource.backends as backends
+import marivo.analysis.observation.ordering
+import marivo.analysis.operators.compare
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.session.core import Session
@@ -98,6 +100,7 @@ guards = (
     (evidence_store, 'open_evidence_store', 'evidence'),
     (evidence_store.EvidenceStore, '__init__', 'evidence'),
     (evidence_store.EvidenceStore, 'transaction', 'evidence'),
+    (NoIoActionPort, 'execute_delta', 'run'),
 )
 with ExitStack() as stack:
     for owner, name, kind in guards:
@@ -120,6 +123,12 @@ with ExitStack() as stack:
     ).aggregate().metric(revenue)
     rolled = result.rollup(drop_time=True).rollup(drop_dimensions=(region,))
     assert rolled.row_contract.shape_id.local_shape_id == "scalar"
+    comparison = result.compare(result)
+    delta_filtered = comparison.where(gt(comparison.fields.get('delta'), 0))
+    delta_ranked = delta_filtered.rank(delta_filtered.fields.get('delta'))
+    delta_limited = delta_ranked.limit(3)
+    assert delta_limited.kind == 'delta'
+    assert delta_limited._root.operator_id == 'delta.limit'
     tip = filtered
     for _ in range(80):
         tip = tip.where(gt(tip.fields.metric(revenue), 0))
@@ -130,7 +139,8 @@ with ExitStack() as stack:
     with sources.source_bindings({api: {'tenant': 'DIFFERENT_CAPTURE_2A'}}):
         changed = sources.observe(api_value, time_scope=window)
     assert captured.definition_fingerprint != changed.definition_fingerprint
-    values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled)
+    values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
+              comparison, delta_filtered, delta_ranked, delta_limited)
     for value in values:
         assert value.schema is value.row_contract.schema
         assert value.state.kind == 'logical'
@@ -190,9 +200,9 @@ def test_actual_private_observation_chain_is_pure() -> None:
     evidence = json.loads(result.stdout)
     assert evidence["final_shape"] == "metric/dimension-time@v1"
     assert evidence["deep_filter_nodes"] == 80
-    assert evidence["checked_definitions"] == 9
+    assert evidence["checked_definitions"] == 13
     assert evidence["guarded_negative_failures"] == 5
-    assert evidence["guarded_entrypoints"] == 27
+    assert evidence["guarded_entrypoints"] == 28
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "datasource",

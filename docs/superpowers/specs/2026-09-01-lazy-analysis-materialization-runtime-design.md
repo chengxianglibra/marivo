@@ -543,6 +543,9 @@ Evidence envelope.
   retained_parts[]
   quality_summary
   typed_issues[]
+  comparison_basis
+  comparison_inputs[]
+  delta_evidence
 ```
 
 Family payloads stay closed and versioned. Contract fingerprints are computed
@@ -560,6 +563,26 @@ count, ordered Finding-set digest, and extractor contract versions; readers
 verify the digest against the assembled envelope. It excludes `artifact_ref`
 and itself and is not unique across Artifacts. There is no separately stored
 full envelope or duplicate quality payload.
+
+The private Slice 5a descriptor extends that closed pre-cutover shape with a
+Metric/Population comparison-basis snapshot and Delta's ordered current/baseline
+input authority. The basis binds exact membership selection, sampling intent,
+observation reference axis/window and non-time selection digests. It is loaded
+with the Artifact and used without Store access during Dataset construction;
+neither row-semantics fingerprints nor bounded display lineage owns these facts.
+Each comparison operand retains its own definition, selected Artifact refs,
+Population authority and realized sampling receipts. Repeated operand refs keep
+their distinct Run-input ordinals even when physical reads are shared.
+
+Delta Evidence stores its closed family projection with the descriptor and
+binds it into the existing Evidence digest. It includes presence/calculation/
+relative-status counts, matched/unpaired counts, promotion and approximation
+facts, and eligible/emitted/truncated Finding counts. The extractor streams the
+complete staged primary result and retains only its bounded top 1000 eligible
+Findings. It reads no unused component parts and never collects raw Entity
+coordinates into Evidence. The existing Artifact/Evidence/Finding/terminal
+transaction remains the only publication boundary. No legacy descriptor
+decoder, migration or public generation switch is introduced.
 
 The private Slice 4d descriptor codec closes each typed issue over `kind`,
 `severity` (`warning` or `blocking`), `expected`, `received`, and `repair`.

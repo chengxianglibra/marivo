@@ -20,6 +20,7 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.operators import registry
+from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.registry import ImplementationRegistration
 
 
@@ -144,12 +145,13 @@ def place(
         registrations[id(value)] = registration
         binding = None
         if all(item is not None for item in child_domains):
+            # Pure retained/comparison operations inherit operand domains. New
+            # semantic evaluation must also prove its own source owner matches.
             candidate = (
                 child_domains[0]
                 if child_domains
-                and (
-                    isinstance(child_domains[0], EngineBinding)
-                    or isinstance(value._root.payload, (RetainedRowsPayload, RetainedFoldPayload))
+                and isinstance(
+                    value._root.payload, (RetainedRowsPayload, RetainedFoldPayload, ComparePayload)
                 )
                 else source_binding(value)
             )

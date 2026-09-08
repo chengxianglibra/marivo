@@ -7,7 +7,7 @@ import json
 import math
 import re
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Literal, TypeAlias, cast, get_args
@@ -424,6 +424,35 @@ class PopulationAuthority:
     validation_results: tuple[tuple[str, int], ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class ComparisonInputAuthority:
+    """One ordered comparison operand's immutable authority, without member values."""
+
+    role: Literal["current", "baseline"]
+    definition_fingerprint: str
+    population_authority: PopulationAuthority
+    sampling_execution: tuple[SamplingRealization, ...] | None
+    source_artifact_refs: tuple[str, ...]
+    comparison_basis: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeltaEvidenceSummary:
+    """Complete bounded comparison evidence committed with its exact Finding set."""
+
+    coordinate_presence_counts: tuple[tuple[str, int], ...]
+    calculation_status_counts: tuple[tuple[str, int], ...]
+    relative_status_counts: tuple[tuple[str, int], ...]
+    matched_count: int
+    unpaired_count: int
+    numeric_promotion_id: str
+    approximate: bool
+    eligible_finding_count: int
+    emitted_finding_count: int
+    finding_truncated: bool
+    finding_set_digest: str
+
+
 def _scope(value: object) -> CanonicalValue:
     if value is None:
         return None
@@ -602,6 +631,9 @@ class ArtifactDescriptor:
     retained_parts: tuple[RetainedPart, ...]
     quality_summary: QualitySummary
     typed_issues: tuple[MaterializationIssue, ...] = ()
+    comparison_basis: str | None = None
+    comparison_inputs: tuple[ComparisonInputAuthority, ...] = ()
+    delta_evidence: DeltaEvidenceSummary | None = None
 
     @property
     def row_contract_fingerprint(self) -> str:
@@ -759,6 +791,18 @@ def decode_schema(value: object, ids: d._StableIdRegistry) -> d.DatasetSchema:
 
 
 def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
+    from marivo.analysis.operators.contracts import DeltaSemantics
+
+    if isinstance(value, DeltaSemantics):
+        return {
+            "kind": value.kind,
+            "metric_ref": value.metric_ref,
+            "metric_unit": value.metric_unit,
+            "numeric_type": value.numeric_type,
+            "exact_empty_zero": value.exact_empty_zero,
+            "current_time_field_name": value.current_time_field_name,
+            "baseline_time_field_name": value.baseline_time_field_name,
+        }
     from marivo.analysis.observation.contracts import (
         EntityPresentMetricSemantics,
         EntityReducedMetricSemantics,
@@ -810,6 +854,29 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
     if not isinstance(value, dict):
         raise invalid("invalid family row semantics")
     kind = value.get("kind")
+    if kind == "delta/metric@v1":
+        from marivo.analysis.operators.contracts import DeltaSemantics
+
+        obj = _obj(
+            value,
+            "kind metric_ref metric_unit numeric_type exact_empty_zero current_time_field_name baseline_time_field_name",
+        )
+        exact_empty_zero = obj["exact_empty_zero"]
+        if type(exact_empty_zero) is not bool:
+            raise invalid("invalid Delta empty-set policy")
+        return DeltaSemantics(
+            _token=d._CORE_TOKEN,
+            metric_ref=_text(obj["metric_ref"]),
+            metric_unit=None if obj["metric_unit"] is None else _text(obj["metric_unit"]),
+            numeric_type=_text(obj["numeric_type"]),
+            exact_empty_zero=exact_empty_zero,
+            current_time_field_name=None
+            if obj["current_time_field_name"] is None
+            else _text(obj["current_time_field_name"]),
+            baseline_time_field_name=None
+            if obj["baseline_time_field_name"] is None
+            else _text(obj["baseline_time_field_name"]),
+        )
     if kind == "complete_from_schema":
         _obj(value, "kind")
         return d._complete_from_schema()
@@ -1036,6 +1103,11 @@ def issue_payload(value: MaterializationIssue) -> dict[str, object]:
 
 
 def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
+    from marivo.analysis.materialization.comparison_codec import (
+        comparison_inputs_payload,
+        delta_evidence_payload,
+    )
+
     return {
         "schema": "marivo.dataset_artifact_descriptor/v1",
         "definition_fingerprint": value.definition_fingerprint,
@@ -1075,6 +1147,9 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         ],
         "quality_summary": value.quality_summary.model_dump(mode="json"),
         "typed_issues": [issue_payload(item) for item in value.typed_issues],
+        "comparison_basis": value.comparison_basis,
+        "comparison_inputs": comparison_inputs_payload(value.comparison_inputs),
+        "delta_evidence": delta_evidence_payload(value.delta_evidence),
     }
 
 
@@ -1083,6 +1158,11 @@ def encode_descriptor(value: ArtifactDescriptor) -> str:
 
 
 def decode_descriptor(text: str) -> ArtifactDescriptor:
+    from marivo.analysis.materialization.comparison_codec import (
+        comparison_basis_text,
+        decode_comparison_inputs,
+        decode_delta_evidence,
+    )
     from marivo.analysis.observation.contracts import (
         make_family_registry,
         make_ids,
@@ -1092,7 +1172,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     ids = make_ids(())
     obj = _obj(
         parse_json(text),
-        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues",
+        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence",
     )
     if obj["schema"] != "marivo.dataset_artifact_descriptor/v1":
         raise invalid("unsupported Artifact descriptor or sampling contract")
@@ -1179,7 +1259,14 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         tuple(parts),
         quality,
         tuple(issues),
+        None if obj["comparison_basis"] is None else comparison_basis_text(obj["comparison_basis"]),
+        decode_comparison_inputs(obj["comparison_inputs"]),
+        decode_delta_evidence(obj["delta_evidence"]),
     )
+    if result.comparison_basis is not None:
+        from marivo.analysis.operators.contracts import decode_comparison_basis
+
+        decode_comparison_basis(result.comparison_basis)
     _hash(result.semantic_dependency_digest)
     if not re.fullmatch(r"ds_[0-9a-f]{64}", result.definition_fingerprint):
         raise invalid("invalid definition fingerprint")
@@ -1209,16 +1296,54 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         1,
         registration.evidence_id,
         1,
-        "none",
+        "delta_finding" if row.shape_id.family_id == "delta" else "none",
         1,
         (registration.validation_id,),
         required_retained_contracts(
             row, registration.retained_contract_ids, sampled=result.sampling_execution is not None
         ),
-        "zero_findings@v1",
+        "delta_findings@v1"
+        if row.shape_id.family_id == "delta" and row.shape_id.local_shape_id != "entity"
+        else "zero_findings@v1",
     )
     if materialization_payload(contract) != materialization_payload(expected_contract):
         raise invalid("unregistered materialization contract")
+    if row.shape_id.family_id == "delta":
+        from marivo.analysis.operators.contracts import DeltaSemantics
+
+        if len(result.comparison_inputs) != 2 or result.delta_evidence is None:
+            raise invalid("missing complete comparison authority or Evidence")
+        evidence = result.delta_evidence
+        semantics = row.family_semantics
+        if (
+            not isinstance(semantics, DeltaSemantics)
+            or evidence.numeric_promotion_id != "lossless_signed:" + semantics.numeric_type + "@v1"
+        ):
+            raise invalid("Delta Evidence numeric promotion mismatch")
+        if evidence.approximate != any(
+            item.sampling_execution is not None for item in result.comparison_inputs
+        ):
+            raise invalid("Delta Evidence approximation binding mismatch")
+        operand_sampling = {
+            digest(sampling_payload((replace(receipt, ordinal=0),)))
+            for operand in result.comparison_inputs
+            for receipt in operand.sampling_execution or ()
+        }
+        retained_sampling = {
+            digest(sampling_payload((replace(receipt, ordinal=0),)))
+            for receipt in result.sampling_execution or ()
+        }
+        if operand_sampling != retained_sampling:
+            raise invalid("comparison operand realizations differ from retained sampling authority")
+        if (
+            sum(count for _, count in evidence.calculation_status_counts)
+            != result.storage_receipt.realized_row_count
+        ):
+            raise invalid("Delta Evidence row count mismatch")
+        if row.shape_id.local_shape_id == "entity" and evidence.eligible_finding_count:
+            raise invalid("identity-bearing Delta cannot emit Findings")
+    elif result.comparison_inputs or result.delta_evidence is not None:
+        raise invalid("comparison authority outside Delta family")
     if len({item.role for item in parts}) != len(parts):
         raise invalid("duplicate retained role")
     registered_parts = contract.retained_private_state_contract_ids
@@ -1591,6 +1716,8 @@ class EvidenceRecord:
 
 
 def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
+    from marivo.analysis.materialization.comparison_codec import delta_evidence_payload
+
     contract = descriptor.dataset_materialization_contract
     quality = digest(descriptor.quality_summary.model_dump(mode="json"))
     issues = digest([issue_payload(item) for item in descriptor.typed_issues])
@@ -1598,16 +1725,28 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         f"{contract.evidence_extractor_id}@v{contract.evidence_extractor_version}",
         f"{contract.finding_extractor_id}@v{contract.finding_extractor_version}",
     )
-    empty = digest([])
+    count = (
+        0 if descriptor.delta_evidence is None else descriptor.delta_evidence.emitted_finding_count
+    )
+    empty = (
+        digest([])
+        if descriptor.delta_evidence is None
+        else descriptor.delta_evidence.finding_set_digest
+    )
     value = {
         "schema": "marivo.dataset_evidence/v1",
         "quality_summary_digest": quality,
         "typed_issue_digest": issues,
-        "finding_count": 0,
+        "finding_count": count,
         "finding_set_digest": empty,
         "extractor_contract_versions": versions,
     }
-    return EvidenceRecord(digest(value), 0, empty, versions, quality, issues)
+    if descriptor.delta_evidence is not None:
+        value["delta_evidence"] = delta_evidence_payload(descriptor.delta_evidence)
+        value["comparison_sampling"] = [
+            sampling_payload(item.sampling_execution) for item in descriptor.comparison_inputs
+        ]
+    return EvidenceRecord(digest(value), count, empty, versions, quality, issues)
 
 
 @dataclass(frozen=True, slots=True)

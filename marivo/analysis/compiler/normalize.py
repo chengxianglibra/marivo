@@ -18,9 +18,10 @@ from marivo.analysis.observation.contracts import (
 from marivo.analysis.observation.coordinates import functional_path, governed_path, path_entities
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
+from marivo.analysis.operators.contracts import ComparePayload
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.metric_graph import AggregateNodeV1, WeightedMeanAggregateNodeV1
-from marivo.semantic.validator import normalize_target_dimension, normalize_target_entity
+from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
 
 
 def logical_roots(dataset: LogicalDataset) -> Iterator[LogicalRootHandle]:
@@ -39,9 +40,11 @@ def logical_roots(dataset: LogicalDataset) -> Iterator[LogicalRootHandle]:
     yield from visit(dataset._root)
 
 
-def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ...]:
+def required_entities(
+    dataset: LogicalDataset, *, registry: Registry | None = None
+) -> tuple[TargetEntityContract, ...]:
     """Return normalized, exactly reachable Entities, never unrelated catalog entries."""
-    registry = source_owner_of(dataset).semantic_registry
+    registry = source_owner_of(dataset).semantic_registry if registry is None else registry
     ids: set[str] = set()
 
     def path(source: str, target: str, *, versioned: bool = False) -> None:
@@ -110,7 +113,7 @@ def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ..
                                         registry, source, dimension.entity_ref.path
                                     )
                                     ids.update(path_entities(registry, source, (route,)))
-        elif not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload)):
+        elif not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload, ComparePayload)):
             raise compilation_error("closed Observation payload", "unsupported definition payload")
     # A retained identity input supplies its own membership keys. No origin
     # table is needed unless newly authored semantic work actually consumes it.
@@ -123,6 +126,8 @@ def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ..
             for field in retained.schema.columns
             if isinstance(field.identity, _EntityFieldIdentity)
         )
+        if not identities:
+            continue
         if len(identities) != 1:
             raise compilation_error("one retained Entity identity", "invalid membership shape")
         identity = identities[0]
@@ -146,18 +151,18 @@ def required_entities(dataset: LogicalDataset) -> tuple[TargetEntityContract, ..
 
 
 def artifact_inputs(dataset: Dataset) -> tuple[MaterializedDataset, ...]:
-    """Walk exact retained leaves once, without opening backing or following origins."""
-    found: dict[str, MaterializedDataset] = {}
+    """Walk retained operand occurrences without opening backing or following origins."""
+    found: list[MaterializedDataset] = []
 
     def visit(value: Dataset) -> None:
         if isinstance(value, MaterializedDataset):
-            found.setdefault(value.state.artifact_ref.ref, value)
+            found.append(value)
         elif isinstance(value, LogicalDataset):
             for child in value._inputs:
                 visit(child)
 
     visit(dataset)
-    return tuple(found.values())
+    return tuple(found)
 
 
 def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV1, ...]:

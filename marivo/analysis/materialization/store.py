@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from marivo._compat import UTC
+from marivo.analysis.evidence._dataset_types import Finding
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     ArtifactMetadata,
@@ -903,15 +904,45 @@ class SessionStore:
         *,
         resolved_resources: tuple[ResourceRecord, ...] = (),
         event: Callable[[str], None] | None = None,
+        findings: tuple[Finding, ...] = (),
     ) -> ArtifactRecord:
         payload = encode_descriptor(descriptor)
         checked = decode_descriptor(payload)
         evidence = evidence_for(checked)
+        from marivo.analysis.evidence._dataset_codec import (
+            encode_finding_body,
+            finding_identity,
+            finding_set_digest,
+        )
+        from marivo.analysis.evidence._dataset_reads import _validate
+        from marivo.analysis.materialization.comparison_publication import (
+            delta_finding_registration,
+        )
+
+        if (
+            len(findings) != evidence.finding_count
+            or finding_set_digest(findings) != evidence.finding_set_digest
+        ):
+            raise invalid("Finding publication differs from its complete Evidence envelope")
         with self._write() as conn:
             run = self._run(conn, run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("publication requires one incomplete producer")
             now = _now()
+            registration = delta_finding_registration(checked)
+            envelope = ArtifactRecord(
+                artifact_ref,
+                run.session_ref,
+                run.execution_key_digest,
+                checked,
+                now,
+                run_ref,
+                evidence,
+            )
+            for item in findings:
+                if registration is None:
+                    raise invalid("unregistered nonzero Finding publication")
+                _validate(item, envelope, registration)
             conn.execute(
                 "INSERT INTO dataset_artifacts VALUES(?,?,?,?,?)",
                 (artifact_ref, run.session_ref, run.execution_key_digest, payload, now),
@@ -930,6 +961,20 @@ class SessionStore:
             )
             if event is not None:
                 event("insert_evidence")
+            conn.executemany(
+                "INSERT INTO findings VALUES(?,?,?,?,?)",
+                (
+                    (
+                        item.finding_id,
+                        artifact_ref,
+                        ordinal,
+                        finding_identity(item),
+                        encode_finding_body(item),
+                    )
+                    for ordinal, item in enumerate(findings)
+                ),
+            )
+            if event is not None:
                 event("insert_findings")
             conn.execute(
                 "INSERT INTO analysis_action_run_terminals VALUES(?,?,?,?,?,?)",

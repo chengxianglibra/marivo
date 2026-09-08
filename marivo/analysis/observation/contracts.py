@@ -106,6 +106,7 @@ if TYPE_CHECKING:
         BoundSourceParametersV1,
         SourceBindingScopes,
     )
+    from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 
 EntityInput: TypeAlias = Ref[EntityKind] | EntityEntry
 DimensionInput: TypeAlias = Ref[DimensionKind] | DimensionEntry
@@ -149,22 +150,26 @@ class ObservationProducerContract:
             return ("population_sampling_state",)
         return (
             ("metric.sufficient_components",)
-            if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
+            if self.producer_id != "metric.compare"
+            and (self.producer_id.startswith("metric.") or self.producer_id == "session.observe")
             else ()
         )
 
     @property
     def versions(self) -> tuple[tuple[str, str], ...]:
+        comparison = self.producer_id == "metric.compare" or self.producer_id.startswith("delta.")
         return (
             (self.producer_id, "v1"),
             ("dataset_structure_quality", "v1"),
             (self.quality_id, "v1"),
             (self.validation_id, "v1"),
             (self.evidence_id, "v1"),
-            ("none", "v1"),
-            ("zero_findings", "v1"),
+            ("delta_finding" if comparison else "none", "v1"),
+            ("delta_findings" if comparison else "zero_findings", "v1"),
             (
-                "metric.sufficient_components"
+                "none"
+                if comparison
+                else "metric.sufficient_components"
                 if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
                 else "population_sampling_state"
                 if self.producer_id == "population.sample"
@@ -187,6 +192,10 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("metric.rollup", "metric_rollup"),
     ObservationProducerContract("metric.rank", "metric_rank"),
     ObservationProducerContract("metric.limit", "metric_limit"),
+    ObservationProducerContract("metric.compare", "delta"),
+    ObservationProducerContract("delta.where", "delta_filter"),
+    ObservationProducerContract("delta.rank", "delta_rank"),
+    ObservationProducerContract("delta.limit", "delta_limit"),
 )
 
 
@@ -204,6 +213,7 @@ class ObservationActionPort(Protocol):
         self, dataset: LogicalPopulationDataset
     ) -> MaterializedPopulationDataset: ...
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset: ...
+    def execute_delta(self, dataset: LogicalDeltaDataset) -> MaterializedDeltaDataset: ...
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None) -> None: ...
     def to_pandas(self, dataset: MaterializedDataset) -> pandas.DataFrame: ...
     def evidence_digest(self, dataset: MaterializedDataset) -> ArtifactDigest: ...
@@ -218,6 +228,7 @@ class ObservationRuntimeOwner(DatasetOwner):
     """Retained action/read authority independent of any source semantic catalog."""
 
     action_port: ObservationActionPort = field(kw_only=True)
+    comparison_basis_snapshot: str | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -695,14 +706,31 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         }
     )
     return _StableIdRegistry(
-        families=frozenset({"population", "metric"}),
+        families=frozenset({"population", "metric", "delta"}),
         shapes=frozenset(
             {
                 ("population", "entity-membership", 1),
                 *(("metric", shape, 1) for shape in METRIC_SHAPES),
+                *(
+                    ("delta", shape, 1)
+                    for shape in ("entity", "scalar", "dimension", "time", "dimension-time")
+                ),
             }
         ),
-        roles=frozenset({"entity_identity", "metric", "dimension", "time_dimension", "rank"}),
+        roles=frozenset(
+            {
+                "entity_identity",
+                "metric",
+                "dimension",
+                "time_dimension",
+                "rank",
+                "comparison_coordinate",
+                "comparison_time",
+                "comparison_value",
+                "effect_value",
+                "status",
+            }
+        ),
         logical_types=types,
         physical_types=types,
         admitted_types=types,
@@ -1303,6 +1331,21 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             ("limit", tuple(shape for shape in shapes if shape.local_shape_id != "scalar")),
         )
     )
+    consumers = (
+        *consumers,
+        ConsumerRegistration(
+            "metric.compare",
+            ("current", "baseline"),
+            "delta",
+            tuple(
+                shape
+                for shape in shapes
+                if shape.local_shape_id
+                in ("entity", "scalar", "dimension", "time", "dimension-time")
+            ),
+            ("compare.metric@v1",),
+        ),
+    )
     registry.register(
         DatasetFamilyRegistration(
             family_id="metric",
@@ -1320,6 +1363,9 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             contract_facts=_contract_facts,
         )
     )
+    from marivo.analysis.operators.compare import register_delta
+
+    register_delta(registry, ids)
     registry.freeze()
     return registry
 
@@ -1332,6 +1378,7 @@ def semantic_dependency_digest(
     """Hash the complete frozen semantic closure without inspecting live authoring state."""
     from marivo.analysis.datasets.descriptors import _field_binding_fingerprint
     from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+    from marivo.analysis.operators.contracts import ComparePayload
 
     facts: set[str] = set()
     visited: set[int] = set()
@@ -1384,6 +1431,8 @@ def semantic_dependency_digest(
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
             )
+        elif isinstance(payload, ComparePayload):
+            semantic_facts = ("metric_compare",)
         elif isinstance(payload, RetainedFoldPayload):
             semantic_facts = ("retained_fold", payload.spec.identity_payload())
         elif isinstance(payload, RetainedRowsPayload):

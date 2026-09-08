@@ -58,7 +58,7 @@ class CoordinateRule:
 
 @dataclass(frozen=True, slots=True)
 class FindingRegistration:
-    """Exact owner-supplied contract; no production nonzero extractor is registered yet."""
+    """Exact owner-supplied contract reconstructed from retained producer facts."""
 
     producer_id: str
     extractor_contract_id: str
@@ -258,6 +258,12 @@ def findings(
         if encode_keyset_cursor(position, owner) != cursor:
             raise _selection_error()
         ordinal = position
+    if registration is None:
+        from marivo.analysis.materialization.comparison_publication import (
+            delta_finding_registration,
+        )
+
+        registration = delta_finding_registration(record.descriptor)
     _registration(record, registration)
     selected = conn.execute(
         "SELECT finding_ref,finding_ordinal FROM findings "
@@ -299,6 +305,12 @@ def finding(
     """Decode one exact Artifact-owned Finding, without inspecting adjacent bodies."""
     if type(finding_id) is not str or not finding_id or len(finding_id) > 4096:
         raise _selection_error()
+    if registration is None:
+        from marivo.analysis.materialization.comparison_publication import (
+            delta_finding_registration,
+        )
+
+        registration = delta_finding_registration(record.descriptor)
     _registration(record, registration)
     row = conn.execute(
         "SELECT finding_ref,finding_ordinal,finding_identity_digest,finding_body_payload FROM findings "
@@ -329,6 +341,12 @@ def audit_findings(
     check: Callable[[], None] | None = None,
 ) -> None:
     """Stream the complete ordinal set and validate count, bodies, and canonical digest."""
+    if registration is None:
+        from marivo.analysis.materialization.comparison_publication import (
+            delta_finding_registration,
+        )
+
+        registration = delta_finding_registration(record.descriptor)
     _registration(record, registration)
     if check is not None:
         check()

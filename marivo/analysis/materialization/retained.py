@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 
 import pyarrow as pa
 
-from marivo.analysis.datasets.base import Dataset, LogicalDataset
+from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract, _EntityFieldIdentity
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.contracts import ArtifactDescriptor, RetainedPart
@@ -39,16 +39,36 @@ def metric_parts(row: DatasetRowContract) -> tuple[MetricFoldAuthorityV1, ...]:
     return tuple(item for item in semantics.metric_folds if item.field_id in retained)
 
 
-def selected_parts(descriptor: ArtifactDescriptor, dataset: Dataset) -> tuple[RetainedPart, ...]:
-    """Select final dependencies plus every intermediate fold's consumed metrics."""
-    required = {fold_part_role(item) for item in metric_parts(dataset.row_contract)}
-    pending = [dataset]
-    while pending:
-        current = pending.pop()
-        if isinstance(current, LogicalDataset) and isinstance(current._root, LogicalRootHandle):
-            if isinstance(current._root.payload, RetainedFoldPayload):
-                required.update(fold_part_role(item) for item in metric_parts(current.row_contract))
-            pending.extend(current._inputs)
+def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = None) -> set[str]:
+    """Resolve only dependencies on this exact boundary, ending at comparisons."""
+    required: set[str] = set()
+
+    def reaches(value: Dataset) -> bool:
+        if value is input_dataset or (
+            isinstance(value, MaterializedDataset)
+            and isinstance(input_dataset, MaterializedDataset)
+            and value.state.artifact_ref == input_dataset.state.artifact_ref
+        ):
+            return True
+        if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
+            return input_dataset is None
+        selected = any(tuple(reaches(child) for child in value._inputs))
+        if selected and isinstance(value._root.payload, RetainedFoldPayload):
+            required.update(
+                fold_part_role(item) for item in metric_parts(value._root.payload.spec.input_row)
+            )
+        return selected
+
+    if reaches(dataset):
+        required.update(fold_part_role(item) for item in metric_parts(dataset.row_contract))
+    return required
+
+
+def selected_parts(
+    descriptor: ArtifactDescriptor, dataset: Dataset, *, input_dataset: Dataset | None = None
+) -> tuple[RetainedPart, ...]:
+    """Select final state and consumed folds on the exact input's dependency path."""
+    required = required_part_roles(dataset, input_dataset=input_dataset)
     available = {part.role: part for part in descriptor.retained_parts}
     if not required.issubset(available):
         _integrity("every consumed registered Metric state role", "missing required Metric part")
