@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 
 from marivo.analysis.datasets.descriptors import DatasetRowContract
@@ -21,9 +22,22 @@ def frame_keys(frame: pd.DataFrame, keys: tuple[str, ...]) -> list[tuple[object,
     if not keys:
         return [()] * len(frame)
     return [
-        tuple(None if _missing(value) else value for value in row)
+        tuple(normalize_key_value(value) for value in row)
         for row in frame.loc[:, list(keys)].itertuples(index=False, name=None)
     ]
+
+
+def normalize_key_value(value: object) -> object:
+    """Normalize Arrow/pandas mask containers without changing scalar identity."""
+    if _missing(value):
+        return None
+    if isinstance(value, np.ndarray):
+        if value.ndim != 1 or value.dtype != np.dtype("bool"):
+            raise row_value_error("one fixed Boolean mask", "invalid array coordinate")
+        return tuple(bool(item) for item in value)
+    if isinstance(value, (list, tuple)):
+        return tuple(normalize_key_value(item) for item in value)
+    return value
 
 
 def _missing(value: object) -> bool:
@@ -31,6 +45,8 @@ def _missing(value: object) -> bool:
 
 
 def compare_value(left: object, right: object) -> int:
+    left = normalize_key_value(left)
+    right = normalize_key_value(right)
     if _missing(left) or _missing(right):
         return 0 if _missing(left) and _missing(right) else (1 if _missing(left) else -1)
     if isinstance(left, tuple) and isinstance(right, tuple):

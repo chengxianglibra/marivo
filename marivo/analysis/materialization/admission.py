@@ -49,6 +49,7 @@ from marivo.analysis.evidence._dataset_types import (
     FindingPage,
 )
 from marivo.analysis.materialization import recovery
+from marivo.analysis.materialization.attribution_publication import AttributionSourceSummary
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     ArtifactRecord,
@@ -130,6 +131,10 @@ from marivo.analysis.observation.metric import LogicalMetricDataset, Materialize
 from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
+)
+from marivo.analysis.operators.attribution import (
+    LogicalAttributionDataset,
+    MaterializedAttributionDataset,
 )
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.analysis.operators.row import RowCall
@@ -587,6 +592,14 @@ class DatasetRuntime:
             raise _error("presentation")
         return result
 
+    def execute_attribution(
+        self, dataset: LogicalAttributionDataset
+    ) -> MaterializedAttributionDataset:
+        result = self._execute(dataset)
+        if not isinstance(result, MaterializedAttributionDataset):
+            raise _error("presentation")
+        return result
+
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset:
         result = self._execute(dataset)
         if not isinstance(result, MaterializedMetricDataset):
@@ -733,6 +746,7 @@ class DatasetRuntime:
                 validations: list[tuple[str, int]] = []
                 sampling: list[SamplingRealization] = []
                 sampling_by_root: dict[int, SamplingRealization] = {}
+                attribution_summary: AttributionSourceSummary | None = None
                 for input_record in records.values():
                     descriptor = input_record.descriptor
                     for realization in descriptor.sampling_execution or ():
@@ -755,6 +769,17 @@ class DatasetRuntime:
                                 sampling_by_root,
                             )
                         )
+                        proof_backend, proof_recipe, _ = prepared[source_boundary.output]
+                        if (
+                            proof_recipe.attribution_proof is not None
+                            and source_boundary.dataset.kind == "attribution"
+                        ):
+                            with _engine_deadline(proof_backend):
+                                attribution_summary = self._attribution_source_summary(
+                                    proof_backend,
+                                    proof_recipe.attribution_proof,
+                                    source_boundary.dataset.row_contract,
+                                )
                         validations.extend(
                             (
                                 f"source.{source_boundary.output}.{name}"
@@ -912,6 +937,9 @@ class DatasetRuntime:
                             run.run_ref,
                             cancel_source=cancel_sources,
                         )
+                        attribution_summary = (
+                            local_result.attribution_summary or attribution_summary
+                        )
                         validations = [
                             (
                                 "source_prefix.final_row_key_unique"
@@ -997,6 +1025,58 @@ class DatasetRuntime:
                         rows,
                         artifact_ref=artifact_ref,
                         session_ref=self.session_ref,
+                    )
+                elif dataset.kind == "attribution":
+                    from marivo.analysis.materialization.attribution_publication import (
+                        build_attribution_publication,
+                    )
+                    from marivo.analysis.materialization.reads import payload_batches
+                    from marivo.analysis.operators.attribution_contracts import AttributePayload
+
+                    entity = any(
+                        field.role_id == "entity_identity" for field in dataset.schema.columns
+                    )
+                    payload = (
+                        dataset._root.payload
+                        if isinstance(dataset._root, LogicalRootHandle)
+                        else None
+                    )
+                    continuation = not isinstance(payload, AttributePayload)
+                    proof_definition = next(
+                        (
+                            root.definition_fingerprint
+                            for root in reversed(roots)
+                            if isinstance(root.payload, AttributePayload)
+                        ),
+                        None,
+                    )
+                    top_k = next(
+                        (
+                            root.payload.spec.top_k
+                            for root in reversed(roots)
+                            if isinstance(root.payload, AttributePayload)
+                        ),
+                        None,
+                    )
+                    descriptor, findings = build_attribution_publication(
+                        descriptor,
+                        None
+                        if entity or continuation
+                        else payload_batches(
+                            self.store.project_root,
+                            descriptor.storage_receipt,
+                            policy=_READ_POLICY,
+                            bindings=object_bindings,
+                            row=descriptor.row_contract,
+                            rows=descriptor.row_set_contract,
+                            audit=True,
+                        ),
+                        artifact_ref=artifact_ref,
+                        session_ref=self.session_ref,
+                        top_k=top_k,
+                        source_summary=attribution_summary,
+                        continuation=continuation,
+                        proof_definition_fingerprint=proof_definition,
                     )
                 phase = "evidence"
                 self._event("evidence")
@@ -1221,20 +1301,40 @@ class DatasetRuntime:
                         source_step.binding.owner.semantic_registry,
                         descriptor.population_authority.entity_ref,
                     )
-                    scans[reference] = CompiledArtifactScan(table, entity)
+                    retained_parts = (
+                        self._engine_parts(
+                            backend,
+                            descriptor,
+                            source_dataset,
+                            input_dataset=next(
+                                value
+                                for value in artifact_inputs(source_dataset)
+                                if value.state.artifact_ref.ref == reference
+                            ),
+                        )
+                        if descriptor.row_contract.shape_id.family_id == "metric"
+                        else {}
+                    )
+                    scans[reference] = CompiledArtifactScan(
+                        table, entity, tuple(retained_parts.items())
+                    )
                 recipe = compile_dataset(
                     source_dataset, tables, scans=scans, source_owner=source_step.binding.owner
                 )
             phase = "ibis_backend_compile"
             self._event("backend_compile")
             backend.compile(recipe.expression)
+            assertion_sql: dict[int, str] = {}
             for assertion in recipe.validations:
-                backend.compile(assertion.expression)
+                if tuple(assertion.expression.columns) != ("violations",):
+                    raise _error("implementation_registration", run_ref)
+                assertion_sql[id(assertion)] = backend.compile(assertion.expression)
             for preparation in recipe.preparations:
                 if isinstance(preparation, CompiledSampleFence):
                     sqlglot.parse_one(sample_statement(backend, preparation), read="duckdb")
                 else:
-                    backend.compile(preparation.expression)
+                    if id(preparation) not in assertion_sql:
+                        assertion_sql[id(preparation)] = backend.compile(preparation.expression)
             phase = "source_binding"
             with _engine_deadline(backend):
                 from marivo.analysis.materialization.engine import validate_engine_relation
@@ -1304,11 +1404,15 @@ class DatasetRuntime:
                     self.statistics.validation_queries += 1
                     self._record_statement(
                         "validation:" + validation.name,
-                        backend.compile(validation.expression),
+                        assertion_sql[id(validation)],
                     )
-                    value: object = backend.to_pyarrow(validation.expression)["violations"][
-                        0
-                    ].as_py()
+                    cursor = backend.raw_sql(assertion_sql[id(validation)])
+                    scalar: object = cursor.fetchone()
+                    value: object = (
+                        scalar[0] if isinstance(scalar, tuple) and len(scalar) == 1 else None
+                    )
+                    if cursor.fetchone() is not None:
+                        value = None
                     if type(value) is not int or value != 0:
                         raise MaterializationError(
                             expected="zero violations of the declared source validation",
@@ -1471,6 +1575,54 @@ class DatasetRuntime:
             rows=descriptor.row_set_contract,
         )
 
+    def _attribution_source_summary(
+        self, backend: Backend, table: ir.Table, row: DatasetRowContract
+    ) -> AttributionSourceSummary:
+        """Reduce complete Attribution proof inside its engine; return only global facts."""
+        from marivo.analysis.operators.attribution_contracts import AttributionSemantics
+
+        semantics = row.family_semantics
+        if not isinstance(semantics, AttributionSemantics):
+            raise _error("output_validation")
+        names = {field.field_id: field.name for field in row.schema.columns}
+
+        def quote(name: str) -> str:
+            return sge.to_identifier(name, quoted=True).sql(dialect="duckdb")
+
+        scope = tuple(quote(names[key]) for key in semantics.scope_field_ids)
+        keys = tuple(quote(names[key]) for key in row.key_field_ids)
+        resolution = (*scope, quote("active_axis_mask"))
+        identity = "struct_pack(" + ", ".join(f"{name} := {name}" for name in keys) + ")"
+        grouping = ", ".join(resolution)
+        scoped = (
+            "struct_pack(" + ", ".join(f"{name} := {name}" for name in scope) + ")"
+            if scope
+            else "1"
+        )
+        sql = (
+            f"WITH attributed AS ({backend.compile(table)}), reconciled AS ("
+            f"SELECT sum(contribution) AS total, max(overall_delta) AS delta FROM attributed GROUP BY {grouping}) "
+            f"SELECT count(DISTINCT {scoped}), (SELECT count(*) FROM reconciled), "
+            "count(*) FILTER (WHERE status = 'ok'), count(*) FILTER (WHERE status = 'zero_total_delta'), "
+            "CAST(coalesce((SELECT max(abs(total - delta)) FROM reconciled), 0) AS DOUBLE), "
+            f"sha256(coalesce(string_agg(sha256(to_json({identity})), '' ORDER BY {', '.join(keys)}), '')) FROM attributed"
+        )
+        self._record_statement("attribution.source_summary", sql)
+        self._event("source_statement")
+        result: object = backend.raw_sql(sql).fetchone()
+        if not isinstance(result, tuple) or len(result) != 6:
+            raise _error("output_validation")
+        scopes, resolutions, ok, zero, error, digest = result
+        if (
+            not all(type(value) is int and value >= 0 for value in (scopes, resolutions, ok, zero))
+            or not isinstance(error, (int, float))
+            or not isinstance(digest, str)
+        ):
+            raise _error("output_validation")
+        return AttributionSourceSummary(
+            scopes, resolutions, (("ok", ok), ("zero_total_delta", zero)), float(error), digest
+        )
+
     def _engine_parts(
         self,
         backend: Backend,
@@ -1484,14 +1636,12 @@ class DatasetRuntime:
 
         from marivo.analysis.materialization.engine import attach_engine_scan
         from marivo.analysis.materialization.retained import (
+            _part_state_columns,
             component_schema,
-            metric_parts,
             selected_parts,
         )
         from marivo.analysis.materialization.storage import _integrity
-        from marivo.analysis.observation.fold_contracts import fold_part_role, fold_state_columns
 
-        authorities = {fold_part_role(item): item for item in metric_parts(descriptor.row_contract)}
         tables: dict[str, ir.Table] = {}
         with _engine_deadline(backend):
             for part in selected_parts(descriptor, dataset, input_dataset=input_dataset):
@@ -1513,7 +1663,7 @@ class DatasetRuntime:
                     _integrity("the exact committed part row count", "engine part count differs")
                 required = [
                     table[name].isnull()
-                    for name, _, nullable in fold_state_columns(authorities[part.role])
+                    for name, _, nullable in _part_state_columns(descriptor.row_contract, part.role)
                     if not nullable
                 ]
                 if required:
@@ -1605,7 +1755,7 @@ class DatasetRuntime:
                 part.role, part.contract_id, part.contract_version, tuple(part.table.column_names)
             )
             for part in result.parts
-            if part.contract_id == "metric.sufficient_components"
+            if part.contract_id in ("metric.sufficient_components", "delta.sufficient_components")
         )
 
     @staticmethod
@@ -1639,6 +1789,10 @@ class DatasetRuntime:
         *,
         cancel_source: Callable[[], None],
     ) -> LocalResult:
+        from marivo.analysis.operators.attribution_contracts import (
+            AttributePayload,
+            AttributeSpecV1,
+        )
         from marivo.analysis.operators.contracts import ComparePayload, CompareSpecV1
 
         stages: list[LocalStage] = []
@@ -1647,8 +1801,8 @@ class DatasetRuntime:
             if not isinstance(root, LogicalRootHandle):
                 raise _error("implementation_registration", run_ref)
             payload = root.payload
-            call: RowCall | CompareSpecV1
-            if isinstance(payload, ComparePayload):
+            call: RowCall | CompareSpecV1 | AttributeSpecV1
+            if isinstance(payload, (ComparePayload, AttributePayload)):
                 call = payload.spec
             elif isinstance(payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)):
                 if len(step.inputs) != 1:

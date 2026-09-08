@@ -16,6 +16,8 @@ from marivo.analysis.materialization.contracts import (
     PopulationAuthority,
     SamplingRealization,
     StorageReceipt,
+    finding_extractor,
+    finding_policy,
     required_retained_contracts,
 )
 from marivo.analysis.materialization.errors import MaterializationError
@@ -63,9 +65,7 @@ def materialization_contract(
         quality_contract_version=1,
         evidence_extractor_id=registration.evidence_id,
         evidence_extractor_version=1,
-        finding_extractor_id="delta_finding"
-        if dataset.row_contract.shape_id.family_id == "delta"
-        else "none",
+        finding_extractor_id=finding_extractor(dataset.row_contract, registration.producer_id),
         finding_extractor_version=1,
         validation_output_contract_ids=(registration.validation_id,),
         retained_private_state_contract_ids=required_retained_contracts(
@@ -78,10 +78,7 @@ def materialization_contract(
                 for item in logical_roots(dataset)
             ),
         ),
-        finding_policy_id="delta_findings@v1"
-        if dataset.row_contract.shape_id.family_id == "delta"
-        and dataset.row_contract.shape_id.local_shape_id != "entity"
-        else "zero_findings@v1",
+        finding_policy_id=finding_policy(dataset.row_contract, registration.producer_id),
     )
 
 
@@ -105,7 +102,7 @@ def make_descriptor(
             stage="publication",
         )
     roots = tuple(logical_roots(dataset))
-    if dataset.row_contract.shape_id.family_id == "delta":
+    if dataset.row_contract.shape_id.family_id in ("delta", "attribution"):
         return _delta_descriptor(
             dataset,
             materialization,
@@ -364,6 +361,12 @@ def _delta_descriptor(
             retained = selected[comparison.state.artifact_ref.ref]
             inputs = retained.comparison_inputs
             break
+        if (
+            isinstance(comparison._root, LogicalRootHandle)
+            and comparison._root.operator_id == "delta.attribute_expanded"
+        ):
+            comparison = comparison._inputs[0]
+            continue
         if len(comparison._inputs) != 1:
             raise MaterializationError(
                 expected="a comparison or its single-input row continuation",
@@ -420,6 +423,21 @@ def _delta_descriptor(
             stage="publication",
         )
     roots = tuple(logical_roots(dataset))
+    from marivo.analysis.operators.attribution_contracts import AttributePayload
+
+    attribute_payload = next(
+        (root.payload for root in reversed(roots) if isinstance(root.payload, AttributePayload)),
+        None,
+    )
+    attribution_folds = None
+    if dataset.row_contract.shape_id.family_id == "attribution":
+        if attribute_payload is not None:
+            attribution_folds = (
+                attribute_payload.spec.current_fold_authority,
+                attribute_payload.spec.baseline_fold_authority,
+            )
+        elif inherited is not None:
+            attribution_folds = inherited.attribution_fold_authority
     return ArtifactDescriptor(
         definition_fingerprint=dataset.definition_fingerprint,
         row_contract=dataset.row_contract,
@@ -458,4 +476,10 @@ def _delta_descriptor(
             warning_check_count=0,
         ),
         comparison_inputs=inputs,
+        attribution_evidence=(
+            inherited.attribution_evidence
+            if inherited is not None and dataset.row_contract.shape_id.family_id == "attribution"
+            else None
+        ),
+        attribution_fold_authority=attribution_folds,
     )

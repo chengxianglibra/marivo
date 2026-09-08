@@ -41,6 +41,7 @@ from marivo.semantic.ir import (
 from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
+    from marivo.analysis.operators.attribution import LogicalAttributionDataset
     from marivo.analysis.operators.delta import LogicalDeltaDataset
     from marivo.refs import EntityKind, FieldKind
 
@@ -71,6 +72,9 @@ class NoIoActionPort:
 
     def execute_delta(self, dataset: LogicalDeltaDataset) -> Never:
         raise AssertionError("Delta execution is not part of definition-only acceptance")
+
+    def execute_attribution(self, dataset: LogicalAttributionDataset) -> Never:
+        raise AssertionError("Attribution execution is not part of definition-only acceptance")
 
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None) -> Never:
         raise AssertionError("No retained row read is authorized")

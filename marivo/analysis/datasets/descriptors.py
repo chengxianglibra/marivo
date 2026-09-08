@@ -33,6 +33,23 @@ def _is_stable_identifier(value: object) -> bool:
     return type(value) is str and _ID_PATTERN.fullmatch(value) is not None
 
 
+def _bool_tuple_arity(logical_type_id: str) -> int | None:
+    """Read the exact positive arity of the registered boolean-tuple primitive."""
+    match = re.fullmatch(r"bool_tuple:([1-9][0-9]*)", logical_type_id)
+    return None if match is None else int(match[1])
+
+
+def _bool_tuple_value(value: object, *, arity: int | None = None) -> tuple[bool, ...] | None:
+    """Normalize exact booleans; callers own container admission and typed errors."""
+    if (
+        not isinstance(value, (tuple, list))
+        or (arity is not None and len(value) != arity)
+        or any(type(item) is not bool for item in value)
+    ):
+        return None
+    return tuple(item for item in value if isinstance(item, bool))
+
+
 def _stable_text(value: str, location: str) -> None:
     if not _is_stable_identifier(value):
         _fail("a bounded canonical stable identifier", type(value).__name__, location)
@@ -139,7 +156,8 @@ class _StableIdRegistry:
 
 def _registered(value: str, inventory: frozenset[str], location: str) -> None:
     _stable_text(value, location)
-    if value not in inventory:
+    parameterized_tuple = "bool_tuple" in inventory and _bool_tuple_arity(value) is not None
+    if value not in inventory and not parameterized_tuple:
         _fail("a registered stable id", value, location)
 
 
@@ -872,6 +890,12 @@ def _validate_realized_schema(
                 physical,
                 expected.physical_type_state.admitted_type_class_id,
             ) in ids.physical_type_classes
+            if (
+                physical == expected.physical_type_state.admitted_type_class_id
+                and _bool_tuple_arity(physical) is not None
+                and ("bool_tuple", "bool_tuple") in ids.physical_type_classes
+            ):
+                admitted = True
         else:
             admitted = False
         if not admitted:

@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -15,7 +13,6 @@ from typing import Literal
 from unittest.mock import patch
 
 import duckdb
-import ibis
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -24,7 +21,6 @@ from marivo.analysis import grain, time_scope
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local import (
@@ -47,9 +43,9 @@ from marivo.analysis.observation.predicates import gt
 from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.session._lazy_sources import LazySources
-from marivo.datasource.backends import BuiltDatasourceBackend, EffectiveDatasourceKwargs
-from marivo.datasource.ir import DatasourceIR, TableSourceIR
+from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
+from tests.lazy_compare_runtime_fixtures import independent_sources as _independent_sources
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_local_fixtures import standalone_worker_reservation
 from tests.lazy_materialization_crash_worker import snapshot
@@ -146,6 +142,14 @@ def test_all_admitted_shapes_and_operand_states(tmp_path: Path, shape: Shape, st
         assert frame["delta"].isna().all()
         assert frame["coordinate_presence"].tolist() == ["matched"] * 6
         assert frame["calculation_status"].tolist() == ["null_input"] * 6
+        if states in ("LM", "ML"):
+            statements = tuple(name for name, _ in runtime.statistics.statements)
+            assert "engine_check.part_schema" in statements
+            assert any(
+                name.startswith("validation:metric_components.")
+                and name.endswith(".primary_value_reconciliation")
+                for name in statements
+            )
     if "time" in shape:
         assert frame["comparison_ordinal"].nunique() == 1
         assert pd.Timestamp(frame["current_time"].iloc[0]).date().isoformat() == "2026-02-02"
@@ -301,41 +305,6 @@ def test_sampled_self_comparison_and_independent_branches_do_not_share_bindings(
             "cold_hit_counts": after,
         },
     )
-
-
-@contextmanager
-def _independent_sources(
-    project: Path,
-) -> Iterator[tuple[DatasetRuntime, LogicalMetricDataset, LogicalMetricDataset, list[int]]]:
-    registry, sidecar = make_execution_registry(Path(":memory:"))
-    runtime = DatasetRuntime.create(project, "independent-comparison")
-    first = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    second = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    backends = [ibis.duckdb.connect(":memory:") for _ in range(2)]
-    calls: list[int] = []
-    try:
-        for backend, amount in zip(backends, (11, 29), strict=True):
-            backend.raw_sql(
-                "CREATE TABLE orders (id BIGINT, tenant VARCHAR, customer_id BIGINT, "
-                "order_id BIGINT, amount DOUBLE, weight DOUBLE, region VARCHAR, "
-                'channel VARCHAR, day DATE, start DATE, "end" DATE)'
-            )
-            backend.con.execute("INSERT INTO orders (id, amount) VALUES (1, ?)", [amount])
-
-        def supplied(
-            datasource: DatasourceIR, effective: EffectiveDatasourceKwargs, *, read_only: bool
-        ) -> BuiltDatasourceBackend:
-            assert datasource.fields == {"path": ":memory:"}
-            assert effective.kwargs == {"path": ":memory:"} and read_only
-            selected = backends[len(calls)]
-            calls.append(id(selected.con))
-            return BuiltDatasourceBackend(selected, ())
-
-        with patch.object(admission, "_build_backend_from_effective", supplied):
-            yield runtime, first.observe(REVENUE), second.observe(REVENUE), calls
-    finally:
-        for backend in backends:
-            backend.disconnect()
 
 
 def test_independent_equal_argument_connections_feed_one_local_comparison(tmp_path: Path) -> None:

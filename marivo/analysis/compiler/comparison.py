@@ -24,7 +24,11 @@ def _finite(value: ir.Value) -> ir.BooleanValue:
 
 
 def lower_compare(
-    current: ir.Table, baseline: ir.Table, spec: CompareSpecV1
+    current: ir.Table,
+    baseline: ir.Table,
+    spec: CompareSpecV1,
+    *,
+    ordinal_preassigned: bool = False,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     """Compose complete exact operands, with action-time contradiction checks."""
     semantics = spec.output_row.family_semantics
@@ -72,7 +76,7 @@ def lower_compare(
         ),
         None,
     )
-    if time_name is not None:
+    if time_name is not None and not ordinal_preassigned:
         baseline_time = next(
             (
                 field.name
@@ -183,6 +187,11 @@ def lower_compare(
         for name in keys
     }
     if time_name is not None:
+        baseline_time = next(
+            field.name
+            for field in spec.baseline_row.schema.columns
+            if field.role_id == "time_dimension"
+        )
         output["current_time"] = joined[f"__mv_current_{time_name}"]
         output["baseline_time"] = joined[f"__mv_baseline_{baseline_time}"]
     output.update(
@@ -200,6 +209,35 @@ def lower_compare(
             "baseline_zero", relative_ok.ifelse("ok", "delta_unavailable")
         ),
     )
+    from marivo.analysis.compiler.lowering import retained_part_specs
+
+    output.update(
+        __mv_current_present=current_present,
+        __mv_baseline_present=baseline_present,
+    )
+    for side, row, present in (
+        ("current", spec.current_row, current_present),
+        ("baseline", spec.baseline_row, baseline_present),
+    ):
+        visible = {field.name for field in row.schema.columns}
+        for part in retained_part_specs(row):
+            for name in part.column_names:
+                if name in visible:
+                    continue
+                target = f"__mv_{side}_{name}"
+                if target not in joined.columns:
+                    raise TypeError("comparison requires complete admitted sufficient state")
+                value = joined[target]
+                output[target] = present.ifelse(value, ibis.null().cast(value.type()))
+    retained = tuple(
+        name
+        for part in retained_part_specs(spec.output_row)
+        for name in part.column_names
+        if name not in {field.name for field in spec.output_row.schema.columns}
+    )
     return joined.select(
-        **{field.name: output[field.name] for field in spec.output_row.schema.columns}
+        **{
+            name: output[name]
+            for name in (*[field.name for field in spec.output_row.schema.columns], *retained)
+        }
     ), tuple(validations)

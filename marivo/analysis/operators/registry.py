@@ -15,6 +15,7 @@ from marivo.analysis.observation.contracts import (
     producer_contract,
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
+from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributionSemantics
 from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
 
 
@@ -37,6 +38,9 @@ _ROW_METHODS = frozenset(
         "delta.where",
         "delta.rank",
         "delta.limit",
+        "attribution.where",
+        "attribution.rank",
+        "attribution.limit",
     }
 )
 _FOLD_METHODS = frozenset({"metric.aggregate", "metric.rollup"})
@@ -50,25 +54,26 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     if root.contract_versions != registration.versions:
         raise compilation_error("exact registered contract versions", "method version mismatch")
     roles = tuple(item.role for item in root.inputs)
-    if dataset._inputs and root.operator_id.startswith(("metric.", "delta.")):
+    if dataset._inputs and root.operator_id.startswith(("metric.", "delta.", "attribution.")):
         consumer = dataset._registry.consumer(dataset._inputs[0], root.operator_id)
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
-    entity_delta = (
-        dataset.kind == "delta" and dataset.row_contract.shape_id.local_shape_id == "entity"
-    )
+    entity_scoped_result = any(
+        field.role_id == "entity_identity" for field in dataset.schema.columns
+    ) and dataset.kind in ("delta", "attribution")
     # Source behavior is owned by the existing complete Observation lowerer.
     return ImplementationRegistration(
         root.operator_id,
         roles,
         "duckdb",
         root.operator_id
-        if not entity_delta
+        if not entity_scoped_result
         and (
             (
                 root.operator_id == "metric.compare"
                 and dataset.row_contract.shape_id.local_shape_id != "entity"
             )
+            or root.operator_id == "delta.attribute"
             or root.operator_id in _ROW_METHODS
             or (root.operator_id in _FOLD_METHODS and isinstance(root.payload, RetainedFoldPayload))
         )
@@ -90,9 +95,24 @@ def admit_local(dataset: LogicalDataset, registration: ImplementationRegistratio
         for value in (*dataset._inputs, dataset):
             admit_retained_rows(value)
         return
-    if dataset.kind == "delta" and dataset.row_contract.shape_id.local_shape_id == "entity":
+    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, AttributePayload):
+        if (
+            registration.local_method != "delta.attribute"
+            or len(dataset._inputs) != 1
+            or any(field.role_id == "entity_identity" for field in dataset.schema.columns)
+        ):
+            raise compilation_error(
+                "non-Entity retained-axis attribution", "source-required attribution"
+            )
+        for value in (*dataset._inputs, dataset):
+            admit_retained_rows(value)
+        return
+    if dataset.kind in ("delta", "attribution") and any(
+        field.role_id == "entity_identity" for field in dataset.schema.columns
+    ):
         raise compilation_error(
-            "source execution for Entity Delta row operations", "source-required identity rows"
+            "source execution for Entity Delta or Attribution row operations",
+            "source-required identity rows",
         )
     if (
         registration.local_method not in (_ROW_METHODS | _FOLD_METHODS)
@@ -108,9 +128,15 @@ def admit_local(dataset: LogicalDataset, registration: ImplementationRegistratio
 def admit_retained_rows(dataset: Dataset) -> None:
     semantics = dataset.row_contract.family_semantics
     if not isinstance(
-        semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics, DeltaSemantics)
+        semantics,
+        (
+            EntityPresentMetricSemantics,
+            EntityReducedMetricSemantics,
+            DeltaSemantics,
+            AttributionSemantics,
+        ),
     ):
         raise compilation_error(
-            "Metric rows with their exact retained computational roles",
+            "Metric, Delta or Attribution rows with their exact retained computational roles",
             "unsupported retained family",
         )

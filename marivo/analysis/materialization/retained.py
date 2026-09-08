@@ -40,28 +40,44 @@ def metric_parts(row: DatasetRowContract) -> tuple[MetricFoldAuthorityV1, ...]:
 
 
 def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = None) -> set[str]:
-    """Resolve only dependencies on this exact boundary, ending at comparisons."""
+    """Propagate consumed state to the exact input, respecting producer boundaries."""
+    from marivo.analysis.operators.attribution_contracts import AttributePayload
+    from marivo.analysis.operators.contracts import ComparePayload
+
     required: set[str] = set()
 
-    def reaches(value: Dataset) -> bool:
+    def visit(value: Dataset, demanded: set[str]) -> None:
         if value is input_dataset or (
             isinstance(value, MaterializedDataset)
             and isinstance(input_dataset, MaterializedDataset)
             and value.state.artifact_ref == input_dataset.state.artifact_ref
         ):
-            return True
+            required.update(demanded)
+            return
+        if input_dataset is None:
+            required.update(demanded)
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
-            return input_dataset is None
-        selected = any(tuple(reaches(child) for child in value._inputs))
-        if selected and isinstance(value._root.payload, RetainedFoldPayload):
-            required.update(
-                fold_part_role(item) for item in metric_parts(value._root.payload.spec.input_row)
-            )
-        return selected
+            return
+        payload = value._root.payload
+        for child in value._inputs:
+            if value._root.operator_id == "session.observe":
+                child_demand: set[str] = set()
+            elif isinstance(payload, (ComparePayload, AttributePayload, RetainedFoldPayload)):
+                child_demand = _row_part_roles(child.row_contract)
+            else:
+                child_demand = demanded
+            visit(child, child_demand)
 
-    if reaches(dataset):
-        required.update(fold_part_role(item) for item in metric_parts(dataset.row_contract))
+    visit(dataset, _row_part_roles(dataset.row_contract))
     return required
+
+
+def _row_part_roles(row: DatasetRowContract) -> set[str]:
+    if row.shape_id.family_id == "delta":
+        from marivo.analysis.operators.attribution_contracts import delta_part_authorities
+
+        return {role for role, _ in delta_part_authorities(row)}
+    return {fold_part_role(item) for item in metric_parts(row)}
 
 
 def selected_parts(
@@ -77,11 +93,8 @@ def selected_parts(
 
 def component_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> tuple[str, ...]:
     """Validate meaning from the owner; the receipt separately pins physical schema."""
-    authority = next((item for item in metric_parts(row) if fold_part_role(item) == role), None)
-    if authority is None:
-        _integrity("a required role owned by this Metric contract", "unknown Metric part role")
+    states = _part_state_columns(row, role)
     keys = tuple(field for field in row.schema.columns if field.field_id in row.key_field_ids)
-    states = fold_state_columns(authority)
     expected = (*(field.name for field in keys), *(name for name, _, _ in states))
     if tuple(schema.names) != expected:
         _integrity(
@@ -114,12 +127,55 @@ def checked_component_batches(
     batches: Iterable[pa.RecordBatch], row: DatasetRowContract, role: str
 ) -> Iterable[pa.RecordBatch]:
     """Check required component support fields as actual data, independently of headers."""
-    authority = next((item for item in metric_parts(row) if fold_part_role(item) == role), None)
-    if authority is None:
-        _integrity("a required Metric component role", "unknown component role")
-    nonnull = tuple(name for name, _, nullable in fold_state_columns(authority) if not nullable)
+    nonnull = tuple(name for name, _, nullable in _part_state_columns(row, role) if not nullable)
     for batch in batches:
         component_schema(row, role, batch.schema)
         if any(batch.column(name).null_count for name in nonnull):
             _integrity("non-null retained support and coverage", "null required component state")
+        if row.shape_id.family_id == "delta":
+            from marivo.analysis.operators.attribution_contracts import (
+                delta_part_authorities,
+                delta_presence_name,
+                delta_state_name,
+            )
+
+            side = role.removeprefix("delta_components.")
+            authority = next(item for name, item in delta_part_authorities(row) if name == role)
+            present = batch.column(delta_presence_name(side)).to_pylist()
+            for name, _, nullable in fold_state_columns(authority):
+                values = batch.column(delta_state_name(side, name)).to_pylist()
+                if any(
+                    (selected and not nullable and value is None)
+                    or (not selected and value is not None)
+                    for selected, value in zip(present, values, strict=True)
+                ):
+                    _integrity(
+                        "side presence consistent with complete component state",
+                        "invalid Delta side component support",
+                    )
         yield batch
+
+
+def _part_state_columns(row: DatasetRowContract, role: str) -> tuple[tuple[str, str, bool], ...]:
+    if row.shape_id.family_id == "delta":
+        from marivo.analysis.operators.attribution_contracts import (
+            delta_part_authorities,
+            delta_presence_name,
+            delta_state_name,
+        )
+
+        authority = next((item for name, item in delta_part_authorities(row) if name == role), None)
+        if authority is None:
+            _integrity("an exact registered Delta side role", "unknown Delta part role")
+        side = role.removeprefix("delta_components.")
+        return (
+            *(
+                (delta_state_name(side, name), kind, True)
+                for name, kind, _ in fold_state_columns(authority)
+            ),
+            (delta_presence_name(side), "boolean", False),
+        )
+    authority = next((item for item in metric_parts(row) if fold_part_role(item) == role), None)
+    if authority is None:
+        _integrity("a required role owned by the Metric contract", "unknown Metric part role")
+    return fold_state_columns(authority)

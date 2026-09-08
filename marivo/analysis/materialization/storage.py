@@ -34,6 +34,8 @@ from marivo.analysis.datasets.descriptors import (
     DatasetRowContract,
     DatasetRowSetContract,
     DatasetSchema,
+    _bool_tuple_arity,
+    _bool_tuple_value,
     _EntityFieldIdentity,
     _make_schema,
     _OrderedOrdering,
@@ -294,6 +296,13 @@ def _normalize_batch(batch: pa.RecordBatch, limit: int) -> pa.RecordBatch:
 def _matches_type(logical: str, actual: pa.DataType) -> bool:
     if logical == "identity_tuple":
         return bool(pa.types.is_struct(actual))
+    arity = _bool_tuple_arity(logical)
+    if arity is not None:
+        return bool(
+            (pa.types.is_list(actual) or pa.types.is_fixed_size_list(actual))
+            and pa.types.is_boolean(actual.value_type)
+            and (not pa.types.is_fixed_size_list(actual) or actual.list_size == arity)
+        )
     checks: dict[str, Callable[[pa.DataType], bool]] = {
         "bool": pa.types.is_boolean,
         "boolean": pa.types.is_boolean,
@@ -358,6 +367,12 @@ def _value(scalar: pa.Scalar) -> _Value:
         return None
     if pa.types.is_struct(scalar.type):
         return tuple(_value(scalar[index]) for index in range(len(scalar.type)))
+    if pa.types.is_list(scalar.type) or pa.types.is_fixed_size_list(scalar.type):
+        values: object = scalar.as_py()
+        mask = _bool_tuple_value(values) if isinstance(values, list) else None
+        if mask is not None:
+            return mask
+        _fail("non-null boolean mask members", "invalid partition mask")
     value: object = scalar.as_py()
     if isinstance(value, (bool, int, float, str, date, datetime, Decimal)):
         if isinstance(value, float) and not math.isfinite(value):
@@ -424,6 +439,19 @@ class _RowValidator:
             )
         self.contract = contract
         self.rows = rows
+        self.attribution_masks: tuple[tuple[bool, ...], ...] | None = None
+        self.attribution_axes: tuple[str, ...] = ()
+        if contract.shape_id.family_id == "attribution":
+            from marivo.analysis.operators.attribution_contracts import AttributionSemantics
+
+            semantics = contract.family_semantics
+            if not isinstance(semantics, AttributionSemantics):
+                _fail("exact Attribution row semantics", "missing Attribution authority")
+            self.attribution_masks = tuple(
+                tuple(index < len(prefix) for index in range(len(semantics.axis_field_ids)))
+                for prefix in semantics.resolution_prefixes
+            )
+            self.attribution_axes = tuple(by_id[field_id] for field_id in semantics.axis_field_ids)
         self.previous: tuple[_Value, ...] | None = None
         self.count = 0
 
@@ -437,7 +465,42 @@ class _RowValidator:
                 or any(column.field(index).null_count for index in range(column.type.num_fields))
             ):
                 _fail("complete non-null identity tuples", "null identity component")
+            arity = _bool_tuple_arity(field.logical_type_id)
+            if arity is not None and (
+                not _matches_type(field.logical_type_id, column.type)
+                or any(
+                    not isinstance(value, list) or _bool_tuple_value(value, arity=arity) is None
+                    for value in column.to_pylist()
+                )
+            ):
+                _fail("the exact fixed-length boolean partition mask", "invalid mask values")
         for offset in range(batch.num_rows):
+            if self.attribution_masks is not None:
+                active = _value(batch.column("active_axis_mask")[offset])
+                other = _value(batch.column("other_mask")[offset])
+                if (
+                    not isinstance(active, tuple)
+                    or not isinstance(other, tuple)
+                    or active not in self.attribution_masks
+                    or len(other) != len(active)
+                    or any(
+                        mapped and not selected
+                        for mapped, selected in zip(other, active, strict=True)
+                    )
+                ):
+                    _fail(
+                        "an exact registered Attribution resolution and Other mask",
+                        "invalid partition mask",
+                    )
+                if any(
+                    (not selected or mapped) and batch.column(name)[offset].is_valid
+                    for name, selected, mapped in zip(
+                        self.attribution_axes, active, other, strict=True
+                    )
+                ):
+                    _fail(
+                        "null typed inactive or Other axis values", "invalid Attribution axis value"
+                    )
             ordered = tuple(
                 _value(batch.column(batch.schema.get_field_index(name))[offset])
                 for name, _, _ in self.terms
@@ -866,7 +929,10 @@ def read_part_batches(
 def _to_dataframe(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
     result: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
     for field in row.schema.columns:
-        if isinstance(field.identity, _EntityFieldIdentity):
+        if (
+            isinstance(field.identity, _EntityFieldIdentity)
+            or _bool_tuple_arity(field.logical_type_id) is not None
+        ):
             array = table.column(field.name)
             result[field.name] = pd.Series(
                 [_value(array[index]) for index in range(table.num_rows)], dtype=object

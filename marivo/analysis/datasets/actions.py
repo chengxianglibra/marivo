@@ -39,8 +39,13 @@ def construct_operator(
     consumer = registry.consumer(inputs[0], operator_id)
     if len(inputs) != len(consumer.input_roles):
         raise _construction_error("registered ordered input roles", "wrong operand count")
-    for item in inputs:
-        if item.row_contract.shape_id not in consumer.accepted_shape_ids:
+    for index, item in enumerate(inputs):
+        shapes = (
+            consumer.operand_shape_ids[index]
+            if consumer.operand_shape_ids
+            else consumer.accepted_shape_ids
+        )
+        if item.row_contract.shape_id not in shapes:
             raise _construction_error(
                 "admitted family and exact shape for each operand", "unsupported input shape"
             )

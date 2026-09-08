@@ -15,6 +15,8 @@ from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.materialization.comparison_publication import build_delta_publication
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
+    LocalReceipt,
+    RetainedPart,
     RunDatasetInput,
     decode_descriptor,
     descriptor_payload,
@@ -26,6 +28,7 @@ from marivo.analysis.materialization.publication import make_descriptor, materia
 from marivo.analysis.materialization.storage import DatasetWriteResult
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.observation.contracts import make_ids
+from marivo.analysis.operators.attribution_contracts import delta_part_authorities
 from marivo.analysis.operators.contracts import DeltaSemantics
 from marivo.refs import ref
 from tests.lazy_materialization_fixtures import descriptor
@@ -65,10 +68,26 @@ def _delta(
         schema_fingerprint=schema_fingerprint(realized),
         realized_row_count=count,
     )
+    assert isinstance(receipt, LocalReceipt)
+    parts = tuple(
+        RetainedPart(
+            role,
+            "delta.sufficient_components",
+            1,
+            replace(
+                receipt,
+                project_relative_path=receipt.project_relative_path.replace(
+                    "/primary", "/parts/" + role
+                ),
+                schema_fingerprint="c" * 64,
+            ),
+        )
+        for role, _ in delta_part_authorities(result.row_contract)
+    )
     retained = make_descriptor(
         result,
         materialization_contract(result),
-        DatasetWriteResult(receipt, (), realized, count),
+        DatasetWriteResult(receipt, parts, realized, count),
         (("dataset.final_row_key_unique", 0),),
     )
     rows: list[dict[str, object]] = []

@@ -73,7 +73,7 @@ def test_all_five_shapes_are_private_paired_delta_contracts_without_io() -> None
         assert isinstance(delta._root.payload, ComparePayload)
         assert tuple(item.role for item in delta._root.inputs) == ("current", "baseline")
         assert delta._inputs[0] is left and delta._inputs[1] is right
-        assert not hasattr(delta, "attribute")
+        assert hasattr(delta, "attribute")
         assert not hasattr(delta, "discover")
         fields = {field.name: field for field in delta.schema.columns}
         assert fields["delta"].field_id.value == "generated.compare.delta@v1"
@@ -146,6 +146,22 @@ def test_scope_and_sampling_definition_do_not_enter_delta_row_semantics() -> Non
     assert basis.membership_digest and basis.reference_axis == "sales.orders.order_time"
     with pytest.raises(DatasetConstructionError, match="invalid authority"):
         decode_comparison_basis('{"secret":"must-not-render"}')
+
+
+@pytest.mark.parametrize("sampled_current", [False, True])
+def test_compare_rejects_sampling_on_only_one_side(sampled_current: bool) -> None:
+    sources = make_sources()
+    population = sources.population(ref.entity("sales.orders"))
+    exact = sources.observe(REVENUE, population=population).with_dimensions(REGION).aggregate()
+    sampled = (
+        sources.observe(REVENUE, population=population.sample(engine_sample(target_rows=3, seed=1)))
+        .with_dimensions(REGION)
+        .aggregate()
+    )
+    current, baseline = (sampled, exact) if sampled_current else (exact, sampled)
+    with pytest.raises(DatasetConstructionError, match="incompatible comparison scope") as error:
+        current.compare(baseline)
+    assert error.value.expected == "same Population membership, sampling and non-time selection"
 
 
 def test_delta_row_continuations_are_registered_and_scalar_rejected() -> None:

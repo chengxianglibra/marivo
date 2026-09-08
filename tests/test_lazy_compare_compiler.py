@@ -8,12 +8,34 @@ import pyarrow as pa
 import pytest
 
 from marivo.analysis.compiler.comparison import lower_compare
+from marivo.analysis.observation.contracts import (
+    EntityPresentMetricSemantics,
+    EntityReducedMetricSemantics,
+)
 from marivo.analysis.operators.compare import execute_compare
 from marivo.analysis.operators.contracts import CompareSpecV1
 from tests.lazy_compare_fixtures import comparison_spec
 
 
 def _evaluate(current: pa.Table, baseline: pa.Table, spec: CompareSpecV1) -> pd.DataFrame:
+    def with_state(table: pa.Table, side: str) -> pa.Table:
+        row = spec.current_row if side == "current" else spec.baseline_row
+        name = spec.current_metric_name if side == "current" else spec.baseline_metric_name
+        semantics = row.family_semantics
+        assert isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics))
+        for authority in semantics.metric_folds:
+            for component in authority.components:
+                assert component.kind == "sum"
+                for kind, column in component.state_columns:
+                    values = (
+                        table[name]
+                        if kind == "sum"
+                        else pa.array([1] * len(table), type=pa.int64())
+                    )
+                    table = table.append_column(column, values)
+        return table
+
+    current, baseline = with_state(current, "current"), with_state(baseline, "baseline")
     backend = ibis.duckdb.connect()
     try:
         left = backend.create_table("current_values", current)

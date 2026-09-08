@@ -47,6 +47,7 @@ from marivo.analysis.observation.contracts import (
     owner_of,
     producer_contract,
 )
+from marivo.analysis.observation.fold_contracts import decode_fold_authority
 from marivo.analysis.operators.contracts import (
     DEFAULT_ALIGNMENT,
     DELTA_SHAPES,
@@ -252,8 +253,17 @@ def compare(
         metric_unit=left.metric_bindings[0][1],
         numeric_type=promoted,
         exact_empty_zero=left.metric_bindings[0][5] == "zero",
+        approximation_class="sampled_population"
+        if current_authority.sampling_definition
+        else "exact",
         current_time_field_name=None if current_time is None else "current_time",
         baseline_time_field_name=None if baseline_time is None else "baseline_time",
+        current_fold_authority=decode_fold_authority(left.fold_authority)
+        .model_copy(update={"scope": None})
+        .to_json(),
+        baseline_fold_authority=decode_fold_authority(right.fold_authority)
+        .model_copy(update={"scope": None})
+        .to_json(),
     )
     row = _make_row_contract(
         schema_version=1,
@@ -305,6 +315,13 @@ def validate_delta(row: DatasetRowContract, rows: DatasetRowSetContract) -> None
         raise comparison_error("exact Delta shape and semantics", "invalid Delta contract")
     if semantics.numeric_type not in ("int64", "float64", "decimal"):
         raise comparison_error("canonical promoted Delta numeric type", "invalid numeric promotion")
+    from marivo.analysis.operators.attribution_contracts import delta_part_authorities
+
+    delta_part_authorities(row)
+    if semantics.approximation_class not in ("exact", "sampled_population"):
+        raise comparison_error(
+            "closed comparison approximation class", "invalid approximation meaning"
+        )
     shape = row.shape_id.local_shape_id
     coordinates = tuple(
         field
@@ -433,11 +450,37 @@ def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> N
             owner_id="operators.compare",
             ids=ids,
             row_validator=validate_delta,
-            consumers=tuple(
+            consumers=(
+                *(
+                    ConsumerRegistration(
+                        f"delta.{method}",
+                        ("input",),
+                        "delta",
+                        non_scalar,
+                        ("delta.current_rows@v1", "delta.sufficient_components@v1"),
+                    )
+                    for method in ("where", "rank", "limit")
+                ),
                 ConsumerRegistration(
-                    f"delta.{method}", ("input",), "delta", non_scalar, ("delta.current_rows@v1",)
-                )
-                for method in ("where", "rank", "limit")
+                    "delta.attribute",
+                    ("input",),
+                    "attribution",
+                    shapes,
+                    ("delta.current_rows@v1", "delta.sufficient_components@v1"),
+                ),
+                ConsumerRegistration(
+                    "delta.attribute_expanded",
+                    ("input", "current", "baseline"),
+                    "attribution",
+                    shapes,
+                    ("delta.current_rows@v1", "delta.sufficient_components@v1"),
+                    discoverable=False,
+                    operand_shape_ids=(
+                        shapes,
+                        registry.get("metric").shape_ids,
+                        registry.get("metric").shape_ids,
+                    ),
+                ),
             ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=decode,

@@ -57,6 +57,12 @@ def _literal(value: CanonicalValue, predicate: BoundPredicate) -> ir.Scalar:
         return ibis.literal(payload)
     if kind == "string" and type(payload) is str:
         return ibis.literal(payload)
+    if (
+        kind == "bool_tuple"
+        and isinstance(payload, tuple)
+        and all(type(item) is bool for item in payload)
+    ):
+        return ibis.literal(list(payload), type="array<boolean>")
     raise compilation_error("closed canonical typed predicate literal", "unsupported literal")
 
 

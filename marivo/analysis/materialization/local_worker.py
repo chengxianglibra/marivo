@@ -19,6 +19,7 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
+from marivo.analysis.materialization.attribution_publication import AttributionSourceSummary
 from marivo.analysis.materialization.contracts import LocalReceipt, RetainedPart
 from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.materialization.local import (
@@ -47,7 +48,9 @@ from marivo.analysis.materialization.worker_lifetime import (
     acquire_worker_lifetime,
     validate_worker_lifetime,
 )
+from marivo.analysis.operators.attribution_contracts import AttributeSpecV1
 from marivo.analysis.operators.contracts import CompareSpecV1
+from marivo.analysis.operators.errors import AttributionError, ComparisonError, RowValueError
 from marivo.analysis.operators.row import PartFrame, RowCall
 
 
@@ -102,6 +105,7 @@ class LocalResult:
     peak_rss: int
     worker_pid: int
     parts: tuple[LocalPartResult, ...] = ()
+    attribution_summary: AttributionSourceSummary | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -149,7 +153,7 @@ class LocalBoundary:
 class LocalStage:
     output: int
     inputs: tuple[int, ...]
-    call: RowCall | CompareSpecV1
+    call: RowCall | CompareSpecV1 | AttributeSpecV1
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -276,8 +280,13 @@ def _collect_input(
 
 def _execute_graph(
     connection: Connection, request: LocalGraphRequest, budget: LocalBudget
-) -> tuple[_Frames, tuple[tuple[int, int], ...], int, DatasetRowContract]:
+) -> tuple[
+    _Frames, tuple[tuple[int, int], ...], int, DatasetRowContract, AttributionSourceSummary | None
+]:
+    from marivo.analysis.operators.attribute_values import execute_attribute
     from marivo.analysis.operators.compare import execute_compare
+    from marivo.analysis.operators.delta_state import execute_compare_parts, validate_delta_parts
+    from marivo.analysis.operators.rollup import validate_parts
 
     values: dict[int, _Frames] = {}
     total_rows = 0
@@ -295,6 +304,7 @@ def _execute_graph(
     users[request.primary_output] = users.get(request.primary_output, 0) + 1
     handoffs: list[tuple[int, int]] = []
     output_row: DatasetRowContract | None = None
+    attribution_summary: AttributionSourceSummary | None = None
     for stage in request.stages:
         budget.check()
         if stage.output in values or any(key not in values for key in stage.inputs):
@@ -315,19 +325,37 @@ def _execute_graph(
             handoffs.extend(transfers)
             output_row = call.output_row
             del source
-        else:
+        elif isinstance(call, CompareSpecV1):
             if len(incoming) != 2:
                 fail("ordered current and baseline operands", "invalid comparison arity")
             current, baseline = incoming
             validate_frame(current.frame, call.current_row, call.current_rows)
             validate_frame(baseline.frame, call.baseline_row, call.baseline_rows)
-            count = len(current.frame) + len(baseline.frame)
+            count = (
+                len(current.frame)
+                + len(baseline.frame)
+                + sum(len(part.frame) for value in incoming for part in value.parts)
+            )
             if count > budget.policy.max_method_rows:
                 fail("bounded complete comparison problem size", "method size overflow")
             budget.allocation((current.size + baseline.size) * 6 + count * 1024)
+            from marivo.analysis.compiler.lowering import retained_part_specs
+
+            for value, row in ((current, call.current_row), (baseline, call.baseline_row)):
+                required = {part.role for part in retained_part_specs(row)}
+                if not required.issubset(part.role for part in value.parts):
+                    fail(
+                        "complete comparison side component roles",
+                        "missing side components",
+                        "transfer_guard",
+                    )
+                validate_parts(value.frame, value.parts, row)
             result = execute_compare(current.frame, baseline.frame, call)
+            parts = execute_compare_parts(
+                current.frame, baseline.frame, call, current.parts, baseline.parts, result
+            )
             budget.check()
-            result_size = frame_bytes(result)
+            result_size = frame_bytes(result) + sum(frame_bytes(part.frame) for part in parts)
             if (
                 len(result) > budget.policy.max_output_rows
                 or result_size > budget.policy.max_output_bytes
@@ -347,10 +375,59 @@ def _execute_graph(
                     )
                 fields.append(pa.field(field.name, dtype.pyarrow_dtype, field.nullable))
             schema = pa.schema(fields)
-            value = _Frames(result, (), schema)
+            value = _Frames(result, parts, schema)
             handoffs.extend((id(item.frame), id(result)) for item in incoming)
             output_row = call.output_row
             del current, baseline
+        else:
+            if len(incoming) != 1 or call.expanded_compare is not None:
+                fail("one complete retained Attribution input", "source-required axis expansion")
+            source = incoming[0]
+            validate_frame(source.frame, call.input_row, call.input_rows)
+            count = len(source.frame) + sum(len(part.frame) for part in source.parts)
+            projected_rows = len(source.frame) * (
+                len(call.axis_fields) if call.mode == "hierarchy" else 1
+            )
+            if (
+                count > budget.policy.max_method_rows
+                or projected_rows > budget.policy.max_output_rows
+            ):
+                fail(
+                    "bounded complete Attribution partitions and resolutions",
+                    "method size overflow",
+                )
+            budget.allocation(source.size * 8 + projected_rows * 2048)
+            validate_delta_parts(source.frame, source.parts, call.input_row)
+            result = execute_attribute(source.frame, call, parts=source.parts)
+            budget.check()
+            result_size = frame_bytes(result)
+            if (
+                len(result) > budget.policy.max_output_rows
+                or result_size > budget.policy.max_output_bytes
+            ):
+                fail("complete Attribution output within budgets", "local output overflow")
+            budget.allocation(result_size)
+            validate_frame(result, call.output_row, call.output_rows)
+            from marivo.analysis.materialization.attribution_publication import (
+                summarize_attribution_frame,
+            )
+
+            attribution_summary = summarize_attribution_frame(result, call.output_row)
+            budget.live_bytes += result_size
+            fields = []
+            for field in call.output_row.schema.columns:
+                dtype = result[field.name].dtype
+                if not isinstance(dtype, pd.ArrowDtype):
+                    fail(
+                        "exact Arrow Attribution result types",
+                        "untyped Attribution output",
+                        "output_validation",
+                    )
+                fields.append(pa.field(field.name, dtype.pyarrow_dtype, field.nullable))
+            value = _Frames(result, (), pa.schema(fields))
+            handoffs.append((id(source.frame), id(result)))
+            output_row = call.output_row
+            del source
         values[stage.output] = value
         for key in stage.inputs:
             users[key] -= 1
@@ -359,7 +436,13 @@ def _execute_graph(
         del incoming
     if output_row is None or request.primary_output not in values:
         fail("one complete local graph result", "missing graph output")
-    return values[request.primary_output], tuple(handoffs), total_rows, output_row
+    return (
+        values[request.primary_output],
+        tuple(handoffs),
+        total_rows,
+        output_row,
+        attribution_summary,
+    )
 
 
 def worker_entry() -> None:
@@ -377,8 +460,11 @@ def worker_entry() -> None:
         policy = request.policy
         policy.__post_init__()
         budget = LocalBudget(policy, request.deadline)
+        attribution_summary: AttributionSourceSummary | None = None
         if isinstance(request, LocalGraphRequest):
-            completed, handoffs, count, output_row = _execute_graph(connection, request, budget)
+            completed, handoffs, count, output_row, attribution_summary = _execute_graph(
+                connection, request, budget
+            )
             frame, output_parts, schema = completed.frame, completed.parts, completed.schema
         else:
             if not request.calls:
@@ -445,6 +531,7 @@ def worker_entry() -> None:
                 peak,
                 os.getpid(),
                 tuple(completed_parts),
+                attribution_summary,
             )
         )
     except Exception as error:
@@ -460,6 +547,14 @@ def worker_entry() -> None:
                 error.expected or "valid retained Metric state",
                 error.received or "invalid retained fold",
                 "Inspect the exact retained state; author a fresh observation at the target coordinates when the fold is unsupported.",
+                "output_validation",
+            )
+        elif isinstance(error, (AttributionError, ComparisonError, RowValueError)):
+            failure = LocalFailure(
+                error.expected or "complete registered retained inputs",
+                error.received or "invalid retained values",
+                error.hint
+                or "Inspect the selected method and complete retained component contracts.",
                 "output_validation",
             )
         else:

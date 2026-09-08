@@ -106,6 +106,10 @@ if TYPE_CHECKING:
         BoundSourceParametersV1,
         SourceBindingScopes,
     )
+    from marivo.analysis.operators.attribution import (
+        LogicalAttributionDataset,
+        MaterializedAttributionDataset,
+    )
     from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 
 EntityInput: TypeAlias = Ref[EntityKind] | EntityEntry
@@ -148,6 +152,10 @@ class ObservationProducerContract:
     def retained_contract_ids(self) -> tuple[str, ...]:
         if self.producer_id == "population.sample":
             return ("population_sampling_state",)
+        if self.contract_stem.startswith("attribution"):
+            return ("attribution.reconciliation",)
+        if self.producer_id == "metric.compare" or self.producer_id.startswith("delta."):
+            return ("delta.sufficient_components",)
         return (
             ("metric.sufficient_components",)
             if self.producer_id != "metric.compare"
@@ -157,6 +165,18 @@ class ObservationProducerContract:
 
     @property
     def versions(self) -> tuple[tuple[str, str], ...]:
+        if self.contract_stem.startswith("attribution"):
+            producing = self.producer_id in ("delta.attribute", "delta.attribute_expanded")
+            return (
+                (self.producer_id, "v1"),
+                ("dataset_structure_quality", "v1"),
+                (self.quality_id, "v1"),
+                (self.validation_id, "v1"),
+                (self.evidence_id, "v1"),
+                ("contribution_finding" if producing else "none", "v1"),
+                ("contribution_findings" if producing else "zero_findings", "v1"),
+                ("attribution.reconciliation", "v1"),
+            )
         comparison = self.producer_id == "metric.compare" or self.producer_id.startswith("delta.")
         return (
             (self.producer_id, "v1"),
@@ -167,7 +187,7 @@ class ObservationProducerContract:
             ("delta_finding" if comparison else "none", "v1"),
             ("delta_findings" if comparison else "zero_findings", "v1"),
             (
-                "none"
+                "delta.sufficient_components"
                 if comparison
                 else "metric.sufficient_components"
                 if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
@@ -187,6 +207,7 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("metric.where", "metric_filter"),
     ObservationProducerContract("metric.metric", "metric_projection"),
     ObservationProducerContract("metric.with_dimensions", "metric_coordinate"),
+    ObservationProducerContract("metric.expand_axes", "metric_coordinate"),
     ObservationProducerContract("metric.with_time_axis", "metric_coordinate"),
     ObservationProducerContract("metric.aggregate", "metric_aggregation"),
     ObservationProducerContract("metric.rollup", "metric_rollup"),
@@ -196,6 +217,11 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("delta.where", "delta_filter"),
     ObservationProducerContract("delta.rank", "delta_rank"),
     ObservationProducerContract("delta.limit", "delta_limit"),
+    ObservationProducerContract("delta.attribute", "attribution"),
+    ObservationProducerContract("delta.attribute_expanded", "attribution"),
+    ObservationProducerContract("attribution.where", "attribution_filter"),
+    ObservationProducerContract("attribution.rank", "attribution_rank"),
+    ObservationProducerContract("attribution.limit", "attribution_limit"),
 )
 
 
@@ -214,6 +240,9 @@ class ObservationActionPort(Protocol):
     ) -> MaterializedPopulationDataset: ...
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset: ...
     def execute_delta(self, dataset: LogicalDeltaDataset) -> MaterializedDeltaDataset: ...
+    def execute_attribution(
+        self, dataset: LogicalAttributionDataset
+    ) -> MaterializedAttributionDataset: ...
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None) -> None: ...
     def to_pandas(self, dataset: MaterializedDataset) -> pandas.DataFrame: ...
     def evidence_digest(self, dataset: MaterializedDataset) -> ArtifactDigest: ...
@@ -689,6 +718,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
     types = frozenset(
         {
             "identity_tuple",
+            "bool_tuple",
             "boolean",
             "bool",
             "integer",
@@ -706,10 +736,12 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         }
     )
     return _StableIdRegistry(
-        families=frozenset({"population", "metric", "delta"}),
+        families=frozenset({"population", "metric", "delta", "attribution"}),
         shapes=frozenset(
             {
                 ("population", "entity-membership", 1),
+                ("attribution", "joint", 1),
+                ("attribution", "hierarchy", 1),
                 *(("metric", shape, 1) for shape in METRIC_SHAPES),
                 *(
                     ("delta", shape, 1)
@@ -728,6 +760,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "comparison_time",
                 "comparison_value",
                 "effect_value",
+                "attribution_partition_identity",
                 "status",
             }
         ),
@@ -1334,6 +1367,14 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     consumers = (
         *consumers,
         ConsumerRegistration(
+            "metric.expand_axes",
+            ("input",),
+            "metric",
+            shapes,
+            ("metric_source_validation@v1",),
+            discoverable=False,
+        ),
+        ConsumerRegistration(
             "metric.compare",
             ("current", "baseline"),
             "delta",
@@ -1363,9 +1404,11 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             contract_facts=_contract_facts,
         )
     )
+    from marivo.analysis.operators.attribute import register_attribution
     from marivo.analysis.operators.compare import register_delta
 
     register_delta(registry, ids)
+    register_attribution(registry, ids)
     registry.freeze()
     return registry
 
@@ -1378,6 +1421,7 @@ def semantic_dependency_digest(
     """Hash the complete frozen semantic closure without inspecting live authoring state."""
     from marivo.analysis.datasets.descriptors import _field_binding_fingerprint
     from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+    from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.contracts import ComparePayload
 
     facts: set[str] = set()
@@ -1433,6 +1477,8 @@ def semantic_dependency_digest(
             )
         elif isinstance(payload, ComparePayload):
             semantic_facts = ("metric_compare",)
+        elif isinstance(payload, AttributePayload):
+            semantic_facts = ("metric_attribute", payload.spec.identity_payload())
         elif isinstance(payload, RetainedFoldPayload):
             semantic_facts = ("retained_fold", payload.spec.identity_payload())
         elif isinstance(payload, RetainedRowsPayload):

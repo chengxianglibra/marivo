@@ -50,8 +50,27 @@ class ConsumerRegistration:
     output_family: str
     accepted_shape_ids: tuple[DatasetShapeId, ...]
     requirements: tuple[str, ...] = ()
+    discoverable: bool = True
+    operand_shape_ids: tuple[tuple[DatasetShapeId, ...], ...] = ()
 
     def __post_init__(self) -> None:
+        if type(self.discoverable) is not bool:
+            raise _registration_error("exact consumer disclosure flag", "invalid disclosure flag")
+        _immutable_sequence(self.operand_shape_ids)
+        if self.operand_shape_ids:
+            for shapes in self.operand_shape_ids:
+                _immutable_sequence(shapes)
+                if not shapes or len(set(shapes)) != len(shapes):
+                    raise _registration_error(
+                        "nonempty unique shapes for each role", "invalid role shapes"
+                    )
+            if (
+                len(self.operand_shape_ids) != len(self.input_roles)
+                or self.operand_shape_ids[0] != self.accepted_shape_ids
+            ):
+                raise _registration_error(
+                    "exact receiver and ordered operand shapes", "inconsistent role shapes"
+                )
         for sequence in (self.input_roles, self.accepted_shape_ids, self.requirements):
             _immutable_sequence(sequence)
         for value in (self.id, self.output_family, *self.input_roles, *self.requirements):
@@ -193,6 +212,8 @@ class DatasetFamilyRegistration:
                 raise _registration_error(
                     "consumer shapes belonging to the registered family", "foreign consumer shape"
                 )
+            if not consumer.discoverable:
+                continue
             method_name = consumer.id.rsplit(".", 1)[-1]
             if not callable(getattr(self.logical_type, method_name, None)) or not callable(
                 getattr(self.materialized_type, method_name, None)
@@ -276,6 +297,12 @@ class DatasetFamilyRegistry:
         for registration in self.registrations:
             for consumer in registration.consumers:
                 self.get(consumer.output_family)
+                for shapes in consumer.operand_shape_ids:
+                    for shape in shapes:
+                        if shape not in self.get(shape.family_id).shape_ids:
+                            raise _registration_error(
+                                "registered exact operand shapes", "unregistered role shape"
+                            )
         self._frozen = True
 
     def require_frozen(self) -> None:
@@ -291,7 +318,9 @@ class DatasetFamilyRegistry:
                 location="dataset.registry",
             )
 
-    def consumers_for(self, dataset: Dataset) -> tuple[ConsumerRegistration, ...]:
+    def consumers_for(
+        self, dataset: Dataset, *, include_internal: bool = False
+    ) -> tuple[ConsumerRegistration, ...]:
         registration = self.get(dataset.kind)
         return tuple(
             sorted(
@@ -300,13 +329,14 @@ class DatasetFamilyRegistry:
                     for item in registration.consumers
                     if dataset.row_contract.shape_id in item.accepted_shape_ids
                     and registration.admits(dataset, item.id)
+                    and (include_internal or item.discoverable)
                 ),
                 key=lambda item: item.id,
             )
         )
 
     def consumer(self, dataset: Dataset, consumer_id: str) -> ConsumerRegistration:
-        for consumer in self.consumers_for(dataset):
+        for consumer in self.consumers_for(dataset, include_internal=True):
             if consumer.id == consumer_id:
                 return consumer
         raise _registration_error(

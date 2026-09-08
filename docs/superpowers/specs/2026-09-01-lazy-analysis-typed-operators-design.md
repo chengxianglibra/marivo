@@ -1329,6 +1329,13 @@ contribution_i = side_term_i,current - side_term_i,baseline
 This is one component-mix decomposition; no alternate value/mix split changes
 the persisted contribution.
 
+For `component_mix@v1`, the public `current_value` and `baseline_value` are
+the corresponding allocated `side_term_i,s`, not the unallocated partition
+ratio. Their difference is the published contribution. Structurally absent
+zero components therefore have a zero side value. An undefined overall Metric
+endpoint, including a null overall zero-over-zero ratio, fails the action;
+it cannot be promoted into a defined zero Delta or a `zero_total_delta` row.
+
 `distinct_membership@v1` deduplicates `(key, partition)` separately on each
 side. For each distinct key on one side, `membership_degree` is the number of
 partitions containing it and each membership receives `1 / membership_degree`.
@@ -1482,6 +1489,14 @@ Positive- and negative-pool shares are non-negative within their same-sign
 pools. Marivo does not label a sign as improvement or degradation. A zero total
 delta yields a null `share_of_total_delta` with status
 `zero_total_delta`; contribution and pool shares remain available.
+
+Within each exact comparison scope and resolution, `contribution_rank` is a
+positive ordinal rank ordered by descending absolute contribution, with the
+canonical typed row-key order breaking ties. For contribution `c`, the positive
+pool share is `max(c, 0) / sum(max(c_j, 0))`; the negative pool share is
+`max(-c, 0) / sum(max(-c_j, 0))`. A nonempty pool assigns zero to opposite-sign
+and zero contributions. An empty pool produces null with its existing typed
+`empty_positive_pool` or `empty_negative_pool` Finding reason.
 
 Every complete resolution must reconcile its contribution sum to the exact
 input overall delta within the registered numeric tolerance. A reconciliation

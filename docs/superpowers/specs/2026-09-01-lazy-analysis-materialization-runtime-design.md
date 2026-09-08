@@ -584,6 +584,30 @@ coordinates into Evidence. The existing Artifact/Evidence/Finding/terminal
 transaction remains the only publication boundary. No legacy descriptor
 decoder, migration or public generation switch is introduced.
 
+Slice 5b extends the same private path with Delta's exact side-specific
+component parts and Attribution's closed reconciliation Evidence. Each Delta
+part is keyed by the current Delta rows and binds its side's fold/partition
+contract and structural presence. Row selections select matching parts; they
+cannot restore original contributions. Observation windows and sampling
+parameters remain input/Artifact authority rather than Delta row semantics.
+The interpretation-relevant exact/sampled class is retained in row meaning.
+
+Attribution computes independent endpoints through the admitted fold/finalize
+closure over complete selected pre-mapping state. It checks mapped component
+totals and the resulting contributions against those endpoints; summing the
+new contributions is never how it obtains the overall Delta. Logical axis
+expansion additionally reproduces the original selected Delta endpoints.
+The retained path needs neither an origin graph nor endpoint snapshots for
+every possible future subset of axes.
+
+Attribution's complete reconciliation proof is bounded descriptor metadata,
+not another physical part or publication mechanism. Result-only `where`,
+`rank`, and `limit` preserve that original proof and lineage without claiming
+their selected rows form a complete decomposition, and produce zero new
+Findings. Entity-scoped reconciliation and identity-bearing mapping remain
+source work; only global bounded validation aggregates and digests reach
+publication. No per-Entity hashes or raw identities enter local validation.
+
 The private Slice 4d descriptor codec closes each typed issue over `kind`,
 `severity` (`warning` or `blocking`), `expected`, `received`, and `repair`.
 Severity is required to derive exact bounded issue counts. This tightens the
