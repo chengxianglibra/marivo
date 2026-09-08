@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.contracts import RunFailure
 from marivo.analysis.materialization.resources import discharge_resources
 from marivo.analysis.materialization.store import SessionStore
+from marivo.introspection.live.model import LiveHelpTarget
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.targets import S3Access
@@ -37,7 +39,11 @@ def reconcile_session(
                     safe_location="dataset.reconciliation",
                     expected="a committed output from a completed producer",
                     received="an uncommitted producer with proven terminal execution",
-                    repair="Retry the logical definition after Session recovery completes.",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action="Retry the logical definition after Session recovery completes.",
+                        help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.runs"),
+                    ),
                 ),
                 resolved_resources=resolved,
             )

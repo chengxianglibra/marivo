@@ -6,19 +6,34 @@ import hashlib
 import json
 import math
 import re
+from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast, get_args
 
 from marivo.analysis.datasets import descriptors as d
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import BoundedLineage, CanonicalValue
+from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.materialization.errors import IntegrityError
+from marivo.render import Card, RenderableResult
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_PAYLOAD_BYTES = 1_048_576
 # Bound realization metadata independently of the generic JSON byte envelope.
 _MAX_SAMPLING_REALIZATIONS = 64
+
+
+def parse_timestamp(value: str) -> datetime:
+    """Decode an exact timezone-aware persisted timestamp without raw diagnostics."""
+    result: datetime | None = None
+    with suppress(ValueError):
+        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if result is None or result.tzinfo is None or result.utcoffset() is None:
+        raise invalid("invalid selected runtime timestamp")
+    return result
 
 
 def invalid(received: str) -> IntegrityError:
@@ -466,6 +481,7 @@ def _validation_results(value: object) -> tuple[tuple[str, int], ...]:
 
 @dataclass(frozen=True, slots=True)
 class MaterializationIssue:
+    severity: Literal["warning", "blocking"]
     kind: str
     expected: str
     received: str
@@ -1011,6 +1027,7 @@ def _materialization(value: object, ids: d._StableIdRegistry) -> Materialization
 
 def issue_payload(value: MaterializationIssue) -> dict[str, object]:
     return {
+        "severity": value.severity,
         "kind": value.kind,
         "expected": value.expected,
         "received": value.received,
@@ -1119,9 +1136,12 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         )
     issues = []
     for item in _array(obj["typed_issues"]):
-        issue = _obj(item, "kind expected received repair")
+        issue = _obj(item, "severity kind expected received repair")
+        if issue["severity"] not in ("warning", "blocking"):
+            raise invalid("unsupported typed issue severity")
         issues.append(
             MaterializationIssue(
+                "warning" if issue["severity"] == "warning" else "blocking",
                 _text(issue["kind"]),
                 _text(issue["expected"]),
                 _text(issue["received"]),
@@ -1275,20 +1295,72 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     return result
 
 
-@dataclass(frozen=True, slots=True)
-class RunDatasetInput:
+JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+RunFailurePhase: TypeAlias = Literal[
+    "authority_resolution",
+    "semantic_validation",
+    "graph_validation",
+    "implementation_registration",
+    "execution_boundary",
+    "source_binding",
+    "ibis_expression_construction",
+    "storage_selection",
+    "ibis_backend_compile",
+    "stage_execution",
+    "transfer_guard",
+    "output_validation",
+    "storage_staging",
+    "storage_finalization",
+    "quality",
+    "evidence",
+    "publication",
+    "cleanup",
+    "presentation",
+    "process_lost",
+]
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class RunDatasetInput(RenderableResult):
     definition_fingerprint: str
-    shape_id: str
+    shape_id: d.DatasetShapeId
     row_contract_fingerprint: str
     row_set_contract_fingerprint: str
     bounded_operator_ids: tuple[str, ...]
     bounded_semantic_dependency_refs: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        for value in (
+            self.definition_fingerprint,
+            self.row_contract_fingerprint,
+            self.row_set_contract_fingerprint,
+        ):
+            _text(value)
+        if type(self.shape_id) is not d.DatasetShapeId:
+            raise invalid("Run shape must be an exact registered DatasetShapeId")
+        for values in (self.bounded_operator_ids, self.bounded_semantic_dependency_refs):
+            if type(values) is not tuple or len(values) > 64 or len(set(values)) != len(values):
+                raise invalid("invalid bounded Run input provenance")
+            for value in values:
+                _text(value)
+
+    def _repr_identity(self) -> str:
+        return f"RunDatasetInput shape={self.shape_id} definition={self.definition_fingerprint}"[
+            :256
+        ]
+
+    def _card(self) -> Card:
+        return (
+            Card(identity=self._repr_identity(), available=(".show()",))
+            .listing("operators", self.bounded_operator_ids)
+            .listing("semantic_dependencies", self.bounded_semantic_dependency_refs)
+        )
+
 
 def run_input_payload(value: RunDatasetInput) -> dict[str, object]:
     return {
         "definition_fingerprint": value.definition_fingerprint,
-        "shape_id": value.shape_id,
+        "shape_id": _shape_payload(value.shape_id),
         "row_contract_fingerprint": value.row_contract_fingerprint,
         "row_set_contract_fingerprint": value.row_set_contract_fingerprint,
         "bounded_operator_ids": value.bounded_operator_ids,
@@ -1297,13 +1369,19 @@ def run_input_payload(value: RunDatasetInput) -> dict[str, object]:
 
 
 def decode_run_input(text: str) -> RunDatasetInput:
+    from marivo.analysis.observation.contracts import make_ids
+
     obj = _obj(
         parse_json(text),
         "definition_fingerprint shape_id row_contract_fingerprint row_set_contract_fingerprint bounded_operator_ids bounded_semantic_dependency_refs",
     )
+    try:
+        shape = _shape(obj["shape_id"], make_ids(()))
+    except DatasetConstructionError:
+        raise invalid("unregistered persisted Run shape") from None
     result = RunDatasetInput(
         _text(obj["definition_fingerprint"]),
-        _text(obj["shape_id"]),
+        shape,
         _text(obj["row_contract_fingerprint"]),
         _text(obj["row_set_contract_fingerprint"]),
         _texts(obj["bounded_operator_ids"]),
@@ -1314,50 +1392,111 @@ def decode_run_input(text: str) -> RunDatasetInput:
     return result
 
 
-@dataclass(frozen=True, slots=True)
-class RunFailure:
-    phase: str
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class RunFailure(RenderableResult):
+    phase: RunFailurePhase
     kind: str
     safe_message: str
-    safe_location: str
-    expected: str
-    received: str
-    repair: str
-    backend_class: str | None = None
-    retry_disposition: Literal["retryable", "not_retryable"] = "retryable"
+    safe_location: str | None
+    _expected_json: str
+    _received_json: str
+    repair: AnalysisRepair | None
+    backend_class: str | None
+    retry_disposition: Literal["retryable", "not_retryable"]
+
+    def __init__(
+        self,
+        phase: RunFailurePhase,
+        kind: str,
+        safe_message: str,
+        safe_location: str | None,
+        expected: JsonValue,
+        received: JsonValue,
+        repair: AnalysisRepair | None,
+        backend_class: str | None = None,
+        retry_disposition: Literal["retryable", "not_retryable"] = "retryable",
+    ) -> None:
+        object.__setattr__(self, "phase", phase)
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "safe_message", safe_message)
+        object.__setattr__(self, "safe_location", safe_location)
+        object.__setattr__(self, "_expected_json", canonical_json(_failure_json(expected)))
+        object.__setattr__(self, "_received_json", canonical_json(_failure_json(received)))
+        object.__setattr__(self, "repair", repair)
+        object.__setattr__(self, "backend_class", backend_class)
+        object.__setattr__(self, "retry_disposition", retry_disposition)
+        self.__post_init__()
+
+    @property
+    def expected(self) -> JsonValue:
+        """Return an isolated JSON projection of the immutable expected facts."""
+        return _failure_json(parse_json(self._expected_json))
+
+    @property
+    def received(self) -> JsonValue:
+        """Return an isolated JSON projection of the immutable received facts."""
+        return _failure_json(parse_json(self._received_json))
+
+    def __post_init__(self) -> None:
+        if self.phase not in _PHASES or self.retry_disposition not in (
+            "retryable",
+            "not_retryable",
+        ):
+            raise invalid("unsupported Run failure variant")
+        if self.kind not in ("execution_failed", "process_lost") or self.backend_class is not None:
+            raise invalid("unregistered Run failure kind or backend class")
+        for value in (self.kind, self.safe_message):
+            _text(value)
+        for optional_value in (self.safe_location, self.backend_class):
+            if optional_value is not None:
+                _text(optional_value)
+        _failure_json(self.expected)
+        _failure_json(self.received)
+        if self.repair is not None and type(self.repair) is not AnalysisRepair:
+            raise invalid("Run repair must be an exact AnalysisRepair")
+        repair_payload = None if self.repair is None else self.repair.model_dump(mode="json")
+        if len(canonical_json((self.expected, self.received, repair_payload)).encode()) > 8192:
+            raise invalid("Run failure diagnostic byte bound exceeded")
+
+    def _repr_identity(self) -> str:
+        return f"RunFailure phase={self.phase} kind={self.kind}"[:256]
+
+    def _card(self) -> Card:
+        card = (
+            Card(identity=self._repr_identity(), available=(".show()",))
+            .field("message", self.safe_message)
+            .field("retry_disposition", self.retry_disposition)
+        )
+        if self.repair is not None:
+            card.field("repair", self.repair.action)
+        return card
 
 
-_PHASES = frozenset(
-    [
-        "authority_resolution",
-        "semantic_validation",
-        "graph_validation",
-        "implementation_registration",
-        "execution_boundary",
-        "source_binding",
-        "ibis_expression_construction",
-        "storage_selection",
-        "ibis_backend_compile",
-        "stage_execution",
-        "transfer_guard",
-        "output_validation",
-        "storage_staging",
-        "storage_finalization",
-        "quality",
-        "evidence",
-        "publication",
-        "cleanup",
-        "presentation",
-        "process_lost",
-    ]
-)
+_PHASES: frozenset[str] = frozenset(get_args(RunFailurePhase))
 
 
-def run_failure_phase(stage: str, owning_phase: str) -> str:
+def run_failure_phase(stage: str, owning_phase: str) -> RunFailurePhase:
     """Project a reader/action error stage onto the closed persisted Run phases."""
     if owning_phase not in _PHASES:
         raise invalid("unsupported owning Run phase")
-    return stage if stage in _PHASES else owning_phase
+    # Both alternatives have been checked against the closed phase registry.
+    return cast("RunFailurePhase", stage if stage in _PHASES else owning_phase)
+
+
+def _failure_json(value: object, *, depth: int = 0) -> JsonValue:
+    if depth > 6:
+        raise invalid("Run failure JSON depth exceeded")
+    if value is None or type(value) in (bool, int):
+        return cast("bool | int | None", value)
+    if isinstance(value, str):
+        return _text(value, empty=True)
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    if isinstance(value, list) and len(value) <= 64:
+        return [_failure_json(item, depth=depth + 1) for item in value]
+    if isinstance(value, dict) and len(value) <= 64:
+        return {_text(key): _failure_json(item, depth=depth + 1) for key, item in value.items()}
+    raise invalid("unsupported bounded Run failure JSON")
 
 
 def failure_payload(value: RunFailure) -> dict[str, object]:
@@ -1368,7 +1507,7 @@ def failure_payload(value: RunFailure) -> dict[str, object]:
         "safe_location": value.safe_location,
         "expected": value.expected,
         "received": value.received,
-        "repair": value.repair,
+        "repair": None if value.repair is None else value.repair.model_dump(mode="json"),
         "backend_class": value.backend_class,
         "retry_disposition": value.retry_disposition,
     }
@@ -1383,14 +1522,24 @@ def decode_failure(text: str) -> RunFailure:
     disposition = obj["retry_disposition"]
     if phase not in _PHASES or disposition not in ("retryable", "not_retryable"):
         raise invalid("unsupported failure variant")
+    repair = None
+    if obj["repair"] is not None:
+        repair_obj = _obj(obj["repair"], "kind action help_target snippet candidates")
+        _failure_json(repair_obj)
+        try:
+            repair = AnalysisRepair.model_validate(repair_obj)
+        except ValueError:
+            raise invalid("invalid structured Run repair") from None
+    if len(canonical_json((obj["expected"], obj["received"], obj["repair"])).encode()) > 8192:
+        raise invalid("Run failure diagnostic byte bound exceeded")
     return RunFailure(
-        phase,
+        run_failure_phase(phase, phase),
         _text(obj["kind"]),
         _text(obj["safe_message"]),
-        _text(obj["safe_location"]),
-        _text(obj["expected"]),
-        _text(obj["received"]),
-        _text(obj["repair"]),
+        None if obj["safe_location"] is None else _text(obj["safe_location"]),
+        _failure_json(obj["expected"]),
+        _failure_json(obj["received"]),
+        repair,
         None if obj["backend_class"] is None else _text(obj["backend_class"]),
         "retryable" if disposition == "retryable" else "not_retryable",
     )
@@ -1459,6 +1608,18 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         "extractor_contract_versions": versions,
     }
     return EvidenceRecord(digest(value), 0, empty, versions, quality, issues)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactMetadata:
+    """Selected Artifact and producer authority, independent of its Evidence row."""
+
+    artifact_ref: str
+    session_ref: str
+    execution_key_digest: str
+    descriptor: ArtifactDescriptor
+    committed_at: str
+    producing_run_ref: str
 
 
 @dataclass(frozen=True, slots=True)

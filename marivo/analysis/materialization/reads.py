@@ -6,6 +6,7 @@ import hashlib
 import time
 from collections.abc import Generator, Iterator
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
@@ -21,7 +22,7 @@ from marivo.analysis.materialization.contracts import (
     RetainedPart,
     StorageReceipt,
 )
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
 from marivo.analysis.materialization.storage import ReadPolicy, _integrity, _limited
 from marivo.analysis.materialization.targets import (
     S3Access,
@@ -36,6 +37,16 @@ _WORKER_CODE = (
 )
 
 
+def _object_read_access(bindings: tuple[S3Access, ...], reference: str) -> S3Access:
+    """Classify unavailable reader authority without changing target selection errors."""
+    try:
+        return object_access(bindings, reference)
+    except MaterializationError as error:
+        if type(error) is not MaterializationError or error.stage != "storage_selection":
+            raise
+    raise StorageAccessError("unauthorized")
+
+
 def _payload_batches(
     project_root: Path,
     receipt: StorageReceipt,
@@ -45,9 +56,10 @@ def _payload_batches(
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
+    audit: bool = False,
 ) -> Iterator[pa.RecordBatch]:
     """Read only this payload. Complete exhaustion includes content verification."""
-    if not preview and receipt.realized_row_count > policy.max_rows:
+    if not preview and not audit and receipt.realized_row_count > policy.max_rows:
         _limited("committed row count exceeds the collection limit")
     started = time.monotonic()
     count = decoded = 0
@@ -62,7 +74,7 @@ def _payload_batches(
                 batch = batch.slice(0, max(0, policy.preview_rows - count))
             count += batch.num_rows
             decoded += batch.nbytes
-            if (
+            if not audit and (
                 count > (policy.preview_rows if preview else policy.max_rows)
                 or decoded > policy.max_decoded_bytes
             ):
@@ -130,7 +142,7 @@ def _payload_batches(
             open_manifest,
         )
 
-        access = object_access(bindings, receipt.object_store_ref)
+        access = _object_read_access(bindings, receipt.object_store_ref)
         with client(access) as s3:
             file = open_manifest(s3, access, receipt)
             with (
@@ -151,6 +163,8 @@ def _payload_batches(
     else:
         parquet, path = storage._open_payload(project_root, receipt)
         try:
+            if audit and storage._hash_file(path) != receipt.bytes_hash:
+                raise StorageAccessError("mutated")
             yield pa.RecordBatch.from_arrays(
                 [pa.array([], type=f.type) for f in parquet.schema_arrow],
                 schema=parquet.schema_arrow,
@@ -176,8 +190,10 @@ def payload_batches(
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
+    audit: bool = False,
 ) -> Generator[pa.RecordBatch, None, None]:
     """Keep native reader diagnostics and raw locators outside error chains."""
+    failure: Literal["missing", "unauthorized", "mutated", "unknown"] = "unknown"
     try:
         yield from _payload_batches(
             project_root,
@@ -187,13 +203,20 @@ def payload_batches(
             preview=preview,
             row=row,
             rows=rows,
+            audit=audit,
         )
         return
     except MaterializationError:
         raise
+    except FileNotFoundError:
+        failure = "missing"
+    except PermissionError:
+        failure = "unauthorized"
+    except pa.ArrowException:
+        failure = "mutated"
     except Exception:
         pass
-    _integrity("accessible valid selected immutable backing", "selected payload read failed")
+    raise StorageAccessError(failure)
 
 
 def part_schema(
@@ -312,7 +335,7 @@ def read_primary(
     selected = (
         ()
         if isinstance(receipt, EngineReceipt)
-        else (object_access(bindings, receipt.object_store_ref),)
+        else (_object_read_access(bindings, receipt.object_store_ref),)
     )
     request = codec.parse_json(
         storage._read_request(project_root, receipt, row_contract, row_set_contract, policy)

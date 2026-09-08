@@ -12,9 +12,11 @@ from threading import Barrier as ThreadBarrier
 
 import pytest
 
+from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.contracts import ResourceRecord, RunDatasetInput, RunFailure
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.store import SessionStore
+from marivo.introspection.live.model import LiveHelpTarget
 from tests.lazy_materialization_fixtures import descriptor
 
 
@@ -22,7 +24,7 @@ def _input() -> RunDatasetInput:
     value = descriptor()
     return RunDatasetInput(
         value.definition_fingerprint,
-        str(value.row_contract.shape_id),
+        value.row_contract.shape_id,
         value.row_contract_fingerprint,
         value.row_set_contract_fingerprint,
         ("session.population",),
@@ -139,7 +141,20 @@ def test_lost_commit_acknowledgement_preserves_authoritative_success(tmp_path: P
     assert _counts(reopened.db_path) == (1, 1, 0, 1)
     with pytest.raises(IntegrityError, match="history cannot be rewritten"):
         reopened.fail(
-            "run", RunFailure("publication", "failed", "safe", "run", "success", "error", "recover")
+            "run",
+            RunFailure(
+                "publication",
+                "execution_failed",
+                "safe",
+                "run",
+                "success",
+                "error",
+                AnalysisRepair(
+                    kind="retry",
+                    action="recover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.runs"),
+                ),
+            ),
         )
 
 
@@ -213,12 +228,16 @@ def test_failed_retry_is_new_run_and_terminal_rows_are_not_rewritten(tmp_path: P
     store = _admitted(tmp_path)
     failure = RunFailure(
         "stage_execution",
-        "source_failure",
+        "execution_failed",
         "safe failure",
         "run",
         "rows",
         "source stopped",
-        "retry",
+        AnalysisRepair(
+            kind="retry",
+            action="Retry the action.",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.runs"),
+        ),
     )
     store.fail("run", failure)
     failed = store.run("run")

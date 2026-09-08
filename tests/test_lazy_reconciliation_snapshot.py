@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization import reconciliation
 from marivo.analysis.materialization.contracts import (
     ResourceRecord,
@@ -25,6 +26,7 @@ from marivo.analysis.materialization.resources import (
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.targets import S3Access
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.introspection.live.model import LiveHelpTarget
 from tests.lazy_materialization_fixtures import descriptor
 
 
@@ -32,7 +34,7 @@ def _input() -> RunDatasetInput:
     value = descriptor()
     return RunDatasetInput(
         value.definition_fingerprint,
-        str(value.row_contract.shape_id),
+        value.row_contract.shape_id,
         value.row_contract_fingerprint,
         value.row_set_contract_fingerprint,
         ("session.population",),
@@ -48,7 +50,19 @@ def _store(project: Path) -> SessionStore:
 
 
 def _failure() -> RunFailure:
-    return RunFailure("publication", "failed", "safe", "run", "success", "error", "retry")
+    return RunFailure(
+        "publication",
+        "execution_failed",
+        "safe",
+        "run",
+        "success",
+        "error",
+        AnalysisRepair(
+            kind="retry",
+            action="retry",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.runs"),
+        ),
+    )
 
 
 def test_recovery_entry_uses_one_snapshot_despite_a_separate_commit(
@@ -173,7 +187,7 @@ def test_snapshot_integrity_errors_teach_recovery_without_external_cleanup(
     with sqlite3.connect(store.db_path) as connection:
         if corruption == "multiple_incomplete":
             connection.execute(
-                "INSERT INTO analysis_action_runs SELECT 'other',session_ref,?,admitted_at || '1',dataset_input_payload FROM analysis_action_runs WHERE run_ref='run'",
+                "INSERT INTO analysis_action_runs SELECT 'other',session_ref,?,strftime('%Y-%m-%dT%H:%M:%fZ',admitted_at,'+1 second'),dataset_input_payload FROM analysis_action_runs WHERE run_ref='run'",
                 ("f" * 64,),
             )
         elif corruption == "partial_output":

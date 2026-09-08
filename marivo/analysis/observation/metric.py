@@ -61,8 +61,7 @@ from marivo.semantic.validator import normalize_target_entity
 if TYPE_CHECKING:
     import pandas
 
-    from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
-    from marivo.analysis.evidence.types import ArtifactDigest
+    from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
 
 PopulationInput: TypeAlias = "LogicalPopulationDataset | MaterializedPopulationDataset | LogicalMetricDataset | MaterializedMetricDataset"
 

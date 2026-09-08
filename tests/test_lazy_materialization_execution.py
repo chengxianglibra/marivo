@@ -17,6 +17,7 @@ from marivo.analysis import grain
 from marivo.analysis.datasets.handles import MaterializedScanLeafHandle
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import (
     CollectionLimitError,
     IntegrityError,
@@ -120,7 +121,7 @@ def test_six_metrics_publish_complete_bundle_and_recompute_selected_states(tmp_p
     assert runtime.statistics.transferred_rows == 4
     assert runtime.statistics.transferred_bytes > 0
     assert materialized.findings().items == ()
-    assert materialized.evidence_digest.fingerprint == record.evidence.evidence_digest
+    assert materialized.evidence_digest.evidence_digest == record.evidence.evidence_digest
     result = materialized.to_pandas()
     assert result["entity_identity"].tolist() == [(1,), (2,), (3,), (4,)]
     assert result.loc[0, "revenue"] == 40
@@ -253,6 +254,7 @@ def test_cold_recovery_is_metadata_only_and_selected_corrupt_backing_fails(tmp_p
     assert record is not None
     original_run = runtime.store.run(record.producing_run_ref)
     receipt = record.descriptor.storage_receipt
+    assert isinstance(receipt, LocalReceipt)
     data = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
     data.rename(data.with_suffix(".unavailable"))
     database.rename(tmp_path / "warehouse.unavailable")

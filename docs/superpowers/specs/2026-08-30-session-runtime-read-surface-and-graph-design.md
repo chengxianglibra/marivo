@@ -161,6 +161,18 @@ validity. It never compares a current semantic catalog or origin source state,
 emits a freshness/reuse verdict, or repairs data. Issues name safe part/Finding
 identities where relevant. Normal reads validate only their actual dependencies.
 
+For simultaneous storage problems the summary priority is `mutated`, `missing`,
+`unauthorized`, then `unknown`, retaining every problem in `issues`. Only
+successful checks of all declared storage yield `readable`.
+
+The lazy Run page is `runs(*, status=None, limit=20, cursor=None)`, ordered by
+`(admitted_at, run_id)` newest first. The old `capability_id` filter is absent:
+the only admitted action is `execute()`. Session history retains `recent` and
+`inspect`; their private v3 summaries use `run_count` and `artifact_count`.
+Finding pages follow the committed canonical `finding_ordinal` order, ascending.
+Every Finding in an Artifact shares its publication time; the old v2
+newest-first timestamp pagination does not reorder this immutable set.
+
 ### Finding records
 
 ```text
@@ -427,8 +439,18 @@ foreign Logical graphs and cross-Store objects remain invalid.
 opening backing or scanning Findings. A preview reads only primary data; a typed
 operator also validates private roles it requires. Finding reads validate selected
 records; they do not recompute the complete Finding-set digest for every page.
+Run reads validate their own admission, terminal, input identities and normalized
+output relationship. They do not decode an output Artifact's descriptor or
+Evidence unless that Artifact is separately selected by the operation. A focused
+Graph budget therefore cannot pull omitted output bodies into its dependency set.
 `revalidate(ref)` is the explicit full scan of metadata, primary data, every part,
 and all Findings. Partial reads never claim full revalidation or reuse approval.
+
+Opening existing v3 state never initializes a database, activates a Session,
+reconciles work or changes logical records and timestamps. SQLite may maintain
+WAL/SHM snapshot-coordination files in a writable existing generation. A clean
+database and directory that are both nonwritable can use immutable SQLite reads
+only when no WAL exists; any existing WAL remains part of the selected authority.
 
 The accepted amendment removes all older semantic-current/stale revalidation
 examples and mandatory compiler-audit descriptions below from the lazy contract.

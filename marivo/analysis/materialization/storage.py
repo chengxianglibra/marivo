@@ -20,7 +20,7 @@ from multiprocessing import Pipe
 from multiprocessing.connection import Connection
 from pathlib import Path
 from threading import Event, Thread
-from typing import BinaryIO, Generic, TypeAlias, TypeVar
+from typing import BinaryIO, Generic, Literal, TypeAlias, TypeVar
 
 import pandas as pd
 import pyarrow as pa
@@ -53,6 +53,7 @@ from marivo.analysis.materialization.errors import (
     CollectionLimitError,
     IntegrityError,
     MaterializationError,
+    StorageAccessError,
 )
 
 _Value: TypeAlias = (
@@ -764,6 +765,7 @@ def _open_payload(
     manifest = _checked_path(project_root, root / "manifest.json")
     data = _checked_path(project_root, root / entry.relative_path)
     parquet: pq.ParquetFile | None = None
+    failure: Literal["missing", "unauthorized", "mutated", "unknown"] = "unknown"
     try:
         expected = _manifest_bytes(receipt.file_manifest)
         if manifest.stat().st_size != len(expected) or data.stat().st_size != entry.size_bytes:
@@ -785,10 +787,16 @@ def _open_payload(
         if parquet is not None:
             parquet.close()
         _integrity("the exact retained logical and physical schema", "invalid primary schema")
-    except (OSError, pa.ArrowException):
+    except (OSError, pa.ArrowException) as error:
         if parquet is not None:
             parquet.close()
-        _integrity("accessible valid committed Parquet backing", "backing is missing or invalid")
+        if isinstance(error, FileNotFoundError):
+            failure = "missing"
+        elif isinstance(error, PermissionError):
+            failure = "unauthorized"
+        elif isinstance(error, pa.ArrowException):
+            failure = "mutated"
+    raise StorageAccessError(failure)
 
 
 def _open_primary(

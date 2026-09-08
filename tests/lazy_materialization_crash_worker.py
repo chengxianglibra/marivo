@@ -296,7 +296,7 @@ def recover(project: Path, session_ref: str, run_ref: str) -> None:
             assert frame["revenue"].sum() == 140.0
             assert len(output.getvalue().encode("utf-8")) <= 8192
             assert handle.findings().items == ()
-            assert handle.evidence_digest.fingerprint == record.evidence.evidence_digest
+            assert handle.evidence_digest.evidence_digest == record.evidence.evidence_digest
             result["committed_artifact"] = record_evidence(record)
             result["show"] = output.getvalue()
             result["rows"] = [

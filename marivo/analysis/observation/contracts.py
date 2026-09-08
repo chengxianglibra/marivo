@@ -96,8 +96,7 @@ from marivo.semantic.validator import Registry
 if TYPE_CHECKING:
     import pandas
 
-    from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
-    from marivo.analysis.evidence.types import ArtifactDigest
+    from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
     from marivo.analysis.observation.population import (
         LogicalPopulationDataset,

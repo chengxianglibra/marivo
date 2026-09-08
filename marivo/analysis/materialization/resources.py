@@ -180,7 +180,10 @@ def discharge_resources(
             resolved.append(resource)
             continue
         if resource.cleanup_capability_id == "s3_versioned_key@v1":
-            from marivo.analysis.materialization.errors import MaterializationError
+            from marivo.analysis.materialization.errors import (
+                MaterializationError,
+                StorageAccessError,
+            )
             from marivo.analysis.materialization.object_storage import cleanup_object
             from marivo.analysis.materialization.targets import object_access
 
@@ -189,6 +192,9 @@ def discharge_resources(
                     store, resource, object_access(object_bindings, resource.execution_domain_id)
                 ):
                     resolved.append(resource)
+            except StorageAccessError:
+                # Unavailable access does not revive proven-terminal object work.
+                pass
             except IntegrityError:
                 raise
             except MaterializationError:

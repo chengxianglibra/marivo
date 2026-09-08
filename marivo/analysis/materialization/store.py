@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 import sqlite3
 import time
@@ -15,7 +16,9 @@ from typing import Literal
 from marivo._compat import UTC
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
+    ArtifactMetadata,
     ArtifactRecord,
+    EvidenceRecord,
     ResourceRecord,
     RunDatasetInput,
     RunFailure,
@@ -29,6 +32,7 @@ from marivo.analysis.materialization.contracts import (
     evidence_for,
     failure_payload,
     invalid,
+    parse_timestamp,
     run_input_payload,
 )
 from marivo.analysis.materialization.errors import IntegrityError
@@ -223,6 +227,20 @@ class SessionStore:
         self.layout = MaterializationLayout(Path(project_root))
         self._initialize()
 
+    @classmethod
+    def open_existing(cls, project_root: str | Path) -> SessionStore:
+        """Open only an existing complete v3 authority without initializing state."""
+        result = cls.__new__(cls)
+        result.layout = MaterializationLayout(Path(project_root))
+        unavailable = False
+        try:
+            result._initialize(existing_only=True)
+        except (sqlite3.Error, OSError):
+            unavailable = True
+        if unavailable:
+            raise invalid("selected v3 Store is unavailable")
+        return result
+
     @property
     def project_root(self) -> Path:
         return self.layout.project_root
@@ -237,8 +255,19 @@ class SessionStore:
 
         return "store_" + digest(str(self.db_path))
 
+    def _readonly_uri(self) -> tuple[str, bool]:
+        """Use immutable SQLite only for a nonwritable, WAL-absent database."""
+        immutable = (
+            not os.access(self.db_path, os.W_OK)
+            and not os.access(self.db_path.parent, os.W_OK)
+            and not os.path.lexists(str(self.db_path) + "-wal")
+        )
+        return self.db_path.as_uri() + (
+            "?mode=ro&immutable=1" if immutable else "?mode=ro"
+        ), immutable
+
     def _connection(self, *, readonly: bool = False) -> sqlite3.Connection:
-        uri = self.db_path.as_uri() + ("?mode=ro" if readonly else "?mode=rw")
+        uri = self._readonly_uri()[0] if readonly else self.db_path.as_uri() + "?mode=rw"
         conn = sqlite3.connect(uri, uri=True, timeout=5, isolation_level=None)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
@@ -251,9 +280,10 @@ class SessionStore:
             raise invalid("unsupported Store generation")
         return conn
 
-    def _initialize(self) -> None:
+    def _initialize(self, *, existing_only: bool = False) -> None:
         if self.db_path.exists():
-            read = sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True)
+            uri, immutable = self._readonly_uri()
+            read = sqlite3.connect(uri, uri=True)
             try:
                 read.execute("PRAGMA foreign_keys=ON")
                 read.execute("BEGIN")
@@ -261,7 +291,7 @@ class SessionStore:
                 tables = read.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
-                if version not in (0, 3) or (version == 0 and tables):
+                if version not in (0, 3) or (version == 0 and (tables or existing_only)):
                     raise invalid("unsupported Store generation")
                 if version == 3:
                     expected = {
@@ -280,13 +310,23 @@ class SessionStore:
                     strict = read.execute("PRAGMA table_list").fetchall()
                     if any(row[5] != 1 for row in strict if row[1] in expected):
                         raise invalid("non-STRICT v3 relation")
-                    journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
-                    if journal != "wal":
-                        raise invalid("v3 Store requires WAL durability")
+                    if immutable:
+                        # Immutable SQLite reports its local journal mode as delete.
+                        # The durable header remains the authority for a clean WAL Store.
+                        with self.db_path.open("rb") as source:
+                            wal_header = source.read(20)[18:20]
+                        if wal_header != b"\x02\x02":
+                            raise invalid("v3 Store requires WAL durability")
+                    else:
+                        journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
+                        if journal != "wal":
+                            raise invalid("v3 Store requires WAL durability")
             finally:
                 read.close()
             if version == 3:
                 return
+        if existing_only:
+            raise invalid("selected v3 Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=5, isolation_level=None)
         try:
@@ -342,6 +382,8 @@ class SessionStore:
 
     @staticmethod
     def _session(row: sqlite3.Row) -> SessionRecord:
+        if parse_timestamp(_text(row, "updated_at")) < parse_timestamp(_text(row, "created_at")):
+            raise invalid("Session update predates creation")
         resolution = _text(row, "report_timezone_resolution")
         if resolution not in ("iana", "fixed_offset"):
             raise invalid("unknown timezone resolution")
@@ -457,6 +499,7 @@ class SessionStore:
             decode_run_input(_text(row, "dataset_input_payload")),
             inputs,
         )
+        admitted_at = parse_timestamp(arguments[3])
         if terminal is None:
             return RunRecord(*arguments, lifecycle="incomplete")
         if _text(terminal, "session_ref") != session_ref:
@@ -465,6 +508,8 @@ class SessionStore:
         output = _optional(terminal, "output_artifact_ref")
         failure = _optional(terminal, "failure_payload")
         terminal_at = _text(terminal, "terminal_at")
+        if parse_timestamp(terminal_at) < admitted_at:
+            raise invalid("Run terminal predates admission")
         if outcome == "succeeded" and output is not None and failure is None:
             return RunRecord(
                 *arguments,
@@ -579,6 +624,24 @@ class SessionStore:
             return self._resources(conn, session_ref)
 
     @staticmethod
+    def _run_resources(conn: sqlite3.Connection, run_ref: str) -> tuple[ResourceRecord, ...]:
+        return tuple(
+            ResourceRecord(
+                _text(row, "run_ref"),
+                _text(row, "resource_kind"),
+                _text(row, "execution_domain_id"),
+                _text(row, "ownership_nonce"),
+                _text(row, "cleanup_capability_id"),
+                _text(row, "safe_locator"),
+            )
+            for row in _rows(
+                conn,
+                "SELECT * FROM action_resource_journal WHERE run_ref=? ORDER BY resource_kind,execution_domain_id,safe_locator",
+                (run_ref,),
+            )
+        )
+
+    @staticmethod
     def _resources(conn: sqlite3.Connection, session_ref: str) -> tuple[ResourceRecord, ...]:
         rows = _rows(
             conn,
@@ -674,9 +737,9 @@ class SessionStore:
                             owns_resource(receipt, item) for item in owned for receipt in receipts
                         ):
                             raise IntegrityError(
-                                expected="output ownership transferred in the publication transaction",
-                                received="committed output remains reserved for cleanup",
-                                repair="Preserve the committed output; inspect and repair its conflicting resource journal ownership before retrying Session recovery.",
+                                expected="Session recovery with output ownership transferred in the publication transaction",
+                                received="committed output remains a cleanup obligation",
+                                repair="Preserve the committed outputs; inspect and repair their conflicting resource journal ownership before retrying Session recovery.",
                                 stage="reconciliation",
                                 run_ref=run_ref,
                             )
@@ -729,7 +792,9 @@ class SessionStore:
             self._delete_resources(conn, run_ref, resolved_resources)
         _forget_termination(resolved_resources)
 
-    def _artifact(self, conn: sqlite3.Connection, artifact_ref: str) -> ArtifactRecord | None:
+    def _artifact_metadata(
+        self, conn: sqlite3.Connection, artifact_ref: str
+    ) -> ArtifactMetadata | None:
         row = _one(conn, "SELECT * FROM dataset_artifacts WHERE artifact_ref=?", (artifact_ref,))
         if row is None:
             return None
@@ -752,35 +817,17 @@ class SessionStore:
         ):
             raise invalid("Artifact producer identity mismatch")
         definition = producer.dataset_input
+        if producer.terminal_at is None or parse_timestamp(
+            _text(row, "committed_at")
+        ) != parse_timestamp(producer.terminal_at):
+            raise invalid("Artifact publication time disagrees with its producer terminal")
         if (
             definition.definition_fingerprint != descriptor.definition_fingerprint
             or definition.row_contract_fingerprint != descriptor.row_contract_fingerprint
             or definition.row_set_contract_fingerprint != descriptor.row_set_contract_fingerprint
-            or definition.shape_id != str(descriptor.row_contract.shape_id)
+            or definition.shape_id != descriptor.row_contract.shape_id
         ):
             raise invalid("Artifact contracts disagree with admission")
-        evidence_row = _one(
-            conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (artifact_ref,)
-        )
-        evidence = evidence_for(descriptor)
-        if (
-            evidence_row is None
-            or _text(evidence_row, "evidence_digest") != evidence.evidence_digest
-            or _cell(evidence_row, "finding_count") != 0
-            or _text(evidence_row, "finding_set_digest") != evidence.finding_set_digest
-            or _text(evidence_row, "extractor_contract_versions_payload")
-            != canonical_json(evidence.extractor_contract_versions)
-        ):
-            raise invalid("incomplete or inconsistent Evidence summary")
-        if (
-            _one(
-                conn,
-                "SELECT finding_ref FROM findings WHERE artifact_ref=? LIMIT 1",
-                (artifact_ref,),
-            )
-            is not None
-        ):
-            raise invalid("zero-Finding envelope has Finding rows")
         prefix = (
             self.layout.artifact_dir(session_ref, artifact_ref)
             .relative_to(self.project_root)
@@ -794,34 +841,44 @@ class SessionStore:
             validate_receipt_owner(
                 receipt, prefix, object_artifact_prefix(session_ref, artifact_ref)
             )
-        obligations = _rows(
-            conn,
-            "SELECT * FROM action_resource_journal WHERE run_ref=?",
-            (producer.run_ref,),
-        )
-        for obligation in obligations:
-            resource = ResourceRecord(
-                *(
-                    _text(obligation, name)
-                    for name in (
-                        "run_ref",
-                        "resource_kind",
-                        "execution_domain_id",
-                        "ownership_nonce",
-                        "cleanup_capability_id",
-                        "safe_locator",
-                    )
-                )
-            )
-            if any(owns_resource(receipt, resource) for receipt in receipts):
-                raise invalid("committed output remains a cleanup obligation")
-        return ArtifactRecord(
+        return ArtifactMetadata(
             artifact_ref,
             session_ref,
             execution_key,
             descriptor,
             _text(row, "committed_at"),
             producer.run_ref,
+        )
+
+    @staticmethod
+    def _artifact_evidence(conn: sqlite3.Connection, metadata: ArtifactMetadata) -> EvidenceRecord:
+        evidence_row = _one(
+            conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (metadata.artifact_ref,)
+        )
+        evidence = evidence_for(metadata.descriptor)
+        if (
+            evidence_row is None
+            or _text(evidence_row, "evidence_digest") != evidence.evidence_digest
+            or _cell(evidence_row, "finding_count") != evidence.finding_count
+            or _text(evidence_row, "finding_set_digest") != evidence.finding_set_digest
+            or _text(evidence_row, "extractor_contract_versions_payload")
+            != canonical_json(evidence.extractor_contract_versions)
+        ):
+            raise invalid("incomplete or inconsistent Evidence summary")
+        return evidence
+
+    def _artifact(self, conn: sqlite3.Connection, artifact_ref: str) -> ArtifactRecord | None:
+        metadata = self._artifact_metadata(conn, artifact_ref)
+        if metadata is None:
+            return None
+        evidence = self._artifact_evidence(conn, metadata)
+        return ArtifactRecord(
+            metadata.artifact_ref,
+            metadata.session_ref,
+            metadata.execution_key_digest,
+            metadata.descriptor,
+            metadata.committed_at,
+            metadata.producing_run_ref,
             evidence,
         )
 
@@ -884,6 +941,16 @@ class SessionStore:
             result = self._artifact(conn, artifact_ref)
             if result is None:
                 raise invalid("newly published Artifact is absent")
+            receipts = (
+                result.descriptor.storage_receipt,
+                *(part.storage_receipt for part in result.descriptor.retained_parts),
+            )
+            if any(
+                owns_resource(receipt, resource)
+                for resource in self._run_resources(conn, run_ref)
+                for receipt in receipts
+            ):
+                raise invalid("committed output remains a cleanup obligation")
             if event is not None:
                 event("before_commit")
         _forget_termination(resolved_resources)

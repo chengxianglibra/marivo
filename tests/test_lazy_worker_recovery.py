@@ -42,7 +42,7 @@ def _admitted(project: Path) -> SessionStore:
         "e" * 64,
         RunDatasetInput(
             value.definition_fingerprint,
-            str(value.row_contract.shape_id),
+            value.row_contract.shape_id,
             value.row_contract_fingerprint,
             value.row_set_contract_fingerprint,
             ("session.population",),

@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
@@ -18,7 +18,7 @@ from marivo.analysis.materialization.contracts import (
     ResourceRecord,
     RetainedPart,
 )
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import StorageAccessError
 from marivo.analysis.materialization.object_termination import OBJECT_REQUEST_CAPABILITY
 from marivo.analysis.materialization.ownership import object_artifact_prefix
 from marivo.analysis.materialization.resources import prove_local_termination
@@ -40,16 +40,26 @@ _T = TypeVar("_T")
 
 def _call(action: Callable[[], _T]) -> _T:
     """Drop SDK errors and their raw request/credential-bearing exception chains."""
+    from botocore.exceptions import ClientError
+
+    status: Literal["unauthorized", "missing", "unknown"] = "unknown"
     try:
         return action()
+    except ClientError as error:
+        code = error.response.get("Error", {}).get("Code")
+        http = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in (
+            "AccessDenied",
+            "InvalidAccessKeyId",
+            "SignatureDoesNotMatch",
+            "ExpiredToken",
+        ) or http in (401, 403):
+            status = "unauthorized"
+        elif code in ("NoSuchKey", "NoSuchVersion", "NoSuchBucket", "NotFound") or http == 404:
+            status = "missing"
     except Exception:
         pass
-    raise MaterializationError(
-        expected="successful access to the exact configured object version",
-        received="object request failed",
-        repair="Restore the configured object's access or exact version, then retry.",
-        stage="storage_access",
-    )
+    raise StorageAccessError(status)
 
 
 @contextmanager
@@ -82,10 +92,21 @@ def client(access: S3Access) -> Iterator[S3Client]:
 
 
 def validate_target(access: S3Access) -> None:
-    with client(access) as s3:
-        versioning = _call(lambda: s3.get_bucket_versioning(Bucket=access.bucket))
-        if versioning.get("Status") != "Enabled":
-            selection_error("an enabled versioned object bucket", "object versioning unavailable")
+    failure: Literal["unauthorized", "missing", "mutated", "unknown"] | None = None
+    try:
+        with client(access) as s3:
+            versioning = _call(lambda: s3.get_bucket_versioning(Bucket=access.bucket))
+            if versioning.get("Status") != "Enabled":
+                selection_error(
+                    "an enabled versioned object bucket", "object versioning unavailable"
+                )
+    except StorageAccessError as error:
+        failure = error.storage_status
+    if failure is not None:
+        selection_error(
+            "authorized access to the configured object storage target",
+            f"object target access is {failure}",
+        )
 
 
 def object_locator(reference: str, key: str) -> str:
