@@ -22,6 +22,7 @@ from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from marivo.semantic.ir import CumulativeComposition
 from tests.lazy_execution_fixtures import (
+    assert_compiled_validations,
     execution_fixture,
     make_execution_registry,
     seed_execution_database,
@@ -111,8 +112,7 @@ def test_retained_filter_aggregate_joins_exact_component_parts(tmp_path: Path) -
         data.select(source.primary_columns),
         parts=parts,
     )
-    for check in compiled.validations:
-        assert check.expression.to_pyarrow()["violations"][0].as_py() == 0, check.name
+    assert_compiled_validations(compiled.validations)
     row = compiled.expression.to_pyarrow().to_pylist()[0]
     assert row["revenue"] == 140
     assert row["mean_amount"] == pytest.approx(140 / 3)

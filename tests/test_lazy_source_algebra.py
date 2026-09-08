@@ -33,7 +33,11 @@ from marivo.semantic.ir import (
     TimeFoldIR,
 )
 from marivo.semantic.validator import Registry
-from tests.lazy_execution_fixtures import ExecutionFixture, execution_fixture
+from tests.lazy_execution_fixtures import (
+    ExecutionFixture,
+    assert_compiled_validations,
+    execution_fixture,
+)
 from tests.lazy_observation_fixtures import NoIoActionPort
 
 REVENUE = ref.metric("sales.revenue")
@@ -107,8 +111,7 @@ def _with_fiscal_calendar(original: ExecutionFixture) -> tuple[ExecutionFixture,
 
 def _rows(fixture: ExecutionFixture, dataset: LogicalMetricDataset) -> list[dict[str, object]]:
     compiled = compile_dataset(dataset, fixture.tables(dataset))
-    for validation in compiled.validations:
-        assert validation.expression.to_pyarrow()["violations"][0].as_py() == 0, validation.name
+    assert_compiled_validations(compiled.validations)
     records = compiled.expression.select(*compiled.primary_columns).to_pyarrow().to_pylist()
     return [dict(row) for row in records]
 

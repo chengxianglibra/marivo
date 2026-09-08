@@ -160,7 +160,14 @@ Runtime suite。`runtime-test-agent` 为同一指定范围提供精简输出。
 `minioadmin` access key 和 secret key。保留验收候选版本、命令和结果，S3
 验收不能因缺少 endpoint 而跳过。
 
+For test performance investigations, measure the same suite with
+`.venv/bin/pytest -n 8 --durations=40`. Compiler oracle tests can use
+`assert_compiled_validations` from `tests/lazy_execution_fixtures.py` to check
+every named validation in one query without repeatedly compiling shared Ibis
+nodes. Keep independent budget checks parametrized so xdist can distribute them.
+
 ### 测试覆盖率
+
 ```bash
 # 生成覆盖率报告
 .venv/bin/pytest --cov=marivo --cov-report=term-missing

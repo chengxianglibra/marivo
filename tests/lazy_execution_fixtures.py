@@ -15,6 +15,7 @@ import ibis
 import ibis.expr.types as ir
 from ibis.backends.duckdb import Backend
 
+from marivo.analysis.compiler.nodes import CompiledValidation
 from marivo.analysis.compiler.normalize import required_entities
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.observation.contracts import ObservationActionPort
@@ -34,6 +35,22 @@ ORDER_VALUES = (
     (6, 3, 7.0, None, None),
 )
 LINE_VALUES = ((1, 1, 2.0), (2, 1, 3.0), (3, 2, 10.0), (4, 3, 20.0), (5, 3, 30.0))
+
+
+def assert_compiled_validations(validations: tuple[CompiledValidation, ...]) -> None:
+    """Execute all named checks together, sharing their compiled expression graph."""
+    if not validations:
+        return
+    checks = ibis.union(
+        *(
+            check.expression.mutate(validation_ordinal=ibis.literal(index))
+            for index, check in enumerate(validations)
+        )
+    ).order_by("validation_ordinal")
+    results = checks.to_pyarrow().to_pylist()
+    assert len(results) == len(validations)
+    for check, result in zip(validations, results, strict=True):
+        assert result["violations"] == 0, check.name
 
 
 def make_execution_registry(

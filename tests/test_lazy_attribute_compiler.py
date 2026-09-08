@@ -21,7 +21,7 @@ from marivo.analysis.operators.row import PartFrame
 from marivo.analysis.operators.row_values import frame_keys, row_key_names
 from marivo.refs import ref
 from tests.lazy_attribute_fixtures import CHANNEL, REGION, inputs, signed_basis_inputs
-from tests.lazy_execution_fixtures import execution_fixture
+from tests.lazy_execution_fixtures import assert_compiled_validations, execution_fixture
 
 
 def _source(
@@ -45,10 +45,7 @@ def _source(
             "complete_delta", pa.Table.from_pandas(wide, preserve_index=False)
         )
         expression, validations = lower_attribute(table, spec)
-        for validation in validations:
-            assert backend.to_pyarrow(validation.expression)["violations"][0].as_py() == 0, (
-                validation.name
-            )
+        assert_compiled_validations(validations)
         result = backend.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype)
         assert isinstance(result, pd.DataFrame)
         return result
@@ -240,8 +237,7 @@ def test_empty_inputs_require_defined_global_endpoints_but_do_not_invent_scopes(
 
 def _compiled_rows(dataset: LogicalDataset, tables: dict[str, ir.Table]) -> list[dict[str, object]]:
     compiled = compile_dataset(dataset, tables)
-    for validation in compiled.validations:
-        assert validation.expression.to_pyarrow()["violations"][0].as_py() == 0, validation.name
+    assert_compiled_validations(compiled.validations)
     table = compiled.expression.select(*compiled.primary_columns).to_pyarrow()
     return [
         {name: table[name][index].as_py() for name in table.column_names}
