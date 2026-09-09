@@ -32,13 +32,9 @@ pytestmark = pytest.mark.runtime
 
 
 def _setup(
-    root: Path, request: pytest.FixtureRequest, kind: Literal["local", "engine", "object"]
+    root: Path, request: pytest.FixtureRequest, kind: Literal["local", "engine"]
 ) -> tuple[AdapterFixture, S3Access | None]:
     access = None
-    if kind == "object":
-        value: object = request.getfixturevalue("lazy_s3_access")
-        assert isinstance(value, S3Access)
-        access = value
     if kind != "local":
         return setup_adapter(root, kind, access=access), access
     database = root / "warehouse.duckdb"
@@ -55,11 +51,11 @@ def _snapshot(store: SessionStore) -> str:
         return "\n".join(conn.iterdump())
 
 
-@pytest.mark.parametrize("kind", ["local", "engine", "object"])
+@pytest.mark.parametrize("kind", ["local", "engine"])
 def test_missing_unused_part_does_not_block_preview_but_full_inspection_reports_it(
     tmp_path: Path,
     request: pytest.FixtureRequest,
-    kind: Literal["local", "engine", "object"],
+    kind: Literal["local", "engine"],
 ) -> None:
     fixture, access = _setup(tmp_path, request, kind)
     runtime = fixture.runtime
@@ -176,11 +172,11 @@ def test_full_inspection_streams_above_the_primary_collection_row_limit(
     assert inspection.storage_authority == "readable" and not inspection.issues
 
 
-@pytest.mark.parametrize("kind", ["local", "engine", "object"])
+@pytest.mark.parametrize("kind", ["local", "engine"])
 def test_full_inspection_checks_exact_sampling_state(
     tmp_path: Path,
     request: pytest.FixtureRequest,
-    kind: Literal["local", "engine", "object"],
+    kind: Literal["local", "engine"],
 ) -> None:
     fixture, _ = _setup(tmp_path, request, kind)
     result = (
@@ -212,21 +208,6 @@ def test_inspection_keeps_all_storage_problems_and_uses_confirmed_priority(
     inspected = fixture.runtime.revalidate(result.state.artifact_ref)
     assert inspected.storage_authority == "mutated"
     assert {issue.kind for issue in inspected.issues} == {"storage_mutated", "storage_missing"}
-
-
-def test_missing_object_access_is_unauthorized_without_affecting_other_axes(
-    tmp_path: Path,
-    request: pytest.FixtureRequest,
-) -> None:
-    fixture, _ = _setup(tmp_path, request, "object")
-    result = fixture.sources.population(ref.entity("sales.customers")).execute()
-    runtime = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref)
-    inspection = runtime.revalidate(result.state.artifact_ref)
-    assert (
-        inspection.artifact_integrity,
-        inspection.storage_authority,
-        inspection.evidence_integrity,
-    ) == ("valid", "unauthorized", "valid")
 
 
 @pytest.mark.parametrize(

@@ -14,9 +14,8 @@ import pytest
 from marivo.analysis.materialization import contracts as c
 from marivo.analysis.materialization import reads
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.object_storage import ObjectRangeFile, client, open_manifest
 from marivo.analysis.materialization.storage import ReadPolicy, StoragePolicy
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget, S3Access
+from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget
 from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
@@ -25,38 +24,23 @@ from tests.lazy_local_fixtures import REVENUE, setup_local
 pytestmark = pytest.mark.runtime
 
 
-def _access(request: pytest.FixtureRequest, kind: str) -> S3Access | None:
-    if kind == "engine":
-        return None
-    value: object = request.getfixturevalue("lazy_s3_access")
-    assert isinstance(value, S3Access)
-    return value
-
-
-def _part_schema(project: Path, receipt: c.StorageReceipt, access: S3Access | None) -> pa.Schema:
+def _part_schema(project: Path, receipt: c.StorageReceipt) -> pa.Schema:
     if isinstance(receipt, c.EngineReceipt):
         backend = ibis.duckdb.connect(str(project / receipt.qualified_relation_ref), read_only=True)
         try:
             return backend.to_pyarrow(backend.table("rows").limit(0)).schema
         finally:
             backend.disconnect()
-    assert isinstance(receipt, c.ObjectReceipt) and access is not None
-    import pyarrow.parquet as pq
-
-    with client(access) as s3:
-        file = open_manifest(s3, access, receipt)
-        with ObjectRangeFile(s3, access, file, 8_388_608) as stream:
-            return pq.ParquetFile(stream).schema_arrow
+    raise AssertionError("Expected an engine-backed retained part")
 
 
-@pytest.mark.parametrize("kind", ["engine", "object"])
+@pytest.mark.parametrize("kind", ["engine"])
 def test_only_selected_part_is_read_and_missing_required_part_fails(
     tmp_path: Path,
     request: pytest.FixtureRequest,
     kind: Literal["engine", "object"],
 ) -> None:
-    access = _access(request, kind)
-    fixture = setup_adapter(tmp_path, kind, access=access)
+    fixture = setup_adapter(tmp_path, kind)
     result = fixture.sources.observe(
         [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")],
         population=fixture.sources.population(ref.entity("sales.customers")),
@@ -64,19 +48,12 @@ def test_only_selected_part_is_read_and_missing_required_part_fails(
     record = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None and len(record.descriptor.retained_parts) == 2
     selected, unrelated = record.descriptor.retained_parts
-    schema = _part_schema(tmp_path, selected.storage_receipt, access)
+    schema = _part_schema(tmp_path, selected.storage_receipt)
     if isinstance(unrelated.storage_receipt, c.EngineReceipt):
         (tmp_path / unrelated.storage_receipt.qualified_relation_ref).unlink()
-    else:
-        assert isinstance(unrelated.storage_receipt, c.ObjectReceipt) and access is not None
-        with client(access) as s3:
-            file = open_manifest(s3, access, unrelated.storage_receipt)
-            s3.delete_object(Bucket=access.bucket, Key=file.key, VersionId=file.version)
     assert len(result.to_pandas()) == 4
     batches = tuple(
-        reads.read_part_batches(
-            tmp_path, selected, expected_schema=schema, bindings=() if access is None else (access,)
-        )
+        reads.read_part_batches(tmp_path, selected, expected_schema=schema, bindings=())
     )
     assert pa.Table.from_batches(batches).num_rows == 4
     with pytest.raises(MaterializationError):
@@ -85,19 +62,18 @@ def test_only_selected_part_is_read_and_missing_required_part_fails(
                 tmp_path,
                 unrelated.storage_receipt,
                 policy=ReadPolicy(),
-                bindings=() if access is None else (access,),
+                bindings=(),
             )
         )
 
 
-@pytest.mark.parametrize("kind", ["engine", "object"])
+@pytest.mark.parametrize("kind", ["engine"])
 def test_sampling_state_round_trip_is_atomic_with_primary(
     tmp_path: Path,
     request: pytest.FixtureRequest,
     kind: Literal["engine", "object"],
 ) -> None:
-    access = _access(request, kind)
-    fixture = setup_adapter(tmp_path, kind, access=access)
+    fixture = setup_adapter(tmp_path, kind)
     logical = fixture.sources.population(ref.entity("sales.customers")).sample(
         engine_sample(target_rows=2, seed=3)
     )
@@ -109,14 +85,13 @@ def test_sampling_state_round_trip_is_atomic_with_primary(
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 
-@pytest.mark.parametrize("kind", ["engine", "object"])
+@pytest.mark.parametrize("kind", ["engine"])
 def test_combined_payload_budget_includes_parts_at_and_above_bound(
     tmp_path: Path,
     request: pytest.FixtureRequest,
     kind: Literal["engine", "object"],
 ) -> None:
-    access = _access(request, kind)
-    fixture = setup_adapter(tmp_path, kind, access=access)
+    fixture = setup_adapter(tmp_path, kind)
 
     initial = fixture.sources.observe(ref.metric("sales.mean_amount")).execute()
     record = fixture.runtime.store.artifact(initial.state.artifact_ref.ref)
@@ -161,20 +136,19 @@ def test_source_rank_with_parts_preserves_primary_order(tmp_path: Path) -> None:
     assert result.to_pandas()["revenue"].tolist() == [100, 30]
 
 
-@pytest.mark.parametrize("kind", ["engine", "object"])
+@pytest.mark.parametrize("kind", ["engine"])
 def test_storage_can_exceed_collection_limit_without_admitting_local_reduction(
     tmp_path: Path,
     request: pytest.FixtureRequest,
     kind: str,
 ) -> None:
-    access = _access(request, kind)
     runtime, sources, database = setup_local(tmp_path)
     runtime.target = (
         EngineTarget(next(iter(sources._owner.semantic_registry.datasources)))
         if kind == "engine"
         else ObjectTarget("fixture")
     )
-    runtime.object_bindings = () if access is None else (access,)
+    runtime.object_bindings = ()
     with duckdb.connect(str(database)) as db:
         db.execute("INSERT INTO orders (id, amount) SELECT i + 1000, 1.0 FROM range(100001) t(i)")
     result = sources.observe(REVENUE).execute()

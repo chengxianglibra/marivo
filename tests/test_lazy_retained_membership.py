@@ -180,7 +180,7 @@ def test_true_entity_time_multiplicity_is_rejected_before_identity_projection(
         fixture.sources.observe(REVENUE, population=checkpoint)
 
 
-@pytest.mark.parametrize("kind", ["parquet", "object"])
+@pytest.mark.parametrize("kind", ["parquet"])
 def test_local_identity_never_implicitly_imports_into_source(
     tmp_path: Path,
     kind: Literal["parquet", "object"],
@@ -190,10 +190,6 @@ def test_local_identity_never_implicitly_imports_into_source(
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
     access: S3Access | None = None
-    if kind == "object":
-        value: object = request.getfixturevalue("lazy_s3_access")
-        assert isinstance(value, S3Access)
-        access = value
     runtime = DatasetRuntime.create(
         tmp_path, "local-membership", object_bindings=() if access is None else (access,)
     )

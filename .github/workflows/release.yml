@@ -35,7 +35,7 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/pip install -e ".[dev,docs]"
 
-      - name: Start isolated Runtime storage
+      - name: Start isolated object connector service
         run: |
           docker run --detach --name marivo-release-minio \
             --publish 127.0.0.1:9000:9000 \
@@ -44,10 +44,10 @@ jobs:
             --max-time 5 --fail --silent --show-error \
             "$MARIVO_TEST_S3_ENDPOINT/minio/health/ready"
 
-      - name: Run release checks including full Runtime acceptance
+      - name: Run functional Runtime and object connection release gates
         run: make release-check
 
-      - name: Stop isolated Runtime storage
+      - name: Stop isolated object connector service
         if: always()
         run: docker rm --force marivo-release-minio
 

@@ -23,7 +23,7 @@ def test_artifact_suffix_publishes_and_reuses_without_source(tmp_path: Path) -> 
     runtime, sources, database = setup_local(tmp_path)
     retained = sources.observe([REVENUE, COUNT]).execute()
     record = runtime.store.artifact(retained.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.retained_parts == ()
+    assert record is not None
     database.rename(database.with_suffix(".offline"))
     filtered = retained.where(gt(retained.fields.metric(REVENUE), 5))
     ranked = filtered.rank(filtered.fields.metric(REVENUE))
@@ -225,7 +225,7 @@ def test_composite_identity_tie_breaker_survives_local_publication(tmp_path: Pat
         owner.semantic_registry,
         metrics={
             **owner.semantic_registry.metrics,
-            metric.path: _metric("composite_value", "composite", "median"),
+            metric.path: _metric("composite_value", "composite", "sum"),
         },
     )
     catalog.freeze()

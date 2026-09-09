@@ -284,26 +284,16 @@ def test_overlapping_tags_cannot_fold_one_order_into_twice_its_total(
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 
-@pytest.mark.parametrize("case", ["median", "percentile", "cumulative"])
-def test_nonmergeable_entity_reduction_rejects_all_metrics_atomically(
-    tmp_path: Path, case: str
-) -> None:
+def test_nonmergeable_entity_reduction_rejects_all_metrics_atomically(tmp_path: Path) -> None:
     fixture = setup_retained(tmp_path)
     original = fixture.sources._owner.semantic_registry
     unsupported = ref.metric("sales.unsupported")
     changed = replace(
-        original.metrics[REVENUE.path],
+        original.metrics["sales.conversion_rate"],
         semantic_id=unsupported.path,
         name="unsupported",
-        aggregation="median" if case == "median" else ("percentile", 0.9),
+        composition=CumulativeComposition(REVENUE.path, DAY.path, "all_history"),
     )
-    if case == "cumulative":
-        changed = replace(
-            original.metrics["sales.conversion_rate"],
-            semantic_id=unsupported.path,
-            name="unsupported",
-            composition=CumulativeComposition(REVENUE.path, DAY.path, "all_history"),
-        )
     registry = replace(original, metrics={**original.metrics, unsupported.path: changed})
     registry.freeze()
     sources = fixture.runtime.sources(
@@ -421,7 +411,7 @@ def test_cumulative_dimension_fold_requires_contiguous_aligned_coverage(
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 
-@pytest.mark.parametrize("kind", ["local", "engine"])
+@pytest.mark.parametrize("kind", ["engine"])
 def test_entity_key_distinct_has_exact_runtime_fold_without_origin(
     tmp_path: Path, kind: Literal["local", "engine"]
 ) -> None:

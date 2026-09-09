@@ -113,11 +113,16 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     )
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
-    assert len(pytest_commands) == 3
+    assert len(pytest_commands) == 4
     assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5"]
     assert pytest_commands[1] == ["pytest", "-m", "runtime", "-n", "2"]
-    assert pytest_commands[2][:5] == ["pytest", "-n", "0", "-m", "release"]
-    assert "tests/focused.py::test_one" not in pytest_commands[2]
+    assert pytest_commands[2][-3:] == [
+        "-m",
+        "object_connection",
+        "tests/test_object_storage_connection.py",
+    ]
+    assert pytest_commands[3][:5] == ["pytest", "-n", "0", "-m", "release"]
+    assert "tests/focused.py::test_one" not in pytest_commands[3]
     assert ["python", "-m", "build", "--outdir", "dist/pypi"] in commands
     assert any(command[:2] == ["twine", "check"] for command in commands)
 

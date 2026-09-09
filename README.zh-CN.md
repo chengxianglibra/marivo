@@ -153,6 +153,9 @@ make check
 
 `make test` 运行日常回归测试；`make check` 和 `make check-agent` 合并日常测试、
 静态检查和 API 文档检查。完整 Runtime 验收由 `make release-check` 执行。
+主要功能测试使用本地文件，engine 专属契约保留 DuckDB 验证。MinIO 仅用于独立的
+`make object-storage-test` 连接、版本写入、读取和清理冒烟测试；`make runtime-test`
+不需要对象存储服务。发布检查同时执行这两个测试入口。
 日常开发按需使用 `make runtime-test TESTS='tests/test_lazy_local_execution.py'`；
 `runtime-test-agent` 为同一范围提供精简输出。这两个 Runtime 入口默认使用两个
 worker，可在测量主机可用容量后通过 `RUNTIME_WORKERS=4` 覆盖。含 `::` 的单个

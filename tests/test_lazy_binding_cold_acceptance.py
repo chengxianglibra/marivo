@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.targets import S3Access
 from tests.lazy_binding_cold_worker import ALPHA, BETA
 from tests.lazy_execution_fixtures import controlled_json_source, seed_execution_database
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
@@ -16,14 +15,8 @@ from tests.test_lazy_adapter_runtime_acceptance import _manifest
 pytestmark = pytest.mark.runtime
 
 
-def _run(
-    mode: str, kind: str, project: Path, url: str, session: str, access: S3Access | None
-) -> dict[str, object]:
+def _run(mode: str, kind: str, project: Path, url: str, session: str) -> dict[str, object]:
     environment = {**os.environ, "MARIVO_TELEMETRY": "off"}
-    if access is not None:
-        environment.update(
-            MARIVO_TEST_S3_ENDPOINT=access.endpoint_url, MARIVO_TEST_S3_BUCKET=access.bucket
-        )
     process = subprocess.run(
         [
             sys.executable,
@@ -54,24 +47,19 @@ def _run(
     return value
 
 
-@pytest.mark.parametrize("kind", ("local", "engine", "object"))
+@pytest.mark.parametrize("kind", ["local"])
 def test_captured_bindings_survive_scope_exit_and_source_free_cold_process(
     tmp_path: Path, request: pytest.FixtureRequest, kind: str
 ) -> None:
-    access = None
-    if kind == "object":
-        selected: object = request.getfixturevalue("lazy_s3_access")
-        assert isinstance(selected, S3Access)
-        access = selected
     candidate_before = _manifest()
     database = tmp_path / "warehouse.duckdb"
     seed_execution_database(database)
     with controlled_json_source(tenant_values={ALPHA: 10.0, BETA: 25.0}) as server:
-        produced = _run("produce", kind, tmp_path, server.url, "", access)
+        produced = _run("produce", kind, tmp_path, server.url, "")
         assert len(server.requests) == 2
         url = server.url
     database.rename(tmp_path / "warehouse.offline")
-    cold = _run("cold", kind, tmp_path, url, str(produced["session"]), access)
+    cold = _run("cold", kind, tmp_path, url, str(produced["session"]))
     assert produced["pid"] != cold["pid"]
     assert (
         cold["before"]

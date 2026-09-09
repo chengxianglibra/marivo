@@ -79,13 +79,14 @@ def _cell(value: object) -> object:
 
 
 def rows(dataset: MaterializedDataset) -> list[list[object]]:
-    return [
-        [_cell(cell) for cell in row]
-        for row in dataset.to_pandas().itertuples(index=False, name=None)
-    ]
+    return frame_rows(dataset.to_pandas())
 
 
-def assert_daily_reconciliation(result: MaterializedAttributionDataset) -> None:
+def frame_rows(frame: pd.DataFrame) -> list[list[object]]:
+    return [[_cell(cell) for cell in row] for row in frame.itertuples(index=False, name=None)]
+
+
+def assert_daily_reconciliation(result: MaterializedAttributionDataset) -> pd.DataFrame:
     semantics = result.row_contract.family_semantics
     assert isinstance(semantics, AttributionSemantics)
     assert semantics.method == "distinct_membership@v1"
@@ -97,7 +98,8 @@ def assert_daily_reconciliation(result: MaterializedAttributionDataset) -> None:
         for _, resolution in scoped.groupby("active_axis_mask"):
             assert abs(float(resolution.contribution.sum()) - expected) < 1e-9
             assert all(abs(float(value) - expected) < 1e-9 for value in resolution.overall_delta)
-    assert_no_raw_keys(rows(result))
+    assert_no_raw_keys(frame_rows(frame))
+    return frame
 
 
 def _forbidden(*args: object, **kwargs: object) -> None:
@@ -199,7 +201,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
             assert result.state.artifact_ref.ref == refs["attribution"]
             assert continued.state.artifact_ref.ref == refs["continued"]
             assert snapshot(runtime) == before
-    assert_daily_reconciliation(result)
+    frame = assert_daily_reconciliation(result)
     refs = {
         **refs,
         "attribution": result.state.artifact_ref.ref,
@@ -222,7 +224,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         "refs": refs,
         "before": before,
         "after": snapshot(runtime),
-        "rows": rows(result),
+        "rows": frame_rows(frame),
         "continued_rows": rows(continued),
         "row_contract": _row_contract_fingerprint(result.row_contract),
         "row_set_contract": _row_set_contract_fingerprint(result.row_set_contract),

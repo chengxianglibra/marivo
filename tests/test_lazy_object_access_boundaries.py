@@ -11,14 +11,10 @@ import pytest
 from botocore.stub import Stubber
 
 from marivo.analysis.materialization import admission, object_storage, reads
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import ObjectReceipt
 from marivo.analysis.materialization.errors import (
     IntegrityError,
     MaterializationError,
-    StorageAccessError,
 )
-from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.targets import ObjectTarget, S3Access, object_access
 from marivo.analysis.session._lazy_read_model import FailedRun
 from marivo.refs import ref
@@ -177,44 +173,3 @@ def test_sdk_client_construction_failure_teaches_target_configuration(
     assert error.repair is not None and "Configure" in error.repair.action
     assert error.__context__ is None and error.__cause__ is None
     assert "private-sdk-construction-canary" not in str(error)
-
-
-@pytest.mark.parametrize("kind", ["missing", "ambiguous"])
-def test_real_object_read_and_inspection_report_unauthorized_without_context(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    lazy_s3_access: S3Access,
-    kind: Literal["missing", "ambiguous"],
-) -> None:
-    fixture = setup_retained(tmp_path, "object", access=lazy_s3_access)
-    result = fixture.sources.population(ref.entity("sales.customers")).execute()
-    record = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and isinstance(record.descriptor.storage_receipt, ObjectReceipt)
-    bindings = _bindings(kind, lazy_s3_access)
-    reader = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref, object_bindings=bindings)
-    before = snapshot(reader)
-    handle = reader.artifact(result.state.artifact_ref)
-    monkeypatch.setattr(object_storage, "client", forbidden)
-    for action in (
-        handle.to_pandas,
-        lambda: list(
-            reads.payload_batches(
-                tmp_path, record.descriptor.storage_receipt, policy=ReadPolicy(), bindings=bindings
-            )
-        ),
-    ):
-        with pytest.raises(StorageAccessError) as caught:
-            action()
-        error = caught.value
-        assert error.storage_status == "unauthorized"
-        assert error.__context__ is None and error.__cause__ is None
-        assert lazy_s3_access.access_key_id not in str(error)
-        assert lazy_s3_access.secret_access_key not in str(error)
-    checked = reader.revalidate(result.state.artifact_ref)
-    assert (
-        checked.artifact_integrity,
-        checked.storage_authority,
-        checked.evidence_integrity,
-    ) == ("valid", "unauthorized", "valid")
-    assert {issue.kind for issue in checked.issues} == {"storage_unauthorized"}
-    assert snapshot(reader) == before

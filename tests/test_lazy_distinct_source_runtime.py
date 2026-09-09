@@ -27,7 +27,7 @@ from tests.lazy_distinct_fixtures import (
     make_distinct_registry,
     seed_distinct_database,
 )
-from tests.lazy_distinct_runtime_worker import assert_daily_reconciliation, metric, rows
+from tests.lazy_distinct_runtime_worker import assert_daily_reconciliation, frame_rows, metric
 from tests.lazy_materialization_crash_worker import snapshot, statistics
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
@@ -57,7 +57,7 @@ def test_every_operand_order_keeps_membership_inside_engine(tmp_path: Path, stat
         assert snapshot(runtime) == before
         result = logical.execute()
     assert isinstance(result, MaterializedAttributionDataset)
-    assert_daily_reconciliation(result)
+    frame = assert_daily_reconciliation(result)
     assert runtime.statistics.worker_pid is None
     run = runtime.store.run(result.state.producing_run_ref)
     assert run is not None
@@ -73,7 +73,7 @@ def test_every_operand_order_keeps_membership_inside_engine(tmp_path: Path, stat
     payload = {
         "states": states,
         "artifact": result.state.artifact_ref.ref,
-        "rows": rows(result),
+        "rows": frame_rows(frame),
         "before": before,
         "after": complete,
         "input_artifact_refs": run.input_artifact_refs,
@@ -158,7 +158,7 @@ def test_distinct_keeps_one_shared_sample_realization(tmp_path: Path) -> None:
         "artifact": result.state.artifact_ref.ref,
         "before": before,
         "after": complete,
-        "rows": rows(result),
+        "rows": frame_rows(frame),
         "sampling": sampling_payload(record.descriptor.sampling_execution),
         "statistics": sampled_statistics,
         "resolution_totals": totals,

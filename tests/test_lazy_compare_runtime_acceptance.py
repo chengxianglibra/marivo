@@ -11,19 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.targets import S3Access
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
 pytestmark = pytest.mark.runtime
 
 
-def _run(
-    mode: str, kind: str, project: Path, *, access: S3Access | None, refs: object
-) -> dict[str, object]:
+def _run(mode: str, kind: str, project: Path, *, refs: object) -> dict[str, object]:
     environment = {**os.environ, "MARIVO_TELEMETRY": "off"}
-    if access is not None:
-        environment["MARIVO_TEST_S3_ENDPOINT"] = access.endpoint_url
-        environment["MARIVO_TEST_S3_BUCKET"] = access.bucket
     process = subprocess.run(
         [
             sys.executable,
@@ -48,19 +42,14 @@ def _run(
     return result
 
 
-@pytest.mark.parametrize("kind", ["local", "engine", "object"])
+@pytest.mark.parametrize("kind", ["local"])
 def test_fresh_delta_publication_continuation_and_cold_binding(
     tmp_path: Path, request: pytest.FixtureRequest, kind: str
 ) -> None:
-    access = None
-    if kind == "object":
-        selected: object = request.getfixturevalue("lazy_s3_access")
-        assert isinstance(selected, S3Access)
-        access = selected
     candidate = _manifest()
-    produced = _run("produce", kind, tmp_path, access=access, refs={})
-    continued = _run("continue", kind, tmp_path, access=access, refs=produced["refs"])
-    cold = _run("cold", kind, tmp_path, access=access, refs=continued["refs"])
+    produced = _run("produce", kind, tmp_path, refs={})
+    continued = _run("continue", kind, tmp_path, refs=produced["refs"])
+    cold = _run("cold", kind, tmp_path, refs=continued["refs"])
     assert len({produced["pid"], continued["pid"], cold["pid"]}) == 3
     for field in (
         "rows",

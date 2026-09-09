@@ -8,8 +8,8 @@ import duckdb
 import pytest
 
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import EngineReceipt, ObjectReceipt
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget, S3Access
+from marivo.analysis.materialization.contracts import EngineReceipt
+from marivo.analysis.materialization.targets import EngineTarget
 from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
@@ -53,28 +53,6 @@ def test_engine_checkpoint_observe_never_replays_membership_source(tmp_path: Pat
     result = logical.execute()
     assert result.to_pandas()["revenue"].fillna(-1).tolist() == [40, 100, 7, -1]
     assert not any('"customers"' in sql for _, sql in runtime.statistics.statements)
-    assert runtime.store.resources(runtime.session_ref) == ()
-
-
-def test_object_metric_round_trip(tmp_path: Path, lazy_s3_access: S3Access) -> None:
-    database = tmp_path / "warehouse.duckdb"
-    seed_execution_database(database)
-    registry, sidecar = make_execution_registry(database)
-    runtime = DatasetRuntime.create(
-        tmp_path, "object", target=ObjectTarget("fixture"), object_bindings=(lazy_s3_access,)
-    )
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    logical = sources.observe(
-        ref.metric("sales.revenue"), population=sources.population(ref.entity("sales.customers"))
-    )
-    result = logical.execute()
-    record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None
-    assert isinstance(record.descriptor.storage_receipt, ObjectReceipt)
-    assert result.to_pandas()["revenue"].fillna(-1).tolist() == [40, 100, 7, -1]
-    assert all(
-        isinstance(part.storage_receipt, ObjectReceipt) for part in record.descriptor.retained_parts
-    )
     assert runtime.store.resources(runtime.session_ref) == ()
 
 

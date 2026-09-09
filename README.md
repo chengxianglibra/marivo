@@ -197,7 +197,10 @@ combine daily tests, static checks, and API documentation checks. Ordinary commi
 keep their installed hooks and do not run the full Runtime suite.
 
 `make release-check` adds the full multi-stage analysis, real-source/worker, and
-process-recovery Runtime suite plus packaging checks. Local release preparation
+process-recovery Runtime suite, the separate object-connector smoke, and packaging checks.
+Functional tests primarily use local files, with native engine cases for engine-specific
+contracts. Only `make object-storage-test` uses MinIO; `make runtime-test` requires no
+object service. Local release preparation
 requires a healthy, isolated MinIO test service explicitly selected through
 `MARIVO_TEST_S3_ENDPOINT`; the test fixture creates versioned buckets and cleans
 them up. See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites.

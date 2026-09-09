@@ -378,14 +378,14 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
 
 
 @pytest.fixture
-def lazy_s3_access() -> Iterator[S3Access]:
-    """One isolated versioned bucket on the explicitly selected real test service."""
+def object_connection_access() -> Iterator[S3Access]:
+    """One isolated versioned bucket for the object connector smoke test."""
     from marivo.analysis.materialization.object_storage import client
     from marivo.analysis.materialization.targets import S3Access
 
     endpoint = os.environ.get("MARIVO_TEST_S3_ENDPOINT")
     if endpoint is None:
-        pytest.skip("Set MARIVO_TEST_S3_ENDPOINT for the real versioned S3 acceptance gate")
+        pytest.skip("Set MARIVO_TEST_S3_ENDPOINT for the object-storage-test connection smoke")
     access = S3Access("fixture", endpoint, "marivo-4b-" + uuid4().hex, "minioadmin", "minioadmin")
     with client(access) as s3:
         s3.create_bucket(Bucket=access.bucket)
