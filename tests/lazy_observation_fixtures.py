@@ -71,6 +71,9 @@ class NoIoActionPort:
     def execute_metric(self, dataset: LogicalMetricDataset) -> Never:
         raise AssertionError("Metric execution is not part of definition-only acceptance")
 
+    def execute_forecast(self, dataset: object) -> Never:
+        raise AssertionError("Construction performed Forecast execution")
+
     def execute_association(self, dataset: LogicalAssociationDataset) -> Never:
         raise AssertionError("Association execution is not part of definition-only acceptance")
 

@@ -313,7 +313,10 @@ def execute_retained_suffix(
             from marivo.analysis.operators.delta_state import validate_delta_parts
 
             validate_delta_parts(frame, parts, call.input_row)
-        elif parts:
+        elif parts and (
+            call.input_row.shape_id.family_id == "metric"
+            or any(part.role != "population_sampling_state" for part in parts)
+        ):
             from marivo.analysis.operators.rollup import validate_parts
 
             validate_parts(frame, parts, call.input_row)

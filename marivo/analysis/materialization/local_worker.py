@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from multiprocessing import Pipe
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -60,8 +60,10 @@ from marivo.analysis.operators.errors import (
     AttributionError,
     ComparisonError,
     CorrelationError,
+    ForecastError,
     RowValueError,
 )
+from marivo.analysis.operators.forecast_contracts import ForecastSpecV1, ForecastTrainingSummary
 from marivo.analysis.operators.row import PartFrame, RowCall
 
 if TYPE_CHECKING:
@@ -111,6 +113,15 @@ class LocalPartResult:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class FamilySummaries:
+    """Original producer summaries carried unchanged through local row successors."""
+
+    attribution: AttributionSourceSummary | None = None
+    association: AssociationSearchSummary | None = None
+    forecast: ForecastTrainingSummary | None = None
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class LocalResult:
     table: pa.Table
     handoffs: tuple[tuple[int, int], ...]
@@ -119,8 +130,7 @@ class LocalResult:
     peak_rss: int
     worker_pid: int
     parts: tuple[LocalPartResult, ...] = ()
-    attribution_summary: AttributionSourceSummary | None = None
-    association_summary: AssociationSearchSummary | None = None
+    summaries: FamilySummaries = FamilySummaries()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -184,7 +194,7 @@ class LocalBoundary:
 class LocalStage:
     output: int
     inputs: tuple[int, ...]
-    call: RowCall | CompareSpecV1 | AttributeSpecV1 | CorrelateSpecV1
+    call: RowCall | CompareSpecV1 | AttributeSpecV1 | CorrelateSpecV1 | ForecastSpecV1
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -347,16 +357,18 @@ def _collect_input(
     return _Frames(frame, tuple(part_frames), schema), count
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class _GraphResult:
+    frames: _Frames
+    handoffs: tuple[tuple[int, int], ...]
+    input_rows: int
+    output_row: DatasetRowContract
+    summaries: FamilySummaries
+
+
 def _execute_graph(
     connection: Connection, request: LocalGraphRequest, budget: LocalBudget
-) -> tuple[
-    _Frames,
-    tuple[tuple[int, int], ...],
-    int,
-    DatasetRowContract,
-    AttributionSourceSummary | None,
-    AssociationSearchSummary | None,
-]:
+) -> _GraphResult:
     from marivo.analysis.operators.attribute_values import execute_attribute
     from marivo.analysis.operators.compare import execute_compare
     from marivo.analysis.operators.delta_state import execute_compare_parts, validate_delta_parts
@@ -378,8 +390,7 @@ def _execute_graph(
     users[request.primary_output] = users.get(request.primary_output, 0) + 1
     handoffs: list[tuple[int, int]] = []
     output_row: DatasetRowContract | None = None
-    attribution_summary: AttributionSourceSummary | None = None
-    association_summary: AssociationSearchSummary | None = None
+    summaries = FamilySummaries()
     for stage in request.stages:
         budget.check()
         if stage.output in values or any(key not in values for key in stage.inputs):
@@ -398,6 +409,38 @@ def _execute_graph(
             value = _Frames(result, parts, source.schema)
             del parts
             handoffs.extend(transfers)
+            output_row = call.output_row
+            del source
+        elif isinstance(call, ForecastSpecV1):
+            from marivo.analysis.operators.forecast_values import execute_forecast, prepare_history
+
+            if len(incoming) != 1:
+                fail("one complete Forecast history", "invalid Forecast arity")
+            source = incoming[0]
+            if len(source.frame) > budget.policy.max_method_rows:
+                fail("complete Forecast history within method budget", "method size overflow")
+            validate_frame(source.frame, call.input_row, call.input_rows)
+            prepared_history = prepare_history(source.frame, call)
+            output_count = len(prepared_history.groups) * call.semantics.horizon
+            if (
+                output_count > budget.policy.max_output_rows
+                or output_count > budget.policy.max_method_rows
+            ):
+                fail("complete Forecast horizon within budgets", "forecast output size overflow")
+            budget.allocation(source.size * 4 + output_count * 1024)
+            budget.check()
+            result, training = execute_forecast(prepared_history, call)
+            summaries = replace(summaries, forecast=training)
+            del prepared_history
+            budget.check()
+            result_size = frame_bytes(result)
+            if result_size > budget.policy.max_output_bytes:
+                fail("complete Forecast output within byte budget", "forecast output byte overflow")
+            budget.allocation(result_size)
+            validate_frame(result, call.output_row, call.output_rows)
+            budget.live_bytes += result_size
+            value = _Frames(result, (), pa.Schema.from_pandas(result, preserve_index=False))
+            handoffs.append((id(source.frame), id(result)))
             output_row = call.output_row
             del source
         elif isinstance(call, CorrelateSpecV1):
@@ -429,7 +472,7 @@ def _execute_graph(
             del pairs
             from marivo.analysis.operators.association_values import summarize_search
 
-            association_summary = summarize_search(result, call.output_row)
+            summaries = replace(summaries, association=summarize_search(result, call.output_row))
             budget.check()
             result_size = frame_bytes(result)
             if (
@@ -540,7 +583,9 @@ def _execute_graph(
                 summarize_attribution_frame,
             )
 
-            attribution_summary = summarize_attribution_frame(result, call.output_row)
+            summaries = replace(
+                summaries, attribution=summarize_attribution_frame(result, call.output_row)
+            )
             budget.live_bytes += result_size
             fields = []
             for field in call.output_row.schema.columns:
@@ -564,13 +609,12 @@ def _execute_graph(
         del incoming
     if output_row is None or request.primary_output not in values:
         fail("one complete local graph result", "missing graph output")
-    return (
+    return _GraphResult(
         values[request.primary_output],
         tuple(handoffs),
         total_rows,
         output_row,
-        attribution_summary,
-        association_summary,
+        summaries,
     )
 
 
@@ -589,13 +633,13 @@ def worker_entry() -> None:
         policy = request.policy
         policy.__post_init__()
         budget = LocalBudget(policy, request.deadline)
-        attribution_summary: AttributionSourceSummary | None = None
-        association_summary: AssociationSearchSummary | None = None
+        summaries = FamilySummaries()
         if isinstance(request, LocalGraphRequest):
-            completed, handoffs, count, output_row, attribution_summary, association_summary = (
-                _execute_graph(connection, request, budget)
-            )
-            frame, output_parts, schema = completed.frame, completed.parts, completed.schema
+            completed = _execute_graph(connection, request, budget)
+            frame = completed.frames.frame
+            output_parts, schema = completed.frames.parts, completed.frames.schema
+            handoffs, count = completed.handoffs, completed.input_rows
+            output_row, summaries = completed.output_row, completed.summaries
         else:
             if not request.calls:
                 fail("one registered suffix request", "empty suffix", "implementation_registration")
@@ -661,8 +705,7 @@ def worker_entry() -> None:
                 peak,
                 os.getpid(),
                 tuple(completed_parts),
-                attribution_summary,
-                association_summary,
+                summaries,
             )
         )
     except Exception as error:
@@ -681,7 +724,8 @@ def worker_entry() -> None:
                 "output_validation",
             )
         elif isinstance(
-            error, (AttributionError, ComparisonError, RowValueError, CorrelationError)
+            error,
+            (AttributionError, ComparisonError, RowValueError, CorrelationError, ForecastError),
         ):
             failure = LocalFailure(
                 error.expected or "complete registered retained inputs",

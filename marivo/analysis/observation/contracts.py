@@ -118,6 +118,10 @@ if TYPE_CHECKING:
         MaterializedAttributionDataset,
     )
     from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
+    from marivo.analysis.operators.forecast_dataset import (
+        LogicalForecastDataset,
+        MaterializedForecastDataset,
+    )
 
 EntityInput: TypeAlias = Ref[EntityKind] | EntityEntry
 DimensionInput: TypeAlias = Ref[DimensionKind] | DimensionEntry
@@ -158,7 +162,7 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
-        if self.contract_stem.startswith("association"):
+        if self.contract_stem.startswith(("association", "forecast")):
             return ()
         if self.producer_id == "population.sample":
             return ("population_sampling_state",)
@@ -179,35 +183,36 @@ class ObservationProducerContract:
 
     @property
     def versions(self) -> tuple[tuple[str, str], ...]:
+        common = (
+            (self.producer_id, "v1"),
+            ("dataset_structure_quality", "v1"),
+            (self.quality_id, "v1"),
+            (self.validation_id, "v1"),
+            (self.evidence_id, "v1"),
+        )
+        if self.contract_stem.startswith("forecast"):
+            return (
+                *common,
+                ("forecast_point_finding", "v1"),
+                ("forecast_point_findings", "v1"),
+            )
         if self.contract_stem.startswith("association"):
             return (
-                (self.producer_id, "v1"),
-                ("dataset_structure_quality", "v1"),
-                (self.quality_id, "v1"),
-                (self.validation_id, "v1"),
-                (self.evidence_id, "v1"),
+                *common,
                 ("association_finding", "v1"),
                 ("association_findings", "v1"),
             )
         if self.contract_stem.startswith("attribution"):
             producing = self.producer_id in ("delta.attribute", "delta.attribute_expanded")
             return (
-                (self.producer_id, "v1"),
-                ("dataset_structure_quality", "v1"),
-                (self.quality_id, "v1"),
-                (self.validation_id, "v1"),
-                (self.evidence_id, "v1"),
+                *common,
                 ("contribution_finding" if producing else "none", "v1"),
                 ("contribution_findings" if producing else "zero_findings", "v1"),
                 ("attribution.reconciliation", "v1"),
             )
         comparison = self.producer_id == "metric.compare" or self.producer_id.startswith("delta.")
         return (
-            (self.producer_id, "v1"),
-            ("dataset_structure_quality", "v1"),
-            (self.quality_id, "v1"),
-            (self.validation_id, "v1"),
-            (self.evidence_id, "v1"),
+            *common,
             ("delta_finding" if comparison else "none", "v1"),
             ("delta_findings" if comparison else "zero_findings", "v1"),
             (
@@ -250,6 +255,10 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("metric.rollup", "metric_rollup"),
     ObservationProducerContract("metric.rank", "metric_rank"),
     ObservationProducerContract("metric.limit", "metric_limit"),
+    ObservationProducerContract("metric.forecast", "forecast"),
+    ObservationProducerContract("forecast.where", "forecast_filter"),
+    ObservationProducerContract("forecast.rank", "forecast_rank"),
+    ObservationProducerContract("forecast.limit", "forecast_limit"),
     ObservationProducerContract("metric.correlate", "association"),
     ObservationProducerContract("association.where", "association_filter"),
     ObservationProducerContract("association.rank", "association_rank"),
@@ -280,6 +289,8 @@ class ObservationActionPort(Protocol):
         self, dataset: LogicalPopulationDataset
     ) -> MaterializedPopulationDataset: ...
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset: ...
+    def execute_forecast(self, dataset: LogicalForecastDataset) -> MaterializedForecastDataset: ...
+
     def execute_association(
         self, dataset: LogicalAssociationDataset
     ) -> MaterializedAssociationDataset: ...
@@ -784,13 +795,16 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         }
     )
     return _StableIdRegistry(
-        families=frozenset({"population", "metric", "delta", "attribution", "association"}),
+        families=frozenset(
+            {"population", "metric", "delta", "attribution", "association", "forecast"}
+        ),
         shapes=frozenset(
             {
                 *(
                     ("association", shape, 1)
                     for shape in ("entity", "dimension", "time-lag", "dimension-time-lag")
                 ),
+                *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
                 ("population", "entity-membership", 1),
                 ("attribution", "joint", 1),
                 ("attribution", "hierarchy", 1),
@@ -1248,6 +1262,8 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
 
 
 def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
+    if consumer_id == "metric.forecast":
+        return sum(field.role_id == "metric" for field in dataset.schema.columns) == 1
     if consumer_id == "metric.correlate":
         return 2 <= sum(field.role_id == "metric" for field in dataset.schema.columns) <= 16
     if consumer_id == "metric.rank":
@@ -1429,6 +1445,13 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     consumers = (
         *consumers,
         ConsumerRegistration(
+            "metric.forecast",
+            ("input",),
+            "forecast",
+            tuple(shape for shape in shapes if shape.local_shape_id in ("time", "dimension-time")),
+            ("forecast.metric@v1",),
+        ),
+        ConsumerRegistration(
             "metric.correlate",
             ("input",),
             "association",
@@ -1482,6 +1505,9 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     from marivo.analysis.operators.correlate import register_association
 
     register_association(registry, ids)
+    from marivo.analysis.operators.forecast import register_forecast
+
+    register_forecast(registry, ids)
     register_delta(registry, ids)
     register_attribution(registry, ids)
     registry.freeze()
@@ -1499,6 +1525,7 @@ def semantic_dependency_digest(
     from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.contracts import ComparePayload
+    from marivo.analysis.operators.forecast_contracts import ForecastPayload
 
     facts: set[str] = set()
     visited: set[int] = set()
@@ -1551,6 +1578,8 @@ def semantic_dependency_digest(
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
             )
+        elif isinstance(payload, ForecastPayload):
+            semantic_facts = ("metric_forecast", payload.spec.identity_payload())
         elif isinstance(payload, CorrelatePayload):
             semantic_facts = ("metric_correlate", payload.spec.identity_payload())
         elif isinstance(payload, ComparePayload):

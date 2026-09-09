@@ -214,6 +214,10 @@ def _validate(
             )
         ):
             raise invalid("Contribution mask or method contradicts its registration")
+    if isinstance(finding.value, t.ForecastPointFindingValueV1):
+        from marivo.analysis.materialization.forecast_publication import validate_finding
+
+        validate_finding(finding, record.descriptor)
     if registration.association_subjects:
         value = finding.value
         if (

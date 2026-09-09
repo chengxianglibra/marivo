@@ -86,6 +86,12 @@ def contribution_item_key(finding: t.Finding) -> str:
 
 
 def finding_registration(descriptor: ArtifactDescriptor) -> FindingRegistration | None:
+    if descriptor.row_contract.shape_id.family_id == "forecast":
+        from marivo.analysis.materialization.forecast_publication import (
+            finding_registration as forecast_registration,
+        )
+
+        return forecast_registration(descriptor)
     if descriptor.row_contract.shape_id.family_id == "association":
         from marivo.analysis.materialization.association_publication import (
             finding_registration as association_registration,

@@ -21,6 +21,7 @@ from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
 from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.contracts import ComparePayload
+from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.metric_graph import AggregateNodeV1, WeightedMeanAggregateNodeV1
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
@@ -123,6 +124,7 @@ def required_entities(
                 ComparePayload,
                 AttributePayload,
                 CorrelatePayload,
+                ForecastPayload,
             ),
         ):
             raise compilation_error("closed Observation payload", "unsupported definition payload")

@@ -98,8 +98,9 @@ def select_parts(
         delta_part_authorities,
     )
     from marivo.analysis.operators.contracts import DeltaSemantics
+    from marivo.analysis.operators.forecast_contracts import ForecastSemantics
 
-    if isinstance(semantics, (AttributionSemantics, AssociationSemantics)):
+    if isinstance(semantics, (AttributionSemantics, AssociationSemantics, ForecastSemantics)):
         return ()
     if isinstance(semantics, DeltaSemantics):
         retained_roles = {role for role, _ in delta_part_authorities(call.input_row)}
@@ -327,7 +328,14 @@ def _rank(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
 def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
     """Consume a validated private frame without mutating or serializing it."""
     if (
-        call.method in ("metric.where", "delta.where", "attribution.where", "association.where")
+        call.method
+        in (
+            "metric.where",
+            "delta.where",
+            "attribution.where",
+            "association.where",
+            "forecast.where",
+        )
         and call.predicate is not None
     ):
         result = frame.loc[predicate_mask(frame, call.predicate).fillna(False)].copy(deep=True)
@@ -335,10 +343,23 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
         result = frame.loc[:, [field.name for field in call.output_row.schema.columns]].copy(
             deep=True
         )
-    elif call.method in ("metric.rank", "delta.rank", "attribution.rank", "association.rank"):
+    elif call.method in (
+        "metric.rank",
+        "delta.rank",
+        "attribution.rank",
+        "association.rank",
+        "forecast.rank",
+    ):
         result = _rank(frame, call)
     elif (
-        call.method in ("metric.limit", "delta.limit", "attribution.limit", "association.limit")
+        call.method
+        in (
+            "metric.limit",
+            "delta.limit",
+            "attribution.limit",
+            "association.limit",
+            "forecast.limit",
+        )
         and call.limit is not None
     ):
         result = frame.iloc[: call.limit].copy(deep=True)

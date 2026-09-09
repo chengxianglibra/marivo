@@ -57,3 +57,16 @@ def correlation_error(expected: str, received: str) -> CorrelationError:
         repair="Use 2-16 quantitative Metrics with compatible coordinates; narrow lags or repair null, constant and non-finite observations.",
         location="dataset.correlate",
     )
+
+
+class ForecastError(DatasetConstructionError):
+    """A named forecast lacks certified coordinates or finite numerical authority."""
+
+
+def forecast_error(expected: str, received: str) -> ForecastError:
+    return ForecastError(
+        expected=expected,
+        received=received,
+        repair="Use one Metric with complete consecutive history meeting the named model minimum and certified future coverage; repair missing or non-finite values or reduce the horizon.",
+        location="dataset.forecast",
+    )
