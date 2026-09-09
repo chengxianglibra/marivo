@@ -36,6 +36,16 @@ class RetainedPartSpec:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class RetainedRelationSpec:
+    """An independent source-private relation with its own schema and cardinality."""
+
+    role: str
+    contract_id: str
+    contract_version: int
+    expression: ir.Table
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class CompiledSampleFence:
     """One predeclared, action-owned physical realization of eligible Entity rows."""
 
@@ -55,6 +65,6 @@ class CompiledDataset:
     expression: ir.Table
     validations: tuple[CompiledValidation, ...]
     primary_columns: tuple[str, ...]
-    retained_parts: tuple[RetainedPartSpec, ...]
+    retained_parts: tuple[RetainedPartSpec | RetainedRelationSpec, ...]
     preparations: tuple[CompiledValidation | CompiledSampleFence, ...] = ()
     attribution_proof: ir.Table | None = None

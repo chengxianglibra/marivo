@@ -192,6 +192,33 @@ def payload_batches(
     rows: DatasetRowSetContract | None = None,
     audit: bool = False,
 ) -> Generator[pa.RecordBatch, None, None]:
+    """Reject private membership before allocating any generic reader or iterator."""
+    from marivo.analysis.materialization.retained import guard_receipt_transfer
+
+    guard_receipt_transfer(receipt)
+    return _guarded_payload_batches(
+        project_root,
+        receipt,
+        policy=policy,
+        bindings=bindings,
+        preview=preview,
+        row=row,
+        rows=rows,
+        audit=audit,
+    )
+
+
+def _guarded_payload_batches(
+    project_root: Path,
+    receipt: StorageReceipt,
+    *,
+    policy: ReadPolicy,
+    bindings: tuple[S3Access, ...] = (),
+    preview: bool = False,
+    row: DatasetRowContract | None = None,
+    rows: DatasetRowSetContract | None = None,
+    audit: bool = False,
+) -> Generator[pa.RecordBatch, None, None]:
     """Keep native reader diagnostics and raw locators outside error chains."""
     failure: Literal["missing", "unauthorized", "mutated", "unknown"] = "unknown"
     try:
@@ -232,6 +259,9 @@ def part_schema(
     registered key/state contracts. Reading a header is not content validation;
     a consuming action must exhaust the subsequent guarded part read.
     """
+    from marivo.analysis.materialization.retained import guard_part_transfer
+
+    guard_part_transfer(part)
     stream = payload_batches(project_root, part.storage_receipt, policy=policy, bindings=bindings)
     try:
         batch = next(stream, None)
@@ -404,6 +434,22 @@ def read_part_batches(
     expected_schema: pa.Schema,
     policy: ReadPolicy = _DEFAULT_READ_POLICY,
     bindings: tuple[S3Access, ...] = (),
+) -> Iterator[pa.RecordBatch]:
+    from marivo.analysis.materialization.retained import guard_part_transfer
+
+    guard_part_transfer(part)
+    return _read_part_batches(
+        project_root, part, expected_schema=expected_schema, policy=policy, bindings=bindings
+    )
+
+
+def _read_part_batches(
+    project_root: Path,
+    part: RetainedPart,
+    *,
+    expected_schema: pa.Schema,
+    policy: ReadPolicy,
+    bindings: tuple[S3Access, ...],
 ) -> Iterator[pa.RecordBatch]:
     receipt = part.storage_receipt
     if (

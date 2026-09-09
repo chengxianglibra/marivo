@@ -54,6 +54,12 @@ def _semantics(descriptor: ArtifactDescriptor) -> AttributionSemantics:
     semantics = descriptor.row_contract.family_semantics
     if not isinstance(semantics, AttributionSemantics):
         raise invalid("missing exact Attribution row semantics")
+    if semantics.method == "distinct_membership@v1" and (
+        semantics.resolution_semantics != "independent"
+        or semantics.rollup_safe
+        or semantics.numeric_type != "float64"
+    ):
+        raise invalid("distinct Attribution requires independent floating-point allocation")
     return semantics
 
 
@@ -354,6 +360,8 @@ def build_attribution_publication(
                 finding_set_digest=finding_set_digest(()),
             ),
         ), ()
+    if semantics.method == "distinct_membership@v1" and source_summary is None:
+        raise invalid("distinct Attribution publication requires complete source-reduced proof")
     if continuation:
         if source_summary is None or proof_definition_fingerprint is None:
             raise invalid("selected Attribution requires its complete pre-selection proof")

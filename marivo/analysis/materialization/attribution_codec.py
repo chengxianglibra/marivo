@@ -54,6 +54,7 @@ def decode_attribution_evidence(value: object) -> AttributionEvidenceSummary | N
     if obj["schema"] != "marivo.attribution_evidence/v1" or obj["method"] not in (
         "additive_difference@v1",
         "component_mix@v1",
+        "distinct_membership@v1",
     ):
         raise invalid("unregistered Attribution Evidence method or schema")
     if obj["mapped_membership_contract_id"] != "complete_scope_resolution_rows@v1":
@@ -142,14 +143,19 @@ def decode_attribution_semantics(value: object) -> AttributionSemantics:
         value,
         "kind metric_ref metric_unit numeric_type scope_field_ids axis_field_ids resolution_prefixes current_time_field_name baseline_time_field_name method approximation_class resolution_semantics rollup_safe",
     )
+    match obj["method"]:
+        case "additive_difference@v1" | "component_mix@v1" | "distinct_membership@v1" as method:
+            pass
+        case _:
+            raise invalid("unregistered Attribution method")
+    independent = method == "distinct_membership@v1"
     if (
         obj["kind"] != "attribution/metric@v1"
-        or obj["resolution_semantics"] != "rollup"
-        or obj["rollup_safe"] is not True
+        or obj["resolution_semantics"] != ("independent" if independent else "rollup")
+        or obj["rollup_safe"] is not (not independent)
+        or (independent and obj["numeric_type"] != "float64")
     ):
         raise invalid("unregistered Attribution resolution semantics")
-    if obj["method"] not in ("additive_difference@v1", "component_mix@v1"):
-        raise invalid("unregistered Attribution method")
     if obj["approximation_class"] not in ("exact", "sampled_population"):
         raise invalid("unregistered Attribution approximation class")
     return AttributionSemantics(
@@ -173,10 +179,10 @@ def decode_attribution_semantics(value: object) -> AttributionSemantics:
         baseline_time_field_name=None
         if obj["baseline_time_field_name"] is None
         else _text(obj["baseline_time_field_name"]),
-        method="additive_difference@v1"
-        if obj["method"] == "additive_difference@v1"
-        else "component_mix@v1",
+        method=method,
         approximation_class="exact"
         if obj["approximation_class"] == "exact"
         else "sampled_population",
+        resolution_semantics="independent" if independent else "rollup",
+        rollup_safe=not independent,
     )

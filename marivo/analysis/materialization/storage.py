@@ -572,6 +572,14 @@ def write_local_dataset(
     policy: StoragePolicy = _STORAGE_POLICY,
 ) -> DatasetWriteResult[LocalReceipt]:
     """Write one pre-reserved ordered stream; metadata publication belongs to Runtime."""
+    from marivo.analysis.materialization.retained import membership_role, reject_membership_transfer
+    from marivo.analysis.observation.distinct_contracts import DISTINCT_MEMBERSHIP_CONTRACT_IDS
+
+    if any(
+        membership_role(part.role) or part.contract_id in DISTINCT_MEMBERSHIP_CONTRACT_IDS
+        for part in parts
+    ):
+        reject_membership_transfer()
     staging = _checked_path(project_root, staging_path)
     final = _checked_path(project_root, final_path)
     if staging.exists() or final.exists() or staging == final:
@@ -889,6 +897,19 @@ def read_part_batches(
     policy: ReadPolicy = _READ_POLICY,
 ) -> Iterator[pa.RecordBatch]:
     """Read exactly one registered part; closing early never constitutes validation."""
+    from marivo.analysis.materialization.retained import guard_part_transfer
+
+    guard_part_transfer(part)
+    return _read_part_batches(project_root, part, expected_schema=expected_schema, policy=policy)
+
+
+def _read_part_batches(
+    project_root: Path,
+    part: RetainedPart,
+    *,
+    expected_schema: pa.Schema,
+    policy: ReadPolicy,
+) -> Iterator[pa.RecordBatch]:
     receipt = part.storage_receipt
     if not isinstance(receipt, LocalReceipt):
         _integrity("the local part reader", "non-local part receipt")

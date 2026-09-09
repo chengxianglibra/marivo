@@ -26,6 +26,7 @@ from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
     CompiledDataset,
     CompiledSampleFence,
+    RetainedPartSpec,
 )
 from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
 from marivo.analysis.compiler.placement import (
@@ -709,6 +710,26 @@ class DatasetRuntime:
                     records[value.state.artifact_ref.ref].descriptor for value in retained_inputs
                 ),
             )
+            from marivo.analysis.materialization.retained import (
+                membership_role,
+                reject_membership_transfer,
+                required_part_roles,
+            )
+            from marivo.analysis.observation.distinct_contracts import membership_part_authorities
+
+            if membership_part_authorities(dataset.row_contract) and not isinstance(
+                self.target, EngineTarget
+            ):
+                selection_error(
+                    "a compatible engine target for exact private distinct membership",
+                    "a local or object checkpoint target",
+                )
+            if physical.local_steps and any(
+                membership_role(role)
+                for step in physical.steps
+                for role in required_part_roles(dataset, input_dataset=step.dataset)
+            ):
+                reject_membership_transfer()
             run = self.store.admit(
                 self.session_ref,
                 key,
@@ -803,6 +824,7 @@ class DatasetRuntime:
                                     object_bindings=object_bindings,
                                 )
                             else:
+                                self._require_projected_parts(recipe)
                                 incoming = self._batches(
                                     current_backend,
                                     recipe.expression,
@@ -816,6 +838,7 @@ class DatasetRuntime:
                                         part.column_names,
                                     )
                                     for part in recipe.retained_parts
+                                    if isinstance(part, RetainedPartSpec)
                                 )
                                 phase = "storage_staging"
                                 artifact_ref, storage = self._write_output(
@@ -846,6 +869,9 @@ class DatasetRuntime:
                                     for part in recipe.retained_parts
                                     if part.role in needed_roles
                                 )
+                                self._require_projected_parts(
+                                    replace(recipe, retained_parts=selected_specs)
+                                )
                                 names = tuple(
                                     dict.fromkeys(
                                         (
@@ -853,6 +879,7 @@ class DatasetRuntime:
                                             *(
                                                 name
                                                 for part in selected_specs
+                                                if isinstance(part, RetainedPartSpec)
                                                 for name in part.column_names
                                             ),
                                         )
@@ -964,8 +991,10 @@ class DatasetRuntime:
                         checked_engine_path(
                             self.store.project_root, input_record.descriptor.storage_receipt
                         )
-                        if source_step is not None and isinstance(
-                            source_step.binding, EngineBinding
+                        if any(
+                            value.state.artifact_ref.ref == reference
+                            for boundary in source_steps
+                            for value in artifact_inputs(boundary.dataset)
                         ):
                             from marivo.analysis.materialization.retained import selected_parts
 
@@ -1611,7 +1640,9 @@ class DatasetRuntime:
         from marivo.analysis.materialization.retained import (
             _part_state_columns,
             component_schema,
+            membership_part,
             selected_parts,
+            validate_membership_relation,
         )
         from marivo.analysis.materialization.storage import _integrity
 
@@ -1629,16 +1660,38 @@ class DatasetRuntime:
                     != receipt.schema_fingerprint
                 ):
                     _integrity("the exact immutable part schema", "engine part schema differs")
-                component_schema(descriptor.row_contract, part.role, schema)
+                if membership_part(part):
+                    primary_receipt = descriptor.storage_receipt
+                    if not isinstance(primary_receipt, EngineReceipt):
+                        _integrity(
+                            "an engine primary for private membership", "invalid primary sink"
+                        )
+                    primary = attach_engine_scan(backend, self.store.project_root, primary_receipt)
+                    validate_membership_relation(
+                        backend,
+                        table,
+                        primary,
+                        descriptor.row_contract,
+                        part.role,
+                        self._record_statement,
+                    )
+                else:
+                    component_schema(descriptor.row_contract, part.role, schema)
                 self._record_statement("engine_check.part_count", backend.compile(table.count()))
                 count: object = backend.execute(table.count())
                 if count != receipt.realized_row_count:
                     _integrity("the exact committed part row count", "engine part count differs")
-                required = [
-                    table[name].isnull()
-                    for name, _, nullable in _part_state_columns(descriptor.row_contract, part.role)
-                    if not nullable
-                ]
+                required = (
+                    []
+                    if membership_part(part)
+                    else [
+                        table[name].isnull()
+                        for name, _, nullable in _part_state_columns(
+                            descriptor.row_contract, part.role
+                        )
+                        if not nullable
+                    ]
+                )
                 if required:
                     invalid = required[0]
                     for predicate in required[1:]:
@@ -1732,11 +1785,19 @@ class DatasetRuntime:
         )
 
     @staticmethod
+    def _require_projected_parts(recipe: CompiledDataset) -> None:
+        from marivo.analysis.materialization.retained import reject_membership_transfer
+
+        if any(not isinstance(part, RetainedPartSpec) for part in recipe.retained_parts):
+            reject_membership_transfer()
+
+    @staticmethod
     def _source_local_parts(
         dataset: LogicalDataset, recipe: CompiledDataset
     ) -> tuple[LocalPartInput, ...]:
         from marivo.analysis.materialization.retained import component_schema
 
+        DatasetRuntime._require_projected_parts(recipe)
         schema = recipe.expression.schema().to_pyarrow()
         return tuple(
             LocalPartInput(
@@ -1751,6 +1812,7 @@ class DatasetRuntime:
                 ),
             )
             for part in recipe.retained_parts
+            if isinstance(part, RetainedPartSpec)
         )
 
     def _run_local_graph(

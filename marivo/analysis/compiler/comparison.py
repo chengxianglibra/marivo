@@ -30,7 +30,11 @@ def lower_compare(
     *,
     ordinal_preassigned: bool = False,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
-    """Compose complete exact operands, with action-time contradiction checks."""
+    """Compose exact operands and own their output coordinates and paired times.
+
+    Dependent relations consume these output coordinates, including any preassigned
+    comparison ordinal, instead of independently deriving time alignment.
+    """
     semantics = spec.output_row.family_semantics
     if not isinstance(semantics, DeltaSemantics):
         raise TypeError("comparison requires Delta semantics")

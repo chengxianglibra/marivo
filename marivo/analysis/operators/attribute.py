@@ -72,6 +72,24 @@ GENERATED = (
 
 def attribute_method(authority: MetricFoldAuthorityV1, axes: tuple[str, ...]) -> AttributionMethod:
     """Select the sole admitted arithmetic from closed component and partition proof."""
+    if authority.membership is not None:
+        from marivo.analysis.observation.distinct_contracts import (
+            membership_authority_reason,
+            validate_membership_authority,
+        )
+
+        invalid_reason = None
+        try:
+            validate_membership_authority(authority)
+        except ValueError as error:
+            invalid_reason = membership_authority_reason(error)
+        if invalid_reason is not None:
+            raise attribution_error(
+                "exact reproducible root distinct membership",
+                invalid_reason,
+                repair="Re-observe the count_distinct Metric and rebuild current.compare(baseline).attribute(axes=...). Use a compatible engine target for membership checkpoints.",
+            ) from None
+        return "distinct_membership@v1"
     partitions = dict(authority.axis_partitions)
     if any(partitions.get(axis) not in ("functional", "disjoint") for axis in axes):
         raise attribution_error(
@@ -257,6 +275,8 @@ def attribute(
         baseline_time_field_name=semantics.baseline_time_field_name,
         method=method,
         approximation_class=semantics.approximation_class,
+        resolution_semantics="independent" if method == "distinct_membership@v1" else "rollup",
+        rollup_safe=method != "distinct_membership@v1",
     )
     row = _make_row_contract(
         schema_version=1,
@@ -315,7 +335,10 @@ def validate_attribution(row: DatasetRowContract, rows: DatasetRowSetContract) -
         raise attribution_error("exact Attribution row semantics", "invalid family contract")
     if (
         semantics.numeric_type not in ("int64", "float64", "decimal")
-        or (semantics.method == "component_mix@v1" and semantics.numeric_type != "float64")
+        or (
+            semantics.method in ("component_mix@v1", "distinct_membership@v1")
+            and semantics.numeric_type != "float64"
+        )
         or semantics.approximation_class not in ("exact", "sampled_population")
     ):
         raise attribution_error(
@@ -338,12 +361,14 @@ def validate_attribution(row: DatasetRowContract, rows: DatasetRowSetContract) -
     if (
         semantics.resolution_prefixes != expected_prefixes
         or (hierarchy and len(axes) < 2)
-        or semantics.method not in ("additive_difference@v1", "component_mix@v1")
-        or semantics.resolution_semantics != "rollup"
-        or semantics.rollup_safe is not True
+        or semantics.method
+        not in ("additive_difference@v1", "component_mix@v1", "distinct_membership@v1")
+        or semantics.resolution_semantics
+        != ("independent" if semantics.method == "distinct_membership@v1" else "rollup")
+        or semantics.rollup_safe is not (semantics.method != "distinct_membership@v1")
     ):
         raise attribution_error(
-            "closed additive resolution and method authority", "invalid resolution semantics"
+            "closed method-specific resolution authority", "invalid resolution semantics"
         )
     if row.coordinate_field_ids != (*scope, active, *axes, other) or row.key_field_ids != (
         *scope,

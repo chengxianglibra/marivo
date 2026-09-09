@@ -557,7 +557,7 @@ def _anchor_side(
     )
 
 
-def lower_expanded_attribute(
+def prepare_expanded_attribute(
     original: ir.Table, current: ir.Table, baseline: ir.Table, spec: AttributeSpecV1
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     """Keep original selected coordinates and original paired-time ordinal authority."""
@@ -594,5 +594,13 @@ def lower_expanded_attribute(
                 for name in delta.columns
             }
         )
+    return delta, compare_checks
+
+
+def lower_expanded_attribute(
+    original: ir.Table, current: ir.Table, baseline: ir.Table, spec: AttributeSpecV1
+) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
+    """Apply additive/component attribution to its exact selected expanded Delta."""
+    delta, compare_checks = prepare_expanded_attribute(original, current, baseline, spec)
     result, checks = lower_attribute(delta, spec, original=original)
     return result, (*compare_checks, *checks)

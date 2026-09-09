@@ -1343,6 +1343,23 @@ The side value for a partition is the sum of those allocations, and its
 contribution is current allocated value minus baseline allocated value. Raw keys
 never cross the engine or enter metadata, Evidence, rows, errors, or logs.
 
+The private Slice 5c implementation carries the exact side memberships through
+Metric comparison in `delta.distinct_membership@v1` parts. They retain the
+Delta's selected coordinates and original paired-time ordinals and have their
+own immutable engine receipts. Scalar component parts do not substitute for
+this one-to-many relation. A materialized count-only input remains insufficient.
+Required membership-bearing Metric/Delta checkpoints use the configured engine
+target; final Attribution rows contain only allocated values and may use any
+otherwise admitted target. There is no mixed-sink bundle or storage-dependent
+change to the logical definition.
+
+At each authored Top-K step the score counts distinct keys in the current/baseline
+union within the candidate partition and already-mapped parent. A key appearing
+on both sides is counted once; deeper-axis occurrences do not multiply its score.
+After mapping, every hierarchy prefix independently deduplicates its membership
+and recalculates degree. Repeated source rows, Other consolidation and zero-key
+coordinates therefore cannot silently change the declared allocation rule.
+
 `distribution_shapley@v1` treats the final mapped partitions as players. For a
 coalition `S`, its value is the Metric's registered percentile over current
 distribution state for players in `S` union baseline distribution state for

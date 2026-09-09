@@ -19,7 +19,7 @@ from marivo.analysis.observation.fold_contracts import MetricFoldAuthorityV1, de
 from marivo.analysis.operators.contracts import CompareSpecV1, DeltaSemantics
 from marivo.analysis.operators.errors import attribution_error
 
-AttributionMethod = Literal["additive_difference@v1", "component_mix@v1"]
+AttributionMethod = Literal["additive_difference@v1", "component_mix@v1", "distinct_membership@v1"]
 AttributionMode = Literal["joint", "hierarchy"]
 
 
@@ -66,8 +66,8 @@ class AttributionSemantics(DatasetFamilyRowSemantics, _token=_CORE_TOKEN):
     baseline_time_field_name: str | None
     method: AttributionMethod
     approximation_class: Literal["exact", "sampled_population"]
-    resolution_semantics: Literal["rollup"] = "rollup"
-    rollup_safe: Literal[True] = True
+    resolution_semantics: Literal["rollup", "independent"] = "rollup"
+    rollup_safe: bool = True
     kind: Literal["attribution/metric@v1"] = field(default="attribution/metric@v1", init=False)
 
 

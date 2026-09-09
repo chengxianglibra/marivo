@@ -46,6 +46,7 @@ from marivo.analysis.datasets.registry import (
 from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
 from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.analysis.observation.fold_contracts import (
+    DistinctMembershipAuthorityV1,
     MetricFoldAuthorityV1,
     RetainedFoldPayload,
     decode_fold_authority,
@@ -155,9 +156,9 @@ class ObservationProducerContract:
         if self.contract_stem.startswith("attribution"):
             return ("attribution.reconciliation",)
         if self.producer_id == "metric.compare" or self.producer_id.startswith("delta."):
-            return ("delta.sufficient_components",)
+            return ("delta.sufficient_components", "delta.distinct_membership")
         return (
-            ("metric.sufficient_components",)
+            ("metric.sufficient_components", "metric.distinct_membership")
             if self.producer_id != "metric.compare"
             and (self.producer_id.startswith("metric.") or self.producer_id == "session.observe")
             else ()
@@ -195,6 +196,18 @@ class ObservationProducerContract:
                 if self.producer_id == "population.sample"
                 else "population_identity",
                 "v1",
+            ),
+            *(
+                (
+                    (
+                        "delta.distinct_membership" if comparison else "metric.distinct_membership",
+                        "v1",
+                    ),
+                )
+                if comparison
+                or self.producer_id.startswith("metric.")
+                or self.producer_id == "session.observe"
+                else ()
             ),
         )
 
@@ -531,6 +544,7 @@ class MetricDefinition:
     coordinate_paths: tuple[CoordinatePathBinding, ...] = ()
     aggregation_contracts: tuple[MetricCoordinateAggregationV1, ...] = ()
     temporal_snapshot: PeriodCalendarSnapshotV1 | None = None
+    distinct_memberships: tuple[DistinctMembershipAuthorityV1, ...] = ()
 
     def identity_payload(self) -> CanonicalValue:
         return (
@@ -564,6 +578,7 @@ class MetricDefinition:
             tuple(path.identity_payload() for path in self.coordinate_paths),
             tuple(contract.identity_payload() for contract in self.aggregation_contracts),
             None if self.temporal_snapshot is None else self.temporal_snapshot.snapshot_digest,
+            tuple(item.model_dump_json() for item in self.distinct_memberships),
         )
 
 
