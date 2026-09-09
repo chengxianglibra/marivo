@@ -22,6 +22,7 @@ from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
+from marivo.analysis.operators.candidate_contracts import CandidatePayload
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.analysis.operators.registry import ImplementationRegistration
@@ -165,6 +166,7 @@ def place(
                         AttributePayload,
                         CorrelatePayload,
                         ForecastPayload,
+                        CandidatePayload,
                     ),
                 )
                 else source_binding(value)

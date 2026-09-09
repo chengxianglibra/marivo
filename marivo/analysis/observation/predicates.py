@@ -535,6 +535,7 @@ def bind_predicates(
         )
         from marivo.analysis.operators.attribution_contracts import attribution_filterable_field
         from marivo.analysis.operators.correlate import association_filterable_field
+        from marivo.analysis.operators.discovery import candidate_filterable_field
         from marivo.analysis.operators.forecast import forecast_filterable_field
 
         if (
@@ -543,6 +544,7 @@ def bind_predicates(
             and not attribution_filterable_field(resolved)
             and not association_filterable_field(resolved)
             and not forecast_filterable_field(resolved)
+            and not candidate_filterable_field(resolved)
         ):
             _error("retained Metric, Dimension or exact generated row field", resolved.role_id)
         literal: CanonicalValue

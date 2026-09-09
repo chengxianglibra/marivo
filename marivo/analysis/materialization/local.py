@@ -24,6 +24,7 @@ from marivo.analysis.materialization.storage import (
     _matches_type,
     _normalize_batch,
     _realized_schema,
+    _reason_tuple,
     _RowValidator,
     _to_dataframe,
     _value,
@@ -248,7 +249,12 @@ def validate_frame(
     for field in row.schema.columns:
         dtype = frame[field.name].dtype
         width = _bool_tuple_arity(field.logical_type_id)
-        if width is not None:
+        if field.logical_type_id == "candidate_reasons":
+            if any(_reason_tuple(value) is None for value in frame[field.name]):
+                fail(
+                    "one bounded non-null reason code", "invalid local reasons", "output_validation"
+                )
+        elif width is not None:
             if any(_bool_tuple_value(value, arity=width) is None for value in frame[field.name]):
                 fail("exact non-null boolean mask arity", "invalid local mask", "output_validation")
         elif not isinstance(field.identity, _EntityFieldIdentity) and (

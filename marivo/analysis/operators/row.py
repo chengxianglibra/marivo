@@ -97,10 +97,14 @@ def select_parts(
         AttributionSemantics,
         delta_part_authorities,
     )
+    from marivo.analysis.operators.candidate_contracts import CandidateSemantics
     from marivo.analysis.operators.contracts import DeltaSemantics
     from marivo.analysis.operators.forecast_contracts import ForecastSemantics
 
-    if isinstance(semantics, (AttributionSemantics, AssociationSemantics, ForecastSemantics)):
+    if isinstance(
+        semantics,
+        (AttributionSemantics, AssociationSemantics, ForecastSemantics, CandidateSemantics),
+    ):
         return ()
     if isinstance(semantics, DeltaSemantics):
         retained_roles = {role for role, _ in delta_part_authorities(call.input_row)}
@@ -335,6 +339,7 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
             "attribution.where",
             "association.where",
             "forecast.where",
+            "candidate.where",
         )
         and call.predicate is not None
     ):
@@ -349,6 +354,7 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
         "attribution.rank",
         "association.rank",
         "forecast.rank",
+        "candidate.rank",
     ):
         result = _rank(frame, call)
     elif (
@@ -359,6 +365,7 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
             "attribution.limit",
             "association.limit",
             "forecast.limit",
+            "candidate.limit",
         )
         and call.limit is not None
     ):

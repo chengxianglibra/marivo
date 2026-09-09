@@ -27,12 +27,24 @@ if TYPE_CHECKING:
 
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.analysis.operators.attribution import LogicalAttributionDataset
+    from marivo.analysis.operators.discovery import DeltaDiscovery
 
 
 class LogicalDeltaDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="delta"):
     """Complete logical comparison rows; execution belongs to the runtime."""
 
     __slots__ = ()
+
+    @property
+    def discover(self) -> DeltaDiscovery:
+        """Return the non-callable namespace for time discovery on this Dataset.
+
+        Example: ``dataset.discover.period_shifts()``.
+        Constraints: A time-bearing Delta of one Metric is required; construction performs no data work.
+        """
+        from marivo.analysis.operators.discovery import DeltaDiscovery
+
+        return DeltaDiscovery(self)
 
     def attribute(
         self,
@@ -100,6 +112,17 @@ class MaterializedDeltaDataset(MaterializedDataset, _token=_CORE_TOKEN, family_i
     """Committed immutable comparison rows with original Evidence and Findings."""
 
     __slots__ = ()
+
+    @property
+    def discover(self) -> DeltaDiscovery:
+        """Return the non-callable namespace for time discovery on this Dataset.
+
+        Example: ``dataset.discover.period_shifts()``.
+        Constraints: A time-bearing Delta of one Metric is required; construction performs no data work.
+        """
+        from marivo.analysis.operators.discovery import DeltaDiscovery
+
+        return DeltaDiscovery(self)
 
     def attribute(
         self,

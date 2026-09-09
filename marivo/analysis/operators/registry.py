@@ -18,6 +18,7 @@ from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.private_parts import source_private_part_authorities
 from marivo.analysis.operators.association_contracts import AssociationSemantics, CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributionSemantics
+from marivo.analysis.operators.candidate_contracts import CandidatePayload, CandidateSemantics
 from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
 from marivo.analysis.operators.forecast_contracts import ForecastPayload, ForecastSemantics
 
@@ -35,6 +36,9 @@ class ImplementationRegistration:
 
 _ROW_METHODS = frozenset(
     {
+        "candidate.where",
+        "candidate.rank",
+        "candidate.limit",
         "forecast.where",
         "forecast.rank",
         "forecast.limit",
@@ -65,11 +69,21 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         raise compilation_error("exact registered contract versions", "method version mismatch")
     roles = tuple(item.role for item in root.inputs)
     if dataset._inputs and root.operator_id.startswith(
-        ("metric.", "delta.", "attribution.", "association.", "forecast.")
+        (
+            "metric.",
+            "delta.",
+            "attribution.",
+            "association.",
+            "forecast.",
+            "candidate.",
+            "discover.",
+        )
     ):
         consumer = dataset._registry.consumer(dataset._inputs[0], root.operator_id)
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
+    if isinstance(root.payload, CandidatePayload):
+        return ImplementationRegistration(root.operator_id, roles, None, root.operator_id)
     if isinstance(root.payload, ForecastPayload):
         return ImplementationRegistration(root.operator_id, roles, None, "metric.forecast")
     if isinstance(root.payload, CorrelatePayload):
@@ -110,6 +124,13 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
+    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, CandidatePayload):
+        if len(dataset._inputs) != 1 or registration.local_method != root.operator_id:
+            raise compilation_error(
+                "one registered time discovery input", "invalid Candidate invocation"
+            )
+        admit_retained_rows(dataset._inputs[0])
+        return
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, ForecastPayload):
         if len(dataset._inputs) != 1 or registration.local_method != "metric.forecast":
             raise compilation_error(
@@ -197,6 +218,7 @@ def admit_retained_rows(dataset: Dataset) -> None:
             AttributionSemantics,
             AssociationSemantics,
             ForecastSemantics,
+            CandidateSemantics,
         ),
     ):
         raise compilation_error(

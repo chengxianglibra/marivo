@@ -117,6 +117,11 @@ if TYPE_CHECKING:
         LogicalAttributionDataset,
         MaterializedAttributionDataset,
     )
+    from marivo.analysis.operators.candidate_contracts import CandidateDefinition
+    from marivo.analysis.operators.candidate_dataset import (
+        LogicalCandidateDataset,
+        MaterializedCandidateDataset,
+    )
     from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
     from marivo.analysis.operators.forecast_dataset import (
         LogicalForecastDataset,
@@ -162,6 +167,8 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
+        if self.producer_id.startswith(("discover.", "candidate.")):
+            return ()
         if self.contract_stem.startswith(("association", "forecast")):
             return ()
         if self.producer_id == "population.sample":
@@ -190,6 +197,8 @@ class ObservationProducerContract:
             (self.validation_id, "v1"),
             (self.evidence_id, "v1"),
         )
+        if self.producer_id.startswith(("discover.", "candidate.")):
+            return (*common, ("none", "v1"), ("zero_findings", "v1"))
         if self.contract_stem.startswith("forecast"):
             return (
                 *common,
@@ -242,6 +251,12 @@ class ObservationProducerContract:
 
 
 _PRODUCER_CONTRACTS = (
+    ObservationProducerContract("discover.point_anomalies", "point_anomalies"),
+    ObservationProducerContract("discover.interesting_windows", "interesting_windows"),
+    ObservationProducerContract("discover.period_shifts", "period_shifts"),
+    ObservationProducerContract("candidate.where", "candidate_filter"),
+    ObservationProducerContract("candidate.rank", "candidate_rank"),
+    ObservationProducerContract("candidate.limit", "candidate_limit"),
     ObservationProducerContract("session.population", "population_root"),
     ObservationProducerContract("population.where", "population_filter"),
     ObservationProducerContract("population.sample", "population_sample"),
@@ -289,6 +304,9 @@ class ObservationActionPort(Protocol):
         self, dataset: LogicalPopulationDataset
     ) -> MaterializedPopulationDataset: ...
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset: ...
+    def execute_candidate(
+        self, dataset: LogicalCandidateDataset
+    ) -> MaterializedCandidateDataset: ...
     def execute_forecast(self, dataset: LogicalForecastDataset) -> MaterializedForecastDataset: ...
 
     def execute_association(
@@ -313,6 +331,7 @@ class ObservationRuntimeOwner(DatasetOwner):
 
     action_port: ObservationActionPort = field(kw_only=True)
     comparison_basis_snapshot: str | None = field(default=None, kw_only=True)
+    candidate_definition_snapshot: CandidateDefinition | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -778,6 +797,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         {
             "identity_tuple",
             "bool_tuple",
+            "candidate_reasons",
             "boolean",
             "bool",
             "integer",
@@ -796,13 +816,17 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
     )
     return _StableIdRegistry(
         families=frozenset(
-            {"population", "metric", "delta", "attribution", "association", "forecast"}
+            {"population", "metric", "delta", "attribution", "association", "forecast", "candidate"}
         ),
         shapes=frozenset(
             {
                 *(
                     ("association", shape, 1)
                     for shape in ("entity", "dimension", "time-lag", "dimension-time-lag")
+                ),
+                *(
+                    ("candidate", shape, 1)
+                    for shape in ("point-anomaly", "interesting-window", "period-shift")
                 ),
                 *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
                 ("population", "entity-membership", 1),
@@ -817,6 +841,8 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         ),
         roles=frozenset(
             {
+                "candidate_reason_codes",
+                "candidate_coordinate",
                 "metric_identity",
                 "entity_identity",
                 "metric",
@@ -1262,6 +1288,8 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
 
 
 def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
+    if consumer_id in ("discover.point_anomalies", "discover.interesting_windows"):
+        return sum(field.role_id == "metric" for field in dataset.schema.columns) == 1
     if consumer_id == "metric.forecast":
         return sum(field.role_id == "metric" for field in dataset.schema.columns) == 1
     if consumer_id == "metric.correlate":
@@ -1442,8 +1470,23 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             ("limit", tuple(shape for shape in shapes if shape.local_shape_id != "scalar")),
         )
     )
+    from marivo.analysis.operators.discovery import MetricDiscovery
+
     consumers = (
         *consumers,
+        *(
+            ConsumerRegistration(
+                f"discover.{method}",
+                ("metric_time",),
+                "candidate",
+                tuple(
+                    shape for shape in shapes if shape.local_shape_id in ("time", "dimension-time")
+                ),
+                ("candidate.metric_time@v1",),
+                namespace_type=MetricDiscovery,
+            )
+            for method in ("point_anomalies", "interesting_windows")
+        ),
         ConsumerRegistration(
             "metric.forecast",
             ("input",),
@@ -1508,6 +1551,9 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     from marivo.analysis.operators.forecast import register_forecast
 
     register_forecast(registry, ids)
+    from marivo.analysis.operators.discovery import register_candidate
+
+    register_candidate(registry, ids)
     register_delta(registry, ids)
     register_attribution(registry, ids)
     registry.freeze()
@@ -1524,6 +1570,7 @@ def semantic_dependency_digest(
     from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
     from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.attribution_contracts import AttributePayload
+    from marivo.analysis.operators.candidate_contracts import CandidatePayload
     from marivo.analysis.operators.contracts import ComparePayload
     from marivo.analysis.operators.forecast_contracts import ForecastPayload
 
@@ -1578,6 +1625,8 @@ def semantic_dependency_digest(
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
             )
+        elif isinstance(payload, CandidatePayload):
+            semantic_facts = ("discovery", payload.spec.identity_payload())
         elif isinstance(payload, ForecastPayload):
             semantic_facts = ("metric_forecast", payload.spec.identity_payload())
         elif isinstance(payload, CorrelatePayload):

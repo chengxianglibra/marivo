@@ -70,3 +70,16 @@ def forecast_error(expected: str, received: str) -> ForecastError:
         repair="Use one Metric with complete consecutive history meeting the named model minimum and certified future coverage; repair missing or non-finite values or reduce the horizon.",
         location="dataset.forecast",
     )
+
+
+class CandidateError(DatasetConstructionError):
+    """Discovery lacks an evaluable series or exact Candidate row authority."""
+
+
+def discovery_error(expected: str, received: str) -> CandidateError:
+    return CandidateError(
+        expected=expected,
+        received=received,
+        repair="Use one time-bearing Metric or Delta with sufficient finite non-constant values and registered coordinates; repair gaps or narrow the input within the local budget.",
+        location="dataset.discover",
+    )

@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.analysis.operators.association import LogicalAssociationDataset
     from marivo.analysis.operators.delta import LogicalDeltaDataset
+    from marivo.analysis.operators.discovery import MetricDiscovery
     from marivo.analysis.operators.forecast_dataset import LogicalForecastDataset
 
 PopulationInput: TypeAlias = "LogicalPopulationDataset | MaterializedPopulationDataset | LogicalMetricDataset | MaterializedMetricDataset"
@@ -82,6 +83,17 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
     """Complete logical Metric row meaning without executing contributions."""
 
     __slots__ = ()
+
+    @property
+    def discover(self) -> MetricDiscovery:
+        """Return the non-callable namespace for time discovery on this Dataset.
+
+        Example: ``dataset.discover.point_anomalies()``.
+        Constraints: One time-bearing Metric is required; construction performs no data work.
+        """
+        from marivo.analysis.operators.discovery import MetricDiscovery
+
+        return MetricDiscovery(self)
 
     def forecast(
         self,
@@ -234,6 +246,17 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
     """Retained Metric rows backed by an exact immutable Artifact scan leaf."""
 
     __slots__ = ()
+
+    @property
+    def discover(self) -> MetricDiscovery:
+        """Return the non-callable namespace for time discovery on this Dataset.
+
+        Example: ``dataset.discover.point_anomalies()``.
+        Constraints: One time-bearing Metric is required; construction performs no data work.
+        """
+        from marivo.analysis.operators.discovery import MetricDiscovery
+
+        return MetricDiscovery(self)
 
     def forecast(
         self,

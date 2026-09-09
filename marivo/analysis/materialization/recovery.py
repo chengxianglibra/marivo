@@ -31,6 +31,9 @@ def recover_dataset(
         store_id=store_id,
         action_port=action_port,
         comparison_basis_snapshot=descriptor.comparison_basis,
+        candidate_definition_snapshot=None
+        if descriptor.candidate_evidence is None
+        else descriptor.candidate_evidence.definition,
     )
     state = _materialized_state(
         artifact_ref=ArtifactRef(ref=record.artifact_ref),

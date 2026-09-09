@@ -24,6 +24,7 @@ from marivo.semantic._quantile import approximation_class, decode_approximation
 if TYPE_CHECKING:
     from marivo.analysis.evidence.types import QualitySummary
     from marivo.analysis.materialization.association_codec import AssociationEvidenceSummary
+    from marivo.analysis.materialization.candidate_codec import CandidateEvidenceSummary
     from marivo.analysis.materialization.forecast_codec import ForecastEvidenceSummary
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
@@ -712,6 +713,7 @@ class ArtifactDescriptor:
     attribution_fold_authority: tuple[str, str] | None = None
     association_evidence: AssociationEvidenceSummary | None = None
     forecast_evidence: ForecastEvidenceSummary | None = None
+    candidate_evidence: CandidateEvidenceSummary | None = None
 
     @property
     def row_contract_fingerprint(self) -> str:
@@ -871,9 +873,16 @@ def decode_schema(value: object, ids: d._StableIdRegistry) -> d.DatasetSchema:
 def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
     from marivo.analysis.operators.association_contracts import AssociationSemantics
     from marivo.analysis.operators.attribution_contracts import AttributionSemantics
+    from marivo.analysis.operators.candidate_contracts import CandidateSemantics
     from marivo.analysis.operators.contracts import DeltaSemantics
     from marivo.analysis.operators.forecast_contracts import ForecastSemantics
 
+    if isinstance(value, CandidateSemantics):
+        from marivo.analysis.materialization.candidate_codec import (
+            semantics_payload as candidate_payload,
+        )
+
+        return candidate_payload(value)
     if isinstance(value, ForecastSemantics):
         from marivo.analysis.materialization.forecast_codec import (
             semantics_payload as forecast_payload,
@@ -962,6 +971,12 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
     if not isinstance(value, dict):
         raise invalid("invalid family row semantics")
     kind = value.get("kind")
+    if kind == "candidate/discovery@v1":
+        from marivo.analysis.materialization.candidate_codec import (
+            decode_semantics as decode_candidate,
+        )
+
+        return decode_candidate(value)
     if kind == "forecast/metric@v1":
         from marivo.analysis.materialization.forecast_codec import (
             decode_semantics as decode_forecast,
@@ -1239,6 +1254,9 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         evidence_payload as association_evidence_payload,
     )
     from marivo.analysis.materialization.attribution_codec import attribution_evidence_payload
+    from marivo.analysis.materialization.candidate_codec import (
+        evidence_payload as candidate_evidence_payload,
+    )
     from marivo.analysis.materialization.comparison_codec import (
         comparison_inputs_payload,
         delta_evidence_payload,
@@ -1293,6 +1311,7 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         "attribution_fold_authority": value.attribution_fold_authority,
         "association_evidence": association_evidence_payload(value.association_evidence),
         "forecast_evidence": forecast_evidence_payload(value.forecast_evidence),
+        "candidate_evidence": candidate_evidence_payload(value.candidate_evidence),
     }
 
 
@@ -1306,6 +1325,9 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         decode_evidence as decode_association_evidence,
     )
     from marivo.analysis.materialization.attribution_codec import decode_attribution_evidence
+    from marivo.analysis.materialization.candidate_codec import (
+        decode_evidence as decode_candidate_evidence,
+    )
     from marivo.analysis.materialization.comparison_codec import (
         comparison_basis_text,
         decode_comparison_inputs,
@@ -1323,7 +1345,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     ids = make_ids(())
     obj = _obj(
         parse_json(text),
-        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence",
+        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence",
     )
     if obj["schema"] != "marivo.dataset_artifact_descriptor/v1":
         raise invalid("unsupported Artifact descriptor or sampling contract")
@@ -1417,6 +1439,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         _attribution_fold_pair(obj["attribution_fold_authority"]),
         decode_association_evidence(obj["association_evidence"]),
         decode_forecast_evidence(obj["forecast_evidence"]),
+        decode_candidate_evidence(obj["candidate_evidence"]),
     )
     if result.comparison_basis is not None:
         from marivo.analysis.operators.contracts import decode_comparison_basis
@@ -1461,6 +1484,14 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     )
     if materialization_payload(contract) != materialization_payload(expected_contract):
         raise invalid("unregistered materialization contract")
+    if row.shape_id.family_id == "candidate":
+        from marivo.analysis.materialization.candidate_publication import (
+            validate_descriptor as validate_candidate_descriptor,
+        )
+
+        validate_candidate_descriptor(result)
+    elif result.candidate_evidence is not None:
+        raise invalid("Candidate Evidence outside its family")
     if row.shape_id.family_id == "forecast":
         from marivo.analysis.materialization.forecast_publication import (
             validate_descriptor as validate_forecast_descriptor,
@@ -1979,6 +2010,9 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         evidence_payload as association_evidence_payload,
     )
     from marivo.analysis.materialization.attribution_codec import attribution_evidence_payload
+    from marivo.analysis.materialization.candidate_codec import (
+        evidence_payload as candidate_evidence_payload,
+    )
     from marivo.analysis.materialization.comparison_codec import delta_evidence_payload
     from marivo.analysis.materialization.forecast_codec import (
         evidence_payload as forecast_evidence_payload,
@@ -1996,6 +2030,7 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         or descriptor.attribution_evidence
         or descriptor.association_evidence
         or descriptor.forecast_evidence
+        or descriptor.candidate_evidence
     )
     count = 0 if summary is None else summary.emitted_finding_count
     empty = digest([]) if summary is None else summary.finding_set_digest
@@ -2007,6 +2042,9 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         "finding_set_digest": empty,
         "extractor_contract_versions": versions,
     }
+    if descriptor.candidate_evidence is not None:
+        value["candidate_evidence"] = candidate_evidence_payload(descriptor.candidate_evidence)
+        value["candidate_semantics"] = _semantics_payload(descriptor.row_contract.family_semantics)
     if descriptor.forecast_evidence is not None:
         value["forecast_evidence"] = forecast_evidence_payload(descriptor.forecast_evidence)
         value["forecast_semantics"] = _semantics_payload(descriptor.row_contract.family_semantics)

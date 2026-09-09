@@ -446,6 +446,8 @@ def validate_delta(row: DatasetRowContract, rows: DatasetRowSetContract) -> None
 
 
 def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> None:
+    from marivo.analysis.operators.discovery import DeltaDiscovery
+
     def decode(state: MaterializedDatasetState) -> MaterializedDatasetState:
         _validate_materialized_state(state, ids=ids)
         return state
@@ -462,6 +464,18 @@ def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> N
             ids=ids,
             row_validator=validate_delta,
             consumers=(
+                ConsumerRegistration(
+                    "discover.period_shifts",
+                    ("delta_time",),
+                    "candidate",
+                    tuple(
+                        shape
+                        for shape in shapes
+                        if shape.local_shape_id in ("time", "dimension-time")
+                    ),
+                    ("candidate.delta_time@v1",),
+                    namespace_type=DeltaDiscovery,
+                ),
                 *(
                     ConsumerRegistration(
                         f"delta.{method}",
