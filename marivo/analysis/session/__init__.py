@@ -547,8 +547,11 @@ class _FacadeModule(types.ModuleType):
         # Allow access to dunder names and internal Python machinery
         if name.startswith("__") and name.endswith("__"):
             return object.__getattribute__(self, name)
-        # Allow public names
+        # Resolve instrumentation before the first public session operation.
         if name in _PUBLIC_NAMES:
+            from importlib import import_module
+
+            import_module("marivo.analysis._capabilities.registry")
             return object.__getattribute__(self, name)
         # Allow internal names (test helpers)
         if name in _INTERNAL_NAMES:

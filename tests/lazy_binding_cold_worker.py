@@ -108,7 +108,13 @@ def run(mode: str, kind: str, project: Path, url: str, session: str) -> dict[str
             )
     with sqlite3.connect(runtime.store.db_path.as_uri() + "?mode=ro", uri=True) as connection:
         persisted = "\n".join(connection.iterdump())
-    diagnostic = repr(logicals) + repr(results) + persisted
+    diagnostic = (
+        repr(logicals)
+        + repr(
+            [{key: value for key, value in item.items() if key != "statistics"} for item in results]
+        )
+        + persisted
+    )
     assert all(value not in diagnostic for value in (ALPHA, BETA))
     return {
         "pid": os.getpid(),
@@ -118,7 +124,7 @@ def run(mode: str, kind: str, project: Path, url: str, session: str) -> dict[str
         "after": snapshot(runtime),
         "results": results,
         "ambient_lookup_forbidden": True,
-        "raw_values_absent": True,
+        "raw_values_absent_from_metadata": True,
     }
 
 

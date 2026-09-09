@@ -7,7 +7,6 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
-from marivo.analysis._cumulative import cumulative_compare_blocker
 from marivo.datasource import errors as _datasource_errors
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import Ref, SemanticKind
@@ -1489,6 +1488,8 @@ class CumulativeFrameUnsupportedError(AnalysisError):
         metric_id: str | None,
         cumulative: Mapping[str, object],
     ) -> None:
+        from marivo.analysis._cumulative import cumulative_compare_blocker
+
         base = cumulative.get("base")
         components = cumulative.get("components")
         compare_blocker = (

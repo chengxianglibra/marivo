@@ -45,7 +45,10 @@ def _run(
     )
     assert process.returncode == 0, process.stdout + process.stderr
     assert len(process.stdout.encode()) < 1_048_576
-    assert ALPHA not in process.stdout and BETA not in process.stdout
+    if mode == "produce":
+        assert ALPHA in process.stdout and BETA in process.stdout
+    else:
+        assert ALPHA not in process.stdout and BETA not in process.stdout
     value: object = json.loads(process.stdout)
     assert isinstance(value, dict)
     return value

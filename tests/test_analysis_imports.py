@@ -403,3 +403,30 @@ def test_migration_failed_error_is_removed() -> None:
     import marivo.analysis.errors as errors
 
     assert not hasattr(errors, "MigrationFailedError")
+
+
+def test_private_workers_defer_public_analysis_initialization() -> None:
+    script = """
+import sys
+import marivo.analysis as mv
+from marivo.analysis.materialization import storage, reads, local_worker
+assert 'marivo.analysis._public' not in sys.modules
+assert 'marivo.analysis.frames' not in sys.modules
+assert 'marivo.analysis._capabilities.registry' not in sys.modules
+# A normal session facade access must still install wrappers before invocation.
+assert hasattr(mv.session.get_or_create, '__wrapped__')
+from marivo.analysis.session.core import Session
+assert mv.Session is Session
+assert hasattr(Session.observe, '__wrapped__')
+assert sorted(mv.__all__) == dir(mv)
+assert mv.grain('day').unit == 'day'
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

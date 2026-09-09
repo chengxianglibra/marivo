@@ -21,6 +21,7 @@ def _run_make(
     endpoint: str = "",
     format_failure: bool = False,
     tests: str = "",
+    runtime_workers: int | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
     (directory / "Makefile").write_bytes((_ROOT / "Makefile").read_bytes())
     scripts = directory / "scripts"
@@ -54,8 +55,11 @@ def _run_make(
         MARIVO_CHECK_TEST_LOG=str(log),
         MARIVO_CHECK_FORMAT_FAILURE=str(int(format_failure)),
     )
+    arguments = ["make", "--no-print-directory", target, f"TESTS={tests}"]
+    if runtime_workers is not None:
+        arguments.append(f"RUNTIME_WORKERS={runtime_workers}")
     result = subprocess.run(
-        ["make", "--no-print-directory", target, f"TESTS={tests}"],
+        arguments,
         cwd=directory,
         env=environment,
         capture_output=True,
@@ -111,7 +115,7 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     pytest_commands = [command for command in commands if command[0] == "pytest"]
     assert len(pytest_commands) == 3
     assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5"]
-    assert pytest_commands[1] == ["pytest", "-m", "runtime"]
+    assert pytest_commands[1] == ["pytest", "-m", "runtime", "-n", "2"]
     assert pytest_commands[2][:5] == ["pytest", "-n", "0", "-m", "release"]
     assert "tests/focused.py::test_one" not in pytest_commands[2]
     assert ["python", "-m", "build", "--outdir", "dist/pypi"] in commands
@@ -129,3 +133,16 @@ def test_runtime_debugging_keeps_the_requested_test(tmp_path: Path, target: str)
     marker_index = command.index("-m")
     assert command[marker_index + 1] == "runtime"
     assert command[-3:] == ["-n", "0", selected]
+
+
+@pytest.mark.parametrize("target", ("runtime-test", "runtime-test-agent"))
+@pytest.mark.parametrize("workers", (None, 4))
+def test_runtime_workers_are_bounded_and_overridable(
+    tmp_path: Path, target: str, workers: int | None
+) -> None:
+    result, commands = _run_make(
+        tmp_path, target, tests="tests/focused.py", runtime_workers=workers
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(commands) == 1
+    assert commands[0][-3:] == ["-n", str(2 if workers is None else workers), "tests/focused.py"]

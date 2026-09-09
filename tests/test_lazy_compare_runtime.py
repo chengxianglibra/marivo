@@ -145,10 +145,14 @@ def test_all_admitted_shapes_and_operand_states(tmp_path: Path, shape: Shape, st
         if states in ("LM", "ML"):
             statements = tuple(name for name, _ in runtime.statistics.statements)
             assert "engine_check.part_schema" in statements
+            assert "validation_batch" in statements
+            record = runtime.store.artifact(result.state.artifact_ref.ref)
+            assert record is not None
             assert any(
-                name.startswith("validation:metric_components.")
+                name.startswith("metric_components.")
                 and name.endswith(".primary_value_reconciliation")
-                for name in statements
+                for name, violations in record.descriptor.population_authority.validation_results
+                if violations == 0
             )
     if "time" in shape:
         assert frame["comparison_ordinal"].nunique() == 1

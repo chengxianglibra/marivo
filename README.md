@@ -206,8 +206,11 @@ Use
 `make runtime-test TESTS='tests/test_lazy_local_execution.py'` for a focused
 Runtime test only when needed to verify the development change; daily development
 does not automatically run the full Runtime suite. `runtime-test-agent` provides
-compact output for the same selected scope. Tests use work-stealing across workers
-to avoid slow-module tails.
+compact output for the same selected scope. Both Runtime targets default to two
+workers; use `RUNTIME_WORKERS=4` to override after measuring available host capacity.
+An explicit test node id containing `::` runs serially. The limit applies per
+invocation, so concurrent test tasks share the host's remaining capacity.
+Tests use work-stealing across workers to avoid slow-module tails.
 Typing remains strict and incremental; cache misses run the full check.
 Installed-environment fingerprints run with the packaging checks in
 `make release-test`. Statistical dependencies load when their operation runs,

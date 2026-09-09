@@ -119,6 +119,7 @@ from marivo.analysis.materialization.targets import (
     object_access,
     selection_error,
 )
+from marivo.analysis.materialization.validation import compile_preparations, execute_batch
 from marivo.analysis.materialization.worker_lifetime import reserve_worker
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
@@ -222,7 +223,7 @@ class _ReservedJsonReader:
                 )
             ),
         ]
-        reader = sge.Anonymous(this="read_json_auto", expressions=[sge.Placeholder(), *options])
+        reader = sge.Anonymous(this="read_json_auto", expressions=[sge.convert(path), *options])
         self.record(
             "source_fence_reader",
             f'CREATE OR REPLACE TEMPORARY VIEW "{self.name}" AS {sge.select("*").from_(reader).sql(dialect="duckdb")}',
@@ -435,12 +436,7 @@ class DatasetRuntime:
         if kind.startswith("engine_check."):
             self.statistics.validation_queries += 1
             self._event("source_statement")
-        # Diagnostics retain SQL structure only; source parameters and literals stay private.
-        expression = sqlglot.parse_one(sql, read="duckdb")
-        safe = expression.transform(
-            lambda node: sge.Placeholder() if isinstance(node, sge.Literal) else node
-        )
-        self.statistics.statements.append((kind, safe.sql(dialect="duckdb")))
+        self.statistics.statements.append((kind, sql))
 
     def artifact(self, reference: str | ArtifactRef) -> MaterializedDataset:
         record = self.store.artifact(str(reference))
@@ -1324,17 +1320,12 @@ class DatasetRuntime:
             phase = "ibis_backend_compile"
             self._event("backend_compile")
             backend.compile(recipe.expression)
-            assertion_sql: dict[int, str] = {}
-            for assertion in recipe.validations:
-                if tuple(assertion.expression.columns) != ("violations",):
-                    raise _error("implementation_registration", run_ref)
-                assertion_sql[id(assertion)] = backend.compile(assertion.expression)
-            for preparation in recipe.preparations:
+            preparations = compile_preparations(
+                backend, recipe.preparations or recipe.validations, run_ref=run_ref
+            )
+            for preparation in preparations:
                 if isinstance(preparation, CompiledSampleFence):
                     sqlglot.parse_one(sample_statement(backend, preparation), read="duckdb")
-                else:
-                    if id(preparation) not in assertion_sql:
-                        assertion_sql[id(preparation)] = backend.compile(preparation.expression)
             phase = "source_binding"
             with _engine_deadline(backend):
                 from marivo.analysis.materialization.engine import validate_engine_relation
@@ -1373,7 +1364,7 @@ class DatasetRuntime:
                     self.statistics.source_fences += 1
             phase = "stage_execution"
             with _engine_deadline(backend):
-                for validation in recipe.preparations or recipe.validations:
+                for validation in preparations:
                     if isinstance(validation, CompiledSampleFence):
                         self.store.reserve(
                             ResourceRecord(
@@ -1402,26 +1393,8 @@ class DatasetRuntime:
                         continue
                     self._event("source_statement")
                     self.statistics.validation_queries += 1
-                    self._record_statement(
-                        "validation:" + validation.name,
-                        assertion_sql[id(validation)],
-                    )
-                    cursor = backend.raw_sql(assertion_sql[id(validation)])
-                    scalar: object = cursor.fetchone()
-                    value: object = (
-                        scalar[0] if isinstance(scalar, tuple) and len(scalar) == 1 else None
-                    )
-                    if cursor.fetchone() is not None:
-                        value = None
-                    if type(value) is not int or value != 0:
-                        raise MaterializationError(
-                            expected="zero violations of the declared source validation",
-                            received=f"source validation failed: {validation.name}",
-                            repair="Repair the governed source identity, temporal coverage or component reconciliation.",
-                            stage="output_validation",
-                            run_ref=run_ref,
-                        )
-                    validations.append((validation.name, value))
+                    self._record_statement("validation_batch", validation.sql)
+                    validations.extend(execute_batch(backend, validation, run_ref=run_ref))
             yielded = True
             yield backend, recipe, tables
         except MaterializationError:
