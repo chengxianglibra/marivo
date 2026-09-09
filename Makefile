@@ -19,6 +19,7 @@ VENV_TWINE := $(VENV_BIN)/twine$(EXE_SUFFIX)
 MYPY_PYTHON_VERSION ?= 3.10
 TYPECHECK_TARGETS ?= marivo tests/typing
 LINT_TARGETS ?= .
+RUNTIME_WORKERS ?= 2
 
 PYTEST_FLAGS := -q --tb=short --maxfail=5
 MYPY_FLAGS := --no-pretty --no-color-output --no-warn-unused-configs
@@ -32,11 +33,11 @@ test:
 
 runtime-test:
 	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) -m runtime $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
+	@$(VENV_PYTEST) -m runtime -n $(if $(findstring ::,$(TESTS)),0,$(RUNTIME_WORKERS)) $(TESTS)
 
 runtime-test-agent:
 	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) $(PYTEST_FLAGS) -m runtime $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -m runtime -n $(if $(findstring ::,$(TESTS)),0,$(RUNTIME_WORKERS)) $(TESTS)
 
 release-test: pypi-build pypi-check
 	@./scripts/require-venv.sh pytest

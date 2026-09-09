@@ -308,7 +308,9 @@ def test_json_capture_survives_scope_exit_and_changed_capture_separates_key(tmp_
         assert len(server.requests) == requests + 1
 
 
-def test_captured_values_and_injected_errors_are_redacted_from_every_chain(tmp_path: Path) -> None:
+def test_raw_statement_diagnostics_keep_bindings_out_of_persisted_state_and_errors(
+    tmp_path: Path,
+) -> None:
     canary = "private-tenant-canary-79c941e0"
     database = tmp_path / "warehouse.duckdb"
     seed_execution_database(database)
@@ -322,27 +324,29 @@ def test_captured_values_and_injected_errors_are_redacted_from_every_chain(tmp_p
         assert materialized.to_pandas().loc[0, "api_value"] == 12
         assert canary not in _metadata(runtime)
         assert canary not in repr(dataset) + repr(dataset._root) + repr(materialized)
-        assert canary not in repr(runtime.statistics)
+        reader_sql = next(
+            sql for kind, sql in runtime.statistics.statements if kind == "source_fence_reader"
+        )
+        assert canary in reader_sql
         statement_kinds = [kind for kind, _ in runtime.statistics.statements]
         assert statement_kinds.count("source_fence_reader") == 1
         assert statement_kinds.count("source_fence") == 1
         assert statement_kinds.count("primary") == runtime.statistics.primary_queries == 1
         assert statement_kinds.count("transfer_guard") == 1
-        validation_kinds = {kind for kind in statement_kinds if kind.startswith("validation:")}
-        assert validation_kinds == {
-            "validation:sales.api.identity_non_null",
-            "validation:sales.api.source_row_unique",
-            "validation:dataset.final_row_key_unique",
-        }
+        assert statement_kinds.count("validation_batch") == 1
         record = runtime.store.artifact(materialized.state.artifact_ref.ref)
         assert record is not None
-        assert validation_kinds == {
-            "validation:" + name
+        assert {
+            "sales.api.identity_non_null",
+            "sales.api.source_row_unique",
+            "dataset.final_row_key_unique",
+        } == {
+            name
             for name, violations in record.descriptor.population_authority.validation_results
             if violations == 0
         }
         assert runtime.statistics.validation_queries == sum(
-            kind.startswith("validation:") or kind in {"source_schema", "transfer_guard"}
+            kind in {"validation_batch", "source_schema", "transfer_guard"}
             for kind in statement_kinds
         )
 

@@ -13,13 +13,13 @@ from multiprocessing import Pipe
 from multiprocessing.connection import Connection
 from pathlib import Path
 from threading import Event, Lock, Thread
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
-from marivo.analysis.materialization.attribution_publication import AttributionSourceSummary
 from marivo.analysis.materialization.contracts import LocalReceipt, RetainedPart
 from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.materialization.local import (
@@ -36,6 +36,7 @@ from marivo.analysis.materialization.local import (
     to_part_frame,
     validate_frame,
 )
+from marivo.analysis.materialization.process_memory import resident_bytes as _rss
 from marivo.analysis.materialization.retained import checked_component_batches
 from marivo.analysis.materialization.storage import (
     ReadPolicy,
@@ -52,6 +53,9 @@ from marivo.analysis.operators.attribution_contracts import AttributeSpecV1
 from marivo.analysis.operators.contracts import CompareSpecV1
 from marivo.analysis.operators.errors import AttributionError, ComparisonError, RowValueError
 from marivo.analysis.operators.row import PartFrame, RowCall
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.attribution_publication import AttributionSourceSummary
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -574,16 +578,6 @@ def worker_entry() -> None:
 _WORKER_CODE = (
     "from marivo.analysis.materialization.local_worker import worker_entry; worker_entry()"
 )
-
-
-def _rss(pid: int) -> int:
-    value = subprocess.run(
-        ["ps", "-o", "rss=", "-p", str(pid)],
-        capture_output=True,
-        timeout=0.5,
-        check=False,
-    )
-    return int(value.stdout.strip() or b"0") * 1024
 
 
 class _LifetimeDescriptors:

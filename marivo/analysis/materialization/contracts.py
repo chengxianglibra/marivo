@@ -10,15 +10,17 @@ from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Literal, TypeAlias, cast, get_args
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast, get_args
 
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import BoundedLineage, CanonicalValue
 from marivo.analysis.errors import AnalysisRepair
-from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.render import Card, RenderableResult
+
+if TYPE_CHECKING:
+    from marivo.analysis.evidence.types import QualitySummary
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_PAYLOAD_BYTES = 1_048_576
@@ -1236,6 +1238,7 @@ def encode_descriptor(value: ArtifactDescriptor) -> str:
 
 
 def decode_descriptor(text: str) -> ArtifactDescriptor:
+    from marivo.analysis.evidence.types import QualitySummary
     from marivo.analysis.materialization.attribution_codec import decode_attribution_evidence
     from marivo.analysis.materialization.comparison_codec import (
         comparison_basis_text,

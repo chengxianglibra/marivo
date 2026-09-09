@@ -151,11 +151,14 @@ make runtime-test
 make check
 ```
 
-`make test` 运行日常回归测试，`make runtime-test` 保留多阶段分析、真实数据源及 worker
-和进程恢复集成测试；`make check` 覆盖两者。`test-agent`、`runtime-test-agent`
-及 `typecheck-agent` 执行相同检查，仅精简输出。单独运行 runtime 用例请使用
-`make runtime-test TESTS='tests/test_lazy_local_execution.py'`。测试采用 work-stealing
-调度以减少慢模块拖尾。类型检查保持严格增量模式，缓存失效时执行全量检查。
+`make test` 运行日常回归测试；`make check` 和 `make check-agent` 合并日常测试、
+静态检查和 API 文档检查。完整 Runtime 验收由 `make release-check` 执行。
+日常开发按需使用 `make runtime-test TESTS='tests/test_lazy_local_execution.py'`；
+`runtime-test-agent` 为同一范围提供精简输出。这两个 Runtime 入口默认使用两个
+worker，可在测量主机可用容量后通过 `RUNTIME_WORKERS=4` 覆盖。含 `::` 的单个
+测试节点仍串行执行。并发数限制针对每次调用，同机多个测试任务仍共享主机资源。
+测试采用 work-stealing 调度以减少慢模块拖尾。类型检查保持严格增量模式，
+缓存失效时执行全量检查。
 安装环境指纹随 `make release-test` 的打包检查运行。统计依赖在对应操作执行时加载，
 普通 worker 启动不再导入 SciPy 的统计包。
 

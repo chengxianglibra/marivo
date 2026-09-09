@@ -868,6 +868,17 @@ Exceptions do not prove database rollback or backend termination. Uncertain
 commit acknowledgement follows Store readback; surviving external work follows
 reconciliation before another execution is admitted.
 
+Consecutive source validation relations compile and execute as one shared Ibis
+union, ordered by validation ordinal. Every check still produces its own named
+zero-violation receipt; missing, duplicate, non-integer or nonzero scalar results
+fail at the owning check. Successful results retain their original check order.
+Native SQL failures abort the action without retrying individual checks.
+Sampling fences split these batches: pre-sampling checks finish before the fence
+is reserved or created, and dependent checks execute only after its realization.
+Execution-local `validation_queries` counts physical batch queries, while the
+Artifact's validation results retain the individual logical checks. Statement
+statistics record the shared SQL once as `validation_batch`.
+
 ### Materialized read lifecycle
 
 `MaterializedDataset.show()` validates selected metadata and accessed primary
@@ -994,7 +1005,10 @@ error, telemetry record, or persisted Dataset
 definition. User-visible and audit surfaces may contain only exact
 Entity/parameter identities and a bounded redacted projection. The internal
 definition and Artifact execution-key row may contain the opaque digest but
-never the values. Credentials remain in the datasource credential contract and
+never the values. Private execution-local statement statistics retain the original
+SQL, including bound literals, without redaction or SQL parsing. These statistics
+are not persisted or included in the public result surfaces above.
+Credentials remain in the datasource credential contract and
 are never accepted as source bindings.
 
 ### Semantic dependency authority
@@ -1161,7 +1175,20 @@ process RSS; numerical allocation and cancellation
 require separate implementation evidence.
 
 Hard-deadline pandas and numerical work runs behind a terminable worker boundary
-with cleanup and terminal-state proof. Checking the clock only after a blocking
+with cleanup and terminal-state proof. Private worker imports defer public Frame,
+Help and telemetry initialization until a public analysis consumer requests them;
+public functions and session operations still initialize their instrumentation
+before invocation. Receipt decoding and Attribution execution load their owned
+metadata models only when consumed. This changes bootstrap cost, not process
+isolation, receipt validation or worker lifetime.
+
+The parent samples worker RSS through Darwin task information or Linux procfs,
+without spawning a monitor process on each poll. Other POSIX platforms retain
+the bounded `ps` probe. Native probe failure aborts supervision; only an exited
+process reports zero. Poll cadence, worker-reported peak RSS, deadlines and
+termination proof remain enforced.
+
+Checking the clock only after a blocking
 library call returns is insufficient. A configured DuckDB datasource obeys its
 normal datasource-engine controls; Runtime never creates a separate DuckDB
 analysis workspace. Required local/object Artifact payload exceeding the pandas
@@ -2230,6 +2257,11 @@ and implementation versions during an invocation. They create no Store state,
 public result type, or success prerequisite. Formatting or emitting diagnostics
 cannot invalidate a committed result. Safe output excludes SQL, credentials,
 raw identities, complete plans, temporary locators, and private buffers.
+
+The private `DatasetRuntime.statistics.statements` list is a separate in-process
+debugging surface: it retains statement kind and original SQL verbatim, including
+literals and source parameters. Recording performs no parse, transform, or render
+pass. It does not add SQL to Store records, cards, errors, or telemetry.
 
 ### Artifact cards and contracts
 

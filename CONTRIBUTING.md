@@ -151,6 +151,11 @@ make test TESTS='tests/test_sessions.py::SessionAPITests::test_get_session_after
 日常开发仅在修改需要时执行相关的 `runtime-test TESTS=...`；不自动执行完整
 Runtime suite。`runtime-test-agent` 为同一指定范围提供精简输出。
 
+Runtime Make targets default to two workers to leave capacity for their nested
+execution and read subprocesses. Use `RUNTIME_WORKERS=<count>` to override the
+per-invocation limit after measuring host capacity. Explicit `TESTS` node ids
+containing `::` run serially. Account for other concurrent test tasks on the host.
+
 `make check` 和 `make check-agent` 均不执行完整 Runtime suite。完整多阶段分析、
 真实数据源、worker 和进程恢复验收归入发布准备与发布 CI，由 `make release-check`
 连同日常检查、安装和打包检查一起执行。发布前必须显式配置健康、隔离的 MinIO
@@ -161,7 +166,8 @@ Runtime suite。`runtime-test-agent` 为同一指定范围提供精简输出。
 验收不能因缺少 endpoint 而跳过。
 
 For test performance investigations, measure the same suite with
-`.venv/bin/pytest -n 8 --durations=40`. Compiler oracle tests can use
+`.venv/bin/pytest -m runtime -n 2 --durations=40 <selected-tests>`, then compare
+explicit worker counts and simultaneous invocations. Compiler oracle tests can use
 `assert_compiled_validations` from `tests/lazy_execution_fixtures.py` to check
 every named validation in one query without repeatedly compiling shared Ibis
 nodes. Keep independent budget checks parametrized so xdist can distribute them.

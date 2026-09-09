@@ -4513,3 +4513,9 @@ def _generate_algebra_rows(
 # ---------------------------------------------------------------------------
 
 REGISTRY: CapabilityRegistry = _build_registry()
+
+
+# Install after registry validation, which resolves public parameter types.
+from marivo.analysis._public import _install_telemetry  # noqa: E402
+
+_install_telemetry()
