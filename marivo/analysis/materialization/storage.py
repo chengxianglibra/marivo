@@ -437,6 +437,9 @@ class _RowValidator:
             self.terms = tuple(
                 (by_id[term.field_id], term.direction, term.nulls) for term in rows.ordering.terms
             )
+        from marivo.analysis.operators.association_contracts import association_orders
+
+        self.authored_orders = association_orders(contract, rows)
         self.contract = contract
         self.rows = rows
         self.attribution_masks: tuple[tuple[bool, ...], ...] | None = None
@@ -507,10 +510,18 @@ class _RowValidator:
             )
             if self.previous is not None:
                 comparison = 0
-                for left, right, (_, direction, nulls) in zip(
+                for left, right, (name, direction, nulls) in zip(
                     self.previous, ordered, self.terms, strict=True
                 ):
-                    comparison = _compare(left, right, nulls=nulls)
+                    if name in self.authored_orders:
+                        values = self.authored_orders[name]
+                        if left not in values or right not in values:
+                            _fail("authored Association coordinate", "unknown ordering value")
+                        comparison = (values.index(left) > values.index(right)) - (
+                            values.index(left) < values.index(right)
+                        )
+                    else:
+                        comparison = _compare(left, right, nulls=nulls)
                     if direction == "descending" and left is not None and right is not None:
                         comparison = -comparison
                     if comparison:

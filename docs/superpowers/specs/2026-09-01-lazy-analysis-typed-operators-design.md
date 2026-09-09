@@ -784,6 +784,16 @@ integer bucket offsets. Positive lag means Metric A leads Metric B. Entity and
 Dimension shapes reject an explicit lag range, including `range(0, 1)`, because
 they carry no time-order authority.
 
+The 2026-09-09 owner amendment fixes lag alignment to bucket coordinates:
+positive offset k pairs A(t) with B(t+k) using the bound grain, timezone and
+certified calendar authority. Missing buckets are neither imputed nor collapsed
+into adjacent retained-row positions. Cold inputs use retained authority only.
+Within each series, `input_observation_count` counts the current input buckets;
+`matched_observation_count` counts coordinate matches before null deletion, and
+`lag_boundary_drop_count` is input minus matched, including missing-coordinate
+loss. `null_pair_count + complete_pair_count = matched_observation_count`.
+Non-lag rows use the same pairwise deletion with input equal to matched count.
+
 The product of unordered Metric pairs, normalized lags, and Dimension series
 must have a statically bounded candidate ceiling when known and an enforced
 action-time ceiling otherwise. The first-cutover hard maximum is 4,096
@@ -845,6 +855,15 @@ Association Dataset. Exactly one valid candidate is selected by:
 
 Invalid lag rows remain published beside the selected row so boundary loss,
 null loss, and constant inputs remain auditable.
+
+The registered selection-rule id is
+`association.max_abs_coefficient_min_abs_lag_min_signed_lag@v1`. Association
+Evidence stores this id and the ordered Metric-pair approximation bindings;
+each binding names Metric A and B with their individual approximation classes.
+Cold decoding validates these bindings against the retained row semantics.
+Finding eligibility, emitted count and truncation follow the shared Finding
+cap below and are explicitly disclosed even when all Association rows remain
+available in the Artifact.
 
 These are descriptive coefficients over the exact aligned retained rows.
 Dimension-bucket association is not individual-Entity association, and time

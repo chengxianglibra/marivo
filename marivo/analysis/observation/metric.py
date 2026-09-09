@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
+    from marivo.analysis.operators.association import LogicalAssociationDataset
     from marivo.analysis.operators.delta import LogicalDeltaDataset
 
 PopulationInput: TypeAlias = "LogicalPopulationDataset | MaterializedPopulationDataset | LogicalMetricDataset | MaterializedMetricDataset"
@@ -75,6 +76,22 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
     """Complete logical Metric row meaning without executing contributions."""
 
     __slots__ = ()
+
+    def correlate(
+        self,
+        *,
+        method: Literal["pearson", "spearman", "kendall"] = "pearson",
+        lag_range: range | None = None,
+    ) -> LogicalAssociationDataset:
+        """Describe association among the current quantitative Metric bindings.
+
+        Args: method: Pearson, Spearman or Kendall tau-b. lag_range: Signed bucket offsets.
+        Returns: Logical Association. Example: ``metrics.correlate(method="spearman")``.
+        Constraints: 2-16 Metrics; explicit lags require a bound time coordinate.
+        """
+        from marivo.analysis.operators.correlate import correlate
+
+        return correlate(self, method=method, lag_range=lag_range)
 
     def compare(
         self,
@@ -194,6 +211,22 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
     """Retained Metric rows backed by an exact immutable Artifact scan leaf."""
 
     __slots__ = ()
+
+    def correlate(
+        self,
+        *,
+        method: Literal["pearson", "spearman", "kendall"] = "pearson",
+        lag_range: range | None = None,
+    ) -> LogicalAssociationDataset:
+        """Describe association among the current quantitative Metric bindings.
+
+        Args: method: Pearson, Spearman or Kendall tau-b. lag_range: Signed bucket offsets.
+        Returns: Logical Association. Example: ``metrics.correlate(method="spearman")``.
+        Constraints: 2-16 Metrics; explicit lags require a bound time coordinate.
+        """
+        from marivo.analysis.operators.correlate import correlate
+
+        return correlate(self, method=method, lag_range=lag_range)
 
     def compare(
         self,

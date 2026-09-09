@@ -49,9 +49,19 @@ from marivo.analysis.materialization.worker_lifetime import (
     acquire_worker_lifetime,
     validate_worker_lifetime,
 )
+from marivo.analysis.operators.association_contracts import (
+    AssociationSearchSummary,
+    CorrelateSpecV1,
+    candidate_count,
+)
 from marivo.analysis.operators.attribution_contracts import AttributeSpecV1
 from marivo.analysis.operators.contracts import CompareSpecV1
-from marivo.analysis.operators.errors import AttributionError, ComparisonError, RowValueError
+from marivo.analysis.operators.errors import (
+    AttributionError,
+    ComparisonError,
+    CorrelationError,
+    RowValueError,
+)
 from marivo.analysis.operators.row import PartFrame, RowCall
 
 if TYPE_CHECKING:
@@ -85,7 +95,7 @@ class ArtifactInput:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class LocalRequest:
-    input: StreamInput | ArtifactInput | CoalitionInput
+    input: StreamInput | ArtifactInput | CoalitionInput | PairInput
     calls: tuple[RowCall, ...]
     policy: LocalPolicy
     deadline: float
@@ -110,6 +120,7 @@ class LocalResult:
     worker_pid: int
     parts: tuple[LocalPartResult, ...] = ()
     attribution_summary: AttributionSourceSummary | None = None
+    association_summary: AssociationSearchSummary | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -147,6 +158,14 @@ def _part_to_arrow(part: PartFrame) -> pa.Table:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class PairInput:
+    """Complete source-certified numeric pairs without Entity identity."""
+
+    spec: CorrelateSpecV1
+    expected_rows: int
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class CoalitionInput:
     """Closed numerical preparation input; never an Artifact or Dataset row contract."""
 
@@ -157,7 +176,7 @@ class CoalitionInput:
 @dataclass(frozen=True, slots=True, repr=False)
 class LocalBoundary:
     output: int
-    input: StreamInput | ArtifactInput | CoalitionInput
+    input: StreamInput | ArtifactInput | CoalitionInput | PairInput
     parts: tuple[LocalPartInput, ...] = ()
 
 
@@ -165,7 +184,7 @@ class LocalBoundary:
 class LocalStage:
     output: int
     inputs: tuple[int, ...]
-    call: RowCall | CompareSpecV1 | AttributeSpecV1
+    call: RowCall | CompareSpecV1 | AttributeSpecV1 | CorrelateSpecV1
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -188,6 +207,7 @@ class _Frames:
     frame: pd.DataFrame
     parts: tuple[PartFrame, ...]
     schema: pa.Schema
+    pair_preparation: bool = False
 
     @property
     def size(self) -> int:
@@ -196,33 +216,39 @@ class _Frames:
 
 def _collect_input(
     connection: Connection,
-    selected: StreamInput | ArtifactInput | CoalitionInput,
+    selected: StreamInput | ArtifactInput | CoalitionInput | PairInput,
     parts: tuple[LocalPartInput, ...],
     budget: LocalBudget,
 ) -> tuple[_Frames, int]:
-    if isinstance(selected, CoalitionInput):
+    if isinstance(selected, (CoalitionInput, PairInput)):
         from marivo.analysis.operators.distribution_values import validate_coalition_schema
 
+        input_kind = "pair" if isinstance(selected, PairInput) else "coalition"
         if parts:
-            fail("coalition-only numerical input", "unexpected retained parts")
+            fail(f"{input_kind}-only numerical input", "unexpected retained parts")
         batches = []
         schema = None
         count = 0
         for batch in _batches(connection):
             batch = _normalize_batch(batch, budget.policy.max_batch_bytes)
-            validate_coalition_schema(batch.schema, selected.spec)
+            if isinstance(selected, PairInput):
+                from marivo.analysis.operators.association_values import validate_pair_schema
+
+                validate_pair_schema(batch.schema, selected.spec)
+            else:
+                validate_coalition_schema(batch.schema, selected.spec)
             if schema is not None and not schema.equals(batch.schema):
-                fail("one stable coalition schema", "changed coalition schema")
+                fail(f"one stable {input_kind} schema", f"changed {input_kind} schema")
             schema = batch.schema
             count += batch.num_rows
             if count > min(budget.policy.max_input_rows, budget.policy.max_method_rows):
-                fail("complete coalition inputs within budget", "coalition row overflow")
+                fail(f"complete {input_kind} inputs within budget", f"{input_kind} row overflow")
             budget.input(batch.nbytes)
             batches.append(batch)
         if schema is None or count != selected.expected_rows:
             fail(
-                "complete coalition stream with source-certified row count",
-                "missing coalition rows or schema",
+                f"complete {input_kind} stream with source-certified row count",
+                f"missing {input_kind} rows or schema",
             )
         table = pa.Table.from_batches(batches, schema=schema)
         budget.allocation(table.nbytes * 8 + count * 4096)
@@ -230,7 +256,7 @@ def _collect_input(
         size = frame_bytes(frame)
         budget.allocation(size)
         budget.live_bytes += size
-        return _Frames(frame, (), schema), count
+        return _Frames(frame, (), schema, isinstance(selected, PairInput)), count
     if len({part.role for part in parts}) != len(parts):
         fail("one input per selected retained role", "duplicate part input")
     policy = budget.policy
@@ -324,7 +350,12 @@ def _collect_input(
 def _execute_graph(
     connection: Connection, request: LocalGraphRequest, budget: LocalBudget
 ) -> tuple[
-    _Frames, tuple[tuple[int, int], ...], int, DatasetRowContract, AttributionSourceSummary | None
+    _Frames,
+    tuple[tuple[int, int], ...],
+    int,
+    DatasetRowContract,
+    AttributionSourceSummary | None,
+    AssociationSearchSummary | None,
 ]:
     from marivo.analysis.operators.attribute_values import execute_attribute
     from marivo.analysis.operators.compare import execute_compare
@@ -348,6 +379,7 @@ def _execute_graph(
     handoffs: list[tuple[int, int]] = []
     output_row: DatasetRowContract | None = None
     attribution_summary: AttributionSourceSummary | None = None
+    association_summary: AssociationSearchSummary | None = None
     for stage in request.stages:
         budget.check()
         if stage.output in values or any(key not in values for key in stage.inputs):
@@ -366,6 +398,51 @@ def _execute_graph(
             value = _Frames(result, parts, source.schema)
             del parts
             handoffs.extend(transfers)
+            output_row = call.output_row
+            del source
+        elif isinstance(call, CorrelateSpecV1):
+            from marivo.analysis.operators.association_values import execute_pairs, prepare_local
+
+            if len(incoming) != 1:
+                fail("one complete correlation input", "invalid correlation arity")
+            source = incoming[0]
+            count = len(source.frame)
+            multiplier = candidate_count(len(call.metric_names), len(call.semantics.lag_offsets))
+            prepared = source.pair_preparation
+            problem_rows = (
+                sum(
+                    int(value)
+                    for value in source.frame.drop_duplicates(
+                        [*call.dimensions, "metric_key_a", "metric_key_b", "lag_offset"]
+                    ).input_observation_count.tolist()
+                )
+                if prepared
+                else count * multiplier
+            )
+            if problem_rows > budget.policy.max_method_rows:
+                fail("complete correlation problem within method budget", "method size overflow")
+            budget.allocation(source.size * 8 + problem_rows * 1024)
+            if not prepared:
+                validate_frame(source.frame, call.input_row, call.input_rows)
+            pairs = source.frame if prepared else prepare_local(source.frame, call)
+            result = execute_pairs(pairs, call)
+            del pairs
+            from marivo.analysis.operators.association_values import summarize_search
+
+            association_summary = summarize_search(result, call.output_row)
+            budget.check()
+            result_size = frame_bytes(result)
+            if (
+                len(result) > budget.policy.max_output_rows
+                or result_size > budget.policy.max_output_bytes
+            ):
+                fail("complete Association output within budgets", "local output overflow")
+            budget.allocation(result_size)
+            validate_frame(result, call.output_row, call.output_rows)
+            budget.live_bytes += result_size
+            schema = pa.Schema.from_pandas(result, preserve_index=False)
+            value = _Frames(result, (), schema)
+            handoffs.append((id(source.frame), id(result)))
             output_row = call.output_row
             del source
         elif isinstance(call, CompareSpecV1):
@@ -493,6 +570,7 @@ def _execute_graph(
         total_rows,
         output_row,
         attribution_summary,
+        association_summary,
     )
 
 
@@ -512,9 +590,10 @@ def worker_entry() -> None:
         policy.__post_init__()
         budget = LocalBudget(policy, request.deadline)
         attribution_summary: AttributionSourceSummary | None = None
+        association_summary: AssociationSearchSummary | None = None
         if isinstance(request, LocalGraphRequest):
-            completed, handoffs, count, output_row, attribution_summary = _execute_graph(
-                connection, request, budget
+            completed, handoffs, count, output_row, attribution_summary, association_summary = (
+                _execute_graph(connection, request, budget)
             )
             frame, output_parts, schema = completed.frame, completed.parts, completed.schema
         else:
@@ -583,6 +662,7 @@ def worker_entry() -> None:
                 os.getpid(),
                 tuple(completed_parts),
                 attribution_summary,
+                association_summary,
             )
         )
     except Exception as error:
@@ -600,7 +680,9 @@ def worker_entry() -> None:
                 "Inspect the exact retained state; author a fresh observation at the target coordinates when the fold is unsupported.",
                 "output_validation",
             )
-        elif isinstance(error, (AttributionError, ComparisonError, RowValueError)):
+        elif isinstance(
+            error, (AttributionError, ComparisonError, RowValueError, CorrelationError)
+        ):
             failure = LocalFailure(
                 error.expected or "complete registered retained inputs",
                 error.received or "invalid retained values",
@@ -739,7 +821,7 @@ def _supervise(
                         (request.input, request.parts, LocalInputStreams(batches, part_batches)),
                     )
                 for selected, parts, streams in inputs:
-                    if isinstance(selected, (StreamInput, CoalitionInput)):
+                    if isinstance(selected, (StreamInput, CoalitionInput, PairInput)):
                         for batch in streams.batches:
                             parent.send(batch)
                         parent.send(None)

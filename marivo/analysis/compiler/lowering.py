@@ -69,6 +69,7 @@ from marivo.analysis.observation.fold_contracts import (
     fold_state_names,
 )
 from marivo.analysis.observation.private_parts import source_private_part_authorities
+from marivo.analysis.operators.association_contracts import CorrelatePayload, association_orders
 from marivo.analysis.operators.attribution_contracts import (
     AttributePayload,
     delta_part_authorities,
@@ -508,6 +509,7 @@ class _Compiler:
         collect(dataset)
         self.validations: list[CompiledValidation] = []
         self.attribution_proof: ir.Table | None = None
+        self.association_proof: ir.Table | None = None
         self.validation_occurrences: dict[str, int] = {}
         self.preparations: list[CompiledValidation | CompiledSampleFence] = []
         self.prepared_validation_count = 0
@@ -1551,6 +1553,14 @@ class _Compiler:
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
+        elif isinstance(payload, CorrelatePayload):
+            from marivo.analysis.compiler.correlation import lower_correlate
+
+            previous = self._visit(root.inputs[0].root)
+            table, checks = lower_correlate(previous.expression, payload.spec)
+            self.association_proof = table
+            self.validations.extend(checks)
+            result = _Rows(table, previous.membership, previous.entity)
         elif isinstance(payload, ComparePayload):
             current = self._visit(root.inputs[0].root)
             baseline = self._visit(root.inputs[1].root)
@@ -1663,6 +1673,7 @@ class _Compiler:
                         (names[term.field_id], term.direction, term.nulls)
                         for term in retained_ordering.terms
                     ),
+                    association_orders(value.row_contract, value.row_set_contract),
                 )
             if payload.limit_count is not None:
                 table = table.limit(payload.limit_count)
@@ -1761,12 +1772,25 @@ class _Compiler:
         return result
 
     @staticmethod
-    def _order(table: ir.Table, ordering: tuple[tuple[str, str, str], ...]) -> ir.Table:
+    def _order(
+        table: ir.Table,
+        ordering: tuple[tuple[str, str, str], ...],
+        authored: Mapping[str, tuple[str | int, ...]] | None = None,
+    ) -> ir.Table:
+        expressions = {
+            name: ibis.cases(
+                *tuple(
+                    (_boolean(table[name] == value), index) for index, value in enumerate(values)
+                ),
+                else_=-1,
+            )
+            for name, values in (authored or {}).items()
+        }
         return table.order_by(
             [
-                table[name].asc(nulls_first=nulls == "first")
+                expressions.get(name, table[name]).asc(nulls_first=nulls == "first")
                 if direction == "ascending"
-                else table[name].desc(nulls_first=nulls == "first")
+                else expressions.get(name, table[name]).desc(nulls_first=nulls == "first")
                 for name, direction, nulls in ordering
             ]
         )
@@ -1840,7 +1864,11 @@ class _Compiler:
             terms = tuple(
                 (field_names[term.field_id], term.direction, term.nulls) for term in ordering.terms
             )
-            expression = self._order(expression, terms)
+            expression = self._order(
+                expression,
+                terms,
+                association_orders(self.dataset.row_contract, self.dataset.row_set_contract),
+            )
         elif key_names:
             expression = self._order(
                 expression, tuple((name, "ascending", "last") for name in key_names)
@@ -1857,6 +1885,7 @@ class _Compiler:
             (*parts, *private_part_specs(self.dataset.row_contract, rows.parts)),
             preparations,
             self.attribution_proof,
+            association_proof=self.association_proof,
         )
 
 
@@ -1984,7 +2013,7 @@ def _lower_retained_scan(
 
 
 def compile_retained_rows(
-    dataset: LogicalDataset,
+    dataset: Dataset,
     table: ir.Table | Mapping[str, ir.Table],
     *,
     parts: Mapping[str, ir.Table] | None = None,
@@ -1995,6 +2024,7 @@ def compile_retained_rows(
 
     validations: list[CompiledValidation] = []
     attribution_proof: ir.Table | None = None
+    association_proof: ir.Table | None = None
     private_parts: dict[int, PrivateRelations] = {}
 
     def read(value: MaterializedDataset) -> ir.Table:
@@ -2015,13 +2045,21 @@ def compile_retained_rows(
         return result
 
     def visit(value: Dataset) -> ir.Table:
-        nonlocal attribution_proof
+        nonlocal attribution_proof, association_proof
         admit_retained_rows(value)
         if isinstance(value, MaterializedDataset):
             return read(value)
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
+        if isinstance(payload, CorrelatePayload):
+            from marivo.analysis.compiler.correlation import lower_correlate
+
+            result, checks = lower_correlate(visit(value._inputs[0]), payload.spec)
+            association_proof = result
+            validations.extend(checks)
+            private_parts[id(value)] = ()
+            return result
         if isinstance(payload, ComparePayload):
             current = visit(value._inputs[0])
             baseline = visit(value._inputs[1])
@@ -2114,6 +2152,7 @@ def compile_retained_rows(
                 tuple(
                     (names[term.field_id], term.direction, term.nulls) for term in ordering.terms
                 ),
+                association_orders(value.row_contract, value.row_set_contract),
             )
         if payload.limit_count is not None:
             result = result.limit(payload.limit_count)
@@ -2166,6 +2205,7 @@ def compile_retained_rows(
         expression = _Compiler._order(
             expression,
             tuple((names[term.field_id], term.direction, term.nulls) for term in ordering.terms),
+            association_orders(dataset.row_contract, dataset.row_set_contract),
         )
     elif keys:
         expression = _Compiler._order(expression, tuple((key, "ascending", "last") for key in keys))
@@ -2179,4 +2219,5 @@ def compile_retained_rows(
             *private_part_specs(dataset.row_contract, private_parts[id(dataset)]),
         ),
         attribution_proof=attribution_proof,
+        association_proof=association_proof,
     )

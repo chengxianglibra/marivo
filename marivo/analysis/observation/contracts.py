@@ -109,6 +109,10 @@ if TYPE_CHECKING:
         BoundSourceParametersV1,
         SourceBindingScopes,
     )
+    from marivo.analysis.operators.association import (
+        LogicalAssociationDataset,
+        MaterializedAssociationDataset,
+    )
     from marivo.analysis.operators.attribution import (
         LogicalAttributionDataset,
         MaterializedAttributionDataset,
@@ -154,6 +158,8 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
+        if self.contract_stem.startswith("association"):
+            return ()
         if self.producer_id == "population.sample":
             return ("population_sampling_state",)
         if self.contract_stem.startswith("attribution"):
@@ -173,6 +179,16 @@ class ObservationProducerContract:
 
     @property
     def versions(self) -> tuple[tuple[str, str], ...]:
+        if self.contract_stem.startswith("association"):
+            return (
+                (self.producer_id, "v1"),
+                ("dataset_structure_quality", "v1"),
+                (self.quality_id, "v1"),
+                (self.validation_id, "v1"),
+                (self.evidence_id, "v1"),
+                ("association_finding", "v1"),
+                ("association_findings", "v1"),
+            )
         if self.contract_stem.startswith("attribution"):
             producing = self.producer_id in ("delta.attribute", "delta.attribute_expanded")
             return (
@@ -234,6 +250,10 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("metric.rollup", "metric_rollup"),
     ObservationProducerContract("metric.rank", "metric_rank"),
     ObservationProducerContract("metric.limit", "metric_limit"),
+    ObservationProducerContract("metric.correlate", "association"),
+    ObservationProducerContract("association.where", "association_filter"),
+    ObservationProducerContract("association.rank", "association_rank"),
+    ObservationProducerContract("association.limit", "association_limit"),
     ObservationProducerContract("metric.compare", "delta"),
     ObservationProducerContract("delta.where", "delta_filter"),
     ObservationProducerContract("delta.rank", "delta_rank"),
@@ -260,6 +280,9 @@ class ObservationActionPort(Protocol):
         self, dataset: LogicalPopulationDataset
     ) -> MaterializedPopulationDataset: ...
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset: ...
+    def execute_association(
+        self, dataset: LogicalAssociationDataset
+    ) -> MaterializedAssociationDataset: ...
     def execute_delta(self, dataset: LogicalDeltaDataset) -> MaterializedDeltaDataset: ...
     def execute_attribution(
         self, dataset: LogicalAttributionDataset
@@ -761,9 +784,13 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         }
     )
     return _StableIdRegistry(
-        families=frozenset({"population", "metric", "delta", "attribution"}),
+        families=frozenset({"population", "metric", "delta", "attribution", "association"}),
         shapes=frozenset(
             {
+                *(
+                    ("association", shape, 1)
+                    for shape in ("entity", "dimension", "time-lag", "dimension-time-lag")
+                ),
                 ("population", "entity-membership", 1),
                 ("attribution", "joint", 1),
                 ("attribution", "hierarchy", 1),
@@ -776,6 +803,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         ),
         roles=frozenset(
             {
+                "metric_identity",
                 "entity_identity",
                 "metric",
                 "dimension",
@@ -793,7 +821,14 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
         physical_types=types,
         admitted_types=types,
         physical_type_classes=frozenset((kind, kind) for kind in types),
-        value_orders=frozenset({"observation.identity_tuple@v1", "observation.scalar_order@v1"}),
+        value_orders=frozenset(
+            {
+                "observation.identity_tuple@v1",
+                "observation.scalar_order@v1",
+                "association.metric_request_order@v1",
+                "association.lag_request_order@v1",
+            }
+        ),
         storage_kinds=frozenset({"parquet", "engine", "object"}),
         byte_unavailable_reasons=frozenset({"not_measured"}),
     )
@@ -1213,6 +1248,8 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
 
 
 def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
+    if consumer_id == "metric.correlate":
+        return 2 <= sum(field.role_id == "metric" for field in dataset.schema.columns) <= 16
     if consumer_id == "metric.rank":
         return not any(field.role_id == "rank" for field in dataset.schema.columns)
     if consumer_id == "metric.limit":
@@ -1392,6 +1429,17 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     consumers = (
         *consumers,
         ConsumerRegistration(
+            "metric.correlate",
+            ("input",),
+            "association",
+            tuple(
+                shape
+                for shape in shapes
+                if shape.local_shape_id in ("entity", "dimension", "time", "dimension-time")
+            ),
+            ("correlate.metric@v1",),
+        ),
+        ConsumerRegistration(
             "metric.expand_axes",
             ("input",),
             "metric",
@@ -1431,7 +1479,9 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     )
     from marivo.analysis.operators.attribute import register_attribution
     from marivo.analysis.operators.compare import register_delta
+    from marivo.analysis.operators.correlate import register_association
 
+    register_association(registry, ids)
     register_delta(registry, ids)
     register_attribution(registry, ids)
     registry.freeze()
@@ -1446,6 +1496,7 @@ def semantic_dependency_digest(
     """Hash the complete frozen semantic closure without inspecting live authoring state."""
     from marivo.analysis.datasets.descriptors import _field_binding_fingerprint
     from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+    from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.contracts import ComparePayload
 
@@ -1500,6 +1551,8 @@ def semantic_dependency_digest(
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
             )
+        elif isinstance(payload, CorrelatePayload):
+            semantic_facts = ("metric_correlate", payload.spec.identity_payload())
         elif isinstance(payload, ComparePayload):
             semantic_facts = ("metric_compare",)
         elif isinstance(payload, AttributePayload):

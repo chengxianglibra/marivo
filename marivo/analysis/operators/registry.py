@@ -16,6 +16,7 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.private_parts import source_private_part_authorities
+from marivo.analysis.operators.association_contracts import AssociationSemantics, CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributionSemantics
 from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
 
@@ -28,10 +29,14 @@ class ImplementationRegistration:
     local_method: str | None
     version: int = 1
     source_versions: tuple[str, str] = ("1.5.3", "12.0.0")
+    source_preparation_adapter: str | None = None
 
 
 _ROW_METHODS = frozenset(
     {
+        "association.where",
+        "association.rank",
+        "association.limit",
         "metric.where",
         "metric.metric",
         "metric.rank",
@@ -55,10 +60,20 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     if root.contract_versions != registration.versions:
         raise compilation_error("exact registered contract versions", "method version mismatch")
     roles = tuple(item.role for item in root.inputs)
-    if dataset._inputs and root.operator_id.startswith(("metric.", "delta.", "attribution.")):
+    if dataset._inputs and root.operator_id.startswith(
+        ("metric.", "delta.", "attribution.", "association.")
+    ):
         consumer = dataset._registry.consumer(dataset._inputs[0], root.operator_id)
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
+    if isinstance(root.payload, CorrelatePayload):
+        return ImplementationRegistration(
+            root.operator_id,
+            roles,
+            None if root.payload.spec.semantics.method == "kendall" else "duckdb",
+            "metric.correlate",
+            source_preparation_adapter="duckdb",
+        )
     entity_scoped_result = any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
     ) and dataset.kind in ("delta", "attribution")
@@ -89,6 +104,16 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
+    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, CorrelatePayload):
+        if root.payload.spec.semantics.input_shape == "entity":
+            raise compilation_error(
+                "source-private Entity pair preparation", "source-required Entity correlation"
+            )
+        if registration.local_method != "metric.correlate":
+            raise compilation_error(
+                "registered exact correlation method", "missing local implementation"
+            )
+        return
     if (
         isinstance(root, LogicalRootHandle)
         and isinstance(root.payload, AttributePayload)
@@ -157,6 +182,7 @@ def admit_retained_rows(dataset: Dataset) -> None:
             EntityReducedMetricSemantics,
             DeltaSemantics,
             AttributionSemantics,
+            AssociationSemantics,
         ),
     ):
         raise compilation_error(

@@ -21,6 +21,7 @@ import marivo.analysis.evidence.store as evidence_store
 import marivo.datasource.backends as backends
 import marivo.analysis.observation.ordering
 import marivo.analysis.operators.compare
+import marivo.analysis.operators.correlate
 import marivo.analysis.operators.attribute
 import marivo.analysis.operators.attribute_expansion
 from marivo.analysis.datasets.errors import DatasetConstructionError
@@ -120,6 +121,9 @@ with ExitStack() as stack:
         [revenue, mean_amount, ratio],
         population=population, time_scope=window,
     )
+    association = observed.correlate(method='kendall')
+    association_selected = association.where(gt(association.fields.get('coefficient'), 0))
+    association_ranked = association_selected.rank(association_selected.fields.get('coefficient')).limit(2)
     filtered = observed.where(gt(observed.fields.metric(revenue), 0))
     result = filtered.with_dimensions(region).with_time_axis(
         order_time, grain=day
@@ -149,7 +153,8 @@ with ExitStack() as stack:
     assert captured.definition_fingerprint != changed.definition_fingerprint
     values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
               comparison, delta_filtered, delta_ranked, delta_limited,
-              attributed, selected_attribution, ranked_attribution, limited_attribution)
+              attributed, selected_attribution, ranked_attribution, limited_attribution,
+              association, association_selected, association_ranked)
     for value in values:
         assert value.schema is value.row_contract.schema
         assert value.state.kind == 'logical'
@@ -209,7 +214,7 @@ def test_actual_private_observation_chain_is_pure() -> None:
     evidence = json.loads(result.stdout)
     assert evidence["final_shape"] == "metric/dimension-time@v1"
     assert evidence["deep_filter_nodes"] == 80
-    assert evidence["checked_definitions"] == 17
+    assert evidence["checked_definitions"] == 20
     assert evidence["guarded_negative_failures"] == 5
     assert evidence["guarded_entrypoints"] == 29
     assert evidence["telemetry_enabled"] is True

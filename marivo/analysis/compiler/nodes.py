@@ -72,3 +72,4 @@ class CompiledDataset:
     preparations: tuple[CompiledValidation | CompiledSampleFence, ...] = ()
     attribution_proof: ir.Table | None = None
     numerical_input: Literal["distribution_coalitions"] | None = None
+    association_proof: ir.Table | None = None

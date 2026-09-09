@@ -133,7 +133,7 @@ def test_comparison_releases_row_method_parts_before_next_stage(
     )
     parent, child = Pipe()
     try:
-        output, _, _, _, _ = local_worker._execute_graph(
+        output, _, _, _, _, _ = local_worker._execute_graph(
             parent, request, LocalBudget(request.policy, request.deadline)
         )
     finally:
