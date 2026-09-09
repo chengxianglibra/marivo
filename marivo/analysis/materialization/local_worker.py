@@ -55,9 +55,14 @@ from marivo.analysis.operators.association_contracts import (
     candidate_count,
 )
 from marivo.analysis.operators.attribution_contracts import AttributeSpecV1
+from marivo.analysis.operators.candidate_contracts import (
+    CandidateSearchSummary,
+    CandidateSpecV1,
+)
 from marivo.analysis.operators.contracts import CompareSpecV1
 from marivo.analysis.operators.errors import (
     AttributionError,
+    CandidateError,
     ComparisonError,
     CorrelationError,
     ForecastError,
@@ -119,6 +124,7 @@ class FamilySummaries:
     attribution: AttributionSourceSummary | None = None
     association: AssociationSearchSummary | None = None
     forecast: ForecastTrainingSummary | None = None
+    candidate: CandidateSearchSummary | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -194,7 +200,14 @@ class LocalBoundary:
 class LocalStage:
     output: int
     inputs: tuple[int, ...]
-    call: RowCall | CompareSpecV1 | AttributeSpecV1 | CorrelateSpecV1 | ForecastSpecV1
+    call: (
+        RowCall
+        | CompareSpecV1
+        | AttributeSpecV1
+        | CorrelateSpecV1
+        | ForecastSpecV1
+        | CandidateSpecV1
+    )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -287,7 +300,12 @@ def _collect_input(
             preview=False,
             policy=read_policy,
         )
-        table = collect_primary(table.to_batches(), selected.row, selected.rows, budget)
+        batches = table.to_batches() or [
+            pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in table.schema], schema=table.schema
+            )
+        ]
+        table = collect_primary(batches, selected.row, selected.rows, budget)
     else:
 
         def primary_batches() -> Iterable[pa.RecordBatch]:
@@ -409,6 +427,38 @@ def _execute_graph(
             value = _Frames(result, parts, source.schema)
             del parts
             handoffs.extend(transfers)
+            output_row = call.output_row
+            del source
+        elif isinstance(call, CandidateSpecV1):
+            from marivo.analysis.operators.candidate_values import execute_candidate
+
+            if len(incoming) != 1:
+                fail("one complete discovery input", "invalid Candidate arity")
+            source = incoming[0]
+            count = len(source.frame)
+            if count > budget.policy.max_method_rows:
+                fail("complete discovery input within method budget", "method size overflow")
+            validate_frame(source.frame, call.input_row, call.input_rows)
+            # At most one provisional candidate per input point/window is retained.
+            budget.allocation(
+                source.size * 8 + count * (1024 + 64 * len(call.output_row.schema.columns))
+            )
+            budget.check()
+            result, evaluation = execute_candidate(source.frame, call, check=budget.check)
+            summaries = replace(
+                summaries, candidate=CandidateSearchSummary(call.definition, evaluation)
+            )
+            result_size = frame_bytes(result)
+            if (
+                len(result) > budget.policy.max_output_rows
+                or result_size > budget.policy.max_output_bytes
+            ):
+                fail("complete discovery output within budgets", "Candidate output overflow")
+            budget.allocation(result_size)
+            validate_frame(result, call.output_row, call.output_rows)
+            budget.live_bytes += result_size
+            value = _Frames(result, (), pa.Schema.from_pandas(result, preserve_index=False))
+            handoffs.append((id(source.frame), id(result)))
             output_row = call.output_row
             del source
         elif isinstance(call, ForecastSpecV1):
@@ -725,7 +775,14 @@ def worker_entry() -> None:
             )
         elif isinstance(
             error,
-            (AttributionError, ComparisonError, RowValueError, CorrelationError, ForecastError),
+            (
+                AttributionError,
+                ComparisonError,
+                RowValueError,
+                CorrelationError,
+                ForecastError,
+                CandidateError,
+            ),
         ):
             failure = LocalFailure(
                 error.expected or "complete registered retained inputs",

@@ -22,6 +22,7 @@ import marivo.datasource.backends as backends
 import marivo.analysis.observation.ordering
 import marivo.analysis.operators.compare
 import marivo.analysis.operators.correlate
+import marivo.analysis.operators.discovery
 import marivo.analysis.operators.forecast
 from marivo.analysis.operators.forecast_contracts import periods, seasonal_naive
 import marivo.analysis.operators.attribute
@@ -106,6 +107,7 @@ guards = (
     (evidence_store.EvidenceStore, '__init__', 'evidence'),
     (evidence_store.EvidenceStore, 'transaction', 'evidence'),
     (NoIoActionPort, 'execute_forecast', 'run'),
+    (NoIoActionPort, 'execute_candidate', 'run'),
     (NoIoActionPort, 'execute_delta', 'run'),
     (NoIoActionPort, 'execute_attribution', 'run'),
 )
@@ -134,6 +136,11 @@ with ExitStack() as stack:
     forecast = result.forecast(horizon=periods(4), model=seasonal_naive(periods=2))
     forecast = forecast.where(gt(forecast.fields.get('forecast_value'), 0))
     forecast.rank(forecast.fields.get('forecast_value')).limit(2)
+    points = result.discover.point_anomalies(threshold=1.0)
+    windows = result.discover.interesting_windows()
+    selected_candidates = points.where(gt(points.fields.get('score'), 2.0))
+    ranked_candidates = selected_candidates.rank(selected_candidates.fields.get('score')).limit(3)
+    periods_found = result.compare(result).discover.period_shifts()
     rolled = result.rollup(drop_time=True).rollup(drop_dimensions=(region,))
     assert rolled.row_contract.shape_id.local_shape_id == "scalar"
     comparison = result.compare(result)
@@ -160,7 +167,8 @@ with ExitStack() as stack:
     values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
               comparison, delta_filtered, delta_ranked, delta_limited,
               attributed, selected_attribution, ranked_attribution, limited_attribution,
-              association, association_selected, association_ranked)
+              association, association_selected, association_ranked,
+              points, windows, selected_candidates, ranked_candidates, periods_found)
     for value in values:
         assert value.schema is value.row_contract.schema
         assert value.state.kind == 'logical'
@@ -220,9 +228,9 @@ def test_actual_private_observation_chain_is_pure() -> None:
     evidence = json.loads(result.stdout)
     assert evidence["final_shape"] == "metric/dimension-time@v1"
     assert evidence["deep_filter_nodes"] == 80
-    assert evidence["checked_definitions"] == 20
+    assert evidence["checked_definitions"] == 25
     assert evidence["guarded_negative_failures"] == 5
-    assert evidence["guarded_entrypoints"] == 30
+    assert evidence["guarded_entrypoints"] == 31
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "datasource",

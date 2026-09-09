@@ -102,6 +102,30 @@ def make_descriptor(
             stage="publication",
         )
     roots = tuple(logical_roots(dataset))
+    from marivo.analysis.operators.candidate_contracts import CandidateSemantics
+
+    semantics = dataset.row_contract.family_semantics
+    period_candidate = (
+        isinstance(semantics, CandidateSemantics)
+        and semantics.objective == "period_shifts"
+        and (inherited is None or inherited.row_contract.shape_id.family_id != "candidate")
+    )
+    if period_candidate:
+        paired = _delta_descriptor(
+            dataset,
+            materialization,
+            storage,
+            validations,
+            sampling,
+            inherited=inherited,
+            input_descriptors=input_descriptors,
+            sampling_by_root=sampling_by_root,
+        )
+        return replace(
+            paired,
+            comparison_basis=paired.comparison_inputs[0].comparison_basis,
+            comparison_inputs=(),
+        )
     if dataset.row_contract.shape_id.family_id in ("delta", "attribution"):
         return _delta_descriptor(
             dataset,

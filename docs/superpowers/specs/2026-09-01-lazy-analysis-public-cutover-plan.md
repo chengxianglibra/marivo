@@ -2592,6 +2592,52 @@ This acceptance closes only private Slice 6b. It does not close discovery,
 activate public exports/Help/site documentation, run the full release Runtime
 gate, or perform a commit, push or release.
 
+### Slice 6c private acceptance (2026-09-09)
+
+Slice 6c is complete on preserved Slice 6b HEAD
+`16a56d19898be9fa3424607743f97ef6a88f6262`. Its
+[execution record](../plans/2026-09-09-lazy-analysis-slice-6c-execution.md)
+owns the exact file scope, interface and numerical decisions, shared seams,
+review fixes and acceptance matrix. The initially accepted 877-file executable candidate is
+`ff1a7069f3c98f6db113bf490d03c39eeaf9c664a08637e8ee960c529521121e`.
+
+`evidence/slice-6c/final/` binds every terminal gate to that unchanged candidate:
+210 focused tests, 14-module strict test typing, `make check-agent` with 6,560
+default tests and all lint/import/type/API-documentation stages, and 126 focused
+Runtime tests passed. Runtime includes Forecast, comparison and retained-row
+regressions. Three independent three-process journeys prove point-anomaly,
+interesting-window and period-shift production, source-offline continuation and
+exact cold binding reuse, including structured reason tuples and unchanged
+committed authority.
+
+The private implementation includes the non-callable discovery namespaces,
+three paired Candidate shapes, typed identities and pre-limit uniqueness,
+independent population-score and continuous-window references, generated-scalar
+selection, complete-input budgets, local DataFrame successors, original search
+Evidence, atomic zero-Finding publication and cold validation. Coverage includes
+missing buckets, captured custom calendars, paired Delta endpoints, evaluated
+empty versus no evaluable series, fractional constants, overflow, sampling,
+cancellation, source failures, transaction faults and corrupted metadata. Native
+SDK stubs with real Store files verify version-pinned object publication,
+retained object inputs and offline continuation without a MinIO service.
+
+The authorized review follow-up supersedes that executable candidate with
+`cc1cd9d7a558e7be7d867e515b78d028f6884fa68fa3b7c468943801c6420a6f`.
+`evidence/slice-6c/review-followup/` records all 214 focused tests, 14-module
+strict test typing, the complete `make check-agent` gate with 6,564 default
+tests, and the same 126 Runtime tests passing on that unchanged candidate.
+All three independent recovery journeys were repeated and retained. The changes
+share discovery disclosure between contracts and cards, replace default summary
+repr with bounded scalar facts, move definition/evaluation as one immutable
+worker summary, simplify the exact numeric type check, correct Delta receiver
+documentation and add four literal mixed-sign peak-tie regressions. Scorers and
+persisted Evidence schemas remain unchanged. The execution record explains each
+adopted or retained review suggestion and preserves the initial evidence.
+
+This acceptance closes only private Slice 6c. Entity-outlier, driver-axis and
+public activation remain Slices 6d, 6e and 8. No public export, Help entry, current
+site documentation, commit, push, release or full release Runtime gate is added.
+
 ### Owned implementation
 
 For every exact variant:

@@ -1780,6 +1780,14 @@ vocabulary; it contains no generated narrative or raw identity.
 Every shape has a complete business-coordinate row key independent of the
 definition fingerprint:
 
+The Slice 6c owner amendment fixes the three time objectives' reason vocabulary:
+`point_zscore_threshold_met`, `global_zscore_run`, and
+`delta_window_zscore_run`, respectively. Each produced row contains exactly its
+objective's one-element reason tuple. `direction` is the closed enum `high|low`;
+positive signed z-scores are high and negative signed z-scores are low.
+`signed_deviation` is observed value minus baseline value. All three z-score
+methods use population standard deviation (`ddof=0`).
+
 | Candidate shape | Ordered row key |
 | --- | --- |
 | `candidate/point-anomaly@v1` | retained Dimension tuple, exact `time_coordinate` |
@@ -1893,6 +1901,11 @@ One row means one maximal unusual run in one exact current series. `score` is
 the peak absolute z-score. Mixed-sign runs use the sign of the point carrying
 that peak; exact ties use earliest time.
 
+Window endpoints are inclusive observed-coordinate labels, not elapsed-time
+interval boundaries. `baseline_start` and `baseline_end` are the minimum and
+maximum coordinates of the non-null points used in the complete-series fit;
+these bounds do not assert gap-free coverage.
+
 ### `discover.entity_outliers`
 
 ```python
@@ -1974,6 +1987,16 @@ direction
 One row means one bounded period whose local Delta level is unusual relative to
 the current Delta series. It is not a second comparison and does not establish
 a persistent regime change.
+
+The run's first and last qualifying trailing-window **end** comparison ordinals
+determine its endpoints. `window_start` and `window_end` retain the corresponding
+current time coordinates; `baseline_start` and `baseline_end` retain the paired
+baseline time coordinates at those same ordinals. These are inclusive coordinate
+labels. The complete finite trailing-mean distribution remains the scoring
+baseline and is disclosed separately from the paired baseline interval.
+`score` and `peak_absolute_zscore` are the maximum absolute z-score in the run;
+direction follows that peak, with the earliest comparison ordinal winning an
+exact tie.
 
 ### `discover.driver_axes`
 

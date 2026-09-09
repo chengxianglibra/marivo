@@ -52,10 +52,17 @@ class ConsumerRegistration:
     requirements: tuple[str, ...] = ()
     discoverable: bool = True
     operand_shape_ids: tuple[tuple[DatasetShapeId, ...], ...] = ()
+    namespace_type: type[object] | None = None
 
     def __post_init__(self) -> None:
         if type(self.discoverable) is not bool:
             raise _registration_error("exact consumer disclosure flag", "invalid disclosure flag")
+        if self.namespace_type is not None and (
+            not isinstance(self.namespace_type, type) or self.id.count(".") != 1
+        ):
+            raise _registration_error(
+                "one declared non-callable namespace type", "invalid namespace registration"
+            )
         _immutable_sequence(self.operand_shape_ids)
         if self.operand_shape_ids:
             for shapes in self.operand_shape_ids:
@@ -215,6 +222,25 @@ class DatasetFamilyRegistration:
             if not consumer.discoverable:
                 continue
             method_name = consumer.id.rsplit(".", 1)[-1]
+            if consumer.namespace_type is not None:
+                namespace = consumer.id.rsplit(".", 1)[0]
+                for family_type in (self.logical_type, self.materialized_type):
+                    accessor = getattr(family_type, namespace, None)
+                    if (
+                        not isinstance(accessor, property)
+                        or accessor.fget is None
+                        or accessor.fget.__annotations__.get("return")
+                        not in (
+                            consumer.namespace_type,
+                            consumer.namespace_type.__name__,
+                        )
+                        or not callable(getattr(consumer.namespace_type, method_name, None))
+                    ):
+                        raise _registration_error(
+                            "each declared namespace method on both paired states",
+                            "missing paired namespace operator",
+                        )
+                continue
             if not callable(getattr(self.logical_type, method_name, None)) or not callable(
                 getattr(self.materialized_type, method_name, None)
             ):

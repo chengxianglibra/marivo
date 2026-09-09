@@ -150,6 +150,15 @@ from marivo.analysis.operators.attribution import (
     LogicalAttributionDataset,
     MaterializedAttributionDataset,
 )
+from marivo.analysis.operators.candidate_contracts import (
+    CandidatePayload,
+    CandidateSearchSummary,
+    CandidateSpecV1,
+)
+from marivo.analysis.operators.candidate_dataset import (
+    LogicalCandidateDataset,
+    MaterializedCandidateDataset,
+)
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.analysis.operators.forecast_contracts import (
     ForecastPayload,
@@ -577,6 +586,18 @@ class DatasetRuntime:
             )
             for quantile in dict.fromkeys(quantiles)
         ]
+        if record.descriptor.candidate_evidence is not None:
+            from marivo.analysis.operators.discovery import _contract_facts as candidate_facts
+
+            candidate_evidence = record.descriptor.candidate_evidence
+            evaluation = candidate_evidence.evaluation
+            lines.extend(f"Discovery {name}: {value}" for name, value in candidate_facts(dataset))
+            lines.append(
+                f"Evaluation: input_rows={evaluation.input_row_count}; evaluated_series={evaluation.evaluated_series_count}/{evaluation.series_count}; evaluated_units={evaluation.evaluated_unit_count}/{evaluation.searched_unit_count}"
+            )
+            lines.append(
+                f"Candidates: qualifying={evaluation.pre_limit_candidate_count}; discovery_output={evaluation.emitted_candidate_count}; current_rows={candidate_evidence.row_count}"
+            )
         if record.descriptor.forecast_evidence is not None:
             from marivo.analysis.operators.forecast import _contract_facts
 
@@ -660,6 +681,12 @@ class DatasetRuntime:
             or dataset._owner.session_id != self.session_ref
         ):
             raise _error("authority_resolution")
+
+    def execute_candidate(self, dataset: LogicalCandidateDataset) -> MaterializedCandidateDataset:
+        result = self._execute(dataset)
+        if not isinstance(result, MaterializedCandidateDataset):
+            raise _error("presentation")
+        return result
 
     def execute_forecast(self, dataset: LogicalForecastDataset) -> MaterializedForecastDataset:
         result = self._execute(dataset)
@@ -857,8 +884,14 @@ class DatasetRuntime:
                 attribution_summary: AttributionSourceSummary | None = None
                 association_summary: AssociationSearchSummary | None = None
                 forecast_summary: ForecastTrainingSummary | None = None
+                candidate_summary: CandidateSearchSummary | None = None
                 for input_record in records.values():
                     descriptor = input_record.descriptor
+                    if descriptor.candidate_evidence is not None:
+                        candidate_summary = CandidateSearchSummary(
+                            descriptor.candidate_evidence.definition,
+                            descriptor.candidate_evidence.evaluation,
+                        )
                     if descriptor.forecast_evidence is not None:
                         forecast_summary = descriptor.forecast_evidence.training
                     if descriptor.association_evidence is not None:
@@ -1201,6 +1234,7 @@ class DatasetRuntime:
                             local_result.summaries.association or association_summary
                         )
                         forecast_summary = local_result.summaries.forecast or forecast_summary
+                        candidate_summary = local_result.summaries.candidate or candidate_summary
                         validations = [
                             (
                                 "source_prefix.final_row_key_unique"
@@ -1268,7 +1302,31 @@ class DatasetRuntime:
                     self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
                 findings: tuple[Finding, ...] = ()
-                if dataset.kind == "forecast":
+                if dataset.kind == "candidate":
+                    from marivo.analysis.materialization.candidate_publication import (
+                        build_candidate_publication,
+                    )
+                    from marivo.analysis.materialization.reads import payload_batches
+
+                    if candidate_summary is None:
+                        raise _error("output_validation", run.run_ref)
+                    descriptor, findings = build_candidate_publication(
+                        descriptor,
+                        payload_batches(
+                            self.store.project_root,
+                            descriptor.storage_receipt,
+                            policy=_READ_POLICY,
+                            bindings=object_bindings,
+                            row=descriptor.row_contract,
+                            rows=descriptor.row_set_contract,
+                            audit=True,
+                        ),
+                        artifact_ref=artifact_ref,
+                        session_ref=self.session_ref,
+                        definition=candidate_summary.definition,
+                        evaluation=candidate_summary.evaluation,
+                    )
+                elif dataset.kind == "forecast":
                     from marivo.analysis.materialization.forecast_publication import (
                         build_forecast_publication,
                     )
@@ -2145,9 +2203,23 @@ class DatasetRuntime:
             if not isinstance(root, LogicalRootHandle):
                 raise _error("implementation_registration", run_ref)
             payload = root.payload
-            call: RowCall | CompareSpecV1 | AttributeSpecV1 | CorrelateSpecV1 | ForecastSpecV1
+            call: (
+                RowCall
+                | CompareSpecV1
+                | AttributeSpecV1
+                | CorrelateSpecV1
+                | ForecastSpecV1
+                | CandidateSpecV1
+            )
             if isinstance(
-                payload, (ComparePayload, AttributePayload, CorrelatePayload, ForecastPayload)
+                payload,
+                (
+                    ComparePayload,
+                    AttributePayload,
+                    CorrelatePayload,
+                    ForecastPayload,
+                    CandidatePayload,
+                ),
             ):
                 call = payload.spec
             elif isinstance(payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)):

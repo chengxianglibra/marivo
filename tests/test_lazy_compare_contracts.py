@@ -74,7 +74,13 @@ def test_all_five_shapes_are_private_paired_delta_contracts_without_io() -> None
         assert tuple(item.role for item in delta._root.inputs) == ("current", "baseline")
         assert delta._inputs[0] is left and delta._inputs[1] is right
         assert hasattr(delta, "attribute")
-        assert not hasattr(delta, "discover")
+        assert not callable(delta.discover)
+        if "time" in shape:
+            candidate = delta.discover.period_shifts()
+            assert str(candidate.row_contract.shape_id) == "candidate/period-shift@v1"
+        else:
+            with pytest.raises(DatasetConstructionError):
+                delta.discover.period_shifts()
         fields = {field.name: field for field in delta.schema.columns}
         assert fields["delta"].field_id.value == "generated.compare.delta@v1"
         if "time" in shape:
