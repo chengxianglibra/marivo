@@ -43,6 +43,7 @@ RANK_SHAPES = frozenset(
         "point-anomaly",
         "interesting-window",
         "period-shift",
+        "entity-outlier",
         "entity",
         "dimension",
         "time",

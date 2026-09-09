@@ -134,7 +134,9 @@ def required_entities(
     # table is needed unless newly authored semantic work actually consumes it.
     roots = tuple(logical_roots(dataset))
     for retained in artifact_inputs(dataset):
-        if retained.kind not in ("population", "metric"):
+        if retained.kind not in ("population", "metric") and (
+            str(retained.row_contract.shape_id) != "candidate/entity-outlier@v1"
+        ):
             continue
         identities = tuple(
             field.identity

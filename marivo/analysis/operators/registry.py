@@ -83,6 +83,8 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
     if isinstance(root.payload, CandidatePayload):
+        if root.payload.spec.definition.objective == "entity_outliers":
+            return ImplementationRegistration(root.operator_id, roles, "duckdb", None)
         return ImplementationRegistration(root.operator_id, roles, None, root.operator_id)
     if isinstance(root.payload, ForecastPayload):
         return ImplementationRegistration(root.operator_id, roles, None, "metric.forecast")
@@ -96,7 +98,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         )
     entity_scoped_result = any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
-    ) and dataset.kind in ("delta", "attribution")
+    ) and dataset.kind in ("delta", "attribution", "candidate")
     source_private_state = bool(source_private_part_authorities(dataset.row_contract)) or (
         isinstance(root.payload, AttributePayload)
         and root.payload.spec.method == "distinct_membership@v1"
@@ -125,6 +127,10 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, CandidatePayload):
+        if root.payload.spec.definition.objective == "entity_outliers":
+            raise compilation_error(
+                "source-native Entity Candidate scoring", "source-required Entity identity rows"
+            )
         if len(dataset._inputs) != 1 or registration.local_method != root.operator_id:
             raise compilation_error(
                 "one registered time discovery input", "invalid Candidate invocation"
@@ -189,7 +195,7 @@ def admit_local(dataset: LogicalDataset, registration: ImplementationRegistratio
         for value in (*dataset._inputs, dataset):
             admit_retained_rows(value)
         return
-    if dataset.kind in ("delta", "attribution") and any(
+    if dataset.kind in ("delta", "attribution", "candidate") and any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
     ):
         raise compilation_error(

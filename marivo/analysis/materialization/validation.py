@@ -8,7 +8,11 @@ import ibis
 from duckdb import DuckDBPyConnection
 from ibis.backends.duckdb import Backend
 
-from marivo.analysis.compiler.nodes import CompiledSampleFence, CompiledValidation
+from marivo.analysis.compiler.nodes import (
+    CompiledRelationFence,
+    CompiledSampleFence,
+    CompiledValidation,
+)
 from marivo.analysis.materialization.errors import MaterializationError
 
 
@@ -20,11 +24,11 @@ class ValidationBatch:
 
 def compile_preparations(
     backend: Backend,
-    preparations: tuple[CompiledValidation | CompiledSampleFence, ...],
+    preparations: tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...],
     *,
     run_ref: str,
-) -> tuple[ValidationBatch | CompiledSampleFence, ...]:
-    result: list[ValidationBatch | CompiledSampleFence] = []
+) -> tuple[ValidationBatch | CompiledSampleFence | CompiledRelationFence, ...]:
+    result: list[ValidationBatch | CompiledSampleFence | CompiledRelationFence] = []
     pending: list[CompiledValidation] = []
 
     def flush() -> None:
@@ -53,8 +57,10 @@ def compile_preparations(
         pending.clear()
 
     for preparation in preparations:
-        if isinstance(preparation, CompiledSampleFence):
+        if isinstance(preparation, (CompiledSampleFence, CompiledRelationFence)):
             flush()
+            if isinstance(preparation, CompiledRelationFence):
+                backend.compile(preparation.expression)
             result.append(preparation)
         else:
             pending.append(preparation)

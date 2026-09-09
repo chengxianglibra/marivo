@@ -254,6 +254,7 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("discover.point_anomalies", "point_anomalies"),
     ObservationProducerContract("discover.interesting_windows", "interesting_windows"),
     ObservationProducerContract("discover.period_shifts", "period_shifts"),
+    ObservationProducerContract("discover.entity_outliers", "entity_outliers"),
     ObservationProducerContract("candidate.where", "candidate_filter"),
     ObservationProducerContract("candidate.rank", "candidate_rank"),
     ObservationProducerContract("candidate.limit", "candidate_limit"),
@@ -826,7 +827,12 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 ),
                 *(
                     ("candidate", shape, 1)
-                    for shape in ("point-anomaly", "interesting-window", "period-shift")
+                    for shape in (
+                        "point-anomaly",
+                        "interesting-window",
+                        "period-shift",
+                        "entity-outlier",
+                    )
                 ),
                 *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
                 ("population", "entity-membership", 1),
@@ -1288,7 +1294,11 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
 
 
 def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
-    if consumer_id in ("discover.point_anomalies", "discover.interesting_windows"):
+    if consumer_id in (
+        "discover.point_anomalies",
+        "discover.interesting_windows",
+        "discover.entity_outliers",
+    ):
         return sum(field.role_id == "metric" for field in dataset.schema.columns) == 1
     if consumer_id == "metric.forecast":
         return sum(field.role_id == "metric" for field in dataset.schema.columns) == 1
@@ -1486,6 +1496,14 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
                 namespace_type=MetricDiscovery,
             )
             for method in ("point_anomalies", "interesting_windows")
+        ),
+        ConsumerRegistration(
+            "discover.entity_outliers",
+            ("metric_entity",),
+            "candidate",
+            tuple(shape for shape in shapes if shape.local_shape_id == "entity"),
+            ("candidate.metric_entity@v1",),
+            namespace_type=MetricDiscovery,
         ),
         ConsumerRegistration(
             "metric.forecast",

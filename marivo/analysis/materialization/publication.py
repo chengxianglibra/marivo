@@ -26,6 +26,7 @@ from marivo.analysis.observation.contracts import (
     MetricPayload,
     ObservationOwner,
     PopulationPayload,
+    RetainedRowsPayload,
     _version_selection_payload,
     producer_contract,
     scope_payload,
@@ -198,6 +199,11 @@ def make_descriptor(
                 warning_check_count=0,
             ),
             comparison_basis=basis,
+            candidate_evidence=(
+                inherited.candidate_evidence
+                if dataset.row_contract.shape_id.family_id == "candidate"
+                else None
+            ),
         )
     sampled_roots = tuple(root for root in roots if root.operator_id == "population.sample")
     if len(sampled_roots) != len(sampling) or any(
@@ -258,24 +264,42 @@ def make_descriptor(
             repair="Reconstruct the Metric from its selected Population.",
             stage="publication",
         )
-    payload = population.payload
+    from marivo.analysis.operators.candidate_contracts import CandidatePayload
+
+    membership_root = population
+    payload = membership_root.payload
     while not isinstance(payload, PopulationPayload):
-        # A proven Entity-unique Metric can also supply the selected membership.
-        if not isinstance(payload, MetricPayload):
+        if isinstance(payload, MetricPayload):
+            inherited_root = next(
+                (
+                    root
+                    for root in roots
+                    if root.definition_fingerprint == payload.definition.population_definition
+                ),
+                None,
+            )
+        elif (
+            str(membership_root.shape_id) == "candidate/entity-outlier@v1"
+            and (
+                (
+                    type(payload) is CandidatePayload
+                    and payload.spec.definition.objective == "entity_outliers"
+                )
+                or type(payload) is RetainedRowsPayload
+            )
+            and len(membership_root.inputs) == 1
+            and isinstance(membership_root.inputs[0].root, LogicalRootHandle)
+        ):
+            # The selected Candidate remains authority; only the governed
+            # membership scope is inherited from its original observation.
+            inherited_root = membership_root.inputs[0].root
+        else:
             raise MaterializationError(
-                expected="a Population or Entity-unique Metric membership definition",
+                expected="a Population, Entity-unique Metric, or Entity-outlier membership definition",
                 received="an unsupported membership payload",
                 repair="Reconstruct the Metric from its selected Population.",
                 stage="publication",
             )
-        inherited_root = next(
-            (
-                root
-                for root in roots
-                if root.definition_fingerprint == payload.definition.population_definition
-            ),
-            None,
-        )
         if inherited_root is None:
             raise MaterializationError(
                 expected="the exact inherited Population definition in the logical inputs",
@@ -283,7 +307,8 @@ def make_descriptor(
                 repair="Reconstruct the Metric from its selected Population.",
                 stage="publication",
             )
-        payload = inherited_root.payload
+        membership_root = inherited_root
+        payload = membership_root.payload
     return ArtifactDescriptor(
         definition_fingerprint=dataset.definition_fingerprint,
         row_contract=dataset.row_contract,

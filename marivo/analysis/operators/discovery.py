@@ -17,6 +17,8 @@ from marivo.analysis.datasets.registry import (
 )
 from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
 from marivo.analysis.observation.contracts import (
+    IDENTITY_FIELD_ID,
+    EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
     RetainedRowsPayload,
     owner_of,
@@ -62,11 +64,19 @@ VALUE_FIELDS: dict[CandidateObjective, tuple[tuple[str, str], ...]] = {
         ("peak_absolute_zscore", "float64"),
         ("direction", "string"),
     ),
+    "entity_outliers": (
+        ("observed_value", "float64"),
+        ("baseline_value", "float64"),
+        ("signed_deviation", "float64"),
+        ("scale_method", "string"),
+        ("direction", "string"),
+    ),
 }
 TIME_FIELDS: dict[CandidateObjective, tuple[str, ...]] = {
     "point_anomalies": ("time_coordinate",),
     "interesting_windows": ("window_start", "window_end", "baseline_start", "baseline_end"),
     "period_shifts": ("window_start", "window_end", "baseline_start", "baseline_end"),
+    "entity_outliers": (),
 }
 
 
@@ -98,8 +108,20 @@ class MetricDiscovery:
         """
         return _discover(self._dataset, "interesting_windows", threshold=threshold, limit=limit)
 
+    def entity_outliers(
+        self, *, threshold: float = 3.0, limit: int = 50
+    ) -> LogicalCandidateDataset:
+        """Return Logical Candidate leads for unusual Entity Metric values.
+
+        Args: threshold: Positive absolute robust-score cutoff. limit: Maximum leads in [1, 1000].
+        Returns: Logical Candidate retaining each selected complete Entity identity.
+        Example: ``entities.discover.entity_outliers(threshold=3.0, limit=20)``.
+        Constraints: One Metric in entity shape; source execution requires three finite non-null values and positive dispersion.
+        """
+        return _discover(self._dataset, "entity_outliers", threshold=threshold, limit=limit)
+
     def __repr__(self) -> str:
-        return "<MetricDiscovery; use .point_anomalies() or .interesting_windows()>"
+        return "<MetricDiscovery; use .point_anomalies(), .interesting_windows() or .entity_outliers()>"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -167,7 +189,13 @@ def _definition(
     dataset: Dataset, objective: CandidateObjective, threshold: float, limit: int
 ) -> CandidateDefinition:
     incoming = dataset.row_contract.family_semantics
-    if dataset.row_contract.shape_id.local_shape_id not in ("time", "dimension-time"):
+    entity_objective = objective == "entity_outliers"
+    if entity_objective and dataset.row_contract.shape_id.local_shape_id != "entity":
+        raise discovery_error("one entity-shaped Metric", "unsupported shape")
+    if not entity_objective and dataset.row_contract.shape_id.local_shape_id not in (
+        "time",
+        "dimension-time",
+    ):
         raise discovery_error("one time or dimension-time Metric or Delta", "unsupported shape")
     if objective == "period_shifts":
         if dataset.kind != "delta" or not isinstance(incoming, DeltaSemantics):
@@ -181,7 +209,10 @@ def _definition(
         metrics = tuple(f for f in dataset.schema.columns if f.role_id == "metric")
         if (
             dataset.kind != "metric"
-            or not isinstance(incoming, EntityReducedMetricSemantics)
+            or not isinstance(
+                incoming, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
+            )
+            or entity_objective != isinstance(incoming, EntityPresentMetricSemantics)
             or len(metrics) != 1
             or not isinstance(metrics[0].identity, d._CatalogFieldIdentity)
             or (
@@ -189,7 +220,12 @@ def _definition(
                 and metrics[0].logical_type_id not in ("integer", "floating")
             )
         ):
-            raise discovery_error("one quantitative time-bearing Metric", "unsupported receiver")
+            raise discovery_error(
+                "one quantitative entity-shaped Metric"
+                if entity_objective
+                else "one quantitative time-bearing Metric",
+                "unsupported receiver",
+            )
         fold = incoming.fold_authority
         baseline = None
         metric_key = metrics[0].identity.identity_id
@@ -249,11 +285,12 @@ def validate_definition(definition: CandidateDefinition) -> None:
     if (
         len(authority.metrics) != 1
         or "metric:" + authority.metrics[0].metric_ref != definition.metric_key
-        or authority.time_grain() is None
+        or (definition.objective != "entity_outliers" and authority.time_grain() is None)
+        or (definition.objective == "entity_outliers" and authority.time_grain() is not None)
         or (definition.metric_unit is not None and type(definition.metric_unit) is not str)
     ):
         raise discovery_error(
-            "one exact Metric and temporal authority", "invalid discovery binding"
+            "one exact Metric and shape-matched fold authority", "invalid discovery binding"
         )
     if definition.objective == "period_shifts":
         if definition.baseline_fold_authority is None:
@@ -265,7 +302,9 @@ def validate_definition(definition: CandidateDefinition) -> None:
             or baseline.temporal_snapshot() != authority.temporal_snapshot()
         ):
             raise discovery_error("compatible paired Delta temporal authority", "changed baseline")
-    elif definition.baseline_fold_authority is not None or authority.time_scope() is None:
+    elif definition.baseline_fold_authority is not None or (
+        definition.objective != "entity_outliers" and authority.time_scope() is None
+    ):
         raise discovery_error(
             "one current Metric observation scope", "invalid Metric time authority"
         )
@@ -278,48 +317,55 @@ def _discover(
     definition = _definition(dataset, objective, threshold, limit)
     ids = dataset._registration.ids
     dimensions = tuple(f for f in dataset.schema.columns if f.role_id == "dimension")
-    time = next(
-        f
-        for f in dataset.schema.columns
-        if f.role_id == "time_dimension"
-        or (f.role_id == "comparison_time" and f.name == "current_time")
-    )
-    baseline_time = next(
-        (
-            f
-            for f in dataset.schema.columns
-            if f.role_id == "comparison_time" and f.name == "baseline_time"
-        ),
-        time,
-    )
     generated = tuple(_generated(objective, name, kind, ids) for name, kind in COMMON_FIELDS)
     values = tuple(_generated(objective, name, kind, ids) for name, kind in VALUE_FIELDS[objective])
     temporal: tuple[d.DatasetField, ...]
-    if objective == "point_anomalies":
-        temporal = (replace(time, _token=d._CORE_TOKEN, name="time_coordinate"),)
-        columns = (*generated, *dimensions, *temporal, *values)
+    coordinates: tuple[d.DatasetField, ...]
+    if objective == "entity_outliers":
+        identity = next(f for f in dataset.schema.columns if f.role_id == "entity_identity")
+        temporal = ()
+        coordinates = (identity,)
+        columns = (*generated, identity, *values)
     else:
-        temporal = tuple(
-            _generated(
-                objective,
-                name,
-                baseline_time.logical_type_id
-                if name.startswith("baseline_")
-                else time.logical_type_id,
-                ids,
+        time = next(
+            f
+            for f in dataset.schema.columns
+            if f.role_id == "time_dimension"
+            or (f.role_id == "comparison_time" and f.name == "current_time")
+        )
+        baseline_time = next(
+            (
+                f
+                for f in dataset.schema.columns
+                if f.role_id == "comparison_time" and f.name == "baseline_time"
+            ),
+            time,
+        )
+        if objective == "point_anomalies":
+            temporal = (replace(time, _token=d._CORE_TOKEN, name="time_coordinate"),)
+            columns = (*generated, *dimensions, *temporal, *values)
+        else:
+            temporal = tuple(
+                _generated(
+                    objective,
+                    name,
+                    baseline_time.logical_type_id
+                    if name.startswith("baseline_")
+                    else time.logical_type_id,
+                    ids,
+                )
+                for name in TIME_FIELDS[objective]
             )
-            for name in TIME_FIELDS[objective]
-        )
-        columns = (
-            (*generated, *dimensions, *temporal[:2], *values, *temporal[2:])
-            if objective == "interesting_windows"
-            else (*generated, *dimensions, *temporal, *values)
-        )
+            columns = (
+                (*generated, *dimensions, *temporal[:2], *values, *temporal[2:])
+                if objective == "interesting_windows"
+                else (*generated, *dimensions, *temporal, *values)
+            )
+        coordinates = (*dimensions, *temporal)
     if len({f.name for f in columns}) != len(columns):
         raise discovery_error(
             "unambiguous retained and generated names", "Candidate field collision"
         )
-    coordinates = (*dimensions, *temporal)
     keys = tuple(
         f.field_id
         for f in (
@@ -352,7 +398,11 @@ def _discover(
                     field_id,
                     direction="descending" if field_id == semantics.score_field_id else "ascending",
                     nulls="last",
-                    value_order_contract_id="observation.scalar_order@v1",
+                    value_order_contract_id=(
+                        "observation.identity_tuple@v1"
+                        if field_id == IDENTITY_FIELD_ID
+                        else "observation.scalar_order@v1"
+                    ),
                     ids=ids,
                 )
                 for field_id in (semantics.score_field_id, *keys, semantics.item_id_field_id)
@@ -440,6 +490,23 @@ def validate_candidate(row: d.DatasetRowContract, rows: d.DatasetRowSetContract)
     decode_approximation(s.approximation)
     fields = {f.name: f for f in row.schema.columns}
     dimensions = tuple(f for f in row.schema.columns if f.role_id == "dimension")
+    entity_objective = s.objective == "entity_outliers"
+    if entity_objective:
+        identity = fields.get("entity_identity")
+        if (
+            identity is None
+            or identity.field_id != IDENTITY_FIELD_ID
+            or identity.role_id != "entity_identity"
+            or identity.logical_type_id != "identity_tuple"
+            or identity.nullable
+            or identity.derivation_identity != "identity.entity_identity@v1"
+            or not isinstance(identity.identity, d._EntityFieldIdentity)
+            or not identity.identity.identity_signature
+            or dimensions
+        ):
+            raise discovery_error(
+                "one retained complete governed Entity identity", "invalid Entity coordinate"
+            )
     temporal = tuple(fields.get(name) for name in TIME_FIELDS[s.objective])
     if any(f is None for f in temporal):
         raise discovery_error("complete objective temporal fields", "missing coordinates")
@@ -474,7 +541,9 @@ def validate_candidate(row: d.DatasetRowContract, rows: d.DatasetRowSetContract)
     time_names = TIME_FIELDS[s.objective]
     value_names = tuple(name for name, _ in VALUE_FIELDS[s.objective])
     expected = (
-        (*common_names, *dim_names, *time_names[:2], *value_names, *time_names[2:])
+        (*common_names, "entity_identity", *value_names)
+        if entity_objective
+        else (*common_names, *dim_names, *time_names[:2], *value_names, *time_names[2:])
         if s.objective == "interesting_windows"
         else (*common_names, *dim_names, *time_names, *value_names)
     )
@@ -482,10 +551,15 @@ def validate_candidate(row: d.DatasetRowContract, rows: d.DatasetRowSetContract)
         if not candidate_filterable_field(fields["rank"]):
             raise discovery_error("registered nullable rank", "invalid rank field")
         expected = (*expected, "rank")
-    coordinate_ids = tuple(fields[name].field_id for name in (*dim_names, *time_names))
+    coordinate_names = ("entity_identity",) if entity_objective else (*dim_names, *time_names)
+    coordinate_ids = tuple(fields[name].field_id for name in coordinate_names)
     key_names = (
-        *dim_names,
-        *(time_names[:2] if s.objective == "interesting_windows" else time_names),
+        ("entity_identity",)
+        if entity_objective
+        else (
+            *dim_names,
+            *(time_names[:2] if s.objective == "interesting_windows" else time_names),
+        )
     )
     keys = tuple(fields[name].field_id for name in key_names)
     if (
@@ -508,7 +582,9 @@ def validate_candidate(row: d.DatasetRowContract, rows: d.DatasetRowSetContract)
             != (
                 "descending" if i == 0 else "ascending",
                 "last",
-                "observation.scalar_order@v1",
+                "observation.identity_tuple@v1"
+                if t.field_id == IDENTITY_FIELD_ID
+                else "observation.scalar_order@v1",
             )
             for i, t in enumerate(rows.ordering.terms)
         )
@@ -548,7 +624,9 @@ def _contract_facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
         ("approximation", s.approximation),
         (
             "baseline",
-            "population mean/stddev of complete consecutive trailing-window means; window=max(7, floor(series_length/10))"
+            "median of all non-null Entity values; scale=1.4826*MAD, falling back to mean absolute deviation from that median"
+            if s.objective == "entity_outliers"
+            else "population mean/stddev of complete consecutive trailing-window means; window=max(7, floor(series_length/10))"
             if s.objective == "period_shifts"
             else "population mean/stddev of the complete current series' non-null points",
         ),

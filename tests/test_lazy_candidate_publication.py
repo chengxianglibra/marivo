@@ -387,6 +387,7 @@ def test_evaluated_empty_is_distinct_from_no_evaluation() -> None:
     )
     validate_evidence(empty)
     damaged = deepcopy(empty)
+    assert isinstance(damaged.evaluation, CandidateEvaluationSummary)
     damaged = replace(
         damaged,
         evaluation=replace(damaged.evaluation, evaluated_series_count=0, constant_series_count=1),

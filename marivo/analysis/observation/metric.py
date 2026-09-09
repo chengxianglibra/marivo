@@ -37,6 +37,7 @@ from marivo.analysis.observation.contracts import (
     TimeDimensionInput,
     construction_error,
     entity_ref,
+    identity_field,
     metric_contracts,
     owner_of,
     path_dependency_fingerprint,
@@ -53,6 +54,11 @@ from marivo.analysis.observation.population import (
 )
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
 from marivo.analysis.observation.rollup import rollup as _rollup
+from marivo.analysis.operators.candidate_contracts import CandidateSemantics
+from marivo.analysis.operators.candidate_dataset import (
+    LogicalCandidateDataset,
+    MaterializedCandidateDataset,
+)
 from marivo.analysis.operators.contracts import DEFAULT_ALIGNMENT, WindowBucketAlignment
 from marivo.analysis.operators.forecast_contracts import (
     DEFAULT_MODEL,
@@ -76,7 +82,7 @@ if TYPE_CHECKING:
     from marivo.analysis.operators.discovery import MetricDiscovery
     from marivo.analysis.operators.forecast_dataset import LogicalForecastDataset
 
-PopulationInput: TypeAlias = "LogicalPopulationDataset | MaterializedPopulationDataset | LogicalMetricDataset | MaterializedMetricDataset"
+PopulationInput: TypeAlias = "LogicalPopulationDataset | MaterializedPopulationDataset | LogicalMetricDataset | MaterializedMetricDataset | LogicalCandidateDataset | MaterializedCandidateDataset"
 
 
 class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric"):
@@ -86,10 +92,10 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
 
     @property
     def discover(self) -> MetricDiscovery:
-        """Return the non-callable namespace for time discovery on this Dataset.
+        """Return the non-callable namespace for Entity and time discovery.
 
-        Example: ``dataset.discover.point_anomalies()``.
-        Constraints: One time-bearing Metric is required; construction performs no data work.
+        Example: ``dataset.discover.entity_outliers()``.
+        Constraints: One Metric in the method's exact input shape; construction performs no data work.
         """
         from marivo.analysis.operators.discovery import MetricDiscovery
 
@@ -249,10 +255,10 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
 
     @property
     def discover(self) -> MetricDiscovery:
-        """Return the non-callable namespace for time discovery on this Dataset.
+        """Return the non-callable namespace for Entity and time discovery.
 
-        Example: ``dataset.discover.point_anomalies()``.
-        Constraints: One time-bearing Metric is required; construction performs no data work.
+        Example: ``dataset.discover.entity_outliers()``.
+        Constraints: One Metric in the method's exact input shape; construction performs no data work.
         """
         from marivo.analysis.operators.discovery import MetricDiscovery
 
@@ -507,11 +513,27 @@ def make_observation(
         MaterializedPopulationDataset,
         LogicalMetricDataset,
         MaterializedMetricDataset,
+        LogicalCandidateDataset,
+        MaterializedCandidateDataset,
     ):
         raise construction_error(
-            "registered Population or Entity-present Metric input", "unsupported population input"
+            "registered Population, Entity-present Metric, or Entity-outlier Candidate input",
+            "unsupported population input",
         )
     _validate_input_ownership(owner, (population,))
+    if population.kind == "candidate":
+        shape = population.row_contract.shape_id
+        semantics = population.row_contract.family_semantics
+        if (
+            (shape.family_id, shape.local_shape_id, shape.semantic_version)
+            != ("candidate", "entity-outlier", 1)
+            or type(semantics) is not CandidateSemantics
+            or semantics.objective != "entity_outliers"
+        ):
+            raise construction_error(
+                "exact candidate/entity-outlier@v1 membership input",
+                "unsupported Candidate shape or objective",
+            )
     identities = tuple(
         column.identity
         for column in population.schema.columns
@@ -534,6 +556,22 @@ def make_observation(
     entity = normalize_target_entity(owner.semantic_registry, identity.entity_ref.path)
     if entity.identity_signature != identity.identity_signature:
         raise construction_error("same governed identity signature", "changed Entity key contract")
+    if population.kind == "candidate":
+        expected_identity = identity_field(entity, registry.get("metric").ids)
+        actual_identity = next(
+            column
+            for column in population.schema.columns
+            if isinstance(column.identity, _EntityFieldIdentity)
+        )
+        if (
+            actual_identity != expected_identity
+            or population.row_contract.key_field_ids != (actual_identity.field_id,)
+            or population.row_contract.coordinate_field_ids != (actual_identity.field_id,)
+        ):
+            raise construction_error(
+                "complete governed Entity identity with an Entity-only unique key",
+                "unsupported Candidate identity projection",
+            )
     paths = tuple(
         coordinates.functional_path(
             owner.semantic_registry,

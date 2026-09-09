@@ -15,6 +15,7 @@ from marivo.analysis.operators.candidate_contracts import (
     CandidateEvaluationSummary,
     CandidateObjective,
     CandidateSemantics,
+    EntityCandidateEvaluationSummary,
 )
 
 
@@ -24,7 +25,7 @@ class CandidateEvidenceSummary:
     emitted_finding_count: int
     finding_set_digest: str
     definition: CandidateDefinition
-    evaluation: CandidateEvaluationSummary
+    evaluation: CandidateEvaluationSummary | EntityCandidateEvaluationSummary
 
 
 def semantics_payload(value: CandidateSemantics) -> dict[str, object]:
@@ -162,11 +163,89 @@ def reason_code(objective: str) -> str:
     return REASON_CODES[_objective(objective)]
 
 
+def _decode_entity_evaluation(value: object) -> EntityCandidateEvaluationSummary:
+    obj = _obj(
+        value,
+        "input_row_count non_null_value_count null_value_count center scale scale_method pre_limit_candidate_count emitted_candidate_count score_range reason_counts",
+    )
+    method = obj["scale_method"]
+    if method not in ("mad", "mean_absolute_deviation"):
+        raise invalid("unregistered Entity Candidate scale method")
+    reasons = []
+    for item in _array(obj["reason_counts"]):
+        pair = _array(item)
+        if len(pair) != 2:
+            raise invalid("invalid Entity Candidate reason count")
+        reasons.append((_text(pair[0]), _int(pair[1])))
+    return EntityCandidateEvaluationSummary(
+        input_row_count=_int(obj["input_row_count"]),
+        non_null_value_count=_int(obj["non_null_value_count"]),
+        null_value_count=_int(obj["null_value_count"]),
+        center=_finite(obj["center"]),
+        scale=_finite(obj["scale"]),
+        scale_method="mad" if method == "mad" else "mean_absolute_deviation",
+        pre_limit_candidate_count=_int(obj["pre_limit_candidate_count"]),
+        emitted_candidate_count=_int(obj["emitted_candidate_count"]),
+        score_range=_range(obj["score_range"]),
+        reason_counts=tuple(reasons),
+    )
+
+
+def _validate_entity_evidence(
+    value: CandidateEvidenceSummary, evaluation: EntityCandidateEvaluationSummary
+) -> None:
+    definition = value.definition
+    for count in (
+        value.row_count,
+        value.emitted_finding_count,
+        evaluation.input_row_count,
+        evaluation.non_null_value_count,
+        evaluation.null_value_count,
+        evaluation.pre_limit_candidate_count,
+        evaluation.emitted_candidate_count,
+    ):
+        _int(count)
+    _finite(evaluation.center)
+    _finite(evaluation.scale)
+    if (
+        definition.objective != "entity_outliers"
+        or value.emitted_finding_count != 0
+        or value.finding_set_digest != finding_set_digest(())
+        or evaluation.non_null_value_count < 3
+        or evaluation.input_row_count
+        != evaluation.non_null_value_count + evaluation.null_value_count
+        or evaluation.scale <= 0
+        or evaluation.scale_method not in ("mad", "mean_absolute_deviation")
+        or evaluation.pre_limit_candidate_count > evaluation.non_null_value_count
+        or evaluation.emitted_candidate_count
+        != min(definition.limit, evaluation.pre_limit_candidate_count)
+        or value.row_count > evaluation.emitted_candidate_count
+        or evaluation.reason_counts
+        != ((reason_code(definition.objective), evaluation.pre_limit_candidate_count),)
+    ):
+        raise invalid("inconsistent Entity Candidate original evaluation")
+    bounds = evaluation.score_range
+    if (bounds is None) != (evaluation.pre_limit_candidate_count == 0) or (
+        bounds is not None
+        and (
+            len(bounds) != 2
+            or any(not math.isfinite(_finite(number)) for number in bounds)
+            or not definition.threshold <= bounds[0] <= bounds[1]
+        )
+    ):
+        raise invalid("inconsistent Entity Candidate original score range")
+
+
 def validate_evidence(value: CandidateEvidenceSummary) -> None:
     from marivo.analysis.operators.discovery import validate_definition
 
     definition, evaluation = value.definition, value.evaluation
     validate_definition(definition)
+    if isinstance(evaluation, EntityCandidateEvaluationSummary):
+        _validate_entity_evidence(value, evaluation)
+        return
+    if definition.objective == "entity_outliers":
+        raise invalid("Entity Candidate requires its exact median and scale evaluation")
     counts = (
         value.row_count,
         value.emitted_finding_count,
@@ -245,12 +324,15 @@ def decode_evidence(value: object) -> CandidateEvidenceSummary | None:
     )
     if obj["schema"] != "marivo.candidate_evidence/v1":
         raise invalid("invalid Candidate Evidence schema")
+    definition = _decode_definition(obj["definition"])
     result = CandidateEvidenceSummary(
         row_count=_int(obj["row_count"]),
         emitted_finding_count=_int(obj["emitted_finding_count"]),
         finding_set_digest=_text(obj["finding_set_digest"]),
-        definition=_decode_definition(obj["definition"]),
-        evaluation=_decode_evaluation(obj["evaluation"]),
+        definition=definition,
+        evaluation=_decode_entity_evaluation(obj["evaluation"])
+        if definition.objective == "entity_outliers"
+        else _decode_evaluation(obj["evaluation"]),
     )
     validate_evidence(result)
     return result

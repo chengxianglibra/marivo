@@ -10,7 +10,10 @@ import pytest
 from marivo.analysis.datasets.base import Dataset
 from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
 from marivo.analysis.observation.predicates import eq, gt
-from marivo.analysis.operators.candidate_contracts import CandidateObjective
+from marivo.analysis.operators.candidate_contracts import (
+    CandidateEvaluationSummary,
+    CandidateObjective,
+)
 from tests.lazy_candidate_fixtures import candidate_input, discover, setup_candidate
 
 pytestmark = pytest.mark.runtime
@@ -123,6 +126,7 @@ def test_evaluated_empty_and_sampling_meaning(tmp_path: Path) -> None:
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None and record.descriptor.candidate_evidence is not None
     evaluation = record.descriptor.candidate_evidence.evaluation
+    assert isinstance(evaluation, CandidateEvaluationSummary)
     assert evaluation.evaluated_series_count == 1 and evaluation.pre_limit_candidate_count == 0
     selected = result.limit(1).execute()
     assert selected.to_pandas().empty and "sampled_population" in selected.contract().render()

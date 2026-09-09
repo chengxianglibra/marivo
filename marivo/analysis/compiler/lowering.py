@@ -17,6 +17,7 @@ from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
     CompiledDataset,
+    CompiledRelationFence,
     CompiledSampleFence,
     CompiledValidation,
     RetainedPartSpec,
@@ -76,6 +77,7 @@ from marivo.analysis.operators.attribution_contracts import (
     delta_presence_name,
     delta_state_name,
 )
+from marivo.analysis.operators.candidate_contracts import CandidateDefinition, CandidatePayload
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.refs import SemanticKind
 from marivo.semantic.ir import (
@@ -122,8 +124,11 @@ class _Rows:
 
 def _named_validations(
     validations: tuple[CompiledValidation, ...],
-    preparations: tuple[CompiledValidation | CompiledSampleFence, ...] = (),
-) -> tuple[tuple[CompiledValidation, ...], tuple[CompiledValidation | CompiledSampleFence, ...]]:
+    preparations: tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...] = (),
+) -> tuple[
+    tuple[CompiledValidation, ...],
+    tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...],
+]:
     """Give every executed assertion a stable distinct receipt name across shared branches."""
     counts: dict[str, int] = {}
     renamed: dict[int, CompiledValidation] = {}
@@ -510,8 +515,12 @@ class _Compiler:
         self.validations: list[CompiledValidation] = []
         self.attribution_proof: ir.Table | None = None
         self.association_proof: ir.Table | None = None
+        self.candidate_proof: ir.Table | None = None
+        self.candidate_definition: CandidateDefinition | None = None
         self.validation_occurrences: dict[str, int] = {}
-        self.preparations: list[CompiledValidation | CompiledSampleFence] = []
+        self.preparations: list[
+            CompiledValidation | CompiledSampleFence | CompiledRelationFence
+        ] = []
         self.prepared_validation_count = 0
         self.samples: dict[int, ir.Table] = {}
         self.cache: dict[int, _Rows] = {}
@@ -1489,6 +1498,11 @@ class _Compiler:
                 or not isinstance(dataset, MaterializedDataset)
                 or (
                     root.shape_id.family_id != "population"
+                    and not (
+                        root.shape_id.family_id == "candidate"
+                        and root.shape_id.local_shape_id == "entity-outlier"
+                        and root.shape_id.semantic_version == 1
+                    )
                     and (
                         not isinstance(
                             semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
@@ -1553,6 +1567,26 @@ class _Compiler:
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
+        elif isinstance(payload, CandidatePayload):
+            from marivo.analysis.compiler.entity_candidate import lower_entity_candidate
+
+            previous = self._visit(root.inputs[0].root)
+            self._flush_validations()
+            name = f"__mv_entity_candidate_{len(self.preparations)}"
+            self.preparations.append(CompiledRelationFence(name, previous.expression, id(root)))
+            frozen = ibis.table(previous.expression.schema(), name=name)
+            table, checks, proof = lower_entity_candidate(frozen, payload.spec)
+            self.validations.extend(checks)
+            self.candidate_proof = proof
+            self.candidate_definition = payload.spec.definition
+            identity = table.entity_identity
+            if not isinstance(identity, ir.StructValue):
+                raise compilation_error("typed Candidate identity", "invalid lowered identity")
+            # Membership projects this scored relation and reuses its frozen Metric input.
+            membership = table.select(
+                **{name: identity[name] for name in previous.entity.primary_key}
+            )
+            result = _Rows(table, membership, previous.entity)
         elif isinstance(payload, CorrelatePayload):
             from marivo.analysis.compiler.correlation import lower_correlate
 
@@ -1886,6 +1920,10 @@ class _Compiler:
             preparations,
             self.attribution_proof,
             association_proof=self.association_proof,
+            candidate_proof=self.candidate_proof if self.dataset.kind == "candidate" else None,
+            candidate_definition=self.candidate_definition
+            if self.dataset.kind == "candidate"
+            else None,
         )
 
 
@@ -2025,6 +2063,10 @@ def compile_retained_rows(
     validations: list[CompiledValidation] = []
     attribution_proof: ir.Table | None = None
     association_proof: ir.Table | None = None
+    candidate_proof: ir.Table | None = None
+    candidate_definition: CandidateDefinition | None = None
+    preparations: list[CompiledValidation | CompiledSampleFence | CompiledRelationFence] = []
+    prepared_count = 0
     private_parts: dict[int, PrivateRelations] = {}
 
     def read(value: MaterializedDataset) -> ir.Table:
@@ -2045,13 +2087,32 @@ def compile_retained_rows(
         return result
 
     def visit(value: Dataset) -> ir.Table:
-        nonlocal attribution_proof, association_proof
+        nonlocal \
+            attribution_proof, \
+            association_proof, \
+            candidate_proof, \
+            candidate_definition, \
+            prepared_count
         admit_retained_rows(value)
         if isinstance(value, MaterializedDataset):
             return read(value)
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
+        if isinstance(payload, CandidatePayload):
+            from marivo.analysis.compiler.entity_candidate import lower_entity_candidate
+
+            previous = visit(value._inputs[0])
+            preparations.extend(validations[prepared_count:])
+            prepared_count = len(validations)
+            name = f"__mv_entity_candidate_{len(preparations)}"
+            preparations.append(CompiledRelationFence(name, previous, id(value._root)))
+            frozen = ibis.table(previous.schema(), name=name)
+            result, checks, candidate_proof = lower_entity_candidate(frozen, payload.spec)
+            candidate_definition = payload.spec.definition
+            validations.extend(checks)
+            private_parts[id(value)] = ()
+            return result
         if isinstance(payload, CorrelatePayload):
             from marivo.analysis.compiler.correlation import lower_correlate
 
@@ -2209,7 +2270,9 @@ def compile_retained_rows(
         )
     elif keys:
         expression = _Compiler._order(expression, tuple((key, "ascending", "last") for key in keys))
-    checks, _ = _named_validations(tuple(validations))
+    if preparations:
+        preparations.extend(validations[prepared_count:])
+    checks, named_preparations = _named_validations(tuple(validations), tuple(preparations))
     return CompiledDataset(
         expression,
         checks,
@@ -2218,6 +2281,9 @@ def compile_retained_rows(
             *retained_part_specs(dataset.row_contract),
             *private_part_specs(dataset.row_contract, private_parts[id(dataset)]),
         ),
+        preparations=named_preparations,
         attribution_proof=attribution_proof,
         association_proof=association_proof,
+        candidate_proof=candidate_proof,
+        candidate_definition=candidate_definition,
     )

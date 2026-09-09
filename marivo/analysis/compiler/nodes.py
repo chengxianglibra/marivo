@@ -8,6 +8,7 @@ from typing import Literal
 import ibis.expr.types as ir
 
 from marivo.analysis.observation.sampling import EntitySamplingPolicy
+from marivo.analysis.operators.candidate_contracts import CandidateDefinition
 from marivo.semantic.ir import TargetEntityContract
 
 
@@ -62,6 +63,15 @@ class CompiledSampleFence:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class CompiledRelationFence:
+    """One source-private realization shared by scoring and scalar validation."""
+
+    relation_name: str
+    expression: ir.Table
+    root_identity: int
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class CompiledDataset:
     """One final source expression with separate, named assertion preflights."""
 
@@ -69,7 +79,9 @@ class CompiledDataset:
     validations: tuple[CompiledValidation, ...]
     primary_columns: tuple[str, ...]
     retained_parts: tuple[RetainedPartSpec | RetainedRelationSpec, ...]
-    preparations: tuple[CompiledValidation | CompiledSampleFence, ...] = ()
+    preparations: tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...] = ()
     attribution_proof: ir.Table | None = None
     numerical_input: Literal["distribution_coalitions"] | None = None
     association_proof: ir.Table | None = None
+    candidate_proof: ir.Table | None = None
+    candidate_definition: CandidateDefinition | None = None

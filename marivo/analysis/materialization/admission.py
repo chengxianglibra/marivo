@@ -25,6 +25,7 @@ from marivo.analysis.compiler import captured_parameters, compile_dataset, requi
 from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
     CompiledDataset,
+    CompiledRelationFence,
     CompiledSampleFence,
     RetainedPartSpec,
 )
@@ -154,6 +155,7 @@ from marivo.analysis.operators.candidate_contracts import (
     CandidatePayload,
     CandidateSearchSummary,
     CandidateSpecV1,
+    EntityCandidateEvaluationSummary,
 )
 from marivo.analysis.operators.candidate_dataset import (
     LogicalCandidateDataset,
@@ -592,9 +594,14 @@ class DatasetRuntime:
             candidate_evidence = record.descriptor.candidate_evidence
             evaluation = candidate_evidence.evaluation
             lines.extend(f"Discovery {name}: {value}" for name, value in candidate_facts(dataset))
-            lines.append(
-                f"Evaluation: input_rows={evaluation.input_row_count}; evaluated_series={evaluation.evaluated_series_count}/{evaluation.series_count}; evaluated_units={evaluation.evaluated_unit_count}/{evaluation.searched_unit_count}"
-            )
+            if isinstance(evaluation, EntityCandidateEvaluationSummary):
+                lines.append(
+                    f"Evaluation: input_rows={evaluation.input_row_count}; non_null_values={evaluation.non_null_value_count}; null_values={evaluation.null_value_count}; center={evaluation.center}; scale={evaluation.scale}; scale_method={evaluation.scale_method}"
+                )
+            else:
+                lines.append(
+                    f"Evaluation: input_rows={evaluation.input_row_count}; evaluated_series={evaluation.evaluated_series_count}/{evaluation.series_count}; evaluated_units={evaluation.evaluated_unit_count}/{evaluation.searched_unit_count}"
+                )
             lines.append(
                 f"Candidates: qualifying={evaluation.pre_limit_candidate_count}; discovery_output={evaluation.emitted_candidate_count}; current_rows={candidate_evidence.row_count}"
             )
@@ -923,6 +930,28 @@ class DatasetRuntime:
                             )
                         )
                         proof_backend, proof_recipe, _ = prepared[source_boundary.output]
+                        if proof_recipe.candidate_proof is not None:
+                            from marivo.analysis.compiler.entity_candidate import (
+                                decode_candidate_proof,
+                            )
+
+                            if proof_recipe.candidate_definition is None:
+                                raise _error("implementation_registration", run.run_ref)
+                            with _engine_deadline(proof_backend):
+                                self._record_statement(
+                                    "candidate.entity_summary",
+                                    proof_backend.compile(proof_recipe.candidate_proof),
+                                )
+                                self._event("source_statement")
+                                scalar_proof = proof_backend.to_pyarrow(
+                                    proof_recipe.candidate_proof
+                                )
+                                if scalar_proof.num_rows != 1:
+                                    raise _error("output_validation", run.run_ref)
+                                candidate_summary = decode_candidate_proof(
+                                    scalar_proof.to_pylist()[0],
+                                    proof_recipe.candidate_definition,
+                                )
                         if proof_recipe.association_proof is not None:
                             from marivo.analysis.operators.association_values import (
                                 summarize_search,
@@ -965,6 +994,38 @@ class DatasetRuntime:
                             raise _error("execution_boundary", run.run_ref)
                         current_backend, recipe, tables = prepared[source_step.output]
                         with _engine_deadline(current_backend):
+                            if (
+                                dataset.kind == "candidate"
+                                and dataset.row_contract.shape_id.local_shape_id == "entity-outlier"
+                            ):
+                                from marivo.analysis.compiler.entity_candidate import (
+                                    entity_candidate_output_proof,
+                                )
+
+                                if candidate_summary is None or not isinstance(
+                                    candidate_summary.evaluation,
+                                    EntityCandidateEvaluationSummary,
+                                ):
+                                    raise _error("output_validation", run.run_ref)
+                                output_proof = entity_candidate_output_proof(
+                                    recipe.expression,
+                                    dataset.row_contract,
+                                    candidate_summary.definition,
+                                    evaluation=candidate_summary.evaluation,
+                                )
+                                self._record_statement(
+                                    "candidate.entity_output",
+                                    current_backend.compile(output_proof),
+                                )
+                                self._event("source_statement")
+                                checked = current_backend.to_pyarrow(output_proof)
+                                if (
+                                    checked.column_names != ["violations"]
+                                    or checked.num_rows != 1
+                                    or checked["violations"][0].as_py() != 0
+                                ):
+                                    raise _error("output_validation", run.run_ref)
+                                validations.append(("candidate.entity_output", 0))
                             if isinstance(target, EngineTarget):
                                 phase = "storage_staging"
                                 artifact_ref, storage = self._write_output(
@@ -1312,7 +1373,11 @@ class DatasetRuntime:
                         raise _error("output_validation", run.run_ref)
                     descriptor, findings = build_candidate_publication(
                         descriptor,
-                        payload_batches(
+                        None
+                        if isinstance(
+                            candidate_summary.evaluation, EntityCandidateEvaluationSummary
+                        )
+                        else payload_batches(
                             self.store.project_root,
                             descriptor.storage_receipt,
                             policy=_READ_POLICY,
@@ -1761,6 +1826,27 @@ class DatasetRuntime:
             phase = "stage_execution"
             with _engine_deadline(backend):
                 for validation in preparations:
+                    if isinstance(validation, CompiledRelationFence):
+                        self.store.reserve(
+                            ResourceRecord(
+                                run_ref=run_ref,
+                                resource_kind="planner_temporary_relation",
+                                execution_domain_id=domain,
+                                ownership_nonce=execution.ownership_nonce,
+                                cleanup_capability_id="duckdb_process_lifetime@v1",
+                                safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
+                            )
+                        )
+                        self._event("source_statement")
+                        self._record_statement(
+                            "source_fence",
+                            f'CREATE TEMPORARY TABLE "{validation.relation_name}" AS {backend.compile(validation.expression)}',
+                        )
+                        backend.create_table(
+                            validation.relation_name, validation.expression, temp=True
+                        )
+                        self.statistics.source_fences += 1
+                        continue
                     if isinstance(validation, CompiledSampleFence):
                         self.store.reserve(
                             ResourceRecord(
