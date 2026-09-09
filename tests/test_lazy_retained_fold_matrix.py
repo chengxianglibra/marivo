@@ -131,8 +131,9 @@ def test_time_dimension_rollup_and_drop_time_have_identical_retained_meaning(
     retained_chain = checkpoint.rollup(grain=grain("month")).rollup(drop_dimensions=(REGION,))
     assert retained_combined.definition_fingerprint == retained_chain.definition_fingerprint
     monthly = retained_combined.execute()
-    assert monthly.to_pandas().to_dict("records") == source_rows
-    row = monthly.to_pandas().iloc[0]
+    monthly_frame = monthly.to_pandas()
+    assert monthly_frame.to_dict("records") == source_rows
+    row = monthly_frame.iloc[0]
     assert row["order_time"] == date(2026, 2, 1)
     assert row["revenue"] == 140 and row["mean_amount"] == 35 and row["weighted_amount"] == 50
     total = checkpoint.rollup(drop_dimensions=(REGION,), drop_time=True).execute().to_pandas()
@@ -194,7 +195,8 @@ def test_cumulative_runtime_preserves_exact_endpoint_and_partial_selection(
         assert state[seconds] == expected_seconds
         assert state[complete] is expected_complete
     empty = checkpoint.where(gt(running, 1000)).rollup(drop_time=True).execute()
-    assert empty.to_pandas().shape[0] == 1 and empty.to_pandas()["running"].isna().all()
+    empty_frame = empty.to_pandas()
+    assert empty_frame.shape[0] == 1 and empty_frame["running"].isna().all()
     state = _coverage(fixture.runtime, empty)
     assert all(state[name] is None for name in (endpoint, coverage_start, coverage_end))
     assert state[seconds] == 0 and state[complete] is False

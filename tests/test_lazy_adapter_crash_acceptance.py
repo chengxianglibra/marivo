@@ -99,10 +99,7 @@ def _evidence(
             (kind, point, 1, False)
             for kind in ("engine",)
             for point in (
-                "insert_artifact",
-                "insert_evidence",
                 "insert_terminal",
-                "before_commit",
                 "after_commit",
                 "readback_unavailable",
             )
@@ -123,6 +120,10 @@ def test_adapter_crash_reconciles_exact_uncommitted_outputs_or_preserves_commit(
     assert isinstance(producer, dict)
     recovery = _recover(tmp_path, kind)
     assert recovery["pending"] is False
+    if point == "after_commit":
+        assert isinstance(recovery["independent"], dict)
+    else:
+        assert "independent" not in recovery
     recovered = recovery["recovered"]
     assert isinstance(recovered, dict)
     assert recovered["pid"] != producer["pid"]

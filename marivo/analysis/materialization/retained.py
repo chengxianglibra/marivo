@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 import pyarrow as pa
-from ibis.backends.duckdb import Backend
 from sqlglot import expressions as sge
 
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
@@ -39,6 +39,9 @@ from marivo.analysis.observation.fold_contracts import (
     fold_state_columns,
 )
 from marivo.analysis.observation.private_parts import source_private_part_authorities
+
+if TYPE_CHECKING:
+    from ibis.backends.duckdb import Backend
 
 _STATE_TYPE_CHECKS: dict[str, tuple[Callable[[pa.DataType], bool], ...]] = {
     "integer": (pa.types.is_integer,),

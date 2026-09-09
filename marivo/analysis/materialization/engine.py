@@ -109,8 +109,9 @@ def validate_engine_relation(
     record: Callable[[str, str], None],
 ) -> None:
     count_expression = table.count()
-    record("engine_check.input_count", backend.compile(count_expression))
-    count: object = backend.execute(count_expression)
+    count_sql = backend.compile(count_expression)
+    record("engine_check.input_count", count_sql)
+    count: object = backend.raw_sql(count_sql).fetchone()[0]
     if count != receipt.realized_row_count:
         _integrity("the exact engine receipt row count", "engine relation count differs")
     record("engine_check.input_schema", backend.compile(table.limit(0)))
@@ -190,8 +191,9 @@ def write_engine_dataset(
         backend.raw_sql(statement)
         relation = backend.table(part_fence).cast(part.expression.schema())
         count_expression = relation.count()
-        record("engine_check.part_producer_count", backend.compile(count_expression))
-        part_count: object = backend.execute(count_expression)
+        part_count_sql = backend.compile(count_expression)
+        record("engine_check.part_producer_count", part_count_sql)
+        part_count: object = backend.raw_sql(part_count_sql).fetchone()[0]
         if type(part_count) is not int:
             _fail("an exact independent part row count", "invalid engine part count")
         relation_parts[part.role] = (relation, part_count)
@@ -216,8 +218,9 @@ def write_engine_dataset(
         for check in checks[1:]:
             invalid = invalid | check
         invalid_count = fixed.filter(invalid).count()
-        record("engine_check.nullability", backend.compile(invalid_count))
-        bad: object = backend.execute(invalid_count)
+        invalid_count_sql = backend.compile(invalid_count)
+        record("engine_check.nullability", invalid_count_sql)
+        bad: object = backend.raw_sql(invalid_count_sql).fetchone()[0]
         if bad != 0:
             _fail("non-null required output fields", "null engine output field")
     primary = ordered_relation(fixed.select(recipe.primary_columns), row, rows)

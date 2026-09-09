@@ -431,8 +431,9 @@ def test_empty_source_execution_still_commits_schema_and_scalar_zero_count(tmp_p
     )
     committed = empty.execute()
     assert committed.state.realized_row_count == 0
-    assert committed.to_pandas().empty
-    assert tuple(committed.to_pandas().columns) == ("entity_identity", "revenue", "order_count")
+    committed_frame = committed.to_pandas()
+    assert committed_frame.empty
+    assert tuple(committed_frame.columns) == ("entity_identity", "revenue", "order_count")
     scalar = empty.aggregate().execute().to_pandas()
     assert len(scalar) == 1
     assert pd.isna(scalar.loc[0, "revenue"])

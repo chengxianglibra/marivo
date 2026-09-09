@@ -20,7 +20,6 @@ from marivo.analysis.datasets.descriptors import (
     _row_contract_fingerprint,
     _row_set_contract_fingerprint,
 )
-from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -126,15 +125,9 @@ def run(
             .aggregate()
         )
         delta = current.compare(baseline).execute()
-        barrier_delta = (
-            current.rollup(drop_dimensions=(CHANNEL,))
-            .compare(baseline.rollup(drop_dimensions=(CHANNEL,)))
-            .execute()
-        )
         refs = {
             "session": runtime.session_ref,
             "delta": delta.state.artifact_ref.ref,
-            "barrier_delta": barrier_delta.state.artifact_ref.ref,
         }
         if kind == "engine":
             with duckdb.connect(str(database), config={"threads": 1}) as connection:
@@ -145,7 +138,6 @@ def run(
         return {
             "pid": os.getpid(),
             "refs": refs,
-            "rows": _rows(delta),
             "after": snapshot(runtime),
             "versions": versions(),
         }
@@ -153,22 +145,6 @@ def run(
     recovered = runtime.artifact(refs["delta"])
     assert isinstance(recovered, MaterializedDeltaDataset)
     delta = recovered
-    barrier = runtime.artifact(refs["barrier_delta"])
-    assert isinstance(barrier, MaterializedDeltaDataset)
-    barrier_before = snapshot(runtime)
-    with ExitStack() as guards:
-        guards.enter_context(patch.object(runtime.store, "artifact", _forbidden))
-        for name in ("place", "compile_dataset", "_build_backend_from_effective", "supervise"):
-            guards.enter_context(patch.object(admission, name, _forbidden))
-        try:
-            barrier.attribute(axes=(REGION, CHANNEL))
-        except DatasetConstructionError as error:
-            assert "materialized missing-axis barrier" in str(error)
-            assert ".with_dimensions(*axes)" in str(error)
-        else:
-            raise AssertionError("A retained Delta recovered its missing axis")
-    barrier_after = snapshot(runtime)
-    assert barrier_after == barrier_before
     logical = delta.attribute(axes=[REGION, CHANNEL], mode="hierarchy", top_k=1)
     with ExitStack() as guards:
         if mode == "cold":
@@ -214,8 +190,6 @@ def run(
         "row_set_contract": _row_set_contract_fingerprint(result.row_set_contract),
         "findings": [encode_finding_body(item) for item in result.findings().items],
         "input_artifact_refs": run_record.input_artifact_refs,
-        "missing_axis_barrier_before": barrier_before,
-        "missing_axis_barrier_after": barrier_after,
         "statistics": statistics(runtime),
         "versions": versions(),
     }

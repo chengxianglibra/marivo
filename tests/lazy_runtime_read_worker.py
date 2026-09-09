@@ -95,19 +95,15 @@ def _graph(value: SessionGraph) -> dict[str, object]:
     }
 
 
-def _read(runtime: DatasetRuntime, artifact: str) -> dict[str, object]:
+def _read(
+    runtime: DatasetRuntime, artifact: str, *, inspect_storage: bool = False
+) -> dict[str, object]:
     before = snapshot(runtime)
     retained = runtime.artifact(artifact)
     assert isinstance(retained, MaterializedMetricDataset)
     digest = retained.evidence_digest
     findings = retained.findings()
     assert digest.finding_count == 0 and findings.items == () and not findings.has_more
-    report = runtime.revalidate(artifact)
-    assert (
-        report.artifact_integrity == report.evidence_integrity == "valid"
-        and report.storage_authority == "readable"
-        and report.issues == ()
-    )
     page = runtime.runs(limit=1)
     records = list(page.items)
     while page.has_more:
@@ -123,7 +119,7 @@ def _read(runtime: DatasetRuntime, artifact: str) -> dict[str, object]:
         runtime.graph().show()
     frame = retained.to_pandas()
     assert snapshot(runtime) == before
-    return {
+    result: dict[str, object] = {
         "artifact": artifact,
         "rows": [
             [None if value is None else float(value) for value in row]
@@ -131,17 +127,27 @@ def _read(runtime: DatasetRuntime, artifact: str) -> dict[str, object]:
         ],
         "finding_count": digest.finding_count,
         "evidence_digest": digest.evidence_digest,
-        "revalidation": {
-            "artifact_integrity": report.artifact_integrity,
-            "storage_authority": report.storage_authority,
-            "evidence_integrity": report.evidence_integrity,
-        },
         "runs": [{"run": item.run_id, "lifecycle": item.lifecycle} for item in records],
         "graph": _graph(runtime.graph()),
         "show": output.getvalue(),
         "before": before,
         "after": snapshot(runtime),
     }
+
+    if inspect_storage:
+        report = runtime.revalidate(artifact)
+        assert (
+            report.artifact_integrity == report.evidence_integrity == "valid"
+            and report.storage_authority == "readable"
+            and report.issues == ()
+        )
+        result["revalidation"] = {
+            "artifact_integrity": report.artifact_integrity,
+            "storage_authority": report.storage_authority,
+            "evidence_integrity": report.evidence_integrity,
+        }
+        assert snapshot(runtime) == before
+    return result
 
 
 def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
@@ -252,8 +258,8 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
             consumer = _open(project, str(state["consumer"]), kind)
             before = snapshot(runtime)
             reads = {
-                "origin": _read(runtime, str(state["output"])),
-                "consumer_read": _read(consumer, str(state["consumed"])),
+                "origin": _read(runtime, str(state["output"]), inspect_storage=True),
+                "consumer_read": _read(consumer, str(state["consumed"]), inspect_storage=True),
             }
             sessions = DatasetRuntime.recent(project, limit=1)
             assert sessions.has_more and sessions.next_cursor is not None
