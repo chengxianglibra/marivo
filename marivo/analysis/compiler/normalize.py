@@ -18,6 +18,7 @@ from marivo.analysis.observation.contracts import (
 from marivo.analysis.observation.coordinates import functional_path, governed_path, path_entities
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
+from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.semantic.ir import TargetEntityContract
@@ -115,7 +116,14 @@ def required_entities(
                                     )
                                     ids.update(path_entities(registry, source, (route,)))
         elif not isinstance(
-            payload, (RetainedRowsPayload, RetainedFoldPayload, ComparePayload, AttributePayload)
+            payload,
+            (
+                RetainedRowsPayload,
+                RetainedFoldPayload,
+                ComparePayload,
+                AttributePayload,
+                CorrelatePayload,
+            ),
         ):
             raise compilation_error("closed Observation payload", "unsupported definition payload")
     # A retained identity input supplies its own membership keys. No origin

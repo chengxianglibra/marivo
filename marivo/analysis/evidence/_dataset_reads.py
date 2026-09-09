@@ -20,7 +20,12 @@ from marivo.analysis.evidence._dataset_codec import (
     finding_identity,
     finding_set_member,
 )
-from marivo.analysis.materialization.contracts import ArtifactRecord, canonical_json, invalid
+from marivo.analysis.materialization.contracts import (
+    FINDING_CAP,
+    ArtifactRecord,
+    canonical_json,
+    invalid,
+)
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.refs import ArtifactRef
 from marivo.introspection.live.model import LiveHelpTarget
@@ -72,6 +77,9 @@ class FindingRegistration:
     canonical_item_key: Callable[[t.Finding], str]
     contribution_method: str | None = None
     active_axis_masks: tuple[tuple[bool, ...], ...] = ()
+    association_subjects: tuple[t.AssociationFindingSubjectV1, ...] = ()
+    association_method: str | None = None
+    association_lags: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         for value in (
@@ -126,7 +134,7 @@ def _registration(record: ArtifactRecord, registration: FindingRegistration | No
         or registration.extractor_contract_id != contract.finding_extractor_id
         or registration.extractor_contract_version != str(contract.finding_extractor_version)
         or registration.shape_id != record.descriptor.row_contract.shape_id
-        or record.evidence.finding_count > 1000
+        or record.evidence.finding_count > FINDING_CAP
     ):
         raise invalid("Finding registration does not match its producing Artifact")
     columns = {field.field_id: field for field in record.descriptor.realized_schema.columns}
@@ -182,7 +190,11 @@ def _validate(
         finding.finding_id != finding_identity(finding)
         or finding.canonical_item_key != registration.canonical_item_key(finding)
         or finding.finding_type != registration.finding_type
-        or finding.subject != registration.subject
+        or (
+            finding.subject not in registration.association_subjects
+            if registration.association_subjects
+            else finding.subject != registration.subject
+        )
         or derivation.producer_id != registration.producer_id
         or derivation.extractor_contract_id != registration.extractor_contract_id
         or derivation.extractor_contract_version != registration.extractor_contract_version
@@ -202,6 +214,23 @@ def _validate(
             )
         ):
             raise invalid("Contribution mask or method contradicts its registration")
+    if registration.association_subjects:
+        value = finding.value
+        if (
+            not isinstance(value, t.AssociationFindingValueV1)
+            or value.method != registration.association_method
+        ):
+            raise invalid("Association method contradicts its registration")
+        matched = value.null_pair_count + value.complete_pair_count
+        if isinstance(value.lag, t.AssociationLagV1):
+            if (
+                value.lag.lag_offset not in registration.association_lags
+                or value.lag.matched_observation_count != matched
+                or matched + value.lag.lag_boundary_drop_count != value.input_observation_count
+            ):
+                raise invalid("Association lag or counts contradict their registration")
+        elif registration.association_lags or matched != value.input_observation_count:
+            raise invalid("Association observation unit contradicts its registration")
     for coordinate, rule in zip(finding.coordinates, registration.coordinates, strict=True):
         _coordinate(coordinate, rule, finding)
     if finding.artifact_ref.ref != record.artifact_ref or finding.session_id != record.session_ref:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TypeAlias
 
 import duckdb
@@ -20,6 +20,7 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.operators import registry
+from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.registry import ImplementationRegistration
@@ -71,6 +72,7 @@ class SourceStep:
     dataset: LogicalDataset
     binding: ExecutionBinding
     distribution_preparation: bool = False
+    correlation_preparation: bool = False
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -155,13 +157,31 @@ def place(
                 if child_domains
                 and isinstance(
                     value._root.payload,
-                    (RetainedRowsPayload, RetainedFoldPayload, ComparePayload, AttributePayload),
+                    (
+                        RetainedRowsPayload,
+                        RetainedFoldPayload,
+                        ComparePayload,
+                        AttributePayload,
+                        CorrelatePayload,
+                    ),
                 )
                 else source_binding(value)
             )
             if candidate is not None and source_eligible(registration, child_domains, candidate):
                 binding = candidate
-        if (
+        if isinstance(value._root.payload, CorrelatePayload):
+            if binding is None:
+                prepared_domain = child_domains[0] if len(child_domains) == 1 else None
+                preparation = replace(
+                    registration, source_adapter=registration.source_preparation_adapter
+                )
+                if prepared_domain is not None and source_eligible(
+                    preparation, child_domains, prepared_domain
+                ):
+                    preparations[id(value)] = prepared_domain
+                else:
+                    registry.admit_local(value, registration)
+        elif (
             isinstance(value._root.payload, AttributePayload)
             and value._root.payload.spec.method == "distribution_shapley@v1"
         ):
@@ -191,7 +211,18 @@ def place(
         elif isinstance(value, LogicalDataset):
             if id(value) in preparations:
                 boundary = len(steps)
-                steps.append(SourceStep(boundary, value, preparations[id(value)], True))
+                correlation = isinstance(value._root, LogicalRootHandle) and isinstance(
+                    value._root.payload, CorrelatePayload
+                )
+                steps.append(
+                    SourceStep(
+                        boundary,
+                        value,
+                        preparations[id(value)],
+                        distribution_preparation=not correlation,
+                        correlation_preparation=correlation,
+                    )
+                )
                 index = len(steps)
                 steps.append(PandasStep(index, (boundary,), value, registrations[id(value)]))
             elif binding is not None:

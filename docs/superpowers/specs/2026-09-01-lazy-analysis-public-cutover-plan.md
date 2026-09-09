@@ -2524,6 +2524,44 @@ cold-recovered inputs where legal. Shared Candidate registration never grants
 population-input admission beyond the exact Entity-outlier shape. The 6d Metric
 continuation does not require Event/Lifecycle implementation from Slice 7.
 
+### Slice 6a private acceptance (2026-09-09)
+
+Slice 6a is complete on the preserved Slice 5d baseline `39e3ac7e`.
+The [execution record](../plans/2026-09-09-lazy-analysis-slice-6a-execution.md)
+owns the implementation inventory, numerical decisions and acceptance matrix.
+The executable candidate is
+`31524592d2f3280ba73cfaf0eb900cfc04d9e8d669d9a51bd05c48f334243635`.
+
+Final evidence in `evidence/slice-6a/` binds the same before/after fingerprint:
+`make check-agent` passed 6,365 default tests, full lint/import contracts,
+production typing and API documentation; strict correlation test typing passed;
+the focused Runtime gate passed 77 tests, including existing distribution and
+retained Metric regression owners. Eight separate three-process journeys cover
+engine/local/object Association output, origin-free continuation and exact cold
+binding reuse with unchanged Run, Artifact, row, Evidence and Finding authority.
+Versioned object acceptance used isolated MinIO and disposable buckets. Complete
+pair guards, candidate/count equations, unusable lag preservation, coordinate
+calendars, source-private Entity preparation, numerical references, atomic
+failure/cancellation and retained search disclosure are covered by the linked
+matrix and final logs.
+
+Only Slice 6a is closed. This acceptance neither activates public exports,
+Help or site documentation nor closes Slices 6b-6e. No commit, push, release or
+full release Runtime gate was performed.
+
+The subsequent authorized review follow-up supersedes that executable
+candidate with
+`3a51186475600b2957c5dbe806756e1d08909e636384f081781d2d2f548ab5de`
+on preserved HEAD `06166dbf`. `evidence/slice-6a/review-1/` records all 6,381
+default tests, nine-module strict test typing and all 81 focused Runtime tests
+passing on that same candidate, including eight three-process recovery routes.
+The execution record contains the disposition of every review suggestion.
+The follow-up adds explicit selection-rule and pair-approximation Evidence,
+shared selection/count rules, disclosed Finding-cap counts, corrected PairInput
+errors and source Dimension-series/minimum-signed-lag regressions. It preserves
+the owning spec's 1,000-Finding cap and existing input-role and complete-input
+budget checks. Scope remains private Slice 6a only.
+
 ### Owned implementation
 
 For every exact variant:

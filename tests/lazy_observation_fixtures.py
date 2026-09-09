@@ -41,6 +41,7 @@ from marivo.semantic.ir import (
 from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
+    from marivo.analysis.operators.association import LogicalAssociationDataset
     from marivo.analysis.operators.attribution import LogicalAttributionDataset
     from marivo.analysis.operators.delta import LogicalDeltaDataset
     from marivo.refs import EntityKind, FieldKind
@@ -69,6 +70,9 @@ class NoIoActionPort:
 
     def execute_metric(self, dataset: LogicalMetricDataset) -> Never:
         raise AssertionError("Metric execution is not part of definition-only acceptance")
+
+    def execute_association(self, dataset: LogicalAssociationDataset) -> Never:
+        raise AssertionError("Association execution is not part of definition-only acceptance")
 
     def execute_delta(self, dataset: LogicalDeltaDataset) -> Never:
         raise AssertionError("Delta execution is not part of definition-only acceptance")

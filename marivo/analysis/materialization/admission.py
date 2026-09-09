@@ -39,7 +39,7 @@ from marivo.analysis.compiler.placement import (
     place,
     source_binding,
 )
-from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
+from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
 from marivo.analysis.evidence import _dataset_reads
@@ -135,6 +135,17 @@ from marivo.analysis.observation.population import (
     MaterializedPopulationDataset,
 )
 from marivo.analysis.observation.private_parts import source_private_part_authorities
+from marivo.analysis.operators.association import (
+    LogicalAssociationDataset,
+    MaterializedAssociationDataset,
+)
+from marivo.analysis.operators.association_contracts import (
+    MAX_CANDIDATES,
+    AssociationSearchSummary,
+    CorrelatePayload,
+    CorrelateSpecV1,
+    selection_description,
+)
 from marivo.analysis.operators.attribution import (
     LogicalAttributionDataset,
     MaterializedAttributionDataset,
@@ -548,6 +559,22 @@ class DatasetRuntime:
             )
             for quantile in dict.fromkeys(quantiles)
         ]
+        if record.descriptor.association_evidence is not None:
+            from marivo.analysis.operators.association_contracts import AssociationSemantics
+
+            meaning = dataset.row_contract.family_semantics
+            evidence = record.descriptor.association_evidence
+            if isinstance(meaning, AssociationSemantics):
+                lines[1:1] = [
+                    f"Association: method={meaning.method}; observation_unit={meaning.input_shape}",
+                    f"Approximation: {', '.join(dict.fromkeys(meaning.approximations))}",
+                    f"Search: pairs={evidence.searched_pair_count}; lags={evidence.searched_lag_count}; series={evidence.searched_series_count}; candidates={evidence.original_candidate_count}",
+                    f"Lag scope: first={meaning.lag_offsets[0]}; last={meaning.lag_offsets[-1]}",
+                    f"Complete pairs: {evidence.complete_pair_range}; null loss: {evidence.null_pair_range}",
+                    f"Selection: {selection_description()}; rule={evidence.selection_rule_id}",
+                    f"Findings: eligible={evidence.eligible_finding_count}; emitted={evidence.emitted_finding_count}; truncated={evidence.finding_truncated}",
+                    "Descriptive and exploratory; no significance or causal claim. Positive lag describes coordinate order only.",
+                ]
         sampling = record.descriptor.sampling_execution
         if sampling is not None:
             facts = "; ".join(
@@ -607,6 +634,14 @@ class DatasetRuntime:
             or dataset._owner.session_id != self.session_ref
         ):
             raise _error("authority_resolution")
+
+    def execute_association(
+        self, dataset: LogicalAssociationDataset
+    ) -> MaterializedAssociationDataset:
+        result = self._execute(dataset)
+        if not isinstance(result, MaterializedAssociationDataset):
+            raise _error("publication", None)
+        return result
 
     def execute_delta(self, dataset: LogicalDeltaDataset) -> MaterializedDeltaDataset:
         result = self._execute(dataset)
@@ -788,8 +823,17 @@ class DatasetRuntime:
                 sampling: list[SamplingRealization] = []
                 sampling_by_root: dict[int, SamplingRealization] = {}
                 attribution_summary: AttributionSourceSummary | None = None
+                association_summary: AssociationSearchSummary | None = None
                 for input_record in records.values():
                     descriptor = input_record.descriptor
+                    if descriptor.association_evidence is not None:
+                        evidence = descriptor.association_evidence
+                        association_summary = AssociationSearchSummary(
+                            evidence.searched_series_count,
+                            evidence.original_candidate_count,
+                            evidence.complete_pair_range,
+                            evidence.null_pair_range,
+                        )
                     for realization in descriptor.sampling_execution or ():
                         if realization not in sampling:
                             sampling.append(realization)
@@ -811,6 +855,24 @@ class DatasetRuntime:
                             )
                         )
                         proof_backend, proof_recipe, _ = prepared[source_boundary.output]
+                        if proof_recipe.association_proof is not None:
+                            from marivo.analysis.operators.association_values import (
+                                summarize_search,
+                            )
+
+                            with _engine_deadline(proof_backend):
+                                proof_sql = proof_backend.compile(proof_recipe.association_proof)
+                                self._record_statement("association.search_summary", proof_sql)
+                                self._event("source_statement")
+                                proof_table = proof_backend.to_pyarrow(
+                                    proof_recipe.association_proof
+                                )
+                                if proof_table.num_rows > MAX_CANDIDATES:
+                                    raise _error("output_validation", run.run_ref)
+                                association_summary = summarize_search(
+                                    proof_table.to_pandas(types_mapper=pd.ArrowDtype),
+                                    source_boundary.dataset.row_contract,
+                                )
                         if (
                             proof_recipe.attribution_proof is not None
                             and source_boundary.dataset.kind == "attribution"
@@ -881,6 +943,55 @@ class DatasetRuntime:
                         for step in physical.steps:
                             if isinstance(step, SourceStep):
                                 current_backend, recipe, tables = prepared[step.output]
+                                if step.correlation_preparation:
+                                    from marivo.analysis.materialization.local_worker import (
+                                        PairInput,
+                                    )
+
+                                    pair_root = step.dataset._root
+                                    if not isinstance(
+                                        pair_root, LogicalRootHandle
+                                    ) or not isinstance(pair_root.payload, CorrelatePayload):
+                                        raise _error("implementation_registration", run.run_ref)
+                                    count_sql = current_backend.compile(
+                                        recipe.expression.aggregate(
+                                            __mv_rows=recipe.expression.count()
+                                        )
+                                    )
+                                    self._record_statement("correlation_cardinality", count_sql)
+                                    with _engine_deadline(current_backend):
+                                        pair_count = current_backend.raw_sql(count_sql).fetchone()[
+                                            0
+                                        ]
+                                    if type(pair_count) is not int or pair_count > min(
+                                        self.local_policy.max_input_rows,
+                                        self.local_policy.max_method_rows,
+                                    ):
+                                        raise MaterializationError(
+                                            expected="complete correlation pairs within local budgets",
+                                            received="correlation input count exceeds budget",
+                                            repair="Narrow Metrics, lags or observation scope.",
+                                            stage="transfer_guard",
+                                            run_ref=run.run_ref,
+                                        )
+                                    boundaries.append(
+                                        LocalBoundary(
+                                            step.output,
+                                            PairInput(pair_root.payload.spec, pair_count),
+                                        )
+                                    )
+                                    streams.append(
+                                        LocalInputStreams(
+                                            self._batches(
+                                                current_backend,
+                                                recipe.expression,
+                                                self._batch_rows(
+                                                    current_backend, tables, recipe.expression
+                                                ),
+                                            )
+                                        )
+                                    )
+                                    continue
                                 if step.distribution_preparation:
                                     from marivo.analysis.materialization.local_worker import (
                                         CoalitionInput,
@@ -1051,6 +1162,9 @@ class DatasetRuntime:
                         attribution_summary = (
                             local_result.attribution_summary or attribution_summary
                         )
+                        association_summary = (
+                            local_result.association_summary or association_summary
+                        )
                         validations = [
                             (
                                 "source_prefix.final_row_key_unique"
@@ -1118,7 +1232,28 @@ class DatasetRuntime:
                     self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
                 findings: tuple[Finding, ...] = ()
-                if dataset.kind == "delta":
+                if dataset.kind == "association":
+                    from marivo.analysis.materialization.association_publication import (
+                        build_association_publication,
+                    )
+                    from marivo.analysis.materialization.reads import payload_batches
+
+                    descriptor, findings = build_association_publication(
+                        descriptor,
+                        payload_batches(
+                            self.store.project_root,
+                            descriptor.storage_receipt,
+                            policy=_READ_POLICY,
+                            bindings=object_bindings,
+                            row=descriptor.row_contract,
+                            rows=descriptor.row_set_contract,
+                            audit=True,
+                        ),
+                        artifact_ref=artifact_ref,
+                        session_ref=self.session_ref,
+                        search_summary=association_summary,
+                    )
+                elif dataset.kind == "delta":
                     from marivo.analysis.materialization.comparison_publication import (
                         build_delta_publication,
                     )
@@ -1282,7 +1417,10 @@ class DatasetRuntime:
         validations: list[tuple[str, int]],
         sampling_by_root: dict[int, SamplingRealization],
     ) -> Iterator[tuple[Backend, CompiledDataset, dict[str, ir.Table]]]:
-        source_dataset = source_step.dataset
+        source_dataset: Dataset = source_step.dataset
+        if source_step.correlation_preparation:
+            source_dataset = source_dataset._inputs[0]
+
         records = {
             value.state.artifact_ref.ref: all_records[value.state.artifact_ref.ref]
             for value in artifact_inputs(source_dataset)
@@ -1290,9 +1428,14 @@ class DatasetRuntime:
         entities = (
             required_entities(source_dataset, registry=source_step.binding.owner.semantic_registry)
             if isinstance(source_step.binding, SourceBinding)
+            and isinstance(source_dataset, LogicalDataset)
             else ()
         )
-        captures = captured_parameters(source_dataset)
+        captures = (
+            captured_parameters(source_dataset)
+            if isinstance(source_dataset, LogicalDataset)
+            else ()
+        )
         backend: Backend | None = None
         execution: ResourceRecord | None = None
         opening = False
@@ -1431,8 +1574,29 @@ class DatasetRuntime:
                     scans[reference] = CompiledArtifactScan(
                         table, entity, tuple(retained_parts.items())
                     )
+                if not isinstance(source_dataset, LogicalDataset):
+                    raise _error("implementation_registration", run_ref)
                 recipe = compile_dataset(
                     source_dataset, tables, scans=scans, source_owner=source_step.binding.owner
+                )
+            if source_step.correlation_preparation:
+                from marivo.analysis.compiler.correlation import prepare_pairs
+
+                root = source_step.dataset._root
+                if not isinstance(root, LogicalRootHandle) or not isinstance(
+                    root.payload, CorrelatePayload
+                ):
+                    raise _error("implementation_registration", run_ref)
+                pair_expression, pair_checks = prepare_pairs(recipe.expression, root.payload.spec)
+                recipe = replace(
+                    recipe,
+                    expression=pair_expression,
+                    primary_columns=tuple(pair_expression.columns),
+                    retained_parts=(),
+                    validations=(*recipe.validations, *pair_checks),
+                    preparations=(*recipe.preparations, *pair_checks)
+                    if recipe.preparations
+                    else (),
                 )
             phase = "ibis_backend_compile"
             self._event("backend_compile")
@@ -1717,7 +1881,7 @@ class DatasetRuntime:
         self,
         backend: Backend,
         descriptor: ArtifactDescriptor,
-        dataset: LogicalDataset,
+        dataset: Dataset,
         *,
         input_dataset: MaterializedDataset | None = None,
     ) -> dict[str, ir.Table]:
@@ -1924,8 +2088,8 @@ class DatasetRuntime:
             if not isinstance(root, LogicalRootHandle):
                 raise _error("implementation_registration", run_ref)
             payload = root.payload
-            call: RowCall | CompareSpecV1 | AttributeSpecV1
-            if isinstance(payload, (ComparePayload, AttributePayload)):
+            call: RowCall | CompareSpecV1 | AttributeSpecV1 | CorrelateSpecV1
+            if isinstance(payload, (ComparePayload, AttributePayload, CorrelatePayload)):
                 call = payload.spec
             elif isinstance(payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)):
                 if len(step.inputs) != 1:

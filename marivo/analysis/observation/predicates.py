@@ -534,11 +534,13 @@ def bind_predicates(
             and comparison_roles.get(resolved.name) == resolved.role_id
         )
         from marivo.analysis.operators.attribution_contracts import attribution_filterable_field
+        from marivo.analysis.operators.correlate import association_filterable_field
 
         if (
             resolved.role_id not in ("metric", "dimension", "time_dimension", "rank")
             and not comparison_field
             and not attribution_filterable_field(resolved)
+            and not association_filterable_field(resolved)
         ):
             _error("retained Metric, Dimension or exact generated row field", resolved.role_id)
         literal: CanonicalValue

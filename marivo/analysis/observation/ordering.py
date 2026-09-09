@@ -38,7 +38,18 @@ from marivo.analysis.observation.contracts import (
 RankOrder = Literal["ascending", "descending"]
 RankTies = Literal["ordinal", "dense", "min", "max"]
 RANK_FIELD_ID = _make_field_id("generated.rank@v1")
-RANK_SHAPES = frozenset({"entity", "dimension", "time", "dimension-time", "joint", "hierarchy"})
+RANK_SHAPES = frozenset(
+    {
+        "entity",
+        "dimension",
+        "time",
+        "dimension-time",
+        "joint",
+        "hierarchy",
+        "time-lag",
+        "dimension-time-lag",
+    }
+)
 VALUE_ORDER_ID = "observation.scalar_order@v1"
 
 

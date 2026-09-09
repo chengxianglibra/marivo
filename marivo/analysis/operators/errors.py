@@ -44,3 +44,16 @@ def attribution_error(
         or "Use a single Metric with exact additive component and partition contracts for the requested axes.",
         location="operators.attribute",
     )
+
+
+class CorrelationError(DatasetConstructionError):
+    """Correlation input, alignment or numerical authority is inconsistent."""
+
+
+def correlation_error(expected: str, received: str) -> CorrelationError:
+    return CorrelationError(
+        expected=expected,
+        received=received,
+        repair="Use 2-16 quantitative Metrics with compatible coordinates; narrow lags or repair null, constant and non-finite observations.",
+        location="dataset.correlate",
+    )
