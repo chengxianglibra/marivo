@@ -3010,3 +3010,22 @@ prefixes and a bounded pandas terminal suffix, direct local DataFrame handoff,
 and PyArrow Artifact reads, while removing the internal DuckDB executor. All
 acceptance criteria above use this single current contract; historical executor
 choices are not implementation alternatives.
+
+### Slice 5d distribution preparation
+
+Metric and Delta distribution parts are independently sized, engine-private
+value-frequency relations published with the existing immutable engine
+receipts. Source-native checks validate exact schema, positive finite support,
+unique value keys, coordinate support and endpoint reproduction. Generic
+Arrow/pandas readers reject their roles and receipts before reading payloads.
+Consumption and full integrity inspect required parts; ordinary primary reads
+do not consume unused distributions.
+
+The existing physical stage graph gains one closed distribution preparation
+input. Its stream is not a Dataset or an Artifact: it carries one value per
+scope/resolution/coalition, a consistent typed non-identity player inventory,
+player count and independent endpoints. The complete input is budgeted before
+exact local Shapley combination. Missing coalitions, duplicate players,
+inconsistent inventories/endpoints or incomplete resolutions fail atomically.
+Run resources, cancellation, source realization and receipt rechecks retain
+the existing owners; no separate publication or recovery mechanism is added.

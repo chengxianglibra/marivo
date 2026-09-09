@@ -229,9 +229,9 @@ def write_engine_dataset(
     for part in recipe.retained_parts:
         if isinstance(part, RetainedRelationSpec):
             relation, part_count = relation_parts[part.role]
-            from marivo.analysis.materialization.retained import validate_membership_relation
+            from marivo.analysis.materialization.retained import validate_source_private_relation
 
-            validate_membership_relation(backend, relation, primary, row, part.role, record)
+            validate_source_private_relation(backend, relation, primary, row, part.role, record)
         else:
             relation = ordered_relation(fixed, row, rows).select(part.column_names)
             part_count = count

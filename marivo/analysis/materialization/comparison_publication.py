@@ -377,7 +377,7 @@ def build_delta_publication(
         presence["matched"],
         presence["current_only"] + presence["baseline_only"],
         "lossless_signed:" + semantics.numeric_type + "@v1",
-        any(item.sampling_execution is not None for item in descriptor.comparison_inputs),
+        semantics.approximation_class != "exact",
         eligible_count,
         len(findings),
         eligible_count > len(findings),

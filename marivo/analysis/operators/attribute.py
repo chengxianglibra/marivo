@@ -44,6 +44,7 @@ from marivo.analysis.operators.attribution import (
     MaterializedAttributionDataset,
 )
 from marivo.analysis.operators.attribution_contracts import (
+    INDEPENDENT_RESOLUTION_METHODS,
     AttributePayload,
     AttributeSpecV1,
     AttributionMethod,
@@ -95,6 +96,18 @@ def attribute_method(authority: MetricFoldAuthorityV1, axes: tuple[str, ...]) ->
         raise attribution_error(
             "complete disjoint requested-axis partitions", "missing or overlapping partition proof"
         )
+    if authority.distribution is not None:
+        from marivo.analysis.observation.distribution_contracts import (
+            validate_distribution_authority,
+        )
+
+        try:
+            validate_distribution_authority(authority)
+        except ValueError:
+            raise attribution_error(
+                "exact registered distribution authority", "invalid distribution authority"
+            ) from None
+        return "distribution_shapley@v1"
     nodes = {node.node_id: node for node in authority.nodes}
     components = {component.node_id: component for component in authority.components}
     if any(
@@ -230,6 +243,15 @@ def attribute(
     if len(set(methods)) != 1:
         raise attribution_error("same method on both comparison sides", "incompatible side folds")
     method = methods[0]
+    if method == "distribution_shapley@v1":
+        if authority_pairs[0][1].distribution != authority_pairs[1][1].distribution:
+            raise attribution_error(
+                "identical percentile methods and parameters", "incompatible distribution sides"
+            )
+        if any(field.role_id == "entity_identity" for field in input_row.schema.columns):
+            raise attribution_error(
+                "non-identity distribution Attribution", "source-required Entity scope"
+            )
     axis_ids = tuple(field.field_id for field in axis_fields)
     scope = tuple(
         field
@@ -275,8 +297,10 @@ def attribute(
         baseline_time_field_name=semantics.baseline_time_field_name,
         method=method,
         approximation_class=semantics.approximation_class,
-        resolution_semantics="independent" if method == "distinct_membership@v1" else "rollup",
-        rollup_safe=method != "distinct_membership@v1",
+        resolution_semantics="independent"
+        if method in INDEPENDENT_RESOLUTION_METHODS
+        else "rollup",
+        rollup_safe=method not in INDEPENDENT_RESOLUTION_METHODS,
     )
     row = _make_row_contract(
         schema_version=1,
@@ -336,10 +360,12 @@ def validate_attribution(row: DatasetRowContract, rows: DatasetRowSetContract) -
     if (
         semantics.numeric_type not in ("int64", "float64", "decimal")
         or (
-            semantics.method in ("component_mix@v1", "distinct_membership@v1")
+            semantics.method
+            in ("component_mix@v1", "distinct_membership@v1", "distribution_shapley@v1")
             and semantics.numeric_type != "float64"
         )
-        or semantics.approximation_class not in ("exact", "sampled_population")
+        or semantics.approximation_class
+        not in ("exact", "sampled_population", "semantic_percentile", "sampled_semantic_percentile")
     ):
         raise attribution_error(
             "exact registered numeric and approximation meaning",
@@ -362,10 +388,15 @@ def validate_attribution(row: DatasetRowContract, rows: DatasetRowSetContract) -
         semantics.resolution_prefixes != expected_prefixes
         or (hierarchy and len(axes) < 2)
         or semantics.method
-        not in ("additive_difference@v1", "component_mix@v1", "distinct_membership@v1")
+        not in (
+            "additive_difference@v1",
+            "component_mix@v1",
+            "distinct_membership@v1",
+            "distribution_shapley@v1",
+        )
         or semantics.resolution_semantics
-        != ("independent" if semantics.method == "distinct_membership@v1" else "rollup")
-        or semantics.rollup_safe is not (semantics.method != "distinct_membership@v1")
+        != ("independent" if semantics.method in INDEPENDENT_RESOLUTION_METHODS else "rollup")
+        or semantics.rollup_safe is not (semantics.method not in INDEPENDENT_RESOLUTION_METHODS)
     ):
         raise attribution_error(
             "closed method-specific resolution authority", "invalid resolution semantics"

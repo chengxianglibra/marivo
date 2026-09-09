@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-09
 
-Status: Slices 0-4, 5a and 5c complete; Slice 5b implemented, technical acceptance pending
+Status: Slices 0-4, 5a, 5c and 5d complete; Slice 5b implemented, technical acceptance pending
 
 Slice 5b implementation and the supplied review follow-up are recorded under its
 [private execution record](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md).
@@ -2370,7 +2370,22 @@ successful attribution method cannot stand in for the others.
 | 5a: Metric comparison (complete) | 3b, 4d | Produce and cold-recover Delta for each admitted alignment and input-authority topology. Prove realization sharing, scope/key preservation, one-sided and unavailable values, and immutable materialized operands. Own the first registered multi-input local consumer, explicit operand roles, complete combined-input validation/budgets, and the real independent-source comparison journey allocated from parent Slice 4. |
 | 5b: additive and component-mix attribution | 5a | Produce reconciled joint/hierarchy Attribution with exact component/partition admission, logical axis expansion, retained-state barriers, Top-K/Other/null masks, and scoped Finding identity. |
 | 5c: distinct-membership attribution (complete) | 5b's shared attribution contracts | Execute exact source-private membership preparation/allocation. Prove independent numerical reconciliation, sufficient-state admission, cold recovery, and identity redaction without origin replay or local raw-key transfer. |
-| 5d: distribution-Shapley attribution | 5b's shared attribution contracts | Execute exact source-side distribution/coalition work and its admitted bounded local combination. Prove independent numerical results, mapped-player limits, Top-K/Other semantics, complete-input guards, and fail-closed missing/corrupt-state recovery. |
+| 5d: distribution-Shapley attribution (complete) | 5b's shared attribution contracts | Execute exact source-side distribution/coalition work and its admitted bounded local combination. Prove independent numerical results, mapped-player limits, Top-K/Other semantics, complete-input guards, and fail-closed missing/corrupt-state recovery. |
+
+Slice 5d private implementation and technical acceptance are complete under its
+[private execution record](../plans/2026-09-09-lazy-analysis-slice-5d-execution.md).
+The owner-approved scope includes exact percentiles and explicit DuckDB T-Digest,
+with weighted coalition side values and private semantic method selection.
+Slice 8 owns the eventual public quantile declaration, Help, export inventory
+and bilingual disclosure switch. The unchanged 830-file review-follow-up candidate
+`10826fd69be2be4e4e6e308f9b91c251f3a88f7c7a3e2d86c32c7d5a7bbd8ed4`
+passed `make check-agent` (6,321 tests, zero skips), strict touched-test typing
+and 64 focused Runtime tests with zero skips. Two exact/T-Digest local recovery
+records bind six processes on the same candidate. The follow-up proves explicit
+source/worker cancellation, method-preserving projection and authored preview
+order, and clarifies private state ownership. Historical object-storage evidence
+remains in the execution record; the current test policy owns a separate object
+connector smoke gate. This closes only private Slice 5d.
 
 5c and 5d may proceed independently after their common contracts are frozen.
 Their implementations extend the same Delta/Attribution registrations; neither
@@ -3431,7 +3446,7 @@ row or replacing its evidence with another family's requires review here.
 | Metric comparison | 5a complete | `test_lazy_compare_contracts.py`, `test_lazy_compare_numeric.py`, `test_lazy_compare_compiler.py`, `test_lazy_compare_runtime.py`, `test_lazy_compare_time_runtime.py`, `test_lazy_compare_runtime_acceptance.py`, `test_lazy_delta_publication.py`; five shapes, all state topologies, exact promotion and Decimal Finding order, sampling sharing, complete combined guards, repeated time-series coordinates, atomic Findings and three-storage cold recovery | Private [5a technical gate](../plans/2026-09-08-lazy-analysis-slice-5a-execution.md) passed after review follow-up; C and F remain integrated public acceptance |
 | Additive/component-mix attribution | 5b | endpoint reproduction, disjoint partitions, masks/Findings, barrier failures | C |
 | Distinct-membership attribution | 5c | exact membership allocation, source-private identity, reconciliation | C; 9b |
-| Distribution-Shapley attribution | 5d | coalition references, player bound, retained-state and local-budget failures | C; 9b |
+| Distribution-Shapley attribution | 5d complete | independent exact/T-Digest coalition and hierarchy references, player bound, retained-state/receipt failures, local budgets and three-process local/object recovery | Private [5d technical gate](../plans/2026-09-09-lazy-analysis-slice-5d-execution.md) passed; C and 9b remain public integrated acceptance |
 | Correlation methods and lag searches | 6a | aligned-pair references, unusable rows, no-valid-candidate error, local bounds | B; 9b |
 | Forecast models and uncertainty | 6b | certified history, per-model variance, future coordinates, insufficient input, local successors | J |
 | Point anomalies, interesting windows, period shifts | 6c | independent scorers, exact keys, filtering, empty versus not evaluated | K |

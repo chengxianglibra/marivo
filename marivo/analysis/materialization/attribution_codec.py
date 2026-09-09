@@ -6,6 +6,8 @@ import math
 import re
 from typing import TYPE_CHECKING
 
+from marivo.semantic._quantile import decode_approximation
+
 if TYPE_CHECKING:
     from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 
@@ -55,6 +57,7 @@ def decode_attribution_evidence(value: object) -> AttributionEvidenceSummary | N
         "additive_difference@v1",
         "component_mix@v1",
         "distinct_membership@v1",
+        "distribution_shapley@v1",
     ):
         raise invalid("unregistered Attribution Evidence method or schema")
     if obj["mapped_membership_contract_id"] != "complete_scope_resolution_rows@v1":
@@ -137,18 +140,26 @@ def attribution_semantics_payload(value: object) -> dict[str, object]:
 
 def decode_attribution_semantics(value: object) -> AttributionSemantics:
     from marivo.analysis.datasets import descriptors as d
-    from marivo.analysis.operators.attribution_contracts import AttributionSemantics
+    from marivo.analysis.operators.attribution_contracts import (
+        INDEPENDENT_RESOLUTION_METHODS,
+        AttributionSemantics,
+    )
 
     obj = _obj(
         value,
         "kind metric_ref metric_unit numeric_type scope_field_ids axis_field_ids resolution_prefixes current_time_field_name baseline_time_field_name method approximation_class resolution_semantics rollup_safe",
     )
     match obj["method"]:
-        case "additive_difference@v1" | "component_mix@v1" | "distinct_membership@v1" as method:
+        case (
+            "additive_difference@v1"
+            | "component_mix@v1"
+            | "distinct_membership@v1"
+            | "distribution_shapley@v1" as method
+        ):
             pass
         case _:
             raise invalid("unregistered Attribution method")
-    independent = method == "distinct_membership@v1"
+    independent = method in INDEPENDENT_RESOLUTION_METHODS
     if (
         obj["kind"] != "attribution/metric@v1"
         or obj["resolution_semantics"] != ("independent" if independent else "rollup")
@@ -156,7 +167,12 @@ def decode_attribution_semantics(value: object) -> AttributionSemantics:
         or (independent and obj["numeric_type"] != "float64")
     ):
         raise invalid("unregistered Attribution resolution semantics")
-    if obj["approximation_class"] not in ("exact", "sampled_population"):
+    if obj["approximation_class"] not in (
+        "exact",
+        "sampled_population",
+        "semantic_percentile",
+        "sampled_semantic_percentile",
+    ):
         raise invalid("unregistered Attribution approximation class")
     return AttributionSemantics(
         _token=d._CORE_TOKEN,
@@ -180,9 +196,7 @@ def decode_attribution_semantics(value: object) -> AttributionSemantics:
         if obj["baseline_time_field_name"] is None
         else _text(obj["baseline_time_field_name"]),
         method=method,
-        approximation_class="exact"
-        if obj["approximation_class"] == "exact"
-        else "sampled_population",
+        approximation_class=decode_approximation(obj["approximation_class"]),
         resolution_semantics="independent" if independent else "rollup",
         rollup_safe=not independent,
     )

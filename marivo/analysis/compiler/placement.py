@@ -70,6 +70,7 @@ class SourceStep:
     output: int
     dataset: LogicalDataset
     binding: ExecutionBinding
+    distribution_preparation: bool = False
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -131,6 +132,7 @@ def place(
     """Retain maximal admitted prefixes; unsupported source-required successors fail."""
     placements: dict[int, ExecutionBinding | None] = {}
     registrations: dict[int, ImplementationRegistration] = {}
+    preparations: dict[int, ExecutionBinding] = {}
 
     def classify(value: Dataset) -> ExecutionBinding | None:
         if id(value) in placements:
@@ -159,7 +161,18 @@ def place(
             )
             if candidate is not None and source_eligible(registration, child_domains, candidate):
                 binding = candidate
-        if binding is None:
+        if (
+            isinstance(value._root.payload, AttributePayload)
+            and value._root.payload.spec.method == "distribution_shapley@v1"
+        ):
+            if binding is None:
+                raise compilation_error(
+                    "one compatible source domain for distribution preparation",
+                    "source-required distribution state",
+                )
+            preparations[id(value)] = binding
+            binding = None
+        elif binding is None:
             registry.admit_local(value, registration)
         placements[id(value)] = binding
         return binding
@@ -176,7 +189,12 @@ def place(
             index = len(steps)
             steps.append(ArtifactReadStep(index, value))
         elif isinstance(value, LogicalDataset):
-            if binding is not None:
+            if id(value) in preparations:
+                boundary = len(steps)
+                steps.append(SourceStep(boundary, value, preparations[id(value)], True))
+                index = len(steps)
+                steps.append(PandasStep(index, (boundary,), value, registrations[id(value)]))
+            elif binding is not None:
                 index = len(steps)
                 steps.append(SourceStep(index, value, binding))
             else:

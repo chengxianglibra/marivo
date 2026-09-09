@@ -572,14 +572,19 @@ def write_local_dataset(
     policy: StoragePolicy = _STORAGE_POLICY,
 ) -> DatasetWriteResult[LocalReceipt]:
     """Write one pre-reserved ordered stream; metadata publication belongs to Runtime."""
-    from marivo.analysis.materialization.retained import membership_role, reject_membership_transfer
+    from marivo.analysis.materialization.retained import (
+        reject_source_private_transfer,
+        source_private_role,
+    )
     from marivo.analysis.observation.distinct_contracts import DISTINCT_MEMBERSHIP_CONTRACT_IDS
+    from marivo.analysis.observation.distribution_contracts import DISTRIBUTION_CONTRACT_IDS
 
     if any(
-        membership_role(part.role) or part.contract_id in DISTINCT_MEMBERSHIP_CONTRACT_IDS
+        source_private_role(part.role)
+        or part.contract_id in (*DISTINCT_MEMBERSHIP_CONTRACT_IDS, *DISTRIBUTION_CONTRACT_IDS)
         for part in parts
     ):
-        reject_membership_transfer()
+        reject_source_private_transfer()
     staging = _checked_path(project_root, staging_path)
     final = _checked_path(project_root, final_path)
     if staging.exists() or final.exists() or staging == final:

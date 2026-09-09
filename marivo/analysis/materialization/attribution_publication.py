@@ -31,10 +31,12 @@ from marivo.analysis.materialization.contracts import (
     canonical_json,
     invalid,
 )
+from marivo.analysis.observation.distribution_contracts import semantic_approximation
 from marivo.analysis.operators.attribute_values import exact_magnitude
 from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 from marivo.analysis.operators.row import compare_value
 from marivo.analysis.refs import ArtifactRef
+from marivo.semantic._quantile import approximation_class
 
 _Cell: TypeAlias = t.Scalar | tuple[bool, ...]
 
@@ -54,7 +56,7 @@ def _semantics(descriptor: ArtifactDescriptor) -> AttributionSemantics:
     semantics = descriptor.row_contract.family_semantics
     if not isinstance(semantics, AttributionSemantics):
         raise invalid("missing exact Attribution row semantics")
-    if semantics.method == "distinct_membership@v1" and (
+    if semantics.method in ("distinct_membership@v1", "distribution_shapley@v1") and (
         semantics.resolution_semantics != "independent"
         or semantics.rollup_safe
         or semantics.numeric_type != "float64"
@@ -153,6 +155,12 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
         if not isinstance(identity, d._CatalogFieldIdentity):
             raise invalid("Attribution axes require governed Dimension identities")
         axes.append(identity.identity_id.removeprefix("dimension:"))
+    if semantics.method == "distribution_shapley@v1":
+        current, baseline = (
+            decode_fold_authority(payload) for payload in descriptor.attribution_fold_authority
+        )
+        if current.metrics != baseline.metrics:
+            raise invalid("Attribution requires identical distribution methods and side authority")
     for payload in descriptor.attribution_fold_authority:
         authority = decode_fold_authority(payload)
         if len(authority.metrics) != 1 or authority.metrics[0].metric_ref != semantics.metric_ref:
@@ -175,11 +183,15 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
         or evidence is None
     ):
         raise invalid("missing complete Attribution comparison authority or Evidence")
-    if evidence.method != semantics.method or evidence.approximate != any(
-        item.sampling_execution is not None for item in descriptor.comparison_inputs
+    expected_approximation = approximation_class(
+        sampled=any(item.sampling_execution is not None for item in descriptor.comparison_inputs),
+        semantic=semantic_approximation(descriptor.attribution_fold_authority),
+    )
+    if evidence.method != semantics.method or evidence.approximate != (
+        expected_approximation != "exact"
     ):
         raise invalid("Attribution Evidence contradicts method or approximation authority")
-    if (semantics.approximation_class == "sampled_population") != evidence.approximate:
+    if semantics.approximation_class != expected_approximation:
         raise invalid(
             "Attribution row interpretation differs from retained approximation authority"
         )
@@ -360,7 +372,10 @@ def build_attribution_publication(
                 finding_set_digest=finding_set_digest(()),
             ),
         ), ()
-    if semantics.method == "distinct_membership@v1" and source_summary is None:
+    if (
+        semantics.method in ("distinct_membership@v1", "distribution_shapley@v1")
+        and source_summary is None
+    ):
         raise invalid("distinct Attribution publication requires complete source-reduced proof")
     if continuation:
         if source_summary is None or proof_definition_fingerprint is None:
@@ -375,7 +390,7 @@ def build_attribution_publication(
             summary.mapped_membership_digest,
             summary.max_reconciliation_error,
             summary.status_counts,
-            any(item.sampling_execution is not None for item in descriptor.comparison_inputs),
+            semantics.approximation_class != "exact",
             False,
             top_k,
             0,
@@ -402,7 +417,7 @@ def build_attribution_publication(
             summary.mapped_membership_digest,
             summary.max_reconciliation_error,
             summary.status_counts,
-            any(item.sampling_execution is not None for item in descriptor.comparison_inputs),
+            semantics.approximation_class != "exact",
             True,
             top_k,
             0,
@@ -450,7 +465,7 @@ def build_attribution_publication(
         summary.mapped_membership_digest,
         summary.max_reconciliation_error,
         summary.status_counts,
-        any(item.sampling_execution is not None for item in descriptor.comparison_inputs),
+        semantics.approximation_class != "exact",
         True,
         top_k,
         eligible,

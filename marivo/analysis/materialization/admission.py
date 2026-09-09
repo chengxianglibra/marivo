@@ -134,6 +134,7 @@ from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
 )
+from marivo.analysis.observation.private_parts import source_private_part_authorities
 from marivo.analysis.operators.attribution import (
     LogicalAttributionDataset,
     MaterializedAttributionDataset,
@@ -523,6 +524,30 @@ class DatasetRuntime:
             f"Preview: {table.num_rows} of {record.descriptor.storage_receipt.realized_row_count} rows (maximum {_READ_POLICY.preview_rows})",
             " | ".join(table.column_names),
         ]
+        from marivo.analysis.observation.distribution_contracts import distribution_part_authorities
+        from marivo.analysis.observation.fold_contracts import decode_fold_authority
+
+        quantiles = tuple(
+            item.distribution.quantile
+            for _, item in distribution_part_authorities(dataset.row_contract)
+            if item.distribution is not None
+        )
+        if record.descriptor.attribution_fold_authority is not None:
+            quantiles = tuple(
+                item.distribution.quantile
+                for payload in record.descriptor.attribution_fold_authority
+                for item in decode_fold_authority(payload).metrics
+                if item.distribution is not None
+            )
+        lines[1:1] = [
+            f"Percentile: method={quantile.method}; q={quantile.q}; "
+            + (
+                "semantic approximation; error_bound=unknown"
+                if quantile.method == "duckdb_tdigest@v1"
+                else "exact linear interpolation"
+            )
+            for quantile in dict.fromkeys(quantiles)
+        ]
         sampling = record.descriptor.sampling_execution
         if sampling is not None:
             facts = "; ".join(
@@ -711,25 +736,24 @@ class DatasetRuntime:
                 ),
             )
             from marivo.analysis.materialization.retained import (
-                membership_role,
-                reject_membership_transfer,
+                reject_source_private_transfer,
                 required_part_roles,
+                source_private_role,
             )
-            from marivo.analysis.observation.distinct_contracts import membership_part_authorities
 
-            if membership_part_authorities(dataset.row_contract) and not isinstance(
+            if source_private_part_authorities(dataset.row_contract) and not isinstance(
                 self.target, EngineTarget
             ):
                 selection_error(
-                    "a compatible engine target for exact private distinct membership",
+                    "a compatible engine target for exact private membership or distribution",
                     "a local or object checkpoint target",
                 )
             if physical.local_steps and any(
-                membership_role(role)
+                source_private_role(role)
                 for step in physical.steps
                 for role in required_part_roles(dataset, input_dataset=step.dataset)
             ):
-                reject_membership_transfer()
+                reject_source_private_transfer()
             run = self.store.admit(
                 self.session_ref,
                 key,
@@ -857,6 +881,70 @@ class DatasetRuntime:
                         for step in physical.steps:
                             if isinstance(step, SourceStep):
                                 current_backend, recipe, tables = prepared[step.output]
+                                if step.distribution_preparation:
+                                    from marivo.analysis.materialization.local_worker import (
+                                        CoalitionInput,
+                                    )
+                                    from marivo.analysis.operators.attribution_contracts import (
+                                        AttributePayload,
+                                    )
+
+                                    preparation_root = step.dataset._root
+                                    if (
+                                        not isinstance(preparation_root, LogicalRootHandle)
+                                        or not isinstance(
+                                            preparation_root.payload, AttributePayload
+                                        )
+                                        or recipe.numerical_input != "distribution_coalitions"
+                                    ):
+                                        raise _error("implementation_registration", run.run_ref)
+                                    count_sql = current_backend.compile(
+                                        recipe.expression.aggregate(
+                                            __mv_rows=recipe.expression.count()
+                                        )
+                                    )
+                                    self._record_statement("distribution_cardinality", count_sql)
+                                    with _engine_deadline(current_backend):
+                                        expected_count: object = current_backend.raw_sql(
+                                            count_sql
+                                        ).fetchone()[0]
+                                    if (
+                                        not isinstance(expected_count, int)
+                                        or isinstance(expected_count, bool)
+                                        or expected_count < 0
+                                        or expected_count
+                                        > min(
+                                            self.local_policy.max_input_rows,
+                                            self.local_policy.max_method_rows,
+                                        )
+                                    ):
+                                        raise MaterializationError(
+                                            expected="complete coalition input within registered row budgets",
+                                            received="distribution coalition count exceeds the action budget",
+                                            repair="Narrow comparison scopes or lower top_k before retrying.",
+                                            stage="transfer_guard",
+                                            run_ref=run.run_ref,
+                                        )
+                                    boundaries.append(
+                                        LocalBoundary(
+                                            step.output,
+                                            CoalitionInput(
+                                                preparation_root.payload.spec, expected_count
+                                            ),
+                                        )
+                                    )
+                                    streams.append(
+                                        LocalInputStreams(
+                                            self._batches(
+                                                current_backend,
+                                                recipe.expression,
+                                                self._batch_rows(
+                                                    current_backend, tables, recipe.expression
+                                                ),
+                                            )
+                                        )
+                                    )
+                                    continue
                                 from marivo.analysis.materialization.retained import (
                                     required_part_roles,
                                 )
@@ -1640,9 +1728,9 @@ class DatasetRuntime:
         from marivo.analysis.materialization.retained import (
             _part_state_columns,
             component_schema,
-            membership_part,
             selected_parts,
-            validate_membership_relation,
+            source_private_part,
+            validate_source_private_relation,
         )
         from marivo.analysis.materialization.storage import _integrity
 
@@ -1660,14 +1748,14 @@ class DatasetRuntime:
                     != receipt.schema_fingerprint
                 ):
                     _integrity("the exact immutable part schema", "engine part schema differs")
-                if membership_part(part):
+                if source_private_part(part):
                     primary_receipt = descriptor.storage_receipt
                     if not isinstance(primary_receipt, EngineReceipt):
                         _integrity(
                             "an engine primary for private membership", "invalid primary sink"
                         )
                     primary = attach_engine_scan(backend, self.store.project_root, primary_receipt)
-                    validate_membership_relation(
+                    validate_source_private_relation(
                         backend,
                         table,
                         primary,
@@ -1683,7 +1771,7 @@ class DatasetRuntime:
                     _integrity("the exact committed part row count", "engine part count differs")
                 required = (
                     []
-                    if membership_part(part)
+                    if source_private_part(part)
                     else [
                         table[name].isnull()
                         for name, _, nullable in _part_state_columns(
@@ -1786,10 +1874,10 @@ class DatasetRuntime:
 
     @staticmethod
     def _require_projected_parts(recipe: CompiledDataset) -> None:
-        from marivo.analysis.materialization.retained import reject_membership_transfer
+        from marivo.analysis.materialization.retained import reject_source_private_transfer
 
         if any(not isinstance(part, RetainedPartSpec) for part in recipe.retained_parts):
-            reject_membership_transfer()
+            reject_source_private_transfer()
 
     @staticmethod
     def _source_local_parts(

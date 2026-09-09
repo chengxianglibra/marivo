@@ -3053,3 +3053,33 @@ operands. Distinct authored sampling realizations remain distinct; matching
 standalone fingerprints do not coalesce them. Required volatile realizations
 still need an exact source fence; general compiler CSE and a global one-query
 guarantee are not prerequisites.
+
+### Private distribution registration (Slice 5d)
+
+In this private registration, every supported governed root median/percentile
+observation binds distribution authority and retains a separate
+engine-private value-frequency relation keyed by the current contribution
+coordinates and source numeric value. Frequencies are positive int64 counts;
+null values are excluded and non-finite values fail. Closed authority binds the
+Metric, aggregate, Measure, source type and the exact percentile method/q.
+Both exact interpolation and explicitly selected DuckDB T-Digest retain this
+replayable basis. Generic quantile Entity folding, cumulative distribution
+folds and semi-additive distribution state remain unregistered.
+
+Private observation accepts an explicit quantile-method input on a governed
+Metric ref. It preserves the original q and introduces no public declaration
+parameter before Slice 8. This method input is accepted only by observation;
+projection selects the existing Metric ref and cannot silently change its method.
+Row selections, projection, logical missing-axis
+expansion and comparison preserve the exact distribution support. Projected
+percentiles never reconstruct distributions; missing materialized authority
+fails without origin replay.
+
+The private `LazySources.observe` facade owns this input extension. Public
+`Session.observe` continues to return eager `MetricFrame` results and does not
+accept the private quantile input. Construction binds metadata without source
+work; engine materialization owns frequency capture and endpoint validation.
+This registration has no optional distribution-retention flag. Its Artifact
+preview reports method, q, and semantic approximation in authored Metric order;
+projection preserves the selected method. Public authoring and Help disclosure
+remain reserved for Slice 8.

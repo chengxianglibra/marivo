@@ -760,3 +760,14 @@ details output. Adding a metric without provenance is allowed but is not a
 "done" state — confirm the business source, and CI can forbid `unverified`
 metrics via `--strict-provenance` (see
 [loading-validation-introspection.md](loading-validation-introspection.md)).
+
+### Private lazy percentile method contract
+
+Slice 5d adds a private explicit quantile-method input for governed root
+median/percentile Metrics. The original declaration owns q; method selection
+is either exact linear interpolation or DuckDB T-Digest, never inferred from
+cost. The private authority binds method, q and its registered replay recipe.
+T-Digest discloses semantic approximation and unknown error bounds. Its input
+vector is source-sorted and evaluated with the pinned backend method.
+The existing public declaration and its backend behavior remain unchanged
+until the atomic Slice 8 semantic authoring/disclosure switch.

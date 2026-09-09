@@ -31,12 +31,14 @@ from marivo.analysis.observation.distinct_contracts import (
     DISTINCT_MEMBERSHIP_CONTRACT_IDS,
     membership_endpoint_name,
 )
+from marivo.analysis.observation.distribution_contracts import DISTRIBUTION_CONTRACT_IDS
 from marivo.analysis.observation.fold_contracts import (
     MetricFoldAuthorityV1,
     RetainedFoldPayload,
     fold_part_role,
     fold_state_columns,
 )
+from marivo.analysis.observation.private_parts import source_private_part_authorities
 
 _STATE_TYPE_CHECKS: dict[str, tuple[Callable[[pa.DataType], bool], ...]] = {
     "integer": (pa.types.is_integer,),
@@ -47,18 +49,23 @@ _STATE_TYPE_CHECKS: dict[str, tuple[Callable[[pa.DataType], bool], ...]] = {
 }
 
 
-def membership_role(role: str) -> bool:
-    """Recognize the closed private membership role families."""
-    return role.startswith(("metric_membership.", "delta_membership."))
+def source_private_role(role: str) -> bool:
+    """Recognize the closed source-private membership and distribution role families."""
+    return role.startswith(
+        ("metric_membership.", "delta_membership.", "metric_distribution.", "delta_distribution.")
+    )
 
 
-def membership_part(part: RetainedPart) -> bool:
-    return membership_role(part.role) or part.contract_id in DISTINCT_MEMBERSHIP_CONTRACT_IDS
+def source_private_part(part: RetainedPart) -> bool:
+    return source_private_role(part.role) or part.contract_id in (
+        *DISTINCT_MEMBERSHIP_CONTRACT_IDS,
+        *DISTRIBUTION_CONTRACT_IDS,
+    )
 
 
-def reject_membership_transfer() -> None:
+def reject_source_private_transfer() -> None:
     raise MaterializationError(
-        expected="source-native use of exact retained distinct membership",
+        expected="source-native use of exact retained membership or distribution",
         received="a local or generic retained-part transfer",
         repair="Use a compatible engine target and source-native attribution execution.",
         stage="execution_boundary",
@@ -66,8 +73,8 @@ def reject_membership_transfer() -> None:
 
 
 def guard_part_transfer(part: RetainedPart) -> None:
-    if membership_part(part):
-        reject_membership_transfer()
+    if source_private_part(part):
+        reject_source_private_transfer()
     guard_receipt_transfer(part.storage_receipt)
 
 
@@ -81,8 +88,8 @@ def guard_receipt_transfer(receipt: StorageReceipt) -> None:
     else:
         parts = receipt.immutable_prefix_or_manifest_ref.split("/")
         part_path = parts[:-1] if parts[-1] == "manifest.json" else ()
-    if len(part_path) >= 2 and part_path[-2] == "parts" and membership_role(part_path[-1]):
-        reject_membership_transfer()
+    if len(part_path) >= 2 and part_path[-2] == "parts" and source_private_role(part_path[-1]):
+        reject_source_private_transfer()
 
 
 def metric_parts(row: DatasetRowContract) -> tuple[MetricFoldAuthorityV1, ...]:
@@ -127,9 +134,8 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
 
 
 def _row_part_roles(row: DatasetRowContract) -> set[str]:
-    from marivo.analysis.observation.distinct_contracts import membership_part_authorities
 
-    membership = {role for role, _ in membership_part_authorities(row)}
+    membership = {role for role, _ in source_private_part_authorities(row)}
     if row.shape_id.family_id == "delta":
         from marivo.analysis.operators.attribution_contracts import delta_part_authorities
 
@@ -176,7 +182,7 @@ def membership_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> 
     return tuple(field.name for field in keys)
 
 
-def validate_membership_relation(
+def validate_source_private_relation(
     backend: Backend,
     table: ir.Table,
     primary: ir.Table,
@@ -184,9 +190,14 @@ def validate_membership_relation(
     role: str,
     record: Callable[[str, str], None],
 ) -> None:
-    """Return only scalar violations; membership rows never leave the source engine."""
+    """Inspect source-private state natively; return only scalar violations."""
     from marivo.analysis.observation.distinct_contracts import membership_part_authorities
 
+    if role.startswith(("metric_distribution.", "delta_distribution.")):
+        from marivo.analysis.materialization.distribution import validate_distribution_relation
+
+        validate_distribution_relation(backend, table, primary, row, role, record)
+        return
     record("engine_check.membership_schema", backend.compile(table.limit(0)))
     keys = membership_schema(row, role, backend.to_pyarrow(table.limit(0)).schema)
     authority = next(item for name, item in membership_part_authorities(row) if name == role)
