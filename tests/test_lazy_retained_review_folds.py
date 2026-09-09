@@ -69,8 +69,9 @@ def test_unequal_mean_support_merges_exact_numerator_and_denominator(
     result = (
         checkpoint.aggregate() if axis == "entity" else checkpoint.rollup(drop_time=True)
     ).execute()
-    assert result.to_pandas()["mean_amount"].tolist() == pytest.approx([130 / 3])
-    assert result.to_pandas()["mean_amount"][0] != (55 if axis == "entity" else 40)
+    result_frame = result.to_pandas()
+    assert result_frame["mean_amount"].tolist() == pytest.approx([130 / 3])
+    assert result_frame["mean_amount"][0] != (55 if axis == "entity" else 40)
     semantics = result.row_contract.family_semantics
     assert isinstance(semantics, EntityReducedMetricSemantics)
     names = dict(semantics.metric_folds[0].components[0].state_columns)

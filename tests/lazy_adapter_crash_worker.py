@@ -218,21 +218,24 @@ def run(
             assert result.state.artifact_ref.ref == artifact
     recovered = describe(runtime)
     assert len(runtime.artifact(artifact).to_pandas()) == 4
-    independent = DatasetRuntime.create(
-        project, "independent", target=EngineTarget(next(iter(registry.datasources)))
-    )
-    independent_sources = independent.sources(semantic_registry=registry, sidecar=sidecar)
-    assert (
-        len(independent_sources.population(ref.entity("sales.customers")).execute().to_pandas())
-        == 4
-    )
-    return {
+    report: dict[str, object] = {
         "before": before,
         "recovered": recovered,
         "pending": pending,
-        "independent": describe(independent),
         "baseline": artifact,
     }
+
+    if value.get("point") == "after_commit":
+        independent = DatasetRuntime.create(
+            project, "independent", target=EngineTarget(next(iter(registry.datasources)))
+        )
+        independent_sources = independent.sources(semantic_registry=registry, sidecar=sidecar)
+        assert (
+            len(independent_sources.population(ref.entity("sales.customers")).execute().to_pandas())
+            == 4
+        )
+        report["independent"] = describe(independent)
+    return report
 
 
 if __name__ == "__main__":

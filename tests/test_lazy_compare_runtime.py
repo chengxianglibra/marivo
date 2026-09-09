@@ -248,11 +248,12 @@ def test_delta_row_operations_preserve_source_and_retained_numerical_results(
         database.rename(tmp_path / "warehouse.offline")
     selected = retained.where(gt(retained.fields.get("current_value"), 0))
     continued = selected.rank(selected.fields.get("delta")).limit(1).execute()
-    pd.testing.assert_frame_equal(source_frame, continued.to_pandas())
-    assert continued.to_pandas()["current_value"].tolist() == [100.0]
-    assert continued.to_pandas()["baseline_value"].tolist() == [20.0]
-    assert continued.to_pandas()["delta"].tolist() == [80.0]
-    assert continued.to_pandas()["relative_delta"].tolist() == [4.0]
+    continued_frame = continued.to_pandas()
+    pd.testing.assert_frame_equal(source_frame, continued_frame)
+    assert continued_frame["current_value"].tolist() == [100.0]
+    assert continued_frame["baseline_value"].tolist() == [20.0]
+    assert continued_frame["delta"].tolist() == [80.0]
+    assert continued_frame["relative_delta"].tolist() == [4.0]
     if shape == "entity":
         assert runtime.statistics.worker_pid is None
         assert continued.findings().items == ()

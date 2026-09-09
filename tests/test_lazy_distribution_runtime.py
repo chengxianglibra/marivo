@@ -7,7 +7,6 @@ import pytest
 from marivo.analysis import time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
-from marivo.analysis.operators.attribution import MaterializedAttributionDataset
 from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.semantic._quantile import QuantileMethod, quantile_metric
@@ -23,7 +22,7 @@ pytestmark = pytest.mark.runtime
 
 @pytest.mark.parametrize("method", ["linear_interpolation@v1", "duckdb_tdigest@v1"])
 @pytest.mark.parametrize("retained", [False, True])
-def test_distribution_runtime_and_cold_reuse(
+def test_distribution_runtime_preserves_method_authority(
     tmp_path: Path, method: QuantileMethod, retained: bool
 ) -> None:
     database = tmp_path / "warehouse.duckdb"
@@ -95,14 +94,6 @@ def test_distribution_runtime_and_cold_reuse(
                 record.descriptor, attribution_fold_authority=(pair[0], changed_authority.to_json())
             )
         )
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=LocalTarget())
-    recovered = cold.artifact(result.state.artifact_ref)
-    assert isinstance(recovered, MaterializedAttributionDataset)
-    assert recovered.to_pandas().equals(frame)
-    assert (
-        recovered.rank(recovered.fields.get("contribution")).limit(1).execute().to_pandas().shape[0]
-        == 1
-    )
 
 
 @pytest.mark.parametrize("topology", ["LL", "LM", "ML", "MM"])

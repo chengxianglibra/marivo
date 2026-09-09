@@ -10,6 +10,9 @@ not acquire a new local/engine/object Cartesian product.
 | Analysis, compare, attribution, sampling, ordering, ordinary concurrency | Local-file Runtime tests with real DuckDB sources and isolated execution/read workers |
 | Producer, continuation, and cold binding independence | Local-file fresh-process journeys; dedicated engine adapter/recovery journeys |
 | File integrity, complete-input limits, atomic publication and crash recovery | Local-file and engine-specific Runtime checks |
+| SQLite publication interrupted inside its transaction | `test_lazy_materialization_store.py::test_process_exit_preserves_atomic_publication`, with actual child exit and a reopened Store; the native adapter retains an `insert_terminal` crash journey |
+| Retained attribution with a missing axis | `test_lazy_attribute_contracts.py::test_retained_missing_axis_rejects_before_any_action`, using trusted metadata and a port that forbids execution |
+| Distribution method and input-state variants | Focused Runtime publication/authority tests; exact and approximate fresh-process journeys own cold continuation and result reuse |
 | S3 versioning, conditional PUT, exact VersionId reads, missing access, cleanup ownership and unknown request results | `test_lazy_object_storage_contracts.py` and `test_lazy_object_access_boundaries.py`, with native SDK stubs and real local SessionStore files |
 | Acknowledgement without durable request discharge | One fresh-process Runtime check, using the local journal and a stubbed SDK acknowledgement |
 | Live object connector | `test_object_storage_connection.py`: real SDK connection, versioned writes, fixed-version read and deletion |
@@ -38,3 +41,13 @@ workers can shorten suite wall time while increasing each case's latency.
 Within one journey phase, collect an immutable result once and reuse the DataFrame
 for assertions and evidence serialization. Keep independent reads when the test
 specifically validates read isolation, integrity changes, or a fresh process.
+
+The composed read journey performs full inspection of both outputs in its cold
+phase. Continuation and cold phases still collect their own rows and verify that
+reads leave persisted state unchanged. Native adapter crash parameters share one
+post-commit independent-Session execution check; the live-orphan test separately
+proves independent execution while the owning Session remains blocked.
+
+Local publication crash points are separately parameterized for xdist scheduling.
+When `MARIVO_SLICE2B_EVIDENCE_PATH` is set, each case writes a sibling file with the
+crash point appended to the requested filename stem, avoiding concurrent overwrites.

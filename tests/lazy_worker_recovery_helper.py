@@ -79,13 +79,10 @@ def run(
     if mode == "independent":
         runtime = DatasetRuntime.create(project, "independent")
         registry, sidecar = make_execution_registry(project / "warehouse.duckdb")
-        result = (
-            runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(REVENUE).execute()
-        )
+        runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(REVENUE).execute()
         _emit(
             {
                 "session": runtime.session_ref,
-                "rows": len(result.to_pandas()),
                 "statistics": statistics(runtime),
             }
         )

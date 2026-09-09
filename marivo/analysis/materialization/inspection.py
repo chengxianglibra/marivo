@@ -11,16 +11,11 @@ import time
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 
 from marivo._compat import UTC
-from marivo.analysis.evidence._dataset_types import (
-    ArtifactRevalidation,
-    ArtifactRevalidationIssue,
-    IntegrityStatus,
-    StorageStatus,
-)
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization import storage
 from marivo.analysis.materialization.contracts import (
@@ -43,10 +38,16 @@ from marivo.analysis.materialization.retained import (
     validate_source_private_relation,
 )
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.materialization.targets import S3Access, access_payload, decode_access
 from marivo.analysis.refs import ArtifactRef
-from marivo.analysis.session._lazy_runtime_reads import missing_artifact
+
+if TYPE_CHECKING:
+    from marivo.analysis.evidence._dataset_types import (
+        ArtifactRevalidation,
+        IntegrityStatus,
+        StorageStatus,
+    )
+    from marivo.analysis.materialization.store import SessionStore
 
 _POLICY = ReadPolicy()
 _WORKER = "from marivo.analysis.materialization.inspection import _worker; _worker()"
@@ -293,6 +294,12 @@ def revalidate(
 ) -> ArtifactRevalidation:
     """Inspect one immutable authority without loading its origin or repairing state."""
     from marivo.analysis.evidence._dataset_reads import audit_findings
+    from marivo.analysis.evidence._dataset_types import (
+        ArtifactRevalidation,
+        ArtifactRevalidationIssue,
+    )
+    from marivo.analysis.materialization.store import _one, _text
+    from marivo.analysis.session._lazy_runtime_reads import missing_artifact
 
     ref = reference if isinstance(reference, ArtifactRef) else ArtifactRef(ref=reference)
     checked_at = datetime.now(UTC)

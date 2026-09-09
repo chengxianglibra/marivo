@@ -24,6 +24,64 @@ REGION = ref.dimension("sales.customers.region")
 CHANNEL = ref.dimension("sales.orders.channel")
 
 
+@pytest.mark.parametrize("metric", ["revenue", "mean_amount"])
+def test_retained_missing_axis_rejects_before_any_action(metric: str) -> None:
+    from marivo.analysis.datasets.base import _make_materialized_dataset
+    from marivo.analysis.datasets.descriptors import (
+        _exact_byte_count,
+        _make_schema,
+        _resolved_type,
+    )
+    from marivo.analysis.datasets.state import _materialized_state
+    from marivo.analysis.operators.delta import MaterializedDeltaDataset
+    from marivo.analysis.refs import ArtifactRef
+
+    # Trusted metadata exercises construction only; NoIoActionPort rejects execution.
+    source = (
+        make_sources().observe(ref.metric(f"sales.{metric}")).with_dimensions(REGION).aggregate()
+    )
+    logical = source.compare(source)
+    ids = logical._registration.ids
+    schema = _make_schema(
+        tuple(
+            replace(
+                column,
+                _token=_CORE_TOKEN,
+                physical_type_state=_resolved_type(column.logical_type_id, ids=ids),
+            )
+            for column in logical.schema.columns
+        )
+    )
+    state = _materialized_state(
+        artifact_ref=ArtifactRef(ref="missing_axis"),
+        artifact_session_ref=logical._owner.session_id,
+        content_authority_digest="fixture-content",
+        storage_kind_id="parquet",
+        realized_schema=schema,
+        realized_row_count=1,
+        realized_byte_count=_exact_byte_count(64),
+        producing_run_ref="fixture-run",
+        quality_authority_digest="fixture-quality",
+        evidence_authority_digest="fixture-evidence",
+        ids=ids,
+    )
+    retained = _make_materialized_dataset(
+        owner=logical._owner,
+        registry=logical._registry,
+        family_id=logical.kind,
+        row_contract=logical.row_contract,
+        row_set_contract=logical.row_set_contract,
+        state=state,
+        definition_fingerprint=logical.definition_fingerprint,
+    )
+    assert isinstance(retained, MaterializedDeltaDataset)
+    with pytest.raises(
+        DatasetConstructionError, match="materialized missing-axis barrier"
+    ) as error:
+        retained.attribute(axes=(REGION, CHANNEL))
+    assert ".with_dimensions(*axes)" in str(error.value)
+
+
 def test_joint_and_hierarchy_preserve_exact_axis_order_masks_and_scope() -> None:
     metric = (
         make_sources()

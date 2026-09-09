@@ -409,9 +409,12 @@ def test_private_workers_defer_public_analysis_initialization() -> None:
     script = """
 import sys
 import marivo.analysis as mv
-from marivo.analysis.materialization import storage, reads, local_worker
+from marivo.analysis.materialization import storage, reads, inspection
 assert 'marivo.analysis._public' not in sys.modules
 assert 'marivo.analysis.frames' not in sys.modules
+assert 'marivo.analysis.evidence' not in sys.modules
+assert 'marivo.analysis.session' not in sys.modules
+from marivo.analysis.materialization import local_worker
 assert 'marivo.analysis._capabilities.registry' not in sys.modules
 # A normal session facade access must still install wrappers before invocation.
 assert hasattr(mv.session.get_or_create, '__wrapped__')

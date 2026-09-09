@@ -126,6 +126,49 @@ def test_precommit_fault_rolls_back_the_whole_bundle(tmp_path: Path, point: str)
     assert store.incomplete("session")[0].run_ref == "run"
 
 
+@pytest.mark.runtime
+@pytest.mark.parametrize(
+    "point", ["insert_artifact", "insert_evidence", "before_commit", "after_commit"]
+)
+def test_process_exit_preserves_atomic_publication(tmp_path: Path, point: str) -> None:
+    store = _admitted(tmp_path)
+    child = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            "import os, sys\n"
+            "from pathlib import Path\n"
+            "from marivo.analysis.materialization.store import SessionStore\n"
+            "from tests.lazy_materialization_fixtures import descriptor\n"
+            "def stop(point):\n"
+            "    if point == sys.argv[2]:\n"
+            "        os._exit(73)\n"
+            "SessionStore(Path(sys.argv[1])).publish('run', 'artifact', descriptor(), event=stop)\n"
+            "raise AssertionError('publication crash point was not reached')\n",
+            str(tmp_path),
+            point,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert child.returncode == 73, child.stdout + child.stderr
+    reopened = SessionStore(tmp_path)
+    if point == "after_commit":
+        assert _counts(store.db_path) == (1, 1, 0, 1)
+        artifact = reopened.artifact("artifact")
+        assert artifact is not None and artifact.producing_run_ref == "run"
+        assert reopened.incomplete("session") == ()
+    else:
+        assert _counts(store.db_path) == (0, 0, 0, 0)
+        assert reopened.artifact("artifact") is None
+        assert reopened.incomplete("session")[0].run_ref == "run"
+        reopened.publish("run", "artifact", descriptor())
+        assert _counts(store.db_path) == (1, 1, 0, 1)
+
+
 def test_lost_commit_acknowledgement_preserves_authoritative_success(tmp_path: Path) -> None:
     store = _admitted(tmp_path)
 

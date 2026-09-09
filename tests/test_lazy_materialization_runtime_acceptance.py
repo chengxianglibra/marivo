@@ -114,123 +114,123 @@ def _assert_bundle(snapshot: object, *, committed: bool, terminal: bool) -> None
     assert counts["analysis_action_run_inputs"] == 0
 
 
-def test_actual_process_crashes_reconcile_without_replaying_the_source(tmp_path: Path) -> None:
+@pytest.mark.parametrize("point", CRASH_POINTS)
+def test_actual_process_crashes_reconcile_without_replaying_the_source(
+    tmp_path: Path, point: str
+) -> None:
     before = _source_snapshot()
     cases: list[dict[str, object]] = []
-    for point in CRASH_POINTS:
-        project = tmp_path / point
-        project.mkdir()
-        produced = _run(("produce", str(project), "--point", point), expected_exit=CRASH_EXIT)
-        assert len(produced) == 2
-        constructed, crashed = produced
-        assert constructed["phase"] == "constructed"
-        assert crashed["phase"] == "crash" and crashed["point"] == point
-        assert _counts(constructed["store"])["analysis_action_runs"] == 0
-        construction_stats = _object(constructed["statistics"])
-        assert (
-            construction_stats["primary_queries"] == construction_stats["validation_queries"] == 0
-        )
-        assert construction_stats["events"] == {}
-        assert construction_stats["statements"] == []
-        journey = _object(constructed["journey"])
-        assert journey["shape"] == "metric/dimension-time@v1"
-        assert journey["columns"] == ["region", "order_time", "revenue"]
-        assert crashed["journey"] == journey
-        is_committed = point == "after_commit"
-        _assert_bundle(crashed["store"], committed=is_committed, terminal=is_committed)
-        assert _counts(crashed["store"])["action_resource_journal"] == (0 if is_committed else 3)
-        stats = _object(crashed["statistics"])
-        assert (
-            stats["primary_queries"]
-            == stats["primary_stages"]
-            == (0 if point == "output_reserved" else 1)
-        )
-        assert isinstance(stats["validation_queries"], int) and stats["validation_queries"] > 0
-        if point == "output_reserved":
-            assert crashed["payload_files"] == {}
-            assert stats["transferred_rows"] == stats["transferred_bytes"] == 0
-        else:
-            assert _object(crashed["payload_files"])
-            assert isinstance(stats["transferred_rows"], int) and stats["transferred_rows"] > 0
-        # The producer has really exited and been reaped before the source goes offline.
-        producer_pid = crashed["pid"]
-        assert isinstance(producer_pid, int)
-        try:
-            os.kill(producer_pid, 0)
-        except ProcessLookupError:
-            pass
-        else:
-            raise AssertionError("The producing process is still alive")
-        (project / "warehouse.duckdb").rename(project / "warehouse.offline")
-        restored_records = _run(
-            (
-                "recover",
-                str(project),
-                "--session",
-                _text(crashed["session_ref"]),
-                "--run",
-                _text(crashed["run_ref"]),
-            ),
-            expected_exit=0,
-        )
-        assert len(restored_records) == 1
-        restored = restored_records[0]
-        assert restored["pid"] != producer_pid
-        assert restored["session_ref"] == crashed["session_ref"]
-        assert restored["run_ref"] == crashed["run_ref"]
-        assert restored["execution_key"] == crashed["execution_key"]
-        assert restored["before"] == crashed["store"]
-        _assert_bundle(restored["after"], committed=is_committed, terminal=True)
-        assert _counts(restored["after"])["action_resource_journal"] == 0
-        assert not any(_object(restored["forbidden_attempts"]).values())
-        recovery_stats = _object(restored["statistics"])
-        for counter in (
-            "primary_queries",
-            "validation_queries",
-            "source_fences",
-            "transferred_rows",
-            "transferred_bytes",
+    project = tmp_path / point
+    project.mkdir()
+    produced = _run(("produce", str(project), "--point", point), expected_exit=CRASH_EXIT)
+    assert len(produced) == 2
+    constructed, crashed = produced
+    assert constructed["phase"] == "constructed"
+    assert crashed["phase"] == "crash" and crashed["point"] == point
+    assert _counts(constructed["store"])["analysis_action_runs"] == 0
+    construction_stats = _object(constructed["statistics"])
+    assert construction_stats["primary_queries"] == construction_stats["validation_queries"] == 0
+    assert construction_stats["events"] == {}
+    assert construction_stats["statements"] == []
+    journey = _object(constructed["journey"])
+    assert journey["shape"] == "metric/dimension-time@v1"
+    assert journey["columns"] == ["region", "order_time", "revenue"]
+    assert crashed["journey"] == journey
+    is_committed = point == "after_commit"
+    _assert_bundle(crashed["store"], committed=is_committed, terminal=is_committed)
+    assert _counts(crashed["store"])["action_resource_journal"] == (0 if is_committed else 3)
+    stats = _object(crashed["statistics"])
+    assert (
+        stats["primary_queries"]
+        == stats["primary_stages"]
+        == (0 if point == "output_reserved" else 1)
+    )
+    assert isinstance(stats["validation_queries"], int) and stats["validation_queries"] > 0
+    if point == "output_reserved":
+        assert crashed["payload_files"] == {}
+        assert stats["transferred_rows"] == stats["transferred_bytes"] == 0
+    else:
+        assert _object(crashed["payload_files"])
+        assert isinstance(stats["transferred_rows"], int) and stats["transferred_rows"] > 0
+    # The producer has really exited and been reaped before the source goes offline.
+    producer_pid = crashed["pid"]
+    assert isinstance(producer_pid, int)
+    try:
+        os.kill(producer_pid, 0)
+    except ProcessLookupError:
+        pass
+    else:
+        raise AssertionError("The producing process is still alive")
+    (project / "warehouse.duckdb").rename(project / "warehouse.offline")
+    restored_records = _run(
+        (
+            "recover",
+            str(project),
+            "--session",
+            _text(crashed["session_ref"]),
+            "--run",
+            _text(crashed["run_ref"]),
+        ),
+        expected_exit=0,
+    )
+    assert len(restored_records) == 1
+    restored = restored_records[0]
+    assert restored["pid"] != producer_pid
+    assert restored["session_ref"] == crashed["session_ref"]
+    assert restored["run_ref"] == crashed["run_ref"]
+    assert restored["execution_key"] == crashed["execution_key"]
+    assert restored["before"] == crashed["store"]
+    _assert_bundle(restored["after"], committed=is_committed, terminal=True)
+    assert _counts(restored["after"])["action_resource_journal"] == 0
+    assert not any(_object(restored["forbidden_attempts"]).values())
+    recovery_stats = _object(restored["statistics"])
+    for counter in (
+        "primary_queries",
+        "validation_queries",
+        "source_fences",
+        "transferred_rows",
+        "transferred_bytes",
+    ):
+        assert recovery_stats[counter] == 0
+    assert recovery_stats["statements"] == []
+    assert restored["repeated_reconciliation_unchanged"] is True
+    if is_committed:
+        assert restored["lifecycle"] == "succeeded"
+        assert restored["after"] == restored["before"]
+        record = _object(restored["committed_artifact"])
+        assert record == crashed["committed_artifact"]
+        for identity in (
+            "definition_fingerprint",
+            "row_contract_fingerprint",
+            "row_set_contract_fingerprint",
         ):
-            assert recovery_stats[counter] == 0
-        assert recovery_stats["statements"] == []
-        assert restored["repeated_reconciliation_unchanged"] is True
-        if is_committed:
-            assert restored["lifecycle"] == "succeeded"
-            assert restored["after"] == restored["before"]
-            record = _object(restored["committed_artifact"])
-            assert record == crashed["committed_artifact"]
-            for identity in (
-                "definition_fingerprint",
-                "row_contract_fingerprint",
-                "row_set_contract_fingerprint",
-            ):
-                assert record[identity] == journey[identity]
-            receipt = _object(record["primary_receipt"])
-            assert receipt["realized_row_count"] == stats["transferred_rows"]
-            assert _object(record["evidence"])["finding_count"] == 0
-            rows = _records(restored["rows"])
-            non_null = tuple(row for row in rows if row["revenue"] is not None)
-            assert non_null == (
-                {"region": "EU", "order_time": "2026-02-02", "revenue": 10.0},
-                {"region": "EU", "order_time": "2026-02-03", "revenue": 30.0},
-                {"region": "EU", "order_time": "2026-02-04", "revenue": 0.0},
-                {"region": None, "order_time": "2026-02-02", "revenue": 100.0},
-            )
-            assert restored["payload_files_after"] == crashed["payload_files"]
-        else:
-            assert restored["lifecycle"] == "failed"
-            assert restored["failure_kind"] == "process_lost"
-            assert restored["artifact_ref"] is None
-            assert restored["payload_files_after"] == {}
-        cases.append(
-            {
-                "point": point,
-                "producer_exit_code": CRASH_EXIT,
-                "constructed": constructed,
-                "producer_terminal_evidence": crashed,
-                "fresh_recovery_terminal_evidence": restored,
-            }
+            assert record[identity] == journey[identity]
+        receipt = _object(record["primary_receipt"])
+        assert receipt["realized_row_count"] == stats["transferred_rows"]
+        assert _object(record["evidence"])["finding_count"] == 0
+        rows = _records(restored["rows"])
+        non_null = tuple(row for row in rows if row["revenue"] is not None)
+        assert non_null == (
+            {"region": "EU", "order_time": "2026-02-02", "revenue": 10.0},
+            {"region": "EU", "order_time": "2026-02-03", "revenue": 30.0},
+            {"region": "EU", "order_time": "2026-02-04", "revenue": 0.0},
+            {"region": None, "order_time": "2026-02-02", "revenue": 100.0},
         )
+        assert restored["payload_files_after"] == crashed["payload_files"]
+    else:
+        assert restored["lifecycle"] == "failed"
+        assert restored["failure_kind"] == "process_lost"
+        assert restored["artifact_ref"] is None
+        assert restored["payload_files_after"] == {}
+    cases.append(
+        {
+            "point": point,
+            "producer_exit_code": CRASH_EXIT,
+            "constructed": constructed,
+            "producer_terminal_evidence": crashed,
+            "fresh_recovery_terminal_evidence": restored,
+        }
+    )
     after = _source_snapshot()
     evidence = {
         "schema": "marivo.slice2b.runtime_acceptance/v1",
@@ -248,7 +248,8 @@ def test_actual_process_crashes_reconcile_without_replaying_the_source(tmp_path:
     assert len(encoded.encode("utf-8")) < 1_048_576
     report_path = os.environ.get("MARIVO_SLICE2B_EVIDENCE_PATH")
     if report_path:
-        destination = Path(report_path)
+        report = Path(report_path)
+        destination = report.with_name(f"{report.stem}-{point}{report.suffix}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(encoded)
     print(
