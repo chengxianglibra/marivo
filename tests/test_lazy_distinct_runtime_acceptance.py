@@ -11,26 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.targets import S3Access
 from tests.lazy_distinct_fixtures import assert_no_raw_keys
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
 pytestmark = pytest.mark.runtime
 
 
-def _run(
-    mode: str, kind: str, project: Path, access: S3Access | None, refs: object
-) -> dict[str, object]:
+def _run(mode: str, kind: str, project: Path, refs: object) -> dict[str, object]:
     environment = {**os.environ, "MARIVO_TELEMETRY": "off"}
-    if access is not None:
-        environment.update(
-            {
-                "MARIVO_TEST_S3_ENDPOINT": access.endpoint_url,
-                "MARIVO_TEST_S3_BUCKET": access.bucket,
-                "MARIVO_TEST_S3_ACCESS_KEY": access.access_key_id,
-                "MARIVO_TEST_S3_SECRET_KEY": access.secret_access_key,
-            }
-        )
     result = subprocess.run(
         [
             sys.executable,
@@ -55,21 +43,16 @@ def _run(
     return value
 
 
-@pytest.mark.parametrize("kind", ("local", "engine", "object"))
+@pytest.mark.parametrize("kind", ["local"])
 def test_three_process_distinct_recovery_without_origin(
     tmp_path: Path,
     request: pytest.FixtureRequest,
     kind: str,
 ) -> None:
-    access = None
-    if kind == "object":
-        selected: object = request.getfixturevalue("lazy_s3_access")
-        assert isinstance(selected, S3Access)
-        access = selected
     candidate = _manifest()
-    produced = _run("produce", kind, tmp_path, access, {})
-    continued = _run("continue", kind, tmp_path, access, produced["refs"])
-    cold = _run("cold", kind, tmp_path, access, continued["refs"])
+    produced = _run("produce", kind, tmp_path, {})
+    continued = _run("continue", kind, tmp_path, produced["refs"])
+    cold = _run("cold", kind, tmp_path, continued["refs"])
     assert len({produced["pid"], continued["pid"], cold["pid"]}) == 3
     assert produced["origin_removed"] is True
     for key in (

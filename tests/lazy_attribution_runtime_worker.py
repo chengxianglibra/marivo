@@ -208,7 +208,7 @@ def run(
         "refs": refs,
         "before": before,
         "after": snapshot(runtime),
-        "rows": _rows(result),
+        "rows": [[_cell(cell) for cell in row] for row in frame.itertuples(index=False, name=None)],
         "continued_rows": _rows(continued),
         "row_contract": _row_contract_fingerprint(result.row_contract),
         "row_set_contract": _row_set_contract_fingerprint(result.row_set_contract),

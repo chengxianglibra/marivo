@@ -1,4 +1,4 @@
-.PHONY: test runtime-test runtime-test-agent release-test typecheck lint lint-agent format \
+.PHONY: test runtime-test runtime-test-agent object-storage-test release-test typecheck lint lint-agent format \
 	check check-agent release-check docs-api docs-api-agent pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
@@ -38,6 +38,10 @@ runtime-test:
 runtime-test-agent:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) -m runtime -n $(if $(findstring ::,$(TESTS)),0,$(RUNTIME_WORKERS)) $(TESTS)
+
+object-storage-test:
+	@./scripts/require-venv.sh pytest
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n 0 -m object_connection tests/test_object_storage_connection.py
 
 release-test: pypi-build pypi-check
 	@./scripts/require-venv.sh pytest
@@ -86,7 +90,7 @@ release-check:
 		echo "Set MARIVO_TEST_S3_ENDPOINT to the isolated versioned S3 test service before make release-check." >&2; \
 		exit 1; \
 	fi
-	@$(MAKE) check runtime-test release-test TESTS=
+	@$(MAKE) check runtime-test object-storage-test release-test TESTS=
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
 	@./scripts/require-venv.sh sphinx-build

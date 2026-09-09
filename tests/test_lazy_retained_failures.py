@@ -7,7 +7,6 @@ from typing import Literal
 import pytest
 
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import S3Access
 from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
@@ -78,20 +77,3 @@ def test_limit_cannot_hide_oversized_complete_retained_input(tmp_path: Path) -> 
     after = snapshot(fixture.runtime)
     assert after["dataset_artifacts"] == after["dataset_evidence"] == 1
     assert after["action_resource_journal"] == 0
-
-
-def test_versioned_object_fold_reads_required_parts_after_source_removal(
-    tmp_path: Path, lazy_s3_access: S3Access
-) -> None:
-    fixture = setup_retained(tmp_path, "object", access=lazy_s3_access)
-    checkpoint = fixture.sources.observe([REVENUE, MEAN]).execute()
-    fixture.database.rename(tmp_path / "warehouse.offline")
-    result = checkpoint.where(gt(REVENUE, 0)).aggregate().execute()
-    frame = result.to_pandas()
-    assert frame["revenue"].tolist() == [147]
-    assert frame["mean_amount"].tolist() == [36.75]
-    assert fixture.runtime.statistics.primary_queries == 0
-    assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
-    record = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and len(record.descriptor.retained_parts) == 2
-    assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()

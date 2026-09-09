@@ -161,9 +161,17 @@ containing `::` run serially. Account for other concurrent test tasks on the hos
 连同日常检查、安装和打包检查一起执行。发布前必须显式配置健康、隔离的 MinIO
 测试服务和 `MARIVO_TEST_S3_ENDPOINT`，测试 fixture 负责创建、启用版本控制和清理
 隔离 bucket；服务本身由发布操作者或 CI 管理。当前
-[`lazy_s3_access` fixture](tests/conftest.py) 使用仅供测试的
+[`object_connection_access` fixture](tests/conftest.py) 使用仅供测试的
 `minioadmin` access key 和 secret key。保留验收候选版本、命令和结果，S3
 验收不能因缺少 endpoint 而跳过。
+
+Functional Runtime acceptance primarily uses local files. Retain native engine
+cases only for engine-specific execution, receipts, and recovery. The separate
+`make object-storage-test` command runs the live MinIO connection/versioning smoke;
+`make runtime-test` needs no object service. S3 ownership, exact-version, failure,
+and pending-request contracts use SDK stubs and local journal files instead of
+repeating the complete functional matrix against MinIO. See
+[Runtime test coverage](docs/testing/runtime-coverage.md).
 
 For test performance investigations, measure the same suite with
 `.venv/bin/pytest -m runtime -n 2 --durations=40 <selected-tests>`, then compare

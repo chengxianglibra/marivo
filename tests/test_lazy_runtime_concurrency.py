@@ -44,9 +44,7 @@ pytestmark = pytest.mark.runtime
 def _access(request: pytest.FixtureRequest, kind: str) -> tuple[S3Access, ...]:
     if kind != "object":
         return ()
-    value = request.getfixturevalue("lazy_s3_access")
-    assert isinstance(value, S3Access)
-    return (value,)
+    raise AssertionError("Only local and engine functional targets are supported")
 
 
 def _evidence(name: str, value: dict[str, object]) -> None:
@@ -59,7 +57,7 @@ def _evidence(name: str, value: dict[str, object]) -> None:
         )
 
 
-@pytest.mark.parametrize("kind", ["local", "engine", "object"])
+@pytest.mark.parametrize("kind", ["local"])
 @pytest.mark.parametrize("key", ["same", "different"])
 @pytest.mark.parametrize("mode", ["thread", "process", "reentrant"])
 def test_busy_contender_preserves_real_producer(
@@ -339,7 +337,7 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
     assert first.store.current() == current
 
 
-@pytest.mark.parametrize("kind", ["local", "engine", "object"])
+@pytest.mark.parametrize("kind", ["local"])
 def test_different_sessions_overlap_inside_real_duckdb_queries(
     tmp_path: Path, request: pytest.FixtureRequest, kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

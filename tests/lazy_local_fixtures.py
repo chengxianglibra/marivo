@@ -1,8 +1,7 @@
-"""Minimal real-source fixtures for primary-only local Metric continuations."""
+"""Minimal real-source fixtures for local Metric row continuations."""
 
 import time
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -39,12 +38,7 @@ def setup_local(
 ) -> tuple[DatasetRuntime, LazySources, Path]:
     database = project / "warehouse.duckdb"
     seed_execution_database(database)
-    original, sidecar = make_execution_registry(database)
-    metrics = dict(original.metrics)
-    metrics[REVENUE.path] = replace(metrics[REVENUE.path], aggregation="median")
-    metrics[COUNT.path] = replace(metrics[COUNT.path], aggregation="count_distinct")
-    registry = replace(original, metrics=metrics)
-    registry.freeze()
+    registry, sidecar = make_execution_registry(database)
     runtime = DatasetRuntime.create(project, "local-execution", event=event)
     return runtime, runtime.sources(semantic_registry=registry, sidecar=sidecar), database
 

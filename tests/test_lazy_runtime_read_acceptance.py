@@ -10,17 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.targets import S3Access
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
 pytestmark = pytest.mark.runtime
 
 
-def _run(mode: str, kind: str, project: Path, access: S3Access | None) -> dict[str, object]:
+def _run(mode: str, kind: str, project: Path) -> dict[str, object]:
     environment = {**os.environ, "MARIVO_TELEMETRY": "off"}
-    if access is not None:
-        environment["MARIVO_TEST_S3_ENDPOINT"] = access.endpoint_url
-        environment["MARIVO_TEST_S3_BUCKET"] = access.bucket
     process = subprocess.run(
         [sys.executable, "-B", "-m", "tests.lazy_runtime_read_worker", mode, kind, str(project)],
         env=environment,
@@ -40,19 +36,14 @@ def _mapping(value: object) -> dict[str, object]:
     return {str(key): item for key, item in value.items()}
 
 
-@pytest.mark.parametrize("kind", ["local", "engine", "object"])
+@pytest.mark.parametrize("kind", ["local"])
 def test_real_retained_bundle_failure_foreign_reads_and_cold_binding(
     tmp_path: Path, request: pytest.FixtureRequest, kind: str
 ) -> None:
-    access = None
-    if kind == "object":
-        selected: object = request.getfixturevalue("lazy_s3_access")
-        assert isinstance(selected, S3Access)
-        access = selected
     before = _manifest()
-    produced = _run("produce", kind, tmp_path, access)
-    continued = _run("continue", kind, tmp_path, access)
-    cold = _run("cold", kind, tmp_path, access)
+    produced = _run("produce", kind, tmp_path)
+    continued = _run("continue", kind, tmp_path)
+    cold = _run("cold", kind, tmp_path)
     assert len({produced["pid"], continued["pid"], cold["pid"]}) == 3
     produced_counts = _mapping(_mapping(produced["after"])["counts"])
     assert produced_counts["analysis_action_runs"] == 2
@@ -96,11 +87,6 @@ def test_real_retained_bundle_failure_foreign_reads_and_cold_binding(
         stats = _mapping(cold[name])
         assert stats["primary_queries"] == stats["transferred_rows"] == 0
         assert stats["events"] == {"reconciliation": 1}
-    if kind == "object":
-        for record in (produced, continued, cold):
-            requests = record["object_requests"]
-            assert isinstance(requests, list) and requests
-            assert all(_mapping(item)["version_pinned"] is True for item in requests)
     after = _manifest()
     assert before == after
     evidence = {
