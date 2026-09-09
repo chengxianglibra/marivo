@@ -18,9 +18,20 @@ from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
 from marivo.analysis.observation.fold_contracts import MetricFoldAuthorityV1, decode_fold_authority
 from marivo.analysis.operators.contracts import CompareSpecV1, DeltaSemantics
 from marivo.analysis.operators.errors import attribution_error
+from marivo.semantic._quantile import ApproximationClass
 
-AttributionMethod = Literal["additive_difference@v1", "component_mix@v1", "distinct_membership@v1"]
+AttributionMethod = Literal[
+    "additive_difference@v1",
+    "component_mix@v1",
+    "distinct_membership@v1",
+    "distribution_shapley@v1",
+]
 AttributionMode = Literal["joint", "hierarchy"]
+
+
+INDEPENDENT_RESOLUTION_METHODS: frozenset[AttributionMethod] = frozenset(
+    ("distinct_membership@v1", "distribution_shapley@v1")
+)
 
 
 def delta_state_name(side: str, name: str) -> str:
@@ -65,7 +76,7 @@ class AttributionSemantics(DatasetFamilyRowSemantics, _token=_CORE_TOKEN):
     current_time_field_name: str | None
     baseline_time_field_name: str | None
     method: AttributionMethod
-    approximation_class: Literal["exact", "sampled_population"]
+    approximation_class: ApproximationClass
     resolution_semantics: Literal["rollup", "independent"] = "rollup"
     rollup_safe: bool = True
     kind: Literal["attribution/metric@v1"] = field(default="attribution/metric@v1", init=False)

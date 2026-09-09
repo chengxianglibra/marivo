@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import ibis.expr.types as ir
 
@@ -23,6 +24,8 @@ class CompiledValidation:
 
     name: str
     expression: ir.Table
+    expected: str | None = None
+    repair: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,3 +71,4 @@ class CompiledDataset:
     retained_parts: tuple[RetainedPartSpec | RetainedRelationSpec, ...]
     preparations: tuple[CompiledValidation | CompiledSampleFence, ...] = ()
     attribution_proof: ir.Table | None = None
+    numerical_input: Literal["distribution_coalitions"] | None = None

@@ -19,6 +19,7 @@ from marivo.analysis.datasets.descriptors import (
 )
 from marivo.analysis.datasets.handles import CanonicalValue, LogicalRootHandle, _LogicalNodePayload
 from marivo.analysis.operators.errors import comparison_error
+from marivo.semantic._quantile import ApproximationClass
 
 DELTA_SHAPES = ("entity", "scalar", "dimension", "time", "dimension-time")
 
@@ -170,7 +171,7 @@ class DeltaSemantics(DatasetFamilyRowSemantics, _token=_CORE_TOKEN):
     baseline_time_field_name: str | None
     current_fold_authority: str
     baseline_fold_authority: str
-    approximation_class: Literal["exact", "sampled_population"]
+    approximation_class: ApproximationClass
     kind: Literal["delta/metric@v1"] = field(default="delta/metric@v1", init=False)
 
 

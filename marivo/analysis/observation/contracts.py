@@ -47,6 +47,7 @@ from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_m
 from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.analysis.observation.fold_contracts import (
     DistinctMembershipAuthorityV1,
+    DistributionAuthorityV1,
     MetricFoldAuthorityV1,
     RetainedFoldPayload,
     decode_fold_authority,
@@ -75,6 +76,7 @@ from marivo.refs import (
     _create_ref,
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic._quantile import QuantileMetricInput
 from marivo.semantic.catalog import (
     DimensionEntry,
     EntityEntry,
@@ -116,7 +118,8 @@ if TYPE_CHECKING:
 EntityInput: TypeAlias = Ref[EntityKind] | EntityEntry
 DimensionInput: TypeAlias = Ref[DimensionKind] | DimensionEntry
 TimeDimensionInput: TypeAlias = Ref[TimeDimensionKind] | TimeDimensionEntry
-MetricInput: TypeAlias = Ref[MetricKind] | MetricEntry | RuntimeMetricExpr
+
+MetricInput: TypeAlias = Ref[MetricKind] | MetricEntry | RuntimeMetricExpr | QuantileMetricInput
 METRIC_SHAPES = (
     "entity",
     "entity-dimension",
@@ -156,9 +159,13 @@ class ObservationProducerContract:
         if self.contract_stem.startswith("attribution"):
             return ("attribution.reconciliation",)
         if self.producer_id == "metric.compare" or self.producer_id.startswith("delta."):
-            return ("delta.sufficient_components", "delta.distinct_membership")
+            return (
+                "delta.sufficient_components",
+                "delta.distinct_membership",
+                "delta.distribution",
+            )
         return (
-            ("metric.sufficient_components", "metric.distinct_membership")
+            ("metric.sufficient_components", "metric.distinct_membership", "metric.distribution")
             if self.producer_id != "metric.compare"
             and (self.producer_id.startswith("metric.") or self.producer_id == "session.observe")
             else ()
@@ -203,6 +210,7 @@ class ObservationProducerContract:
                         "delta.distinct_membership" if comparison else "metric.distinct_membership",
                         "v1",
                     ),
+                    ("delta.distribution" if comparison else "metric.distribution", "v1"),
                 )
                 if comparison
                 or self.producer_id.startswith("metric.")
@@ -545,6 +553,7 @@ class MetricDefinition:
     aggregation_contracts: tuple[MetricCoordinateAggregationV1, ...] = ()
     temporal_snapshot: PeriodCalendarSnapshotV1 | None = None
     distinct_memberships: tuple[DistinctMembershipAuthorityV1, ...] = ()
+    distributions: tuple[DistributionAuthorityV1, ...] = ()
 
     def identity_payload(self) -> CanonicalValue:
         return (
@@ -579,6 +588,7 @@ class MetricDefinition:
             tuple(contract.identity_payload() for contract in self.aggregation_contracts),
             None if self.temporal_snapshot is None else self.temporal_snapshot.snapshot_digest,
             tuple(item.model_dump_json() for item in self.distinct_memberships),
+            tuple(item.model_dump_json() for item in self.distributions),
         )
 
 

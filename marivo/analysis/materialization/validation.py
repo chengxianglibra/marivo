@@ -67,7 +67,7 @@ def execute_batch(
 ) -> tuple[tuple[str, int], ...]:
     cursor: object = backend.raw_sql(batch.sql)
     if not isinstance(cursor, DuckDBPyConnection):
-        raise _failure(batch.checks[0].name, run_ref)
+        raise _failure(batch.checks[0], run_ref)
     results: list[tuple[str, int]] = []
     row: object = cursor.fetchone()
     for index, check in enumerate(batch.checks):
@@ -79,21 +79,22 @@ def execute_batch(
             or type(row[1]) is not int
             or row[1] != index
         ):
-            raise _failure(check.name, run_ref)
+            raise _failure(check, run_ref)
         results.append((check.name, row[0]))
         row = cursor.fetchone()
         if isinstance(row, tuple) and len(row) == 2 and row[1] == index:
-            raise _failure(check.name, run_ref)
+            raise _failure(check, run_ref)
     if row is not None:
-        raise _failure(batch.checks[-1].name, run_ref)
+        raise _failure(batch.checks[-1], run_ref)
     return tuple(results)
 
 
-def _failure(name: str, run_ref: str) -> MaterializationError:
+def _failure(check: CompiledValidation, run_ref: str) -> MaterializationError:
     return MaterializationError(
-        expected="zero violations of the declared source validation",
-        received=f"source validation failed: {name}",
-        repair="Repair the governed source identity, temporal coverage or component reconciliation.",
+        expected=check.expected or "zero violations of the declared source validation",
+        received=f"source validation failed: {check.name}",
+        repair=check.repair
+        or "Repair the governed source identity, temporal coverage or component reconciliation.",
         stage="output_validation",
         run_ref=run_ref,
     )

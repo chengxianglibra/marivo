@@ -85,7 +85,7 @@ class ArtifactInput:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class LocalRequest:
-    input: StreamInput | ArtifactInput
+    input: StreamInput | ArtifactInput | CoalitionInput
     calls: tuple[RowCall, ...]
     policy: LocalPolicy
     deadline: float
@@ -147,9 +147,17 @@ def _part_to_arrow(part: PartFrame) -> pa.Table:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class CoalitionInput:
+    """Closed numerical preparation input; never an Artifact or Dataset row contract."""
+
+    spec: AttributeSpecV1
+    expected_rows: int
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class LocalBoundary:
     output: int
-    input: StreamInput | ArtifactInput
+    input: StreamInput | ArtifactInput | CoalitionInput
     parts: tuple[LocalPartInput, ...] = ()
 
 
@@ -188,10 +196,41 @@ class _Frames:
 
 def _collect_input(
     connection: Connection,
-    selected: StreamInput | ArtifactInput,
+    selected: StreamInput | ArtifactInput | CoalitionInput,
     parts: tuple[LocalPartInput, ...],
     budget: LocalBudget,
 ) -> tuple[_Frames, int]:
+    if isinstance(selected, CoalitionInput):
+        from marivo.analysis.operators.distribution_values import validate_coalition_schema
+
+        if parts:
+            fail("coalition-only numerical input", "unexpected retained parts")
+        batches = []
+        schema = None
+        count = 0
+        for batch in _batches(connection):
+            batch = _normalize_batch(batch, budget.policy.max_batch_bytes)
+            validate_coalition_schema(batch.schema, selected.spec)
+            if schema is not None and not schema.equals(batch.schema):
+                fail("one stable coalition schema", "changed coalition schema")
+            schema = batch.schema
+            count += batch.num_rows
+            if count > min(budget.policy.max_input_rows, budget.policy.max_method_rows):
+                fail("complete coalition inputs within budget", "coalition row overflow")
+            budget.input(batch.nbytes)
+            batches.append(batch)
+        if schema is None or count != selected.expected_rows:
+            fail(
+                "complete coalition stream with source-certified row count",
+                "missing coalition rows or schema",
+            )
+        table = pa.Table.from_batches(batches, schema=schema)
+        budget.allocation(table.nbytes * 8 + count * 4096)
+        frame = table.to_pandas(types_mapper=pd.ArrowDtype)
+        size = frame_bytes(frame)
+        budget.allocation(size)
+        budget.live_bytes += size
+        return _Frames(frame, (), schema), count
     if len({part.role for part in parts}) != len(parts):
         fail("one input per selected retained role", "duplicate part input")
     policy = budget.policy
@@ -384,25 +423,33 @@ def _execute_graph(
             output_row = call.output_row
             del current, baseline
         else:
-            if len(incoming) != 1 or call.expanded_compare is not None:
+            if len(incoming) != 1 or (
+                call.expanded_compare is not None and call.method != "distribution_shapley@v1"
+            ):
                 fail("one complete retained Attribution input", "source-required axis expansion")
             source = incoming[0]
-            validate_frame(source.frame, call.input_row, call.input_rows)
+            if call.method != "distribution_shapley@v1":
+                validate_frame(source.frame, call.input_row, call.input_rows)
             count = len(source.frame) + sum(len(part.frame) for part in source.parts)
             projected_rows = len(source.frame) * (
                 len(call.axis_fields) if call.mode == "hierarchy" else 1
             )
-            if (
-                count > budget.policy.max_method_rows
-                or projected_rows > budget.policy.max_output_rows
+            if count > budget.policy.max_method_rows or (
+                call.method != "distribution_shapley@v1"
+                and projected_rows > budget.policy.max_output_rows
             ):
                 fail(
                     "bounded complete Attribution partitions and resolutions",
                     "method size overflow",
                 )
             budget.allocation(source.size * 8 + projected_rows * 2048)
-            validate_delta_parts(source.frame, source.parts, call.input_row)
-            result = execute_attribute(source.frame, call, parts=source.parts)
+            if call.method == "distribution_shapley@v1":
+                from marivo.analysis.operators.distribution_values import execute_distribution
+
+                result = execute_distribution(source.frame, call)
+            else:
+                validate_delta_parts(source.frame, source.parts, call.input_row)
+                result = execute_attribute(source.frame, call, parts=source.parts)
             budget.check()
             result_size = frame_bytes(result)
             if (
@@ -692,7 +739,7 @@ def _supervise(
                         (request.input, request.parts, LocalInputStreams(batches, part_batches)),
                     )
                 for selected, parts, streams in inputs:
-                    if isinstance(selected, StreamInput):
+                    if isinstance(selected, (StreamInput, CoalitionInput)):
                         for batch in streams.batches:
                             parent.send(batch)
                         parent.send(None)

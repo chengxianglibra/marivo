@@ -28,6 +28,7 @@ from marivo.analysis.datasets.descriptors import (
 )
 from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
 from marivo.refs import SemanticKind
+from marivo.semantic._quantile import QuantileMethodV1
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CumulativeNodeV1,
@@ -86,6 +87,19 @@ class DistinctMembershipAuthorityV1(BaseModel):
     null_policy: Literal["exclude"] = "exclude"
 
 
+class DistributionAuthorityV1(BaseModel):
+    """Exact source-private value-frequency basis and percentile interpretation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True, allow_inf_nan=False)
+    metric_ref: str
+    aggregate_node_id: str
+    target_ref: str
+    computation_root: str
+    value_logical_type: str
+    source_column: str
+    quantile: QuantileMethodV1
+
+
 class MetricFoldAuthorityV1(BaseModel):
     """The immutable merge/finalize closure for exactly one visible Metric."""
 
@@ -97,6 +111,7 @@ class MetricFoldAuthorityV1(BaseModel):
     components: tuple[FoldComponentV1, ...]
     axis_partitions: tuple[tuple[str, str], ...]
     membership: DistinctMembershipAuthorityV1 | None = None
+    distribution: DistributionAuthorityV1 | None = None
 
     @property
     def cumulative(self) -> bool:
@@ -233,6 +248,12 @@ def _validate_metric_authority(metric: MetricFoldAuthorityV1) -> None:
         key for key, node in nodes.items() if node.kind == "component"
     }:
         raise ValueError("non-closed retained fold dependency closure")
+    if metric.distribution is not None:
+        from marivo.analysis.observation.distribution_contracts import (
+            validate_distribution_authority,
+        )
+
+        validate_distribution_authority(metric)
     if metric.membership is not None:
         from marivo.analysis.observation.distinct_contracts import validate_membership_authority
 
@@ -277,6 +298,9 @@ def _metric_authority(
     membership = next(
         (item for item in definition.distinct_memberships if item.metric_ref == metric.ref.path),
         None,
+    )
+    distribution = next(
+        (item for item in definition.distributions if item.metric_ref == metric.ref.path), None
     )
     for component in {item.node_id: item for item in metric.components}.values():
         node = by_id[component.node_id]
@@ -337,6 +361,7 @@ def _metric_authority(
                 or spatial != "blocked"
                 or temporal != "blocked"
                 or membership is not None
+                or distribution is not None
                 else (),
                 spatial_merge=spatial,
                 time_merge=temporal,
@@ -394,6 +419,7 @@ def _metric_authority(
         components=tuple(components),
         axis_partitions=tuple(sorted(contract.contribution_partition_by_reduced_axis)),
         membership=membership,
+        distribution=distribution,
     )
 
 

@@ -61,6 +61,7 @@ from marivo.analysis.operators.contracts import (
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.analysis.operators.errors import comparison_error
 from marivo.analysis.operators.row_values import compare_value, frame_keys, row_key_names
+from marivo.semantic._quantile import approximation_class
 
 _GENERATED = (
     ("coordinate_presence", "status", "string", False),
@@ -253,9 +254,14 @@ def compare(
         metric_unit=left.metric_bindings[0][1],
         numeric_type=promoted,
         exact_empty_zero=left.metric_bindings[0][5] == "zero",
-        approximation_class="sampled_population"
-        if current_authority.sampling_definition
-        else "exact",
+        approximation_class=approximation_class(
+            sampled=bool(current_authority.sampling_definition),
+            semantic=any(
+                item.distribution is not None
+                and item.distribution.quantile.method == "duckdb_tdigest@v1"
+                for item in left.metric_folds
+            ),
+        ),
         current_time_field_name=None if current_time is None else "current_time",
         baseline_time_field_name=None if baseline_time is None else "baseline_time",
         current_fold_authority=decode_fold_authority(left.fold_authority)
@@ -318,7 +324,12 @@ def validate_delta(row: DatasetRowContract, rows: DatasetRowSetContract) -> None
     from marivo.analysis.operators.attribution_contracts import delta_part_authorities
 
     delta_part_authorities(row)
-    if semantics.approximation_class not in ("exact", "sampled_population"):
+    if semantics.approximation_class not in (
+        "exact",
+        "sampled_population",
+        "semantic_percentile",
+        "sampled_semantic_percentile",
+    ):
         raise comparison_error(
             "closed comparison approximation class", "invalid approximation meaning"
         )

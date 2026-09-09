@@ -14,8 +14,8 @@ from marivo.analysis.observation.contracts import (
     RetainedRowsPayload,
     producer_contract,
 )
-from marivo.analysis.observation.distinct_contracts import membership_part_authorities
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
+from marivo.analysis.observation.private_parts import source_private_part_authorities
 from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributionSemantics
 from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
 
@@ -62,7 +62,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     entity_scoped_result = any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
     ) and dataset.kind in ("delta", "attribution")
-    source_membership = bool(membership_part_authorities(dataset.row_contract)) or (
+    source_private_state = bool(source_private_part_authorities(dataset.row_contract)) or (
         isinstance(root.payload, AttributePayload)
         and root.payload.spec.method == "distinct_membership@v1"
     )
@@ -73,7 +73,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         "duckdb",
         root.operator_id
         if not entity_scoped_result
-        and not source_membership
+        and not source_private_state
         and (
             (
                 root.operator_id == "metric.compare"
@@ -89,7 +89,16 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
-    if membership_part_authorities(dataset.row_contract) or (
+    if (
+        isinstance(root, LogicalRootHandle)
+        and isinstance(root.payload, AttributePayload)
+        and root.payload.spec.method == "distribution_shapley@v1"
+    ):
+        raise compilation_error(
+            "the registered source-produced coalition preparation input",
+            "source-required distribution preparation",
+        )
+    if source_private_part_authorities(dataset.row_contract) or (
         isinstance(root, LogicalRootHandle)
         and isinstance(root.payload, AttributePayload)
         and root.payload.spec.method == "distinct_membership@v1"

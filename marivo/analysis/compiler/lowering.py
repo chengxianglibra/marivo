@@ -11,14 +11,8 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.comparison import lower_compare
-from marivo.analysis.compiler.distinct import (
-    MembershipRelations,
-    comparison_memberships,
-    membership_specs,
-    membership_validations,
-    selected_memberships,
-)
 from marivo.analysis.compiler.distinct_fold import fold_memberships
+from marivo.analysis.compiler.distribution import source_quantile
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
@@ -29,6 +23,13 @@ from marivo.analysis.compiler.nodes import (
 )
 from marivo.analysis.compiler.normalize import logical_roots, required_entities
 from marivo.analysis.compiler.predicates import lower_bound_predicate, predicate_leaves
+from marivo.analysis.compiler.private_parts import (
+    PrivateRelations,
+    comparison_private_parts,
+    private_part_specs,
+    private_part_validations,
+    selected_private_parts,
+)
 from marivo.analysis.compiler.temporal import bucket, bucket_end, cumulative_start
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
@@ -55,7 +56,10 @@ from marivo.analysis.observation.coordinates import functional_path, governed_pa
 from marivo.analysis.observation.distinct_contracts import (
     DISTINCT_KEY_COLUMN as DISTINCT_KEY,
 )
-from marivo.analysis.observation.distinct_contracts import membership_part_authorities
+from marivo.analysis.observation.distribution_contracts import (
+    FREQUENCY,
+    VALUE,
+)
 from marivo.analysis.observation.fold_contracts import (
     FoldSpecV1,
     MetricFoldAuthorityV1,
@@ -64,6 +68,7 @@ from marivo.analysis.observation.fold_contracts import (
     fold_part_role,
     fold_state_names,
 )
+from marivo.analysis.observation.private_parts import source_private_part_authorities
 from marivo.analysis.operators.attribution_contracts import (
     AttributePayload,
     delta_part_authorities,
@@ -111,7 +116,7 @@ class _Rows:
     definition: MetricDefinition | None = None
     selections: tuple[_Selection, ...] = ()
     ordering: tuple[tuple[str, str, str], ...] = ()
-    parts: MembershipRelations = ()
+    parts: PrivateRelations = ()
 
 
 def _named_validations(
@@ -1124,7 +1129,7 @@ class _Compiler:
         # A governed coordinate relation denotes a set of contributions. Repeated
         # bridge rows cannot multiply the same source representation in one tuple.
         table = table.distinct()
-        distinct_membership: ir.Table | None = None
+        private_relation: ir.Table | None = None
         states: dict[str, ir.Value] = {"row_count": table.count()}
         if isinstance(node, AggregateNodeV1):
             value = (
@@ -1144,9 +1149,9 @@ class _Compiler:
                 )
                 states["value"] = value.nunique()
                 if component.time_fold is None:
-                    distinct_membership = table.select(*keys, **{DISTINCT_KEY: value})
-                    distinct_membership = distinct_membership.filter(
-                        distinct_membership[DISTINCT_KEY].notnull()
+                    private_relation = table.select(*keys, **{DISTINCT_KEY: value})
+                    private_relation = private_relation.filter(
+                        private_relation[DISTINCT_KEY].notnull()
                     ).distinct()
             else:
                 if value is None:
@@ -1160,7 +1165,24 @@ class _Compiler:
                     states["max"] = numeric.max()
                 else:
                     quantile = node.agg[1] if isinstance(node.agg, tuple) else 0.5
-                    states["value"] = numeric.quantile(quantile)
+                    basis = next(
+                        (
+                            item
+                            for item in definition.distributions
+                            if item.metric_ref == metric.ref.path
+                        ),
+                        None,
+                    )
+                    states["value"] = (
+                        numeric.quantile(quantile)
+                        if basis is None
+                        else source_quantile(numeric, basis.quantile)
+                    )
+                    if basis is not None:
+                        values = table.select(*keys, **{VALUE: value}).filter(value.notnull())
+                        private_relation = values.group_by([*keys, VALUE]).aggregate(
+                            **{FREQUENCY: values.count()}
+                        )
                 states["non_null_count"] = value.count()
         else:
             value = _numeric(table[self._measure_column(node.value_ref.path)])
@@ -1220,7 +1242,7 @@ class _Compiler:
                     for name in component.required_state
                 },
             ),
-            distinct_membership,
+            private_relation,
         )
 
     def _cumulative_contributions(
@@ -1363,19 +1385,19 @@ class _Compiler:
         row, _ = metric_contracts(
             definition, self.dataset._registry.get("metric").ids, self.registry
         )
-        required_memberships = {
+        required_private_parts = {
             authority.metric_ref: (role, authority)
-            for role, authority in membership_part_authorities(row)
+            for role, authority in source_private_part_authorities(row)
         }
-        retained_memberships: list[tuple[str, ir.Table]] = []
+        retained_private_parts: list[tuple[str, ir.Table]] = []
         for metric in definition.metrics:
             for node_id in dict.fromkeys(component.node_id for component in metric.components):
-                part, distinct = self._component(
+                part, private_relation = self._component(
                     metric, node_id, definition, membership, selections
                 )
-                if distinct is not None and metric.ref.path in required_memberships:
-                    retained_memberships.append(
-                        (required_memberships[metric.ref.path][0], distinct)
+                if private_relation is not None and metric.ref.path in required_private_parts:
+                    retained_private_parts.append(
+                        (required_private_parts[metric.ref.path][0], private_relation)
                     )
                 names = _state_names(metric)
                 keys = tuple(name for name in part.columns if not name.startswith("__mv_"))
@@ -1441,8 +1463,8 @@ class _Compiler:
                         complete: (start == bucket_start) & (end == bucket_finish),
                     }
                 )
-        retained = selected_memberships(tuple(retained_memberships), row, table)
-        self.validations.extend(membership_validations(row, table, dict(retained)))
+        retained = selected_private_parts(tuple(retained_private_parts), row, table)
+        self.validations.extend(private_part_validations(row, table, dict(retained)))
         return _Rows(table, membership, definition.entity, definition, selections, parts=retained)
 
     def _observe(self, payload: MetricPayload, previous: _Rows) -> _Rows:
@@ -1497,7 +1519,7 @@ class _Compiler:
                     table,
                     table,
                     entity,
-                    parts=selected_memberships(
+                    parts=selected_private_parts(
                         scan.parts, dataset.row_contract, table, required=False
                     ),
                 )
@@ -1520,7 +1542,9 @@ class _Compiler:
                 table,
                 membership,
                 entity,
-                parts=selected_memberships(scan.parts, dataset.row_contract, table, required=False),
+                parts=selected_private_parts(
+                    scan.parts, dataset.row_contract, table, required=False
+                ),
             )
         if id(root) in self.cache:
             return self.cache[id(root)]
@@ -1534,9 +1558,9 @@ class _Compiler:
                 current.expression, baseline.expression, payload.spec
             )
             self.validations.extend(validations)
-            parts = comparison_memberships(table, current.parts, baseline.parts, payload.spec)
+            parts = comparison_private_parts(table, current.parts, baseline.parts, payload.spec)
             self.validations.extend(
-                membership_validations(payload.spec.output_row, table, dict(parts))
+                private_part_validations(payload.spec.output_row, table, dict(parts))
             )
             result = _Rows(table, current.membership, current.entity, parts=parts)
         elif isinstance(payload, AttributePayload):
@@ -1546,7 +1570,7 @@ class _Compiler:
             )
 
             previous = self._visit(root.inputs[0].root)
-            if payload.spec.method == "distinct_membership@v1":
+            if payload.spec.method in ("distinct_membership@v1", "distribution_shapley@v1"):
                 from marivo.analysis.compiler.distinct_attribution import lower_distinct_attribute
 
                 input_table = previous.expression
@@ -1563,22 +1587,37 @@ class _Compiler:
                     input_table, extra_checks = prepare_expanded_attribute(
                         previous.expression, current.expression, baseline.expression, payload.spec
                     )
-                    parts = comparison_memberships(
+                    parts = comparison_private_parts(
                         input_table,
                         current.parts,
                         baseline.parts,
                         comparison,
                     )
-                memberships = dict(parts)
-                table, validations = lower_distinct_attribute(
-                    input_table,
-                    payload.spec,
-                    current_membership=memberships["delta_membership.current"],
-                    baseline_membership=memberships["delta_membership.baseline"],
-                    original=previous.expression
-                    if payload.spec.expanded_compare is not None
-                    else None,
-                )
+                private_parts = dict(parts)
+                if payload.spec.method == "distribution_shapley@v1":
+                    from marivo.analysis.compiler.distribution_attribution import (
+                        lower_distribution_attribute,
+                    )
+
+                    table, validations = lower_distribution_attribute(
+                        input_table,
+                        payload.spec,
+                        current=private_parts["delta_distribution.current"],
+                        baseline=private_parts["delta_distribution.baseline"],
+                        original=previous.expression
+                        if payload.spec.expanded_compare is not None
+                        else None,
+                    )
+                else:
+                    table, validations = lower_distinct_attribute(
+                        input_table,
+                        payload.spec,
+                        current_membership=private_parts["delta_membership.current"],
+                        baseline_membership=private_parts["delta_membership.baseline"],
+                        original=previous.expression
+                        if payload.spec.expanded_compare is not None
+                        else None,
+                    )
                 validations = (*extra_checks, *validations)
             elif payload.spec.expanded_compare is None:
                 table, validations = lower_attribute(previous.expression, payload.spec)
@@ -1640,7 +1679,7 @@ class _Compiler:
                 previous.entity,
                 previous.definition,
                 previous.selections,
-                parts=selected_memberships(previous.parts, value.row_contract, table),
+                parts=selected_private_parts(previous.parts, value.row_contract, table),
             )
         elif isinstance(payload, MetricPayload):
             previous = self._visit(root.inputs[0].root)
@@ -1714,7 +1753,7 @@ class _Compiler:
                     definition,
                     selections,
                     ordering,
-                    selected_memberships(previous.parts, row, table),
+                    selected_private_parts(previous.parts, row, table),
                 )
         else:
             raise compilation_error("registered Observation source/operator", "unsupported payload")
@@ -1764,13 +1803,32 @@ class _Compiler:
 
     def compile(self) -> CompiledDataset:
         rows = self._visit(self.dataset._root)
+        root = self.dataset._root
+        if (
+            isinstance(root, LogicalRootHandle)
+            and isinstance(root.payload, AttributePayload)
+            and root.payload.spec.method == "distribution_shapley@v1"
+        ):
+            if self.preparations:
+                self._flush_validations()
+            checks, preparations = _named_validations(
+                tuple(self.validations), tuple(self.preparations)
+            )
+            return CompiledDataset(
+                rows.expression,
+                checks,
+                tuple(rows.expression.columns),
+                (),
+                preparations,
+                numerical_input="distribution_coalitions",
+            )
         primary = tuple(field.name for field in self.dataset.schema.columns)
         parts = retained_part_specs(self.dataset.row_contract)
         hidden = _state_projection(self.dataset.row_contract)
         expression = rows.expression.select(*primary, *hidden)
         expression = _physical_casts(expression)
         self.validations.extend(
-            membership_validations(self.dataset.row_contract, expression, dict(rows.parts))
+            private_part_validations(self.dataset.row_contract, expression, dict(rows.parts))
         )
         fields = {field.field_id: field.name for field in self.dataset.schema.columns}
         key_names = tuple(fields[key] for key in self.dataset.row_contract.key_field_ids)
@@ -1796,7 +1854,7 @@ class _Compiler:
             expression,
             validations,
             primary,
-            (*parts, *membership_specs(self.dataset.row_contract, rows.parts)),
+            (*parts, *private_part_specs(self.dataset.row_contract, rows.parts)),
             preparations,
             self.attribution_proof,
         )
@@ -1825,9 +1883,9 @@ def _lower_retained_scan(
         validations.append(CompiledValidation(name, invalid.aggregate(violations=invalid.count())))
 
     expected = {part.role: part for part in retained_part_specs(row)}
-    membership_roles = {role for role, _ in membership_part_authorities(row)}
+    membership_roles = {role for role, _ in source_private_part_authorities(row)}
     validations.extend(
-        membership_validations(
+        private_part_validations(
             row, selected_table, {} if selected_parts is None else selected_parts, required=False
         )
     )
@@ -1937,7 +1995,7 @@ def compile_retained_rows(
 
     validations: list[CompiledValidation] = []
     attribution_proof: ir.Table | None = None
-    memberships: dict[int, MembershipRelations] = {}
+    private_parts: dict[int, PrivateRelations] = {}
 
     def read(value: MaterializedDataset) -> ir.Table:
         selected_table = (
@@ -1948,7 +2006,7 @@ def compile_retained_rows(
         )
         result, checks = _lower_retained_scan(value.row_contract, selected_table, selected_parts)
         validations.extend(checks)
-        memberships[id(value)] = selected_memberships(
+        private_parts[id(value)] = selected_private_parts(
             tuple(({} if selected_parts is None else selected_parts).items()),
             value.row_contract,
             result,
@@ -1968,14 +2026,14 @@ def compile_retained_rows(
             current = visit(value._inputs[0])
             baseline = visit(value._inputs[1])
             result, checks = lower_compare(current, baseline, payload.spec)
-            memberships[id(value)] = comparison_memberships(
+            private_parts[id(value)] = comparison_private_parts(
                 result,
-                memberships[id(value._inputs[0])],
-                memberships[id(value._inputs[1])],
+                private_parts[id(value._inputs[0])],
+                private_parts[id(value._inputs[1])],
                 payload.spec,
             )
             validations.extend(
-                membership_validations(value.row_contract, result, dict(memberships[id(value)]))
+                private_part_validations(value.row_contract, result, dict(private_parts[id(value)]))
             )
             validations.extend(checks)
             return result
@@ -1987,10 +2045,22 @@ def compile_retained_rows(
                     "logical source axis expansion", "retained expansion boundary"
                 )
             previous = visit(value._inputs[0])
-            if payload.spec.method == "distinct_membership@v1":
+            if payload.spec.method == "distribution_shapley@v1":
+                from marivo.analysis.compiler.distribution_attribution import (
+                    lower_distribution_attribute,
+                )
+
+                basis = dict(private_parts[id(value._inputs[0])])
+                result, checks = lower_distribution_attribute(
+                    previous,
+                    payload.spec,
+                    current=basis["delta_distribution.current"],
+                    baseline=basis["delta_distribution.baseline"],
+                )
+            elif payload.spec.method == "distinct_membership@v1":
                 from marivo.analysis.compiler.distinct_attribution import lower_distinct_attribute
 
-                basis = dict(memberships[id(value._inputs[0])])
+                basis = dict(private_parts[id(value._inputs[0])])
                 result, checks = lower_distinct_attribute(
                     previous,
                     payload.spec,
@@ -1999,7 +2069,7 @@ def compile_retained_rows(
                 )
             else:
                 result, checks = lower_attribute(previous, payload.spec)
-            memberships[id(value)] = ()
+            private_parts[id(value)] = ()
             validations.extend(checks)
             attribution_proof = result
             return result
@@ -2020,8 +2090,8 @@ def compile_retained_rows(
             original = result
             result, checks = lower_fold(result, payload.spec)
             validations.extend(checks)
-            memberships[id(value)] = fold_memberships(
-                memberships[id(value._inputs[0])],
+            private_parts[id(value)] = fold_memberships(
+                private_parts[id(value._inputs[0])],
                 original,
                 result,
                 payload.spec,
@@ -2047,8 +2117,8 @@ def compile_retained_rows(
             )
         if payload.limit_count is not None:
             result = result.limit(payload.limit_count)
-        memberships[id(value)] = selected_memberships(
-            memberships[id(value._inputs[0])],
+        private_parts[id(value)] = selected_private_parts(
+            private_parts[id(value._inputs[0])],
             value.row_contract,
             result,
         )
@@ -2058,8 +2128,22 @@ def compile_retained_rows(
         )
 
     expression = _physical_casts(visit(dataset))
+    root = dataset._root
+    if (
+        isinstance(root, LogicalRootHandle)
+        and isinstance(root.payload, AttributePayload)
+        and root.payload.spec.method == "distribution_shapley@v1"
+    ):
+        checks, _ = _named_validations(tuple(validations))
+        return CompiledDataset(
+            expression,
+            checks,
+            tuple(expression.columns),
+            (),
+            numerical_input="distribution_coalitions",
+        )
     validations.extend(
-        membership_validations(dataset.row_contract, expression, dict(memberships[id(dataset)]))
+        private_part_validations(dataset.row_contract, expression, dict(private_parts[id(dataset)]))
     )
     fields = {field.field_id: field.name for field in dataset.schema.columns}
     keys = tuple(fields[key] for key in dataset.row_contract.key_field_ids)
@@ -2092,7 +2176,7 @@ def compile_retained_rows(
         tuple(field.name for field in dataset.schema.columns),
         (
             *retained_part_specs(dataset.row_contract),
-            *membership_specs(dataset.row_contract, memberships[id(dataset)]),
+            *private_part_specs(dataset.row_contract, private_parts[id(dataset)]),
         ),
         attribution_proof=attribution_proof,
     )

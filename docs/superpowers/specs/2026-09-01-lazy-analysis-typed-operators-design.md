@@ -2920,3 +2920,34 @@ No implementation slice may fill a missing operator decision by consulting the
 old eager Frame behavior. This design is accepted together with the Module 1-4
 seams and Module 6's Event/Lifecycle operator overload seams; implementation
 remains gated by the separate Public Cutover Plan.
+
+### Slice 5d method clarification (2026-09-09)
+
+Distribution-Shapley stores the weighted upper coalition values as
+`current_value` and the weighted lower coalition values as `baseline_value`,
+using the exact Shapley weights for that player. Their difference equals
+`contribution`; neither is a partition percentile, and their side sums are not
+required to reproduce the overall endpoints. Independent source endpoints and
+the complete contribution sum still must reconcile. Every required coalition
+must have a finite defined value; empty or non-finite coalition values fail the
+whole action, never become zero or a partial result.
+
+The private first registration supports `linear_interpolation@v1` and explicit
+`duckdb_tdigest@v1` over a governed root median/percentile, including admitted
+filters. The Metric declaration owns q. T-Digest is an authored semantic
+approximation with unknown error bounds, no additional tunable precision
+parameter, and pinned DuckDB/Ibis adapter support. It consumes one source-sorted
+float64 value vector; exact interpolation also evaluates in the declared
+float64 result domain, including Decimal and float32 sources. Source-private
+frequency state preserves the source values and replays the registered recipe
+for each independent endpoint and coalition. There is no backend-default or
+cost-triggered method selection. Sampling and semantic approximation remain
+separately identifiable, including their combined state.
+
+The exact mapping and distribution work remains source-required. A closed
+Runtime preparation transfers only complete coalition values, non-identity
+player inventories and independent endpoints. Each scope/resolution permits at
+most eight mapped players. Entity-scoped numerical input is not admitted. The
+Shapley combination and dependent row operators remain local; engine output
+cannot upload them back into the source. Local and object final Attribution
+outputs use the existing writers and complete reconciliation proof.

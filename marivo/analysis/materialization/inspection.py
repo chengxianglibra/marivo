@@ -39,8 +39,8 @@ from marivo.analysis.materialization.ownership import object_artifact_prefix, va
 from marivo.analysis.materialization.reads import payload_batches
 from marivo.analysis.materialization.retained import (
     checked_component_batches,
-    membership_part,
-    validate_membership_relation,
+    source_private_part,
+    validate_source_private_relation,
 )
 from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.store import SessionStore, _one, _text
@@ -76,8 +76,8 @@ def _payload_check(
     policy: ReadPolicy,
 ) -> None:
     receipt = descriptor.storage_receipt if part is None else part.storage_receipt
-    if part is not None and membership_part(part):
-        _membership_check(root, descriptor, part)
+    if part is not None and source_private_part(part):
+        _source_private_check(root, descriptor, part)
         return
     row, rows = descriptor.row_contract, descriptor.row_set_contract
     validator = (
@@ -146,7 +146,7 @@ def _payload_check(
         stream.close()
 
 
-def _membership_check(root: Path, descriptor: ArtifactDescriptor, part: RetainedPart) -> None:
+def _source_private_check(root: Path, descriptor: ArtifactDescriptor, part: RetainedPart) -> None:
     """Inspect private membership entirely inside the retained engine domain."""
     import ibis
 
@@ -176,7 +176,7 @@ def _membership_check(root: Path, descriptor: ArtifactDescriptor, part: Retained
             or backend.execute(table.count()) != receipt.realized_row_count
         ):
             raise StorageAccessError("mutated")
-        validate_membership_relation(
+        validate_source_private_relation(
             backend, table, primary, descriptor.row_contract, part.role, lambda *_: None
         )
         checked_engine_path(root, receipt)

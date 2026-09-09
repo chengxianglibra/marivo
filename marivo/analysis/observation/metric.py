@@ -44,6 +44,7 @@ from marivo.analysis.observation.contracts import (
     retained_field,
 )
 from marivo.analysis.observation.distinct_contracts import make_distinct_membership
+from marivo.analysis.observation.distribution_contracts import make_distribution
 from marivo.analysis.observation.fold_contracts import decode_fold_authority
 from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
@@ -54,6 +55,7 @@ from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predi
 from marivo.analysis.observation.rollup import rollup as _rollup
 from marivo.analysis.operators.contracts import DEFAULT_ALIGNMENT, WindowBucketAlignment
 from marivo.refs import Ref, SemanticKind
+from marivo.semantic._quantile import QuantileMetricInput
 from marivo.semantic.catalog import MetricEntry
 from marivo.semantic.ir import TargetDimensionContract
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
@@ -356,6 +358,8 @@ def make_observation(
         )
     references = []
     for item in submitted:
+        if isinstance(item, QuantileMetricInput):
+            item = item.metric
         if isinstance(item, MetricEntry):
             if type(item) is not MetricEntry or item._catalog is not owner.catalog_identity:
                 raise construction_error("current exact Metric entry", "foreign or stale entry")
@@ -375,6 +379,20 @@ def make_observation(
         normalize_target_metric(owner.semantic_registry, item.path, sidecar=owner.sidecar)
         for item in references
     )
+    distributions = []
+    for item, metric in zip(submitted, normalized, strict=True):
+        basis = make_distribution(
+            metric,
+            owner.semantic_registry,
+            owner.sidecar,
+            item.method if isinstance(item, QuantileMetricInput) else "linear_interpolation@v1",
+        )
+        if isinstance(item, QuantileMetricInput) and basis is None:
+            raise construction_error(
+                "a governed root median or percentile", "unsupported explicit quantile method input"
+            )
+        if basis is not None:
+            distributions.append(basis)
     roots = tuple(
         dict.fromkeys(root.path for item in normalized for root in item.computation_roots)
     )
@@ -536,6 +554,7 @@ def make_observation(
         source_dependency_fingerprint=_canonical_digest(
             (path_dependency_fingerprint(owner, entity.ref.path, paths), tuple(filter_dependencies))
         ),
+        distributions=tuple(distributions),
         distinct_memberships=tuple(
             membership
             for metric in normalized
@@ -609,6 +628,12 @@ def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> Logic
 
 
 def _project(dataset: Dataset, metric: MetricInput) -> LogicalMetricDataset:
+    if isinstance(metric, QuantileMetricInput):
+        raise construction_error(
+            "a Metric ref selecting an existing percentile method",
+            "a quantile method input at projection",
+            repair="Select the Metric ref here; author percentile methods only in observe().",
+        )
     selector = dataset.fields.metric(metric)
     from marivo.analysis.datasets.fields import validate_field_ref
 
@@ -664,6 +689,11 @@ def _project(dataset: Dataset, metric: MetricInput) -> LogicalMetricDataset:
                 item
                 for item in root.payload.definition.metrics
                 if f"metric:{item.ref.path}" == identity.identity_id
+            ),
+            distributions=tuple(
+                item
+                for item in root.payload.definition.distributions
+                if f"metric:{item.metric_ref}" == identity.identity_id
             ),
             distinct_memberships=tuple(
                 item

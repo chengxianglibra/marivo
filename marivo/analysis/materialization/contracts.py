@@ -17,7 +17,9 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import BoundedLineage, CanonicalValue
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.observation.distribution_contracts import semantic_approximation
 from marivo.render import Card, RenderableResult
+from marivo.semantic._quantile import approximation_class, decode_approximation
 
 if TYPE_CHECKING:
     from marivo.analysis.evidence.types import QualitySummary
@@ -634,12 +636,19 @@ def required_retained_contracts(
     component_state = isinstance(
         semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
     ) and any(binding[3] for binding in semantics.metric_bindings)
+    from marivo.analysis.observation.distribution_contracts import (
+        DISTRIBUTION_CONTRACT_IDS,
+        distribution_part_authorities,
+    )
+
+    distribution_state = bool(distribution_part_authorities(row))
     membership_state = bool(membership_part_authorities(row))
     result = tuple(
         name
         for name in registered
         if (name != "metric.sufficient_components" or component_state)
         and (name not in DISTINCT_MEMBERSHIP_CONTRACT_IDS or membership_state)
+        and (name not in DISTRIBUTION_CONTRACT_IDS or distribution_state)
     )
     if sampled and "population_sampling_state" not in result:
         result += ("population_sampling_state",)
@@ -942,7 +951,12 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
         exact_empty_zero = obj["exact_empty_zero"]
         if type(exact_empty_zero) is not bool:
             raise invalid("invalid Delta empty-set policy")
-        if obj["approximation_class"] not in ("exact", "sampled_population"):
+        if obj["approximation_class"] not in (
+            "exact",
+            "sampled_population",
+            "semantic_percentile",
+            "sampled_semantic_percentile",
+        ):
             raise invalid("invalid Delta approximation class")
         return DeltaSemantics(
             _token=d._CORE_TOKEN,
@@ -958,9 +972,7 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
             else _text(obj["baseline_time_field_name"]),
             current_fold_authority=_retained_fold_payload(obj["current_fold_authority"]),
             baseline_fold_authority=_retained_fold_payload(obj["baseline_fold_authority"]),
-            approximation_class="exact"
-            if obj["approximation_class"] == "exact"
-            else "sampled_population",
+            approximation_class=decode_approximation(obj["approximation_class"]),
         )
     if kind == "complete_from_schema":
         _obj(value, "kind")
@@ -1410,11 +1422,15 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             or evidence.numeric_promotion_id != "lossless_signed:" + semantics.numeric_type + "@v1"
         ):
             raise invalid("Delta Evidence numeric promotion mismatch")
-        if evidence.approximate != any(
-            item.sampling_execution is not None for item in result.comparison_inputs
-        ):
+        expected_approximation = approximation_class(
+            sampled=any(item.sampling_execution is not None for item in result.comparison_inputs),
+            semantic=semantic_approximation(
+                (semantics.current_fold_authority, semantics.baseline_fold_authority)
+            ),
+        )
+        if evidence.approximate != (expected_approximation != "exact"):
             raise invalid("Delta Evidence approximation binding mismatch")
-        if (semantics.approximation_class == "sampled_population") != evidence.approximate:
+        if semantics.approximation_class != expected_approximation:
             raise invalid("Delta row interpretation differs from retained approximation authority")
         operand_sampling = {
             digest(sampling_payload((replace(receipt, ordinal=0),)))
@@ -1526,7 +1542,28 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         DISTINCT_MEMBERSHIP_CONTRACT_IDS,
         membership_part_authorities,
     )
+    from marivo.analysis.observation.distribution_contracts import (
+        DISTRIBUTION_CONTRACT_IDS,
+        distribution_part_authorities,
+    )
 
+    distribution_roles = {role for role, _ in distribution_part_authorities(row)}
+    distribution_parts = tuple(
+        item for item in parts if item.contract_id in DISTRIBUTION_CONTRACT_IDS
+    )
+    if {item.role for item in distribution_parts} != distribution_roles:
+        raise invalid("retained distribution roles mismatch")
+    if distribution_parts:
+        receipt = result.storage_receipt
+        if not isinstance(receipt, EngineReceipt) or any(
+            item.contract_id != f"{row.shape_id.family_id}.distribution"
+            or item.contract_version != 1
+            or not isinstance(item.storage_receipt, EngineReceipt)
+            or item.storage_receipt.datasource_ref != receipt.datasource_ref
+            or item.storage_receipt.execution_domain_id != receipt.execution_domain_id
+            for item in distribution_parts
+        ):
+            raise invalid("private distribution requires the exact primary engine sink")
     membership_roles = {role for role, _ in membership_part_authorities(row)}
     membership_parts = tuple(
         item for item in parts if item.contract_id in DISTINCT_MEMBERSHIP_CONTRACT_IDS

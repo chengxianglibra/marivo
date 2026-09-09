@@ -293,10 +293,13 @@ def execute_retained_suffix(
     calls: tuple[RowCall, ...],
     budget: LocalBudget,
 ) -> tuple[pd.DataFrame, tuple[PartFrame, ...], tuple[tuple[int, int], ...]]:
-    from marivo.analysis.materialization.retained import membership_role, reject_membership_transfer
+    from marivo.analysis.materialization.retained import (
+        reject_source_private_transfer,
+        source_private_role,
+    )
 
-    if any(membership_role(part.role) for part in parts):
-        reject_membership_transfer()
+    if any(source_private_role(part.role) for part in parts):
+        reject_source_private_transfer()
     handoffs: list[tuple[int, int]] = []
     for call in calls:
         budget.check()

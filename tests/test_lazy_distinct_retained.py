@@ -20,7 +20,7 @@ from marivo.analysis.materialization.contracts import (
     manifest_digest,
 )
 from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
-from marivo.analysis.materialization.retained import validate_membership_relation
+from marivo.analysis.materialization.retained import validate_source_private_relation
 from marivo.analysis.observation.distinct_contracts import membership_part_authorities
 from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.analysis.session._lazy_sources import make_lazy_sources
@@ -173,12 +173,12 @@ def test_native_membership_checks_only_export_schema_and_scalar_violations(damag
 
         with patch.object(backend, "to_pyarrow", side_effect=schema_only):
             if damage == "none":
-                validate_membership_relation(
+                validate_source_private_relation(
                     backend, membership, primary, row, role, lambda *_: None
                 )
             else:
                 with pytest.raises(IntegrityError, match="membership"):
-                    validate_membership_relation(
+                    validate_source_private_relation(
                         backend, membership, primary, row, role, lambda *_: None
                     )
     finally:
