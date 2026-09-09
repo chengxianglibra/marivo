@@ -54,6 +54,11 @@ from marivo.analysis.observation.population import (
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
 from marivo.analysis.observation.rollup import rollup as _rollup
 from marivo.analysis.operators.contracts import DEFAULT_ALIGNMENT, WindowBucketAlignment
+from marivo.analysis.operators.forecast_contracts import (
+    DEFAULT_MODEL,
+    ForecastHorizon,
+    ForecastModel,
+)
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic._quantile import QuantileMetricInput
 from marivo.semantic.catalog import MetricEntry
@@ -68,6 +73,7 @@ if TYPE_CHECKING:
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.analysis.operators.association import LogicalAssociationDataset
     from marivo.analysis.operators.delta import LogicalDeltaDataset
+    from marivo.analysis.operators.forecast_dataset import LogicalForecastDataset
 
 PopulationInput: TypeAlias = "LogicalPopulationDataset | MaterializedPopulationDataset | LogicalMetricDataset | MaterializedMetricDataset"
 
@@ -76,6 +82,23 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
     """Complete logical Metric row meaning without executing contributions."""
 
     __slots__ = ()
+
+    def forecast(
+        self,
+        *,
+        horizon: ForecastHorizon,
+        model: ForecastModel = DEFAULT_MODEL,
+        interval_level: float = 0.95,
+    ) -> LogicalForecastDataset:
+        """Project this single Metric over a certified future horizon.
+
+        Args: horizon: Future period count. model: Named model. interval_level: Nominal level.
+        Returns: Logical Forecast. Example: ``history.forecast(horizon=periods(14))``.
+        Constraints: Complete consecutive history and finite model-conditional intervals.
+        """
+        from marivo.analysis.operators.forecast import forecast
+
+        return forecast(self, horizon=horizon, model=model, interval_level=interval_level)
 
     def correlate(
         self,
@@ -211,6 +234,23 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
     """Retained Metric rows backed by an exact immutable Artifact scan leaf."""
 
     __slots__ = ()
+
+    def forecast(
+        self,
+        *,
+        horizon: ForecastHorizon,
+        model: ForecastModel = DEFAULT_MODEL,
+        interval_level: float = 0.95,
+    ) -> LogicalForecastDataset:
+        """Project this single Metric over a certified future horizon.
+
+        Args: horizon: Future period count. model: Named model. interval_level: Nominal level.
+        Returns: Logical Forecast. Example: ``history.forecast(horizon=periods(14))``.
+        Constraints: Complete consecutive history and finite model-conditional intervals.
+        """
+        from marivo.analysis.operators.forecast import forecast
+
+        return forecast(self, horizon=horizon, model=model, interval_level=interval_level)
 
     def correlate(
         self,

@@ -22,6 +22,8 @@ import marivo.datasource.backends as backends
 import marivo.analysis.observation.ordering
 import marivo.analysis.operators.compare
 import marivo.analysis.operators.correlate
+import marivo.analysis.operators.forecast
+from marivo.analysis.operators.forecast_contracts import periods, seasonal_naive
 import marivo.analysis.operators.attribute
 import marivo.analysis.operators.attribute_expansion
 from marivo.analysis.datasets.errors import DatasetConstructionError
@@ -103,6 +105,7 @@ guards = (
     (evidence_store, 'open_evidence_store', 'evidence'),
     (evidence_store.EvidenceStore, '__init__', 'evidence'),
     (evidence_store.EvidenceStore, 'transaction', 'evidence'),
+    (NoIoActionPort, 'execute_forecast', 'run'),
     (NoIoActionPort, 'execute_delta', 'run'),
     (NoIoActionPort, 'execute_attribution', 'run'),
 )
@@ -128,6 +131,9 @@ with ExitStack() as stack:
     result = filtered.with_dimensions(region).with_time_axis(
         order_time, grain=day
     ).aggregate().metric(revenue)
+    forecast = result.forecast(horizon=periods(4), model=seasonal_naive(periods=2))
+    forecast = forecast.where(gt(forecast.fields.get('forecast_value'), 0))
+    forecast.rank(forecast.fields.get('forecast_value')).limit(2)
     rolled = result.rollup(drop_time=True).rollup(drop_dimensions=(region,))
     assert rolled.row_contract.shape_id.local_shape_id == "scalar"
     comparison = result.compare(result)
@@ -216,7 +222,7 @@ def test_actual_private_observation_chain_is_pure() -> None:
     assert evidence["deep_filter_nodes"] == 80
     assert evidence["checked_definitions"] == 20
     assert evidence["guarded_negative_failures"] == 5
-    assert evidence["guarded_entrypoints"] == 29
+    assert evidence["guarded_entrypoints"] == 30
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "datasource",

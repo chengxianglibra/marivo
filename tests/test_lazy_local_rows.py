@@ -142,3 +142,28 @@ def test_sort_and_validation_share_direction_and_null_contract(
     validate_frame(result, ranked.row_contract, rows)
     with pytest.raises(MaterializationError, match="invalid local order"):
         validate_frame(result.iloc[::-1], ranked.row_contract, rows)
+
+
+def test_metric_rejects_duplicate_sampling_only_parts(tmp_path: Path) -> None:
+    import pyarrow as pa
+
+    from marivo.analysis.compiler.errors import DatasetCompilationError
+    from marivo.analysis.materialization.local import execute_retained_suffix
+    from marivo.analysis.operators.row import PartFrame
+
+    _, sources, _ = setup_local(tmp_path)
+    metric = sources.observe(REVENUE)
+    frame = primary_frame(metric, [10, 20])
+    part = PartFrame(
+        "population_sampling_state",
+        "population_sampling_state",
+        1,
+        pa.schema([]),
+        (),
+        pd.DataFrame(),
+    )
+    budget = LocalBudget(LocalPolicy(), time.monotonic() + 60)
+    with pytest.raises(DatasetCompilationError, match="duplicate retained role"):
+        execute_retained_suffix(
+            frame, (part, part), (row_call(metric.rank(metric.fields.metric(REVENUE))),), budget
+        )

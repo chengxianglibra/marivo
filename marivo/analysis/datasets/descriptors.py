@@ -770,6 +770,14 @@ def _semantics_payload(value: DatasetFamilyRowSemantics) -> _CanonicalValue:
 
 
 def _semantics_atom(value: object) -> _CanonicalValue:
+    if type(value) is float:
+        import math
+
+        if not math.isfinite(value):
+            _fail(
+                "finite family numeric facts", "non-finite float", "row_contract.family_semantics"
+            )
+        return ("float", value.hex())
     if value is None or isinstance(value, (bool, int, str)):
         return value
     if isinstance(value, DatasetFieldId):

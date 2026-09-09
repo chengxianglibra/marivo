@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-09
 
-Status: Slices 0-4, 5a, 5c and 5d complete; Slice 5b implemented, technical acceptance pending
+Status: Slices 0-4, 5a, 5c, 5d, 6a and 6b complete; Slice 5b implemented, technical acceptance pending
 
 Slice 5b implementation and the supplied review follow-up are recorded under its
 [private execution record](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md).
@@ -2561,6 +2561,36 @@ shared selection/count rules, disclosed Finding-cap counts, corrected PairInput
 errors and source Dimension-series/minimum-signed-lag regressions. It preserves
 the owning spec's 1,000-Finding cap and existing input-role and complete-input
 budget checks. Scope remains private Slice 6a only.
+
+### Slice 6b private acceptance (2026-09-09)
+
+Slice 6b is complete on preserved Slice 6a commit `ca9b22b5`. Its
+[execution record](../plans/2026-09-09-lazy-analysis-slice-6b-execution.md)
+owns the implementation, numerical decisions and acceptance matrix. The final
+executable candidate is
+`016e0648cd86c6aac7fdb60dbbbb9085040d30202baf9be58ce4e962cfc63880`.
+
+`evidence/slice-6b/review-followup/` binds every final gate to that unchanged candidate:
+`make check-agent` passed 6,429 default tests, full lint/import contracts,
+production typing and API documentation; 11-module test typing passed;
+the focused Runtime gate passed all 72 selected tests. Three independent
+three-process journeys cover every named model, origin-free Forecast
+continuation and exact cold binding reuse with unchanged committed authority.
+Coverage includes model-specific variance references, complete panels and
+certified custom periods, logical/engine/local history, direct DataFrame
+successors, empty selection, sampling/percentile meaning, guards, cancellation,
+atomic publication failures and corrupted cold claims. Native object SDK stubs
+and real Store files prove successful version-pinned publication/read and
+source-offline local continuation, plus pre-execution target denial.
+
+The review follow-up consolidates worker summaries and version metadata,
+preserves Metric sampling-only role checks, and pins cold interval rejection.
+It also reruns affected Attribution and sampled Metric checkpoint regressions.
+The execution record retains both the initial and superseding acceptance logs.
+
+This acceptance closes only private Slice 6b. It does not close discovery,
+activate public exports/Help/site documentation, run the full release Runtime
+gate, or perform a commit, push or release.
 
 ### Owned implementation
 

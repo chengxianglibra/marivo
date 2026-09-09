@@ -151,6 +151,15 @@ from marivo.analysis.operators.attribution import (
     MaterializedAttributionDataset,
 )
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
+from marivo.analysis.operators.forecast_contracts import (
+    ForecastPayload,
+    ForecastSpecV1,
+    ForecastTrainingSummary,
+)
+from marivo.analysis.operators.forecast_dataset import (
+    LogicalForecastDataset,
+    MaterializedForecastDataset,
+)
 from marivo.analysis.operators.row import RowCall
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_graph, _lazy_history, _lazy_runtime_reads
@@ -248,6 +257,15 @@ class _ReservedJsonReader:
             format=format,
             maximum_object_size=_MAX_BATCH_BYTES,
         )
+
+
+def _local_output_batches(table: pa.Table) -> list[pa.RecordBatch]:
+    """Keep the exact schema when a valid local selection produces zero rows."""
+    return table.to_batches(max_chunksize=1024) or [
+        pa.RecordBatch.from_arrays(
+            [pa.array([], type=field.type) for field in table.schema], schema=table.schema
+        )
+    ]
 
 
 def _error(stage: str, run_ref: str | None = None) -> MaterializationError:
@@ -559,6 +577,14 @@ class DatasetRuntime:
             )
             for quantile in dict.fromkeys(quantiles)
         ]
+        if record.descriptor.forecast_evidence is not None:
+            from marivo.analysis.operators.forecast import _contract_facts
+
+            forecast_evidence = record.descriptor.forecast_evidence
+            lines.extend(f"Forecast {name}: {value}" for name, value in _contract_facts(dataset))
+            lines.append(
+                f"Training: series={forecast_evidence.training.series_count}; periods={forecast_evidence.training.training_row_count}; residual_df={forecast_evidence.training.residual_df}; zero_residual_series={forecast_evidence.training.zero_residual_series_count}"
+            )
         if record.descriptor.association_evidence is not None:
             from marivo.analysis.operators.association_contracts import AssociationSemantics
 
@@ -634,6 +660,12 @@ class DatasetRuntime:
             or dataset._owner.session_id != self.session_ref
         ):
             raise _error("authority_resolution")
+
+    def execute_forecast(self, dataset: LogicalForecastDataset) -> MaterializedForecastDataset:
+        result = self._execute(dataset)
+        if not isinstance(result, MaterializedForecastDataset):
+            raise _error("publication", None)
+        return result
 
     def execute_association(
         self, dataset: LogicalAssociationDataset
@@ -824,8 +856,11 @@ class DatasetRuntime:
                 sampling_by_root: dict[int, SamplingRealization] = {}
                 attribution_summary: AttributionSourceSummary | None = None
                 association_summary: AssociationSearchSummary | None = None
+                forecast_summary: ForecastTrainingSummary | None = None
                 for input_record in records.values():
                     descriptor = input_record.descriptor
+                    if descriptor.forecast_evidence is not None:
+                        forecast_summary = descriptor.forecast_evidence.training
                     if descriptor.association_evidence is not None:
                         evidence = descriptor.association_evidence
                         association_summary = AssociationSearchSummary(
@@ -1160,11 +1195,12 @@ class DatasetRuntime:
                             cancel_source=cancel_sources,
                         )
                         attribution_summary = (
-                            local_result.attribution_summary or attribution_summary
+                            local_result.summaries.attribution or attribution_summary
                         )
                         association_summary = (
-                            local_result.association_summary or association_summary
+                            local_result.summaries.association or association_summary
                         )
+                        forecast_summary = local_result.summaries.forecast or forecast_summary
                         validations = [
                             (
                                 "source_prefix.final_row_key_unique"
@@ -1178,7 +1214,7 @@ class DatasetRuntime:
                         phase = "storage_staging"
                         artifact_ref, storage = self._write_output(
                             dataset,
-                            local_result.table.to_batches(max_chunksize=1024),
+                            _local_output_batches(local_result.table),
                             run.run_ref,
                             parts=self._local_output_parts(local_result),
                             sampling=tuple(sampling),
@@ -1232,7 +1268,28 @@ class DatasetRuntime:
                     self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
                 findings: tuple[Finding, ...] = ()
-                if dataset.kind == "association":
+                if dataset.kind == "forecast":
+                    from marivo.analysis.materialization.forecast_publication import (
+                        build_forecast_publication,
+                    )
+                    from marivo.analysis.materialization.reads import payload_batches
+
+                    descriptor, findings = build_forecast_publication(
+                        descriptor,
+                        payload_batches(
+                            self.store.project_root,
+                            descriptor.storage_receipt,
+                            policy=_READ_POLICY,
+                            bindings=object_bindings,
+                            row=descriptor.row_contract,
+                            rows=descriptor.row_set_contract,
+                            audit=True,
+                        ),
+                        artifact_ref=artifact_ref,
+                        session_ref=self.session_ref,
+                        training=forecast_summary,
+                    )
+                elif dataset.kind == "association":
                     from marivo.analysis.materialization.association_publication import (
                         build_association_publication,
                     )
@@ -2088,8 +2145,10 @@ class DatasetRuntime:
             if not isinstance(root, LogicalRootHandle):
                 raise _error("implementation_registration", run_ref)
             payload = root.payload
-            call: RowCall | CompareSpecV1 | AttributeSpecV1 | CorrelateSpecV1
-            if isinstance(payload, (ComparePayload, AttributePayload, CorrelatePayload)):
+            call: RowCall | CompareSpecV1 | AttributeSpecV1 | CorrelateSpecV1 | ForecastSpecV1
+            if isinstance(
+                payload, (ComparePayload, AttributePayload, CorrelatePayload, ForecastPayload)
+            ):
                 call = payload.spec
             elif isinstance(payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)):
                 if len(step.inputs) != 1:

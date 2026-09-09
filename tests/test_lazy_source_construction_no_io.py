@@ -30,6 +30,7 @@ import marivo.analysis.materialization.storage as storage
 import marivo.analysis.observation.ordering
 import marivo.analysis.operators.compare
 import marivo.analysis.operators.correlate
+import marivo.analysis.operators.forecast
 import marivo.analysis.operators.attribute
 import marivo.analysis.operators.attribute_expansion
 import marivo.datasource.backends as backends
