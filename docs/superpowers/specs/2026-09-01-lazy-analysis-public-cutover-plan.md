@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-09
 
-Status: Slices 0-4, 5a, 5c, 5d, 6a and 6b complete; Slice 5b implemented, technical acceptance pending
+Status: Slices 0-4, 5a, 5c, 5d and 6a-6d complete; Slice 5b implemented, technical acceptance pending
 
 Slice 5b implementation and the supplied review follow-up are recorded under its
 [private execution record](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md).
@@ -2637,6 +2637,46 @@ adopted or retained review suggestion and preserves the initial evidence.
 This acceptance closes only private Slice 6c. Entity-outlier, driver-axis and
 public activation remain Slices 6d, 6e and 8. No public export, Help entry, current
 site documentation, commit, push, release or full release Runtime gate is added.
+
+### Slice 6d private acceptance (2026-09-09)
+
+Slice 6d is complete on preserved Slice 6c HEAD
+`e146a279591763c87703290fc1bc6cb70f87275e`. Its
+[execution record](../plans/2026-09-09-lazy-analysis-slice-6d-execution.md)
+owns the exact numerical amendment, implementation boundaries, review
+disposition and acceptance matrix. The initially accepted 886-file executable candidate is
+`69835ea9397f8a4f07b8200440f76f0370ef63cfd755908c3431f0a880c9275b`.
+
+`evidence/slice-6d/final/` binds every final gate to that unchanged candidate:
+196 focused tests, 18-module strict test typing, `make check-agent` with 6,625
+default tests and all lint/import/type/API-documentation stages, and 117 focused
+Runtime tests passed. Runtime includes time Candidate, retained membership,
+retained Metric and engine adapter regressions.
+
+The private implementation includes exact Entity Candidate registration and
+selectors, native MAD/fallback scoring, source-private frozen input and scalar
+proofs, exact identity projection into Metric `population=`, independent
+observation scope, sampling inheritance, identity-safe atomic publication and
+cold descriptor validation. A three-process journey proves source-offline
+Candidate selection and observation plus exact cold binding without new Runs or
+queries. Separate real execution scores an engine Metric checkpoint after its
+origin is removed. Native SDK stubs with real Store files cover version-pinned
+object output and terminal reads. Local/object identity continuations and
+foreign engine domains reject before a Run is admitted; failures never retry
+through local identity computation.
+
+The supplied review follow-up clarifies the pytest versus gate timing and adds
+one membership comment. The resulting 886-file byte fingerprint is
+`8cd7bc7cd27adc001e4c38d27d73e32f1a5038a553d7819b73fc8c2e3346db74`.
+`evidence/slice-6d/review-followup/` proves the sole source change preserves its
+Python AST and passes focused lint/import checks and whitespace validation.
+The original full gates remain bound to the initial fingerprint; this
+documentation/comment follow-up does not claim a repeated Runtime gate.
+
+This acceptance closes only private Slice 6d. Driver-axis screening, integrated
+Event/Lifecycle membership and public activation remain Slices 6e, 7 and 8.
+No public export, Help entry, current site documentation, commit, push, release,
+MinIO service or full release Runtime gate is added.
 
 ### Owned implementation
 

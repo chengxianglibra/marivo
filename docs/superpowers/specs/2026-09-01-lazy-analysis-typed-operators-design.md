@@ -1925,6 +1925,38 @@ zero but mean absolute deviation is positive, the registered fallback uses the
 same median center and mean absolute-deviation scale. If neither scale is
 positive, the input is constant and cannot be evaluated.
 
+The Slice 6d owner amendment fixes the exact fallback and row vocabulary. With
+`m = median(x)` and `a = mean(abs(x - m))` over non-null values, the scale is
+`1.4826 * median(abs(x - m))` when MAD is positive, otherwise `a`. The fallback
+does not multiply `a` by `1.4826`. The score is `abs(x - m) / scale`, and a row
+qualifies when `score >= threshold`. `signed_deviation` is `x - m`;
+`direction` is `high` for positive deviation and `low` for negative deviation.
+`scale_method` is exactly `mad` or `mean_absolute_deviation`, and every produced
+row has `reason_codes=("entity_mad_threshold_met",)`.
+
+Null values are excluded from the fit and candidate rows. A non-null non-finite
+value, unrepresentable numeric conversion, or arithmetic overflow fails the
+complete action. Fewer than three non-null values and a nonpositive scale are
+not evaluated; a valid fit with no qualifying row publishes an evaluated empty
+Candidate. For `[1, 1, 1, 10]`, the median is `1`, the fallback scale is `2.25`,
+and the final value's score is exactly `4`.
+
+Entity evaluation Evidence is a closed variant containing input/non-null/null
+counts, the median center, the positive scale and its method, qualifying and
+emitted counts, score bounds, and reason counts. It never labels median/MAD as
+mean/standard deviation, and it contains no identity values. Native validation
+and these bounded scalar facts share the same frozen source realization as
+the Candidate output. Identity-preserving publication and continuations do not
+collect Entity rows through the generic local discovery path.
+
+The Entity-specific item encoding is `candidate_entity_item@v1`: SHA-256 covers
+that domain tag, the canonical definition digest, the canonical ordered Entity
+identity-signature digest, and the source-native UTF-8 JSON of the governed
+identity struct in signature order, separated by colons. Floating signed zero
+is normalized before encoding. The output has the `sha256:` prefix. Its exact
+source adapter encoding is pinned by independent typed vectors; time-discovery
+item encodings remain unchanged. No identity values enter definition metadata.
+
 At least three non-null Entity values are required. Rows add:
 
 ```text

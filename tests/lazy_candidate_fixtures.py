@@ -1,4 +1,4 @@
-"""Minimal paired governed time series for private Candidate Runtime checks."""
+"""Minimal governed Entity values and paired time series for Candidate Runtime checks."""
 
 from __future__ import annotations
 
@@ -61,6 +61,8 @@ def time_series(
 def candidate_input(
     source: LazySources, objective: CandidateObjective, *, panel: bool = False
 ) -> LogicalMetricDataset | LogicalDeltaDataset:
+    if objective == "entity_outliers":
+        return source.observe(ref.metric("sales.mean_amount"))
     current = time_series(source, panel=panel)
     return (
         current.compare(time_series(source, baseline=True, panel=panel))
@@ -76,6 +78,8 @@ def discover(
         assert isinstance(dataset, (LogicalDeltaDataset, MaterializedDeltaDataset))
         return DeltaDiscovery(dataset).period_shifts(threshold=threshold, limit=limit)
     namespace = MetricDiscovery(dataset)
+    if objective == "entity_outliers":
+        return namespace.entity_outliers(threshold=threshold, limit=limit)
     return (
         namespace.point_anomalies(threshold=threshold, limit=limit)
         if objective == "point_anomalies"

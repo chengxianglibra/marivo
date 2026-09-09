@@ -12,7 +12,10 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json, descriptor_payload
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local import LocalPolicy
-from marivo.analysis.operators.candidate_contracts import CandidateObjective
+from marivo.analysis.operators.candidate_contracts import (
+    CandidateEvaluationSummary,
+    CandidateObjective,
+)
 from tests.lazy_candidate_fixtures import candidate_input, discover, setup_candidate
 from tests.lazy_materialization_crash_worker import snapshot
 
@@ -125,6 +128,7 @@ def test_evaluated_empty_publishes_evidence_and_zero_findings(
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None and record.descriptor.candidate_evidence is not None
     evidence = record.descriptor.candidate_evidence
+    assert isinstance(evidence.evaluation, CandidateEvaluationSummary)
     assert evidence.row_count == evidence.evaluation.emitted_candidate_count == 0
     assert evidence.evaluation.evaluated_series_count > 0
     assert evidence.evaluation.evaluated_unit_count > 0

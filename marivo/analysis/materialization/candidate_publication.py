@@ -9,6 +9,7 @@ from datetime import date, datetime
 
 import pyarrow as pa
 
+from marivo.analysis.datasets.descriptors import _EntityFieldIdentity
 from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.evidence._dataset_codec import finding_set_digest
 from marivo.analysis.materialization.candidate_codec import (
@@ -21,6 +22,7 @@ from marivo.analysis.operators.candidate_contracts import (
     CandidateDefinition,
     CandidateEvaluationSummary,
     CandidateSemantics,
+    EntityCandidateEvaluationSummary,
 )
 from marivo.analysis.operators.row_values import compare_value, row_key_names
 
@@ -43,6 +45,21 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
     evidence = _evidence(descriptor)
     validate_evidence(evidence)
     definition = evidence.definition
+    if definition.objective == "entity_outliers":
+        identities = tuple(
+            field.identity
+            for field in descriptor.row_contract.schema.columns
+            if isinstance(field.identity, _EntityFieldIdentity)
+        )
+        population = descriptor.population_authority
+        if (
+            len(identities) != 1
+            or identities[0].entity_ref.path != population.entity_ref
+            or identities[0].identity_signature != population.identity_signature
+        ):
+            raise invalid("Entity Candidate identity contradicts its membership authority")
+        if ("candidate.entity_output", 0) not in population.validation_results:
+            raise invalid("Entity Candidate lacks its native output validation")
     if (
         meaning.objective != definition.objective
         or meaning.method_id != definition.method_id
@@ -84,6 +101,8 @@ def validate_row(descriptor: ArtifactDescriptor, values: Mapping[str, object]) -
 
     evidence = _evidence(descriptor)
     definition, evaluation = evidence.definition, evidence.evaluation
+    if isinstance(evaluation, EntityCandidateEvaluationSummary):
+        raise invalid("Entity Candidate rows require their registered native validation")
     if set(values) != {field.name for field in descriptor.realized_schema.columns}:
         raise invalid("Candidate row does not match its complete output schema")
     for field in descriptor.realized_schema.columns:
@@ -173,6 +192,8 @@ def validate_rows(descriptor: ArtifactDescriptor, batches: Iterable[pa.RecordBat
 
     validate_descriptor(descriptor)
     evidence = _evidence(descriptor)
+    if isinstance(evidence.evaluation, EntityCandidateEvaluationSummary):
+        raise invalid("Entity Candidate validation cannot collect identity rows")
     keys = row_key_names(descriptor.row_contract)
     seen: set[str] = set()
     previous: Mapping[str, object] | None = None
@@ -207,12 +228,12 @@ def validate_rows(descriptor: ArtifactDescriptor, batches: Iterable[pa.RecordBat
 
 def build_candidate_publication(
     descriptor: ArtifactDescriptor,
-    batches: Iterable[pa.RecordBatch],
+    batches: Iterable[pa.RecordBatch] | None,
     *,
     artifact_ref: str,
     session_ref: str,
     definition: CandidateDefinition | None,
-    evaluation: CandidateEvaluationSummary | None,
+    evaluation: CandidateEvaluationSummary | EntityCandidateEvaluationSummary | None,
 ) -> tuple[ArtifactDescriptor, tuple[t.Finding, ...]]:
     """Build one atomic Candidate Evidence result; Candidates are never Findings."""
     if definition is None or evaluation is None:
@@ -227,5 +248,12 @@ def build_candidate_publication(
             evaluation=evaluation,
         ),
     )
-    validate_rows(published, batches)
+    if isinstance(evaluation, EntityCandidateEvaluationSummary):
+        if batches is not None:
+            raise invalid("Entity Candidate publication requires native identity-safe proof")
+        validate_descriptor(published)
+    else:
+        if batches is None:
+            raise invalid("time Candidate publication requires complete validated rows")
+        validate_rows(published, batches)
     return published, ()

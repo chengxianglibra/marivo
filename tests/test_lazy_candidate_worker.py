@@ -167,6 +167,7 @@ def test_complete_panel_and_budgets_precede_one_discovery_invocation(
             assert calls == 1 and output.input_rows == len(VALUES) * 2
             assert output.summaries.candidate is not None
             assert output.summaries.candidate.definition is spec.definition
+            assert isinstance(output.summaries.candidate.evaluation, CandidateEvaluationSummary)
             assert output.summaries.candidate.evaluation.evaluated_series_count == 2
 
 

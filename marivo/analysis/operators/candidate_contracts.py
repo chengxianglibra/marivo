@@ -10,22 +10,29 @@ from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
 from marivo.analysis.operators.contracts import DeltaSemantics
 from marivo.analysis.operators.errors import discovery_error
 
-CandidateObjective = Literal["point_anomalies", "interesting_windows", "period_shifts"]
-CandidateMethod = Literal["point_zscore@v1", "global_zscore_runs@v1", "delta_window_zscore@v1"]
+CandidateObjective = Literal[
+    "point_anomalies", "interesting_windows", "period_shifts", "entity_outliers"
+]
+CandidateMethod = Literal[
+    "point_zscore@v1", "global_zscore_runs@v1", "delta_window_zscore@v1", "entity_mad@v1"
+]
 METHODS: dict[CandidateObjective, CandidateMethod] = {
     "point_anomalies": "point_zscore@v1",
     "interesting_windows": "global_zscore_runs@v1",
     "period_shifts": "delta_window_zscore@v1",
+    "entity_outliers": "entity_mad@v1",
 }
 SHAPES: dict[CandidateObjective, str] = {
     "point_anomalies": "point-anomaly",
     "interesting_windows": "interesting-window",
     "period_shifts": "period-shift",
+    "entity_outliers": "entity-outlier",
 }
 REASON_CODES: dict[CandidateObjective, str] = {
     "point_anomalies": "point_zscore_threshold_met",
     "interesting_windows": "global_zscore_run",
     "period_shifts": "delta_window_zscore_run",
+    "entity_outliers": "entity_mad_threshold_met",
 }
 
 
@@ -153,9 +160,25 @@ class CandidateEvaluationSummary:
     window_size_range: tuple[int, int] | None
 
 
+@dataclass(frozen=True, slots=True)
+class EntityCandidateEvaluationSummary:
+    """Identity-free complete-cohort facts for the Entity screening evaluation."""
+
+    input_row_count: int
+    non_null_value_count: int
+    null_value_count: int
+    center: float
+    scale: float
+    scale_method: Literal["mad", "mean_absolute_deviation"]
+    pre_limit_candidate_count: int
+    emitted_candidate_count: int
+    score_range: tuple[float, float] | None
+    reason_counts: tuple[tuple[str, int], ...]
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class CandidateSearchSummary:
     """Carry original discovery authority and its evaluation as one immutable pair."""
 
     definition: CandidateDefinition
-    evaluation: CandidateEvaluationSummary
+    evaluation: CandidateEvaluationSummary | EntityCandidateEvaluationSummary
