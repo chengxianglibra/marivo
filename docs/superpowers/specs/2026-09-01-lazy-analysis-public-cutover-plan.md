@@ -4,13 +4,17 @@ Date: 2026-09-01
 
 Revised: 2026-09-09
 
-Status: Slices 0-4 and 5a complete; Slice 5b implemented, technical acceptance pending
+Status: Slices 0-4, 5a and 5c complete; Slice 5b implemented, technical acceptance pending
 
 Slice 5b implementation and the supplied review follow-up are recorded under its
 [private execution record](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md).
 The owner authorized a scoped commit using the revised daily-development
 workflow. The later acceptance records below close Slice 4d and 5a; no complete
 5b technical acceptance is claimed until its independent gate completes.
+
+Slice 5c's private implementation and technical gate are complete under its
+[execution record](../plans/2026-09-09-lazy-analysis-slice-5c-execution.md).
+This does not close 5b or parent Slice 5, or activate a public surface.
 
 ## Outcome
 
@@ -2365,7 +2369,7 @@ successful attribution method cannot stand in for the others.
 | --- | --- | --- |
 | 5a: Metric comparison (complete) | 3b, 4d | Produce and cold-recover Delta for each admitted alignment and input-authority topology. Prove realization sharing, scope/key preservation, one-sided and unavailable values, and immutable materialized operands. Own the first registered multi-input local consumer, explicit operand roles, complete combined-input validation/budgets, and the real independent-source comparison journey allocated from parent Slice 4. |
 | 5b: additive and component-mix attribution | 5a | Produce reconciled joint/hierarchy Attribution with exact component/partition admission, logical axis expansion, retained-state barriers, Top-K/Other/null masks, and scoped Finding identity. |
-| 5c: distinct-membership attribution | 5b's shared attribution contracts | Execute exact source-private membership preparation/allocation. Prove independent numerical reconciliation, sufficient-state admission, cold recovery, and identity redaction without origin replay or local raw-key transfer. |
+| 5c: distinct-membership attribution (complete) | 5b's shared attribution contracts | Execute exact source-private membership preparation/allocation. Prove independent numerical reconciliation, sufficient-state admission, cold recovery, and identity redaction without origin replay or local raw-key transfer. |
 | 5d: distribution-Shapley attribution | 5b's shared attribution contracts | Execute exact source-side distribution/coalition work and its admitted bounded local combination. Prove independent numerical results, mapped-player limits, Top-K/Other semantics, complete-input guards, and fail-closed missing/corrupt-state recovery. |
 
 5c and 5d may proceed independently after their common contracts are frozen.
@@ -2389,6 +2393,21 @@ This records technical completion under the owner's explicit implementation
 instruction. Independent review approval and release approval are separate
 decisions. Review follow-up fixes and their candidate-bound verification are
 recorded in the same execution record.
+
+Slice 5c's independent private gate is recorded in its
+[execution record](../plans/2026-09-09-lazy-analysis-slice-5c-execution.md).
+The unchanged 811-file review-follow-up candidate
+`872f46dcc6bd1e7a3a0ce287acdd648720ca59f0090cc121e6c6626457cdf6e1`
+passed `make check-agent` (6,276 default tests), touched-test typing and 54 focused
+Runtime tests with zero skips and versioned MinIO. All 58 manifests in 29 Runtime
+records match this candidate, including distinct operand orders, shared sampling,
+source-private failure boundaries and local/engine/object cold reuse. Membership
+checkpoints require a compatible engine target; identity-free final Attribution
+uses the existing admitted writers. This closes only Slice 5c.
+The review follow-up shares comparison ordinals, private membership metadata and
+temporal bounds, repairs receipt-path false positives, and retains safe concrete
+authority errors. Per-suggestion dispositions and the superseded initial gate
+are recorded in the execution record.
 
 ### Owned implementation
 

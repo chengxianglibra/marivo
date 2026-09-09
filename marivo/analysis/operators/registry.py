@@ -14,6 +14,7 @@ from marivo.analysis.observation.contracts import (
     RetainedRowsPayload,
     producer_contract,
 )
+from marivo.analysis.observation.distinct_contracts import membership_part_authorities
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributionSemantics
 from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
@@ -61,6 +62,10 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     entity_scoped_result = any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
     ) and dataset.kind in ("delta", "attribution")
+    source_membership = bool(membership_part_authorities(dataset.row_contract)) or (
+        isinstance(root.payload, AttributePayload)
+        and root.payload.spec.method == "distinct_membership@v1"
+    )
     # Source behavior is owned by the existing complete Observation lowerer.
     return ImplementationRegistration(
         root.operator_id,
@@ -68,6 +73,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         "duckdb",
         root.operator_id
         if not entity_scoped_result
+        and not source_membership
         and (
             (
                 root.operator_id == "metric.compare"
@@ -83,6 +89,14 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
+    if membership_part_authorities(dataset.row_contract) or (
+        isinstance(root, LogicalRootHandle)
+        and isinstance(root.payload, AttributePayload)
+        and root.payload.spec.method == "distinct_membership@v1"
+    ):
+        raise compilation_error(
+            "source execution for exact distinct membership", "source-required membership state"
+        )
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, ComparePayload):
         if (
             registration.local_method != "metric.compare"

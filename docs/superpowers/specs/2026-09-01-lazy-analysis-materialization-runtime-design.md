@@ -1671,6 +1671,16 @@ A row-only read does not validate unrelated parts. Explicit full integrity
 inspection covers primary data, every declared part, and all Findings. Any future
 deletion must treat the complete Artifact bundle as one ownership unit.
 
+Slice 5c's source-private membership parts use separately frozen source relations
+with independent schemas and counts, in the same action realization and selected
+engine sink as their primary rows. They are never projected through the generic
+Arrow/pandas part reader. Native engine checks validate their immutable receipt,
+key schema, pair uniqueness, primary-coordinate support and count endpoints,
+returning only schema facts and aggregate violation counts. Full integrity
+inspection uses the same source-only boundary; opaque byte hashing of the
+immutable engine receipt does not decode membership rows. Missing or corrupt
+parts cannot be reconstructed from an origin graph.
+
 ### Staged calculation
 
 Quality checks and Evidence extraction execute before immutable output

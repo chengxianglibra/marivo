@@ -2058,6 +2058,23 @@ state/fold for the requested axis; otherwise the parent transition is blocked.
 Exact distinct/distribution states are retained only for explicitly registered
 contracts. Generic quantile Entity-axis folding remains outside the first cutover.
 
+The private Slice 5c registration admits a single exact `count_distinct` root,
+including its existing Slice/cumulative identity wrappers, when the normalized
+source key has a tested scalar equality contract or a complete governed Entity
+identity signature. It retains a separate `metric.distinct_membership@v1`
+relation of current coordinates and non-null distinct keys. The relation has
+independent cardinality; a coordinate with zero distinct inputs remains in the
+primary rows without a synthetic key. Its exact key schema and source-only
+authority are fixed before execution. Derived arithmetic graphs and temporal
+folds that change the distinct endpoint do not acquire this registration.
+
+This required state makes those Metric checkpoints engine-only under Module 4's
+single-target rule. A local/object target fails before source work instead of
+dropping state or selecting another target. This private extension does not
+grant additional Entity-axis or coordinate rollup methods. Existing admitted
+folds preserve their selected contribution and evaluation-end authority in both
+values and membership parts.
+
 Filtering selects primary rows and the exact associated component-state records
 together. Projection retains the dependency closure of the selected Metric.
 Coordinate operations transform parts under the same allocation contract as

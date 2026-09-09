@@ -26,6 +26,7 @@ from marivo.analysis.materialization import storage
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     ArtifactRecord,
+    EngineReceipt,
     RetainedPart,
 )
 from marivo.analysis.materialization.errors import (
@@ -36,7 +37,11 @@ from marivo.analysis.materialization.errors import (
 )
 from marivo.analysis.materialization.ownership import object_artifact_prefix, validate_receipt_owner
 from marivo.analysis.materialization.reads import payload_batches
-from marivo.analysis.materialization.retained import checked_component_batches
+from marivo.analysis.materialization.retained import (
+    checked_component_batches,
+    membership_part,
+    validate_membership_relation,
+)
 from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.materialization.targets import S3Access, access_payload, decode_access
@@ -71,6 +76,9 @@ def _payload_check(
     policy: ReadPolicy,
 ) -> None:
     receipt = descriptor.storage_receipt if part is None else part.storage_receipt
+    if part is not None and membership_part(part):
+        _membership_check(root, descriptor, part)
+        return
     row, rows = descriptor.row_contract, descriptor.row_set_contract
     validator = (
         storage._RowValidator(row, rows, source_key_validation=True) if part is None else None
@@ -95,7 +103,10 @@ def _payload_check(
                     raise StorageAccessError("mutated")
                 validator.accept(batch)
             else:
-                if part is not None and part.contract_id == "metric.sufficient_components":
+                if part is not None and part.contract_id in (
+                    "metric.sufficient_components",
+                    "delta.sufficient_components",
+                ):
                     if (
                         hashlib.sha256(batch.schema.serialize().to_pybytes()).hexdigest()
                         != receipt.schema_fingerprint
@@ -133,6 +144,45 @@ def _payload_check(
             validator.finish()
     finally:
         stream.close()
+
+
+def _membership_check(root: Path, descriptor: ArtifactDescriptor, part: RetainedPart) -> None:
+    """Inspect private membership entirely inside the retained engine domain."""
+    import ibis
+
+    from marivo.analysis.materialization.engine import (
+        attach_engine_scan,
+        checked_engine_path,
+        validate_engine_relation,
+    )
+
+    primary_receipt, receipt = descriptor.storage_receipt, part.storage_receipt
+    if not isinstance(primary_receipt, EngineReceipt) or not isinstance(receipt, EngineReceipt):
+        raise StorageAccessError("mutated")
+    backend = ibis.duckdb.connect()
+    try:
+        backend.raw_sql("SET threads=1")
+        backend.raw_sql("SET memory_limit='256MiB'")
+        backend.raw_sql("SET max_temp_directory_size='0B'")
+        primary = attach_engine_scan(backend, root, primary_receipt)
+        table = attach_engine_scan(backend, root, receipt)
+        validate_engine_relation(
+            backend, primary, primary_receipt, descriptor.row_contract, lambda *_: None
+        )
+        schema = backend.to_pyarrow(table.limit(0)).schema
+        if (
+            hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
+            != receipt.schema_fingerprint
+            or backend.execute(table.count()) != receipt.realized_row_count
+        ):
+            raise StorageAccessError("mutated")
+        validate_membership_relation(
+            backend, table, primary, descriptor.row_contract, part.role, lambda *_: None
+        )
+        checked_engine_path(root, receipt)
+        checked_engine_path(root, primary_receipt)
+    finally:
+        backend.disconnect()
 
 
 def _worker() -> None:

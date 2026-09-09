@@ -4,16 +4,32 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 
+import ibis.expr.datatypes as dt
+import ibis.expr.types as ir
 import pyarrow as pa
+from ibis.backends.duckdb import Backend
+from sqlglot import expressions as sge
 
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract, _EntityFieldIdentity
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.materialization.contracts import ArtifactDescriptor, RetainedPart
+from marivo.analysis.materialization.contracts import (
+    ArtifactDescriptor,
+    EngineReceipt,
+    LocalReceipt,
+    RetainedPart,
+    StorageReceipt,
+)
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import _integrity, _matches_type
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
+)
+from marivo.analysis.observation.distinct_contracts import (
+    DISTINCT_KEY_COLUMN,
+    DISTINCT_MEMBERSHIP_CONTRACT_IDS,
+    membership_endpoint_name,
 )
 from marivo.analysis.observation.fold_contracts import (
     MetricFoldAuthorityV1,
@@ -29,6 +45,44 @@ _STATE_TYPE_CHECKS: dict[str, tuple[Callable[[pa.DataType], bool], ...]] = {
     "floating": (pa.types.is_floating,),
     "boolean": (pa.types.is_boolean,),
 }
+
+
+def membership_role(role: str) -> bool:
+    """Recognize the closed private membership role families."""
+    return role.startswith(("metric_membership.", "delta_membership."))
+
+
+def membership_part(part: RetainedPart) -> bool:
+    return membership_role(part.role) or part.contract_id in DISTINCT_MEMBERSHIP_CONTRACT_IDS
+
+
+def reject_membership_transfer() -> None:
+    raise MaterializationError(
+        expected="source-native use of exact retained distinct membership",
+        received="a local or generic retained-part transfer",
+        repair="Use a compatible engine target and source-native attribution execution.",
+        stage="execution_boundary",
+    )
+
+
+def guard_part_transfer(part: RetainedPart) -> None:
+    if membership_part(part):
+        reject_membership_transfer()
+    guard_receipt_transfer(part.storage_receipt)
+
+
+def guard_receipt_transfer(receipt: StorageReceipt) -> None:
+    """Recognize only the payload position owned by each retained-part adapter."""
+    if isinstance(receipt, EngineReceipt):
+        parts = receipt.qualified_relation_ref.split("/")
+        part_path = parts[:-1] if parts[-1] == "payload.duckdb" else ()
+    elif isinstance(receipt, LocalReceipt):
+        part_path = receipt.project_relative_path.split("/")
+    else:
+        parts = receipt.immutable_prefix_or_manifest_ref.split("/")
+        part_path = parts[:-1] if parts[-1] == "manifest.json" else ()
+    if len(part_path) >= 2 and part_path[-2] == "parts" and membership_role(part_path[-1]):
+        reject_membership_transfer()
 
 
 def metric_parts(row: DatasetRowContract) -> tuple[MetricFoldAuthorityV1, ...]:
@@ -73,11 +127,108 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
 
 
 def _row_part_roles(row: DatasetRowContract) -> set[str]:
+    from marivo.analysis.observation.distinct_contracts import membership_part_authorities
+
+    membership = {role for role, _ in membership_part_authorities(row)}
     if row.shape_id.family_id == "delta":
         from marivo.analysis.operators.attribution_contracts import delta_part_authorities
 
-        return {role for role, _ in delta_part_authorities(row)}
-    return {fold_part_role(item) for item in metric_parts(row)}
+        return {role for role, _ in delta_part_authorities(row)} | membership
+    return {fold_part_role(item) for item in metric_parts(row)} | membership
+
+
+def membership_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> tuple[str, ...]:
+    """Check private membership types using only the independently owned schema."""
+    from marivo.analysis.observation.distinct_contracts import membership_part_authorities
+
+    authority = next(
+        (item for name, item in membership_part_authorities(row) if name == role), None
+    )
+    if authority is None or authority.membership is None:
+        _integrity("one registered membership role", "unknown private membership role")
+    keys = tuple(field for field in row.schema.columns if field.field_id in row.key_field_ids)
+    expected = (*(field.name for field in keys), DISTINCT_KEY_COLUMN)
+    if tuple(schema.names) != expected:
+        _integrity(
+            "complete contribution coordinates and one private member key", "part fields differ"
+        )
+    for field in keys:
+        physical = schema.field(field.name).type
+        if isinstance(field.identity, _EntityFieldIdentity):
+            signature = field.identity.identity_signature
+            if (
+                not pa.types.is_struct(physical)
+                or tuple(physical.names) != tuple(name for name, _ in signature)
+                or any(
+                    not _matches_type(kind, physical.field(name).type) for name, kind in signature
+                )
+            ):
+                _integrity(
+                    "complete declared Entity coordinate identity", "part coordinate type differs"
+                )
+        elif not _matches_type(field.logical_type_id, physical):
+            _integrity("declared contribution coordinate types", "part coordinate type differs")
+    if (
+        schema.field(DISTINCT_KEY_COLUMN).type
+        != dt.dtype(authority.membership.key_logical_type).to_pyarrow()
+    ):
+        _integrity("the exact registered private member key type", "part member type differs")
+    return tuple(field.name for field in keys)
+
+
+def validate_membership_relation(
+    backend: Backend,
+    table: ir.Table,
+    primary: ir.Table,
+    row: DatasetRowContract,
+    role: str,
+    record: Callable[[str, str], None],
+) -> None:
+    """Return only scalar violations; membership rows never leave the source engine."""
+    from marivo.analysis.observation.distinct_contracts import membership_part_authorities
+
+    record("engine_check.membership_schema", backend.compile(table.limit(0)))
+    keys = membership_schema(row, role, backend.to_pyarrow(table.limit(0)).schema)
+    authority = next(item for name, item in membership_part_authorities(row) if name == role)
+    endpoint = membership_endpoint_name(row, role)
+
+    def quoted(name: str) -> str:
+        return sge.to_identifier(name, quoted=True).sql(dialect="duckdb")
+
+    member = quoted(DISTINCT_KEY_COLUMN)
+    assert authority.membership is not None
+    null_member = " OR ".join(
+        [f"{member} IS NULL"]
+        + [
+            f"struct_extract({member}, {sge.Literal.string(name).sql(dialect='duckdb')}) IS NULL"
+            for name, _ in authority.membership.identity_signature
+        ]
+    )
+    coordinates = ", ".join(quoted(name) for name in keys)
+    equality = (
+        " AND ".join(f"m.{quoted(name)} IS NOT DISTINCT FROM p.{quoted(name)}" for name in keys)
+        or "TRUE"
+    )
+    grouped = f"{coordinates}, " if coordinates else ""
+    grouping = f" GROUP BY {coordinates}" if coordinates else ""
+    sql = (
+        f"WITH membership AS ({backend.compile(table)}), primary_rows AS ({backend.compile(primary)}), "
+        f"counts AS (SELECT {grouped}count(*) AS __mv_members FROM membership{grouping}) "
+        "SELECT "
+        f"(SELECT count(*) FROM membership WHERE {null_member}) + "
+        f"(SELECT count(*) FROM (SELECT {grouped}{member} FROM membership "
+        f"GROUP BY {grouped}{member} HAVING count(*) <> 1)) + "
+        f"(SELECT count(*) FROM membership m WHERE NOT EXISTS (SELECT 1 FROM primary_rows p WHERE {equality})) + "
+        f"(SELECT count(*) FROM primary_rows p LEFT JOIN counts m ON {equality} "
+        f"WHERE p.{quoted(endpoint)} IS NULL OR p.{quoted(endpoint)} <> coalesce(m.__mv_members, 0))"
+    )
+    record("engine_check.membership_integrity", sql)
+    violations: object = backend.raw_sql(sql).fetchone()[0]
+    if violations != 0:
+        _integrity(
+            "unique complete membership with exact primary endpoints",
+            "private membership support or endpoint mismatch",
+        )
 
 
 def selected_parts(

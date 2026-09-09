@@ -15,7 +15,7 @@ import pyarrow as pa
 from ibis.backends.duckdb import Backend
 from sqlglot import expressions as sge
 
-from marivo.analysis.compiler.nodes import CompiledDataset
+from marivo.analysis.compiler.nodes import CompiledDataset, RetainedRelationSpec
 from marivo.analysis.compiler.placement import ExecutionBinding
 from marivo.analysis.datasets.descriptors import (
     DatasetRowContract,
@@ -167,7 +167,35 @@ def write_engine_dataset(
     record("engine_producer", statement)
     event("source_statement")
     backend.raw_sql(statement)
-    # The fence fixes all primary/part values; subsequent transactions scan only it.
+    # Independent membership relations share the source transaction and sample fences.
+    relation_parts: dict[str, tuple[ir.Table, int]] = {}
+    for index, part in enumerate(recipe.retained_parts):
+        if not isinstance(part, RetainedRelationSpec):
+            continue
+        part_fence = f"{fence}_part_{index}"
+        store.reserve(
+            ResourceRecord(
+                run_ref,
+                "planner_temporary_relation",
+                binding.datasource_id,
+                execution.ownership_nonce,
+                execution.cleanup_capability_id,
+                f"{execution.safe_locator}/{part_fence}",
+            )
+        )
+        event("engine_part_producer_reserved")
+        statement = f"CREATE TEMPORARY TABLE {part_fence} AS {backend.compile(part.expression)}"
+        record("engine_part_producer", statement)
+        event("source_statement")
+        backend.raw_sql(statement)
+        relation = backend.table(part_fence).cast(part.expression.schema())
+        count_expression = relation.count()
+        record("engine_check.part_producer_count", backend.compile(count_expression))
+        part_count: object = backend.execute(count_expression)
+        if type(part_count) is not int:
+            _fail("an exact independent part row count", "invalid engine part count")
+        relation_parts[part.role] = (relation, part_count)
+    # All primary and part values are fixed before writing the selected sink.
     backend.raw_sql("COMMIT")
     fixed = backend.table(fence).cast(recipe.expression.schema())
     count_sql = f"SELECT count(*) FROM {fence}"
@@ -197,19 +225,19 @@ def write_engine_dataset(
     record("engine_check.primary_schema", backend.compile(primary.limit(0)))
     schema = backend.to_pyarrow(primary.limit(0)).schema
     realized = _realized_schema(row.schema, schema)
-    specs: list[tuple[str, str, int, ir.Table, int]] = [
-        ("primary", "", 0, primary, count),
-        *(
-            (
-                f"parts/{part.role}",
-                part.contract_id,
-                part.contract_version,
-                ordered_relation(fixed, row, rows).select(part.column_names),
-                count,
-            )
-            for part in recipe.retained_parts
-        ),
-    ]
+    specs: list[tuple[str, str, int, ir.Table, int]] = [("primary", "", 0, primary, count)]
+    for part in recipe.retained_parts:
+        if isinstance(part, RetainedRelationSpec):
+            relation, part_count = relation_parts[part.role]
+            from marivo.analysis.materialization.retained import validate_membership_relation
+
+            validate_membership_relation(backend, relation, primary, row, part.role, record)
+        else:
+            relation = ordered_relation(fixed, row, rows).select(part.column_names)
+            part_count = count
+        specs.append(
+            (f"parts/{part.role}", part.contract_id, part.contract_version, relation, part_count)
+        )
     if sampling:
         specs.append(
             (

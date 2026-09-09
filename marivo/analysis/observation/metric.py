@@ -43,6 +43,7 @@ from marivo.analysis.observation.contracts import (
     producer_contract,
     retained_field,
 )
+from marivo.analysis.observation.distinct_contracts import make_distinct_membership
 from marivo.analysis.observation.fold_contracts import decode_fold_authority
 from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
@@ -535,6 +536,16 @@ def make_observation(
         source_dependency_fingerprint=_canonical_digest(
             (path_dependency_fingerprint(owner, entity.ref.path, paths), tuple(filter_dependencies))
         ),
+        distinct_memberships=tuple(
+            membership
+            for metric in normalized
+            if (
+                membership := make_distinct_membership(
+                    metric, owner.semantic_registry, owner.sidecar
+                )
+            )
+            is not None
+        ),
     )
     definition = coordinates.bind_aggregation(owner, definition)
     row, row_set = metric_contracts(definition, registry.get("metric").ids, owner.semantic_registry)
@@ -653,6 +664,11 @@ def _project(dataset: Dataset, metric: MetricInput) -> LogicalMetricDataset:
                 item
                 for item in root.payload.definition.metrics
                 if f"metric:{item.ref.path}" == identity.identity_id
+            ),
+            distinct_memberships=tuple(
+                item
+                for item in root.payload.definition.distinct_memberships
+                if f"metric:{item.metric_ref}" == identity.identity_id
             ),
         )
         payload = MetricPayload(

@@ -71,6 +71,21 @@ class FoldComponentV1(BaseModel):
     cumulative: bool
 
 
+class DistinctMembershipAuthorityV1(BaseModel):
+    """Exact source-private key meaning for one root distinct aggregate."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True, allow_inf_nan=False)
+    metric_ref: str
+    aggregate_node_id: str
+    target_ref: str
+    target_kind: Literal["measure", "entity"]
+    computation_root: str
+    key_logical_type: str
+    source_column: str
+    identity_signature: tuple[tuple[str, str], ...] = ()
+    null_policy: Literal["exclude"] = "exclude"
+
+
 class MetricFoldAuthorityV1(BaseModel):
     """The immutable merge/finalize closure for exactly one visible Metric."""
 
@@ -81,6 +96,7 @@ class MetricFoldAuthorityV1(BaseModel):
     nodes: tuple[FoldNodeV1, ...]
     components: tuple[FoldComponentV1, ...]
     axis_partitions: tuple[tuple[str, str], ...]
+    membership: DistinctMembershipAuthorityV1 | None = None
 
     @property
     def cumulative(self) -> bool:
@@ -217,6 +233,10 @@ def _validate_metric_authority(metric: MetricFoldAuthorityV1) -> None:
         key for key, node in nodes.items() if node.kind == "component"
     }:
         raise ValueError("non-closed retained fold dependency closure")
+    if metric.membership is not None:
+        from marivo.analysis.observation.distinct_contracts import validate_membership_authority
+
+        validate_membership_authority(metric)
 
 
 def fold_part_role(authority: MetricFoldAuthorityV1) -> str:
@@ -254,6 +274,10 @@ def _metric_authority(
     components: list[FoldComponentV1] = []
     nodes: list[FoldNodeV1] = []
     by_id = {item.node_id: item.node for item in metric.graph.nodes}
+    membership = next(
+        (item for item in definition.distinct_memberships if item.metric_ref == metric.ref.path),
+        None,
+    )
     for component in {item.node_id: item for item in metric.components}.values():
         node = by_id[component.node_id]
         kind: Literal["sum", "count", "min", "max", "mean", "weighted_mean", "opaque"] = "opaque"
@@ -309,7 +333,10 @@ def _metric_authority(
                 state_columns=tuple(
                     (state, f"__mv_{digest}_{state}") for state in component.required_state
                 )
-                if metric.required_state or spatial != "blocked" or temporal != "blocked"
+                if metric.required_state
+                or spatial != "blocked"
+                or temporal != "blocked"
+                or membership is not None
                 else (),
                 spatial_merge=spatial,
                 time_merge=temporal,
@@ -366,6 +393,7 @@ def _metric_authority(
         nodes=tuple(nodes),
         components=tuple(components),
         axis_partitions=tuple(sorted(contract.contribution_partition_by_reduced_axis)),
+        membership=membership,
     )
 
 

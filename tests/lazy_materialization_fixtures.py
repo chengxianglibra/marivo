@@ -14,6 +14,7 @@ from marivo.analysis.materialization.contracts import (
     PopulationAuthority,
     RetainedPart,
     manifest_digest,
+    required_retained_contracts,
     schema_fingerprint,
 )
 from marivo.analysis.observation.contracts import (
@@ -67,7 +68,9 @@ def descriptor(*, metric: bool = False, population: str = "customers") -> Artifa
         "none",
         1,
         (registration.validation_id,),
-        registration.retained_contract_ids,
+        required_retained_contracts(
+            logical.row_contract, registration.retained_contract_ids, sampled=False
+        ),
         "zero_findings@v1",
     )
     file = FileEntry("data.parquet", 8, "a" * 64)

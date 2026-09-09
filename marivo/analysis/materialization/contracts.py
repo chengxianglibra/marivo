@@ -625,13 +625,21 @@ def required_retained_contracts(
         EntityPresentMetricSemantics,
         EntityReducedMetricSemantics,
     )
+    from marivo.analysis.observation.distinct_contracts import (
+        DISTINCT_MEMBERSHIP_CONTRACT_IDS,
+        membership_part_authorities,
+    )
 
     semantics = row.family_semantics
     component_state = isinstance(
         semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
     ) and any(binding[3] for binding in semantics.metric_bindings)
+    membership_state = bool(membership_part_authorities(row))
     result = tuple(
-        name for name in registered if name != "metric.sufficient_components" or component_state
+        name
+        for name in registered
+        if (name != "metric.sufficient_components" or component_state)
+        and (name not in DISTINCT_MEMBERSHIP_CONTRACT_IDS or membership_state)
     )
     if sampled and "population_sampling_state" not in result:
         result += ("population_sampling_state",)
@@ -1489,7 +1497,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             and column.identity.identity_id.startswith("metric:")
         }
         component_parts = tuple(
-            item for item in parts if item.contract_id != "population_sampling_state"
+            item for item in parts if item.contract_id == "metric.sufficient_components"
         )
         if {item.role for item in component_parts} != expected_roles:
             raise invalid("retained Metric component roles mismatch")
@@ -1505,7 +1513,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
 
         expected_roles = {role for role, _ in delta_part_authorities(row)}
         component_parts = tuple(
-            item for item in parts if item.contract_id != "population_sampling_state"
+            item for item in parts if item.contract_id == "delta.sufficient_components"
         )
         if {item.role for item in component_parts} != expected_roles or any(
             item.contract_id != "delta.sufficient_components"
@@ -1514,6 +1522,28 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             for item in component_parts
         ):
             raise invalid("retained Delta component role, contract or count mismatch")
+    from marivo.analysis.observation.distinct_contracts import (
+        DISTINCT_MEMBERSHIP_CONTRACT_IDS,
+        membership_part_authorities,
+    )
+
+    membership_roles = {role for role, _ in membership_part_authorities(row)}
+    membership_parts = tuple(
+        item for item in parts if item.contract_id in DISTINCT_MEMBERSHIP_CONTRACT_IDS
+    )
+    if {item.role for item in membership_parts} != membership_roles:
+        raise invalid("retained distinct membership roles mismatch")
+    if membership_parts:
+        primary_receipt = result.storage_receipt
+        if not isinstance(primary_receipt, EngineReceipt) or any(
+            item.contract_id != f"{row.shape_id.family_id}.distinct_membership"
+            or item.contract_version != 1
+            or not isinstance(item.storage_receipt, EngineReceipt)
+            or item.storage_receipt.datasource_ref != primary_receipt.datasource_ref
+            or item.storage_receipt.execution_domain_id != primary_receipt.execution_domain_id
+            for item in membership_parts
+        ):
+            raise invalid("private membership requires the exact primary engine sink")
     if (
         isinstance(row_set.cardinality, d._SingletonCardinality)
         and result.storage_receipt.realized_row_count != 1

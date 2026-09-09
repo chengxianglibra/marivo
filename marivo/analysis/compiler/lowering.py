@@ -10,8 +10,15 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._temporal import Grain, PeriodCalendarSnapshotV1, builtin_grain
 from marivo.analysis.compiler.comparison import lower_compare
+from marivo.analysis.compiler.distinct import (
+    MembershipRelations,
+    comparison_memberships,
+    membership_specs,
+    membership_validations,
+    selected_memberships,
+)
+from marivo.analysis.compiler.distinct_fold import fold_memberships
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
@@ -22,6 +29,7 @@ from marivo.analysis.compiler.nodes import (
 )
 from marivo.analysis.compiler.normalize import logical_roots, required_entities
 from marivo.analysis.compiler.predicates import lower_bound_predicate, predicate_leaves
+from marivo.analysis.compiler.temporal import bucket, bucket_end, cumulative_start
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
     DatasetRowContract,
@@ -44,6 +52,10 @@ from marivo.analysis.observation.contracts import (
     source_owner_of,
 )
 from marivo.analysis.observation.coordinates import functional_path, governed_path
+from marivo.analysis.observation.distinct_contracts import (
+    DISTINCT_KEY_COLUMN as DISTINCT_KEY,
+)
+from marivo.analysis.observation.distinct_contracts import membership_part_authorities
 from marivo.analysis.observation.fold_contracts import (
     FoldSpecV1,
     MetricFoldAuthorityV1,
@@ -88,6 +100,7 @@ from marivo.semantic.validator import normalize_target_dimension
 class _Selection:
     expression: ir.Table
     definition: MetricDefinition
+    axis_expansion: bool = False
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -98,6 +111,7 @@ class _Rows:
     definition: MetricDefinition | None = None
     selections: tuple[_Selection, ...] = ()
     ordering: tuple[tuple[str, str, str], ...] = ()
+    parts: MembershipRelations = ()
 
 
 def _named_validations(
@@ -317,7 +331,7 @@ def lower_fold(
             raise compilation_error("one exact current time coordinate", "missing fold coordinate")
         table = table.mutate(
             **{
-                target_time: _Compiler._bucket(
+                target_time: bucket(
                     table[source_time], spec.grain, semantics.fold_temporal_snapshot
                 )
             }
@@ -426,9 +440,7 @@ def lower_fold(
             )
             if spec.grain is not None and target_time is not None:
                 target_start = grouped[target_time].cast("timestamp")
-                target_end = _Compiler._bucket_end(
-                    target_start, spec.grain, semantics.fold_temporal_snapshot
-                )
+                target_end = bucket_end(target_start, spec.grain, semantics.fold_temporal_snapshot)
             elif semantics.fold_time_scope is not None:
                 target_start = ibis.literal(semantics.fold_time_scope.start).cast("timestamp")
                 target_end = ibis.literal(semantics.fold_time_scope.end).cast("timestamp")
@@ -868,7 +880,7 @@ class _Compiler:
                 if any(metric.cumulative for metric in definition.metrics):
                     # Display buckets require calendar coverage; earlier base
                     # contributions retain their independent history authority.
-                    lower = self._bucket(lower, definition.grain, definition.temporal_snapshot)
+                    lower = bucket(lower, definition.grain, definition.temporal_snapshot)
                 table = table.filter(
                     table[name] >= lower,
                     table[name] < definition.time_scope.end,
@@ -884,105 +896,9 @@ class _Compiler:
                     ),
                 )
             table = table.mutate(
-                **{name: self._bucket(table[name], definition.grain, definition.temporal_snapshot)}
+                **{name: bucket(table[name], definition.grain, definition.temporal_snapshot)}
             )
         return table
-
-    @staticmethod
-    def _bucket(
-        value: ir.Value, grain: Grain | None, snapshot: PeriodCalendarSnapshotV1 | None = None
-    ) -> ir.Value:
-        if grain is not None and grain.kind == "semantic":
-            if snapshot is None or snapshot.calendar_ref != grain.calendar:
-                raise compilation_error(
-                    "the exact certified calendar snapshot", "missing period authority"
-                )
-            if grain.level == "day":
-                return value.cast("date").cast(value.type())
-            cases = tuple(
-                (
-                    _boolean((value >= period.start_date) & (value < period.end_date)),
-                    ibis.literal(period.start_date).cast(value.type()),
-                )
-                for period in snapshot.periods
-                if period.level_name == grain.level
-            )
-            if not cases:
-                raise compilation_error("a certified calendar level", "missing calendar periods")
-            return ibis.cases(*cases, else_=ibis.null().cast(value.type()))
-        if grain is None or grain.unit is None or grain.count is None:
-            raise compilation_error(
-                "registered builtin source time bucket", "missing certified bucket implementation"
-            )
-        units = {
-            "second": "s",
-            "minute": "m",
-            "hour": "h",
-            "day": "D",
-            "week": "W",
-            "month": "M",
-            "quarter": "Q",
-            "year": "Y",
-        }
-        if not isinstance(value, (ir.DateValue, ir.TimestampValue)):
-            raise compilation_error("governed date or timestamp bucket", "non-temporal coordinate")
-        if grain.count == 1:
-            return value.truncate(units[grain.unit])
-        timestamp = value.cast("timestamp")
-        if not isinstance(timestamp, ir.TimestampValue):
-            raise compilation_error("timestamp bucket input", "invalid time representation")
-        interval = ibis.interval(**{grain.unit + "s": grain.count})
-        bucket = timestamp.bucket(interval)
-        return bucket.cast("date") if isinstance(value, ir.DateValue) else bucket
-
-    @staticmethod
-    def _bucket_end(
-        start: ir.Value, grain: Grain, snapshot: PeriodCalendarSnapshotV1 | None
-    ) -> ir.Value:
-        if grain.kind == "builtin":
-            if grain.unit is None or grain.count is None:
-                raise compilation_error("an exact builtin grain", "missing bucket width")
-            return start.cast("timestamp") + ibis.interval(**{grain.unit + "s": grain.count})
-        if snapshot is None or snapshot.calendar_ref != grain.calendar:
-            raise compilation_error("the bound certified calendar", "missing endpoint authority")
-        if grain.level == "day":
-            return start.cast("timestamp") + ibis.interval(days=1)
-        cases = tuple(
-            (
-                _boolean(start == period.start_date),
-                ibis.literal(period.end_date).cast("timestamp"),
-            )
-            for period in snapshot.periods
-            if period.level_name == grain.level
-        )
-        if not cases:
-            raise compilation_error("certified endpoint periods", "missing calendar level")
-        return ibis.cases(*cases, else_=ibis.null().cast("timestamp"))
-
-    def _endpoint_reset_start(
-        self, end: ir.Value, grain: Grain, snapshot: PeriodCalendarSnapshotV1 | None
-    ) -> ir.Value:
-        """Select the reset period immediately before an exclusive endpoint."""
-        if grain.kind == "semantic" and grain.level != "day":
-            if snapshot is None or snapshot.calendar_ref != grain.calendar:
-                raise compilation_error("the bound reset calendar", "missing reset authority")
-            cases = tuple(
-                (
-                    _boolean((end > period.start_date) & (end <= period.end_date)),
-                    ibis.literal(period.start_date).cast("timestamp"),
-                )
-                for period in snapshot.periods
-                if period.level_name == grain.level
-            )
-            if not cases:
-                raise compilation_error("certified reset periods", "missing calendar level")
-            return ibis.cases(*cases, else_=ibis.null().cast("timestamp"))
-        start = self._bucket(end, grain, snapshot).cast("timestamp")
-        unit, count = (grain.unit, grain.count) if grain.kind == "builtin" else ("day", 1)
-        if unit is None or count is None:
-            raise compilation_error("an exact reset grain", "missing reset width")
-        previous = start - ibis.interval(**{unit + "s": count})
-        return (start == end).ifelse(previous, start)
 
     def _selected_contributions(
         self,
@@ -1014,7 +930,17 @@ class _Compiler:
                 entity_identity=_identity(source_rows, definition.entity)
             )
             table = source_rows.join(table.select("entity_identity"), "entity_identity", how="semi")
-        table = self._coordinate_rows(table, definition.entity.ref.path, definition, spine=True)
+        expansion = next((item for item in reversed(selections) if item.axis_expansion), None)
+        if (
+            expansion is not None
+            and definition.time_axis is not None
+            and len(definition.metrics) == 1
+            and definition.metrics[0].cumulative
+            and definition.distinct_memberships
+        ):
+            table = self._distinct_expansion_spine(table, definition, expansion)
+        else:
+            table = self._coordinate_rows(table, definition.entity.ref.path, definition, spine=True)
         table = self._selected_contributions(
             table, definition.entity.ref.path, selections, coordinates_present=True
         )
@@ -1027,7 +953,7 @@ class _Compiler:
                 if not any(metric.cumulative for metric in definition.metrics):
                     table = table.filter(
                         table[name]
-                        >= self._bucket(
+                        >= bucket(
                             ibis.literal(definition.time_scope.start),
                             definition.grain,
                             definition.temporal_snapshot,
@@ -1039,6 +965,56 @@ class _Compiler:
             return table.aggregate(__mv_scalar=table.count())
         return table.select(*names).distinct()
 
+    def _distinct_expansion_spine(
+        self, table: ir.Table, definition: MetricDefinition, selection: _Selection
+    ) -> ir.Table:
+        """Partition selected cumulative endpoints using their complete prior contributions."""
+        axis, grain = definition.time_axis, definition.grain
+        if axis is None or grain is None:
+            raise compilation_error("exact cumulative expansion endpoints", "missing time contract")
+        time_name = axis.ref.path.rsplit(".", 1)[-1]
+        cumulative = definition.metrics[0].cumulative[0]
+        # Resolve all authored coordinates together so fanout paths retain one
+        # governed tuple. Keep raw historical time until it is bound to a selected
+        # endpoint; normal display bucketing would discard earlier contributions.
+        coordinates = replace(
+            definition,
+            dimensions=(*definition.dimensions, axis),
+            time_axis=None,
+            grain=None,
+        )
+        table = self._coordinate_rows(
+            table, definition.entity.ref.path, coordinates, spine=True
+        ).view()
+        endpoints = selection.expression.view()
+        if time_name not in endpoints.columns:
+            raise compilation_error("selected original cumulative times", "missing expansion time")
+        end = bucket_end(endpoints[time_name], grain, definition.temporal_snapshot)
+        if definition.time_scope is not None:
+            end = ibis.least(end, ibis.literal(definition.time_scope.end).cast("timestamp"))
+        conditions = [
+            table[name].identical_to(endpoints[name])
+            for name in endpoints.columns
+            if name != time_name
+        ]
+        timestamp = table[time_name]
+        conditions.append(_boolean(timestamp < end))
+        lower = cumulative_start(
+            cumulative.anchor,
+            end,
+            definition.temporal_snapshot,
+            bucket_start=endpoints[time_name],
+        )
+        if lower is not None:
+            conditions.append(_boolean(timestamp >= lower))
+        joined = table.join(endpoints, conditions, how="inner")
+        return joined.select(
+            **{
+                name: endpoints[time_name] if name == time_name else table[name]
+                for name in table.columns
+            }
+        )
+
     def _component(
         self,
         metric: TargetMetricContract,
@@ -1046,7 +1022,7 @@ class _Compiler:
         definition: MetricDefinition,
         membership: ir.Table,
         selections: tuple[_Selection, ...] = (),
-    ) -> ir.Table:
+    ) -> tuple[ir.Table, ir.Table | None]:
         node = next(record.node for record in metric.graph.nodes if record.node_id == node_id)
         component = next(item for item in metric.components if item.node_id == node_id)
         root = component.computation_root.path
@@ -1075,18 +1051,12 @@ class _Compiler:
             if not metric.cumulative:
                 table = table.filter(column >= definition.time_scope.start)
             elif definition.time_axis is None:
-                anchor = metric.cumulative[0].anchor
-                if isinstance(anchor, tuple):
-                    boundary = ibis.literal(definition.time_scope.end)
-                    if anchor[0] == "trailing":
-                        boundary = boundary - ibis.interval(**{anchor[2] + "s": anchor[1]})
-                    else:
-                        reset = (
-                            builtin_grain(anchor[1]) if isinstance(anchor[1], str) else anchor[1]
-                        )
-                        boundary = self._endpoint_reset_start(
-                            boundary, reset, definition.temporal_snapshot
-                        )
+                boundary = cumulative_start(
+                    metric.cumulative[0].anchor,
+                    ibis.literal(definition.time_scope.end),
+                    definition.temporal_snapshot,
+                )
+                if boundary is not None:
                     table = table.filter(column >= boundary)
         if not isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
             raise compilation_error("registered aggregate component", "unsupported graph node")
@@ -1154,6 +1124,7 @@ class _Compiler:
         # A governed coordinate relation denotes a set of contributions. Repeated
         # bridge rows cannot multiply the same source representation in one tuple.
         table = table.distinct()
+        distinct_membership: ir.Table | None = None
         states: dict[str, ir.Value] = {"row_count": table.count()}
         if isinstance(node, AggregateNodeV1):
             value = (
@@ -1172,6 +1143,11 @@ class _Compiler:
                     )
                 )
                 states["value"] = value.nunique()
+                if component.time_fold is None:
+                    distinct_membership = table.select(*keys, **{DISTINCT_KEY: value})
+                    distinct_membership = distinct_membership.filter(
+                        distinct_membership[DISTINCT_KEY].notnull()
+                    ).distinct()
             else:
                 if value is None:
                     raise compilation_error("numeric Measure aggregate", "missing Measure")
@@ -1236,9 +1212,15 @@ class _Compiler:
             grouped = (
                 grouped.group_by(keys).aggregate(**states) if keys else grouped.aggregate(**states)
             )
-        return grouped.select(
-            *keys,
-            **{_hidden(metric, node_id, name): grouped[name] for name in component.required_state},
+        return (
+            grouped.select(
+                *keys,
+                **{
+                    _hidden(metric, node_id, name): grouped[name]
+                    for name in component.required_state
+                },
+            ),
+            distinct_membership,
         )
 
     def _cumulative_contributions(
@@ -1270,7 +1252,7 @@ class _Compiler:
             **{f"__mv_endpoint_{name}": endpoints[name] for name in endpoint_names}
         )
         start = endpoints[f"__mv_endpoint_{axis_name}"]
-        end = self._bucket_end(start, grain, definition.temporal_snapshot)
+        end = bucket_end(start, grain, definition.temporal_snapshot)
         if definition.time_scope is not None:
             # A selected partial last bucket ends at the authored observation end.
             end = ibis.least(end, ibis.literal(definition.time_scope.end).cast("timestamp"))
@@ -1281,13 +1263,10 @@ class _Compiler:
         ]
         source_time = table["__mv_cumulative_time"]
         conditions.append(_boolean(source_time < end))
-        anchor = metric.cumulative[0].anchor
-        if isinstance(anchor, tuple):
-            if anchor[0] == "trailing":
-                lower = end - ibis.interval(**{anchor[2] + "s": anchor[1]})
-            else:
-                reset = builtin_grain(anchor[1]) if isinstance(anchor[1], str) else anchor[1]
-                lower = self._bucket(start, reset, definition.temporal_snapshot)
+        lower = cumulative_start(
+            metric.cumulative[0].anchor, end, definition.temporal_snapshot, bucket_start=start
+        )
+        if lower is not None:
             conditions.append(_boolean(source_time >= lower))
         original = tuple(table.columns)
         table = table.join(endpoints, conditions, how="inner").select(
@@ -1381,9 +1360,23 @@ class _Compiler:
         selections: tuple[_Selection, ...] = (),
     ) -> _Rows:
         table = self._spine(definition, membership, selections)
+        row, _ = metric_contracts(
+            definition, self.dataset._registry.get("metric").ids, self.registry
+        )
+        required_memberships = {
+            authority.metric_ref: (role, authority)
+            for role, authority in membership_part_authorities(row)
+        }
+        retained_memberships: list[tuple[str, ir.Table]] = []
         for metric in definition.metrics:
             for node_id in dict.fromkeys(component.node_id for component in metric.components):
-                part = self._component(metric, node_id, definition, membership, selections)
+                part, distinct = self._component(
+                    metric, node_id, definition, membership, selections
+                )
+                if distinct is not None and metric.ref.path in required_memberships:
+                    retained_memberships.append(
+                        (required_memberships[metric.ref.path][0], distinct)
+                    )
                 names = _state_names(metric)
                 keys = tuple(name for name in part.columns if not name.startswith("__mv_"))
                 new_fields = tuple(name for name in part.columns if name in names)
@@ -1403,7 +1396,7 @@ class _Compiler:
             name = definition.time_axis.ref.path.rsplit(".", 1)[-1]
             table = table.filter(
                 table[name]
-                >= self._bucket(
+                >= bucket(
                     ibis.literal(definition.time_scope.start),
                     definition.grain,
                     definition.temporal_snapshot,
@@ -1423,17 +1416,17 @@ class _Compiler:
                 if definition.time_axis is not None and definition.grain is not None:
                     axis = definition.time_axis.ref.path.rsplit(".", 1)[-1]
                     bucket_start = table[axis].cast("timestamp")
-                    bucket_end = self._bucket_end(
+                    bucket_finish = bucket_end(
                         bucket_start, definition.grain, definition.temporal_snapshot
                     )
                 elif definition.time_scope is not None:
                     bucket_start = ibis.literal(definition.time_scope.start).cast("timestamp")
-                    bucket_end = ibis.literal(definition.time_scope.end).cast("timestamp")
+                    bucket_finish = ibis.literal(definition.time_scope.end).cast("timestamp")
                 else:
                     raise compilation_error(
                         "an exact cumulative evaluation boundary", "missing endpoint"
                     )
-                start, end = bucket_start, bucket_end
+                start, end = bucket_start, bucket_finish
                 if definition.time_scope is not None:
                     start = ibis.greatest(
                         start, ibis.literal(definition.time_scope.start).cast("timestamp")
@@ -1445,10 +1438,12 @@ class _Compiler:
                         start_name: start,
                         end_name: end,
                         seconds: _duration_seconds(start, end),
-                        complete: (start == bucket_start) & (end == bucket_end),
+                        complete: (start == bucket_start) & (end == bucket_finish),
                     }
                 )
-        return _Rows(table, membership, definition.entity, definition, selections)
+        retained = selected_memberships(tuple(retained_memberships), row, table)
+        self.validations.extend(membership_validations(row, table, dict(retained)))
+        return _Rows(table, membership, definition.entity, definition, selections, parts=retained)
 
     def _observe(self, payload: MetricPayload, previous: _Rows) -> _Rows:
         definition = payload.definition
@@ -1498,7 +1493,14 @@ class _Compiler:
                 if isinstance(field.identity, _EntityFieldIdentity)
             )
             if not identities:
-                return _Rows(table, table, entity)
+                return _Rows(
+                    table,
+                    table,
+                    entity,
+                    parts=selected_memberships(
+                        scan.parts, dataset.row_contract, table, required=False
+                    ),
+                )
             if (
                 len(identities) != 1
                 or identities[0].entity_ref.path != entity.ref.path
@@ -1514,7 +1516,12 @@ class _Compiler:
                 )
             membership = table.select(**{name: identity[name] for name in entity.primary_key})
             self._unique("population.retained_identity_unique", membership, entity.primary_key)
-            return _Rows(table, membership, entity)
+            return _Rows(
+                table,
+                membership,
+                entity,
+                parts=selected_memberships(scan.parts, dataset.row_contract, table, required=False),
+            )
         if id(root) in self.cache:
             return self.cache[id(root)]
         payload = root.payload
@@ -1527,7 +1534,11 @@ class _Compiler:
                 current.expression, baseline.expression, payload.spec
             )
             self.validations.extend(validations)
-            result = _Rows(table, current.membership, current.entity)
+            parts = comparison_memberships(table, current.parts, baseline.parts, payload.spec)
+            self.validations.extend(
+                membership_validations(payload.spec.output_row, table, dict(parts))
+            )
+            result = _Rows(table, current.membership, current.entity, parts=parts)
         elif isinstance(payload, AttributePayload):
             from marivo.analysis.compiler.attribution import (
                 lower_attribute,
@@ -1535,7 +1546,41 @@ class _Compiler:
             )
 
             previous = self._visit(root.inputs[0].root)
-            if payload.spec.expanded_compare is None:
+            if payload.spec.method == "distinct_membership@v1":
+                from marivo.analysis.compiler.distinct_attribution import lower_distinct_attribute
+
+                input_table = previous.expression
+                parts = previous.parts
+                extra_checks: tuple[CompiledValidation, ...] = ()
+                if payload.spec.expanded_compare is not None:
+                    from marivo.analysis.compiler.attribution import (
+                        prepare_expanded_attribute,
+                    )
+
+                    current = self._visit(root.inputs[1].root)
+                    baseline = self._visit(root.inputs[2].root)
+                    comparison = payload.spec.expanded_compare
+                    input_table, extra_checks = prepare_expanded_attribute(
+                        previous.expression, current.expression, baseline.expression, payload.spec
+                    )
+                    parts = comparison_memberships(
+                        input_table,
+                        current.parts,
+                        baseline.parts,
+                        comparison,
+                    )
+                memberships = dict(parts)
+                table, validations = lower_distinct_attribute(
+                    input_table,
+                    payload.spec,
+                    current_membership=memberships["delta_membership.current"],
+                    baseline_membership=memberships["delta_membership.baseline"],
+                    original=previous.expression
+                    if payload.spec.expanded_compare is not None
+                    else None,
+                )
+                validations = (*extra_checks, *validations)
+            elif payload.spec.expanded_compare is None:
                 table, validations = lower_attribute(previous.expression, payload.spec)
             else:
                 current = self._visit(root.inputs[1].root)
@@ -1551,7 +1596,11 @@ class _Compiler:
             table, validations = lower_fold(previous.expression, payload.spec)
             self.validations.extend(validations)
             result = _Rows(
-                table, previous.membership, previous.entity, selections=previous.selections
+                table,
+                previous.membership,
+                previous.entity,
+                selections=previous.selections,
+                parts=fold_memberships(previous.parts, previous.expression, table, payload.spec),
             )
         elif isinstance(payload, RetainedRowsPayload):
             previous = self._visit(root.inputs[0].root)
@@ -1591,6 +1640,7 @@ class _Compiler:
                 previous.entity,
                 previous.definition,
                 previous.selections,
+                parts=selected_memberships(previous.parts, value.row_contract, table),
             )
         elif isinstance(payload, MetricPayload):
             previous = self._visit(root.inputs[0].root)
@@ -1617,7 +1667,11 @@ class _Compiler:
                 if keys:
                     selections = (
                         *selections,
-                        _Selection(previous.expression.select(*keys), previous_definition),
+                        _Selection(
+                            previous.expression.select(*keys),
+                            previous_definition,
+                            axis_expansion=bool(definition.distinct_memberships),
+                        ),
                     )
                 result = self._evaluate(definition, previous.membership, selections)
             else:
@@ -1654,7 +1708,13 @@ class _Compiler:
                 state_names = tuple(dict.fromkeys((*state_names, *_state_projection(row))))
                 table = table.select(*visible, *generated, *state_names)
                 result = _Rows(
-                    table, previous.membership, previous.entity, definition, selections, ordering
+                    table,
+                    previous.membership,
+                    previous.entity,
+                    definition,
+                    selections,
+                    ordering,
+                    selected_memberships(previous.parts, row, table),
                 )
         else:
             raise compilation_error("registered Observation source/operator", "unsupported payload")
@@ -1709,11 +1769,11 @@ class _Compiler:
         hidden = _state_projection(self.dataset.row_contract)
         expression = rows.expression.select(*primary, *hidden)
         expression = _physical_casts(expression)
-        key_names = tuple(
-            field.name
-            for field in self.dataset.schema.columns
-            if field.field_id in self.dataset.row_contract.key_field_ids
+        self.validations.extend(
+            membership_validations(self.dataset.row_contract, expression, dict(rows.parts))
         )
+        fields = {field.field_id: field.name for field in self.dataset.schema.columns}
+        key_names = tuple(fields[key] for key in self.dataset.row_contract.key_field_ids)
         if key_names:
             self._unique("dataset.final_row_key_unique", expression, key_names)
         ordering = self.dataset.row_set_contract.ordering
@@ -1736,7 +1796,7 @@ class _Compiler:
             expression,
             validations,
             primary,
-            tuple(parts),
+            (*parts, *membership_specs(self.dataset.row_contract, rows.parts)),
             preparations,
             self.attribution_proof,
         )
@@ -1765,9 +1825,17 @@ def _lower_retained_scan(
         validations.append(CompiledValidation(name, invalid.aggregate(violations=invalid.count())))
 
     expected = {part.role: part for part in retained_part_specs(row)}
+    membership_roles = {role for role, _ in membership_part_authorities(row)}
+    validations.extend(
+        membership_validations(
+            row, selected_table, {} if selected_parts is None else selected_parts, required=False
+        )
+    )
     result = selected_table
     keys = tuple(field.name for field in row.schema.columns if field.field_id in row.key_field_ids)
     for role, incoming in () if selected_parts is None else selected_parts.items():
+        if role in membership_roles:
+            continue
         spec = expected.get(role)
         if spec is None or tuple(incoming.columns) != spec.column_names:
             raise compilation_error(
@@ -1869,6 +1937,7 @@ def compile_retained_rows(
 
     validations: list[CompiledValidation] = []
     attribution_proof: ir.Table | None = None
+    memberships: dict[int, MembershipRelations] = {}
 
     def read(value: MaterializedDataset) -> ir.Table:
         selected_table = (
@@ -1879,6 +1948,12 @@ def compile_retained_rows(
         )
         result, checks = _lower_retained_scan(value.row_contract, selected_table, selected_parts)
         validations.extend(checks)
+        memberships[id(value)] = selected_memberships(
+            tuple(({} if selected_parts is None else selected_parts).items()),
+            value.row_contract,
+            result,
+            required=False,
+        )
         return result
 
     def visit(value: Dataset) -> ir.Table:
@@ -1890,8 +1965,17 @@ def compile_retained_rows(
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
         if isinstance(payload, ComparePayload):
-            result, checks = lower_compare(
-                visit(value._inputs[0]), visit(value._inputs[1]), payload.spec
+            current = visit(value._inputs[0])
+            baseline = visit(value._inputs[1])
+            result, checks = lower_compare(current, baseline, payload.spec)
+            memberships[id(value)] = comparison_memberships(
+                result,
+                memberships[id(value._inputs[0])],
+                memberships[id(value._inputs[1])],
+                payload.spec,
+            )
+            validations.extend(
+                membership_validations(value.row_contract, result, dict(memberships[id(value)]))
             )
             validations.extend(checks)
             return result
@@ -1902,7 +1986,20 @@ def compile_retained_rows(
                 raise compilation_error(
                     "logical source axis expansion", "retained expansion boundary"
                 )
-            result, checks = lower_attribute(visit(value._inputs[0]), payload.spec)
+            previous = visit(value._inputs[0])
+            if payload.spec.method == "distinct_membership@v1":
+                from marivo.analysis.compiler.distinct_attribution import lower_distinct_attribute
+
+                basis = dict(memberships[id(value._inputs[0])])
+                result, checks = lower_distinct_attribute(
+                    previous,
+                    payload.spec,
+                    current_membership=basis["delta_membership.current"],
+                    baseline_membership=basis["delta_membership.baseline"],
+                )
+            else:
+                result, checks = lower_attribute(previous, payload.spec)
+            memberships[id(value)] = ()
             validations.extend(checks)
             attribution_proof = result
             return result
@@ -1920,8 +2017,15 @@ def compile_retained_rows(
                 raise compilation_error(
                     "complete named sufficient state", "missing required fold part"
                 )
+            original = result
             result, checks = lower_fold(result, payload.spec)
             validations.extend(checks)
+            memberships[id(value)] = fold_memberships(
+                memberships[id(value._inputs[0])],
+                original,
+                result,
+                payload.spec,
+            )
             return result
         keys = tuple(
             field.name
@@ -1943,17 +2047,22 @@ def compile_retained_rows(
             )
         if payload.limit_count is not None:
             result = result.limit(payload.limit_count)
+        memberships[id(value)] = selected_memberships(
+            memberships[id(value._inputs[0])],
+            value.row_contract,
+            result,
+        )
         return result.select(
             *[field.name for field in value.schema.columns],
             *[name for name in _state_projection(value.row_contract) if name in result.columns],
         )
 
     expression = _physical_casts(visit(dataset))
-    keys = tuple(
-        field.name
-        for field in dataset.schema.columns
-        if field.field_id in dataset.row_contract.key_field_ids
+    validations.extend(
+        membership_validations(dataset.row_contract, expression, dict(memberships[id(dataset)]))
     )
+    fields = {field.field_id: field.name for field in dataset.schema.columns}
+    keys = tuple(fields[key] for key in dataset.row_contract.key_field_ids)
     missing = set(_state_projection(dataset.row_contract)) - set(expression.columns)
     if missing:
         raise compilation_error("complete output Metric state", "missing required output part")
@@ -1981,6 +2090,9 @@ def compile_retained_rows(
         expression,
         checks,
         tuple(field.name for field in dataset.schema.columns),
-        retained_part_specs(dataset.row_contract),
+        (
+            *retained_part_specs(dataset.row_contract),
+            *membership_specs(dataset.row_contract, memberships[id(dataset)]),
+        ),
         attribution_proof=attribution_proof,
     )
