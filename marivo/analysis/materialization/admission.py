@@ -152,6 +152,7 @@ from marivo.analysis.operators.attribution import (
     MaterializedAttributionDataset,
 )
 from marivo.analysis.operators.candidate_contracts import (
+    CandidateDefinition,
     CandidatePayload,
     CandidateSearchSummary,
     CandidateSpecV1,
@@ -162,6 +163,12 @@ from marivo.analysis.operators.candidate_dataset import (
     MaterializedCandidateDataset,
 )
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
+from marivo.analysis.operators.driver_contracts import (
+    DriverCandidateDefinition,
+    DriverCandidateEvaluationSummary,
+    DriverCandidatePayload,
+    DriverCandidateSpecV1,
+)
 from marivo.analysis.operators.forecast_contracts import (
     ForecastPayload,
     ForecastSpecV1,
@@ -598,6 +605,10 @@ class DatasetRuntime:
                 lines.append(
                     f"Evaluation: input_rows={evaluation.input_row_count}; non_null_values={evaluation.non_null_value_count}; null_values={evaluation.null_value_count}; center={evaluation.center}; scale={evaluation.scale}; scale_method={evaluation.scale_method}"
                 )
+            elif isinstance(evaluation, DriverCandidateEvaluationSummary):
+                lines.append(
+                    f"Evaluation: input_rows={evaluation.input_row_count}; scopes={evaluation.scope_count}; evaluated_axes={evaluation.evaluated_axis_count}/{evaluation.searched_axis_count}; zero_contribution_axes={evaluation.zero_contribution_axis_count}"
+                )
             else:
                 lines.append(
                     f"Evaluation: input_rows={evaluation.input_row_count}; evaluated_series={evaluation.evaluated_series_count}/{evaluation.series_count}; evaluated_units={evaluation.evaluated_unit_count}/{evaluation.searched_unit_count}"
@@ -939,7 +950,11 @@ class DatasetRuntime:
                                 raise _error("implementation_registration", run.run_ref)
                             with _engine_deadline(proof_backend):
                                 self._record_statement(
-                                    "candidate.entity_summary",
+                                    "candidate.driver_summary"
+                                    if isinstance(
+                                        proof_recipe.candidate_definition, DriverCandidateDefinition
+                                    )
+                                    else "candidate.entity_summary",
                                     proof_backend.compile(proof_recipe.candidate_proof),
                                 )
                                 self._event("source_statement")
@@ -948,10 +963,22 @@ class DatasetRuntime:
                                 )
                                 if scalar_proof.num_rows != 1:
                                     raise _error("output_validation", run.run_ref)
-                                candidate_summary = decode_candidate_proof(
-                                    scalar_proof.to_pylist()[0],
-                                    proof_recipe.candidate_definition,
-                                )
+                                if isinstance(
+                                    proof_recipe.candidate_definition, DriverCandidateDefinition
+                                ):
+                                    from marivo.analysis.compiler.driver_candidate import (
+                                        decode_driver_candidate_proof,
+                                    )
+
+                                    candidate_summary = decode_driver_candidate_proof(
+                                        scalar_proof.to_pylist()[0],
+                                        proof_recipe.candidate_definition,
+                                    )
+                                else:
+                                    candidate_summary = decode_candidate_proof(
+                                        scalar_proof.to_pylist()[0],
+                                        proof_recipe.candidate_definition,
+                                    )
                         if proof_recipe.association_proof is not None:
                             from marivo.analysis.operators.association_values import (
                                 summarize_search,
@@ -1002,9 +1029,15 @@ class DatasetRuntime:
                                     entity_candidate_output_proof,
                                 )
 
-                                if candidate_summary is None or not isinstance(
-                                    candidate_summary.evaluation,
-                                    EntityCandidateEvaluationSummary,
+                                if (
+                                    candidate_summary is None
+                                    or not isinstance(
+                                        candidate_summary.evaluation,
+                                        EntityCandidateEvaluationSummary,
+                                    )
+                                    or not isinstance(
+                                        candidate_summary.definition, CandidateDefinition
+                                    )
                                 ):
                                     raise _error("output_validation", run.run_ref)
                                 output_proof = entity_candidate_output_proof(
@@ -1026,6 +1059,43 @@ class DatasetRuntime:
                                 ):
                                     raise _error("output_validation", run.run_ref)
                                 validations.append(("candidate.entity_output", 0))
+                            if (
+                                dataset.kind == "candidate"
+                                and dataset.row_contract.shape_id.local_shape_id == "driver-axis"
+                            ):
+                                from marivo.analysis.compiler.driver_candidate import (
+                                    driver_candidate_output_proof,
+                                )
+
+                                if (
+                                    candidate_summary is None
+                                    or not isinstance(
+                                        candidate_summary.definition, DriverCandidateDefinition
+                                    )
+                                    or not isinstance(
+                                        candidate_summary.evaluation,
+                                        DriverCandidateEvaluationSummary,
+                                    )
+                                ):
+                                    raise _error("output_validation", run.run_ref)
+                                driver_proof = driver_candidate_output_proof(
+                                    recipe.expression,
+                                    dataset.row_contract,
+                                    candidate_summary.definition,
+                                    evaluation=candidate_summary.evaluation,
+                                )
+                                self._record_statement(
+                                    "candidate.driver_output", current_backend.compile(driver_proof)
+                                )
+                                self._event("source_statement")
+                                checked_driver = current_backend.to_pyarrow(driver_proof)
+                                if (
+                                    checked_driver.column_names != ["violations"]
+                                    or checked_driver.num_rows != 1
+                                    or checked_driver["violations"][0].as_py() != 0
+                                ):
+                                    raise _error("output_validation", run.run_ref)
+                                validations.append(("candidate.driver_output", 0))
                             if isinstance(target, EngineTarget):
                                 phase = "storage_staging"
                                 artifact_ref, storage = self._write_output(
@@ -1377,6 +1447,7 @@ class DatasetRuntime:
                         if isinstance(
                             candidate_summary.evaluation, EntityCandidateEvaluationSummary
                         )
+                        or any(f.role_id == "entity_identity" for f in dataset.schema.columns)
                         else payload_batches(
                             self.store.project_root,
                             descriptor.storage_receipt,
@@ -1656,6 +1727,13 @@ class DatasetRuntime:
             backend.raw_sql("SET memory_limit='256MiB'")
             backend.raw_sql("SET max_temp_directory_size='0B'")
             backend.raw_sql("BEGIN TRANSACTION")
+            if isinstance(source_dataset, LogicalDataset) and any(
+                isinstance(root.payload, DriverCandidatePayload)
+                for root in logical_roots(source_dataset)
+            ):
+                from marivo.analysis.compiler.driver_numeric import install_driver_numeric_functions
+
+                install_driver_numeric_functions(backend)
             tables: dict[str, ir.Table] = {}
             fences: list[_JsonFence] = []
             checked_schemas: set[str] = set()
@@ -2296,6 +2374,7 @@ class DatasetRuntime:
                 | CorrelateSpecV1
                 | ForecastSpecV1
                 | CandidateSpecV1
+                | DriverCandidateSpecV1
             )
             if isinstance(
                 payload,
@@ -2305,6 +2384,7 @@ class DatasetRuntime:
                     CorrelatePayload,
                     ForecastPayload,
                     CandidatePayload,
+                    DriverCandidatePayload,
                 ),
             ):
                 call = payload.spec

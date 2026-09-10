@@ -24,6 +24,7 @@ from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.candidate_contracts import CandidatePayload
 from marivo.analysis.operators.contracts import ComparePayload
+from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.analysis.operators.registry import ImplementationRegistration
 
@@ -167,6 +168,7 @@ def place(
                         CorrelatePayload,
                         ForecastPayload,
                         CandidatePayload,
+                        DriverCandidatePayload,
                     ),
                 )
                 else source_binding(value)

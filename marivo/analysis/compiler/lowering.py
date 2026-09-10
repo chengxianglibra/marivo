@@ -79,6 +79,10 @@ from marivo.analysis.operators.attribution_contracts import (
 )
 from marivo.analysis.operators.candidate_contracts import CandidateDefinition, CandidatePayload
 from marivo.analysis.operators.contracts import ComparePayload
+from marivo.analysis.operators.driver_contracts import (
+    DriverCandidateDefinition,
+    DriverCandidatePayload,
+)
 from marivo.refs import SemanticKind
 from marivo.semantic.ir import (
     DateParse,
@@ -516,7 +520,7 @@ class _Compiler:
         self.attribution_proof: ir.Table | None = None
         self.association_proof: ir.Table | None = None
         self.candidate_proof: ir.Table | None = None
-        self.candidate_definition: CandidateDefinition | None = None
+        self.candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
         self.validation_occurrences: dict[str, int] = {}
         self.preparations: list[
             CompiledValidation | CompiledSampleFence | CompiledRelationFence
@@ -1497,10 +1501,10 @@ class _Compiler:
                 scan is None
                 or not isinstance(dataset, MaterializedDataset)
                 or (
-                    root.shape_id.family_id != "population"
+                    root.shape_id.family_id not in ("population", "delta")
                     and not (
                         root.shape_id.family_id == "candidate"
-                        and root.shape_id.local_shape_id == "entity-outlier"
+                        and root.shape_id.local_shape_id in ("entity-outlier", "driver-axis")
                         and root.shape_id.semantic_version == 1
                     )
                     and (
@@ -1522,7 +1526,7 @@ class _Compiler:
                     "unsupported retained source input",
                 )
             table, entity = scan.expression, scan.entity
-            if root.shape_id.family_id == "metric":
+            if root.shape_id.family_id in ("metric", "delta"):
                 table, checks = _lower_retained_scan(dataset.row_contract, table, dict(scan.parts))
                 self.validations.extend(checks)
             identities = tuple(
@@ -1553,6 +1557,12 @@ class _Compiler:
                     "the exact retained identity struct", "invalid engine identity"
                 )
             membership = table.select(**{name: identity[name] for name in entity.primary_key})
+            if root.shape_id.family_id == "delta" or root.shape_id.local_shape_id == "driver-axis":
+                # Complete row keys are validated separately; driver rows may
+                # repeat an Entity across axes. Deduplicate only the internal
+                # source membership spine, preserving primary rows and the
+                # separate restrictions on population input admission.
+                membership = membership.distinct()
             self._unique("population.retained_identity_unique", membership, entity.primary_key)
             return _Rows(
                 table,
@@ -1567,6 +1577,33 @@ class _Compiler:
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
+        elif isinstance(payload, DriverCandidatePayload):
+            from marivo.analysis.compiler.attribution import prepare_expanded_attribute
+            from marivo.analysis.compiler.driver_candidate import lower_driver_candidate
+
+            previous = self._visit(root.inputs[0].root)
+            self._flush_validations()
+            name = f"__mv_driver_input_{len(self.preparations)}"
+            self.preparations.append(CompiledRelationFence(name, previous.expression, id(root)))
+            frozen = ibis.table(previous.expression.schema(), name=name)
+            original: ir.Table | None = None
+            if payload.spec.expanded_compare is not None:
+                original = frozen
+                current = self._visit(root.inputs[1].root)
+                baseline = self._visit(root.inputs[2].root)
+                expanded, driver_compare_checks = prepare_expanded_attribute(
+                    original, current.expression, baseline.expression, payload.spec
+                )
+                self.validations.extend(driver_compare_checks)
+                self._flush_validations()
+                name = f"__mv_driver_expanded_{len(self.preparations)}"
+                self.preparations.append(CompiledRelationFence(name, expanded, id(root)))
+                frozen = ibis.table(expanded.schema(), name=name)
+            table, checks, proof = lower_driver_candidate(frozen, payload.spec, original=original)
+            self.validations.extend(checks)
+            self.candidate_proof = proof
+            self.candidate_definition = payload.spec.definition
+            result = _Rows(table, previous.membership, previous.entity)
         elif isinstance(payload, CandidatePayload):
             from marivo.analysis.compiler.entity_candidate import lower_entity_candidate
 
@@ -2064,7 +2101,7 @@ def compile_retained_rows(
     attribution_proof: ir.Table | None = None
     association_proof: ir.Table | None = None
     candidate_proof: ir.Table | None = None
-    candidate_definition: CandidateDefinition | None = None
+    candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
     preparations: list[CompiledValidation | CompiledSampleFence | CompiledRelationFence] = []
     prepared_count = 0
     private_parts: dict[int, PrivateRelations] = {}
@@ -2099,6 +2136,24 @@ def compile_retained_rows(
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
+        if isinstance(payload, DriverCandidatePayload):
+            from marivo.analysis.compiler.driver_candidate import lower_driver_candidate
+
+            if payload.spec.expanded_compare is not None:
+                raise compilation_error(
+                    "logical source axis expansion", "retained expansion boundary"
+                )
+            previous = visit(value._inputs[0])
+            preparations.extend(validations[prepared_count:])
+            prepared_count = len(validations)
+            name = f"__mv_driver_input_{len(preparations)}"
+            preparations.append(CompiledRelationFence(name, previous, id(value._root)))
+            frozen = ibis.table(previous.schema(), name=name)
+            result, checks, candidate_proof = lower_driver_candidate(frozen, payload.spec)
+            candidate_definition = payload.spec.definition
+            validations.extend(checks)
+            private_parts[id(value)] = ()
+            return result
         if isinstance(payload, CandidatePayload):
             from marivo.analysis.compiler.entity_candidate import lower_entity_candidate
 

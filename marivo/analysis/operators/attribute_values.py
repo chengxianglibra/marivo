@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal, localcontext
+from fractions import Fraction
 from functools import cmp_to_key
 
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.datasets.descriptors import _bool_tuple_arity
+from marivo.analysis.datasets.descriptors import DatasetRowContract, _bool_tuple_arity
 from marivo.analysis.observation.fold_contracts import (
     MetricFoldAuthorityV1,
     coverage_columns,
@@ -61,7 +63,14 @@ def _sum(values: list[Number]) -> Number:
     if all(isinstance(value, int) for value in values):
         return sum(value for value in values if isinstance(value, int))
     try:
-        return _finite(math.fsum(float(value) for value in values))
+        floating = [float(value) for value in values]
+        try:
+            result = math.fsum(floating)
+        except OverflowError:
+            # fsum may overflow a partial accumulator although the exact final
+            # binary sum is finite. Round that exact represented sum only once.
+            result = float(sum((Fraction(value) for value in floating), Fraction(0)))
+        return _finite(result)
     except OverflowError:
         raise attribution_error(
             "finite component sums", "floating component sum overflow"
@@ -69,6 +78,8 @@ def _sum(values: list[Number]) -> Number:
 
 
 def reconciles(left: Number, right: Number) -> bool:
+    if not isinstance(left, float) and not isinstance(right, float):
+        return left == right
     with localcontext() as context:
         context.prec = 80
         a, b = Decimal(str(left)), Decimal(str(right))
@@ -181,6 +192,49 @@ def _side_term(numerator: Number, basis: Number, total_basis: Number) -> float:
     return result
 
 
+def prepare_partition_states(
+    frame: pd.DataFrame,
+    row: DatasetRowContract,
+    parts: tuple[PartFrame, ...],
+    check: Callable[[], None] | None = None,
+) -> tuple[tuple[MetricFoldAuthorityV1, ...], tuple[list[dict[str, object]], ...]]:
+    """Validate complete Delta state once and align each side by its exact input key."""
+    if check is not None:
+        check()
+    validate_delta_parts(frame, parts, row)
+    keys = row_key_names(row)
+    input_keys = frame_keys(frame, keys)
+    authorities = delta_part_authorities(row)
+    states_by_side: list[list[dict[str, object]]] = []
+    for side, (role, authority) in zip(("current", "baseline"), authorities, strict=True):
+        part = next(part for part in parts if part.role == role)
+        positions = aligned_part_positions(part, keys, input_keys)
+        states: list[dict[str, object]] = []
+        for index, key in enumerate(input_keys):
+            if check is not None and index % 1024 == 0:
+                check()
+            states.append(
+                {
+                    name: part.frame[delta_state_name(side, name)].iloc[positions[key]]
+                    for name in fold_state_names(authority)
+                }
+            )
+        states_by_side.append(states)
+    return tuple(authority for _, authority in authorities), tuple(states_by_side)
+
+
+def partition_endpoints(
+    authorities: tuple[MetricFoldAuthorityV1, ...],
+    states_by_side: tuple[list[dict[str, object]], ...],
+    indices: list[int],
+) -> tuple[Number, ...]:
+    """Evaluate independent exact endpoints, without any Attribution share arithmetic."""
+    return tuple(
+        _finite(_value(authority, _state_fold(authority, [states[index] for index in indices])))
+        for authority, states in zip(authorities, states_by_side, strict=True)
+    )
+
+
 def execute_attribute(
     frame: pd.DataFrame,
     spec: AttributeSpecV1,
@@ -188,12 +242,10 @@ def execute_attribute(
     original_frame: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Return all reconciled rows after complete state validation and fixed Top-K mapping."""
-    validate_delta_parts(frame, parts, spec.input_row)
+    authorities, states_by_side = prepare_partition_states(frame, spec.input_row, parts)
     semantics = spec.output_row.family_semantics
     if not isinstance(semantics, AttributionSemantics):
         raise attribution_error("exact Attribution output contract", "invalid output semantics")
-    keys = row_key_names(spec.input_row)
-    input_keys = frame_keys(frame, keys)
     scope_names = tuple(field.name for field in spec.scope_fields)
     axis_names = tuple(field.name for field in spec.axis_fields)
     scope_keys = frame_keys(frame, scope_names)
@@ -201,22 +253,6 @@ def execute_attribute(
     groups: dict[tuple[object, ...], list[int]] = {}
     for index, key in enumerate(scope_keys):
         groups.setdefault(key, []).append(index)
-    authorities = tuple(authority for _, authority in delta_part_authorities(spec.input_row))
-    states_by_side: list[list[dict[str, object]]] = []
-    for side, (role, authority) in zip(
-        ("current", "baseline"), delta_part_authorities(spec.input_row), strict=True
-    ):
-        part = next(part for part in parts if part.role == role)
-        positions = aligned_part_positions(part, keys, input_keys)
-        states_by_side.append(
-            [
-                {
-                    name: part.frame[delta_state_name(side, name)].iloc[positions[key]]
-                    for name in fold_state_names(authority)
-                }
-                for key in input_keys
-            ]
-        )
     # Mapping must not conceal an unavailable or contradictory original partition.
     for authority, side_states in zip(authorities, states_by_side, strict=True):
         for state in side_states:

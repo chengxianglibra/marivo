@@ -60,6 +60,7 @@ from marivo.analysis.operators.candidate_contracts import (
     CandidateSpecV1,
 )
 from marivo.analysis.operators.contracts import CompareSpecV1
+from marivo.analysis.operators.driver_contracts import DriverCandidateSpecV1
 from marivo.analysis.operators.errors import (
     AttributionError,
     CandidateError,
@@ -207,6 +208,7 @@ class LocalStage:
         | CorrelateSpecV1
         | ForecastSpecV1
         | CandidateSpecV1
+        | DriverCandidateSpecV1
     )
 
 
@@ -429,6 +431,81 @@ def _execute_graph(
             handoffs.extend(transfers)
             output_row = call.output_row
             del source
+        elif isinstance(call, DriverCandidateSpecV1):
+            from marivo.analysis.operators.driver_expansion import prepare_local_driver_expansion
+            from marivo.analysis.operators.driver_values import execute_driver
+
+            expanded = call.expanded_compare
+            if len(incoming) != (3 if expanded is not None else 1):
+                fail("complete driver screening operands", "invalid driver arity")
+            if any(f.role_id == "entity_identity" for f in call.output_row.schema.columns):
+                fail("source-native Entity driver scope", "source-required identity")
+            count = sum(
+                len(item.frame) + sum(len(part.frame) for part in item.parts) for item in incoming
+            )
+            if count > budget.policy.max_method_rows:
+                fail("complete driver input within method budget", "method size overflow")
+            size = sum(item.size for item in incoming)
+            budget.allocation(size * 12 + count * max(1, len(call.axis_fields)) * 2048)
+            original = incoming[0]
+            if expanded is not None:
+                original_row, original_rows = call.original_input_row, call.original_input_rows
+                if original_row is None or original_rows is None:
+                    fail("original selected Delta contract", "missing expansion authority")
+                validate_frame(original.frame, original_row, original_rows)
+                validate_delta_parts(original.frame, original.parts, original_row)
+                for value, row, rows in (
+                    (incoming[1], expanded.current_row, expanded.current_rows),
+                    (incoming[2], expanded.baseline_row, expanded.baseline_rows),
+                ):
+                    validate_frame(value.frame, row, rows)
+                    validate_parts(value.frame, value.parts, row)
+                frame, parts = prepare_local_driver_expansion(
+                    original.frame,
+                    incoming[1].frame,
+                    incoming[2].frame,
+                    call,
+                    incoming[1].parts,
+                    incoming[2].parts,
+                )
+                prepared_size = frame_bytes(frame) + sum(frame_bytes(part.frame) for part in parts)
+                budget.allocation(prepared_size)
+                if (
+                    len(frame) + sum(len(part.frame) for part in parts)
+                    > budget.policy.max_method_rows
+                ):
+                    fail(
+                        "complete expanded driver partitions within budget", "method size overflow"
+                    )
+            else:
+                frame, parts = original.frame, original.parts
+            validate_frame(frame, call.input_row, call.input_rows)
+            validate_delta_parts(frame, parts, call.input_row)
+            result, driver_evaluation = execute_driver(
+                frame,
+                call,
+                parts=parts,
+                original=original.frame if expanded is not None else None,
+                original_parts=original.parts if expanded is not None else (),
+                check=budget.check,
+            )
+            del frame, parts
+            summaries = replace(
+                summaries, candidate=CandidateSearchSummary(call.definition, driver_evaluation)
+            )
+            result_size = frame_bytes(result)
+            if (
+                len(result) > budget.policy.max_output_rows
+                or result_size > budget.policy.max_output_bytes
+            ):
+                fail("complete driver output within budgets", "local output overflow")
+            budget.allocation(result_size)
+            validate_frame(result, call.output_row, call.output_rows)
+            budget.live_bytes += result_size
+            value = _Frames(result, (), pa.Schema.from_pandas(result, preserve_index=False))
+            handoffs.extend((id(item.frame), id(result)) for item in incoming)
+            output_row = call.output_row
+            del original
         elif isinstance(call, CandidateSpecV1):
             from marivo.analysis.operators.candidate_values import execute_candidate
 

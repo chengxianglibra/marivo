@@ -2073,6 +2073,14 @@ absolute contribution reaches at least 50%, and scores:
 1 / (k + axis_cardinality / 1000)
 ```
 
+The Slice 6e owner amendment fixes the complete-partition interpretation.
+`axis_cardinality` counts every actual governed member in the complete folded
+partition, including zero-contribution members and the permitted null bucket;
+unobserved categories are not synthesized. `concentration_member_count` is the
+minimum k above. `concentration_share` is the sum of the first k absolute
+contributions divided by the complete absolute-contribution sum. Every produced
+row has exactly the one-element reason tuple `("axis_concentration",)`.
+
 Rows add:
 
 ```text

@@ -18,6 +18,7 @@ from marivo.analysis.datasets.registry import (
 from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
 from marivo.analysis.observation.contracts import (
     IDENTITY_FIELD_ID,
+    DimensionInput,
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
     RetainedRowsPayload,
@@ -42,6 +43,10 @@ from marivo.analysis.operators.contracts import (
     DeltaSemantics,
     comparison_basis,
     decode_comparison_basis,
+)
+from marivo.analysis.operators.driver_contracts import (
+    DriverCandidateDefinition,
+    DriverCandidatePayload,
 )
 from marivo.analysis.operators.errors import discovery_error
 from marivo.semantic._quantile import approximation_class, decode_approximation
@@ -71,12 +76,19 @@ VALUE_FIELDS: dict[CandidateObjective, tuple[tuple[str, str], ...]] = {
         ("scale_method", "string"),
         ("direction", "string"),
     ),
+    "driver_axes": (
+        ("axis_ref", "string"),
+        ("axis_cardinality", "int64"),
+        ("concentration_member_count", "int64"),
+        ("concentration_share", "float64"),
+    ),
 }
 TIME_FIELDS: dict[CandidateObjective, tuple[str, ...]] = {
     "point_anomalies": ("time_coordinate",),
     "interesting_windows": ("window_start", "window_end", "baseline_start", "baseline_end"),
     "period_shifts": ("window_start", "window_end", "baseline_start", "baseline_end"),
     "entity_outliers": (),
+    "driver_axes": (),
 }
 
 
@@ -140,7 +152,22 @@ class DeltaDiscovery:
         return _discover(self._dataset, "period_shifts", threshold=threshold, limit=limit)
 
     def __repr__(self) -> str:
-        return "<DeltaDiscovery; use .period_shifts()>"
+        return "<DeltaDiscovery; use .period_shifts() or .driver_axes()>"
+
+    def driver_axes(
+        self, *, search_space: tuple[DimensionInput, ...] | list[DimensionInput], limit: int = 50
+    ) -> LogicalCandidateDataset:
+        """Return descriptive Candidates for concentrated additive Delta axes.
+
+        Args: search_space: Ordered nonempty unique governed non-time Dimensions.
+            limit: Maximum leads in [1, 1000].
+        Returns: Logical Candidate keyed by retained screening scope and axis.
+        Example: ``change.discover.driver_axes(search_space=[region, channel])``.
+        Constraints: Exact additive partitions; missing axes require logical operands.
+        """
+        from marivo.analysis.operators.driver_axes import driver_axes
+
+        return driver_axes(self._dataset, search_space=search_space, limit=limit)
 
 
 def _parameters(threshold: float, limit: int) -> float:
@@ -169,7 +196,7 @@ def _generated(
         "candidate_reason_codes"
         if name == "reason_codes"
         else "candidate_coordinate"
-        if name in TIME_FIELDS[objective]
+        if name in TIME_FIELDS[objective] or (objective == "driver_axes" and name == "axis_ref")
         else "effect_value"
     )
     return d._make_field(
@@ -263,6 +290,7 @@ def validate_definition(definition: CandidateDefinition) -> None:
     if (
         type(definition) is not CandidateDefinition
         or definition.objective not in METHODS
+        or definition.objective == "driver_axes"
         or definition.method_id != METHODS[definition.objective]
     ):
         raise discovery_error("one closed discovery objective and method", "changed definition")
@@ -432,7 +460,7 @@ def _generated_field(
         "candidate_reason_codes"
         if name == "reason_codes"
         else "candidate_coordinate"
-        if name in TIME_FIELDS[objective]
+        if name in TIME_FIELDS[objective] or (objective == "driver_axes" and name == "axis_ref")
         else "effect_value"
     )
     return (
@@ -451,6 +479,10 @@ def candidate_filterable_field(field: d.DatasetField) -> bool:
     """Admit only exact retained coordinates and registered generated scalars."""
     if field.role_id in ("dimension", "time_dimension"):
         return isinstance(field.identity, d._CatalogFieldIdentity)
+    if field.role_id in ("comparison_coordinate", "comparison_time"):
+        from marivo.analysis.operators.driver_axes import retained_driver_field
+
+        return retained_driver_field(field)
     if field.role_id == "rank":
         return (
             field.field_id.value == "generated.rank@v1"
@@ -480,6 +512,11 @@ def candidate_filterable_field(field: d.DatasetField) -> bool:
 
 def validate_candidate(row: d.DatasetRowContract, rows: d.DatasetRowSetContract) -> None:
     s = row.family_semantics
+    if isinstance(s, CandidateSemantics) and s.objective == "driver_axes":
+        from marivo.analysis.operators.driver_axes import validate_driver_candidate
+
+        validate_driver_candidate(row, rows)
+        return
     if (
         not isinstance(s, CandidateSemantics)
         or s.objective not in METHODS
@@ -594,11 +631,13 @@ def validate_candidate(row: d.DatasetRowContract, rows: d.DatasetRowSetContract)
         )
 
 
-def _definition_of(dataset: Dataset) -> CandidateDefinition:
+def _definition_of(dataset: Dataset) -> CandidateDefinition | DriverCandidateDefinition:
     current = dataset
     while not isinstance(current, MaterializedDataset):
         root = current._root
-        if isinstance(root, LogicalRootHandle) and isinstance(root.payload, CandidatePayload):
+        if isinstance(root, LogicalRootHandle) and isinstance(
+            root.payload, (CandidatePayload, DriverCandidatePayload)
+        ):
             return root.payload.spec.definition
         if len(current._inputs) != 1 or current._inputs[0].kind != "candidate":
             raise discovery_error("original Candidate definition", "missing construction authority")
@@ -614,6 +653,25 @@ def _contract_facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
     if not isinstance(s, CandidateSemantics):
         raise discovery_error("closed Candidate meaning", "missing disclosure authority")
     definition = _definition_of(dataset)
+    if isinstance(definition, DriverCandidateDefinition):
+        return (
+            ("objective", s.objective),
+            ("method", s.method_id),
+            ("search_space", ", ".join(definition.search_space)),
+            ("discovery_limit", str(definition.limit)),
+            ("input_state_kind", definition.input_state_kind),
+            ("input_authority", definition.input_authority),
+            ("approximation", s.approximation),
+            (
+                "concentration",
+                "smallest member count reaching half the complete absolute contribution; cardinality includes zero and null members",
+            ),
+            (
+                "interpretation",
+                "descriptive screening leads; scores compare only within this definition",
+            ),
+            ("findings", "zero; filtering and ranking never establish causality or significance"),
+        )
     return (
         ("objective", s.objective),
         ("method", s.method_id),
@@ -665,7 +723,7 @@ def register_candidate(registry: DatasetFamilyRegistry, ids: d._StableIdRegistry
             ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=decode,
-            node_payload_types=(CandidatePayload, RetainedRowsPayload),
+            node_payload_types=(CandidatePayload, DriverCandidatePayload, RetainedRowsPayload),
             contract_facts=_contract_facts,
             consumer_admission=lambda dataset, method: (
                 not any(f.role_id == "rank" for f in dataset.schema.columns)

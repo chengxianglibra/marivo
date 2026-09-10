@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 import ibis
 import ibis.expr.types as ir
 
@@ -23,6 +26,9 @@ from marivo.analysis.operators.attribution_contracts import (
     delta_state_name,
 )
 
+if TYPE_CHECKING:
+    from marivo.analysis.operators.driver_contracts import DriverCandidateSpecV1
+
 
 def _numeric(value: ir.Value) -> ir.NumericValue:
     if not isinstance(value, ir.NumericValue):
@@ -43,6 +49,12 @@ def _close(left: ir.Value, right: ir.Value) -> ir.BooleanValue:
         ibis.literal(1e-12), 1e-9 * ibis.greatest(a.abs(), b.abs(), ibis.literal(1.0))
     )
     return (_finite(a) & _finite(b) & ((a - b).abs() <= tolerance)).fill_null(False)
+
+
+def _reconciles(left: ir.Value, right: ir.Value) -> ir.BooleanValue:
+    if isinstance(left, ir.FloatingValue) or isinstance(right, ir.FloatingValue):
+        return _close(left, right)
+    return (_finite(left) & _finite(right) & left.identical_to(right)).fill_null(False)
 
 
 def _value(
@@ -114,10 +126,75 @@ def _group(table: ir.Table, keys: tuple[str, ...], metrics: dict[str, ir.Value])
     return (table.group_by(list(keys)) if keys else table).aggregate(**metrics)
 
 
-def lower_attribute(
-    table: ir.Table, spec: AttributeSpecV1, *, original: ir.Table | None = None
-) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
-    """Compute every complete scope and resolution in the exact admitted engine."""
+def exact_partition_fold(
+    source: ir.Table,
+    authorities: dict[str, MetricFoldAuthorityV1],
+    keys: tuple[str, ...],
+    times: tuple[str, ...] = (),
+    *,
+    exact_floating: bool = False,
+) -> ir.Table:
+    """Fold exact retained side state without computing allocation or shares."""
+    values: dict[str, ir.Value] = {}
+    for side, authority in authorities.items():
+        coverage = set(coverage_columns(authority))
+        for name in fold_state_names(authority):
+            target = delta_state_name(side, name)
+            column = source[target]
+            if name in coverage:
+                populated = source[delta_state_name(side, coverage_columns(authority)[0])].notnull()
+                if isinstance(column, ir.BooleanColumn):
+                    values[target] = column.all(where=populated).fill_null(False)
+                elif column.type().is_numeric():
+                    values[target] = column.max(where=populated).fill_null(0)
+                else:
+                    values[target] = column.max(where=populated)
+            elif column.type().is_numeric():
+                numeric = _numeric(column)
+                if column.type().is_integer():
+                    numeric = _numeric(column.cast("decimal(38,0)"))
+                if exact_floating and isinstance(numeric, ir.FloatingValue):
+                    from marivo.analysis.compiler.driver_numeric import exact_float_sum
+
+                    values[target] = exact_float_sum(numeric).fill_null(0)
+                else:
+                    values[target] = numeric.sum().fill_null(0)
+            elif column.type().is_boolean():
+                if not isinstance(column, ir.BooleanColumn):
+                    raise compilation_error("Boolean component column", "invalid coverage column")
+                values[target] = column.all()
+            else:
+                values[target] = column.max()
+        presence = source[delta_presence_name(side)]
+        if not isinstance(presence, ir.BooleanColumn):
+            raise compilation_error("Boolean side presence", "invalid presence column")
+        values[delta_presence_name(side)] = presence.any()
+    for name in times:
+        values[name] = source[name].max()
+    return _group(source, keys, values)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ExactPartition:
+    table: ir.Table
+    authorities: dict[str, MetricFoldAuthorityV1]
+    endpoints: ir.Table
+    checks: tuple[CompiledValidation, ...]
+    axes: tuple[str, ...]
+    scopes: tuple[str, ...]
+    times: tuple[str, ...]
+
+
+def prepare_exact_partition(
+    table: ir.Table,
+    spec: AttributeSpecV1 | DriverCandidateSpecV1,
+    *,
+    method: str,
+    empty_scope_allowed: bool = False,
+    exact_floating: bool = False,
+    original: ir.Table | None = None,
+) -> ExactPartition:
+    """Validate complete side state and independently reconcile exact endpoints."""
     table = table.view()
     authorities = {
         "current": decode_fold_authority(spec.current_fold_authority).metrics[0],
@@ -161,42 +238,7 @@ def lower_attribute(
         )
 
     def aggregate(source: ir.Table, keys: tuple[str, ...]) -> ir.Table:
-        values: dict[str, ir.Value] = {}
-        for side, authority in authorities.items():
-            coverage = set(coverage_columns(authority))
-            for name in fold_state_names(authority):
-                target = delta_state_name(side, name)
-                column = source[target]
-                if name in coverage:
-                    populated = source[
-                        delta_state_name(side, coverage_columns(authority)[0])
-                    ].notnull()
-                    if isinstance(column, ir.BooleanColumn):
-                        values[target] = column.all(where=populated).fill_null(False)
-                    elif column.type().is_numeric():
-                        values[target] = column.max(where=populated).fill_null(0)
-                    else:
-                        values[target] = column.max(where=populated)
-                elif column.type().is_numeric():
-                    numeric = _numeric(column)
-                    if column.type().is_integer():
-                        numeric = _numeric(column.cast("decimal(38,0)"))
-                    values[target] = numeric.sum().fill_null(0)
-                elif column.type().is_boolean():
-                    if not isinstance(column, ir.BooleanColumn):
-                        raise compilation_error(
-                            "Boolean component column", "invalid coverage column"
-                        )
-                    values[target] = column.all()
-                else:
-                    values[target] = column.max()
-            presence = source[delta_presence_name(side)]
-            if not isinstance(presence, ir.BooleanColumn):
-                raise compilation_error("Boolean side presence", "invalid presence column")
-            values[delta_presence_name(side)] = presence.any()
-        for name in times:
-            values[name] = source[name].max()
-        return _group(source, keys, values)
+        return exact_partition_fold(source, authorities, keys, times, exact_floating=exact_floating)
 
     for side, authority in authorities.items():
         presence = table[delta_presence_name(side)]
@@ -270,11 +312,11 @@ def lower_attribute(
         # A present null endpoint remains undefined, including an empty mean.
         equal = table[side + "_value"].identical_to(recomputed)
         assertion(side + ".row_endpoint", table.filter(presence & ~equal))
-        if spec.method == "additive_difference@v1":
+        if method == "additive_difference@v1":
             assertion(
                 side + ".raw_partition_finite", table.filter(~_finite(table[side + "_value"]))
             )
-        if spec.method == "component_mix@v1":
+        if method == "component_mix@v1":
             numerator, basis = _mix(table, authority, side)
             assertion(
                 side + ".component_finite",
@@ -285,11 +327,14 @@ def lower_attribute(
             )
 
     endpoints = aggregate(table, scopes)
+    if empty_scope_allowed and not scopes and original is None:
+        endpoints = endpoints.cross_join(table.aggregate(__mv_input_count=table.count()))
+        endpoints = endpoints.filter(endpoints.__mv_input_count > 0)
     endpoint_values: dict[str, ir.Value] = {}
     for side, authority in authorities.items():
         value = _value(endpoints, authority, side)
         endpoint_values["__mv_endpoint_" + side] = value
-        if spec.method == "component_mix@v1":
+        if method == "component_mix@v1":
             endpoint_values["__mv_" + side + "_basis"] = _mix(endpoints, authority, side)[1]
         assertion(side + ".endpoint_finite", endpoints.filter(~_finite(value)))
     endpoints = endpoints.mutate(**endpoint_values)
@@ -318,8 +363,34 @@ def lower_attribute(
         for side, authority in authorities.items():
             assertion(
                 "expanded_" + side + "_endpoint",
-                matched.filter(~_close(_value(matched, authority, side), right[side + "_value"])),
+                matched.filter(
+                    ~_reconciles(_value(matched, authority, side), right[side + "_value"])
+                ),
             )
+
+    return ExactPartition(table, authorities, endpoints, tuple(checks), axes, scopes, times)
+
+
+def lower_attribute(
+    table: ir.Table, spec: AttributeSpecV1, *, original: ir.Table | None = None
+) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
+    """Compute every complete scope and resolution in the exact admitted engine."""
+    prepared = prepare_exact_partition(table, spec, method=spec.method, original=original)
+    table, authorities, endpoints = prepared.table, prepared.authorities, prepared.endpoints
+    axes, scopes, times = prepared.axes, prepared.scopes, prepared.times
+    checks = list(prepared.checks)
+    check_counts: dict[str, int] = {}
+
+    def assertion(name: str, invalid: ir.Table) -> None:
+        occurrence = check_counts.get(name, 0)
+        check_counts[name] = occurrence + 1
+        name = name if occurrence == 0 else f"{name}.{occurrence + 1}"
+        checks.append(
+            CompiledValidation("attribution." + name, invalid.aggregate(violations=invalid.count()))
+        )
+
+    def aggregate(source: ir.Table, keys: tuple[str, ...]) -> ir.Table:
+        return exact_partition_fold(source, authorities, keys, times)
 
     masks = tuple("__mv_other_" + str(index) for index in range(len(axes)))
     mapped = table.mutate(**dict.fromkeys(masks, False))
@@ -558,7 +629,10 @@ def _anchor_side(
 
 
 def prepare_expanded_attribute(
-    original: ir.Table, current: ir.Table, baseline: ir.Table, spec: AttributeSpecV1
+    original: ir.Table,
+    current: ir.Table,
+    baseline: ir.Table,
+    spec: AttributeSpecV1 | DriverCandidateSpecV1,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     """Keep original selected coordinates and original paired-time ordinal authority."""
     comparison, original_row = spec.expanded_compare, spec.original_input_row

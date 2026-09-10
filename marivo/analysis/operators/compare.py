@@ -465,6 +465,27 @@ def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> N
             row_validator=validate_delta,
             consumers=(
                 ConsumerRegistration(
+                    "discover.driver_axes",
+                    ("input",),
+                    "candidate",
+                    shapes,
+                    ("delta.current_rows@v1", "delta.sufficient_components@v1"),
+                    namespace_type=DeltaDiscovery,
+                ),
+                ConsumerRegistration(
+                    "discover.driver_axes_expanded",
+                    ("input", "current", "baseline"),
+                    "candidate",
+                    shapes,
+                    ("delta.current_rows@v1", "delta.sufficient_components@v1"),
+                    discoverable=False,
+                    operand_shape_ids=(
+                        shapes,
+                        registry.get("metric").shape_ids,
+                        registry.get("metric").shape_ids,
+                    ),
+                ),
+                ConsumerRegistration(
                     "discover.period_shifts",
                     ("delta_time",),
                     "candidate",
@@ -606,7 +627,11 @@ def _relative(
 
 
 def execute_compare(
-    current: pd.DataFrame, baseline: pd.DataFrame, spec: CompareSpecV1
+    current: pd.DataFrame,
+    baseline: pd.DataFrame,
+    spec: CompareSpecV1,
+    *,
+    ordinal_preassigned: bool = False,
 ) -> pd.DataFrame:
     """Consume two completely guarded inputs without mutating either frame."""
     current_values = [
@@ -625,7 +650,30 @@ def execute_compare(
     if shape == "scalar" and (len(current) != 1 or len(baseline) != 1):
         raise comparison_error("one explicit scalar row per operand", "invalid scalar cardinality")
     pairs: list[tuple[tuple[object, ...], int | None, int | None]] = []
-    if "time" in shape:
+    if "time" in shape and ordinal_preassigned:
+        anchored: list[dict[tuple[object, ...], int]] = []
+        for frame, keys in ((current, left_keys), (baseline, right_keys)):
+            positions: dict[tuple[object, ...], int] = {}
+            if "comparison_ordinal" not in frame:
+                raise comparison_error("original comparison ordinals", "missing expansion anchor")
+            for index, (key, ordinal) in enumerate(
+                zip(keys, frame.comparison_ordinal.tolist(), strict=True)
+            ):
+                if type(ordinal) is not int or ordinal < 0:
+                    raise comparison_error("nonnegative exact ordinal", "invalid expansion anchor")
+                anchored_key = (*key[:-1], ordinal)
+                if anchored_key in positions:
+                    raise comparison_error("unique expanded ordinal keys", "duplicate expansion")
+                positions[anchored_key] = index
+            anchored.append(positions)
+        left_positions, right_positions = anchored
+        pairs = [
+            (key, left_positions.get(key), right_positions.get(key))
+            for key in sorted(
+                set(left_positions) | set(right_positions), key=cmp_to_key(compare_value)
+            )
+        ]
+    elif "time" in shape:
         left_groups: dict[tuple[object, ...], list[int]] = {}
         right_groups: dict[tuple[object, ...], list[int]] = {}
         for keys, groups in ((left_keys, left_groups), (right_keys, right_groups)):
