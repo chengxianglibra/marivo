@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import builtins
 import copy
-import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -51,18 +50,6 @@ from marivo.datasource.runtime import (
 )
 from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult, result_repr
-
-RAW_SQL_DEFAULT_LIMIT = 100
-"""Default row bound for ``md.raw_sql`` when the caller omits ``limit``."""
-
-
-def _truncation_warning(limit: int) -> str:
-    """Return the actionable warning emitted when a raw-SQL result is truncated."""
-    return (
-        f"result truncated at requested_limit={limit}: returned_row_count == "
-        "requested_limit; additional rows exist beyond the bound. Check is_truncated "
-        "before using these rows for terminal computation, or raise limit to retrieve more."
-    )
 
 
 @dataclass(frozen=True, repr=False)
@@ -233,7 +220,7 @@ class DatasourceTestResult(RenderableResult):
 
 @dataclass(frozen=True, repr=False)
 class RawSqlResult(RenderableResult):
-    """Bounded terminal result from the datasource raw-SQL execution path."""
+    """Complete terminal query result from the datasource raw-SQL execution path."""
 
     datasource: Ref[DatasourceKind]
     backend_type: str
@@ -242,9 +229,7 @@ class RawSqlResult(RenderableResult):
     columns: tuple[str, ...]
     types: dict[str, str]
     rows: tuple[dict[str, object], ...]
-    requested_limit: int
     returned_row_count: int
-    is_truncated: bool
     timeout_seconds: int
     duration_ms: int
     warnings: tuple[str, ...]
@@ -252,18 +237,18 @@ class RawSqlResult(RenderableResult):
     def __post_init__(self) -> None:
         if self.returned_row_count != len(self.rows):
             raise ValueError(
-                "returned_row_count must equal the number of bounded rows: "
+                "returned_row_count must equal the number of returned rows: "
                 f"returned_row_count={self.returned_row_count}, rows={len(self.rows)}"
             )
 
     @property
     def shape(self) -> tuple[int, int]:
-        """Return bounded returned rows by declared columns."""
+        """Return query result rows by declared columns."""
         return (self.returned_row_count, len(self.columns))
 
     @property
     def row_count(self) -> int:
-        """Return bounded rows, not full-source cardinality."""
+        """Return query result rows, not full-source cardinality."""
         return self.returned_row_count
 
     def _repr_identity(self) -> str:
@@ -289,19 +274,14 @@ class RawSqlResult(RenderableResult):
                     ".show()",
                 ),
             )
-            .status(
-                f"terminal bounded result{' TRUNCATED' if self.is_truncated else ''} "
-                f"warnings={len(self.warnings)}"
-            )
+            .status(f"terminal query result warnings={len(self.warnings)}")
             .field("terminal_only", "true")
             .field("typed_reentry", "false")
-            .field("row_count_semantics", "returned_bounded_rows")
+            .field("row_count_semantics", "returned_query_rows")
             .field("returned_row_count", str(self.returned_row_count))
-            .field("requested_limit", str(self.requested_limit))
-            .field("is_truncated", str(self.is_truncated).lower())
             .field(
                 "preserves",
-                "bounded rows, declared columns/types, datasource, SQL reason",
+                "query result rows, declared columns/types, datasource, SQL reason",
             )
             .field(
                 "does_not_preserve",
@@ -319,7 +299,7 @@ class RawSqlResult(RenderableResult):
             .table(self.columns, preview_rows, row_count=self.returned_row_count)
             .field(
                 "scope",
-                'bounded returned rows do not guarantee a cheap diagnostic; see marivo.help("datasource.raw_sql")',
+                'callers control query size; SQL LIMIT does not bound scan cost; see marivo.help("datasource.raw_sql")',
             )
         )
         if self.warnings:
@@ -327,7 +307,7 @@ class RawSqlResult(RenderableResult):
         return card
 
     def to_pandas(self) -> pd.DataFrame:
-        """Return a defensively isolated pandas DataFrame from bounded result rows.
+        """Return a defensively isolated pandas DataFrame from complete query result rows.
 
         The DataFrame is built in declared column order. Object-dtype columns
         are recursively deep-copied so mutations to the DataFrame or mutable
@@ -914,118 +894,60 @@ def _require_raw_sql_reason(reason: str) -> str:
     return reason.strip()
 
 
-def _require_single_statement(sql: str) -> str:
-    """Reject empty SQL and ``;``-separated multi-statement input.
+def _has_sql_statement(sql: str) -> bool:
+    """Look past leading separators and comments without parsing executable SQL."""
+    position = 0
+    comment_depth = 0
+    while position < len(sql):
+        if comment_depth:
+            if sql.startswith("/*", position):
+                comment_depth += 1
+                position += 2
+            elif sql.startswith("*/", position):
+                comment_depth -= 1
+                position += 2
+            else:
+                position += 1
+        elif sql[position].isspace() or sql[position] == ";":
+            position += 1
+        elif sql.startswith("--", position) or sql[position] == "#":
+            while position < len(sql) and sql[position] not in "\r\n":
+                position += 1
+        elif sql.startswith("/*", position):
+            # MySQL/MariaDB executable comments must reach the backend unchanged.
+            if sql.startswith(("/*!", "/*M!"), position):
+                return True
+            comment_depth = 1
+            position += 2
+        else:
+            return True
+    return False
 
-    Read-only is enforced at the connection level (and via a read-only transaction
-    for transaction-based backends), not by parsing the statement shape, so this
-    check only guards statement count.
+
+def _require_single_statement(sql: str) -> str:
+    """Reject SQL without a statement and ``;``-separated multi-statement input.
+
+    This check only guards statement count. Read-only execution depends on backend
+    connection/transaction protections or database permissions, never this check.
     """
     text = sql.strip()
-    if not text:
-        raise ValueError("sql must be non-empty.")
+    if not _has_sql_statement(text):
+        raise ValueError(
+            "sql must contain a statement, not only whitespace, semicolons, or comments."
+        )
     stripped = text.rstrip(";")
     if ";" in stripped:
         raise ValueError("raw_sql accepts a single read-only statement.")
     return stripped
 
 
-_RAW_SQL_METADATA_KEYWORDS = {"SHOW", "DESCRIBE", "DESC", "EXPLAIN"}
-
-
-def _raw_sql_keyword(sql: str) -> str:
-    match = re.match(r"([A-Za-z_]+)", sql.lstrip())
-    return match.group(1).upper() if match else ""
-
-
-def _is_metadata_diagnostic_sql(sql: str) -> bool:
-    return _raw_sql_keyword(sql) in _RAW_SQL_METADATA_KEYWORDS
-
-
 def _extract_raw_sql_frame(
-    cursor: Any,
+    cursor: object,
     include_types: bool,
-    *,
-    limit: int | None = None,
 ) -> tuple[tuple[str, ...], tuple[dict[str, object], ...], dict[str, str]]:
-    """Extract columns, rows, and best-effort types from a backend cursor.
-
-    Delegates to ``decode_cursor_frame`` which handles both the DB-API
-    ``description``+``fetchall`` path (DuckDB/Postgres/Trino/MySQL) and the
-    ``column_names``+``result_rows`` path (ClickHouse).
-    """
-    frame = decode_cursor_frame(cursor, include_types=include_types, max_rows=limit)
+    """Decode the complete query result without a client-side row limit."""
+    frame = decode_cursor_frame(cursor, include_types=include_types, max_rows=None)
     return frame.columns, frame.rows, frame.types
-
-
-_EXPLICIT_NULLS_ORDERING = re.compile(r"\bNULLS\s+(FIRST|LAST)\b", re.IGNORECASE)
-
-
-def _has_explicit_nulls_ordering(statement: str) -> bool:
-    """True when *statement* carries an explicit ``NULLS FIRST/LAST`` clause.
-
-    sqlglot's default dialect fills in (and then strips) null-ordering clauses
-    using MySQL's defaults — ``ASC`` defaults to ``NULLS FIRST``, ``DESC`` to
-    ``NULLS LAST``. Trino/Postgres/DuckDB default the opposite way, so a
-    stripped explicit clause silently flips the Top-N row set. Detecting the
-    clause in the source text (the AST cannot distinguish explicit from
-    default) lets the caller fall back to the verbatim wrapper.
-    """
-    return _EXPLICIT_NULLS_ORDERING.search(statement) is not None
-
-
-def _bounded_execution_sql(statement: str, limit: int) -> str:
-    """Bound a read-only SELECT to ``limit + 1`` rows without disturbing ORDER BY.
-
-    ``raw_sql`` previously wrapped the user statement in an unordered subquery and
-    applied ``LIMIT`` on the outside. Trino (and the SQL standard) only honor
-    ``ORDER BY`` in the query that directly contains it, so an outer ``LIMIT``
-    with no ``ORDER BY`` may select an arbitrary set — silently discarding a
-    user's ``ORDER BY ... LIMIT`` Top-N intent. We therefore inject the
-    ``limit + 1`` truncation probe into the same top-level statement via
-    sqlglot, so any user ``ORDER BY`` still governs which rows the probe keeps.
-
-    Statements that already carry their own row boundary (``LIMIT``, ``OFFSET``,
-    or ``FETCH FIRST``) are returned verbatim: overriding them would change the
-    user's result-set contract. Truncation detection still works because the
-    client-side ``decode_cursor_frame`` probe fetches ``limit + 1`` rows and
-    ``is_truncated`` compares the fetched count against ``limit``.
-
-    Statements whose default-dialect round-trip would change their meaning fall
-    back to the original subquery wrapper instead of being rewritten:
-
-    * ``SELECT ... INTO`` is a write; the default dialect normalizes it into a
-      valid ``CREATE TABLE ... AS SELECT``, which would execute on backends
-      without connection-level read-only (Trino). The wrapper turns it back into
-      invalid SQL.
-    * ``TABLESAMPLE BERNOULLI(n)`` is rewritten as ``BERNOULLI(n ROWS)``,
-      changing percentage sampling into a row count.
-    * An explicit ``NULLS FIRST/LAST`` clause is stripped when it matches the
-      MySQL-style default, silently flipping the Top-N null ordering.
-
-    Unparseable SQL and non-SELECT top-level statements also fall back to the
-    original subquery wrapper.
-    """
-    probe_limit = limit + 1
-    import sqlglot
-    from sqlglot import exp
-
-    fallback = f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {probe_limit}"
-
-    try:
-        parsed = sqlglot.parse_one(statement)
-    except sqlglot.errors.ParseError:
-        return fallback
-    if not isinstance(parsed, (exp.Select, exp.SetOperation)):
-        return fallback
-    if parsed.args.get("into") is not None:
-        return fallback
-    if parsed.args.get("limit") is not None or parsed.args.get("offset") is not None:
-        return statement
-    if parsed.find(exp.TableSample) is not None or _has_explicit_nulls_ordering(statement):
-        return fallback
-    parsed.set("limit", exp.Limit(expression=exp.Literal.number(probe_limit)))
-    return parsed.sql()
 
 
 def raw_sql(
@@ -1033,27 +955,19 @@ def raw_sql(
     sql: str,
     *,
     reason: str,
-    limit: int = RAW_SQL_DEFAULT_LIMIT,
     timeout_seconds: int = 30,
     include_types: bool = True,
     project_root: Path | None = None,
 ) -> RawSqlResult:
-    """Run governed read-only SQL exploration against a datasource.
+    """Run terminal SQL exploration and load the complete query result.
 
     Args:
         datasource: Datasource reference returned by ``ms.ref.datasource("warehouse")``.
-        sql: Single read-only SQL statement. ``SELECT`` and ``WITH`` diagnostics
-            are bounded to ``limit + 1`` rows by injecting a probe ``LIMIT`` into
-            the same top-level query (preserving any user ``ORDER BY``);
-            metadata diagnostics such as ``SHOW``, ``DESCRIBE``, ``DESC``, and
-            ``EXPLAIN`` execute directly so backend metadata syntax remains valid.
+        sql: Single read-only SQL statement in the datasource's native dialect.
+            Apart from trimming whitespace and trailing semicolons, the statement
+            executes unchanged, without rewriting or an injected row limit.
         reason: Required exploration reason shown in the result. Name the
             physical or semantic question and disclose inferred assumptions.
-        limit: Maximum rows to return. Defaults to ``RAW_SQL_DEFAULT_LIMIT``
-            (100); pass an explicit ``limit`` for larger result sets. Truncation
-            is reported actively — see the ``is_truncated`` field, the
-            ``TRUNCATED`` card status, and the truncation warning injected into
-            ``warnings``.
         timeout_seconds: Backend execution timeout; fail-closed if unenforceable.
             Connection acquisition has a separate default 30-second handshake
             budget. This value is not an end-to-end operation deadline.
@@ -1061,45 +975,41 @@ def raw_sql(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        A bounded ``RawSqlResult`` labeled as ``terminal_only``.
+        A complete ``RawSqlResult`` labeled as ``terminal_only``. The result
+        describes the submitted query, not necessarily the full source population.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1 AS ok", reason="check query path")
+        >>> import marivo.semantic as ms
+        >>> md.raw_sql(ms.ref.datasource("default"), "SELECT 1 AS ok LIMIT 1", reason="check query path")
 
     Constraints:
-        Rejects empty reasons, empty SQL, multi-statement SQL, non-positive limit,
-        and non-positive timeout before execution. Read-only is enforced at the
-        connection level: file-backed DuckDB and ClickHouse open in read-only
-        mode; in-memory DuckDB uses a read-only transaction. Postgres
-        and MySQL run inside a ``READ ONLY`` transaction via the engine profile
-        ``authoring_timeout`` context, and Trino rejects non-SELECT statements by
-        refusing to execute them through the probe-LIMIT path (write statements,
-        including ``SELECT ... INTO``, are turned into invalid SQL by the subquery
-        fallback wrapper rather than being normalized into a runnable ``CREATE
-        TABLE ... AS SELECT``). The timeout
-        remains armed from before
-        the user statement executes through bounded result fetching; if the profile
-        has no enforceable timeout the function fails closed with
-        ``DatasourceRawSqlError(stage="timeout_setup")``.
+        Rejects empty reasons, SQL without a statement (including comment-only
+        or semicolon-only input), multi-statement SQL, and non-positive
+        timeout before execution. All returned rows are loaded into client memory;
+        there is no client-side row or byte cap and no truncation probe. Callers
+        must control query size using filters, partition predicates, aggregation,
+        and SQL ``LIMIT``. A returned-row limit does not bound backend scan cost.
+        Use query plans and a narrow statement to control expensive diagnostics.
+
+        Use read-only SQL and credentials. Existing backend read-only connection
+        or transaction protections remain active where supported. Trino relies on
+        database-side permissions: use an account denied writes. Marivo does not
+        parse SQL for write detection or enforce read-only execution on Trino.
+
+        The backend timeout remains armed during execution and complete result
+        fetching. An unenforceable timeout raises ``DatasourceRawSqlError`` before
+        the user statement executes. Execution or fetching failures raise a
+        ``DatasourceRawSqlError`` without returning a partial result, and the
+        backend is always disconnected. Errors do not certify absence of side effects.
+
         This is a normal source-exploration option when inspection or a generic
         sample cannot answer the current question. Inferred semantics remain
-        provisional and must be disclosed at closeout.
-        The result cannot become a canonical metric or re-enter typed analysis.
-        Returned rows are bounded, but the backend diagnostic itself can still be
-        expensive; callers must inspect query plans and supply a narrow statement.
-        Truncation is reported actively: when the result is truncated the
-        ``warnings`` tuple carries an explicit truncation warning and the rendered
-        card flags ``TRUNCATED``. Callers MUST check ``is_truncated`` before using
-        returned rows for terminal computation — a truncated result can silently
-        mislead downstream aggregates (e.g. zero rates, NaN correlations).
-        Any execution failure (including a write attempt) surfaces as a
-        ``DatasourceRawSqlError``; the backend is always disconnected. The result
-        is terminal custom analysis — it carries no metric, time-scope, slice,
-        lineage, or canonical analysis contract.
+        provisional and must be disclosed at closeout. The result carries no
+        metric, time-scope, slice, lineage, or canonical analysis contract and
+        cannot re-enter typed analysis. Display previews may omit rows; ``rows``
+        and ``to_pandas()`` expose the complete returned query result.
     """
-    if limit < 1:
-        raise ValueError("limit must be positive.")
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
     reason_text = _require_raw_sql_reason(reason)
@@ -1138,25 +1048,19 @@ def raw_sql(
         )
     service = DatasourceConnectionService(project_root)
     with service.use_backend(datasource_id, read_only=True) as backend:
-        is_metadata_diagnostic = _is_metadata_diagnostic_sql(statement)
-        fetch_limit = limit
-        execution_sql = (
-            statement if is_metadata_diagnostic else _bounded_execution_sql(statement, limit)
-        )
         start = time.monotonic()
         try:
             with timeout(backend, timeout_seconds):
-                cursor = backend.raw_sql(execution_sql)
-                columns, extracted_rows, types = _extract_raw_sql_frame(
+                cursor = backend.raw_sql(statement)
+                columns, rows, types = _extract_raw_sql_frame(
                     cursor,
                     include_types,
-                    limit=fetch_limit,
                 )
         except DatasourceError:
             raise
         except Exception as exc:
             raise DatasourceRawSqlError(
-                message="raw_sql execution or result fetching failed; no side effects were applied.",
+                message="raw_sql execution or result fetching failed.",
                 expected="a read-only diagnostic the datasource backend can execute",
                 received=cr.redact(str(exc), cr.injected_values(backend)),
                 location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
@@ -1168,14 +1072,10 @@ def raw_sql(
                 ),
             ) from cr.safe_backend_exception(exc, backend)
         duration_ms = int((time.monotonic() - start) * 1000)
-        rows = extracted_rows[:limit]
-        is_truncated = len(extracted_rows) > limit
         warnings = [
-            "raw SQL diagnostics can be expensive even when returned rows are bounded",
+            "raw SQL diagnostics can be expensive; callers control query size and all returned rows load into client memory",
             "terminal custom analysis; no metric, time-scope, slice, lineage, or canonical analysis contract",
         ]
-        if is_truncated:
-            warnings.append(_truncation_warning(limit))
         return RawSqlResult(
             datasource=datasource,
             backend_type=backend_type,
@@ -1184,9 +1084,7 @@ def raw_sql(
             columns=columns,
             types=types,
             rows=rows,
-            requested_limit=limit,
             returned_row_count=len(rows),
-            is_truncated=is_truncated,
             timeout_seconds=timeout_seconds,
             duration_ms=duration_ms,
             warnings=tuple(warnings),

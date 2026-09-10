@@ -75,11 +75,14 @@ Choose among three evidence paths:
   conditional logic, comparison with existing SQL, or bounded scratch work.
 
 These paths are composable within the caller's explicit data-access budget.
-There is no mandatory inspect-snapshot-projection ladder. Every user-data read
-has positive row and timeout guards; a returned-row limit is not a scan bound.
+There is no mandatory inspect-snapshot-projection ladder. Scoped sampling retains
+its positive row and timeout guards. For raw SQL, callers control query size in
+SQL; Marivo loads every returned row without a client resource cap. A SQL row
+limit is not a scan bound.
 
-Raw SQL is a normal governed exploration option. It remains read-only, bounded,
-effect-disclosed, and terminal. A `RawSqlResult` cannot enter
+Raw SQL is a normal governed exploration option. Use read-only SQL and credentials;
+Trino relies on database-side permissions. The result is effect-disclosed and
+terminal. A `RawSqlResult` cannot enter
 `session.observe(...)`, become a `MetricFrame`, or be persisted as canonical
 analysis. Its observed facts and disclosed assumptions may inform semantic
 Python.

@@ -664,8 +664,26 @@ md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="inspect pruning").show()
 ```
 
 `md.raw_sql(...)` is a normal governed exploration option and the sole terminal
-raw SQL execution path — bounded by
-`timeout_seconds` (default 30), exact row limiting, and read-only enforcement.
+raw SQL execution path. It executes the submitted statement unchanged after the
+existing whitespace/trailing-semicolon normalization and single-statement check.
+Inputs containing only whitespace, semicolons, or ordinary SQL comments are
+rejected before acquiring a connection. Comments on valid queries remain intact;
+backend executable comments are passed through for the backend to interpret.
+There is no `limit` argument, injected SQL boundary, client row/byte cap, or
+truncation probe. All returned rows load into client memory; control query size
+with filters, partition predicates, aggregation, and SQL `LIMIT`. For example:
+
+```python
+md.raw_sql(warehouse, "SELECT id FROM orders ORDER BY id LIMIT 20", reason="inspect order ids").show()
+```
+
+`timeout_seconds` (default 30) remains active through execution and complete
+fetching, with a separate 30-second connection handshake budget. A fetch failure
+raises an error instead of returning partial results. Use read-only SQL and
+credentials. Existing backend read-only protections remain where supported;
+Trino relies on database-side permissions and requires an account denied writes.
+Marivo does not parse SQL to prevent writes on Trino or guarantee no side effects.
+Result cards retain their display budgets without limiting the stored result.
 It returns a `RawSqlResult` that cannot re-enter typed analysis; use
 `RawSqlResult.to_pandas()` for the terminal pandas exit. Its observed facts may
 inform explicit semantic Python, but the result itself cannot become typed or
@@ -674,8 +692,10 @@ inspection cannot answer, or provisional terminal work without typed inputs;
 do not replace available governed definitions or bypass typed preconditions.
 When an Artifact already establishes the inputs and only the required method
 is unsupported, use that Artifact's terminal export instead of querying again.
-Retain query scope, semantic gaps, and truncation; the returned-row budget is
-not a bound on source scanning.
+Retain query scope, semantic gaps, and caller-stated budgets. SQL `LIMIT` does
+not bound source scanning. `rows`, `shape`, `row_count`, and `to_pandas()` describe
+the complete returned query result, not necessarily the full source population.
+`requested_limit` and `is_truncated` are removed without compatibility aliases.
 
 Marivo therefore has three distinct SQL categories: SQL compiled by Ibis from
 typed expressions; datasource-adapter SQL generated only from validated source IR

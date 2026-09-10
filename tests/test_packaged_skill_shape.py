@@ -275,7 +275,8 @@ def test_semantic_skill_teaches_governed_terminal_raw_sql() -> None:
     text = (SEMANTIC_SKILL_DIR / "SKILL.md").read_text()
 
     assert "normal governed exploration option" in text
-    assert "read-only, bounded" in text
+    assert "read-only SQL and" in text
+    assert "control query size in SQL" in text
     assert "terminal" in text
     assert "cannot be passed to typed analysis" in text
 

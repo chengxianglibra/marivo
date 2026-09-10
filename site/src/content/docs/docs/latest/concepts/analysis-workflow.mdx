@@ -850,7 +850,7 @@ when governed measures or catalog metrics express a question-scoped metric.
 | Compare monthly revenue and identify channel contributions | Observe the governed inputs, then use typed comparison, contribution attribution, and supported ranking. Do not recompute them in pandas after observation. |
 | Plot the computed channel contributions | Read the completed AttributionFrame with `to_pandas()` and plot its existing values. Keep its Artifact identity; labels and layout are presentation, while changing the population or aggregation is new analysis. |
 | Fit a regression to governed observations | Typed regression is unsupported. Complete supported upstream preparation, then export the appropriate Artifact for the external model. Retain exact inputs, code, assumptions, and limitations; the model result is not typed Evidence. |
-| Inspect source rows with missing region values | Prefer public inspection when sufficient; otherwise use bounded, read-only `md.raw_sql` for this source-specific question. A sample cannot establish the full population. |
+| Inspect source rows with missing region values | Prefer public inspection when sufficient; otherwise use `md.raw_sql` with read-only credentials and query size controlled in SQL for this source-specific question. A sample cannot establish the full population. |
 
 If a capability is unknown, discover it through `marivo.help("analysis.methods")`
 and focused Help. If inputs fail preconditions, follow structured repair. A
@@ -877,8 +877,10 @@ branch after readiness. Only unresolved business meaning requires user input;
 the handoff itself does not require approval.
 
 Read `marivo.help("datasource.raw_sql")` before source SQL. Retain the datasource,
-purpose, query scope, semantic gaps, positive row and timeout budgets, and
-truncation status. For example, given a configured warehouse with an `orders`
+purpose, query scope, semantic gaps, and caller-stated data-access and timeout
+budgets. All returned rows load into client memory without a row or byte cap;
+control query size with filters, partition predicates, aggregation, and SQL `LIMIT`.
+Use read-only SQL and credentials: Trino relies on database-side permissions. For example, given a configured warehouse with an `orders`
 table and a `region` column:
 
 ```python
@@ -887,20 +889,20 @@ import marivo.semantic as ms
 
 result = md.raw_sql(
     ms.ref.datasource("warehouse"),
-    "SELECT region FROM orders WHERE region IS NULL",
+    "SELECT region FROM orders WHERE region IS NULL LIMIT 20",
     reason="inspect source rows with missing region values",
-    limit=20,
     timeout_seconds=30,
 )
-result.show()  # Check is_truncated before interpreting returned rows.
+result.show()  # Display a preview; result.rows contains the complete query result.
 ```
 
 `RawSqlResult` has no `.contract()` or typed continuations. Its ordered `columns`,
 `shape`, and `row_count` describe returned rows only:
-`row_count == shape[0] == returned_row_count`. Read `requested_limit` and
-`is_truncated` together. A returned-row limit does not bound the source scan, and
-truncated rows do not establish a complete population. `RawSqlResult.to_pandas()`
-exports this same terminal result; it does not establish typed inputs.
+`row_count == shape[0] == returned_row_count`. SQL executes without rewriting or
+an injected limit, and these values describe its complete result. SQL `LIMIT`
+does not bound the source scan, and a sampled or filtered query does not establish
+a complete population. `RawSqlResult.to_pandas()` exports this same terminal
+result; it does not establish typed inputs. Execution and connection timeouts remain.
 
 ## Read and recover artifacts
 
@@ -982,7 +984,7 @@ and never guesses business meaning.
 If a required metric, dimension, or time dimension is missing or disputed, the
 affected typed branch stops. The agent may infer temporary semantics only in a
 terminal `md.raw_sql(...)` branch and must disclose the datasource, purpose,
-assumptions, bounded result, and loss of canonical identity, lineage, and
+assumptions, query scope and result, and loss of canonical identity, lineage, and
 evidence continuity. It hands the smallest durable gap to `marivo-semantic`
 without requesting approval for the skill transition, then resumes the affected
 analysis branch from the returned `analysis_ready_inputs`. Only unresolved business

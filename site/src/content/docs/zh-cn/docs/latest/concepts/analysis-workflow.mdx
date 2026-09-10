@@ -729,7 +729,7 @@ base_frame = session.observe(active_users, ...)
 | 比较月度收入并识别渠道贡献 | 观察受治理输入后，继续使用类型化比较、贡献归因及支持的排名操作，不在 observe 后用 pandas 重算。 |
 | 绘制已计算的渠道贡献图 | 从完成的 AttributionFrame 调用 `to_pandas()`，绘制已有数值并保留 Artifact 身份。标签与布局属于展示，改变总体或聚合则属于新分析。 |
 | 对受治理观测拟合回归模型 | 当前不支持类型化回归。先完成支持的上游准备，再从合适的 Artifact 导出供外部模型使用。保留精确输入、代码、假设及限制；模型结果不是类型化 Evidence。 |
-| 检查源端 region 缺失的记录 | 公共 inspection 足够时优先使用；否则通过有界、只读的 `md.raw_sql` 回答这个具体源端问题。样本不能证明完整总体。 |
+| 检查源端 region 缺失的记录 | 公共 inspection 足够时优先使用；否则使用只读账号，通过 SQL 自行控制 `md.raw_sql` 查询规模来 回答这个具体源端问题。样本不能证明完整总体。 |
 
 能力未知时，通过 `marivo.help("analysis.methods")` 和聚焦 Help 发现能力。
 输入不满足前置条件时，遵循结构化修复指导。对齐、质量或可加性校验失败，
@@ -750,7 +750,9 @@ base_frame = session.observe(active_users, ...)
 需要用户参与；交接本身不需要审批。
 
 源端 SQL 执行前阅读 `marivo.help("datasource.raw_sql")`。保留数据源、目的、查询
-范围、语义缺口、正数行数与超时预算，以及截断状态。例如，已配置的 warehouse
+范围、语义缺口以及调用方要求的数据访问与超时预算。全部返回行都会加载到客户端
+内存，没有客户端行数或字节上限；通过过滤条件、分区谓词、聚合和 SQL `LIMIT`
+自行控制查询规模。使用只读 SQL 和账号，Trino 的只读保障依赖数据库权限。例如，已配置的 warehouse
 含有 `orders` 表及 `region` 列时：
 
 ```python
@@ -759,19 +761,18 @@ import marivo.semantic as ms
 
 result = md.raw_sql(
     ms.ref.datasource("warehouse"),
-    "SELECT region FROM orders WHERE region IS NULL",
+    "SELECT region FROM orders WHERE region IS NULL LIMIT 20",
     reason="inspect source rows with missing region values",
-    limit=20,
     timeout_seconds=30,
 )
-result.show()  # Check is_truncated before interpreting returned rows.
+result.show()  # Display a preview; result.rows contains the complete query result.
 ```
 
 `RawSqlResult` 没有 `.contract()` 或类型化后续操作。其有序 `columns`、`shape`
 与 `row_count` 只描述返回行：`row_count == shape[0] == returned_row_count`。
-同时读取 `requested_limit` 和 `is_truncated`。返回行数限制不等于源端扫描量限制；
-截断数据不能证明完整总体。`RawSqlResult.to_pandas()` 只导出同一终端结果，
-不会建立类型化输入。
+SQL 不经改写或自动注入行数限制，这些字段描述完整查询结果。SQL `LIMIT` 不等于
+源端扫描量限制，抽样或过滤后的查询也不能证明完整总体。`RawSqlResult.to_pandas()`
+只导出同一终端结果，不会建立类型化输入。执行与连接超时保留。
 
 ## 读取与恢复产物
 
@@ -840,7 +841,7 @@ Marivo 维护一条类型化分析链。终端出口是 `frame.to_pandas()` 和 
 类型化分析在符合条件的运行时边界接受精确当前目录条目或稳定的
 语义引用，并立即把两种形式归一化为引用，绝不猜测业务含义。如果缺少或有争议的
 指标、维度或时间维度，受影响的类型化分支会停止。智能体只可以在终端 `md.raw_sql(...)`
-分支临时推断口径，并必须披露数据源、目的、全部假设、有界结果，以及规范身份、
+分支临时推断口径，并必须披露数据源、目的、全部假设、查询范围及结果，以及规范身份、
 血缘和证据 continuity 的缺失。它无需为 skill 切换请求批准，直接把最小可复用缺口交给
 `marivo-semantic`，再从返回的 `analysis_ready_inputs` 恢复受影响的分析分支。只有尚未确定的
 业务含义才需要用户参与。语义层拥有业务对象契约；分析层拥有基于这些对象的类型化计算。

@@ -139,9 +139,11 @@ not a new approval or reporting checkpoint.
 Keep presentation tied to the original Artifact identity and scope. Keep external
 calculations rerunnable with their exact inputs, assumptions, and limitations;
 their outputs do not inherit typed Evidence guarantees. For raw SQL, retain the
-datasource, purpose, query scope, semantic gaps, positive row and timeout budgets,
-and truncation status. A returned-row limit does not bound the source scan;
-truncated rows do not establish a complete population.
+datasource, purpose, query scope, semantic gaps, and caller-stated data-access
+and timeout budgets. Control query size in SQL before execution; all returned
+rows load into client memory. Use read-only SQL and credentials as required by
+focused Help. A SQL row limit does not bound the source scan, and a sampled or
+filtered result does not establish a complete population.
 
 Terminality applies to the exported branch: the original Artifact can still feed
 typed analysis, but exported rows and their derivatives cannot re-enter it. Do

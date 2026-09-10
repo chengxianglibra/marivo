@@ -1347,10 +1347,13 @@ keys: an unmaterialized key must be materialized upstream, exposed through a
 database view, or used only through terminal `md.raw_sql(...)`.
 
 Choose evidence according to the question: inspection only, optional explicitly
-scoped sampling, and/or `md.raw_sql(...)` for bounded source-specific metadata,
-distributions, joins, or conditional scratch work. Raw SQL is a normal governed
-exploration option with read-only, positive row and timeout guards. Its terminal
-result may inform semantic Python but cannot enter typed analysis.
+scoped sampling, and/or `md.raw_sql(...)` for source-specific metadata,
+distributions, joins, or conditional scratch work. Control raw SQL query size
+with filters, partition predicates, aggregation, and SQL `LIMIT`: all returned
+rows load into client memory without a row or byte cap. `LIMIT` does not bound
+scan cost. Use read-only SQL and credentials; Trino relies on database-side
+permissions. Execution and connection timeouts remain. Its terminal result may
+inform semantic Python but cannot enter typed analysis.
 
 `md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
 table or view inside that datasource. `md.parquet(...)` and `md.csv(...)` are

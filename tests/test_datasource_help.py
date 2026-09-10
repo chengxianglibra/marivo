@@ -54,10 +54,12 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
             "raw_sql",
             (
                 "potentially_unbounded_read",
-                "requires_positive_row_guard",
-                "governed read-only SQL exploration",
+                "requires_positive_timeout_guard",
+                "terminal SQL exploration",
                 "cannot enter typed analysis",
-                "check is_truncated before drawing conclusions",
+                "all returned rows load into client memory",
+                "SQL LIMIT",
+                "Trino relies on database-side permissions",
             ),
         ),
         (
@@ -263,3 +265,15 @@ def test_all_focused_help_defines_every_alias_it_uses() -> None:
         text = _text(target)
         assert _DATASOURCE_IMPORT in text
         assert (_SEMANTIC_IMPORT in text) == ("ms." in text), target
+
+
+def test_raw_sql_disclosure_has_no_client_row_guard() -> None:
+    assert "limit" not in inspect.signature(md.raw_sql).parameters
+    text = _text("raw_sql")
+    for removed in (
+        "PositiveLimit",
+        "requires_positive_row_guard",
+        "is_truncated",
+        "requested_limit",
+    ):
+        assert removed not in text
