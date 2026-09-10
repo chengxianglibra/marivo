@@ -1215,6 +1215,8 @@ def test_transform_filter_rejects_non_default_rank_kwargs(tmp_path, kwargs, name
 
 def test_transform_topk_by_measure_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
+    exported = frame.to_pandas()
+    exported.loc[:, frame.value_columns[0]] = -1.0
     top = _active_transform(frame, op="topk", by=frame.value_columns[0], limit=1)
     assert top.meta.row_count == 1
     assert top.to_pandas()[top.value_columns[0]].tolist() == [20.0]

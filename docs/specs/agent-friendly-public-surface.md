@@ -400,8 +400,18 @@ attribution = session.attribute(delta, axes=[created_at])
 attribution.show()
 ```
 
-Short rule: **after each analysis step, read `show()`; before composing another
-operator, read `contract()`; use `to_pandas()` only for terminal custom work.**
+Use `show()` when bounded current state is needed and `contract()` when typed
+continuations are unknown. Use `to_pandas()` for complete rows, presentation, or
+methods outside the installed typed surface; it is not the default next step
+after `observe`. Supported comparison, contribution attribution, and transforms
+that affect conclusions stay typed. Unknown capabilities require focused Help;
+failed preconditions require repair rather than a pandas or SQL workaround.
+The original Artifact remains usable after export, while exported rows and their
+derivatives cannot re-enter typed analysis. Keep presentation linked to the
+original identity and distinguish external calculations from typed Evidence.
+Use `md.raw_sql` for source-specific questions or disclosed provisional analysis
+without typed inputs, preserving query scope, semantic gaps, budgets, and
+truncation. Detailed exit guarantees belong to the operator/frame specification.
 Everything else that used to be a near-peer exit — `summary()`, `schema()`,
 `preview()`, `next_intents()` — was removed from the public frame surface so the
 agent never has to choose a reading order before doing real work.

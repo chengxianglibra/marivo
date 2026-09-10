@@ -157,6 +157,29 @@ def test_gate_compare_accepts_metric_frames():
     )
 
 
+@pytest.mark.parametrize("derived", (False, True))
+def test_typed_gate_rejects_exported_rows_and_their_derivatives(derived: bool) -> None:
+    session = session_attach.get_or_create(name="terminal")
+    frame = _metric_frame(session)
+    rows = frame.to_pandas()
+    if derived:
+        rows = rows.assign(external_result=1.0)
+
+    with pytest.raises(AnalysisError) as exc:
+        validate_capability_inputs(
+            "compare", current=rows, baseline=frame, alignment=window_bucket()
+        )
+    assert exc.value.location == "compare.current"
+    assert exc.value.repair is not None
+    assert exc.value.repair.help_target == LiveHelpTarget(
+        surface="analysis", canonical_id="compare"
+    )
+
+    with pytest.raises(AnalysisError) as attribute_exc:
+        session.attribute(rows, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
+    assert attribute_exc.value.location == "attribute.frame"
+
+
 def test_gate_compare_rejects_delta_frame_for_current():
     session = session_attach.get_or_create(name="mtx")
     mf = _metric_frame(session)

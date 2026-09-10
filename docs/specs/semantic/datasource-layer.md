@@ -669,7 +669,13 @@ raw SQL execution path — bounded by
 It returns a `RawSqlResult` that cannot re-enter typed analysis; use
 `RawSqlResult.to_pandas()` for the terminal pandas exit. Its observed facts may
 inform explicit semantic Python, but the result itself cannot become typed or
-canonical analysis.
+canonical analysis. Choose it for a concrete source-specific question public
+inspection cannot answer, or provisional terminal work without typed inputs;
+do not replace available governed definitions or bypass typed preconditions.
+When an Artifact already establishes the inputs and only the required method
+is unsupported, use that Artifact's terminal export instead of querying again.
+Retain query scope, semantic gaps, and truncation; the returned-row budget is
+not a bound on source scanning.
 
 Marivo therefore has three distinct SQL categories: SQL compiled by Ibis from
 typed expressions; datasource-adapter SQL generated only from validated source IR

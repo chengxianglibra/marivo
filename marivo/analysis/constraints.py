@@ -450,8 +450,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("BaseFrame", "MetricFrame", "DeltaFrame", "AttributionFrame", "CandidateSet"),
         "Persisted frames are immutable through the analysis wrapper.",
         "Lineage and persisted metadata assume frame contents do not change after materialization.",
-        "Call frame.to_pandas() and mutate the copy when ad hoc analysis needs local changes.",
-        help_target="boundary.to_pandas",
+        "Use typed methods for supported analytical calculations. Consult "
+        'marivo.help("analysis.boundary.to_pandas") for presentation reads or unsupported methods.',
+        help_target="methods",
     ),
     ConstraintId.FRAME_READ_BOUNDS: _constraint(
         ConstraintId.FRAME_READ_BOUNDS,
@@ -460,7 +461,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("BaseFrame", "MetricFrame", "DeltaFrame", "CandidateSet"),
         "Frame read helpers enforce bounded inspection arguments.",
         "Help and show APIs should stay small enough for agents and terminals.",
-        "Use frame.show() for bounded inspection, or frame.to_pandas() for terminal custom analysis.",
+        "Use frame.show() for bounded inspection, or frame.to_pandas() for complete rows. "
+        "Reading rows does not replace supported typed calculations.",
         help_target="artifacts.reading",
     ),
     ConstraintId.FRAME_META_INVALID: _constraint(

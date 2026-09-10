@@ -614,6 +614,9 @@ cheaply and recover them across script turns. The layered read order is:
 repr(result)  ->  result.show() / result.render()  ->  result.contract()  ->  result.to_pandas()
 ```
 
+These are optional read depths, not a mandatory sequence ending in pandas.
+Choose typed continuations when the next step computes supported analytical facts.
+
 - `repr(result)` — one-line cold-start hint carrying kind + identity and pointing
   at `.show()`; default dataclass reprs are never used.
 - `result.show()` — print a bounded result card and return `None`;
@@ -658,13 +661,15 @@ names that rule as `selection=metric_input_order` whenever items are omitted.
 
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to
-`.to_pandas()`. Frames expose `.ref`, `.kind`, `.lineage`, `.state`,
+typed method discovery. Presentation reads and unsupported calculations use the
+separate terminal boundary guidance. Frames expose `.ref`, `.kind`, `.lineage`, `.state`,
 `.quality_summary`, `.evidence_status`, `.evidence_digest`, `.columns`, and
 `.shape`. Every frame also exposes read-only `.row_count`, with
 `frame.row_count == frame.shape[0]` at creation and recovery boundaries. The
 `BaseFrame.describe()` and `BaseFrame.plot()` methods are intentionally removed;
 accessing them raises `AttributeError`. Use `frame.show()` for bounded inspection
-and `frame.to_pandas()` for terminal custom analysis.
+and `frame.to_pandas()` for complete rows, presentation, or unsupported methods;
+reading rows does not replace supported typed computation.
 
 Every public read of a single-metric `MetricFrame` uses the metric name for its
 value column. This includes `show()` / `render()`, `.columns`, iteration,
@@ -842,29 +847,51 @@ stays `exploratory`. No composite is on the current default agent-facing surface
 
 ## Terminal boundaries
 
-There are two one-way terminal exits from typed analysis. Results from either
-cannot re-enter the typed artifact chain.
+Execution-path choice belongs to each step. `observe` establishes governed
+inputs; it does not finish typed analysis. Supported calculations that produce
+new analytical facts stay typed, including comparison, contribution attribution,
+and transforms that change the population, aggregation, ranking, or normalization
+used by a conclusion. Discover unknown capabilities through
+`marivo.help("analysis.methods")`; repair inadmissible inputs through structured
+errors. Failed preconditions do not make a method unsupported.
 
-- **`md.raw_sql(...)`** — the sole public raw SQL execution path. Returns a
-  `RawSqlResult` with timeout enforcement, exact row bounding, ordered
-  `columns`, isolated `to_pandas()`, and basic reads `shape` and `row_count`.
-  Here `row_count == shape[0] == returned_row_count` means returned bounded
-  rows, not full-source cardinality. Its card keeps `requested_limit` and exact
-  `is_truncated` adjacent and states `terminal_only: true` and
-  `typed_reentry: false`. It has no `.contract()` or typed affordances. Use it
-  for custom analysis that cannot be expressed through
-  `session.observe(...)`, including an analysis branch blocked by a semantic
-  gap. Temporary inferred semantics must be disclosed and remain terminal-only.
-- **`frame.to_pandas()`** — any tabular frame exposes `.to_pandas()`, returning
-  an isolated defensive copy for ad-hoc pandas exploration, plotting, or
-  modeling.
+- **`frame.to_pandas()` for reads and presentation** — returns an isolated
+  defensive copy for complete row inspection, plotting, layout, labels, and
+  formatting. Keep the original Artifact identity and scope alongside the rows.
+  Recomputing a metric, changing a population, or aggregating a comparison is
+  analytical work, even inside plotting code; use supported typed methods first.
+- **`frame.to_pandas()` for unsupported methods** — complete the supported
+  upstream typed work, then export the appropriate bounded Artifact. Retain
+  exact inputs, rerunnable calculations, assumptions, and limitations. External
+  results do not inherit the Artifact's lineage, metadata, session ownership,
+  or Evidence guarantees. Read `marivo.help("analysis.boundary.to_pandas")`
+  before exporting.
+- **`md.raw_sql(...)`** — the sole public raw SQL execution path, for a concrete
+  source-specific question public inspection cannot answer, or provisional
+  terminal analysis when typed inputs cannot be established. It must not replace
+  available governed definitions. Retain the datasource, purpose, query scope,
+  semantic gaps, positive row and timeout budgets, and truncation status.
+  `RawSqlResult` exposes ordered `columns`, isolated `to_pandas()`, `shape`, and
+  `row_count`; `row_count == shape[0] == returned_row_count` counts returned rows,
+  not full-source cardinality. The card pairs `requested_limit` with exact
+  `is_truncated` and states `terminal_only: true` and `typed_reentry: false`.
+  A returned-row limit is not a scan bound, and truncated rows do not establish
+  a complete population. There is no `.contract()` or typed continuation.
+
+Before an exit, identify whether it reads existing facts or computes new ones,
+the specific capability or semantic gap for computation, and the boundary of
+supported claims. This does not require a new approval or reporting checkpoint.
+The original Artifact can continue in typed analysis after export; exported
+rows and their derivatives cannot re-enter the typed chain. Do not export and
+reload rows to manufacture a typed input.
 
 Terminal raw SQL does not resolve missing business semantics. It may provide a
-provisional result without prior approval, but carries no canonical metric
-identity, analysis lineage, or evidence continuity and cannot re-enter typed
-analysis. The closeout retains the gap and requests approval for the smallest
-durable change through `marivo.semantic`. `session.observe(...)` remains the sole
-canonical `MetricFrame` producer.
+provisional result without prior approval, but temporary inferred semantics must
+be disclosed separately from canonical Evidence. Hand the smallest reusable gap
+to `marivo-semantic` and resume the affected typed branch from analysis-ready
+inputs. Only unresolved business meaning requires user input; the handoff itself
+does not require approval. `session.observe(...)` remains the sole canonical
+`MetricFrame` producer.
 
 ## Cross-cutting metadata
 

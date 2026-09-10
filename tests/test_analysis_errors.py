@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 import marivo.semantic as ms
+from marivo.analysis.constraints import CONSTRAINTS, ConstraintId
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AnalysisError,
@@ -358,12 +359,13 @@ def test_str_includes_kind_and_message():
     assert "orders" in s
 
 
-def test_optional_hint_defaults_from_catalog() -> None:
+def test_frame_mutation_repair_and_hint_share_the_constraint_owner() -> None:
     err = FrameMutationError(message="frame is immutable")
-    assert (
-        err.hint
-        == "Call frame.to_pandas() and mutate the copy when ad hoc analysis needs local changes."
-    )
+    constraint = CONSTRAINTS[ConstraintId.FRAME_IMMUTABLE]
+    assert err.hint == constraint.hint
+    assert err.repair is not None
+    assert err.repair.action == constraint.hint
+    assert err.repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="methods")
 
 
 def test_transform_op_unsupported_error_removed_from_public_errors() -> None:

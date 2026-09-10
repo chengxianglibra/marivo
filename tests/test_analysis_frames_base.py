@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 import pandas as pd
 import pytest
@@ -37,6 +38,7 @@ from tests.shared_fixtures import (
     make_test_analysis_scope,
     make_test_metric_meta_contract,
     make_test_subject,
+    rendered_help,
 )
 
 
@@ -130,6 +132,35 @@ def test_frame_is_immutable_and_to_pandas_returns_a_copy():
     assert frame["value"].iloc[0] == 1.0
     with pytest.raises(FrameMutationError):
         frame["other"] = 1
+
+
+@pytest.mark.parametrize("operation", ("assign", "add", "subtract", "multiply", "divide"))
+def test_frame_mutations_route_to_resolvable_typed_method_discovery(
+    operation: Literal["assign", "add", "subtract", "multiply", "divide"],
+) -> None:
+    frame = _metric_frame()
+    before = frame.to_pandas()
+    with pytest.raises(FrameMutationError) as exc:
+        if operation == "assign":
+            frame["other"] = 1
+        elif operation == "add":
+            _ = frame + frame
+        elif operation == "subtract":
+            _ = frame - frame
+        elif operation == "multiply":
+            _ = frame * frame
+        else:
+            _ = frame / frame
+
+    repair = exc.value.repair
+    assert repair is not None
+    assert repair.kind == "inspect"
+    assert repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="methods")
+    assert rendered_help("analysis.methods")
+    help_text = rendered_help(exc.value)
+    assert 'marivo.help("analysis.methods")' in help_text
+    assert "to_pandas() first" not in str(exc.value)
+    pd.testing.assert_frame_equal(frame.to_pandas(), before)
 
 
 def test_to_pandas_coerces_decimal_columns_to_float64() -> None:

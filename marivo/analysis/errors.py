@@ -36,8 +36,9 @@ class AnalysisRepair(BaseModel):
         legal repairs remain and business judgment must select one.
         ``semantic_authoring`` means a required semantic object is absent, so
         typed analysis must stop that branch; the agent may use terminal
-        ``md.raw_sql(...)`` and must request semantic-authoring approval at
-        closeout. ``environment`` means project or datasource state must be
+        ``md.raw_sql(...)`` with disclosed temporary semantics and hand reusable
+        gaps to semantic authoring. Only unresolved business meaning requires
+        user input. ``environment`` means project or datasource state must be
         repaired before retry.
     action:
         One-sentence concrete next step.
@@ -1036,7 +1037,18 @@ class CrossBackendMetricError(AnalysisError): ...
 class CrossSessionFrameError(AnalysisError): ...
 
 
-class FrameMutationError(AnalysisError): ...
+class FrameMutationError(AnalysisError):
+    def _derive_fields(self) -> _DerivedFields:
+        from marivo.analysis.constraints import CONSTRAINTS, ConstraintId
+
+        constraint = CONSTRAINTS[ConstraintId.FRAME_IMMUTABLE]
+        return _DerivedFields(
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=constraint.hint,
+                help_target=LiveHelpTarget(surface="analysis", canonical_id=constraint.help_target),
+            ),
+        )
 
 
 class FrameReadError(AnalysisError):
@@ -1045,7 +1057,8 @@ class FrameReadError(AnalysisError):
             location="frame.show()",
             repair=AnalysisRepair(
                 kind="retry",
-                action="Use frame.show() for bounded inspection or frame.to_pandas() for terminal custom analysis.",
+                action="Use frame.show() for bounded inspection or frame.to_pandas() for complete rows. "
+                "Reading rows does not replace supported typed calculations.",
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts.reading"),
                 snippet="frame.show()",
             ),

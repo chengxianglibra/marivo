@@ -357,7 +357,6 @@ def test_artifact_help_teaches_progressive_reads_without_planning_analysis() -> 
     reading = _text("artifacts.reading")
 
     assert "static Artifact family contracts" in artifacts
-    assert "repr -> show/render -> contract -> exact Evidence or rows -> terminal exit" in reading
     assert reading.index("BaseFrame.show") < reading.index("BaseFrame.contract")
     assert "boundary.to_pandas" not in tuple(
         target.canonical_id for target in REGISTRY.discovery_members("artifacts.reading")
@@ -502,6 +501,16 @@ def test_slice3_removed_navigation_topics_have_no_alias_fallback() -> None:
     assert "frame.to_pandas()" in boundary
     assert "defensive pandas DataFrame copy" in boundary
     assert "lineage, meta, session_ownership, evidence" in boundary
+
+
+def test_terminal_boundary_routes_to_installed_methods_without_changing_its_guarantees() -> None:
+    descriptor = REGISTRY.by_id("boundary.to_pandas")
+    assert REGISTRY.cross_links(descriptor.help_target) == (
+        LiveHelpTarget(surface="analysis", canonical_id="methods"),
+    )
+    text = _text(descriptor.help_target)
+    assert "Related:\n    methods" in text
+    assert _text("methods")
 
 
 def test_type_algebra_remains_registered_but_is_not_rendered_in_root_help() -> None:

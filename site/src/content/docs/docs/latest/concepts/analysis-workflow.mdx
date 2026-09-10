@@ -117,8 +117,9 @@ flow. Uncommon formats and semantic judgments remain agent-owned.
 An artifact never changes after it is produced. Use `repr(artifact)` for a
 cheap single-line hint, then `artifact.show()` for a bounded read and
 `artifact.contract()` to inspect mechanically valid next actions. Call
-`artifact.to_pandas()` only as a terminal step when you need a mutable local
-copy. Every artifact carries lineage and is persisted under project-local
+`artifact.to_pandas()` for complete reads, presentation, or unsupported methods;
+supported analytical calculations stay typed. The copy is terminal, while the
+original artifact remains available to typed methods. Every artifact carries lineage and is persisted under project-local
 `.marivo/`, so later steps can recover it by ref without re-querying the
 datasource. `artifact.ref` is the canonical artifact identity; there is no `id`
 alias. For every frame, `row_count == shape[0]`.
@@ -836,45 +837,70 @@ monthly = cum_frame.transform.rollup(grain=mv.grain("month"))
 base_frame = session.observe(active_users, ...)
 ```
 
-## Terminal custom analysis
+## Choose typed analysis, source SQL, or an exported copy
 
-First use a closed `mv.runtime_metric` expression when governed measures or
-catalog metrics can express the required analysis-only caliber. When the
-calculation still cannot be expressed through `session.observe(...)`, use
-`md.raw_sql(...)` — the sole terminal raw SQL execution path. It enforces
-a timeout, bounds returned rows, and runs read-only. The result is a
-`RawSqlResult` that cannot re-enter typed analysis; call
-`RawSqlResult.to_pandas()` for the terminal pandas exit. Its ordered `columns`,
-`shape`, and `row_count` describe returned bounded rows only:
-`row_count == shape[0] == returned_row_count`. Read `requested_limit` and
-`is_truncated` alongside that count. It has no `.contract()` or typed
-affordances.
+Choose the path at each analytical step. `observe` establishes the inputs; it is
+not the end of typed analysis. Supported comparison, contribution attribution,
+and filtering, aggregation, ranking, or normalization that affects a conclusion
+stay in the typed Evidence chain. Use a closed `mv.runtime_metric` expression
+when governed measures or catalog metrics express a question-scoped metric.
 
-A semantic gap may also use this path without prior approval. The agent may
-infer a temporary metric, dimension, relationship, or filter definition, but
-must put those assumptions in the analysis record and keep raw-SQL-supported
-claims separate from canonical artifact evidence.
+| Required step | Path and boundary |
+| --- | --- |
+| Compare monthly revenue and identify channel contributions | Observe the governed inputs, then use typed comparison, contribution attribution, and supported ranking. Do not recompute them in pandas after observation. |
+| Plot the computed channel contributions | Read the completed AttributionFrame with `to_pandas()` and plot its existing values. Keep its Artifact identity; labels and layout are presentation, while changing the population or aggregation is new analysis. |
+| Fit a regression to governed observations | Typed regression is unsupported. Complete supported upstream preparation, then export the appropriate Artifact for the external model. Retain exact inputs, code, assumptions, and limitations; the model result is not typed Evidence. |
+| Inspect source rows with missing region values | Prefer public inspection when sufficient; otherwise use bounded, read-only `md.raw_sql` for this source-specific question. A sample cannot establish the full population. |
+
+If a capability is unknown, discover it through `marivo.help("analysis.methods")`
+and focused Help. If inputs fail preconditions, follow structured repair. A
+failed alignment, quality, or additivity check does not make a method unsupported
+and must not be bypassed with pandas or SQL.
+
+Before exporting, read `marivo.help("analysis.boundary.to_pandas")`. Distinguish
+complete row reads and presentation from new calculations. For a calculation,
+identify the specific unsupported method or semantic gap and which claims remain
+supported by typed Evidence. No additional approval or fixed reporting template
+is required. Complete supported upstream typed work before external computation.
+Keep presentation paired with the original Artifact identity and scope, and keep
+external calculations rerunnable. Neither exported rows nor their derivatives
+inherit lineage, metadata, session ownership, or Evidence guarantees. They cannot
+re-enter typed analysis; the original Artifact can still feed typed methods.
+Do not export and reload rows to construct a typed input.
+
+Use `md.raw_sql(...)` for a concrete source-specific question public inspection
+cannot answer, or provisional terminal analysis when typed inputs cannot be
+established. It cannot replace available governed definitions or repair a
+business-semantic gap. Retain any temporary inferred semantics separately from
+canonical Evidence, hand reusable gaps to `marivo-semantic`, and resume the typed
+branch after readiness. Only unresolved business meaning requires user input;
+the handoff itself does not require approval.
+
+Read `marivo.help("datasource.raw_sql")` before source SQL. Retain the datasource,
+purpose, query scope, semantic gaps, positive row and timeout budgets, and
+truncation status. For example, given a configured warehouse with an `orders`
+table and a `region` column:
 
 ```python
 import marivo.datasource as md
+import marivo.semantic as ms
 
 result = md.raw_sql(
     ms.ref.datasource("warehouse"),
-    "SELECT region, SUM(amount) AS revenue FROM orders GROUP BY region",
-    reason="custom revenue breakdown",
+    "SELECT region FROM orders WHERE region IS NULL",
+    reason="inspect source rows with missing region values",
+    limit=20,
+    timeout_seconds=30,
 )
-result.show()
-df = result.to_pandas()
+result.show()  # Check is_truncated before interpreting returned rows.
 ```
 
-Use `artifact.to_pandas()` for terminal local pandas work from a typed
-frame. Neither `md.raw_sql(...)` results nor `to_pandas()` exports can
-re-enter typed analysis. Raw SQL does not repair missing business semantics:
-hand a reusable gap to `marivo-semantic`, then resume typed analysis after
-readiness.
-Typed regression is not supported by the current Marivo operator surface; a
-regression task therefore remains explicit terminal custom analysis and cannot
-be promoted back into the typed chain.
+`RawSqlResult` has no `.contract()` or typed continuations. Its ordered `columns`,
+`shape`, and `row_count` describe returned rows only:
+`row_count == shape[0] == returned_row_count`. Read `requested_limit` and
+`is_truncated` together. A returned-row limit does not bound the source scan, and
+truncated rows do not establish a complete population. `RawSqlResult.to_pandas()`
+exports this same terminal result; it does not establish typed inputs.
 
 ## Read and recover artifacts
 
@@ -884,7 +910,7 @@ The agent read path is layered to keep scripts cheap across loops:
 repr(delta)          # cheap single-line hint
 delta.show()         # bounded current-state read
 delta.contract().show()     # mechanical compatibility and typed issues
-delta.to_pandas()    # terminal export for custom local analysis
+delta.to_pandas()    # complete rows for presentation or unsupported methods
 ```
 
 The default card stops at 50 rows or 8 KiB, whichever comes first. Its omission
@@ -939,10 +965,12 @@ unsafe relationship paths or temporal authoring gaps are
 
 Marivo maintains a typed analysis chain. The terminal exits are
 `frame.to_pandas()` and `md.raw_sql(...)`. `frame.to_pandas()` returns a
-defensive copy for custom local analysis; `md.raw_sql(...)` returns a
+defensive copy for complete reads, presentation, or unsupported methods;
+`md.raw_sql(...)` returns a
 `RawSqlResult` with `RawSqlResult.to_pandas()` as its own terminal pandas
 exit. Neither preserves lineage or evidence continuity. Terminal results
-cannot re-enter typed analysis. If business semantics are missing, terminal
+and their derivatives cannot re-enter typed analysis; the original Artifact
+remains usable. If business semantics are missing, terminal
 raw SQL may provide only a provisional result; hand the reusable gap to
 semantic authoring and retain any unresolved business judgment.
 

@@ -46,7 +46,31 @@ Route through `marivo.help("analysis.inputs")` for input construction or
 focused Help for the selected capability. Avoid broad catalog browsing when an
 exact typed ref or full semantic identity is already available.
 
-### 3. Build the minimum typed Evidence chain
+### 3. Choose the execution path and build typed Evidence
+
+Choose by the responsibility of each step, not by tool familiarity. `observe`
+establishes inputs; it is not the end of typed analysis. Keep calculations that
+produce new analytical facts in typed flow whenever the installed public
+contract supports them, including comparison, contribution attribution, and
+filtering, aggregation, ranking, or normalization that affects a conclusion.
+
+Distinguish an unknown capability from inadmissible inputs and an unsupported
+method. Discover unknown capabilities through focused Help; repair inadmissible
+inputs through the public guidance. A failed precondition is not permission to
+recreate the calculation in pandas or SQL.
+
+Use `frame.to_pandas()` to read complete Artifact rows for inspection or
+presentation, or to compute a method outside the installed typed surface.
+Presentation may plot, arrange, label, or format existing results; changing the
+population, metric definition, aggregation, or comparison is analytical work.
+For an unsupported method, complete the supported upstream typed work before
+exporting the appropriate Artifact.
+
+Use `md.raw_sql(...)` for a concrete source-specific question that public
+inspection cannot answer, or a provisional terminal analysis when typed inputs
+cannot be established. It cannot replace available governed definitions or
+resolve a business-semantic gap. Hand reusable gaps to `marivo-semantic` while
+keeping any provisional result separate from canonical Evidence.
 
 Produce a bounded typed Artifact early. Inspect `.show()` when current state
 contributes evidence and use `.contract()` when the mechanically valid next
@@ -54,9 +78,7 @@ actions are unknown. Route method discovery through
 `marivo.help("analysis.methods")`, but choose subsequent methods from the
 question and the Artifact in hand rather than from a fixed recipe.
 
-Before treating a calculation as custom, classify its analytical intent against
-the installed capability map. Stay in typed flow whenever Marivo expresses that
-intent. Batch compatible work into one decision round, prefer the smallest chain
+Batch compatible work into one decision round, prefer the smallest chain
 that supports a required answer, and stop expanding when another result cannot
 materially change the answer or its limitations.
 
@@ -107,12 +129,23 @@ limits that materially affect a conclusion, and hand the definition to
 Do not query business rows through Ibis, DuckDB, pandas readers, backend
 connections, private datasource handles, or ad hoc SQL to bypass Marivo.
 
-Before a terminal conversion, read
-`marivo.help("analysis.boundary.to_pandas")`. Exit typed flow only when the
-required method is outside the installed governed surface and a bounded typed
-Artifact already establishes the inputs, scope, and Evidence chain. Keep the
-terminal calculation rerunnable alongside the exit, do not export and reload
-Artifact rows, and never feed a terminal result back into typed analysis.
+Before exporting Artifact rows, read
+`marivo.help("analysis.boundary.to_pandas")`; before source SQL, read
+`marivo.help("datasource.raw_sql")`. Identify whether the exit is a read or a
+calculation, the specific capability or semantic gap for a calculation, and
+which claims remain supported by typed Evidence. This is a decision obligation,
+not a new approval or reporting checkpoint.
+
+Keep presentation tied to the original Artifact identity and scope. Keep external
+calculations rerunnable with their exact inputs, assumptions, and limitations;
+their outputs do not inherit typed Evidence guarantees. For raw SQL, retain the
+datasource, purpose, query scope, semantic gaps, positive row and timeout budgets,
+and truncation status. A returned-row limit does not bound the source scan;
+truncated rows do not establish a complete population.
+
+Terminality applies to the exported branch: the original Artifact can still feed
+typed analysis, but exported rows and their derivatives cannot re-enter it. Do
+not export and reload Artifact rows to construct a new typed input.
 
 ### Evidence continuity and recovery
 
