@@ -99,6 +99,7 @@ from marivo.semantic.validator import Registry
 if TYPE_CHECKING:
     import pandas
 
+    from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
     from marivo.analysis.observation.population import (
@@ -168,7 +169,7 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
-        if self.producer_id.startswith(("discover.", "candidate.")):
+        if self.producer_id.startswith(("discover.", "candidate.", "session.events.")):
             return ()
         if self.contract_stem.startswith(("association", "forecast")):
             return ()
@@ -198,7 +199,7 @@ class ObservationProducerContract:
             (self.validation_id, "v1"),
             (self.evidence_id, "v1"),
         )
-        if self.producer_id.startswith(("discover.", "candidate.")):
+        if self.producer_id.startswith(("discover.", "candidate.", "session.events.")):
             return (*common, ("none", "v1"), ("zero_findings", "v1"))
         if self.contract_stem.startswith("forecast"):
             return (
@@ -252,6 +253,7 @@ class ObservationProducerContract:
 
 
 _PRODUCER_CONTRACTS = (
+    ObservationProducerContract("session.events.match", "event_journey"),
     ObservationProducerContract("discover.point_anomalies", "point_anomalies"),
     ObservationProducerContract("discover.interesting_windows", "interesting_windows"),
     ObservationProducerContract("discover.period_shifts", "period_shifts"),
@@ -303,6 +305,8 @@ def producer_contract(operator_id: str) -> ObservationProducerContract:
 
 class ObservationActionPort(Protocol):
     """Required execution/read owner; definition construction never invokes this port."""
+
+    def execute_event(self, dataset: LogicalEventDataset) -> MaterializedEventDataset: ...
 
     def execute_population(
         self, dataset: LogicalPopulationDataset
@@ -802,6 +806,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
     types = frozenset(
         {
             "identity_tuple",
+            "duration",
             "bool_tuple",
             "candidate_reasons",
             "boolean",
@@ -822,7 +827,16 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
     )
     return _StableIdRegistry(
         families=frozenset(
-            {"population", "metric", "delta", "attribution", "association", "forecast", "candidate"}
+            {
+                "population",
+                "metric",
+                "delta",
+                "attribution",
+                "association",
+                "forecast",
+                "candidate",
+                "event",
+            }
         ),
         shapes=frozenset(
             {
@@ -842,6 +856,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 ),
                 *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
                 ("population", "entity-membership", 1),
+                ("event", "journey", 1),
                 ("attribution", "joint", 1),
                 ("attribution", "hierarchy", 1),
                 *(("metric", shape, 1) for shape in METRIC_SHAPES),
@@ -857,6 +872,11 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "candidate_coordinate",
                 "metric_identity",
                 "entity_identity",
+                "journey_identity",
+                "pattern_step_identity",
+                "event_occurrence_identity",
+                "time_coordinate",
+                "duration_value",
                 "metric",
                 "dimension",
                 "time_dimension",
@@ -879,6 +899,8 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "observation.scalar_order@v1",
                 "association.metric_request_order@v1",
                 "association.lag_request_order@v1",
+                "event.journey_anchor@v1",
+                "event.pattern_step@v1",
             }
         ),
         storage_kinds=frozenset({"parquet", "engine", "object"}),
@@ -1580,6 +1602,9 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     register_candidate(registry, ids)
     register_delta(registry, ids)
     register_attribution(registry, ids)
+    from marivo.analysis.domains.event import register_event
+
+    register_event(registry, ids)
     registry.freeze()
     return registry
 
@@ -1592,6 +1617,7 @@ def semantic_dependency_digest(
     """Hash the complete frozen semantic closure without inspecting live authoring state."""
     from marivo.analysis.datasets.descriptors import _field_binding_fingerprint
     from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+    from marivo.analysis.domains.contracts import EventPayload
     from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.candidate_contracts import CandidatePayload
@@ -1649,6 +1675,12 @@ def semantic_dependency_digest(
                 None
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
+            )
+        elif isinstance(payload, EventPayload):
+            semantic_facts = (
+                "event",
+                payload.definition.source_dependency_fingerprint,
+                tuple(step.event_fingerprint for step in payload.definition.steps),
             )
         elif isinstance(payload, (CandidatePayload, DriverCandidatePayload)):
             semantic_facts = ("discovery", payload.spec.identity_payload())

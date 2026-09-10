@@ -9,6 +9,7 @@ from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity, _EntityFieldIdentity
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+from marivo.analysis.domains.contracts import EventPayload
 from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
@@ -71,6 +72,9 @@ def required_entities(
                     registry, field.identity.identity_id.split(":", 1)[1]
                 )
                 path(entity, dimension.entity_ref.path)
+        elif isinstance(payload, EventPayload):
+            for step in payload.definition.steps:
+                ids.update(path_entities(registry, step.source.ref.path, (step.participant_path,)))
         elif isinstance(payload, MetricPayload):
             definition = payload.definition
             entity = definition.entity.ref.path
@@ -152,15 +156,25 @@ def required_entities(
         identity = identities[0]
         entity = identity.entity_ref.path
         needed = any(
-            isinstance(root.payload, MetricPayload)
-            and (
-                any(
-                    item.path == entity
-                    for metric in root.payload.definition.metrics
-                    for item in metric.computation_roots
+            (
+                isinstance(root.payload, EventPayload)
+                and any(
+                    entity
+                    in path_entities(registry, step.source.ref.path, (step.participant_path,))
+                    for step in root.payload.definition.steps
                 )
-                or root.payload.definition.dimensions
-                or root.payload.definition.time_axis is not None
+            )
+            or (
+                isinstance(root.payload, MetricPayload)
+                and (
+                    any(
+                        item.path == entity
+                        for metric in root.payload.definition.metrics
+                        for item in metric.computation_roots
+                    )
+                    or root.payload.definition.dimensions
+                    or root.payload.definition.time_axis is not None
+                )
             )
             for root in roots
         )
@@ -189,7 +203,7 @@ def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV
     found: dict[str, BoundSourceParametersV1] = {}
     for root in logical_roots(dataset):
         payload = root.payload
-        if isinstance(payload, (PopulationPayload, MetricPayload)):
+        if isinstance(payload, (PopulationPayload, MetricPayload, EventPayload)):
             for capture in payload.captures:
                 previous = found.setdefault(capture.entity_ref.path, capture)
                 if previous.exact_value_digest != capture.exact_value_digest:

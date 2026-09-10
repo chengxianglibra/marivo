@@ -592,6 +592,11 @@ admission requires:
 - exact Event, role, Pattern order, and semantic fingerprints are available;
 - semantic readiness and occurrence-time authority are complete.
 
+The Slice 7a owner amendment requires homogeneous occurrence identities within
+one Pattern: every consumed Event has the same non-empty tuple arity and ordered
+component logical types, with non-null components. Component names may differ.
+Construction rejects incompatible signatures without coercion or string encoding.
+
 When `population` is omitted for a non-versioned subject Entity, the source
 constructs an implicit exact unsampled Population root. It does not infer
 membership from observed first-step rows. The Event anchor filter later selects
@@ -630,6 +635,10 @@ The following are distinct and retained:
 - each exact caller declaration used in place of missing watermark authority;
 - aggregate coverage basis: `observed`, `declared`, `mixed`, or `unknown`;
 - matching-policy identity and occurrence-order requirements.
+
+When an exact caller declaration supplements an insufficient observed watermark,
+retain that original watermark separately. The declaration remains the decisive
+coverage basis; it does not relabel the observed interval as complete.
 
 Successful query execution, maximum observed occurrence, ingestion SLA, fixture
 range, wall-clock time, or a later materialization time never becomes a
@@ -754,7 +763,11 @@ be timezone-aware; bounded coverage requires
 `complete_from <= complete_through`. `rationale` is stripped and must remain
 non-empty.
 
-Construction performs only local catalog and value validation. A wrong-kind,
+Standalone declaration construction performs value and Ref-kind validation.
+Current-catalog, consumed-Event, source-origin and semantic-fingerprint binding
+are checked during `events.match(...)` construction, without datasource work.
+A Ref does not carry a Session identity; no ambient catalog is consulted by a
+standalone declaration constructor. A wrong-kind,
 foreign, stale, duplicate, empty, naive-time, reversed-bound, unrelated-origin,
 or empty-rationale input raises one structured `AnalysisError` that identifies
 the parameter, expected contract, received value, and exact repair. It never
@@ -928,6 +941,14 @@ occurrence time, Event ref, then Event identity; attribution uses resolution
 prefix order, canonical axis tuple, `other_mask`, then `contribution_kind`.
 Storage has no incidental ordering authority; actions reconstruct this ordering
 from the row-set contract.
+
+For journey rows, the registered terms are `entity_identity`, `journey_id`,
+and `step_key`. `event.journey_anchor@v1` orders a journey id by the time and
+governed occurrence identity of its exact initial PatternStep row in the current
+row set. `event.pattern_step@v1` uses the retained Pattern declaration order.
+These fixed family-derived orders require neither additional public columns nor
+retained parts. Engine reads derive keys from retained journey rows; authorized
+streaming reads validate canonical journey and step order across batch boundaries.
 
 ### Journey row contract
 

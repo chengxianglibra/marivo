@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import ibis.expr.types as ir
 
@@ -11,6 +11,9 @@ from marivo.analysis.observation.sampling import EntitySamplingPolicy
 from marivo.analysis.operators.candidate_contracts import CandidateDefinition
 from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
 from marivo.semantic.ir import TargetEntityContract
+
+if TYPE_CHECKING:
+    from marivo.analysis.domains.completeness import EventCoverageResolution
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -86,3 +89,5 @@ class CompiledDataset:
     association_proof: ir.Table | None = None
     candidate_proof: ir.Table | None = None
     candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
+    event_proof: ir.Table | None = None
+    event_coverage: EventCoverageResolution | None = None

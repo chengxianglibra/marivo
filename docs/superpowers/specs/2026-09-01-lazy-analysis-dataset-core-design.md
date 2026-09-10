@@ -681,6 +681,12 @@ through the canonical schema; and an ordered variant proves a total order using
 the key or another family-registered unique tie-breaker. Neither contract may be
 paired later with a different counterpart.
 
+A registered family value-order may derive comparison keys from the exact
+current row set under its closed family semantics. Journey anchor order derives
+only from the exact initial PatternStep row; Pattern-step order uses retained
+declaration order. Such orders still name current public fields and never read
+origin sources, arbitrary expressions, or incidental storage order.
+
 The canonical `row_contract_fingerprint` binds exactly `schema_version`,
 `shape_id`, the ordered schema bindings, coordinate and key field-id tuples, and
 the complete family-semantics variant. The canonical

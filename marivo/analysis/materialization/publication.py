@@ -8,6 +8,7 @@ from dataclasses import replace
 from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+from marivo.analysis.domains.contracts import EventPayload
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -151,7 +152,7 @@ def make_descriptor(
             )
         population_definition = inherited.population_authority.definition_fingerprint
         for root in roots:
-            if root.operator_id == "session.observe":
+            if root.operator_id in ("session.observe", "session.events.match"):
                 selected = root.inputs[0].root
                 population_definition = (
                     inherited.definition_fingerprint
@@ -224,7 +225,7 @@ def make_descriptor(
             stage="publication",
         )
     owning_root = current_root
-    while not isinstance(owning_root.payload, (PopulationPayload, MetricPayload)):
+    while not isinstance(owning_root.payload, (PopulationPayload, MetricPayload, EventPayload)):
         # A retained row/fold suffix keeps the nearest observation's selected
         # membership. Earlier observations may have a different Population.
         if len(owning_root.inputs) != 1 or not isinstance(
@@ -241,7 +242,7 @@ def make_descriptor(
     population: LogicalRootHandle | None
     if isinstance(current_payload, PopulationPayload):
         population = owning_root
-    elif isinstance(current_payload, MetricPayload):
+    elif isinstance(current_payload, (MetricPayload, EventPayload)):
         population = next(
             (
                 root

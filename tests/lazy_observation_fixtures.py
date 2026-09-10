@@ -65,6 +65,9 @@ _SCHEMA = (
 class NoIoActionPort:
     """Explicit test port proving definition actions do not cross runtime boundaries."""
 
+    def execute_event(self, dataset: object) -> Never:
+        raise AssertionError("Construction performed Event execution")
+
     def execute_population(self, dataset: LogicalPopulationDataset) -> Never:
         raise AssertionError("Population execution is not part of definition-only acceptance")
 
