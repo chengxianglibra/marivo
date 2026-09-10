@@ -32,7 +32,20 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     connect_kwargs["database"] = path
     if "read_only" in connect_kwargs:
         connect_kwargs["read_only"] = bool(connect_kwargs["read_only"])
-    return ibis.duckdb.connect(**connect_kwargs)
+    # DuckDB cannot open an in-memory database in connection-level read-only
+    # mode. A read-only transaction still permits the temporary views used by
+    # Ibis file readers while rejecting writes to database tables.
+    memory_read_only = path == ":memory:" and bool(connect_kwargs.get("read_only"))
+    if memory_read_only:
+        connect_kwargs["read_only"] = False
+    backend = ibis.duckdb.connect(**connect_kwargs)
+    if memory_read_only:
+        try:
+            backend.raw_sql("BEGIN TRANSACTION READ ONLY")
+        except BaseException:
+            backend.disconnect()
+            raise
+    return backend
 
 
 def connection_conflict(exc: Exception) -> bool:

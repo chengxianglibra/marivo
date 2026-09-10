@@ -21,6 +21,7 @@ from marivo._authoring.model import AuthoringRepair
 from marivo.datasource import credentials as cr
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
+from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.authoring import (
     DatasourceSpec,
@@ -80,7 +81,10 @@ class DatasourceSummary(RenderableResult):
         return f"DatasourceSummary name={self.name} backend={self.backend_type}"
 
     def _card(self) -> Card:
-        return Card(identity=self._repr_identity(), available=(".show()",))
+        card = Card(identity=self._repr_identity(), available=(".show()",))
+        if self.name == DEFAULT_DATASOURCE_NAME:
+            card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
+        return card
 
 
 @dataclass(frozen=True, repr=False)
@@ -111,11 +115,20 @@ class DatasourceList(RenderableResult):
         return f"DatasourceList count={len(self._items)}"
 
     def _card(self) -> Card:
-        rows = [[item.name, item.backend_type] for item in self._items]
+        rows = [
+            [
+                item.name,
+                item.backend_type,
+                DEFAULT_DATASOURCE_DESCRIPTION
+                if item.name == DEFAULT_DATASOURCE_NAME
+                else "Project declaration",
+            ]
+            for item in self._items
+        ]
         return Card(
             identity=self._repr_identity(),
             available=(".items", ".ids()", ".show()"),
-        ).table(columns=["name", "backend"], rows=rows, row_count=len(self._items))
+        ).table(columns=["name", "backend", "source"], rows=rows, row_count=len(self._items))
 
 
 @dataclass(frozen=True, repr=False)
@@ -136,7 +149,10 @@ class DatasourceDescription(RenderableResult):
     def _card(self) -> Card:
         field_names = sorted(self.literal_fields)
         env_ref_names = sorted(self.env_refs)
-        return Card(identity=self._repr_identity(), available=(".show()",)).field(
+        card = Card(identity=self._repr_identity(), available=(".show()",))
+        if self.name == DEFAULT_DATASOURCE_NAME:
+            card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
+        return card.field(
             label="columns",
             value=" | ".join(field_names + [f"{name}_env" for name in env_ref_names]),
         )
@@ -405,6 +421,7 @@ def register(
     Constraints:
         Use one of the public typed specs. Sensitive fields use named
         ``*_env`` references, not plaintext literals or generic keyword bags.
+        The built-in name ``default`` is reserved and cannot be registered.
         Every explicit ``*_env`` name is persisted; no credential names are
         inferred or omitted by convention.
     """
@@ -428,6 +445,7 @@ def remove(name: str) -> bool:
 
     Constraints:
         Only the project-local ``models/datasources/<name>.py`` file is removed.
+        The built-in ``default`` datasource cannot be removed.
     """
     return _store.delete_one(name)
 
@@ -444,7 +462,8 @@ def list() -> DatasourceList:
         >>> md.list().items
 
     Constraints:
-        Only datasources with a persisted project file are included.
+        Includes the built-in in-memory DuckDB ``default`` without registration
+        or a project file, plus persisted project datasources.
     """
     return DatasourceList(
         tuple(
@@ -468,7 +487,8 @@ def describe(name: str) -> DatasourceDescription:
         >>> md.describe("wh")
 
     Constraints:
-        Raises ``DatasourceMissingError`` when the name has no project file.
+        Includes the built-in ``default`` datasource. Raises
+        ``DatasourceMissingError`` for unknown names; no fallback is applied.
     """
     datasource = _store.load_one(name)
     if datasource is None:
@@ -516,6 +536,8 @@ def connect(
         ...     con.raw_sql("SELECT 1")
 
     Constraints:
+        The built-in ``default`` opens an independent in-memory DuckDB. Its
+        temporary tables are not shared with other connections or processes.
         Prefer ``with md.connect(...) as con`` so cleanup is automatic. For
         manual lifetime management, call ``connection.disconnect()`` when done.
         Env-sourced secrets used to open this backend are remembered on the
@@ -1048,7 +1070,8 @@ def raw_sql(
     Constraints:
         Rejects empty reasons, empty SQL, multi-statement SQL, non-positive limit,
         and non-positive timeout before execution. Read-only is enforced at the
-        connection level: DuckDB and ClickHouse open in read-only mode, Postgres
+        connection level: file-backed DuckDB and ClickHouse open in read-only
+        mode; in-memory DuckDB uses a read-only transaction. Postgres
         and MySQL run inside a ``READ ONLY`` transaction via the engine profile
         ``authoring_timeout`` context, and Trino rejects non-SELECT statements by
         refusing to execute them through the probe-LIMIT path (write statements,

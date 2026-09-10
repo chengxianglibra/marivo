@@ -255,7 +255,23 @@ day-粒度时间-series 或面板 frame 之间按从选定范围起算的零基�
 
 ### 1. 连接数据源
 
-数据源在 `models/datasources/*.py` 中声明，每种后端对应一个类型化辅助函数。
+无需认证的 CSV、Parquet 和 JSON 数据源可以直接使用内置的 `default`，
+它固定使用内存 DuckDB，无需配置或注册。通过 `md.list()` 和
+`md.describe("default")` 可以发现和查看它。在语义领域中显式引用：
+
+```python
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("default"),
+    source=md.parquet("data/orders.parquet"),
+)
+```
+
+`default` 是保留名称，不能被替换或删除。连接的数据库状态相互独立且不持久化：
+后续进程可以重新读取文件，但不能恢复临时表。需要凭据、自定义连接设置或
+持久化数据库时，声明一个独立命名的数据源。
+
+自定义数据源在 `models/datasources/*.py` 中声明，每种后端对应一个类型化辅助函数。
 辅助函数返回类型化 spec，并在数据源 loader 执行时自动声明。语义文件通过精确的
 `ms.ref.datasource("warehouse")` factory 引用数据源。
 
@@ -949,7 +965,7 @@ import marivo.semantic as ms     # meaning (ms.entity, ms.metric, ...)
 - 实体级对象（维度和度量）：`<domain>.<entity>.<field>` —— 例如
   `sales.orders.region`。
 
-一个项目由一组声明文件组成。数据源在 `models/datasources/` 下声明一次；
+一个项目由一组声明文件组成。自定义数据源在 `models/datasources/` 下声明一次；
 语义放在 `models/semantic/<domain>/` 下，每个领域有一个 `_domain.py`：
 
 ```text

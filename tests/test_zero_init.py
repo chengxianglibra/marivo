@@ -27,7 +27,7 @@ def test_empty_project_loads_without_creating_authored_or_state_paths(
     semantic_catalog = ms.load()
 
     assert isinstance(datasource_catalog, DatasourceCatalog)
-    assert datasource_catalog.list().items == ()
+    assert datasource_catalog.list().ids() == ["default"]
     assert isinstance(semantic_catalog, SemanticCatalog)
     assert semantic_catalog.workspace_dir == tmp_path
     assert list(tmp_path.iterdir()) == []

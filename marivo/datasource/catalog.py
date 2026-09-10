@@ -7,6 +7,7 @@ from pathlib import Path
 
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
+from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource.errors import DatasourceMissingError, repair
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
@@ -118,7 +119,7 @@ class DatasourceCatalog(RenderableResult):
             A ``DatasourceSummary`` for the named datasource.
 
         Raises:
-            DatasourceMissingError: When the name has no project file.
+            DatasourceMissingError: When the name is neither built-in nor declared.
 
         Example:
             >>> catalog = md.load()
@@ -227,6 +228,8 @@ class DatasourceCatalog(RenderableResult):
         if not datasources:
             card = card.field(label="datasources", value="none")
         for datasource in datasources:
+            if datasource.name == DEFAULT_DATASOURCE_NAME:
+                card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
             card = card.listing(
                 label=datasource.name,
                 items=(
@@ -265,7 +268,8 @@ def load(
 
     Constraints:
         The catalog is read-only; use ``md.register()`` and ``md.remove()``
-        to modify project datasources.
+        to modify project datasources. The built-in ``default`` is always available
+        and cannot be replaced or removed.
     """
     if workspace_dir is None:
         workspace_dir = resolve_project_root()
