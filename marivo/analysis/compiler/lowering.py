@@ -53,6 +53,8 @@ from marivo.analysis.domains.contracts import (
     EventTimeToEventPayload,
     EventTimeToEventSemantics,
 )
+from marivo.analysis.domains.event_attribution import FunnelAttributePayload
+from marivo.analysis.domains.event_comparison import FunnelComparePayload
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -205,7 +207,19 @@ def _state_names(metric: TargetMetricContract) -> tuple[str, ...]:
 
 
 def retained_part_specs(row: DatasetRowContract) -> tuple[RetainedPartSpec, ...]:
-    """Resolve exact required Metric roles from the frozen current row contract."""
+    """Resolve exact required roles from the frozen current row contract."""
+    from marivo.analysis.domains.event_attribution import (
+        COMPONENT_COLUMNS,
+        COMPONENT_CONTRACT,
+        COMPONENT_ROLE,
+        FunnelAttributionSemantics,
+    )
+
+    if isinstance(row.family_semantics, FunnelAttributionSemantics):
+        keys = tuple(f.name for f in row.schema.columns if f.field_id in row.key_field_ids)
+        return (
+            RetainedPartSpec(COMPONENT_ROLE, COMPONENT_CONTRACT, 1, (*keys, *COMPONENT_COLUMNS)),
+        )
     semantics = row.family_semantics
     if row.shape_id.family_id == "delta":
         keys = tuple(
@@ -1837,6 +1851,25 @@ class _Compiler:
             self.association_proof = table
             self.validations.extend(checks)
             result = _Rows(table, previous.membership, previous.entity)
+        elif isinstance(payload, (FunnelComparePayload, FunnelAttributePayload)):
+            from marivo.analysis.compiler.event_attribution import (
+                lower_attribute as lower_funnel_attribute,
+            )
+            from marivo.analysis.compiler.event_comparison import (
+                lower_compare as lower_funnel_compare,
+            )
+
+            inputs = tuple(self._visit(item.root) for item in root.inputs)
+            if isinstance(payload, FunnelComparePayload):
+                table, checks = lower_funnel_compare(
+                    inputs[0].expression, inputs[1].expression, payload.spec
+                )
+            else:
+                table, checks = lower_funnel_attribute(
+                    inputs[0].expression, inputs[1].expression, inputs[2].expression, payload.spec
+                )
+            self.validations.extend(checks)
+            result = _Rows(table, inputs[0].membership, inputs[0].entity)
         elif isinstance(payload, ComparePayload):
             current = self._visit(root.inputs[0].root)
             baseline = self._visit(root.inputs[1].root)
@@ -2498,6 +2531,24 @@ def compile_retained_rows(
 
             result, checks = lower_correlate(visit(value._inputs[0]), payload.spec)
             association_proof = result
+            validations.extend(checks)
+            private_parts[id(value)] = ()
+            return result
+        if isinstance(payload, (FunnelComparePayload, FunnelAttributePayload)):
+            from marivo.analysis.compiler.event_attribution import (
+                lower_attribute as lower_funnel_attribute,
+            )
+            from marivo.analysis.compiler.event_comparison import (
+                lower_compare as lower_funnel_compare,
+            )
+
+            inputs = tuple(visit(item) for item in value._inputs)
+            if isinstance(payload, FunnelComparePayload):
+                result, checks = lower_funnel_compare(inputs[0], inputs[1], payload.spec)
+            else:
+                result, checks = lower_funnel_attribute(
+                    inputs[0], inputs[1], inputs[2], payload.spec
+                )
             validations.extend(checks)
             private_parts[id(value)] = ()
             return result

@@ -46,6 +46,10 @@ def delta_part_authorities(
     row: DatasetRowContract,
 ) -> tuple[tuple[str, MetricFoldAuthorityV1], ...]:
     semantics = row.family_semantics
+    from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
+
+    if isinstance(semantics, FunnelDeltaSemantics):
+        return ()
     if not isinstance(semantics, DeltaSemantics):
         raise attribution_error("exact Delta fold authority", "invalid Delta semantics")
     result: list[tuple[str, MetricFoldAuthorityV1]] = []

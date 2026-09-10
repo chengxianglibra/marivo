@@ -468,6 +468,12 @@ class _RowValidator:
         from marivo.analysis.operators.association_contracts import association_orders
 
         self.authored_orders = association_orders(contract, rows)
+        from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
+
+        if isinstance(contract.family_semantics, FunnelDeltaSemantics):
+            self.authored_orders["step_key"] = tuple(
+                step.key for step in contract.family_semantics.current.journey.pattern.steps
+            )
         self.contract = contract
         self.rows = rows
         self.attribution_masks: tuple[tuple[bool, ...], ...] | None = None
@@ -476,7 +482,9 @@ class _RowValidator:
             from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 
             semantics = contract.family_semantics
-            if not isinstance(semantics, AttributionSemantics):
+            from marivo.analysis.domains.event_attribution import FunnelAttributionSemantics
+
+            if not isinstance(semantics, (AttributionSemantics, FunnelAttributionSemantics)):
                 _fail("exact Attribution row semantics", "missing Attribution authority")
             self.attribution_masks = tuple(
                 tuple(index < len(prefix) for index in range(len(semantics.axis_field_ids)))

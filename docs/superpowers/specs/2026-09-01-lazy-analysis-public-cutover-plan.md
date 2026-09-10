@@ -2818,7 +2818,7 @@ protocol without acquiring its Metric-only admission rules.
 | --- | --- | --- |
 | 7a: Event matching and journey authority — complete | 3b, 4d | Private shared subject-identity admission, Event completeness, all three matching policies, and journey materialization/recovery passed; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7a-execution.md). |
 | 7b: Event reducers and subject selection — complete | 7a | Private logical and recovered engine funnel, time-to-event and complete DroppedBefore selection passed, including no rematching, exact reach propagation, local result filtering and the Metric -> Event -> Population -> Metric loop; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7b-execution.md). |
-| 7c: Event funnel comparison and attribution | 7b; 5a-5b's shared contracts | Execute Event-owned compare/attribute from complete journey assignments. Prove cohort/follow-up compatibility, scoped endpoint reconciliation, compact-component source/local parity, and censoring/aggregate-checkpoint rejection without rematching. |
+| 7c: Event funnel comparison and attribution — complete | 7b; 5a-5b's shared contracts | Private complete-journey comparison and loss-rate attribution passed compatibility, scoped endpoint reconciliation, native/compact-local parity, cold recovery and atomic rejection without rematching; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7c-execution.md). |
 | 7d: Lifecycle replay and canonical retention | 7a's shared identity seam; 4d | Materialize and cold-recover history with all three required retained roles. Prove inception/coverage, legal and illegal transitions, same-time loops, subjects without positive intervals, and atomic failure/cancellation for required parts. |
 | 7e: Lifecycle reducers and subject selection | 7d; 7b for the Event continuation | Execute distribution, transitions, dwell, violations, and in-state selection from recovered history. Prove exact part consumption, clipped-duration meaning, coverage-sensitive membership, no trigger replay, and continuation into Metric and Event sources. |
 
@@ -2875,8 +2875,49 @@ is covered; the proposed single-step coverage replacement was therefore rejected
 The execution record distinguishes historical independent review, supplemental
 implementation-agent review and the current review-resolution gates. The frozen
 record includes privacy and atomic failure/cancellation evidence. Historical
-candidate `95b98ac1...` remains under `evidence/slice-7b/`. Slice 7c, Lifecycle, Slice 5b's independent gate,
+candidate `95b98ac1...` remains under `evidence/slice-7b/`. Lifecycle, Slice 5b's independent gate,
 the integrated public D/L/M journeys and public disclosure remain separately gated.
+
+### Slice 7c observed acceptance (2026-09-11)
+
+Private Event funnel comparison and `FunnelLossRate` attribution passed on the
+956-file executable candidate `74ccc5e85fbf42653f27a77a991b2f3cd9a4cb7ce345078d65414e9ba9e55b07`.
+The [execution record](../plans/2026-09-10-lazy-analysis-slice-7c-execution.md)
+binds 283 focused default checks, 26-file explicit test typing, 325-file scoped
+typing, `make check-agent` (7,029 defaults and 464-file source typing), 108 Event
+Runtime checks and 80 shared materialization/membership Runtime checks. All six
+gates preserve matching before/after hashes; Runtime uses at most two workers.
+
+Native Ibis and compact pandas agree on complete outputs, status and ordering,
+including nonzero shifted cohorts. Complete mapped components independently
+reproduce both endpoint rates and each resolution's delta. Three interpreters
+prove retained journey continuation after occurrence-source deletion and exact
+cold binding with no execution queries. Censoring, removed targets, aggregate
+checkpoints, missing/corrupt authority, combined input budgets, failure and
+cancellation are covered without partial publication or identity disclosure.
+
+Read-only review of the preceding `bc472773...` candidate exposed filtered
+checkpoint censoring bypass and native pool/axis name collisions. Both are
+fixed in the preserved six-gate run in `evidence/slice-7c/review-fix/` and remain
+covered by the current candidate.
+Filtered funnel checkpoints are rejected using exact producer authority;
+unfiltered checkpoints remain admitted. The versioned checkpoint-scope rule
+prevents pre-fix comparison cache reuse. Native pool expressions bind their own
+relation and preserve governed `positive`/`negative` axes with full pandas parity.
+
+The 2026-09-11 adversarial-review follow-up corrects `method` and `causal_claim`
+to the closed `method_identity` role, documents both compare baseline parameters,
+and adds native per-side duplicate-coordinate proofs matching pandas rejection.
+Both arithmetic backends consume one domain-owned component-name tuple. The
+initial-step undefined-rate interpretation is explicit without growing the
+status enum. The current six gates and three-process evidence live in
+`evidence/slice-7c/adversarial-review/`; the execution record lists accepted and
+deferred review suggestions, including the unmeasured Finding-ranking concern.
+
+This closes only private Slice 7c. It consumes shared 5a–5b protocols without
+closing Slice 5b's independent gate. Public exports, Help, bilingual site
+activation, integrated D/L/M journeys and Lifecycle remain separately gated.
+No commit, push or release work was performed.
 
 ### Owned implementation
 

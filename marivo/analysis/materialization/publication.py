@@ -496,6 +496,7 @@ def _delta_descriptor(
     sampling_by_root: Mapping[int, SamplingRealization] | None,
 ) -> ArtifactDescriptor:
     """Bind both operand authorities without borrowing the first input's meaning."""
+    from marivo.analysis.domains.event_comparison import FunnelComparePayload
     from marivo.analysis.operators.contracts import ComparePayload, comparison_basis
 
     leaves = tuple(artifact_inputs(dataset))
@@ -547,7 +548,7 @@ def _delta_descriptor(
 
     comparison: Dataset = dataset
     while not isinstance(comparison._root, LogicalRootHandle) or not isinstance(
-        comparison._root.payload, ComparePayload
+        comparison._root.payload, (ComparePayload, FunnelComparePayload)
     ):
         if isinstance(comparison, MaterializedDataset):
             retained = selected[comparison.state.artifact_ref.ref]
@@ -555,6 +556,7 @@ def _delta_descriptor(
             break
         if isinstance(comparison._root, LogicalRootHandle) and comparison._root.operator_id in (
             "delta.attribute_expanded",
+            "delta.funnel_attribute",
             "discover.driver_axes_expanded",
         ):
             comparison = comparison._inputs[0]

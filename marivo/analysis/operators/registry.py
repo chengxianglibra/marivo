@@ -16,6 +16,11 @@ from marivo.analysis.domains.contracts import (
     EventTimeToEventPayload,
     EventTimeToEventSemantics,
 )
+from marivo.analysis.domains.event_attribution import (
+    FunnelAttributePayload,
+    FunnelAttributionSemantics,
+)
+from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelDeltaSemantics
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -99,6 +104,8 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         consumer = dataset._registry.consumer(dataset._inputs[0], root.operator_id)
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
+    if isinstance(root.payload, (FunnelComparePayload, FunnelAttributePayload)):
+        return ImplementationRegistration(root.operator_id, roles, "duckdb", root.operator_id)
     if isinstance(root.payload, DriverCandidatePayload):
         identity = any(f.role_id == "entity_identity" for f in dataset.schema.columns)
         return ImplementationRegistration(
@@ -148,6 +155,12 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
+    if isinstance(root, LogicalRootHandle) and isinstance(
+        root.payload, (FunnelComparePayload, FunnelAttributePayload)
+    ):
+        for operand in (*dataset._inputs, dataset):
+            admit_retained_rows(operand)
+        return
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, DriverCandidatePayload):
         expected = 3 if root.payload.spec.expanded_compare is not None else 1
         if (
@@ -256,6 +269,8 @@ def admit_retained_rows(dataset: Dataset) -> None:
         semantics,
         (
             EventJourneySemantics,
+            FunnelDeltaSemantics,
+            FunnelAttributionSemantics,
             EventFunnelSemantics,
             EventTimeToEventSemantics,
             EntityPresentMetricSemantics,

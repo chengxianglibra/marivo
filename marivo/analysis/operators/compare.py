@@ -446,7 +446,12 @@ def validate_delta(row: DatasetRowContract, rows: DatasetRowSetContract) -> None
 
 
 def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> None:
+    from marivo.analysis.domains.event_attribution import admits_attribute
+    from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelDeltaSemantics
+    from marivo.analysis.domains.event_comparison import validate_delta as validate_funnel_delta
     from marivo.analysis.operators.discovery import DeltaDiscovery
+
+    funnel_shapes = (_make_shape_id("delta", "funnel", 1, ids=ids),)
 
     def decode(state: MaterializedDatasetState) -> MaterializedDatasetState:
         _validate_materialized_state(state, ids=ids)
@@ -459,11 +464,28 @@ def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> N
             family_id="delta",
             logical_type=LogicalDeltaDataset,
             materialized_type=MaterializedDeltaDataset,
-            shape_ids=shapes,
+            shape_ids=(*shapes, *funnel_shapes),
             owner_id="operators.compare",
             ids=ids,
-            row_validator=validate_delta,
+            row_validator=lambda row, rows: (
+                validate_funnel_delta(row, rows, ids)
+                if isinstance(row.family_semantics, FunnelDeltaSemantics)
+                else validate_delta(row, rows)
+            ),
             consumers=(
+                ConsumerRegistration(
+                    "delta.funnel_attribute",
+                    ("input", "current", "baseline"),
+                    "attribution",
+                    funnel_shapes,
+                    ("event.exact_journey@v1",),
+                    discoverable=False,
+                    operand_shape_ids=(
+                        funnel_shapes,
+                        (_make_shape_id("event", "funnel", 1, ids=ids),),
+                        (_make_shape_id("event", "funnel", 1, ids=ids),),
+                    ),
+                ),
                 ConsumerRegistration(
                     "discover.driver_axes",
                     ("input",),
@@ -502,7 +524,7 @@ def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> N
                         f"delta.{method}",
                         ("input",),
                         "delta",
-                        non_scalar,
+                        (*non_scalar, *funnel_shapes) if method == "where" else non_scalar,
                         ("delta.current_rows@v1", "delta.sufficient_components@v1"),
                     )
                     for method in ("where", "rank", "limit")
@@ -511,7 +533,7 @@ def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> N
                     "delta.attribute",
                     ("input",),
                     "attribution",
-                    shapes,
+                    (*shapes, *funnel_shapes),
                     ("delta.current_rows@v1", "delta.sufficient_components@v1"),
                 ),
                 ConsumerRegistration(
@@ -530,9 +552,12 @@ def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> N
             ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=decode,
-            node_payload_types=(ComparePayload, RetainedRowsPayload),
+            node_payload_types=(ComparePayload, FunnelComparePayload, RetainedRowsPayload),
             consumer_admission=lambda dataset, method: (
-                not any(field.role_id == "rank" for field in dataset.schema.columns)
+                admits_attribute(dataset)
+                if method == "delta.attribute"
+                and isinstance(dataset.row_contract.family_semantics, FunnelDeltaSemantics)
+                else not any(field.role_id == "rank" for field in dataset.schema.columns)
                 if method == "delta.rank"
                 else dataset.row_set_contract.ordering.kind == "ordered"
                 if method == "delta.limit"

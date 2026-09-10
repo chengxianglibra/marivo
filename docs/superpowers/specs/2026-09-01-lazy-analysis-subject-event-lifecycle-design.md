@@ -1729,10 +1729,24 @@ calculation_status
 ```
 
 `coordinate_presence` is `matched`, `current_only`, or `baseline_only`.
-`calculation_status` is `ok`, `zero_denominator`, or `missing_side`. A complete
-admitted action may publish the latter two with null rate values. Any censored
+`calculation_status` is `ok`, `zero_denominator`, or `missing_side`. For matched
+initial-step coordinates, `zero_denominator` denotes the absence of a preceding
+transition denominator; its positive anchor/entry counts do not define a
+loss-rate-from-previous denominator. Both initial-step rates and their delta
+remain null. `missing_side` takes precedence when one coordinate is absent.
+For non-initial steps, `zero_denominator` denotes a zero resolved-entry count on
+either side. A complete
+admitted action may publish the latter two with a null `loss_rate_delta`. Each
+side rate is independently defined from that side's positive resolved-entry
+denominator and non-initial step; an absent or zero-denominator side has a null
+rate without erasing the other side's defined rate. Any censored
 aligned input fails the comparison action before publication and is not encoded
 as a partial output status. Additive count fields remain exact integers.
+A filtered funnel checkpoint does not retain pre-filter completeness authority
+and is rejected as a comparison input, even when its remaining rows have no
+censoring. Materialize the unfiltered funnels or compare the logical funnels
+before filtering. Runtime validates this boundary from the exact retained
+producer contract without replaying artifact lineage.
 
 The Delta admits `where`, the Event-specific `attribute` overload below, and
 state actions. Axes, `step_key`, presence/status fields, counts, and rate/delta
@@ -1811,6 +1825,26 @@ registered funnel ratio-mix method, `causal_claim` is always `none`, and every
 resolution must reconcile to the selected funnel loss-rate delta before
 publication. Positive and negative pool shares follow the shared Attribution
 contract and are never interpreted as improvement or degradation.
+
+The private Slice 7c implementation registers `funnel_ratio_mix@v1`. For mapped
+member `g`, complete lost counts `L_current(g)`, `L_baseline(g)` and complete
+resolution denominators `E_current`, `E_baseline`, the loss row has side terms
+`L_current(g)/E_current` and `L_baseline(g)/E_current`. The denominator-mix row
+has side terms `0` and `-L_baseline(g)*(1/E_current - 1/E_baseline)`.
+Each contribution is current minus baseline; summing either side separately
+reproduces that side's full endpoint, and summing contributions reproduces the
+selected endpoint delta within the shared tolerance. Hierarchy requires at least
+two unique axes; the shared Top-K range is 1 through 1000.
+
+`event_funnel.additive_components@v1` retains the four exact mapped counts and
+four full-resolution totals alongside the complete contribution coordinates,
+active/Other masks and contribution kind. The primary rows and this compact
+part publish atomically under the existing Artifact protocol. Metadata retains
+one target, authored resolution prefixes and Top-K definition; no subject or
+occurrence identity values enter comparison/attribution Evidence. The compact
+part is arithmetic authority, not permission to recover journey assignments or
+attribute a materialized aggregate Delta. Complete journey scan leaves remain
+the only reusable assignment authority.
 
 Module 5 continues to own common Delta/Attribution Dataset protocol, selector,
 status, and action behavior. This module supplies only the Event-specific

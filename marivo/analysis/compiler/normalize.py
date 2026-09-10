@@ -15,6 +15,8 @@ from marivo.analysis.domains.contracts import (
     EventSelectionPayload,
     EventTimeToEventPayload,
 )
+from marivo.analysis.domains.event_attribution import FunnelAttributePayload
+from marivo.analysis.domains.event_comparison import FunnelComparePayload
 from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
@@ -140,6 +142,8 @@ def required_entities(
                 RetainedRowsPayload,
                 RetainedFoldPayload,
                 ComparePayload,
+                FunnelComparePayload,
+                FunnelAttributePayload,
                 AttributePayload,
                 CorrelatePayload,
                 ForecastPayload,

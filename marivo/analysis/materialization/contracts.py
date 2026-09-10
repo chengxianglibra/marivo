@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.event_comparison_codec import FunnelEvidenceSummary
+
 import hashlib
 import json
 import math
@@ -642,6 +647,12 @@ def required_retained_contracts(
     )
 
     semantics = row.family_semantics
+    if semantics.kind in ("delta/funnel@v1", "attribution/funnel-loss-rate@v1"):
+        from marivo.analysis.domains.event_attribution import COMPONENT_CONTRACT
+
+        return (
+            (COMPONENT_CONTRACT,) if semantics.kind == "attribution/funnel-loss-rate@v1" else ()
+        ) + (("population_sampling_state",) if sampled else ())
     component_state = isinstance(
         semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
     ) and any(binding[3] for binding in semantics.metric_bindings)
@@ -665,6 +676,10 @@ def required_retained_contracts(
 
 
 def finding_extractor(row: d.DatasetRowContract, producer_id: str) -> str:
+    if row.family_semantics.kind == "delta/funnel@v1":
+        return "funnel_delta_finding"
+    if row.family_semantics.kind == "attribution/funnel-loss-rate@v1":
+        return "contribution_finding"
     if row.shape_id.family_id == "forecast":
         return "forecast_point_finding"
     if row.shape_id.family_id == "association":
@@ -680,6 +695,8 @@ def finding_extractor(row: d.DatasetRowContract, producer_id: str) -> str:
 
 
 def finding_policy(row: d.DatasetRowContract, producer_id: str) -> str:
+    if row.family_semantics.kind in ("delta/funnel@v1", "attribution/funnel-loss-rate@v1"):
+        return "bounded_algebraic_findings@v1"
     if row.shape_id.family_id == "forecast":
         return "forecast_point_findings@v1"
     if row.shape_id.family_id == "association":
@@ -721,6 +738,7 @@ class ArtifactDescriptor:
     candidate_evidence: CandidateEvidenceSummary | None = None
     event_evidence: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
     subject_selection_evidence: EventSelectionEvidenceSummary | None = None
+    funnel_evidence: FunnelEvidenceSummary | None = None
 
     @property
     def row_contract_fingerprint(self) -> str:
@@ -878,6 +896,15 @@ def decode_schema(value: object, ids: d._StableIdRegistry) -> d.DatasetSchema:
 
 
 def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
+    from marivo.analysis.domains.event_attribution import FunnelAttributionSemantics
+    from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
+
+    if isinstance(value, (FunnelDeltaSemantics, FunnelAttributionSemantics)):
+        from marivo.analysis.materialization.event_comparison_codec import (
+            semantics_payload as funnel_semantics_payload,
+        )
+
+        return funnel_semantics_payload(value)
     from marivo.analysis.domains.contracts import (
         EventFunnelSemantics,
         EventJourneySemantics,
@@ -994,6 +1021,12 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
     if not isinstance(value, dict):
         raise invalid("invalid family row semantics")
     kind = value.get("kind")
+    if kind in ("delta/funnel@v1", "attribution/funnel-loss-rate@v1"):
+        from marivo.analysis.materialization.event_comparison_codec import (
+            decode_semantics as decode_funnel_semantics,
+        )
+
+        return decode_funnel_semantics(value)
     if kind in ("event/funnel@v1", "event/time-to-event@v1"):
         from marivo.analysis.materialization.event_reducer_codec import (
             decode_semantics as decode_reducer,
@@ -1297,6 +1330,9 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
     from marivo.analysis.materialization.event_codec import (
         evidence_payload as event_evidence_payload,
     )
+    from marivo.analysis.materialization.event_comparison_codec import (
+        evidence_payload as funnel_evidence_payload,
+    )
     from marivo.analysis.materialization.event_reducer_codec import selection_evidence_payload
     from marivo.analysis.materialization.forecast_codec import (
         evidence_payload as forecast_evidence_payload,
@@ -1342,6 +1378,7 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         "quality_summary": value.quality_summary.model_dump(mode="json"),
         "typed_issues": [issue_payload(item) for item in value.typed_issues],
         "comparison_basis": value.comparison_basis,
+        "funnel_evidence": funnel_evidence_payload(value.funnel_evidence),
         "comparison_inputs": comparison_inputs_payload(value.comparison_inputs),
         "delta_evidence": delta_evidence_payload(value.delta_evidence),
         "attribution_evidence": attribution_evidence_payload(value.attribution_evidence),
@@ -1373,6 +1410,9 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         decode_delta_evidence,
     )
     from marivo.analysis.materialization.event_codec import decode_evidence as decode_event_evidence
+    from marivo.analysis.materialization.event_comparison_codec import (
+        decode_evidence as decode_funnel_evidence,
+    )
     from marivo.analysis.materialization.event_reducer_codec import decode_selection_evidence
     from marivo.analysis.materialization.forecast_codec import (
         decode_evidence as decode_forecast_evidence,
@@ -1386,7 +1426,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     ids = make_ids(())
     obj = _obj(
         parse_json(text),
-        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence",
+        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence",
     )
     if obj["schema"] != "marivo.dataset_artifact_descriptor/v1":
         raise invalid("unsupported Artifact descriptor or sampling contract")
@@ -1483,7 +1523,13 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         decode_candidate_evidence(obj["candidate_evidence"]),
         decode_event_evidence(obj["event_evidence"]),
         decode_selection_evidence(obj["subject_selection_evidence"]),
+        decode_funnel_evidence(obj["funnel_evidence"]),
     )
+    if result.funnel_evidence is not None and result.row_contract.family_semantics.kind not in (
+        "delta/funnel@v1",
+        "attribution/funnel-loss-rate@v1",
+    ):
+        raise invalid("Event comparison Evidence outside its semantic variant")
     if result.comparison_basis is not None:
         from marivo.analysis.operators.contracts import decode_comparison_basis
 
@@ -1583,7 +1629,13 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             raise invalid("Association Evidence search scope differs from its row authority")
     elif result.association_evidence is not None:
         raise invalid("Association Evidence outside its family")
-    if row.shape_id.family_id == "delta":
+    if row.family_semantics.kind in ("delta/funnel@v1", "attribution/funnel-loss-rate@v1"):
+        from marivo.analysis.materialization.event_comparison_publication import (
+            validate_descriptor as validate_funnel_descriptor,
+        )
+
+        validate_funnel_descriptor(result)
+    elif row.shape_id.family_id == "delta":
         from marivo.analysis.operators.contracts import DeltaSemantics
 
         if len(result.comparison_inputs) != 2 or result.delta_evidence is None:
@@ -2097,7 +2149,8 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         f"{contract.finding_extractor_id}@v{contract.finding_extractor_version}",
     )
     summary = (
-        descriptor.delta_evidence
+        descriptor.funnel_evidence
+        or descriptor.delta_evidence
         or descriptor.attribution_evidence
         or descriptor.association_evidence
         or descriptor.forecast_evidence
@@ -2117,6 +2170,12 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         value["subject_selection_evidence"] = selection_evidence_payload(
             descriptor.subject_selection_evidence
         )
+    if descriptor.funnel_evidence is not None:
+        from marivo.analysis.materialization.event_comparison_codec import (
+            evidence_payload as funnel_payload,
+        )
+
+        value["funnel_evidence"] = funnel_payload(descriptor.funnel_evidence)
     if descriptor.event_evidence is not None:
         value["event_evidence"] = event_evidence_payload(descriptor.event_evidence)
         value["event_semantics"] = _semantics_payload(descriptor.row_contract.family_semantics)

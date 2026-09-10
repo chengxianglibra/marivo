@@ -55,6 +55,8 @@ from marivo.analysis.domains.contracts import (
     EventTimeToEventSemantics,
 )
 from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
+from marivo.analysis.domains.event_attribution import FunnelAttributePayload, FunnelAttributeSpec
+from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelCompareSpec
 from marivo.analysis.evidence import _dataset_reads
 from marivo.analysis.evidence._dataset_types import (
     ArtifactDigest,
@@ -954,6 +956,13 @@ class DatasetRuntime:
                 object_bindings = self.object_bindings
                 self._validate_target(source_step, physical, target, object_bindings)
                 phase = "authority_resolution"
+                from marivo.analysis.materialization.event_comparison_publication import (
+                    validate_checkpoint_inputs,
+                )
+
+                validate_checkpoint_inputs(
+                    dataset, {ref: record.descriptor for ref, record in records.items()}
+                )
                 validations: list[tuple[str, int]] = []
                 sampling: list[SamplingRealization] = []
                 sampling_by_root: dict[int, SamplingRealization] = {}
@@ -1680,6 +1689,29 @@ class DatasetRuntime:
                         artifact_ref=artifact_ref,
                         session_ref=self.session_ref,
                         search_summary=association_summary,
+                    )
+                elif dataset.row_contract.family_semantics.kind in (
+                    "delta/funnel@v1",
+                    "attribution/funnel-loss-rate@v1",
+                ):
+                    from marivo.analysis.materialization.event_comparison_publication import (
+                        build_publication,
+                    )
+                    from marivo.analysis.materialization.reads import payload_batches
+
+                    descriptor, findings = build_publication(
+                        descriptor,
+                        payload_batches(
+                            self.store.project_root,
+                            descriptor.storage_receipt,
+                            policy=_READ_POLICY,
+                            bindings=object_bindings,
+                            row=descriptor.row_contract,
+                            rows=descriptor.row_set_contract,
+                            audit=True,
+                        ),
+                        artifact_ref=artifact_ref,
+                        session_ref=self.session_ref,
                     )
                 elif dataset.kind == "delta":
                     from marivo.analysis.materialization.comparison_publication import (
@@ -2524,7 +2556,12 @@ class DatasetRuntime:
                 part.role, part.contract_id, part.contract_version, tuple(part.table.column_names)
             )
             for part in result.parts
-            if part.contract_id in ("metric.sufficient_components", "delta.sufficient_components")
+            if part.contract_id
+            in (
+                "metric.sufficient_components",
+                "delta.sufficient_components",
+                "event_funnel.additive_components",
+            )
         )
 
     @staticmethod
@@ -2581,6 +2618,8 @@ class DatasetRuntime:
             payload = root.payload
             call: (
                 RowCall
+                | FunnelCompareSpec
+                | FunnelAttributeSpec
                 | CompareSpecV1
                 | AttributeSpecV1
                 | CorrelateSpecV1
@@ -2592,6 +2631,8 @@ class DatasetRuntime:
                 payload,
                 (
                     ComparePayload,
+                    FunnelComparePayload,
+                    FunnelAttributePayload,
                     AttributePayload,
                     CorrelatePayload,
                     ForecastPayload,
