@@ -141,6 +141,7 @@ def test_analysis_skill_routes_through_progressive_help_topology() -> None:
         "analysis.evidence",
         "analysis.runtime",
         "analysis.boundary.to_pandas",
+        "datasource.raw_sql",
     ):
         assert target in text
     assert "## Capability routing map" not in text

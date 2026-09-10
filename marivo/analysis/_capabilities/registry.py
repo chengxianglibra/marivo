@@ -360,8 +360,8 @@ def _slice2_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
         AnalysisNavigationTopic(
             canonical_id="artifacts.reading",
             summary=(
-                "Read progressively: repr -> show/render -> contract -> exact Evidence "
-                "or rows -> terminal exit."
+                "Use show/render for bounded state, contract for typed continuations, "
+                "and to_pandas for complete rows. Reading rows does not replace typed computation."
             ),
             render_class="navigation",
             members=(
@@ -2609,7 +2609,12 @@ def _build_registry() -> CapabilityRegistry:
             id="boundary.to_pandas",
             public_entrypoint="frame.to_pandas()",
             help_target="boundary.to_pandas",
-            summary="Terminal exit: return a defensive pandas DataFrame copy.",
+            summary=(
+                "Return a defensive pandas DataFrame copy for complete reads, presentation, "
+                "or unsupported methods. Keep supported calculations in typed flow; "
+                "failed preconditions require repair, not export. The copy and its derivatives "
+                "cannot re-enter typed analysis; the original Artifact remains usable."
+            ),
             constraint_ids=("frame_immutable",),
             callable_path="marivo.analysis.frames.base.BaseFrame.to_pandas",
             direction="terminal_exit",
@@ -3728,6 +3733,7 @@ def _derive_cross_links(
         "artifacts.reading",
         (*_ARTIFACT_EVIDENCE_TARGETS, _analysis_target("boundary.to_pandas")),
     )
+    add("boundary.to_pandas", (_analysis_target("methods"),))
     for artifact_family in ARTIFACT_FAMILIES:
         routed_algebra_values: list[LiveHelpTarget] = []
         for producer_edge in producer_edges[artifact_family]:

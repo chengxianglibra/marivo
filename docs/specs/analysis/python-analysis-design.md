@@ -109,8 +109,20 @@ either family-preserving reshaping or controlled escape.
    composite is on the current default surface (`attribute` is a core operator).
 5. **Projection / terminal exit** — bounded reads (`show()`, `render()`,
    `contract()`) and terminal exits out of the canonical chain
-   (`frame.to_pandas()`, `md.raw_sql(...)`). There is no inbound path from
-   ad-hoc Ibis/pandas/SQL back into typed analysis.
+   (`frame.to_pandas()`, `md.raw_sql(...)`). Complete row reads and presentation
+   may use an exported copy; supported analytical computation remains typed.
+   Terminality applies to the exported branch, not the original Artifact.
+   There is no inbound path from ad-hoc Ibis/pandas/SQL back into typed analysis.
+
+Choose an execution path for each analytical step, not once after observation.
+`observe` establishes inputs; comparison, contribution attribution, and supported
+transforms that affect a conclusion continue the typed Evidence chain. Unknown
+capabilities require Help discovery, inadmissible inputs require repair, and only
+unsupported methods justify external computation from an established Artifact.
+Source-specific questions or provisional work without typed inputs may use
+`md.raw_sql`; that route cannot replace governed definitions or repair missing
+business semantics. The workflow skill owns this judgment, while the precise
+exit guarantees belong to the terminal boundaries in the operator spec.
 
 Layers 1–4 and the artifact algebra are specified in
 [`operators-and-frames.md`](operators-and-frames.md).

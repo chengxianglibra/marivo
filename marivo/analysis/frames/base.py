@@ -1175,7 +1175,19 @@ class BaseFrame(RenderableResult):
         return _coerce_decimal_columns(self._public_dataframe_view().copy())
 
     def to_pandas(self) -> pd.DataFrame:
-        """Return a defensive copy shaped for terminal pandas consumption.
+        """Return an isolated DataFrame for complete reads or terminal custom work.
+
+        Takes no parameters. The returned copy supports inspection, plotting,
+        and presentation, or methods outside the installed typed surface.
+        Keep supported analytical calculations in typed flow; discover them
+        with ``marivo.help("analysis.methods")`` before treating work as custom.
+
+        For example, ``rows = frame.to_pandas()`` reads complete result rows;
+        ``rows.to_dict(orient="records")`` prepares them for presentation.
+        Keep the source Artifact identity alongside those rows. The copy does
+        not carry lineage, metadata, session ownership, or Evidence guarantees
+        and cannot re-enter typed analysis. The original frame remains usable
+        by typed methods and is unaffected by mutations of the copy.
 
         Numeric columns surfaced as ``decimal.Decimal`` are returned as
         ``float64``; see :meth:`_export_dataframe`.
@@ -1207,27 +1219,27 @@ class BaseFrame(RenderableResult):
 
     def __setitem__(self, key: Any, value: Any) -> None:
         raise FrameMutationError(
-            message="frame is immutable; call .to_pandas() to operate on a copy",
+            message="frame is immutable; choose a typed method for analytical changes",
         )
 
     def __add__(self, other: Any) -> Any:
         raise FrameMutationError(
-            message="frame arithmetic is blocked; call .to_pandas() first",
+            message="frame arithmetic is blocked; choose a typed method for the analytical intent",
         )
 
     def __sub__(self, other: Any) -> Any:
         raise FrameMutationError(
-            message="frame arithmetic is blocked; call .to_pandas() first",
+            message="frame arithmetic is blocked; choose a typed method for the analytical intent",
         )
 
     def __mul__(self, other: Any) -> Any:
         raise FrameMutationError(
-            message="frame arithmetic is blocked; call .to_pandas() first",
+            message="frame arithmetic is blocked; choose a typed method for the analytical intent",
         )
 
     def __truediv__(self, other: Any) -> Any:
         raise FrameMutationError(
-            message="frame arithmetic is blocked; call .to_pandas() first",
+            message="frame arithmetic is blocked; choose a typed method for the analytical intent",
         )
 
     def _preview_rows_provider(self) -> Iterator[tuple[str, ...]]:
