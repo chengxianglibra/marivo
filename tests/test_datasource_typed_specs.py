@@ -457,11 +457,11 @@ def test_md_list_returns_displayable_datasource_list(
     result = md.list()
 
     assert_conforms(result)
-    assert len(result) == 1
-    assert result.ids() == ["warehouse"]
-    assert result.items[0].name == "warehouse"
+    assert len(result) == 2
+    assert result.ids() == ["default", "warehouse"]
+    assert result.items[0].name == "default"
     assert result[0].backend_type == "duckdb"
-    assert [item.name for item in result] == ["warehouse"]
+    assert [item.name for item in result] == ["default", "warehouse"]
     assert result.show() is None
     assert "warehouse" in capsys.readouterr().out
 
@@ -475,7 +475,7 @@ def test_catalog_list_returns_same_displayable_type(
     result = md.load().list()
 
     assert isinstance(result, type(md.list()))
-    assert result.ids() == ["warehouse"]
+    assert result.ids() == ["default", "warehouse"]
 
 
 def test_catalog_show_renders_full_datasource_model_without_secrets(
@@ -501,7 +501,7 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     catalog = md.load()
     rendered = catalog.render()
 
-    assert "DatasourceCatalog datasources=1" in rendered
+    assert "DatasourceCatalog datasources=2" in rendered
     assert "warehouse:" in rendered
     assert "backend_type=trino" in rendered
     assert "fields=catalog: hive, host: trino.example" in rendered

@@ -12,6 +12,7 @@ from marivo.config import (
     ProjectConfig,
     load_project_config,
 )
+from marivo.datasource._builtin import default_datasource, require_user_datasource_name
 from marivo.datasource.authoring import DatasourceSpec, _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
@@ -123,7 +124,8 @@ def load_all(project_root: Path | None = None) -> dict[str, DatasourceIR]:
     result = load_datasources(datasource_dir(root))
     if result.errors:
         raise result.errors[0]
-    return {datasource.name: datasource for datasource in result.datasources}
+    builtin = default_datasource()
+    return {builtin.name: builtin, **{item.name: item for item in result.datasources}}
 
 
 def load_one(name: str, project_root: Path | None = None) -> DatasourceIR | None:
@@ -184,7 +186,8 @@ def _layered_models_roots(project_root: Path | None = None) -> tuple[Path, ...]:
 
 
 def load_all_layered(project_root: Path | None = None) -> dict[str, DatasourceIR]:
-    datasources: dict[str, DatasourceIR] = {}
+    builtin = default_datasource()
+    datasources: dict[str, DatasourceIR] = {builtin.name: builtin}
     for models_root in _layered_models_roots(project_root):
         result = load_datasources(models_root / "datasources")
         if result.errors:
@@ -219,6 +222,7 @@ def load_one_layered(name: str, project_root: Path | None = None) -> DatasourceI
 def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> DatasourceIR:
     root = project_root or resolve_project_root()
     require_project_config(root)
+    require_user_datasource_name(spec.name, location=str(datasource_path(spec.name, root)))
     _write_datasource_file(
         spec=spec,
         project_root=root,
@@ -244,6 +248,7 @@ def delete_one(name: str, project_root: Path | None = None) -> bool:
     root = project_root or resolve_project_root()
     require_project_config(root)
     path = datasource_path(name, root)
+    require_user_datasource_name(_storage_name(name), location=str(path), deleting=True)
     if not path.is_file():
         return False
     path.unlink()

@@ -27,6 +27,11 @@ from marivo.config import (
     SKILL_SEMANTIC,
     load_project_config,
 )
+from marivo.datasource._builtin import (
+    DEFAULT_DATASOURCE_DESCRIPTION,
+    DEFAULT_DATASOURCE_NAME,
+    default_datasource,
+)
 from marivo.datasource.engines import ENGINE_PROFILES, SUPPORTED_BACKEND_TYPES
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 
@@ -751,7 +756,7 @@ def _load_project_datasources(
     only: str | None,
     layer_inspection: _LayerPathInspection,
 ) -> _StaticDatasourceLoadResult:
-    datasources: list[DatasourceIR] = []
+    datasources = [default_datasource()] if only in (None, DEFAULT_DATASOURCE_NAME) else []
     diagnostics: list[DoctorCheck] = []
     for filepath in _candidate_datasource_files(root, only, layer_inspection):
         result = _static_datasources_from_file(filepath)
@@ -829,7 +834,11 @@ def _backend_extra_check(datasource: DatasourceIR) -> DoctorCheck:
         id=f"datasource.{datasource.name}",
         label=f"{datasource.name} datasource",
         status="ok",
-        summary=f"{backend_type} datasource configured",
+        summary=(
+            DEFAULT_DATASOURCE_DESCRIPTION
+            if datasource.name == DEFAULT_DATASOURCE_NAME
+            else f"{backend_type} datasource configured"
+        ),
         details={"datasource": datasource.name, "backend_type": backend_type},
     )
 

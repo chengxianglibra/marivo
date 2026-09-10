@@ -124,8 +124,9 @@ def render_root_help() -> str:
 
 def _render_authoring(descriptor: AuthoringCapability) -> str:
     route_groups = (
-        ("declare", ("duckdb", "sqlite", "trino", "mysql", "postgres", "clickhouse")),
-        ("register and test", ("register", "test")),
+        ("discover", ("load", "describe")),
+        ("declare custom", ("duckdb", "sqlite", "trino", "mysql", "postgres", "clickhouse")),
+        ("register custom and test", ("register", "test")),
         ("physical source", ("table", "parquet", "csv", "json")),
         ("metadata", ("inspect",)),
         ("explicit scope", ("partition", "time_range", "unpruned")),
@@ -138,6 +139,12 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         "",
         "  Minimal focused-help routing:",
     ]
+    if descriptor.minimal_example is not None:
+        lines[3:3] = [
+            "  Example:",
+            *[f"    {line}" for line in descriptor.minimal_example.splitlines()],
+            "",
+        ]
     for label, canonical_ids in route_groups:
         targets = tuple(
             REGISTRY.by_canonical_id(canonical_id).canonical_id for canonical_id in canonical_ids

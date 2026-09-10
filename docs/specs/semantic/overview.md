@@ -43,7 +43,8 @@ The design holds to these goals:
 
 - **Python is the source of truth.** Changing a business caliber means editing a
   Python authoring file, not a generated artifact or a runtime store.
-- **Datasources are shareable project config.** They live in
+- **Datasources are shareable project config.** The built-in `default` provides
+  credential-free in-memory DuckDB without registration. Custom declarations live in
   `models/datasources/*.py` and are referenced by global name; a semantic domain
   only references a datasource, it does not define one.
 - **Objects are statically readable.** Entities, dimensions, time dimensions,

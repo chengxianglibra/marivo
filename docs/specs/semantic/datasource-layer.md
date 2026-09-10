@@ -486,6 +486,39 @@ Discovery uses the same contract through
 
 ## Registration and state storage
 
+The built-in `default` datasource is always available as in-memory DuckDB
+(`path=":memory:"`, no credentials), without a declaration or registration.
+`md.list()`, `md.describe("default")`, and datasource and semantic catalogs
+expose it with its built-in, non-persistent origin. Entities still explicitly
+reference `ms.ref.datasource("default")`; CSV, Parquet, and JSON sources use
+existing source descriptors. Declare a separate named datasource for credentials,
+custom connection settings, or a persistent DuckDB database.
+
+`default` is reserved: registration and authored declarations fail with structured
+errors, and removal is rejected. No configuration file is generated. File loaders
+collect only authored declarations; each project aggregation adds one fresh
+built-in definition, including across semantic layers. Discovery does not open
+connections or read user data. Existing external model-root validation is retained.
+
+Read-only acquisition on in-memory DuckDB uses a read-only transaction because
+DuckDB cannot open an in-memory database in connection-level read-only mode.
+Temporary file-reader views remain usable while database table writes are rejected.
+File-backed DuckDB keeps connection-level read-only enforcement.
+
+The built-in uses ordinary managed connection ownership. Independent connections
+and processes do not share its temporary tables. A new process can reread file
+sources; this does not promise that mutable files contain the same data. Unknown
+explicit datasource names still fail without fallback.
+
+```python
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("default"),
+    source=md.parquet("data/orders.parquet"),
+)
+```
+
+
 ```python
 spec = md.duckdb(name="warehouse", path="/data/warehouse.duckdb")
 md.register(spec)  # writes models/datasources/warehouse.py

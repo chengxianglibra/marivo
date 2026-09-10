@@ -247,27 +247,28 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "register",
             "marivo.datasource.manage.register",
-            "Persist a datasource specification in project metadata.",
+            "Persist a user datasource specification; default is reserved for built-in in-memory DuckDB.",
             output="DatasourceSummary",
             inputs=_inputs(("subject", "DatasourceSpec")),
             effects=_effects("local_metadata_read", mutations=("project_state",)),
-            constraints=("datasource_secret_env_ref",),
+            constraints=("datasource_secret_env_ref", "datasource_unique_name"),
             example='md.register(md.duckdb(name="warehouse", path=":memory:"))',
             preconditions=("a validated DatasourceSpec",),
         ),
         _capability(
             "remove",
             "marivo.datasource.manage.remove",
-            "Remove one persisted datasource declaration.",
+            "Remove one persisted datasource declaration; the built-in default cannot be removed.",
             output="bool",
             inputs=_inputs(("subject", "DatasourceName")),
             effects=_effects("local_metadata_read", mutations=("project_state",)),
+            constraints=("datasource_unique_name",),
             example='md.remove("warehouse")',
         ),
         _capability(
             "load",
             "marivo.datasource.catalog.load",
-            "Load the read-only datasource catalog.",
+            "Load the read-only datasource catalog, including built-in default.",
             output="DatasourceCatalog",
             effects=_LOCAL,
             example="md.load()",
@@ -275,7 +276,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "list",
             "marivo.datasource.manage.list",
-            "List persisted project datasources.",
+            "List built-in default and persisted project datasources.",
             output="DatasourceList",
             effects=_LOCAL,
             example="md.list()",
@@ -283,12 +284,12 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "describe",
             "marivo.datasource.manage.describe",
-            "Describe persisted datasource fields and env references.",
+            "Describe built-in or declared datasource fields and env references.",
             output="DatasourceDescription",
             inputs=_inputs(("subject", "DatasourceName")),
             effects=_LOCAL,
             constraints=constraints["configured"],
-            example='md.describe("warehouse")',
+            example='md.describe("default")',
         ),
         _capability(
             "credential_scope",
@@ -490,7 +491,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "inspection.show()"
             ),
             see_also=(_target("credential_scope"),),
-            preconditions=("a registered datasource ref",),
+            preconditions=("a built-in or registered datasource ref",),
             repair_kinds=("register", "reconnect"),
         ),
         _capability(
@@ -652,10 +653,11 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "authoring",
             None,
-            "Describe the datasource authoring workflow boundary.",
+            "Use built-in default for credential-free file sources; declare a separate datasource for credentials or persistence.",
             kind="boundary",
             output=None,
             effects=_NONE,
+            example='md.describe("default").show()',
             see_also=(_target("inspect"), _target("SourceInspection.sample")),
         ),
         _capability(

@@ -187,8 +187,8 @@ def test_authoring_routes_direct_exploration_without_lifecycle_states() -> None:
 
     assert "datasource.declared" not in text
     assert "evidence.projected" not in text
-    assert 'declare -> marivo.help("datasource.duckdb")' in text
-    assert 'register and test -> marivo.help("datasource.register")' in text
+    assert 'declare custom -> marivo.help("datasource.duckdb")' in text
+    assert 'register custom and test -> marivo.help("datasource.register")' in text
     assert 'metadata -> marivo.help("datasource.inspect")' in text
     assert 'explicit scope -> marivo.help("datasource.partition")' in text
     assert 'optional bounded sampling -> marivo.help("datasource.SourceInspection.sample")' in text

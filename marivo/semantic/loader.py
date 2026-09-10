@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.config import AUTHORED_DIR
+from marivo.datasource._builtin import default_datasource
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceError,
@@ -119,7 +120,11 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             kind=ErrorKind.DUPLICATE_NAME,
             message=error.message,
             refs=refs,
-            hint="Keep each datasource name unique under models/datasources/.",
+            hint=(
+                error.repair.action
+                if error.repair is not None
+                else "Keep each datasource name unique under models/datasources/."
+            ),
         )
     if isinstance(error, DatasourceLoadError):
         refs = (error.location,) if error.location else ()
@@ -956,7 +961,7 @@ def load_project(
     expression_sidecar: CompiledExpressionSidecar | None = None
     all_contexts: list[LoaderContext] = []
     all_model_dirs: list[Path] = []
-    datasource_irs: list[DatasourceIR] = []
+    datasource_irs: list[DatasourceIR] = [default_datasource()]
     path_entries: list[str] = []
     module_prefixes: list[str] = []
 

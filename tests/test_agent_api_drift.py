@@ -232,7 +232,7 @@ def test_datasource_catalog_render_uses_card_listing_shape(
 
     rendered = catalog.render()
 
-    assert "DatasourceCatalog datasources=1" in rendered
+    assert "DatasourceCatalog datasources=2" in rendered
     assert "warehouse:" in rendered
     assert "- backend_type=duckdb" in rendered
     assert "- fields=path:" in rendered

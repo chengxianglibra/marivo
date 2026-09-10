@@ -9,6 +9,7 @@ from hashlib import sha1
 from importlib import util as importlib_util
 from pathlib import Path
 
+from marivo.datasource._builtin import require_user_datasource_name
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
@@ -120,7 +121,14 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
         _execute_file(child, ctx, errors, module_name=f"{prefix}.{child.stem}", package_name=prefix)
 
     seen: set[str] = set()
+    accepted: list[DatasourceIR] = []
     for ir in ctx.pending_objects:
+        try:
+            require_user_datasource_name(ir.name, location=ir.location.file)
+        except DatasourceDuplicateError as exc:
+            errors.append(exc)
+            continue
+        accepted.append(ir)
         if ir.name in seen:
             errors.append(
                 DatasourceDuplicateError(
@@ -136,4 +144,4 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
                 )
             )
         seen.add(ir.name)
-    return DatasourceLoadResult(datasources=tuple(ctx.pending_objects), errors=tuple(errors))
+    return DatasourceLoadResult(datasources=tuple(accepted), errors=tuple(errors))

@@ -94,9 +94,9 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
 
     assert project.is_ready()
     catalog = SemanticCatalog(project)
-    assert sorted(project._registry.datasources) == ["warehouse"]
+    assert sorted(project._registry.datasources) == ["default", "warehouse"]
     datasources = catalog.datasources.items
-    assert [ds.ref.path for ds in datasources] == ["warehouse"]
+    assert [ds.ref.path for ds in datasources] == ["default", "warehouse"]
     orders = catalog.require(ms.ref.entity("sales.orders")).details()
     refunds = catalog.require(ms.ref.entity("finance.refunds")).details()
     assert isinstance(orders, EntityDetails)
@@ -171,9 +171,8 @@ def test_datasources_loaded_when_model_load_errors(semantic_project_factory) -> 
 
     result = project.load()
     datasources = result.datasource_irs
-    assert len(datasources) == 1
-    assert datasources[0].name == "warehouse"
-    assert datasources[0].backend_type == "duckdb"
+    assert {item.name for item in datasources} == {"default", "warehouse"}
+    assert all(item.backend_type == "duckdb" for item in datasources)
 
     with pytest.raises(Exception):
         SemanticCatalog(project).list()

@@ -39,6 +39,7 @@ from marivo._temporal import (
     WorkScheduleSnapshotV1,
 )
 from marivo.datasource import credentials as cr
+from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import (
     AiContextIR,
@@ -689,6 +690,8 @@ class DatasourceDetails(_DetailsBase):
                 FieldSection(label="env_refs", value=_format_mapping(self.env_refs)),
             )
         )
+        if self.name == DEFAULT_DATASOURCE_NAME:
+            sections.append(FieldSection(label="source", value=DEFAULT_DATASOURCE_DESCRIPTION))
         return sections
 
 

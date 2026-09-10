@@ -32,6 +32,11 @@ catalog.domains.show()
 
 Loader rules:
 
+- The registry includes the built-in `default` in-memory DuckDB datasource once,
+  even without authored datasource files. Entities reference it explicitly.
+  Authored `default` declarations are rejected as reserved-name conflicts; no
+  connection or configuration file is created by this injection.
+
 - Each domain calls `ms.domain(name=..., owner=...)` once in
   `<root>/<domain>/_domain.py`, with `name` equal to the directory. The
   `_domain.py` is the domain entrypoint and may hold all of that domain's

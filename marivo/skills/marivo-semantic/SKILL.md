@@ -54,7 +54,11 @@ structural descriptions, hidden literals, and unsupported expression explanation
 
 Inspect current identities and definitions before mutation. Reuse matching refs,
 repair the smallest conflict, and author only genuine gaps. For a
-datasource-only request, declare, register, test the connection, and stop.
+datasource-only request, reuse a suitable existing datasource or declare and
+register a new one, test the connection, and stop. Prefer the built-in `default`
+for credential-free file sources; it needs no declaration or registration.
+Declare a separate datasource when credentials or persistent database state are
+needed. Keep entity datasource references explicit.
 
 ### 3. Establish necessary physical facts
 

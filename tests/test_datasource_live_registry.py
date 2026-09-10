@@ -222,7 +222,7 @@ def test_registry_input_contracts_match_required_datasource_arguments() -> None:
 
 def test_registry_retains_direct_inspection_and_acquisition_facts() -> None:
     inspection = REGISTRY.by_canonical_id("inspect")
-    assert inspection.preconditions == ("a registered datasource ref",)
+    assert inspection.preconditions == ("a built-in or registered datasource ref",)
     assert inspection.repair_kinds == ("register", "reconnect")
 
     sample = REGISTRY.by_canonical_id("SourceInspection.sample")

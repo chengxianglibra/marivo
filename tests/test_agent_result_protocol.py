@@ -416,9 +416,9 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
     assert _datasource_list().render() == "\n".join(
         [
             "DatasourceList count=1",
-            "columns: name | backend",
+            "columns: name | backend | source",
             "preview:",
-            "wh | duckdb",
+            "wh | duckdb | Project declaration",
             "available:",
             "- .items",
             "- .ids()",

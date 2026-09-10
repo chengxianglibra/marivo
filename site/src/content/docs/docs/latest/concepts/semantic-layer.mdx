@@ -293,7 +293,24 @@ missing, duplicate, sub-day, or uncovered dates fail closed.
 
 ### 1. Connect a datasource
 
-Datasources are declared in `models/datasources/*.py` with a typed helper per
+For CSV, Parquet, and JSON sources without authentication, use the built-in
+`default` in-memory DuckDB datasource. It needs no configuration or registration;
+`md.list()` and `md.describe("default")` expose it. Within a semantic domain:
+
+```python
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("default"),
+    source=md.parquet("data/orders.parquet"),
+)
+```
+
+The name `default` is reserved and cannot be replaced or removed. Connections
+have independent, non-persistent database state: a later process can reread the
+file, but cannot recover temporary tables. Declare a separate datasource for
+credentials, connection settings, or a persistent database.
+
+Custom datasources are declared in `models/datasources/*.py` with a typed helper per
 backend. The helper returns a typed spec and auto-declares it while the datasource
 loader runs. Semantic files refer to it through the exact
 `ms.ref.datasource("warehouse")` factory.
@@ -1058,7 +1075,7 @@ Every object lives under a **domain** and is addressed by a qualified ref:
 - Entity-scoped objects (dimensions and measures): `<domain>.<entity>.<field>` —
   e.g. `sales.orders.region`.
 
-A project is a folder of declaration files. Datasources are declared once under
+A project is a folder of declaration files. Custom datasources are declared once under
 `models/datasources/`; semantics live under `models/semantic/<domain>/`, with a
 `_domain.py` per domain:
 

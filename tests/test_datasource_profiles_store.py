@@ -30,8 +30,8 @@ def test_datasource_dir_uses_project_marivo(tmp_path: Path) -> None:
     assert datasource_store.datasource_dir(tmp_path) == tmp_path / "models" / "datasources"
 
 
-def test_load_all_empty_when_no_file() -> None:
-    assert datasource_store.load_all() == {}
+def test_load_all_includes_builtin_when_no_file() -> None:
+    assert set(datasource_store.load_all()) == {"default"}
 
 
 def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
@@ -61,7 +61,7 @@ def test_save_roundtrip() -> None:
         )
     )
     datasources = datasource_store.load_all()
-    assert set(datasources) == {"warehouse"}
+    assert set(datasources) == {"default", "warehouse"}
     assert datasources["warehouse"].backend_type == "trino"
     assert datasources["warehouse"].fields["host"] == "trino.example"
     assert datasources["warehouse"].env_refs["user"] == "TRINO_USER"
@@ -210,4 +210,4 @@ def test_delete_one_idempotent() -> None:
 def test_list_names_sorted() -> None:
     datasource_store.save_one(_spec("b", backend_type="duckdb", path=":memory:"))
     datasource_store.save_one(_spec("a", backend_type="duckdb", path=":memory:"))
-    assert datasource_store.list_names() == ["a", "b"]
+    assert datasource_store.list_names() == ["a", "b", "default"]

@@ -1200,3 +1200,23 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
     assert backend.queries == ["SELECT 1"]
     assert backend.disconnect_calls == 1
     assert load_calls == [("warehouse", tmp_path)]
+
+
+def test_doctor_discovers_builtin_default_without_registration(tmp_path: Path) -> None:
+    report = run_doctor(DoctorOptions(project_root=tmp_path, datasource="default"))
+    check = _check(report, "datasources", "datasource.default")
+    assert check.status == "ok"
+    assert "Built-in" in check.summary
+    assert not (tmp_path / "models").exists()
+
+
+def test_doctor_rejects_authored_default_collision(tmp_path: Path) -> None:
+    declarations = tmp_path / "models" / "datasources"
+    declarations.mkdir(parents=True)
+    (declarations / "custom.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='default')\n"
+    )
+    report = run_doctor(DoctorOptions(project_root=tmp_path, datasource="default"))
+    check = _check(report, "datasources", "datasource.default.duplicate")
+    assert check.status == "fail"
+    assert check.details["first"] == "<built-in>"

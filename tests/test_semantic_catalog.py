@@ -2528,6 +2528,7 @@ def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
     assert domain_report.analysis_ready_inputs == (ms.ref.domain("sales"),)
     assert datasource_report.analysis_ready_inputs == (ms.ref.datasource("sales"),)
     assert set(all_report.analysis_ready_inputs) == {
+        ms.ref.datasource("default"),
         ms.ref.domain("sales"),
         ms.ref.datasource("sales"),
     }

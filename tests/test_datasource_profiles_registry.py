@@ -63,7 +63,7 @@ def test_list_returns_sorted_summaries(project_root: Path) -> None:
     md.register(_spec("b", backend_type="duckdb", path=":memory:"))
     md.register(_spec("a", backend_type="duckdb", path=":memory:"))
     names = [p.name for p in md.list()]
-    assert names == ["a", "b"]
+    assert names == ["a", "b", "default"]
 
 
 def test_describe_redacts_secrets(project_root: Path) -> None:
