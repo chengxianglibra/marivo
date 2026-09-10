@@ -169,6 +169,8 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
+        if self.producer_id == "delta.funnel_attribute":
+            return ("event_funnel.additive_components",)
         if self.producer_id.startswith(("discover.", "candidate.", "session.events.", "event.")):
             return ()
         if self.contract_stem.startswith(("association", "forecast")):
@@ -199,6 +201,20 @@ class ObservationProducerContract:
             (self.validation_id, "v1"),
             (self.evidence_id, "v1"),
         )
+        if self.producer_id == "event.compare":
+            return (
+                *common,
+                ("event_funnel_checkpoint_scope", "v1"),
+                ("funnel_delta_finding", "v1"),
+                ("bounded_algebraic_findings", "v1"),
+            )
+        if self.producer_id == "delta.funnel_attribute":
+            return (
+                *common,
+                ("contribution_finding", "v1"),
+                ("bounded_algebraic_findings", "v1"),
+                ("event_funnel.additive_components", "v1"),
+            )
         if self.producer_id.startswith(("discover.", "candidate.", "session.events.", "event.")):
             return (*common, ("none", "v1"), ("zero_findings", "v1"))
         if self.contract_stem.startswith("forecast"):
@@ -254,6 +270,8 @@ class ObservationProducerContract:
 
 _PRODUCER_CONTRACTS = (
     ObservationProducerContract("session.events.match", "event_journey"),
+    ObservationProducerContract("event.compare", "funnel_delta"),
+    ObservationProducerContract("delta.funnel_attribute", "funnel_attribution"),
     ObservationProducerContract("event.funnel", "event_funnel"),
     ObservationProducerContract("event.time_to_event", "event_time_to_event"),
     ObservationProducerContract("event.select_subjects", "subject_selection"),
@@ -881,6 +899,8 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 ("population", "entity-membership", 1),
                 ("event", "journey", 1),
                 ("event", "funnel", 1),
+                ("delta", "funnel", 1),
+                ("attribution", "funnel-loss-rate", 1),
                 ("event", "time-to-event", 1),
                 ("attribution", "joint", 1),
                 ("attribution", "hierarchy", 1),
@@ -913,6 +933,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "comparison_value",
                 "effect_value",
                 "attribution_partition_identity",
+                "method_identity",
                 "status",
             }
         ),
@@ -1664,6 +1685,8 @@ def semantic_dependency_digest(
         EventSelectionPayload,
         EventTimeToEventPayload,
     )
+    from marivo.analysis.domains.event_attribution import FunnelAttributePayload
+    from marivo.analysis.domains.event_comparison import FunnelComparePayload
     from marivo.analysis.observation.population_sample import PopulationSamplePayload
     from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.attribution_contracts import AttributePayload
@@ -1741,6 +1764,8 @@ def semantic_dependency_digest(
             semantic_facts = ("metric_forecast", payload.spec.identity_payload())
         elif isinstance(payload, CorrelatePayload):
             semantic_facts = ("metric_correlate", payload.spec.identity_payload())
+        elif isinstance(payload, (FunnelComparePayload, FunnelAttributePayload)):
+            semantic_facts = ("event_operator", payload.identity_payload)
         elif isinstance(payload, ComparePayload):
             semantic_facts = ("metric_compare",)
         elif isinstance(payload, AttributePayload):

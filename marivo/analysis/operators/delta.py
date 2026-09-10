@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, overload
 
 from marivo.analysis.datasets.actions import construct_operator
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import _CORE_TOKEN, DatasetField
 from marivo.analysis.datasets.fields import DatasetFieldRef, validate_field_ref
+from marivo.analysis.funnel import FunnelLossRate
 from marivo.analysis.observation.contracts import (
     DimensionInput,
     RetainedRowsPayload,
@@ -46,20 +47,51 @@ class LogicalDeltaDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="delta")
 
         return DeltaDiscovery(self)
 
+    @overload
     def attribute(
         self,
         *,
         axes: tuple[DimensionInput, ...] | list[DimensionInput],
         mode: Literal["joint", "hierarchy"] = "joint",
         top_k: int | None = None,
+    ) -> LogicalAttributionDataset: ...
+
+    @overload
+    def attribute(
+        self,
+        *,
+        target: FunnelLossRate,
+        axes: tuple[DimensionInput, ...] | list[DimensionInput],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+    ) -> LogicalAttributionDataset: ...
+
+    def attribute(
+        self,
+        *,
+        axes: tuple[DimensionInput, ...] | list[DimensionInput],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+        target: FunnelLossRate | None = None,
     ) -> LogicalAttributionDataset:
         """Decompose this Delta into exact scoped contributions.
 
         Args: axes: Ordered governed Dimensions. mode: Joint or authored prefixes.
             top_k: Optional number of retained members per mapped parent.
+            target: Required non-initial FunnelLossRate for Event Delta; omitted for Metric.
         Returns: Logical Attribution. Example: ``delta.attribute(axes=(region,))``.
         Constraints: Requires exact additive partitions and retained components.
         """
+        from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
+
+        if isinstance(self.row_contract.family_semantics, FunnelDeltaSemantics):
+            from marivo.analysis.domains.event_attribution import attribute as funnel_attribute
+
+            if target is None:
+                raise comparison_error("a FunnelLossRate target", "missing Event target")
+            return funnel_attribute(self, target=target, axes=axes, mode=mode, top_k=top_k)
+        if target is not None:
+            raise comparison_error("Metric attribution without an Event target", "foreign target")
         from marivo.analysis.operators.attribute import attribute
 
         return attribute(self, axes=axes, mode=mode, top_k=top_k)
@@ -124,20 +156,51 @@ class MaterializedDeltaDataset(MaterializedDataset, _token=_CORE_TOKEN, family_i
 
         return DeltaDiscovery(self)
 
+    @overload
     def attribute(
         self,
         *,
         axes: tuple[DimensionInput, ...] | list[DimensionInput],
         mode: Literal["joint", "hierarchy"] = "joint",
         top_k: int | None = None,
+    ) -> LogicalAttributionDataset: ...
+
+    @overload
+    def attribute(
+        self,
+        *,
+        target: FunnelLossRate,
+        axes: tuple[DimensionInput, ...] | list[DimensionInput],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+    ) -> LogicalAttributionDataset: ...
+
+    def attribute(
+        self,
+        *,
+        axes: tuple[DimensionInput, ...] | list[DimensionInput],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+        target: FunnelLossRate | None = None,
     ) -> LogicalAttributionDataset:
         """Decompose this Delta into exact scoped contributions.
 
         Args: axes: Ordered governed Dimensions. mode: Joint or authored prefixes.
             top_k: Optional number of retained members per mapped parent.
+            target: Required non-initial FunnelLossRate for Event Delta; omitted for Metric.
         Returns: Logical Attribution. Example: ``delta.attribute(axes=(region,))``.
         Constraints: Requires exact additive partitions and retained components.
         """
+        from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
+
+        if isinstance(self.row_contract.family_semantics, FunnelDeltaSemantics):
+            from marivo.analysis.domains.event_attribution import attribute as funnel_attribute
+
+            if target is None:
+                raise comparison_error("a FunnelLossRate target", "missing Event target")
+            return funnel_attribute(self, target=target, axes=axes, mode=mode, top_k=top_k)
+        if target is not None:
+            raise comparison_error("Metric attribution without an Event target", "foreign target")
         from marivo.analysis.operators.attribute import attribute
 
         return attribute(self, axes=axes, mode=mode, top_k=top_k)

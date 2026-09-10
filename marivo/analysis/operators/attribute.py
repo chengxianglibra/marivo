@@ -467,6 +467,14 @@ def validate_attribution(row: DatasetRowContract, rows: DatasetRowSetContract) -
 
 
 def register_attribution(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> None:
+    from marivo.analysis.domains.event_attribution import (
+        FunnelAttributePayload,
+        FunnelAttributionSemantics,
+    )
+    from marivo.analysis.domains.event_attribution import (
+        validate_attribution as validate_funnel_attribution,
+    )
+
     def decode(state: MaterializedDatasetState) -> MaterializedDatasetState:
         _validate_materialized_state(state, ids=ids)
         return state
@@ -479,10 +487,14 @@ def register_attribution(registry: DatasetFamilyRegistry, ids: _StableIdRegistry
             family_id="attribution",
             logical_type=LogicalAttributionDataset,
             materialized_type=MaterializedAttributionDataset,
-            shape_ids=shapes,
+            shape_ids=(*shapes, _make_shape_id("attribution", "funnel-loss-rate", 1, ids=ids)),
             owner_id="operators.attribute",
             ids=ids,
-            row_validator=validate_attribution,
+            row_validator=lambda row, rows: (
+                validate_funnel_attribution(row, rows, ids)
+                if isinstance(row.family_semantics, FunnelAttributionSemantics)
+                else validate_attribution(row, rows)
+            ),
             consumers=tuple(
                 ConsumerRegistration(
                     f"attribution.{method}",
@@ -495,7 +507,7 @@ def register_attribution(registry: DatasetFamilyRegistry, ids: _StableIdRegistry
             ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=decode,
-            node_payload_types=(AttributePayload, RetainedRowsPayload),
+            node_payload_types=(AttributePayload, FunnelAttributePayload, RetainedRowsPayload),
             consumer_admission=lambda dataset, method: (
                 not any(field.name == "rank" for field in dataset.schema.columns)
                 if method == "attribution.rank"

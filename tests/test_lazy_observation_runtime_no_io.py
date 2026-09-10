@@ -21,6 +21,8 @@ import marivo.analysis.evidence.store as evidence_store
 import marivo.datasource.backends as backends
 import marivo.analysis.observation.ordering
 import marivo.analysis.operators.compare
+import marivo.analysis.domains.event_comparison
+import marivo.analysis.domains.event_attribution
 import marivo.analysis.operators.correlate
 import marivo.analysis.operators.discovery
 import marivo.analysis.operators.forecast
@@ -36,11 +38,19 @@ from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import ref
 from tests.lazy_observation_fixtures import make_semantic_registry, NoIoActionPort
+from tests.lazy_event_fixtures import make_event_registry
+from tests.lazy_event_runtime_fixtures import journey as event_journey
+from marivo.analysis.funnel import funnel_loss_rate
 
 # Authoring inputs use the retained public helpers before observing the new
 # private construction surface. Their current eager telemetry is not changed.
 semantic_registry, sidecar = make_semantic_registry()
+from pathlib import Path
+event_registry, event_sidecar = make_event_registry(Path("/nonexistent/event-no-io.duckdb"))
 port = NoIoActionPort()
+event_sources = make_lazy_sources(semantic_registry=event_registry, sidecar=event_sidecar, action_port=port, session_id="event-no-io", store_id="event-no-io")
+event_input = event_journey(event_sources)
+event_target = funnel_loss_rate(step=event_input.row_contract.family_semantics.pattern.steps[-1])
 window = mv.time_scope(start='2026-02-01', end='2026-03-01')
 selection = mv.time_scope(start='2026-01-01', end='2026-02-01')
 day = mv.grain('day')
@@ -120,6 +130,9 @@ with ExitStack() as stack:
         semantic_registry=semantic_registry, sidecar=sidecar, action_port=port,
         session_id='session-observation', store_id='store-observation',
     )
+    event_delta = event_input.funnel().compare(event_input.funnel())
+    event_attribution = event_delta.attribute(target=event_target, axes=[region])
+    assert 'delta.attribute' in event_delta.contract().render()
     population = sources.population(orders, time_scope=selection)
     population = population.where(eq(region, 'east'))
     observed = sources.observe(
@@ -164,7 +177,7 @@ with ExitStack() as stack:
     with sources.source_bindings({api: {'tenant': 'DIFFERENT_CAPTURE_2A'}}):
         changed = sources.observe(api_value, time_scope=window)
     assert captured.definition_fingerprint != changed.definition_fingerprint
-    values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
+    values = (event_delta, event_attribution, population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
               comparison, delta_filtered, delta_ranked, delta_limited,
               attributed, selected_attribution, ranked_attribution, limited_attribution,
               association, association_selected, association_ranked,
@@ -228,7 +241,7 @@ def test_actual_private_observation_chain_is_pure() -> None:
     evidence = json.loads(result.stdout)
     assert evidence["final_shape"] == "metric/dimension-time@v1"
     assert evidence["deep_filter_nodes"] == 80
-    assert evidence["checked_definitions"] == 25
+    assert evidence["checked_definitions"] == 27
     assert evidence["guarded_negative_failures"] == 5
     assert evidence["guarded_entrypoints"] == 31
     assert evidence["telemetry_enabled"] is True

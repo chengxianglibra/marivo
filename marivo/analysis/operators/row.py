@@ -93,6 +93,7 @@ def select_parts(
     from marivo.analysis.observation.fold_contracts import fold_part_role
 
     semantics = call.output_row.family_semantics
+    from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
     from marivo.analysis.operators.association_contracts import AssociationSemantics
     from marivo.analysis.operators.attribution_contracts import (
         AttributionSemantics,
@@ -102,7 +103,9 @@ def select_parts(
     from marivo.analysis.operators.contracts import DeltaSemantics
     from marivo.analysis.operators.forecast_contracts import ForecastSemantics
 
-    if isinstance(semantics, (EventFunnelSemantics, EventTimeToEventSemantics)):
+    if isinstance(
+        semantics, (EventFunnelSemantics, EventTimeToEventSemantics, FunnelDeltaSemantics)
+    ):
         return tuple(part for part in parts if part.role == "population_sampling_state")
     if isinstance(
         semantics,
@@ -251,6 +254,12 @@ def frame_comparator(
     from marivo.analysis.operators.association_contracts import association_orders
 
     authored = association_orders(row, rows)
+    from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
+
+    if isinstance(row.family_semantics, FunnelDeltaSemantics):
+        authored["step_key"] = tuple(
+            step.key for step in row.family_semantics.current.journey.pattern.steps
+        )
     if isinstance(row.family_semantics, EventFunnelSemantics):
         authored["step_key"] = tuple(
             step.key for step in row.family_semantics.journey.pattern.steps

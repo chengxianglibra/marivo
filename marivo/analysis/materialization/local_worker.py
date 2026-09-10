@@ -20,6 +20,8 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
+from marivo.analysis.domains.event_attribution import FunnelAttributeSpec
+from marivo.analysis.domains.event_comparison import FunnelCompareSpec
 from marivo.analysis.materialization.contracts import LocalReceipt, RetainedPart
 from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.materialization.local import (
@@ -203,6 +205,8 @@ class LocalStage:
     inputs: tuple[int, ...]
     call: (
         RowCall
+        | FunnelCompareSpec
+        | FunnelAttributeSpec
         | CompareSpecV1
         | AttributeSpecV1
         | CorrelateSpecV1
@@ -611,10 +615,41 @@ def _execute_graph(
             validate_frame(result, call.output_row, call.output_rows)
             budget.live_bytes += result_size
             schema = pa.Schema.from_pandas(result, preserve_index=False)
-            value = _Frames(result, (), schema)
+            value = _Frames(result, parts, schema)
             handoffs.append((id(source.frame), id(result)))
             output_row = call.output_row
             del source
+        elif isinstance(call, (FunnelCompareSpec, FunnelAttributeSpec)):
+            from marivo.analysis.domains.event_attribution_values import (
+                execute_attribute_with_parts as attribute_funnel,
+            )
+            from marivo.analysis.domains.event_comparison_values import (
+                execute_compare as compare_funnel,
+            )
+
+            count = sum(len(value.frame) for value in incoming)
+            if count > budget.policy.max_method_rows:
+                fail("complete compact Event components within budget", "method size overflow")
+            budget.allocation(sum(value.size for value in incoming) * 8 + count * 2048)
+            if isinstance(call, FunnelCompareSpec):
+                result = compare_funnel(incoming[0].frame, incoming[1].frame, call)
+                parts = ()
+            else:
+                result, parts = attribute_funnel(
+                    incoming[0].frame, incoming[1].frame, incoming[2].frame, call
+                )
+            result_size = frame_bytes(result) + sum(frame_bytes(part.frame) for part in parts)
+            if (
+                len(result) > budget.policy.max_output_rows
+                or result_size > budget.policy.max_output_bytes
+            ):
+                fail("bounded Event output", "local output overflow")
+            budget.allocation(result_size)
+            validate_frame(result, call.output_row, call.output_rows)
+            budget.live_bytes += result_size
+            schema = pa.Schema.from_pandas(result, preserve_index=False)
+            value = _Frames(result, parts, schema)
+            output_row = call.output_row
         elif isinstance(call, CompareSpecV1):
             if len(incoming) != 2:
                 fail("ordered current and baseline operands", "invalid comparison arity")
