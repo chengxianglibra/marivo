@@ -105,7 +105,7 @@ EXPECTED_EFFECTS = {
     "raw_sql": AuthoringEffects(
         data_access="potentially_unbounded_read",
         connection="opens_connection",
-        flags=("requires_positive_row_guard", "requires_positive_timeout_guard"),
+        flags=("requires_positive_timeout_guard",),
     ),
     "DatasourceCatalog.list": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
@@ -215,7 +215,6 @@ def test_registry_input_contracts_match_required_datasource_arguments() -> None:
         "Ref[datasource]",
         "SqlText",
         "RawSqlReason",
-        "PositiveLimit",
         "PositiveTimeoutGuard",
     )
 

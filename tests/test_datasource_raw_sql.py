@@ -59,7 +59,68 @@ def test_raw_sql_rejects_multi_statement_input(tmp_path: Path) -> None:
         )
 
 
-def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "",
+        " \n\t ",
+        ";",
+        ";;",
+        " ; ; ",
+        "-- comment only",
+        "# comment only",
+        "/* comment only */",
+        "/* outer /* inner */ outer */",
+        "/* comment containing ; SELECT 1 */",
+        "-- SELECT 1;\r\n/* another comment */ ;",
+        "; /* comment */ ; -- final comment",
+        "/* unterminated comment",
+    ],
+)
+def test_raw_sql_rejects_missing_statement_before_connecting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sql: str
+) -> None:
+    from marivo.datasource import manage as manage_mod
+
+    def fail_connection(_root: Path | None) -> None:
+        pytest.fail("SQL without a statement must fail before acquiring a connection")
+
+    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", fail_connection)
+    with pytest.raises(ValueError, match="sql must contain a statement"):
+        md.raw_sql(
+            ms.ref.datasource("default"),
+            sql,
+            reason="reject missing statement",
+            project_root=tmp_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT 1 AS ok",
+        "-- leading comment\nSELECT 1 AS ok",
+        "-- leading comment\rSELECT 1 AS ok",
+        "/* leading comment */ SELECT 1 AS ok",
+        "/* outer /* inner */ outer */ SELECT 1 AS ok",
+        "/* first */ -- second\nSELECT 1 AS ok /* trailing comment */",
+        "SELECT 1 AS ok WHERE '/* literal */' <> ''",
+        "SELECT 1 AS ok WHERE '-- literal' <> ''",
+        "SELECT 1 AS ok WHERE '# literal' <> ''",
+    ],
+)
+def test_raw_sql_preserves_queries_with_comments(tmp_path: Path, sql: str) -> None:
+    result = md.raw_sql(
+        ms.ref.datasource("default"),
+        sql,
+        reason="preserve valid statement",
+        project_root=tmp_path,
+    )
+    assert result.sql == sql
+    assert result.rows == ({"ok": 1},)
+
+
+def test_raw_sql_returns_complete_terminal_only_result(tmp_path: Path) -> None:
     from marivo.datasource.manage import RawSqlResult
 
     _register_raw_sql_fixture(tmp_path)
@@ -67,7 +128,6 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     result = md.raw_sql(
         ms.ref.datasource("warehouse"),
         "SELECT id, amount FROM orders ORDER BY id",
-        limit=1,
         reason="diagnose order amount sample",
         project_root=tmp_path,
     )
@@ -75,19 +135,16 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     assert isinstance(result, RawSqlResult)
     assert result.datasource == ms.ref.datasource("warehouse")
     assert result.reason == "diagnose order amount sample"
-    assert result.returned_row_count == 1
-    assert result.row_count == 1
-    assert result.shape == (1, 2)
+    assert result.returned_row_count == 2
+    assert result.row_count == 2
+    assert result.shape == (2, 2)
     assert result.row_count == result.shape[0]
-    assert result.is_truncated is True
     assert not hasattr(result, "contract")
     rendered = result.render()
     assert "terminal_only" in rendered
     assert "typed_reentry: false" in rendered
-    assert "row_count_semantics: returned_bounded_rows" in rendered
-    assert "returned_row_count: 1" in rendered
-    assert "requested_limit: 1" in rendered
-    assert "is_truncated: true" in rendered
+    assert "row_count_semantics: returned_query_rows" in rendered
+    assert "returned_row_count: 2" in rendered
     assert "returned rows are not full-source cardinality" in rendered
     assert "semantic identity, canonical lineage, typed affordances" in rendered
     assert "escape_hatch" not in rendered
@@ -101,7 +158,6 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
     result = md.raw_sql(
         ms.ref.datasource("warehouse"),
         "SELECT id, amount FROM orders ORDER BY id",
-        limit=1,
         reason="verify terminal result cannot reenter typed analysis",
         project_root=tmp_path,
     )
@@ -214,12 +270,14 @@ class _FakeCursor:
         self.description = [(column, None) for column in columns]
         self._rows = rows
         self.fetchmany_calls: list[int] = []
+        self.fetchall_calls = 0
 
     def fetchmany(self, size: int) -> list[tuple[object, ...]]:
         self.fetchmany_calls.append(size)
         return self._rows[:size]
 
     def fetchall(self) -> list[tuple[object, ...]]:
+        self.fetchall_calls += 1
         return self._rows
 
     def fetchone(self) -> tuple[object, ...] | None:
@@ -227,11 +285,12 @@ class _FakeCursor:
 
 
 class _RawSqlBackend:
-    def __init__(self, results: dict[str, _FakeCursor]) -> None:
+    def __init__(self, results: dict[str, object]) -> None:
         self.calls: list[str] = []
         self.results = results
+        self.closed = False
 
-    def raw_sql(self, sql: str) -> _FakeCursor:
+    def raw_sql(self, sql: str) -> object:
         self.calls.append(sql)
         for token, cursor in self.results.items():
             if token in sql:
@@ -247,7 +306,7 @@ class _RawSqlBackendContext:
         return self.backend
 
     def __exit__(self, *exc_info: object) -> None:
-        return None
+        self.backend.closed = True
 
 
 class _RawSqlService:
@@ -282,371 +341,135 @@ def _patch_trino_timeout_to_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(manage_mod, "require_profile_for_backend_type", _patched)
 
 
-def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.fixture
+def trino_backend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _RawSqlBackend:
+    from marivo.datasource import manage as manage_mod
+
     md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
+        TrinoSpec(name="trino_wh", host="trino.example", catalog="hive", user_env="TRINO_USER"),
         project_root=tmp_path,
     )
-    cursor = _FakeCursor(
-        ["Column", "Type"],
-        [("order_id", "bigint"), ("amount", "double")],
-    )
-    backend = _RawSqlBackend({"DESCRIBE orders": cursor})
+    backend = _RawSqlBackend({})
     service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
-
-    result = md.raw_sql(
-        ms.ref.datasource("trino_wh"),
-        "DESCRIBE orders",
-        limit=1,
-        reason="diagnose trino table schema",
-        project_root=tmp_path,
-    )
-
-    assert backend.calls == ["DESCRIBE orders"]
-    assert service.calls == [("trino_wh", True)]
-    assert result.rows == ({"Column": "order_id", "Type": "bigint"},)
-    assert result.is_truncated is True
-    assert cursor.fetchmany_calls == [2]
+    return backend
 
 
-def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
-        project_root=tmp_path,
-    )
-    backend = _RawSqlBackend(
-        {
-            "SHOW COLUMNS FROM orders": _FakeCursor(
-                ["Column", "Type"],
-                [("order_id", "bigint"), ("amount", "double")],
-            )
-        }
-    )
-    service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
-    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
-    _patch_trino_timeout_to_noop(monkeypatch)
-
-    result = md.raw_sql(
-        ms.ref.datasource("trino_wh"),
-        "SHOW COLUMNS FROM orders",
-        limit=2,
-        reason="diagnose trino column metadata",
-        project_root=tmp_path,
-    )
-
-    assert backend.calls == ["SHOW COLUMNS FROM orders"]
-    assert result.returned_row_count == 2
-    assert result.is_truncated is False
-
-
-def test_raw_sql_trino_select_injects_probe_limit_without_transaction(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
-        project_root=tmp_path,
-    )
-    backend = _RawSqlBackend({"FROM orders LIMIT 101": _FakeCursor(["n"], [(2,)])})
-    service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
-    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
-    _patch_trino_timeout_to_noop(monkeypatch)
-
-    result = md.raw_sql(
-        ms.ref.datasource("trino_wh"),
+@pytest.mark.parametrize(
+    "sql",
+    [
         "SELECT count(*) AS n FROM orders",
-        limit=100,
-        reason="diagnose row count",
-        project_root=tmp_path,
-    )
-
-    assert backend.calls == ["SELECT COUNT(*) AS n FROM orders LIMIT 101"]
-    assert result.rows == ({"n": 2},)
-
-
-def test_raw_sql_trino_group_by_order_by_keeps_order_before_probe_limit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+        "SELECT category, sum(amount) AS delta FROM orders GROUP BY category ORDER BY delta DESC",
+        "SELECT id FROM orders ORDER BY id LIMIT 5",
+        "SELECT id FROM orders ORDER BY id OFFSET 10",
+        "SELECT id FROM orders ORDER BY id LIMIT 5 OFFSET 10",
+        "SELECT id FROM orders ORDER BY id FETCH FIRST 5 ROWS ONLY",
+        "WITH recent AS (SELECT id FROM orders WHERE amount > 0) SELECT id FROM recent ORDER BY id",
+        "SELECT id FROM orders UNION ALL SELECT id FROM archived_orders ORDER BY id",
+        "SELECT id FROM orders ORDER BY id DESC NULLS LAST",
+        "SELECT id FROM orders ORDER BY id ASC NULLS FIRST",
+        "SELECT id FROM orders TABLESAMPLE BERNOULLI(10)",
+        "-- Preserve native SQL comments and spelling\nSELECT id FROM orders",
+        "# Preserve backend line comments\nSELECT id FROM orders",
+        "/*! SELECT id FROM orders */",
+        "/*M! SELECT id FROM orders */",
+        "SELECT * INTO new_t FROM orders",
+        "DESCRIBE orders",
+        "DESC orders",
+        "SHOW COLUMNS FROM orders",
+        "EXPLAIN SELECT id FROM orders",
+    ],
+)
+def test_raw_sql_trino_executes_sql_unchanged(
+    tmp_path: Path, trino_backend: _RawSqlBackend, sql: str
 ) -> None:
-    """The truncation-probe LIMIT must land in the same top-level query as ORDER BY.
-
-    Regression guard for Trino's Top-N contract: ORDER BY only affects the query
-    that directly contains it, so an unordered outer wrapper discards the user's
-    ``ORDER BY delta DESC`` before truncation and can admit negative deltas into
-    an intended "top growth" result.
-    """
-    md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
-        project_root=tmp_path,
-    )
-    backend = _RawSqlBackend(
-        {"ORDER BY delta DESC LIMIT 101": _FakeCursor(["category", "delta"], [("a", 5.0)])}
-    )
-    service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
-    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
-    _patch_trino_timeout_to_noop(monkeypatch)
-
+    # The backend is a substitute: no write statement is sent to a real database.
+    trino_backend.results[sql] = _FakeCursor(["id"], [(1,), (2,)])
     result = md.raw_sql(
         ms.ref.datasource("trino_wh"),
-        "SELECT category, sum(amount) AS delta FROM orders GROUP BY category ORDER BY delta DESC",
-        limit=100,
-        reason="top categories by delta",
+        "  " + sql + ";  ",
+        reason="verify native SQL passthrough",
         project_root=tmp_path,
     )
-
-    assert backend.calls == [
-        "SELECT category, SUM(amount) AS delta FROM orders GROUP BY category "
-        "ORDER BY delta DESC LIMIT 101"
-    ]
-    assert result.rows == ({"category": "a", "delta": 5.0},)
+    assert trino_backend.calls == [sql]
+    assert trino_backend.closed
+    assert result.sql == sql
+    assert result.rows == ({"id": 1}, {"id": 2})
 
 
-def test_raw_sql_trino_user_limit_is_preserved(
+@pytest.mark.parametrize("cursor_kind", ["dbapi", "clickhouse"])
+@pytest.mark.parametrize("row_count", [0, 250])
+@pytest.mark.parametrize("include_types", [False, True])
+def test_raw_sql_fetches_complete_cursor_result(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    trino_backend: _RawSqlBackend,
+    cursor_kind: str,
+    row_count: int,
+    include_types: bool,
 ) -> None:
-    md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
-        project_root=tmp_path,
+    sql = "SELECT id FROM orders"
+    rows = [(i,) for i in range(row_count)]
+    cursor = (
+        _FakeCursor(["id"], rows)
+        if cursor_kind == "dbapi"
+        else SimpleNamespace(column_names=["id"], result_rows=rows)
     )
-    backend = _RawSqlBackend({"LIMIT 5": _FakeCursor(["id"], [(1,)])})
-    service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
-    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
-    _patch_trino_timeout_to_noop(monkeypatch)
-
-    md.raw_sql(
+    trino_backend.results[sql] = cursor
+    result = md.raw_sql(
         ms.ref.datasource("trino_wh"),
-        "SELECT id FROM orders ORDER BY id LIMIT 5",
-        limit=100,
-        reason="user limit",
+        sql,
+        reason="read all query rows",
+        include_types=include_types,
         project_root=tmp_path,
     )
+    assert result.rows == tuple({"id": i} for i in range(row_count))
+    assert result.columns == ("id",)
+    assert result.shape == (row_count, 1)
+    assert result.types == ({"id": "None"} if include_types and cursor_kind == "dbapi" else {})
+    assert trino_backend.closed
+    if isinstance(cursor, _FakeCursor):
+        assert cursor.fetchall_calls == 1
+        assert cursor.fetchmany_calls == []
 
-    assert backend.calls == ["SELECT id FROM orders ORDER BY id LIMIT 5"]
 
-
-def test_raw_sql_trino_user_offset_is_preserved(
+@pytest.mark.parametrize("failure_stage", ["execute", "fetch"])
+def test_raw_sql_failure_releases_backend_without_partial_result(
     tmp_path: Path,
+    trino_backend: _RawSqlBackend,
     monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
 ) -> None:
-    md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
-        project_root=tmp_path,
+    sql = "SELECT id FROM orders"
+    cursor = _FakeCursor(["id"], [(1,)])
+    trino_backend.results[sql] = cursor
+
+    def fail(*args: object) -> object:
+        raise RuntimeError(
+            "permission denied" if failure_stage == "execute" else "fetch interrupted"
+        )
+
+    if failure_stage == "execute":
+        monkeypatch.setattr(trino_backend, "raw_sql", fail)
+    else:
+        monkeypatch.setattr(cursor, "fetchall", fail)
+    with pytest.raises(DatasourceRawSqlError) as captured:
+        md.raw_sql(
+            ms.ref.datasource("trino_wh"),
+            sql,
+            reason="verify failure lifecycle",
+            project_root=tmp_path,
+        )
+    assert trino_backend.closed
+    error = captured.value
+    assert error.effect_observed is not None
+    assert error.effect_observed.query_executed
+    assert "no side effects" not in str(error)
+    assert ("permission denied" if failure_stage == "execute" else "fetch interrupted") in str(
+        error
     )
-    backend = _RawSqlBackend({"OFFSET 10": _FakeCursor(["id"], [(11,)])})
-    service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
-    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
-    _patch_trino_timeout_to_noop(monkeypatch)
-
-    md.raw_sql(
-        ms.ref.datasource("trino_wh"),
-        "SELECT id FROM orders ORDER BY id LIMIT 5 OFFSET 10",
-        limit=100,
-        reason="user offset",
-        project_root=tmp_path,
-    )
-
-    assert backend.calls == ["SELECT id FROM orders ORDER BY id LIMIT 5 OFFSET 10"]
-
-
-def test_raw_sql_trino_user_fetch_first_is_preserved(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
-        project_root=tmp_path,
-    )
-    backend = _RawSqlBackend({"FETCH FIRST 5 ROWS ONLY": _FakeCursor(["id"], [(1,)])})
-    service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
-    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
-    _patch_trino_timeout_to_noop(monkeypatch)
-
-    md.raw_sql(
-        ms.ref.datasource("trino_wh"),
-        "SELECT id FROM orders ORDER BY id FETCH FIRST 5 ROWS ONLY",
-        limit=100,
-        reason="user fetch first",
-        project_root=tmp_path,
-    )
-
-    assert backend.calls == ["SELECT id FROM orders ORDER BY id FETCH FIRST 5 ROWS ONLY"]
-
-
-def test_raw_sql_trino_cte_keeps_order_before_probe_limit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
-        project_root=tmp_path,
-    )
-    backend = _RawSqlBackend(
-        {"ORDER BY amount DESC LIMIT 101": _FakeCursor(["id", "amount"], [(2, 20.0)])}
-    )
-    service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
-    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
-    _patch_trino_timeout_to_noop(monkeypatch)
-
-    md.raw_sql(
-        ms.ref.datasource("trino_wh"),
-        "WITH recent AS (SELECT id, amount FROM orders WHERE amount > 0) "
-        "SELECT id, amount FROM recent ORDER BY amount DESC",
-        limit=100,
-        reason="top recent amounts",
-        project_root=tmp_path,
-    )
-
-    assert backend.calls == [
-        "WITH recent AS (SELECT id, amount FROM orders WHERE amount > 0) "
-        "SELECT id, amount FROM recent ORDER BY amount DESC LIMIT 101"
-    ]
-
-
-def _bounded(statement: str, limit: int = 100) -> str:
-    from marivo.datasource.manage import _bounded_execution_sql
-
-    return _bounded_execution_sql(statement, limit)
-
-
-def test_bounded_execution_sql_select_into_falls_back_to_invalid_wrapper() -> None:
-    """``SELECT ... INTO`` is a write; the round-trip must not turn it into a CTAS."""
-    assert _bounded("SELECT * INTO new_t FROM orders") == (
-        "SELECT * FROM (SELECT * INTO new_t FROM orders) AS marivo_raw_sql LIMIT 101"
-    )
-    assert _bounded("SELECT id INTO @x FROM t") == (
-        "SELECT * FROM (SELECT id INTO @x FROM t) AS marivo_raw_sql LIMIT 101"
-    )
-
-
-def test_bounded_execution_sql_explicit_nulls_ordering_falls_back_to_wrapper() -> None:
-    """Explicit ``NULLS FIRST/LAST`` is preserved verbatim, not stripped."""
-    assert _bounded("SELECT id FROM t ORDER BY id DESC NULLS LAST") == (
-        "SELECT * FROM (SELECT id FROM t ORDER BY id DESC NULLS LAST) AS marivo_raw_sql LIMIT 101"
-    )
-    assert _bounded("SELECT id FROM t ORDER BY id ASC NULLS FIRST") == (
-        "SELECT * FROM (SELECT id FROM t ORDER BY id ASC NULLS FIRST) AS marivo_raw_sql LIMIT 101"
-    )
-
-
-def test_bounded_execution_sql_tablesample_falls_back_to_wrapper() -> None:
-    """``TABLESAMPLE BERNOULLI(n)`` must keep its percentage unit, not become rows."""
-    assert _bounded("SELECT id FROM orders TABLESAMPLE BERNOULLI(10)") == (
-        "SELECT * FROM (SELECT id FROM orders TABLESAMPLE BERNOULLI(10)) AS marivo_raw_sql LIMIT 101"
-    )
-
-
-def test_bounded_execution_sql_plain_select_still_injects_probe_limit() -> None:
-    """A hazard-free statement still gets the same-top-level probe LIMIT."""
-    assert _bounded("SELECT id FROM t ORDER BY id") == "SELECT id FROM t ORDER BY id LIMIT 101"
-
-
-def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    md.register(
-        TrinoSpec(
-            name="trino_wh",
-            host="trino.example",
-            catalog="hive",
-            user_env="TRINO_USER",
-        ),
-        project_root=tmp_path,
-    )
-    backend = _RawSqlBackend({"marivo_raw_sql": _FakeCursor(["n"], [(0,)])})
-    service = _RawSqlService(backend)
-
-    import marivo.datasource.manage as manage_mod
-
-    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
-    _patch_trino_timeout_to_noop(monkeypatch)
-
-    md.raw_sql(
-        ms.ref.datasource("trino_wh"),
-        "SELECT * INTO new_t FROM orders",
-        limit=100,
-        reason="attempt write via select into",
-        project_root=tmp_path,
-    )
-
-    # The subquery wrapper (invalid SQL on every backend) is what was executed,
-    # never a normalized CREATE TABLE ... AS SELECT.
-    assert backend.calls == [
-        "SELECT * FROM (SELECT * INTO new_t FROM orders) AS marivo_raw_sql LIMIT 101"
-    ]
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == "raw_sql"
 
 
 def test_mysql_authoring_timeout_opens_readonly_transaction() -> None:
@@ -733,115 +556,43 @@ def test_raw_sql_fails_closed_when_timeout_unavailable(
     assert "no enforceable timeout" in err.message
 
 
-def test_raw_sql_exact_limit_reports_not_truncated(tmp_path: Path) -> None:
-    _register_raw_sql_fixture(tmp_path)
+@pytest.mark.parametrize("sql_limit", [None, 20, 150])
+def test_raw_sql_returns_all_query_rows_without_client_limit(
+    tmp_path: Path, sql_limit: int | None
+) -> None:
+    from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
+
+    sql = "SELECT range AS id FROM range(250) ORDER BY id"
+    if sql_limit is not None:
+        sql += f" LIMIT {sql_limit}"
     result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT id FROM orders ORDER BY id",
-        limit=2,
-        reason="exact limit check",
+        ms.ref.datasource("default"),
+        sql,
+        reason="verify caller-controlled query size",
         project_root=tmp_path,
     )
-    assert result.returned_row_count == 2
-    assert result.is_truncated is False
-
-
-def test_raw_sql_extra_row_reports_truncated(tmp_path: Path) -> None:
-    _register_raw_sql_fixture(tmp_path)
-    result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT id FROM orders ORDER BY id",
-        limit=1,
-        reason="truncation check",
-        project_root=tmp_path,
-    )
-    assert result.returned_row_count == 1
-    assert result.is_truncated is True
+    expected_count = 250 if sql_limit is None else sql_limit
+    assert result.rows == tuple({"id": i} for i in range(expected_count))
+    assert result.returned_row_count == result.row_count == expected_count
+    assert result.shape == (expected_count, 1)
+    assert result.to_pandas()["id"].tolist() == list(range(expected_count))
+    assert not hasattr(result, "requested_limit")
+    assert not hasattr(result, "is_truncated")
+    assert "TRUNCATED" not in result.render()
+    assert len(result.render().encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert len(result.rows) == expected_count
 
 
 def test_raw_sql_order_by_limit_returns_true_top_n(tmp_path: Path) -> None:
-    """ORDER BY + truncation must return the true Top-N rows, not an arbitrary subset.
-
-    Documents the end-to-end Top-N contract on DuckDB: ``ORDER BY delta DESC`` with
-    ``limit=3`` over five rows must yield ids [3, 5, 1] (deltas 30, 20, 10) and
-    still report truncation because five rows exceed the requested three.
-    """
+    """SQL itself owns Top-N selection and ordering."""
     _register_raw_sql_ranking_fixture(tmp_path)
     result = md.raw_sql(
         ms.ref.datasource("warehouse"),
-        "SELECT id, delta FROM events ORDER BY delta DESC",
-        limit=3,
+        "SELECT id, delta FROM events ORDER BY delta DESC LIMIT 3",
         reason="top deltas",
         project_root=tmp_path,
     )
     assert [row["id"] for row in result.rows] == [3, 5, 1]
-    assert result.is_truncated is True
-
-
-def test_raw_sql_truncated_result_injects_truncation_warning(tmp_path: Path) -> None:
-    _register_raw_sql_fixture(tmp_path)
-    result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT id FROM orders ORDER BY id",
-        limit=1,
-        reason="truncation warning check",
-        project_root=tmp_path,
-    )
-    assert result.is_truncated is True
-    truncation_warnings = [w for w in result.warnings if "truncated" in w.lower()]
-    assert truncation_warnings
-    assert "is_truncated" in truncation_warnings[0]
-
-
-def test_raw_sql_untruncated_result_has_no_truncation_warning(tmp_path: Path) -> None:
-    _register_raw_sql_fixture(tmp_path)
-    result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT id FROM orders ORDER BY id",
-        limit=2,
-        reason="no truncation warning check",
-        project_root=tmp_path,
-    )
-    assert result.is_truncated is False
-    assert not any("truncated" in w.lower() for w in result.warnings)
-
-
-def test_raw_sql_truncated_result_render_flags_truncation_prominently(tmp_path: Path) -> None:
-    _register_raw_sql_fixture(tmp_path)
-    result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT id FROM orders ORDER BY id",
-        limit=1,
-        reason="prominent truncation check",
-        project_root=tmp_path,
-    )
-    rendered = result.render()
-    assert "TRUNCATED" in rendered
-    assert "is_truncated" in rendered
-
-
-def test_raw_sql_default_limit_is_100(tmp_path: Path) -> None:
-    from marivo.datasource.manage import RAW_SQL_DEFAULT_LIMIT
-
-    assert RAW_SQL_DEFAULT_LIMIT == 100
-    _register_raw_sql_fixture(tmp_path)
-    result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT id FROM orders ORDER BY id",
-        reason="default limit check",
-        project_root=tmp_path,
-    )
-    assert result.requested_limit == RAW_SQL_DEFAULT_LIMIT
-
-    # The explicit limit argument still overrides the default.
-    explicit = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT id FROM orders ORDER BY id",
-        reason="explicit limit override",
-        limit=5,
-        project_root=tmp_path,
-    )
-    assert explicit.requested_limit == 5
 
 
 def test_raw_sql_result_display_shows_terminal_only_and_duration(tmp_path: Path) -> None:
@@ -879,7 +630,6 @@ def test_raw_sql_to_pandas_preserves_column_order_and_values(tmp_path: Path) -> 
     result = md.raw_sql(
         ms.ref.datasource("warehouse"),
         "SELECT id, amount FROM orders ORDER BY id",
-        limit=2,
         reason="to_pandas check",
         project_root=tmp_path,
     )
@@ -895,7 +645,6 @@ def test_raw_sql_to_pandas_is_defensively_isolated(tmp_path: Path) -> None:
     result = md.raw_sql(
         ms.ref.datasource("warehouse"),
         "SELECT id FROM orders ORDER BY id",
-        limit=1,
         reason="isolation check",
         project_root=tmp_path,
     )
@@ -915,9 +664,7 @@ def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
         columns=("data",),
         types={},
         rows=({"data": [1, 2, 3]},),
-        requested_limit=10,
         returned_row_count=1,
-        is_truncated=False,
         timeout_seconds=30,
         duration_ms=5,
         warnings=(),
@@ -936,13 +683,11 @@ def test_raw_sql_result_rejects_returned_row_count_drift() -> None:
             datasource=ms.ref.datasource("wh"),
             backend_type="duckdb",
             sql="SELECT ok",
-            reason="validate bounded result count",
+            reason="validate query result count",
             columns=("ok",),
             types={"ok": "int64"},
             rows=({"ok": 1},),
-            requested_limit=10,
             returned_row_count=2,
-            is_truncated=False,
             timeout_seconds=30,
             duration_ms=5,
             warnings=(),
@@ -954,7 +699,6 @@ def test_raw_sql_terminal_facts_render_in_contract_order(tmp_path: Path) -> None
     result = md.raw_sql(
         ms.ref.datasource("warehouse"),
         "SELECT id, amount FROM orders ORDER BY id",
-        limit=1,
         reason="inspect terminal result facts",
         project_root=tmp_path,
     )
@@ -965,8 +709,6 @@ def test_raw_sql_terminal_facts_render_in_contract_order(tmp_path: Path) -> None
         "typed_reentry:",
         "row_count_semantics:",
         "returned_row_count:",
-        "requested_limit:",
-        "is_truncated:",
         "preserves:",
         "does_not_preserve:",
     )

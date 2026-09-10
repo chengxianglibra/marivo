@@ -110,7 +110,6 @@ def test_sqlite_agent_native_authoring_journey(
         ms.ref.datasource("warehouse"),
         "SELECT COUNT(*) AS order_count FROM orders",
         reason="Confirm the physical order population before typed analysis.",
-        limit=10,
         timeout_seconds=5,
         project_root=tmp_path,
     )

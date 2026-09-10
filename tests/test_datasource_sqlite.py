@@ -86,7 +86,6 @@ def test_sqlite_register_inspect_sample_and_raw_sql(
         spec.ref,
         "SELECT order_id, amount FROM orders ORDER BY order_id",
         reason="verify SQLite row access",
-        limit=10,
         project_root=tmp_path,
     )
 

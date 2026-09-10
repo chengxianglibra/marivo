@@ -334,7 +334,7 @@ snapshot = inspection.sample(
     columns=("dt",),
 )
 
-# Governed md.raw_sql(...) is another normal bounded exploration option when
+# Governed md.raw_sql(...) with query size controlled in SQL is another option when
 # the question needs source-specific metadata, distributions, joins, or logic.
 
 # 3. author the smallest dependency-coherent slice in project Python
@@ -410,8 +410,9 @@ The original Artifact remains usable after export, while exported rows and their
 derivatives cannot re-enter typed analysis. Keep presentation linked to the
 original identity and distinguish external calculations from typed Evidence.
 Use `md.raw_sql` for source-specific questions or disclosed provisional analysis
-without typed inputs, preserving query scope, semantic gaps, budgets, and
-truncation. Detailed exit guarantees belong to the operator/frame specification.
+without typed inputs, preserving query scope, semantic gaps, and caller-stated
+budgets. The caller controls query size in SQL; all returned rows load into memory.
+Detailed exit guarantees belong to the operator/frame specification.
 Everything else that used to be a near-peer exit — `summary()`, `schema()`,
 `preview()`, `next_intents()` — was removed from the public frame surface so the
 agent never has to choose a reading order before doing real work.
@@ -426,9 +427,10 @@ Card footers follow the same rule: every `available:` footer lists `.show()`, li
 `.contract()` when the object has one, and never advertises `.render()` — it backs
 `show()` and stays off the taught path.
 
-`RawSqlResult` exposes bounded `shape`, returned `row_count`, ordered columns,
-and isolated pandas export, but no `.contract()` or typed re-entry. Typed
-regression remains unsupported; when required, it is terminal custom analysis
+`RawSqlResult` exposes complete query-result `shape`, returned `row_count`, ordered
+columns, and isolated pandas export, but no `.contract()` or typed re-entry.
+Its card is a bounded display of the result, not a client-side acquisition limit.
+Typed regression remains unsupported; when required, it is terminal custom analysis
 rather than a hidden typed capability.
 
 Crucially, `contract().affordances` are **neutral mechanical compatibility

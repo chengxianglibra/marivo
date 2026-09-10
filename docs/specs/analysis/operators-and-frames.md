@@ -627,8 +627,8 @@ Choose typed continuations when the next step computes supported analytical fact
 - `result.to_pandas()` — an isolated defensive DataFrame copy (tabular frames
   only). It is the only method that returns a mutable copy.
 
-Terminal `RawSqlResult` supports the same bounded row/column reads but omits
-`contract()` because it has no typed continuation.
+Terminal `RawSqlResult` supports bounded display cards and complete query-result
+row/column reads, but omits `contract()` because it has no typed continuation.
 
 A `MetricFrame` card includes the persisted observation scope, axes and slices,
 aggregation/additivity/reaggregation facts, and any temporal fold strategy.
@@ -870,13 +870,16 @@ errors. Failed preconditions do not make a method unsupported.
   source-specific question public inspection cannot answer, or provisional
   terminal analysis when typed inputs cannot be established. It must not replace
   available governed definitions. Retain the datasource, purpose, query scope,
-  semantic gaps, positive row and timeout budgets, and truncation status.
+  semantic gaps, and caller-stated data-access and timeout budgets. Control query
+  size in SQL; the statement executes without rewriting and all returned rows
+  load into client memory. Use read-only SQL and credentials; Trino relies on
+  database-side permissions rather than Marivo write prevention.
   `RawSqlResult` exposes ordered `columns`, isolated `to_pandas()`, `shape`, and
-  `row_count`; `row_count == shape[0] == returned_row_count` counts returned rows,
-  not full-source cardinality. The card pairs `requested_limit` with exact
-  `is_truncated` and states `terminal_only: true` and `typed_reentry: false`.
-  A returned-row limit is not a scan bound, and truncated rows do not establish
-  a complete population. There is no `.contract()` or typed continuation.
+  `row_count`; `row_count == shape[0] == returned_row_count` counts complete query
+  result rows, not full-source cardinality. The bounded display card states
+  `terminal_only: true` and `typed_reentry: false`. SQL `LIMIT` is not a scan bound,
+  and a sampled or filtered result does not establish a complete population.
+  There is no `.contract()` or typed continuation.
 
 Before an exit, identify whether it reads existing facts or computes new ones,
 the specific capability or semantic gap for computation, and the boundary of

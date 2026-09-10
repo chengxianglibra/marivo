@@ -7,8 +7,8 @@ description: Give an agent a business question, then review the analysis and its
 
 Use a project metric whose business meaning is approved and that the current
 catalog can load. If the metric is missing or disputed, typed analysis stops;
-the agent may use bounded read-only `md.raw_sql(...)` with disclosed temporary
-semantics, but hands a reusable gap to semantic authoring and asks only about
+the agent may use `md.raw_sql(...)` with read-only credentials, query size
+controlled in SQL, and disclosed temporary semantics, but hands a reusable gap to semantic authoring and asks only about
 unresolved business meaning.
 
 You do not need to write Python, select operators, or prescribe checks. State
@@ -46,7 +46,7 @@ help is not a prerequisite for every API call.
 
 The typed boundary (`session.observe` in, `frame.to_pandas()` / `md.raw_sql`
 out) keeps custom analysis from breaking the evidence chain.
-`RawSqlResult.shape` and `.row_count` describe returned bounded rows only; the
+`RawSqlResult.shape` and `.row_count` describe complete returned query rows only; the
 result has no `.contract()` or typed re-entry. Typed regression is not a Marivo
 capability yet and remains explicit terminal custom analysis.
 

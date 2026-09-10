@@ -497,24 +497,27 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "raw_sql",
             "marivo.datasource.manage.raw_sql",
-            "Run governed read-only SQL exploration with bounded returned rows and an "
-            "execution timeout, plus a separate 30s connection handshake limit. Results are terminal evidence and cannot enter typed analysis; "
-            "always check is_truncated before drawing conclusions.",
+            "Run terminal SQL exploration; all returned rows load into client memory without "
+            "a row or byte cap. Control query size with filters, partition predicates, aggregation, "
+            "and SQL LIMIT; LIMIT does not bound scan cost. Use read-only SQL and credentials: "
+            "Trino relies on database-side permissions, not Marivo write prevention. "
+            "The execution timeout and separate 30s connection handshake budget remain. "
+            "Results cannot enter typed analysis.",
             output="RawSqlResult",
             inputs=_inputs(
                 ("subject", "Ref[datasource]"),
                 ("dependency", "SqlText"),
                 ("dependency", "RawSqlReason"),
-                ("scope", "PositiveLimit"),
                 ("scope", "PositiveTimeoutGuard"),
             ),
             effects=_effects(
                 "potentially_unbounded_read",
                 "opens_connection",
-                flags=("requires_positive_row_guard", "requires_positive_timeout_guard"),
+                flags=("requires_positive_timeout_guard",),
             ),
             constraints=constraints["configured"],
-            example='md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="check connectivity")',
+            example='md.raw_sql(ms.ref.datasource("default"), "SELECT 1 LIMIT 1", reason="check connectivity")',
+            preconditions=("read-only SQL; Trino credentials must deny writes at the database",),
         ),
         _capability(
             "DatasourceCatalog.list",
@@ -892,9 +895,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "columns",
             "types",
             "rows",
-            "requested_limit",
             "returned_row_count",
-            "is_truncated",
             "warnings",
         ),
         methods=show_render,

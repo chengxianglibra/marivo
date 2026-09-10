@@ -68,10 +68,11 @@ answers the modeling question without reading user data.
 
 Acquire a bounded sample only when rows or profiles are necessary.
 `md.raw_sql(...)` is a normal governed exploration option only for a concrete
-source-specific question inspection cannot answer. It remains read-only, bounded,
-and terminal; its result cannot be passed to typed analysis. Every user-data read
-stays within explicit positive row and timeout budgets; a returned-row limit is
-not a scan bound.
+source-specific question inspection cannot answer. Use read-only SQL and
+credentials, and control query size in SQL before execution; all returned rows
+load into client memory. Follow focused Help for backend protections. The result
+is terminal and cannot be passed to typed analysis. Preserve the caller's
+data-access and timeout budgets; a returned-row limit is not a scan bound.
 
 Record unknown or conflicted facts instead of guessing. Reuse matching current
 evidence when source, schema, and scope identity still answer the same question.
