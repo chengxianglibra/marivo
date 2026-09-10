@@ -1,0 +1,68 @@
+---
+slug: zh-cn/docs/v0.5/release-notes/0.5.5
+title: Marivo 0.5.5
+description: Marivo 0.5.5 发布说明。
+---
+
+Marivo 0.5.5 提供内置的本地数据源，并明确终端 SQL 与类型化分析的边界。
+
+## 重点
+
+- 内置的 `default` 数据源为不需要凭据的 CSV、Parquet 和 JSON 数据提供内存中的
+  DuckDB，无需配置或注册。它会出现在 `md.list()` 和 `md.describe("default")` 中，
+  使用相互独立且不持久化的连接，并保留 `default` 名称。
+- `md.raw_sql(...)` 现在会原样执行调用者的 SQL，并返回该查询的全部行。查询范围由
+  SQL 明确控制，终端源端探索的行为更加可预期。
+- observation 之后仍将受支持的分析计算保留在类型化流程中；presentation read、不支持的
+  method 和源端 SQL 现在有各自清晰的 Help 与修复指引。
+
+## 变更
+
+- `md.raw_sql()` 不再施加客户端行数或字节数上限。使用 filter、分区谓词、聚合和 SQL
+  `LIMIT` 控制查询大小；所有返回行都会加载到客户端内存，且 `LIMIT` 不限制源端扫描成本。
+- 原始 SQL 在执行前只会处理空白和结尾分号。空输入、仅包含注释或仅包含分号的输入会在获取
+  连接前被拒绝。只读执行依赖 backend 保护和数据库权限；Trino 依赖数据库侧权限。
+- datasource 与 semantic catalog、Help、doctor 检查和随包 agent guidance 现在都会说明内置
+  数据源及由调用者负责的 SQL 查询范围。
+
+## 兼容性
+
+- 本版本移除了 `md.raw_sql()` 的 `limit` 参数。`RawSqlResult` 不再提供
+  `requested_limit` 或 `is_truncated`；请将结果范围写入 SQL，并将结果理解为该查询的完整
+  结果。
+
+## 文档
+
+- 更新中英文 semantic layer、analysis workflow、first analysis、datasource、Help 和随包
+  agent 指引，覆盖本地文件源、终端 SQL、类型化执行和修复路由。
+
+## 安装
+
+国内网络建议运行：
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+也可以使用标准安装器：
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+手动安装：
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.5.5 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/v0.5/installation/)
+- [快速开始](/zh-cn/docs/v0.5/quick-start/)
+- [语义层](/zh-cn/docs/v0.5/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/v0.5/concepts/readiness/)
+- [分析流程](/zh-cn/docs/v0.5/concepts/analysis-workflow/)
+- [Evidence](/zh-cn/docs/v0.5/concepts/evidence/)
