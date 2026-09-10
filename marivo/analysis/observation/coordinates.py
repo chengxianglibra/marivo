@@ -46,6 +46,7 @@ def functional_path(
     *,
     allow_versioned_target: bool = False,
     allow_versioned_source: bool = False,
+    allow_versioned_intermediates: bool = False,
 ) -> tuple[str, ...]:
     """Prove a unique path whose every destination join key is its full identity."""
     if source == target:
@@ -102,6 +103,7 @@ def functional_path(
             if entity.version is not None and not (
                 (allow_versioned_target and entity.ref.path == target)
                 or (allow_versioned_source and entity.ref.path == source)
+                or (allow_versioned_intermediates and entity.ref.path not in (source, target))
             ):
                 raise construction_error(
                     "resolved atemporal relationship representations",

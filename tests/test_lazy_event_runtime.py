@@ -13,6 +13,7 @@ from marivo.analysis.event import every_start
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.event_codec import EventEvidenceSummary
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_event_runtime_fixtures import OCCURRENCE_CANARY, journey, setup_event
 from tests.lazy_event_runtime_worker import assert_identity_private
@@ -182,6 +183,7 @@ def test_large_identity_relation_stays_inside_the_native_engine(tmp_path: Path) 
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None and record.descriptor.event_evidence is not None
     summary = record.descriptor.event_evidence
+    assert isinstance(summary, EventEvidenceSummary)
     assert (summary.row_count, summary.journey_count, summary.subject_count) == (10000, 5000, 5000)
     assert summary.missing_row_count == summary.incomplete_journey_count == 5000
     assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0

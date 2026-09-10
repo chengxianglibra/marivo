@@ -48,7 +48,12 @@ from marivo.analysis.domains.completeness import (
     EventCoverageResolution,
     resolve_event_coverage,
 )
-from marivo.analysis.domains.contracts import EventPayload
+from marivo.analysis.domains.contracts import (
+    EventFunnelPayload,
+    EventFunnelSemantics,
+    EventPayload,
+    EventTimeToEventSemantics,
+)
 from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
 from marivo.analysis.evidence import _dataset_reads
 from marivo.analysis.evidence._dataset_types import (
@@ -78,6 +83,10 @@ from marivo.analysis.materialization.errors import (
     RecoveryPendingError,
 )
 from marivo.analysis.materialization.event_codec import EventEvidenceSummary
+from marivo.analysis.materialization.event_reducer_codec import (
+    EventReducerEvidenceSummary,
+    EventSelectionEvidenceSummary,
+)
 from marivo.analysis.materialization.execution_key import execution_key
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.local import LocalPolicy
@@ -134,6 +143,7 @@ from marivo.analysis.materialization.worker_lifetime import reserve_worker
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
     MetricPayload,
+    ObservationSourceContext,
     PopulationPayload,
     RetainedRowsPayload,
 )
@@ -143,6 +153,7 @@ from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
 )
+from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.private_parts import source_private_part_authorities
 from marivo.analysis.operators.association import (
     LogicalAssociationDataset,
@@ -206,6 +217,7 @@ from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList, TableSourceIR
 from marivo.datasource.json_source import read_json_source
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.validator import Registry, normalize_target_entity
 
@@ -387,6 +399,7 @@ class DatasetRuntime:
         self._hook = event
         self.statistics = ExecutionStatistics()
         self.last_run_ref: str | None = None
+        self._source_context = ObservationSourceContext()
 
     @classmethod
     def create(
@@ -464,15 +477,22 @@ class DatasetRuntime:
         )
 
     def sources(
-        self, *, semantic_registry: Registry, sidecar: CompiledExpressionSidecar
+        self,
+        *,
+        semantic_registry: Registry,
+        sidecar: CompiledExpressionSidecar,
+        catalog: SemanticCatalog | None = None,
     ) -> LazySources:
-        return make_lazy_sources(
+        sources = make_lazy_sources(
             semantic_registry=semantic_registry,
             sidecar=sidecar,
             action_port=self,
             session_id=self.session_ref,
             store_id=self.store.store_id,
+            catalog=catalog,
         )
+        self._source_context.current = sources._owner
+        return sources
 
     @staticmethod
     def recent(
@@ -549,7 +569,11 @@ class DatasetRuntime:
 
     def _recover(self, record: ArtifactRecord) -> MaterializedDataset:
         return recovery.recover_dataset(
-            record, session_ref=self.session_ref, store_id=self.store.store_id, action_port=self
+            record,
+            session_ref=self.session_ref,
+            store_id=self.store.store_id,
+            action_port=self,
+            source_context=self._source_context,
         )
 
     def _selected(self, dataset: MaterializedDataset) -> ArtifactRecord:
@@ -790,6 +814,8 @@ class DatasetRuntime:
                 raise _error("implementation_registration")
             if isinstance(root.payload, PopulationPayload) and root.payload.sampling is not None:
                 admit_sampling(root.payload.sampling)
+            elif isinstance(root.payload, PopulationSamplePayload):
+                admit_sampling(root.payload.policy)
         key = execution_key(dataset.definition_fingerprint)
         with session_writer_guard(
             self.store.layout.lock_path(self.session_ref), session_ref=self.session_ref
@@ -814,8 +840,15 @@ class DatasetRuntime:
 
             def discover_candidates(value: LogicalDataset | MaterializedDataset) -> None:
                 if isinstance(value, LogicalDataset):
-                    if isinstance(value._root, LogicalRootHandle) and isinstance(
-                        value._root.payload, (PopulationPayload, MetricPayload, EventPayload)
+                    if (
+                        isinstance(value._root, LogicalRootHandle)
+                        and isinstance(
+                            value._root.payload, (PopulationPayload, MetricPayload, EventPayload)
+                        )
+                    ) or (
+                        isinstance(value._root, LogicalRootHandle)
+                        and isinstance(value._root.payload, EventFunnelPayload)
+                        and bool(value._root.payload.axes)
                     ):
                         binding = source_binding(value)
                         if not any(binding.same_domain(item) for item in source_candidates):
@@ -928,9 +961,14 @@ class DatasetRuntime:
                 association_summary: AssociationSearchSummary | None = None
                 forecast_summary: ForecastTrainingSummary | None = None
                 candidate_summary: CandidateSearchSummary | None = None
-                event_summary: EventEvidenceSummary | None = None
+                event_summary: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
+                selection_summary: EventSelectionEvidenceSummary | None = None
                 for input_record in records.values():
                     descriptor = input_record.descriptor
+                    if descriptor.event_evidence is not None:
+                        event_summary = descriptor.event_evidence
+                    if descriptor.subject_selection_evidence is not None:
+                        selection_summary = descriptor.subject_selection_evidence
                     if descriptor.candidate_evidence is not None:
                         candidate_summary = CandidateSearchSummary(
                             descriptor.candidate_evidence.definition,
@@ -987,6 +1025,60 @@ class DatasetRuntime:
                                     checked_event.to_pylist()[0], proof_recipe.event_coverage
                                 )
                                 boundary_validations.append(("event.journey_output", 0))
+                        if proof_recipe.event_reducer_proof is not None:
+                            from marivo.analysis.materialization.event_reducer_codec import (
+                                summary_from_proof as reducer_summary,
+                            )
+
+                            if proof_recipe.event_reducer_coverage is None:
+                                raise _error("output_validation", run.run_ref)
+                            with _engine_deadline(proof_backend):
+                                self._record_statement(
+                                    "event.reducer_summary",
+                                    proof_backend.compile(proof_recipe.event_reducer_proof),
+                                )
+                                self._event("source_statement")
+                                checked_reducer = proof_backend.to_pyarrow(
+                                    proof_recipe.event_reducer_proof
+                                )
+                                if checked_reducer.num_rows != 1:
+                                    raise _error("output_validation", run.run_ref)
+                                event_summary = reducer_summary(
+                                    str(source_boundary.dataset.row_contract.shape_id),
+                                    checked_reducer.to_pylist()[0],
+                                    proof_recipe.event_reducer_coverage,
+                                )
+                                boundary_validations.append(("event.reducer_output", 0))
+                        if proof_recipe.selection_proof is not None:
+                            from marivo.analysis.materialization.event_reducer_codec import (
+                                selection_summary_from_proof,
+                            )
+
+                            if (
+                                proof_recipe.selection_coverage is None
+                                or proof_recipe.selection_payload is None
+                                or proof_recipe.selection_input_definition is None
+                            ):
+                                raise _error("output_validation", run.run_ref)
+                            with _engine_deadline(proof_backend):
+                                self._record_statement(
+                                    "event.selection_summary",
+                                    proof_backend.compile(proof_recipe.selection_proof),
+                                )
+                                self._event("source_statement")
+                                checked_selection = proof_backend.to_pyarrow(
+                                    proof_recipe.selection_proof
+                                )
+                                if checked_selection.num_rows != 1:
+                                    raise _error("output_validation", run.run_ref)
+                                selection_summary = selection_summary_from_proof(
+                                    checked_selection.to_pylist()[0],
+                                    proof_recipe.selection_coverage,
+                                    journey=proof_recipe.selection_payload.journey,
+                                    step=proof_recipe.selection_payload.selection.step,
+                                    input_definition=proof_recipe.selection_input_definition,
+                                )
+                                boundary_validations.append(("event.selection_output", 0))
                         if proof_recipe.candidate_proof is not None:
                             from marivo.analysis.compiler.entity_candidate import (
                                 decode_candidate_proof,
@@ -1484,7 +1576,40 @@ class DatasetRuntime:
 
                     if event_summary is None:
                         raise _error("output_validation", run.run_ref)
+                    if physical.local_steps and isinstance(
+                        dataset.row_contract.family_semantics,
+                        (EventFunnelSemantics, EventTimeToEventSemantics),
+                    ):
+                        from marivo.analysis.materialization.event_reducer_publication import (
+                            summary_from_batches,
+                        )
+                        from marivo.analysis.materialization.reads import payload_batches
+
+                        event_summary = summary_from_batches(
+                            dataset.row_contract.family_semantics,
+                            payload_batches(
+                                self.store.project_root,
+                                descriptor.storage_receipt,
+                                policy=_READ_POLICY,
+                                bindings=object_bindings,
+                                row=descriptor.row_contract,
+                                rows=descriptor.row_set_contract,
+                                audit=True,
+                            ),
+                            event_summary.coverage,
+                        )
                     descriptor = bind_event_summary(descriptor, event_summary)
+                elif dataset.kind == "population" and selection_summary is not None:
+                    from marivo.analysis.materialization.event_reducer_publication import (
+                        bind_selection_summary,
+                    )
+
+                    descriptor = bind_selection_summary(
+                        descriptor,
+                        replace(
+                            selection_summary, row_count=storage.primary_receipt.realized_row_count
+                        ),
+                    )
                 elif dataset.kind == "candidate":
                     from marivo.analysis.materialization.candidate_publication import (
                         build_candidate_publication,
@@ -1820,7 +1945,11 @@ class DatasetRuntime:
                 else:
                     raise _error("source_binding", run_ref)
             phase = "ibis_expression_construction"
-            event_coverages: dict[str, EventCoverageResolution] = {}
+            event_coverages: dict[str, EventCoverageResolution] = {
+                reference: record.descriptor.event_evidence.coverage
+                for reference, record in records.items()
+                if record.descriptor.event_evidence is not None
+            }
             if isinstance(source_dataset, LogicalDataset):
                 from marivo.analysis.datasets.descriptors import _canonical_digest
 
@@ -1874,7 +2003,10 @@ class DatasetRuntime:
                         ),
                     )
                 recipe = compile_retained_rows(
-                    source_dataset, retained_scans, input_parts=retained_parts
+                    source_dataset,
+                    retained_scans,
+                    input_parts=retained_parts,
+                    event_coverages=event_coverages,
                 )
             else:
                 scans: dict[str, CompiledArtifactScan] = {}

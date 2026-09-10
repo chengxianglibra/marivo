@@ -353,7 +353,14 @@ def _literal(field: DatasetField, value: PredicateLiteral, kind: PredicateKind) 
     if logical in ("date", "civil_date") and type(value) is date:
         return ("date", value.isoformat())
     if type(value) is datetime and (
-        logical == "instant" or re.fullmatch(r"timestamp\('[^']+'(?:, [0-9]+)?\)", logical)
+        logical == "instant"
+        or re.fullmatch(r"timestamp\('[^']+'(?:, [0-9]+)?\)", logical)
+        or (
+            logical == "timestamp"
+            and field.role_id == "time_coordinate"
+            and field.name in ("from_time", "to_time", "followup_until")
+            and field.field_id.value == f"generated.events.time_to_event.{field.name}@v1"
+        )
     ):
         return ("instant", value.astimezone(timezone.utc).isoformat())
     if logical in ("timestamp", "datetime", "localizable_datetime"):
@@ -533,6 +540,7 @@ def bind_predicates(
             resolved.field_id.value == f"generated.compare.{resolved.name}@v1"
             and comparison_roles.get(resolved.name) == resolved.role_id
         )
+        from marivo.analysis.domains.event_reducers import event_filterable_field
         from marivo.analysis.operators.attribution_contracts import attribution_filterable_field
         from marivo.analysis.operators.correlate import association_filterable_field
         from marivo.analysis.operators.discovery import candidate_filterable_field
@@ -545,6 +553,7 @@ def bind_predicates(
             and not association_filterable_field(resolved)
             and not forecast_filterable_field(resolved)
             and not candidate_filterable_field(resolved)
+            and not event_filterable_field(resolved)
         ):
             _error("retained Metric, Dimension or exact generated row field", resolved.role_id)
         literal: CanonicalValue

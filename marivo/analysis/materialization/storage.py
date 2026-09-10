@@ -485,12 +485,23 @@ class _RowValidator:
             self.attribution_axes = tuple(by_id[field_id] for field_id in semantics.axis_field_ids)
         self.previous: tuple[_Value, ...] | None = None
         self.count = 0
-        from marivo.analysis.domains.contracts import EventJourneySemantics
+        from marivo.analysis.domains.contracts import (
+            EventFunnelSemantics,
+            EventJourneySemantics,
+            EventTimeToEventSemantics,
+        )
         from marivo.analysis.materialization.event_publication import EventRowValidator
+        from marivo.analysis.materialization.event_reducer_publication import (
+            EventReducerRowValidator,
+        )
 
-        self.event_validator = (
+        self.event_validator: EventRowValidator | EventReducerRowValidator | None = (
             EventRowValidator(contract.family_semantics)
             if isinstance(contract.family_semantics, EventJourneySemantics)
+            else EventReducerRowValidator(contract.family_semantics)
+            if isinstance(
+                contract.family_semantics, (EventFunnelSemantics, EventTimeToEventSemantics)
+            )
             else None
         )
 

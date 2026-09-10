@@ -2,9 +2,9 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-09
+Revised: 2026-09-10
 
-Status: Slices 0-4, 5a, 5c, 5d, 6a-6e and 7a complete; Slice 5b implemented, technical acceptance pending
+Status: Slices 0-4, 5a, 5c, 5d, 6a-6e and 7a-7b complete; Slice 5b implemented, technical acceptance pending
 
 Slice 5b implementation and the supplied review follow-up are recorded under its
 [private execution record](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md).
@@ -2817,7 +2817,7 @@ protocol without acquiring its Metric-only admission rules.
 | Unit | Prerequisite | Bounded outcome and independent gate |
 | --- | --- | --- |
 | 7a: Event matching and journey authority — complete | 3b, 4d | Private shared subject-identity admission, Event completeness, all three matching policies, and journey materialization/recovery passed; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7a-execution.md). |
-| 7b: Event reducers and subject selection | 7a | Execute funnel, time-to-event, and typed selection from logical and recovered journeys. Prove no rematching, density/reconciliation, selected-step completion, empty versus uncertain membership, and the Metric -> Event -> Population -> Metric loop. |
+| 7b: Event reducers and subject selection — complete | 7a | Private logical and recovered engine funnel, time-to-event and complete DroppedBefore selection passed, including no rematching, exact reach propagation, local result filtering and the Metric -> Event -> Population -> Metric loop; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7b-execution.md). |
 | 7c: Event funnel comparison and attribution | 7b; 5a-5b's shared contracts | Execute Event-owned compare/attribute from complete journey assignments. Prove cohort/follow-up compatibility, scoped endpoint reconciliation, compact-component source/local parity, and censoring/aggregate-checkpoint rejection without rematching. |
 | 7d: Lifecycle replay and canonical retention | 7a's shared identity seam; 4d | Materialize and cold-recover history with all three required retained roles. Prove inception/coverage, legal and illegal transitions, same-time loops, subjects without positive intervals, and atomic failure/cancellation for required parts. |
 | 7e: Lifecycle reducers and subject selection | 7d; 7b for the Event continuation | Execute distribution, transitions, dwell, violations, and in-state selection from recovered history. Prove exact part consumption, clipped-duration meaning, coverage-sensitive membership, no trigger replay, and continuation into Metric and Event sources. |
@@ -2849,6 +2849,34 @@ coverage, dense assignments, identity privacy and atomic failures are covered.
 Independent review findings were repaired and reverified. Reducers/selection,
 Lifecycle, public disclosure and the integrated D/L/M journeys retain their
 separate downstream gates.
+
+### Slice 7b private acceptance
+
+The [Slice 7b execution record](../plans/2026-09-10-lazy-analysis-slice-7b-execution.md)
+closes only private Event reducers and subject selection against the 944-file
+executable candidate
+`d74bcafbc1e1fccdd0f41ff2121968b22768c3dc4ba32a4c84d55bd4c5fd4c6f`.
+Fresh review-fix evidence under `evidence/slice-7b/review-fix/` records 245 focused default tests, 22-file
+explicit Event test typing, `make check-agent` with 6,992 default tests and
+456-file source typing, 88 Event Runtime tests including 7a regressions, and
+80 shared membership/materialization Runtime tests. Every gate preserved the
+candidate before and after execution; Runtime used at most two workers.
+
+Three separate processes prove journey production, reducers/selection after
+occurrence-source deletion, and exact cold binding reuse. Coverage truth remains
+bound to each input node across nested Event/Population chains. Complete empty
+selection publishes; unknown selection cannot be hidden by filtering, sampling
+or downstream Metric membership. Local Parquet reducer results support exact
+retained filtering, including null durations, empty rows and inherited sampling.
+The earlier axis-name collision finding and the subsequent selected-Population
+Metric Dimension failure are fixed and reverified. New tests also prove that
+unknown entry propagates from an earlier missing step even when from_step itself
+is covered; the proposed single-step coverage replacement was therefore rejected.
+The execution record distinguishes historical independent review, supplemental
+implementation-agent review and the current review-resolution gates. The frozen
+record includes privacy and atomic failure/cancellation evidence. Historical
+candidate `95b98ac1...` remains under `evidence/slice-7b/`. Slice 7c, Lifecycle, Slice 5b's independent gate,
+the integrated public D/L/M journeys and public disclosure remain separately gated.
 
 ### Owned implementation
 
@@ -3690,7 +3718,7 @@ row or replacing its evidence with another family's requires review here.
 | Entity-outlier Candidate membership | 6d | score/selector correctness, exact identity projection, rejected Candidate shapes | M |
 | Driver-axis screening | 6e | scoped partitions, keys/scores, logical expansion and materialized barrier | K |
 | Event matching/completeness and journey recovery | 7a complete | `test_lazy_event_contracts.py`, `test_lazy_event_compiler.py`, `test_lazy_event_numeric.py`, `test_lazy_event_time.py`, `test_lazy_event_storage.py`, `test_lazy_event_runtime.py`, `test_lazy_event_membership.py`, `test_lazy_event_temporal.py`, `test_lazy_event_coverage_runtime.py`, `test_lazy_event_runtime_acceptance.py`; [exact evidence](../plans/2026-09-10-lazy-analysis-slice-7a-execution.md) | Private 7a gate passed; D, L, M remain integrated public gates |
-| Event reducers and subject selection | 7b | funnel/time-to-event references, no rematch, complete/uncertain membership | D, L, M |
+| Event reducers and subject selection | 7b complete | `test_lazy_event_reducer_contracts.py`, `test_lazy_event_population_continuations.py`, `test_lazy_event_reducer_numeric.py`, `test_lazy_event_reducer_storage.py`, `test_lazy_event_reducer_runtime.py`, `test_lazy_event_reducer_failures.py`, `test_lazy_event_reducer_publication_runtime.py`, `test_lazy_event_reducer_runtime_acceptance.py`; [exact evidence](../plans/2026-09-10-lazy-analysis-slice-7b-execution.md) | Private 7b gate passed; D, L, M remain integrated public gates |
 | Event funnel compare/attribute | 7c | follow-up compatibility, compact-component parity, journey versus aggregate checkpoint authority | L |
 | Lifecycle replay and canonical retained parts | 7d | inception, transition/coverage traces, atomic part publication, corrupt recovery | E; 9c |
 | Lifecycle reducers and subject selection | 7e | reducer references, clipped dwell meaning, exact part reads, no replay | E, M |

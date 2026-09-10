@@ -20,6 +20,7 @@ from marivo.analysis.datasets.descriptors import (
     _OrderedOrdering,
 )
 from marivo.analysis.datasets.handles import CanonicalValue
+from marivo.analysis.domains.contracts import EventFunnelSemantics, EventTimeToEventSemantics
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -101,6 +102,8 @@ def select_parts(
     from marivo.analysis.operators.contracts import DeltaSemantics
     from marivo.analysis.operators.forecast_contracts import ForecastSemantics
 
+    if isinstance(semantics, (EventFunnelSemantics, EventTimeToEventSemantics)):
+        return tuple(part for part in parts if part.role == "population_sampling_state")
     if isinstance(
         semantics,
         (AttributionSemantics, AssociationSemantics, ForecastSemantics, CandidateSemantics),
@@ -248,6 +251,10 @@ def frame_comparator(
     from marivo.analysis.operators.association_contracts import association_orders
 
     authored = association_orders(row, rows)
+    if isinstance(row.family_semantics, EventFunnelSemantics):
+        authored["step_key"] = tuple(
+            step.key for step in row.family_semantics.journey.pattern.steps
+        )
     for name, values in authored.items():
         columns[name] = [values.index(value) for value in columns[name]]
 
@@ -340,6 +347,7 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
             "association.where",
             "forecast.where",
             "candidate.where",
+            "event.where",
         )
         and call.predicate is not None
     ):

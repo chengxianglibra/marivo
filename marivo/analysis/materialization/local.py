@@ -257,6 +257,15 @@ def validate_frame(
         elif width is not None:
             if any(_bool_tuple_value(value, arity=width) is None for value in frame[field.name]):
                 fail("exact non-null boolean mask arity", "invalid local mask", "output_validation")
+        elif field.logical_type_id == "identity_tuple":
+            if any(
+                value is not None and value is not pd.NA and not isinstance(value, tuple)
+                for value in frame[field.name]
+            ):
+                fail("retained identity tuples", "invalid local identity", "output_validation")
+        elif field.logical_type_id == "duration":
+            if not isinstance(dtype, pd.ArrowDtype) or dtype.pyarrow_dtype != pa.duration("us"):
+                fail("microsecond duration values", "invalid local duration", "output_validation")
         elif not isinstance(field.identity, _EntityFieldIdentity) and (
             not isinstance(dtype, pd.ArrowDtype)
             or not _matches_type(field.logical_type_id, dtype.pyarrow_dtype)
@@ -356,13 +365,21 @@ def frame_to_arrow(
 ) -> pa.Table:
     arrays: list[pa.Array | pa.ChunkedArray] = []
     for field in row.schema.columns:
-        if isinstance(field.identity, _EntityFieldIdentity):
+        if field.logical_type_id == "identity_tuple":
             values = frame[field.name].tolist()
-            names = [name for name, _ in field.identity.identity_signature]
+            identity_type = source_schema.field(field.name).type
+            if not pa.types.is_struct(identity_type):
+                fail("the retained identity struct schema", "invalid identity schema")
+            names = [component.name for component in identity_type]
             arrays.append(
                 pa.array(
-                    [dict(zip(names, value, strict=True)) for value in values],
-                    type=source_schema.field(field.name).type,
+                    [
+                        None
+                        if value is None or value is pd.NA
+                        else dict(zip(names, value, strict=True))
+                        for value in values
+                    ],
+                    type=identity_type,
                 )
             )
         else:
