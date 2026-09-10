@@ -8,31 +8,42 @@ from typing import Literal
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
 from marivo.analysis.operators.contracts import DeltaSemantics
+from marivo.analysis.operators.driver_contracts import (
+    DriverCandidateDefinition,
+    DriverCandidateEvaluationSummary,
+)
 from marivo.analysis.operators.errors import discovery_error
 
 CandidateObjective = Literal[
-    "point_anomalies", "interesting_windows", "period_shifts", "entity_outliers"
+    "point_anomalies", "interesting_windows", "period_shifts", "entity_outliers", "driver_axes"
 ]
 CandidateMethod = Literal[
-    "point_zscore@v1", "global_zscore_runs@v1", "delta_window_zscore@v1", "entity_mad@v1"
+    "point_zscore@v1",
+    "global_zscore_runs@v1",
+    "delta_window_zscore@v1",
+    "entity_mad@v1",
+    "axis_concentration@v1",
 ]
 METHODS: dict[CandidateObjective, CandidateMethod] = {
     "point_anomalies": "point_zscore@v1",
     "interesting_windows": "global_zscore_runs@v1",
     "period_shifts": "delta_window_zscore@v1",
     "entity_outliers": "entity_mad@v1",
+    "driver_axes": "axis_concentration@v1",
 }
 SHAPES: dict[CandidateObjective, str] = {
     "point_anomalies": "point-anomaly",
     "interesting_windows": "interesting-window",
     "period_shifts": "period-shift",
     "entity_outliers": "entity-outlier",
+    "driver_axes": "driver-axis",
 }
 REASON_CODES: dict[CandidateObjective, str] = {
     "point_anomalies": "point_zscore_threshold_met",
     "interesting_windows": "global_zscore_run",
     "period_shifts": "delta_window_zscore_run",
     "entity_outliers": "entity_mad_threshold_met",
+    "driver_axes": "axis_concentration",
 }
 
 
@@ -180,5 +191,9 @@ class EntityCandidateEvaluationSummary:
 class CandidateSearchSummary:
     """Carry original discovery authority and its evaluation as one immutable pair."""
 
-    definition: CandidateDefinition
-    evaluation: CandidateEvaluationSummary | EntityCandidateEvaluationSummary
+    definition: CandidateDefinition | DriverCandidateDefinition
+    evaluation: (
+        CandidateEvaluationSummary
+        | EntityCandidateEvaluationSummary
+        | DriverCandidateEvaluationSummary
+    )

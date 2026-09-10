@@ -9,7 +9,11 @@ from datetime import date, datetime
 
 import pyarrow as pa
 
-from marivo.analysis.datasets.descriptors import _EntityFieldIdentity
+from marivo.analysis.datasets.descriptors import (
+    _CatalogFieldIdentity,
+    _descriptor_payload,
+    _EntityFieldIdentity,
+)
 from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.evidence._dataset_codec import finding_set_digest
 from marivo.analysis.materialization.candidate_codec import (
@@ -23,6 +27,10 @@ from marivo.analysis.operators.candidate_contracts import (
     CandidateEvaluationSummary,
     CandidateSemantics,
     EntityCandidateEvaluationSummary,
+)
+from marivo.analysis.operators.driver_contracts import (
+    DriverCandidateDefinition,
+    DriverCandidateEvaluationSummary,
 )
 from marivo.analysis.operators.row_values import compare_value, row_key_names
 
@@ -45,7 +53,34 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
     evidence = _evidence(descriptor)
     validate_evidence(evidence)
     definition = evidence.definition
-    if definition.objective == "entity_outliers":
+    driver = isinstance(definition, DriverCandidateDefinition)
+    identity_driver = driver and any(
+        field.role_id == "entity_identity" for field in descriptor.row_contract.schema.columns
+    )
+    if isinstance(definition, DriverCandidateDefinition):
+        scope = tuple(
+            field
+            for field in descriptor.row_contract.schema.columns
+            if field.field_id in descriptor.row_contract.coordinate_field_ids
+            and field.name != "axis_ref"
+        )
+        times = tuple(
+            field
+            for field in descriptor.row_contract.schema.columns
+            if field.role_id == "comparison_time"
+        )
+        if tuple(_descriptor_payload(field) for field in (*scope, *times)) != tuple(
+            _descriptor_payload(field)
+            for field in (*definition.scope_fields, *definition.paired_time_fields)
+        ):
+            raise invalid("Driver Candidate screening scope contradicts original definition")
+        if any(
+            isinstance(field.identity, _CatalogFieldIdentity)
+            and field.identity.identity_id.split(":", 1)[-1] in definition.search_space
+            for field in scope
+        ):
+            raise invalid("Driver Candidate retains a searched axis in its screening scope")
+    if definition.objective == "entity_outliers" or identity_driver:
         identities = tuple(
             field.identity
             for field in descriptor.row_contract.schema.columns
@@ -58,7 +93,8 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
             or identities[0].identity_signature != population.identity_signature
         ):
             raise invalid("Entity Candidate identity contradicts its membership authority")
-        if ("candidate.entity_output", 0) not in population.validation_results:
+        proof = "candidate.driver_output" if identity_driver else "candidate.entity_output"
+        if (proof, 0) not in population.validation_results:
             raise invalid("Entity Candidate lacks its native output validation")
     if (
         meaning.objective != definition.objective
@@ -69,7 +105,12 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
         raise invalid("Candidate row meaning contradicts original search authority")
     producer = descriptor.dataset_materialization_contract.producer_id
     if producer.startswith("discover.") and (
-        producer != "discover." + definition.objective
+        producer
+        not in (
+            ("discover.driver_axes", "discover.driver_axes_expanded")
+            if driver
+            else ("discover." + definition.objective,)
+        )
         or evidence.row_count != evidence.evaluation.emitted_candidate_count
     ):
         raise invalid("incomplete original Candidate discovery output")
@@ -93,6 +134,42 @@ def _float(value: object) -> float:
 
 def _within(value: float, bounds: tuple[float, float] | None) -> bool:
     return bounds is not None and bounds[0] <= value <= bounds[1]
+
+
+def _validate_driver_row(
+    descriptor: ArtifactDescriptor,
+    values: Mapping[str, object],
+    definition: DriverCandidateDefinition,
+    evaluation: DriverCandidateEvaluationSummary,
+) -> None:
+    from marivo.analysis.operators.candidate_values import candidate_item_id
+
+    if any(field.role_id == "entity_identity" for field in descriptor.row_contract.schema.columns):
+        raise invalid("Entity Driver Candidate rows require their registered native validation")
+    axis = values["axis_ref"]
+    if type(axis) is not str or axis not in definition.search_space:
+        raise invalid("Driver Candidate axis contradicts its original search space")
+    cardinality = _int(values["axis_cardinality"], minimum=1)
+    members = _int(values["concentration_member_count"], minimum=1)
+    share = _float(values["concentration_share"])
+    score = _float(values["score"])
+    try:
+        expected = 1.0 / (members + cardinality / 1000.0)
+    except (OverflowError, ZeroDivisionError):
+        raise invalid("Driver Candidate concentration count is not representable") from None
+    if (
+        members > (cardinality + 1) // 2
+        or not 0.5 <= share <= 1.0
+        or score != expected
+        or not _within(score, evaluation.score_range)
+    ):
+        raise invalid("Driver Candidate concentration equation contradicts its original evaluation")
+    if values["item_id"] != candidate_item_id(definition, descriptor.row_contract, values):
+        raise invalid("Driver Candidate item digest contradicts original scope or axis authority")
+    for field in definition.scope_fields:
+        value = values[field.name]
+        if field.role_id == "comparison_coordinate":
+            _int(value)
 
 
 def validate_row(descriptor: ArtifactDescriptor, values: Mapping[str, object]) -> None:
@@ -122,6 +199,13 @@ def validate_row(descriptor: ArtifactDescriptor, values: Mapping[str, object]) -
         reason_code(definition.objective),
     ):
         raise invalid("Candidate reason vocabulary contradicts objective")
+    if isinstance(definition, DriverCandidateDefinition):
+        if not isinstance(evaluation, DriverCandidateEvaluationSummary):
+            raise invalid("Driver Candidate requires its exact original evaluation")
+        _validate_driver_row(descriptor, values, definition, evaluation)
+        return
+    if isinstance(evaluation, DriverCandidateEvaluationSummary):
+        raise invalid("Driver Candidate evaluation requires its exact definition")
     score = _float(values["score"])
     if score < definition.threshold or not _within(score, evaluation.score_range):
         raise invalid("Candidate score contradicts original threshold or search range")
@@ -192,7 +276,9 @@ def validate_rows(descriptor: ArtifactDescriptor, batches: Iterable[pa.RecordBat
 
     validate_descriptor(descriptor)
     evidence = _evidence(descriptor)
-    if isinstance(evidence.evaluation, EntityCandidateEvaluationSummary):
+    if isinstance(evidence.evaluation, EntityCandidateEvaluationSummary) or any(
+        field.role_id == "entity_identity" for field in descriptor.row_contract.schema.columns
+    ):
         raise invalid("Entity Candidate validation cannot collect identity rows")
     keys = row_key_names(descriptor.row_contract)
     seen: set[str] = set()
@@ -232,8 +318,13 @@ def build_candidate_publication(
     *,
     artifact_ref: str,
     session_ref: str,
-    definition: CandidateDefinition | None,
-    evaluation: CandidateEvaluationSummary | EntityCandidateEvaluationSummary | None,
+    definition: CandidateDefinition | DriverCandidateDefinition | None,
+    evaluation: (
+        CandidateEvaluationSummary
+        | EntityCandidateEvaluationSummary
+        | DriverCandidateEvaluationSummary
+        | None
+    ),
 ) -> tuple[ArtifactDescriptor, tuple[t.Finding, ...]]:
     """Build one atomic Candidate Evidence result; Candidates are never Findings."""
     if definition is None or evaluation is None:
@@ -248,12 +339,17 @@ def build_candidate_publication(
             evaluation=evaluation,
         ),
     )
-    if isinstance(evaluation, EntityCandidateEvaluationSummary):
+    if isinstance(evaluation, EntityCandidateEvaluationSummary) or (
+        isinstance(evaluation, DriverCandidateEvaluationSummary)
+        and any(
+            field.role_id == "entity_identity" for field in descriptor.row_contract.schema.columns
+        )
+    ):
         if batches is not None:
             raise invalid("Entity Candidate publication requires native identity-safe proof")
         validate_descriptor(published)
     else:
         if batches is None:
-            raise invalid("time Candidate publication requires complete validated rows")
+            raise invalid("non-Entity Candidate publication requires complete validated rows")
         validate_rows(published, batches)
     return published, ()

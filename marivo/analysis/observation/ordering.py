@@ -44,6 +44,7 @@ RANK_SHAPES = frozenset(
         "interesting-window",
         "period-shift",
         "entity-outlier",
+        "driver-axis",
         "entity",
         "dimension",
         "time",

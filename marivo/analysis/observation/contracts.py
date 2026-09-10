@@ -123,6 +123,7 @@ if TYPE_CHECKING:
         MaterializedCandidateDataset,
     )
     from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
+    from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
     from marivo.analysis.operators.forecast_dataset import (
         LogicalForecastDataset,
         MaterializedForecastDataset,
@@ -255,6 +256,8 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("discover.interesting_windows", "interesting_windows"),
     ObservationProducerContract("discover.period_shifts", "period_shifts"),
     ObservationProducerContract("discover.entity_outliers", "entity_outliers"),
+    ObservationProducerContract("discover.driver_axes", "driver_axes"),
+    ObservationProducerContract("discover.driver_axes_expanded", "driver_axes"),
     ObservationProducerContract("candidate.where", "candidate_filter"),
     ObservationProducerContract("candidate.rank", "candidate_rank"),
     ObservationProducerContract("candidate.limit", "candidate_limit"),
@@ -332,7 +335,9 @@ class ObservationRuntimeOwner(DatasetOwner):
 
     action_port: ObservationActionPort = field(kw_only=True)
     comparison_basis_snapshot: str | None = field(default=None, kw_only=True)
-    candidate_definition_snapshot: CandidateDefinition | None = field(default=None, kw_only=True)
+    candidate_definition_snapshot: CandidateDefinition | DriverCandidateDefinition | None = field(
+        default=None, kw_only=True
+    )
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -832,6 +837,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                         "interesting-window",
                         "period-shift",
                         "entity-outlier",
+                        "driver-axis",
                     )
                 ),
                 *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
@@ -1590,6 +1596,7 @@ def semantic_dependency_digest(
     from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.candidate_contracts import CandidatePayload
     from marivo.analysis.operators.contracts import ComparePayload
+    from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
     from marivo.analysis.operators.forecast_contracts import ForecastPayload
 
     facts: set[str] = set()
@@ -1643,7 +1650,7 @@ def semantic_dependency_digest(
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
             )
-        elif isinstance(payload, CandidatePayload):
+        elif isinstance(payload, (CandidatePayload, DriverCandidatePayload)):
             semantic_facts = ("discovery", payload.spec.identity_payload())
         elif isinstance(payload, ForecastPayload):
             semantic_facts = ("metric_forecast", payload.spec.identity_payload())

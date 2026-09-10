@@ -106,12 +106,12 @@ def make_descriptor(
     from marivo.analysis.operators.candidate_contracts import CandidateSemantics
 
     semantics = dataset.row_contract.family_semantics
-    period_candidate = (
+    delta_candidate = (
         isinstance(semantics, CandidateSemantics)
-        and semantics.objective == "period_shifts"
+        and semantics.objective in ("period_shifts", "driver_axes")
         and (inherited is None or inherited.row_contract.shape_id.family_id != "candidate")
     )
-    if period_candidate:
+    if delta_candidate:
         paired = _delta_descriptor(
             dataset,
             materialization,
@@ -410,9 +410,9 @@ def _delta_descriptor(
             retained = selected[comparison.state.artifact_ref.ref]
             inputs = retained.comparison_inputs
             break
-        if (
-            isinstance(comparison._root, LogicalRootHandle)
-            and comparison._root.operator_id == "delta.attribute_expanded"
+        if isinstance(comparison._root, LogicalRootHandle) and comparison._root.operator_id in (
+            "delta.attribute_expanded",
+            "discover.driver_axes_expanded",
         ):
             comparison = comparison._inputs[0]
             continue

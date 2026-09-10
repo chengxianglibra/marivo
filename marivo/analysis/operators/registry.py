@@ -20,6 +20,7 @@ from marivo.analysis.operators.association_contracts import AssociationSemantics
 from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributionSemantics
 from marivo.analysis.operators.candidate_contracts import CandidatePayload, CandidateSemantics
 from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
+from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload, ForecastSemantics
 
 
@@ -82,6 +83,11 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         consumer = dataset._registry.consumer(dataset._inputs[0], root.operator_id)
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
+    if isinstance(root.payload, DriverCandidatePayload):
+        identity = any(f.role_id == "entity_identity" for f in dataset.schema.columns)
+        return ImplementationRegistration(
+            root.operator_id, roles, "duckdb", None if identity else root.operator_id
+        )
     if isinstance(root.payload, CandidatePayload):
         if root.payload.spec.definition.objective == "entity_outliers":
             return ImplementationRegistration(root.operator_id, roles, "duckdb", None)
@@ -126,6 +132,19 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
+    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, DriverCandidatePayload):
+        expected = 3 if root.payload.spec.expanded_compare is not None else 1
+        if (
+            len(dataset._inputs) != expected
+            or registration.local_method != root.operator_id
+            or any(f.role_id == "entity_identity" for f in dataset.schema.columns)
+        ):
+            raise compilation_error(
+                "complete non-Entity driver screening inputs", "source-required driver scope"
+            )
+        for operand in dataset._inputs:
+            admit_retained_rows(operand)
+        return
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, CandidatePayload):
         if root.payload.spec.definition.objective == "entity_outliers":
             raise compilation_error(

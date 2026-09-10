@@ -83,3 +83,12 @@ def discovery_error(expected: str, received: str) -> CandidateError:
         repair="Use one time-bearing Metric or Delta with sufficient finite non-constant values and registered coordinates; repair gaps or narrow the input within the local budget.",
         location="dataset.discover",
     )
+
+
+def driver_error(expected: str, received: str) -> CandidateError:
+    return CandidateError(
+        expected=expected,
+        received=received,
+        repair="Use one additive Delta with complete retained component state and governed non-time Dimensions. For missing axes, rebuild both logical Metric operands with .with_dimensions(*axes) before .aggregate().compare(...).discover.driver_axes(search_space=axes).",
+        location="dataset.discover.driver_axes",
+    )

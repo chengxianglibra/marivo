@@ -107,6 +107,7 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
     """Propagate consumed state to the exact input, respecting producer boundaries."""
     from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.contracts import ComparePayload
+    from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 
     required: set[str] = set()
 
@@ -126,7 +127,10 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
         for child in value._inputs:
             if value._root.operator_id == "session.observe":
                 child_demand: set[str] = set()
-            elif isinstance(payload, (ComparePayload, AttributePayload, RetainedFoldPayload)):
+            elif isinstance(
+                payload,
+                (ComparePayload, AttributePayload, RetainedFoldPayload, DriverCandidatePayload),
+            ):
                 child_demand = _row_part_roles(child.row_contract)
             else:
                 child_demand = demanded

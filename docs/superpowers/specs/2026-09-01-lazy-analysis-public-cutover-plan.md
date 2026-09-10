@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-09
 
-Status: Slices 0-4, 5a, 5c, 5d and 6a-6d complete; Slice 5b implemented, technical acceptance pending
+Status: Slices 0-4, 5a, 5c, 5d and 6a-6e complete; Slice 5b implemented, technical acceptance pending
 
 Slice 5b implementation and the supplied review follow-up are recorded under its
 [private execution record](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md).
@@ -2677,6 +2677,65 @@ This acceptance closes only private Slice 6d. Driver-axis screening, integrated
 Event/Lifecycle membership and public activation remain Slices 6e, 7 and 8.
 No public export, Help entry, current site documentation, commit, push, release,
 MinIO service or full release Runtime gate is added.
+
+### Slice 6e private acceptance (2026-09-10)
+
+Slice 6e is complete on preserved Slice 6d HEAD
+`930fd5fb7bdf61d035678ed2301bd0188cc6a4f7`. Its
+[execution record](../plans/2026-09-09-lazy-analysis-slice-6e-execution.md)
+owns the complete-partition cardinality amendment, numerical decisions, review
+repairs and acceptance matrix. Every final gate uses the unchanged 904-file
+executable candidate
+`22b754e3b1f55326a615ff9fda1d8a13906adb9352c35b73235df0948347269f`.
+
+`evidence/slice-6e/final/` records 363 focused regression tests, strict typing for
+14 changed/new test modules, `make check-agent` with 6,748 default tests and all
+format/lint/import/type/API-documentation stages, and 149 focused Runtime tests.
+All gates pass with matching before/after fingerprints. An independent review
+reproduced and verified the numerical and cold-metadata fixes; no findings
+remain open.
+
+The private implementation produces `candidate/driver-axis@v1` from complete
+additive Delta partitions. Actual null and zero-contribution members count in
+cardinality; exact per-axis folds and the minimum 50% absolute-contribution
+prefix determine descriptive concentration scores. Native and local arithmetic
+agree through cancellation, small net Delta, Decimal, large integers,
+subnormal values and finite extreme-value sums. Full coordinate and digest
+uniqueness is checked before limit. Complete zero partitions evaluate without
+emitting candidates; unavailable or incomplete inputs fail.
+
+Logical missing-axis expansion preserves selections, shared sampling, captures,
+paired time fields and original ordinals across source branches and admitted
+local frontiers. Retained barriers stop expansion. Entity production and row
+continuations remain source-required, with compatible engine continuation and
+no Driver population-input admission. Atomic publication includes original
+search Evidence, zero Findings, binding and successful Run; row operations
+preserve that original search authority. SDK stubs and real Stores cover object
+receipts and identity barriers. Two three-process journeys prove source-offline
+continuation and cold exact binding without new Runs or queries.
+
+Only private Slice 6e is closed here. Its fold/expansion/retained-state coverage
+does not close Slice 5b's independent acceptance. Integrated Event/Lifecycle
+membership and public activation remain Slices 7 and 8. No public export, Help,
+current bilingual site documentation, eager deletion, commit, push, release,
+MinIO service or full release Runtime gate is included.
+
+The subsequent Spec-alignment review follow-up clarifies the 361-to-363 test
+count, verifies all untracked files for whitespace, independently compares the
+saved manifest and documents internal Entity membership deduplication. Its
+904-file byte fingerprint is
+`e4dc3987a57eaf795d752f66032a448a9f6e150387d885d5d87a08a54cd3f07c`.
+`evidence/slice-6e/review-followup/` proves the sole source edit is a comment
+with an unchanged Python AST and passing focused lint/import and whitespace
+checks. The original full gates remain bound to `22b754e3…7269f`.
+
+The consolidated adversarial review additionally confirms that an unscoped
+empty global aggregate needs the positive-cardinality filter and documents the
+shared floating reconciliation tolerance. Its comment-only 904-file fingerprint
+is `6389902905c4aded33fb5cf5cd1c8b1cf3d47db4e5e4af953d60d069a17dc3dd`.
+`evidence/slice-6e/review-followup-2/` records the actual empty-aggregate probe,
+unchanged Python ASTs and passing focused lint/import and whitespace checks;
+the original full acceptance gates remain bound to their original fingerprint.
 
 ### Owned implementation
 

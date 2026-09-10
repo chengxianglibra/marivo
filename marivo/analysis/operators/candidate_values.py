@@ -23,6 +23,7 @@ from marivo.analysis.operators.candidate_contracts import (
     CandidateEvaluationSummary,
     CandidateSpecV1,
 )
+from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
 from marivo.analysis.operators.errors import discovery_error
 from marivo.analysis.operators.rollup import bucket_bounds
 from marivo.analysis.operators.row import ordered
@@ -65,9 +66,15 @@ def _coordinate(value: object) -> CanonicalValue:
 
 
 def candidate_item_id(
-    definition: CandidateDefinition, row: DatasetRowContract, values: Mapping[str, object]
+    definition: CandidateDefinition | DriverCandidateDefinition,
+    row: DatasetRowContract,
+    values: Mapping[str, object],
 ) -> str:
     """Bind a complete typed business key to the exact discovery input and parameters."""
+    if isinstance(definition, DriverCandidateDefinition):
+        from marivo.analysis.operators.driver_values import driver_item_id
+
+        return driver_item_id(definition, row, values)
     fields = {field.field_id: field for field in row.schema.columns}
     coordinates = tuple(
         (fields[key].logical_type_id, _coordinate(values[fields[key].name]))

@@ -9,6 +9,7 @@ import ibis.expr.types as ir
 
 from marivo.analysis.observation.sampling import EntitySamplingPolicy
 from marivo.analysis.operators.candidate_contracts import CandidateDefinition
+from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
 from marivo.semantic.ir import TargetEntityContract
 
 
@@ -84,4 +85,4 @@ class CompiledDataset:
     numerical_input: Literal["distribution_coalitions"] | None = None
     association_proof: ir.Table | None = None
     candidate_proof: ir.Table | None = None
-    candidate_definition: CandidateDefinition | None = None
+    candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None

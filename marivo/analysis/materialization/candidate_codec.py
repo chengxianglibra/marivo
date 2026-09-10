@@ -6,8 +6,18 @@ import math
 from dataclasses import asdict, dataclass
 
 from marivo.analysis.datasets import descriptors as d
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.evidence._dataset_codec import finding_set_digest
-from marivo.analysis.materialization.contracts import _array, _int, _obj, _text, invalid
+from marivo.analysis.materialization.contracts import (
+    _array,
+    _int,
+    _obj,
+    _text,
+    decode_schema,
+    invalid,
+    schema_payload,
+)
+from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.operators.candidate_contracts import (
     METHODS,
     REASON_CODES,
@@ -17,6 +27,10 @@ from marivo.analysis.operators.candidate_contracts import (
     CandidateSemantics,
     EntityCandidateEvaluationSummary,
 )
+from marivo.analysis.operators.driver_contracts import (
+    DriverCandidateDefinition,
+    DriverCandidateEvaluationSummary,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,8 +38,12 @@ class CandidateEvidenceSummary:
     row_count: int
     emitted_finding_count: int
     finding_set_digest: str
-    definition: CandidateDefinition
-    evaluation: CandidateEvaluationSummary | EntityCandidateEvaluationSummary
+    definition: CandidateDefinition | DriverCandidateDefinition
+    evaluation: (
+        CandidateEvaluationSummary
+        | EntityCandidateEvaluationSummary
+        | DriverCandidateEvaluationSummary
+    )
 
 
 def semantics_payload(value: CandidateSemantics) -> dict[str, object]:
@@ -92,7 +110,33 @@ def _range(value: object) -> tuple[float, float] | None:
     return lo, hi
 
 
-def _decode_definition(value: object) -> CandidateDefinition:
+def _decode_definition(value: object) -> CandidateDefinition | DriverCandidateDefinition:
+    if isinstance(value, dict) and value.get("objective") == "driver_axes":
+        obj = _obj(
+            value,
+            "objective method_id input_state_kind input_authority limit approximation fold_authority baseline_fold_authority metric_key metric_unit search_space scope_fields paired_time_fields",
+        )
+        state = obj["input_state_kind"]
+        if state not in ("logical", "materialized"):
+            raise invalid("invalid Driver Candidate input authority kind")
+        if obj["method_id"] != "axis_concentration@v1":
+            raise invalid("invalid Driver Candidate method")
+        from marivo.analysis.observation.contracts import make_ids
+
+        ids = make_ids(())
+        return DriverCandidateDefinition(
+            input_state_kind="logical" if state == "logical" else "materialized",
+            input_authority=_text(obj["input_authority"]),
+            limit=_int(obj["limit"], minimum=1),
+            approximation=_text(obj["approximation"]),
+            fold_authority=_text(obj["fold_authority"]),
+            baseline_fold_authority=_text(obj["baseline_fold_authority"]),
+            metric_key=_text(obj["metric_key"]),
+            metric_unit=None if obj["metric_unit"] is None else _text(obj["metric_unit"]),
+            search_space=tuple(_text(axis) for axis in _array(obj["search_space"])),
+            scope_fields=decode_schema(obj["scope_fields"], ids).columns,
+            paired_time_fields=decode_schema(obj["paired_time_fields"], ids).columns,
+        )
     obj = _obj(
         value,
         "objective method_id input_state_kind input_authority threshold limit approximation fold_authority baseline_fold_authority metric_key metric_unit",
@@ -195,6 +239,8 @@ def _validate_entity_evidence(
     value: CandidateEvidenceSummary, evaluation: EntityCandidateEvaluationSummary
 ) -> None:
     definition = value.definition
+    if not isinstance(definition, CandidateDefinition):
+        raise invalid("Entity Candidate requires its exact discovery definition")
     for count in (
         value.row_count,
         value.emitted_finding_count,
@@ -236,10 +282,98 @@ def _validate_entity_evidence(
         raise invalid("inconsistent Entity Candidate original score range")
 
 
+def _decode_driver_evaluation(value: object) -> DriverCandidateEvaluationSummary:
+    obj = _obj(
+        value,
+        "input_row_count scope_count searched_axis_count evaluated_axis_count zero_contribution_axis_count pre_limit_candidate_count emitted_candidate_count score_range reason_counts",
+    )
+    reasons = []
+    for item in _array(obj["reason_counts"]):
+        pair = _array(item)
+        if len(pair) != 2:
+            raise invalid("invalid Driver Candidate reason count")
+        reasons.append((_text(pair[0]), _int(pair[1])))
+    return DriverCandidateEvaluationSummary(
+        input_row_count=_int(obj["input_row_count"]),
+        scope_count=_int(obj["scope_count"]),
+        searched_axis_count=_int(obj["searched_axis_count"]),
+        evaluated_axis_count=_int(obj["evaluated_axis_count"]),
+        zero_contribution_axis_count=_int(obj["zero_contribution_axis_count"]),
+        pre_limit_candidate_count=_int(obj["pre_limit_candidate_count"]),
+        emitted_candidate_count=_int(obj["emitted_candidate_count"]),
+        score_range=_range(obj["score_range"]),
+        reason_counts=tuple(reasons),
+    )
+
+
+def _validate_driver_evidence(
+    value: CandidateEvidenceSummary,
+    definition: DriverCandidateDefinition,
+    evaluation: DriverCandidateEvaluationSummary,
+) -> None:
+    from marivo.analysis.operators.driver_axes import validate_driver_definition
+
+    try:
+        validate_driver_definition(definition)
+    except (DatasetConstructionError, ValueError, TypeError, OverflowError):
+        raise invalid("invalid Driver Candidate original definition authority") from None
+    for count in (
+        value.row_count,
+        value.emitted_finding_count,
+        evaluation.input_row_count,
+        evaluation.scope_count,
+        evaluation.searched_axis_count,
+        evaluation.evaluated_axis_count,
+        evaluation.zero_contribution_axis_count,
+        evaluation.pre_limit_candidate_count,
+        evaluation.emitted_candidate_count,
+    ):
+        _int(count)
+    if (
+        value.emitted_finding_count != 0
+        or value.finding_set_digest != finding_set_digest(())
+        or evaluation.evaluated_axis_count == 0
+        or (not definition.scope_fields and evaluation.scope_count != 1)
+        or (
+            definition.input_state_kind == "materialized"
+            and evaluation.scope_count > evaluation.input_row_count
+        )
+        or evaluation.searched_axis_count != evaluation.scope_count * len(definition.search_space)
+        or evaluation.evaluated_axis_count != evaluation.searched_axis_count
+        or evaluation.evaluated_axis_count
+        != evaluation.zero_contribution_axis_count + evaluation.pre_limit_candidate_count
+        or evaluation.pre_limit_candidate_count
+        > evaluation.input_row_count * len(definition.search_space)
+        or evaluation.emitted_candidate_count
+        != min(definition.limit, evaluation.pre_limit_candidate_count)
+        or value.row_count > evaluation.emitted_candidate_count
+        or evaluation.reason_counts
+        != (("axis_concentration", evaluation.pre_limit_candidate_count),)
+    ):
+        raise invalid("inconsistent Driver Candidate original evaluation")
+    bounds = evaluation.score_range
+    if (bounds is None) != (evaluation.pre_limit_candidate_count == 0) or (
+        bounds is not None
+        and (
+            len(bounds) != 2
+            or any(not math.isfinite(_finite(number)) for number in bounds)
+            or not 0 < bounds[0] <= bounds[1] <= 1 / 1.001
+        )
+    ):
+        raise invalid("inconsistent Driver Candidate original score range")
+
+
 def validate_evidence(value: CandidateEvidenceSummary) -> None:
     from marivo.analysis.operators.discovery import validate_definition
 
     definition, evaluation = value.definition, value.evaluation
+    if isinstance(definition, DriverCandidateDefinition):
+        if not isinstance(evaluation, DriverCandidateEvaluationSummary):
+            raise invalid("Driver Candidate requires its exact screening evaluation")
+        _validate_driver_evidence(value, definition, evaluation)
+        return
+    if isinstance(evaluation, DriverCandidateEvaluationSummary):
+        raise invalid("Driver Candidate evaluation requires its exact definition")
     validate_definition(definition)
     if isinstance(evaluation, EntityCandidateEvaluationSummary):
         _validate_entity_evidence(value, evaluation)
@@ -313,7 +447,35 @@ def validate_evidence(value: CandidateEvidenceSummary) -> None:
 
 
 def evidence_payload(value: CandidateEvidenceSummary | None) -> object:
-    return None if value is None else {"schema": "marivo.candidate_evidence/v1", **asdict(value)}
+    if value is None:
+        return None
+    definition = value.definition
+    if isinstance(definition, DriverCandidateDefinition):
+        encoded_definition: dict[str, object] = {
+            "objective": definition.objective,
+            "method_id": definition.method_id,
+            "input_state_kind": definition.input_state_kind,
+            "input_authority": definition.input_authority,
+            "limit": definition.limit,
+            "approximation": definition.approximation,
+            "fold_authority": definition.fold_authority,
+            "baseline_fold_authority": definition.baseline_fold_authority,
+            "metric_key": definition.metric_key,
+            "metric_unit": definition.metric_unit,
+            "search_space": definition.search_space,
+            "scope_fields": schema_payload(d._make_schema(definition.scope_fields)),
+            "paired_time_fields": schema_payload(d._make_schema(definition.paired_time_fields)),
+        }
+    else:
+        encoded_definition = asdict(definition)
+    return {
+        "schema": "marivo.candidate_evidence/v1",
+        "row_count": value.row_count,
+        "emitted_finding_count": value.emitted_finding_count,
+        "finding_set_digest": value.finding_set_digest,
+        "definition": encoded_definition,
+        "evaluation": asdict(value.evaluation),
+    }
 
 
 def decode_evidence(value: object) -> CandidateEvidenceSummary | None:
@@ -324,13 +486,20 @@ def decode_evidence(value: object) -> CandidateEvidenceSummary | None:
     )
     if obj["schema"] != "marivo.candidate_evidence/v1":
         raise invalid("invalid Candidate Evidence schema")
-    definition = _decode_definition(obj["definition"])
+    try:
+        definition = _decode_definition(obj["definition"])
+    except IntegrityError:
+        raise
+    except DatasetConstructionError:
+        raise invalid("invalid Candidate original definition fields") from None
     result = CandidateEvidenceSummary(
         row_count=_int(obj["row_count"]),
         emitted_finding_count=_int(obj["emitted_finding_count"]),
         finding_set_digest=_text(obj["finding_set_digest"]),
         definition=definition,
-        evaluation=_decode_entity_evaluation(obj["evaluation"])
+        evaluation=_decode_driver_evaluation(obj["evaluation"])
+        if isinstance(definition, DriverCandidateDefinition)
+        else _decode_entity_evaluation(obj["evaluation"])
         if definition.objective == "entity_outliers"
         else _decode_evaluation(obj["evaluation"]),
     )

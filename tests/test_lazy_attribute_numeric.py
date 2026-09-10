@@ -1,13 +1,25 @@
 """Independent numeric examples for complete retained Attribution partitions."""
 
 from dataclasses import replace
+from fractions import Fraction
+from itertools import permutations
 
 import pandas as pd
 import pytest
 
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.operators.attribute_values import execute_attribute
+from marivo.analysis.operators.attribute_values import _sum, execute_attribute
 from tests.lazy_attribute_fixtures import inputs, signed_basis_inputs
+
+
+def test_finite_exact_binary_fold_survives_intermediate_floating_overflow() -> None:
+    values = [1e308, 1e308, -1e308]
+    expected = float(sum((Fraction(value) for value in values), Fraction(0)))
+    assert expected == 1e308
+    for order in set(permutations(values)):
+        assert _sum(list(order)) == expected
+    with pytest.raises(DatasetConstructionError, match="floating component sum overflow"):
+        _sum([1e308, 1e308])
 
 
 def test_additive_signed_pools_zero_total_and_typed_tie_order() -> None:
