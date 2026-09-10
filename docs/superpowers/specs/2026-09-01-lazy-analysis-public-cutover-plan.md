@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-09
 
-Status: Slices 0-4, 5a, 5c, 5d and 6a-6e complete; Slice 5b implemented, technical acceptance pending
+Status: Slices 0-4, 5a, 5c, 5d, 6a-6e and 7a complete; Slice 5b implemented, technical acceptance pending
 
 Slice 5b implementation and the supplied review follow-up are recorded under its
 [private execution record](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md).
@@ -2816,7 +2816,7 @@ protocol without acquiring its Metric-only admission rules.
 
 | Unit | Prerequisite | Bounded outcome and independent gate |
 | --- | --- | --- |
-| 7a: Event matching and journey authority | 3b, 4d | Implement the shared subject-identity seam, Event completeness, accepted matching policies, and journey materialization/recovery. Prove occurrence ordering/assignment, temporal admission, identity privacy, and atomic failure. |
+| 7a: Event matching and journey authority — complete | 3b, 4d | Private shared subject-identity admission, Event completeness, all three matching policies, and journey materialization/recovery passed; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7a-execution.md). |
 | 7b: Event reducers and subject selection | 7a | Execute funnel, time-to-event, and typed selection from logical and recovered journeys. Prove no rematching, density/reconciliation, selected-step completion, empty versus uncertain membership, and the Metric -> Event -> Population -> Metric loop. |
 | 7c: Event funnel comparison and attribution | 7b; 5a-5b's shared contracts | Execute Event-owned compare/attribute from complete journey assignments. Prove cohort/follow-up compatibility, scoped endpoint reconciliation, compact-component source/local parity, and censoring/aggregate-checkpoint rejection without rematching. |
 | 7d: Lifecycle replay and canonical retention | 7a's shared identity seam; 4d | Materialize and cold-recover history with all three required retained roles. Prove inception/coverage, legal and illegal transitions, same-time loops, subjects without positive intervals, and atomic failure/cancellation for required parts. |
@@ -2825,6 +2825,30 @@ protocol without acquiring its Metric-only admission rules.
 7d can proceed independently of 7b-7c after its named prerequisites pass. The
 complete loop starting from an Entity-outlier Candidate additionally consumes
 6d; the shared privacy audit and integrated Slice 7 gate cover that input too.
+
+### Slice 7a private acceptance
+
+The [Slice 7a execution record](../plans/2026-09-10-lazy-analysis-slice-7a-execution.md)
+closes the private Event matching/completeness and journey recovery unit against
+928-file executable candidate
+`651abecb217dcbd10dbfcef5b3bc1a39b2c6087f149614999f0f3068840f7728`.
+Follow-up review evidence under `evidence/slice-7a/review-suggestions/` records 144 focused default tests,
+6,892 default tests through `make check-agent`, 56 Event Runtime tests, 80 shared
+membership/materialization Runtime tests, and 13-file explicit test typing.
+All gates preserve the same candidate fingerprint. Coverage-provider source queries
+now share the DuckDB execution deadline; real interruption regressions verify
+atomic failure and same-Session retry. The initial candidate evidence remains
+under `evidence/slice-7a/`, with the provider-deadline correction separately
+retained under `evidence/slice-7a/review-fix/`. The execution record includes
+the follow-up review disposition and publication trust boundary.
+
+The admitted source adapter is native DuckDB. Both local-file and engine journey
+receipts have separate-process production, origin-offline continuation and exact
+cold binding evidence. Occurrence-time version admission, provider/declaration
+coverage, dense assignments, identity privacy and atomic failures are covered.
+Independent review findings were repaired and reverified. Reducers/selection,
+Lifecycle, public disclosure and the integrated D/L/M journeys retain their
+separate downstream gates.
 
 ### Owned implementation
 
@@ -3665,7 +3689,7 @@ row or replacing its evidence with another family's requires review here.
 | Point anomalies, interesting windows, period shifts | 6c | independent scorers, exact keys, filtering, empty versus not evaluated | K |
 | Entity-outlier Candidate membership | 6d | score/selector correctness, exact identity projection, rejected Candidate shapes | M |
 | Driver-axis screening | 6e | scoped partitions, keys/scores, logical expansion and materialized barrier | K |
-| Event matching/completeness and journey recovery | 7a | matching policies, occurrence assignment, completeness, identity privacy | D, L, M |
+| Event matching/completeness and journey recovery | 7a complete | `test_lazy_event_contracts.py`, `test_lazy_event_compiler.py`, `test_lazy_event_numeric.py`, `test_lazy_event_time.py`, `test_lazy_event_storage.py`, `test_lazy_event_runtime.py`, `test_lazy_event_membership.py`, `test_lazy_event_temporal.py`, `test_lazy_event_coverage_runtime.py`, `test_lazy_event_runtime_acceptance.py`; [exact evidence](../plans/2026-09-10-lazy-analysis-slice-7a-execution.md) | Private 7a gate passed; D, L, M remain integrated public gates |
 | Event reducers and subject selection | 7b | funnel/time-to-event references, no rematch, complete/uncertain membership | D, L, M |
 | Event funnel compare/attribute | 7c | follow-up compatibility, compact-component parity, journey versus aggregate checkpoint authority | L |
 | Lifecycle replay and canonical retained parts | 7d | inception, transition/coverage traces, atomic part publication, corrupt recovery | E; 9c |

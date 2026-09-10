@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from datetime import datetime
 
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
+from marivo.analysis.domains.completeness import CompletenessDeclaration
+from marivo.analysis.domains.event import LogicalEventDataset, make_match
+from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject
 from marivo.analysis.observation.contracts import (
     EntityInput,
     MetricInput,
@@ -30,11 +34,64 @@ from marivo.semantic.validator import Registry
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class LazyEvents:
+    """Private Event source namespace with construction-only authority."""
+
+    _owner: ObservationOwner
+    _registry: DatasetFamilyRegistry
+
+    def match(
+        self,
+        pattern: EventPattern,
+        *,
+        cohort_window: TimeScope,
+        completion_through: datetime,
+        matching: FirstPerSubject | EveryStart,
+        population: PopulationInput | None = None,
+        completeness: tuple[CompletenessDeclaration, ...] = (),
+    ) -> LogicalEventDataset:
+        """Describe dense journeys for pattern under explicit time and matching rules.
+
+        Args:
+            pattern: Ordered Event roles.
+            cohort_window: Anchor interval.
+            completion_through: Exclusive follow-up bound.
+            matching: Assignment rule.
+            population: Exact subject membership.
+            completeness: Explicit completeness assumptions.
+
+        Returns:
+            A logical Event dataset.
+
+        Example:
+            ``sources.events.match(pattern, cohort_window=window,
+            completion_through=end, matching=policy)``.
+
+        Constraints: Same-domain complete identities; construction performs no I/O.
+        """
+        return make_match(
+            self._owner,
+            self._registry,
+            pattern,
+            cohort_window=cohort_window,
+            completion_through=completion_through,
+            matching=matching,
+            population=population,
+            completeness=completeness,
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class LazySources:
     """Private source facade carrying already admitted in-memory authority."""
 
     _owner: ObservationOwner
     _registry: DatasetFamilyRegistry
+
+    @property
+    def events(self) -> LazyEvents:
+        """Return the private Event source namespace without reading sources."""
+        return LazyEvents(self._owner, self._registry)
 
     def population(
         self,
@@ -108,6 +165,7 @@ def make_lazy_sources(
     methods = (
         "execute_population",
         "execute_metric",
+        "execute_event",
         "show",
         "to_pandas",
         "evidence_digest",

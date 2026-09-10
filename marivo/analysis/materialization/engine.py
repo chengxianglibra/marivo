@@ -50,6 +50,14 @@ def ordered_relation(
     row: DatasetRowContract,
     rows: DatasetRowSetContract,
 ) -> ir.Table:
+    if row.shape_id.family_id == "event":
+        from marivo.analysis.compiler.event import canonical_event_rows
+        from marivo.analysis.domains.contracts import EventJourneySemantics
+
+        semantics = row.family_semantics
+        if not isinstance(semantics, EventJourneySemantics):
+            raise codec.invalid("missing Event journey ordering authority")
+        return canonical_event_rows(table, tuple(step.key for step in semantics.pattern.steps))
     fields = {str(field.field_id): field.name for field in row.schema.columns}
     if not isinstance(rows.ordering, _OrderedOrdering):
         if not row.key_field_ids:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal
 
 from marivo._temporal import Grain, TimeScope
 from marivo.analysis.datasets.actions import construct_operator
@@ -12,18 +12,17 @@ from marivo.analysis.datasets.base import (
     LogicalDataset,
     MaterializedDataset,
     _make_logical_dataset,
-    _validate_input_ownership,
 )
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
     _canonical_digest,
-    _EntityFieldIdentity,
     _make_row_contract,
     _make_schema,
 )
 from marivo.analysis.datasets.fields import DatasetFieldRef
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
+from marivo.analysis.domains.subject import PopulationInput as PopulationInput
 from marivo.analysis.observation import aggregation, coordinates
 from marivo.analysis.observation.contracts import (
     DimensionInput,
@@ -37,7 +36,6 @@ from marivo.analysis.observation.contracts import (
     TimeDimensionInput,
     construction_error,
     entity_ref,
-    identity_field,
     metric_contracts,
     owner_of,
     path_dependency_fingerprint,
@@ -48,17 +46,10 @@ from marivo.analysis.observation.distinct_contracts import make_distinct_members
 from marivo.analysis.observation.distribution_contracts import make_distribution
 from marivo.analysis.observation.fold_contracts import decode_fold_authority
 from marivo.analysis.observation.population import (
-    LogicalPopulationDataset,
-    MaterializedPopulationDataset,
     make_population,
 )
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
 from marivo.analysis.observation.rollup import rollup as _rollup
-from marivo.analysis.operators.candidate_contracts import CandidateSemantics
-from marivo.analysis.operators.candidate_dataset import (
-    LogicalCandidateDataset,
-    MaterializedCandidateDataset,
-)
 from marivo.analysis.operators.contracts import DEFAULT_ALIGNMENT, WindowBucketAlignment
 from marivo.analysis.operators.forecast_contracts import (
     DEFAULT_MODEL,
@@ -81,8 +72,6 @@ if TYPE_CHECKING:
     from marivo.analysis.operators.delta import LogicalDeltaDataset
     from marivo.analysis.operators.discovery import MetricDiscovery
     from marivo.analysis.operators.forecast_dataset import LogicalForecastDataset
-
-PopulationInput: TypeAlias = "LogicalPopulationDataset | MaterializedPopulationDataset | LogicalMetricDataset | MaterializedMetricDataset | LogicalCandidateDataset | MaterializedCandidateDataset"
 
 
 class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric"):
@@ -508,70 +497,9 @@ def make_observation(
                 repair="Construct one explicit governed Population with safe component paths, or observe the Metrics separately.",
             )
         population = make_population(owner, registry, entity_ref(roots[0]))
-    if type(population) not in (
-        LogicalPopulationDataset,
-        MaterializedPopulationDataset,
-        LogicalMetricDataset,
-        MaterializedMetricDataset,
-        LogicalCandidateDataset,
-        MaterializedCandidateDataset,
-    ):
-        raise construction_error(
-            "registered Population, Entity-present Metric, or Entity-outlier Candidate input",
-            "unsupported population input",
-        )
-    _validate_input_ownership(owner, (population,))
-    if population.kind == "candidate":
-        shape = population.row_contract.shape_id
-        semantics = population.row_contract.family_semantics
-        if (
-            (shape.family_id, shape.local_shape_id, shape.semantic_version)
-            != ("candidate", "entity-outlier", 1)
-            or type(semantics) is not CandidateSemantics
-            or semantics.objective != "entity_outliers"
-        ):
-            raise construction_error(
-                "exact candidate/entity-outlier@v1 membership input",
-                "unsupported Candidate shape or objective",
-            )
-    identities = tuple(
-        column.identity
-        for column in population.schema.columns
-        if isinstance(column.identity, _EntityFieldIdentity)
-    )
-    if len(identities) != 1:
-        raise construction_error(
-            "one complete Entity identity coordinate", "Entity-reduced or invalid population input"
-        )
-    identity = identities[0]
-    if population.kind == "metric":
-        semantics = population.row_contract.family_semantics
-        if not isinstance(semantics, EntityPresentMetricSemantics) or any(
-            not facts or facts[0] != "entity_unique"
-            for _, _, facts in semantics.coordinate_semantics
-        ):
-            raise construction_error(
-                "owner-proven Entity-unique Metric coordinates", "unsupported identity projection"
-            )
-    entity = normalize_target_entity(owner.semantic_registry, identity.entity_ref.path)
-    if entity.identity_signature != identity.identity_signature:
-        raise construction_error("same governed identity signature", "changed Entity key contract")
-    if population.kind == "candidate":
-        expected_identity = identity_field(entity, registry.get("metric").ids)
-        actual_identity = next(
-            column
-            for column in population.schema.columns
-            if isinstance(column.identity, _EntityFieldIdentity)
-        )
-        if (
-            actual_identity != expected_identity
-            or population.row_contract.key_field_ids != (actual_identity.field_id,)
-            or population.row_contract.coordinate_field_ids != (actual_identity.field_id,)
-        ):
-            raise construction_error(
-                "complete governed Entity identity with an Entity-only unique key",
-                "unsupported Candidate identity projection",
-            )
+    from marivo.analysis.domains.subject import admit_population
+
+    entity = admit_population(owner, registry, population)
     paths = tuple(
         coordinates.functional_path(
             owner.semantic_registry,

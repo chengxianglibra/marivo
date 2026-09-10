@@ -43,6 +43,13 @@ from marivo.analysis.compiler.placement import (
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
+from marivo.analysis.domains.completeness import (
+    EventCoverageProvider,
+    EventCoverageResolution,
+    resolve_event_coverage,
+)
+from marivo.analysis.domains.contracts import EventPayload
+from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
 from marivo.analysis.evidence import _dataset_reads
 from marivo.analysis.evidence._dataset_types import (
     ArtifactDigest,
@@ -70,6 +77,7 @@ from marivo.analysis.materialization.errors import (
     MaterializationError,
     RecoveryPendingError,
 )
+from marivo.analysis.materialization.event_codec import EventEvidenceSummary
 from marivo.analysis.materialization.execution_key import execution_key
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.local import LocalPolicy
@@ -366,12 +374,14 @@ class DatasetRuntime:
         local_policy: LocalPolicy = _LOCAL_POLICY,
         target: MaterializationTarget = _DEFAULT_TARGET,
         object_bindings: tuple[S3Access, ...] = (),
+        event_coverage_provider: EventCoverageProvider | None = None,
     ) -> None:
         if store.session(session_ref) is None:
             raise _error("authority_resolution")
         self.store = store
         self.target = target
         self.object_bindings = object_bindings
+        self.event_coverage_provider = event_coverage_provider
         self.local_policy = local_policy
         self.session_ref = session_ref
         self._hook = event
@@ -387,6 +397,7 @@ class DatasetRuntime:
         event: Callable[[str], None] | None = None,
         target: MaterializationTarget = _DEFAULT_TARGET,
         object_bindings: tuple[S3Access, ...] = (),
+        event_coverage_provider: EventCoverageProvider | None = None,
     ) -> DatasetRuntime:
         store = SessionStore(project_root)
         record = store.session_by_name(name)
@@ -403,11 +414,17 @@ class DatasetRuntime:
                         event=event,
                         target=target,
                         object_bindings=object_bindings,
+                        event_coverage_provider=event_coverage_provider,
                     )
             # A competing creator won this name. Its guard must be acquired only
             # after the unused candidate guard has been released.
         runtime = cls(
-            store, record.session_ref, event=event, target=target, object_bindings=object_bindings
+            store,
+            record.session_ref,
+            event=event,
+            target=target,
+            object_bindings=object_bindings,
+            event_coverage_provider=event_coverage_provider,
         )
         with session_writer_guard(
             store.layout.lock_path(record.session_ref), session_ref=record.session_ref
@@ -433,6 +450,7 @@ class DatasetRuntime:
         event: Callable[[str], None] | None = None,
         target: MaterializationTarget = _DEFAULT_TARGET,
         object_bindings: tuple[S3Access, ...] = (),
+        event_coverage_provider: EventCoverageProvider | None = None,
     ) -> DatasetRuntime:
         if not MaterializationLayout(project_root).store_db.is_file():
             raise _error("authority_resolution")
@@ -442,6 +460,7 @@ class DatasetRuntime:
             event=event,
             target=target,
             object_bindings=object_bindings,
+            event_coverage_provider=event_coverage_provider,
         )
 
     def sources(
@@ -706,6 +725,12 @@ class DatasetRuntime:
             raise _error("presentation")
         return result
 
+    def execute_event(self, dataset: LogicalEventDataset) -> MaterializedEventDataset:
+        result = self._execute(dataset)
+        if not isinstance(result, MaterializedEventDataset):
+            raise _error("publication")
+        return result
+
     def execute_forecast(self, dataset: LogicalForecastDataset) -> MaterializedForecastDataset:
         result = self._execute(dataset)
         if not isinstance(result, MaterializedForecastDataset):
@@ -790,7 +815,7 @@ class DatasetRuntime:
             def discover_candidates(value: LogicalDataset | MaterializedDataset) -> None:
                 if isinstance(value, LogicalDataset):
                     if isinstance(value._root, LogicalRootHandle) and isinstance(
-                        value._root.payload, (PopulationPayload, MetricPayload)
+                        value._root.payload, (PopulationPayload, MetricPayload, EventPayload)
                     ):
                         binding = source_binding(value)
                         if not any(binding.same_domain(item) for item in source_candidates):
@@ -903,6 +928,7 @@ class DatasetRuntime:
                 association_summary: AssociationSearchSummary | None = None
                 forecast_summary: ForecastTrainingSummary | None = None
                 candidate_summary: CandidateSearchSummary | None = None
+                event_summary: EventEvidenceSummary | None = None
                 for input_record in records.values():
                     descriptor = input_record.descriptor
                     if descriptor.candidate_evidence is not None:
@@ -941,6 +967,26 @@ class DatasetRuntime:
                             )
                         )
                         proof_backend, proof_recipe, _ = prepared[source_boundary.output]
+                        if proof_recipe.event_proof is not None:
+                            from marivo.analysis.materialization.event_codec import (
+                                summary_from_proof,
+                            )
+
+                            if proof_recipe.event_coverage is None:
+                                raise _error("output_validation", run.run_ref)
+                            with _engine_deadline(proof_backend):
+                                self._record_statement(
+                                    "event.journey_summary",
+                                    proof_backend.compile(proof_recipe.event_proof),
+                                )
+                                self._event("source_statement")
+                                checked_event = proof_backend.to_pyarrow(proof_recipe.event_proof)
+                                if checked_event.num_rows != 1:
+                                    raise _error("output_validation", run.run_ref)
+                                event_summary = summary_from_proof(
+                                    checked_event.to_pylist()[0], proof_recipe.event_coverage
+                                )
+                                boundary_validations.append(("event.journey_output", 0))
                         if proof_recipe.candidate_proof is not None:
                             from marivo.analysis.compiler.entity_candidate import (
                                 decode_candidate_proof,
@@ -1433,7 +1479,13 @@ class DatasetRuntime:
                     self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
                 findings: tuple[Finding, ...] = ()
-                if dataset.kind == "candidate":
+                if dataset.kind == "event":
+                    from marivo.analysis.materialization.event_publication import bind_event_summary
+
+                    if event_summary is None:
+                        raise _error("output_validation", run.run_ref)
+                    descriptor = bind_event_summary(descriptor, event_summary)
+                elif dataset.kind == "candidate":
                     from marivo.analysis.materialization.candidate_publication import (
                         build_candidate_publication,
                     )
@@ -1724,6 +1776,7 @@ class DatasetRuntime:
                 raise _error("execution_boundary", run_ref)
             backend = candidate
             backend.raw_sql("SET threads=1")
+            backend.raw_sql("SET TimeZone='UTC'")
             backend.raw_sql("SET memory_limit='256MiB'")
             backend.raw_sql("SET max_temp_directory_size='0B'")
             backend.raw_sql("BEGIN TRANSACTION")
@@ -1766,6 +1819,29 @@ class DatasetRuntime:
                     tables[entity.ref.path] = ibis.table(dict(entity.columns), name=name)
                 else:
                     raise _error("source_binding", run_ref)
+            phase = "ibis_expression_construction"
+            event_coverages: dict[str, EventCoverageResolution] = {}
+            if isinstance(source_dataset, LogicalDataset):
+                from marivo.analysis.datasets.descriptors import _canonical_digest
+
+                for event_root in logical_roots(source_dataset):
+                    if isinstance(event_root.payload, EventPayload):
+                        phase = "source_binding"
+                        with _engine_deadline(backend):
+                            event_coverages[event_root.definition_fingerprint] = (
+                                resolve_event_coverage(
+                                    event_root.payload.definition,
+                                    provider=self.event_coverage_provider,
+                                    backend=backend,
+                                    source_binding_fingerprint=_canonical_digest(
+                                        tuple(
+                                            capture.identity_payload()
+                                            for capture in event_root.payload.captures
+                                        )
+                                    ),
+                                    execution_domain_id=engine_domain(source_step.binding),
+                                )
+                            )
             phase = "ibis_expression_construction"
             engine_inputs: list[tuple[ir.Table, EngineReceipt, DatasetRowContract]] = []
             if isinstance(source_step.binding, EngineBinding):
@@ -1835,7 +1911,11 @@ class DatasetRuntime:
                 if not isinstance(source_dataset, LogicalDataset):
                     raise _error("implementation_registration", run_ref)
                 recipe = compile_dataset(
-                    source_dataset, tables, scans=scans, source_owner=source_step.binding.owner
+                    source_dataset,
+                    tables,
+                    scans=scans,
+                    source_owner=source_step.binding.owner,
+                    event_coverages=event_coverages,
                 )
             if source_step.correlation_preparation:
                 from marivo.analysis.compiler.correlation import prepare_pairs
@@ -2503,9 +2583,16 @@ class DatasetRuntime:
                 and physical_type.scale is not None
                 and 0 <= physical_type.scale <= physical_type.precision <= 38
             )
-            if physical_type != declared and not decimal_match:
+            timestamp_match = (
+                isinstance(declared, dt.Timestamp)
+                and isinstance(physical_type, dt.Timestamp)
+                and declared.timezone == physical_type.timezone
+                and declared.scale is None
+                and physical_type.scale == 6
+            )
+            if physical_type != declared and not decimal_match and not timestamp_match:
                 raise MaterializationError(
-                    expected="physical source columns matching their exact declared logical types",
+                    expected="physical source types matching declarations after nullability normalization; generic decimal accepts precision up to 38, and an unspecified timestamp scale accepts microseconds with the same timezone",
                     received="the governed source schema differs from its declaration",
                     repair="Correct the declaration or physical schema before executing this Dataset.",
                     stage="output_validation",

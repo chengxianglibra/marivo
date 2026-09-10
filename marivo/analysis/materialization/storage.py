@@ -294,6 +294,15 @@ def _normalize_batch(batch: pa.RecordBatch, limit: int) -> pa.RecordBatch:
 
 
 def _matches_type(logical: str, actual: pa.DataType) -> bool:
+    decimal = re.fullmatch(r"decimal\((\d+),\s*(\d+)\)", logical)
+    if decimal is not None:
+        return bool(
+            pa.types.is_decimal(actual)
+            and actual.precision == int(decimal.group(1))
+            and actual.scale == int(decimal.group(2))
+        )
+    if logical == "duration":
+        return bool(pa.types.is_int64(actual))
     if logical == "candidate_reasons":
         return bool(pa.types.is_list(actual) and pa.types.is_string(actual.value_type))
     if logical == "identity_tuple":
@@ -476,6 +485,14 @@ class _RowValidator:
             self.attribution_axes = tuple(by_id[field_id] for field_id in semantics.axis_field_ids)
         self.previous: tuple[_Value, ...] | None = None
         self.count = 0
+        from marivo.analysis.domains.contracts import EventJourneySemantics
+        from marivo.analysis.materialization.event_publication import EventRowValidator
+
+        self.event_validator = (
+            EventRowValidator(contract.family_semantics)
+            if isinstance(contract.family_semantics, EventJourneySemantics)
+            else None
+        )
 
     def accept(self, batch: pa.RecordBatch) -> None:
         for field in self.contract.schema.columns:
@@ -501,6 +518,10 @@ class _RowValidator:
                 )
             ):
                 _fail("the exact fixed-length boolean partition mask", "invalid mask values")
+        if self.event_validator is not None:
+            self.event_validator.accept(batch)
+            self.count += batch.num_rows
+            return
         for offset in range(batch.num_rows):
             if self.attribution_masks is not None:
                 active = _value(batch.column("active_axis_mask")[offset])
@@ -564,6 +585,8 @@ class _RowValidator:
             _fail("rows within the declared bound", "static row bound exceeded")
 
     def finish(self) -> None:
+        if self.event_validator is not None:
+            self.event_validator.finish()
         if self.rows.cardinality.kind == "singleton" and self.count != 1:
             _fail("exactly one singleton row", "empty singleton")
 
@@ -991,13 +1014,18 @@ def _to_dataframe(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
     result: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
     for field in row.schema.columns:
         if (
-            isinstance(field.identity, _EntityFieldIdentity)
+            field.logical_type_id == "identity_tuple"
             or _bool_tuple_arity(field.logical_type_id) is not None
             or field.logical_type_id == "candidate_reasons"
         ):
             array = table.column(field.name)
             result[field.name] = pd.Series(
                 [_value(array[index]) for index in range(table.num_rows)], dtype=object
+            )
+        if field.logical_type_id == "duration":
+            result[field.name] = pd.Series(
+                table.column(field.name).cast(pa.duration("us")),
+                dtype=pd.ArrowDtype(pa.duration("us")),
             )
     return result.copy(deep=True)
 

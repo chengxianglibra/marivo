@@ -110,6 +110,7 @@ docs/superpowers/plans/*
 !docs/superpowers/plans/2026-09-09-lazy-analysis-slice-6c-execution.md
 !docs/superpowers/plans/2026-09-09-lazy-analysis-slice-6d-execution.md
 !docs/superpowers/plans/2026-09-09-lazy-analysis-slice-6e-execution.md
+!docs/superpowers/plans/2026-09-10-lazy-analysis-slice-7a-execution.md
 docs/superpowers/discussions/
 docs/superpowers/specs/archive/
 .superpowers/
@@ -124,6 +125,7 @@ evidence/slice-6b/
 evidence/slice-6c/
 evidence/slice-6d/
 evidence/slice-6e/
+evidence/slice-7a/
 
 # Sphinx autosummary-generated stub pages (build artifact)
 docs/api/api/
