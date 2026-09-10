@@ -99,7 +99,7 @@ def _summary(runtime: DatasetRuntime, artifact_ref: str) -> EventEvidenceSummary
     record = runtime.store.artifact(artifact_ref)
     assert record is not None
     result = record.descriptor.event_evidence
-    assert result is not None
+    assert isinstance(result, EventEvidenceSummary)
     return result
 
 

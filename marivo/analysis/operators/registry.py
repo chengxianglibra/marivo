@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.datasets.base import Dataset, LogicalDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.domains.contracts import EventPayload
+from marivo.analysis.domains.contracts import (
+    EventFunnelPayload,
+    EventFunnelSemantics,
+    EventJourneySemantics,
+    EventPayload,
+    EventSelectionPayload,
+    EventTimeToEventPayload,
+    EventTimeToEventSemantics,
+)
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -38,6 +46,7 @@ class ImplementationRegistration:
 
 _ROW_METHODS = frozenset(
     {
+        "event.where",
         "candidate.where",
         "candidate.rank",
         "candidate.limit",
@@ -70,10 +79,14 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     if root.contract_versions != registration.versions:
         raise compilation_error("exact registered contract versions", "method version mismatch")
     roles = tuple(item.role for item in root.inputs)
-    if isinstance(root.payload, EventPayload):
+    if isinstance(
+        root.payload,
+        (EventPayload, EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload),
+    ):
         return ImplementationRegistration(root.operator_id, roles, "duckdb", None)
     if dataset._inputs and root.operator_id.startswith(
         (
+            "event.",
             "metric.",
             "delta.",
             "attribution.",
@@ -237,9 +250,14 @@ def admit_local(dataset: LogicalDataset, registration: ImplementationRegistratio
 
 def admit_retained_rows(dataset: Dataset) -> None:
     semantics = dataset.row_contract.family_semantics
+    if str(dataset.row_contract.shape_id) == "population/entity-membership@v1":
+        return
     if not isinstance(
         semantics,
         (
+            EventJourneySemantics,
+            EventFunnelSemantics,
+            EventTimeToEventSemantics,
             EntityPresentMetricSemantics,
             EntityReducedMetricSemantics,
             DeltaSemantics,

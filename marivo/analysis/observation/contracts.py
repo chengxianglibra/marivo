@@ -169,7 +169,7 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
-        if self.producer_id.startswith(("discover.", "candidate.", "session.events.")):
+        if self.producer_id.startswith(("discover.", "candidate.", "session.events.", "event.")):
             return ()
         if self.contract_stem.startswith(("association", "forecast")):
             return ()
@@ -199,7 +199,7 @@ class ObservationProducerContract:
             (self.validation_id, "v1"),
             (self.evidence_id, "v1"),
         )
-        if self.producer_id.startswith(("discover.", "candidate.", "session.events.")):
+        if self.producer_id.startswith(("discover.", "candidate.", "session.events.", "event.")):
             return (*common, ("none", "v1"), ("zero_findings", "v1"))
         if self.contract_stem.startswith("forecast"):
             return (
@@ -254,6 +254,10 @@ class ObservationProducerContract:
 
 _PRODUCER_CONTRACTS = (
     ObservationProducerContract("session.events.match", "event_journey"),
+    ObservationProducerContract("event.funnel", "event_funnel"),
+    ObservationProducerContract("event.time_to_event", "event_time_to_event"),
+    ObservationProducerContract("event.select_subjects", "subject_selection"),
+    ObservationProducerContract("event.where", "event_filter"),
     ObservationProducerContract("discover.point_anomalies", "point_anomalies"),
     ObservationProducerContract("discover.interesting_windows", "interesting_windows"),
     ObservationProducerContract("discover.period_shifts", "period_shifts"),
@@ -338,6 +342,8 @@ class ObservationRuntimeOwner(DatasetOwner):
     """Retained action/read authority independent of any source semantic catalog."""
 
     action_port: ObservationActionPort = field(kw_only=True)
+    source_context: ObservationSourceContext | None = field(default=None, kw_only=True)
+    sampling_authority_snapshot: bool = field(default=False, kw_only=True)
     comparison_basis_snapshot: str | None = field(default=None, kw_only=True)
     candidate_definition_snapshot: CandidateDefinition | DriverCandidateDefinition | None = field(
         default=None, kw_only=True
@@ -354,6 +360,13 @@ class ObservationOwner(ObservationRuntimeOwner):
     )
 
 
+@dataclass(slots=True, repr=False)
+class ObservationSourceContext:
+    """Explicit current Session semantics, resolved only for authored enrichment."""
+
+    current: ObservationOwner | None = None
+
+
 def owner_of(dataset: Dataset) -> ObservationRuntimeOwner:
     owner = dataset._owner
     if not isinstance(owner, ObservationRuntimeOwner):
@@ -364,6 +377,16 @@ def owner_of(dataset: Dataset) -> ObservationRuntimeOwner:
 def source_owner_of(dataset: Dataset) -> ObservationOwner:
     """Require source authority only for operations that actually consume semantics."""
     owner = owner_of(dataset)
+    if not isinstance(owner, ObservationOwner) and owner.source_context is not None:
+        current = owner.source_context.current
+        if current is not None:
+            if (
+                current.session_id != owner.session_id
+                or current.store_id != owner.store_id
+                or current.action_port is not owner.action_port
+            ):
+                raise construction_error("the current Session semantic context", "foreign context")
+            return current
     if not isinstance(owner, ObservationOwner):
         raise construction_error(
             "current source-construction authority for semantic enrichment",
@@ -857,6 +880,8 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
                 ("population", "entity-membership", 1),
                 ("event", "journey", 1),
+                ("event", "funnel", 1),
+                ("event", "time-to-event", 1),
                 ("attribution", "joint", 1),
                 ("attribution", "hierarchy", 1),
                 *(("metric", shape, 1) for shape in METRIC_SHAPES),
@@ -877,6 +902,8 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "event_occurrence_identity",
                 "time_coordinate",
                 "duration_value",
+                "additive_count",
+                "rate_value",
                 "metric",
                 "dimension",
                 "time_dimension",
@@ -1340,8 +1367,20 @@ def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
         identity = dataset.schema.columns[0].identity
         if not isinstance(identity, _EntityFieldIdentity):
             return False
-        owner = owner_of(dataset)
-        if not isinstance(owner, ObservationOwner):
+        from marivo.analysis.datasets.handles import LogicalRootHandle
+        from marivo.analysis.observation.population import _has_sampling
+
+        if _has_sampling(dataset):
+            return False
+        if consumer_id == "population.sample":
+            root = dataset._root
+            if not isinstance(root, LogicalRootHandle) or not isinstance(
+                root.payload, PopulationPayload
+            ):
+                return True
+        try:
+            owner = source_owner_of(dataset)
+        except ObservationConstructionError:
             return False
         entity = owner.semantic_registry.entities.get(identity.entity_ref.path)
         return entity is not None and entity.versioning is None
@@ -1431,11 +1470,13 @@ def _contract_facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
 
 
 def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
+    from marivo.analysis.domains.contracts import EventSelectionPayload
     from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
     from marivo.analysis.observation.population import (
         LogicalPopulationDataset,
         MaterializedPopulationDataset,
     )
+    from marivo.analysis.observation.population_sample import PopulationSamplePayload
 
     registry = DatasetFamilyRegistry()
 
@@ -1475,7 +1516,7 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=state_decoder,
-            node_payload_types=(PopulationPayload,),
+            node_payload_types=(PopulationPayload, EventSelectionPayload, PopulationSamplePayload),
             consumer_admission=_consumer_admission,
             contract_facts=_contract_facts,
         )
@@ -1617,7 +1658,13 @@ def semantic_dependency_digest(
     """Hash the complete frozen semantic closure without inspecting live authoring state."""
     from marivo.analysis.datasets.descriptors import _field_binding_fingerprint
     from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
-    from marivo.analysis.domains.contracts import EventPayload
+    from marivo.analysis.domains.contracts import (
+        EventFunnelPayload,
+        EventPayload,
+        EventSelectionPayload,
+        EventTimeToEventPayload,
+    )
+    from marivo.analysis.observation.population_sample import PopulationSamplePayload
     from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.candidate_contracts import CandidatePayload
@@ -1656,6 +1703,8 @@ def semantic_dependency_digest(
                 if payload.reference_axis is None
                 else dimension_payload(payload.reference_axis),
             )
+        elif isinstance(payload, PopulationSamplePayload):
+            semantic_facts = ("population_sample", payload.identity_payload)
         elif isinstance(payload, MetricPayload):
             definition = payload.definition
             semantic_facts = (
@@ -1682,6 +1731,10 @@ def semantic_dependency_digest(
                 payload.definition.source_dependency_fingerprint,
                 tuple(step.event_fingerprint for step in payload.definition.steps),
             )
+        elif isinstance(
+            payload, (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload)
+        ):
+            semantic_facts = ("event_continuation", payload.identity_payload)
         elif isinstance(payload, (CandidatePayload, DriverCandidatePayload)):
             semantic_facts = ("discovery", payload.spec.identity_payload())
         elif isinstance(payload, ForecastPayload):

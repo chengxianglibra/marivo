@@ -18,7 +18,11 @@ from marivo.analysis.datasets.base import (
     _make_logical_dataset,
 )
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.datasets.registry import DatasetFamilyRegistration, DatasetFamilyRegistry
+from marivo.analysis.datasets.registry import (
+    ConsumerRegistration,
+    DatasetFamilyRegistration,
+    DatasetFamilyRegistry,
+)
 from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
 from marivo.analysis.domains.completeness import (
     CompletenessDeclaration,
@@ -27,25 +31,34 @@ from marivo.analysis.domains.completeness import (
 )
 from marivo.analysis.domains.contracts import (
     EventDefinition,
+    EventFunnelPayload,
+    EventFunnelSemantics,
     EventJourneySemantics,
     EventPayload,
     EventStepBinding,
+    EventTimeToEventPayload,
+    EventTimeToEventSemantics,
     journey_semantics,
 )
 from marivo.analysis.domains.errors import EventConstructionError, event_error
+from marivo.analysis.domains.event_reducers import validate_reducer
 from marivo.analysis.domains.subject import PopulationInput, admit_population
 from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject, PatternStep
 from marivo.analysis.observation import coordinates
 from marivo.analysis.observation.contracts import (
     IDENTITY_FIELD_ID,
+    DimensionInput,
     ObservationOwner,
+    RetainedRowsPayload,
     entity_ref,
     identity_field,
     owner_of,
     path_dependency_fingerprint,
     producer_contract,
 )
-from marivo.analysis.observation.population import make_population
+from marivo.analysis.observation.population import LogicalPopulationDataset, make_population
+from marivo.analysis.observation.predicates import AnalysisPredicate
+from marivo.analysis.subject import DroppedBefore
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.event import ParticipantRoleHandle
 from marivo.semantic.metric_graph_lowering import dependency_digest
@@ -62,6 +75,54 @@ class LogicalEventDataset(LogicalDataset, _token=d._CORE_TOKEN, family_id="event
 
     __slots__ = ()
 
+    def funnel(
+        self, *, axes: list[DimensionInput] | tuple[DimensionInput, ...] = ()
+    ) -> LogicalEventDataset:
+        """Summarize exact subject journeys by optional governed axes.
+
+        Args: axes: Ordered governed non-time Dimensions evaluated at journey entry.
+        Returns: Logical Event funnel. Example: ``journeys.funnel()``.
+        Constraints: first_per_subject; axes resolve at the first occurrence.
+        """
+        from marivo.analysis.domains.event_reducers import funnel
+
+        return funnel(self, axes)
+
+    def time_to_event(self, *, from_step: PatternStep, to_step: PatternStep) -> LogicalEventDataset:
+        """Classify each journey between exact from_step and to_step values.
+
+        Args:
+            from_step: Exact retained PatternStep defining entry into the selected pair.
+            to_step: Exact retained PatternStep after from_step defining completion.
+        Returns: Logical Event duration rows. Example: ``journeys.time_to_event(from_step=a, to_step=b)``.
+        Constraints: Both retained steps must be unique and ordered.
+        """
+        from marivo.analysis.domains.event_reducers import time_to_event
+
+        return time_to_event(self, from_step, to_step)
+
+    def select_subjects(self, selection: DroppedBefore) -> LogicalPopulationDataset:
+        """Select complete subject membership using a typed selection.
+
+        Args: selection: DroppedBefore for one exact non-initial retained PatternStep.
+        Returns: Logical Population. Example: ``journeys.select_subjects(dropped_before(step=b))``.
+        Constraints: first_per_subject; any unknown selection truth fails the action.
+        """
+        from marivo.analysis.domains.event_reducers import select_subjects
+
+        return select_subjects(self, selection)
+
+    def where(self, *predicates: AnalysisPredicate) -> LogicalEventDataset:
+        """Filter complete summary rows using AND-combined predicates.
+
+        Args: predicates: Admitted retained-field predicates, combined with AND.
+        Returns: Logical Event. Example: ``funnel.where(eq(funnel.fields.get('step_key'), 'paid'))``.
+        Constraints: Structural journeys and identity operands are not filterable.
+        """
+        from marivo.analysis.domains.event_reducers import where
+
+        return where(self, predicates)
+
     def execute(self) -> MaterializedEventDataset:
         """Execute and return committed Event journey rows; no parameters.
 
@@ -74,6 +135,54 @@ class MaterializedEventDataset(MaterializedDataset, _token=d._CORE_TOKEN, family
     """Committed exact journey rows, independent of their source catalog."""
 
     __slots__ = ()
+
+    def funnel(
+        self, *, axes: list[DimensionInput] | tuple[DimensionInput, ...] = ()
+    ) -> LogicalEventDataset:
+        """Summarize exact subject journeys by optional governed axes.
+
+        Args: axes: Ordered governed non-time Dimensions evaluated at journey entry.
+        Returns: Logical Event funnel. Example: ``journeys.funnel()``.
+        Constraints: first_per_subject; axes resolve at the first occurrence.
+        """
+        from marivo.analysis.domains.event_reducers import funnel
+
+        return funnel(self, axes)
+
+    def time_to_event(self, *, from_step: PatternStep, to_step: PatternStep) -> LogicalEventDataset:
+        """Classify each journey between exact from_step and to_step values.
+
+        Args:
+            from_step: Exact retained PatternStep defining entry into the selected pair.
+            to_step: Exact retained PatternStep after from_step defining completion.
+        Returns: Logical Event duration rows. Example: ``journeys.time_to_event(from_step=a, to_step=b)``.
+        Constraints: Both retained steps must be unique and ordered.
+        """
+        from marivo.analysis.domains.event_reducers import time_to_event
+
+        return time_to_event(self, from_step, to_step)
+
+    def select_subjects(self, selection: DroppedBefore) -> LogicalPopulationDataset:
+        """Select complete subject membership using a typed selection.
+
+        Args: selection: DroppedBefore for one exact non-initial retained PatternStep.
+        Returns: Logical Population. Example: ``journeys.select_subjects(dropped_before(step=b))``.
+        Constraints: first_per_subject; any unknown selection truth fails the action.
+        """
+        from marivo.analysis.domains.event_reducers import select_subjects
+
+        return select_subjects(self, selection)
+
+    def where(self, *predicates: AnalysisPredicate) -> LogicalEventDataset:
+        """Filter complete summary rows using AND-combined predicates.
+
+        Args: predicates: Admitted retained-field predicates, combined with AND.
+        Returns: Logical Event. Example: ``funnel.where(eq(funnel.fields.get('step_key'), 'paid'))``.
+        Constraints: Structural journeys and identity operands are not filterable.
+        """
+        from marivo.analysis.domains.event_reducers import where
+
+        return where(self, predicates)
 
     def show(self, *, max_output_bytes: int | None = None) -> None:
         """Print retained rows bounded by max_output_bytes and return None.
@@ -440,6 +549,9 @@ def event_contracts(
 
 def _validate_event(row: d.DatasetRowContract, rows: d.DatasetRowSetContract) -> None:
     semantics = row.family_semantics
+    if isinstance(semantics, (EventFunnelSemantics, EventTimeToEventSemantics)):
+        validate_reducer(row, rows)
+        return
     expected = (
         "journey_id",
         "completion_status",
@@ -543,6 +655,12 @@ def _validate_event(row: d.DatasetRowContract, rows: d.DatasetRowSetContract) ->
 
 def _facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
     semantics = dataset.row_contract.family_semantics
+    if isinstance(semantics, (EventFunnelSemantics, EventTimeToEventSemantics)):
+        return (
+            ("shape", semantics.kind),
+            ("subject", semantics.journey.subject_entity_ref),
+            ("continuation", "retained field filtering and state actions"),
+        )
     if not isinstance(semantics, EventJourneySemantics):
         raise event_error("Event journey row meaning", "invalid family semantics")
     return (
@@ -550,7 +668,12 @@ def _facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
         ("subject", semantics.subject_entity_ref),
         ("matching", semantics.matching.kind),
         ("coverage", "require execution"),
-        ("continuation", "execute and retained state actions"),
+        (
+            "continuation",
+            "funnel, time_to_event, select_subjects and state actions"
+            if type(semantics.matching) is FirstPerSubject
+            else "time_to_event and state actions",
+        ),
     )
 
 
@@ -564,15 +687,53 @@ def register_event(registry: DatasetFamilyRegistry, ids: d._StableIdRegistry) ->
             family_id="event",
             logical_type=LogicalEventDataset,
             materialized_type=MaterializedEventDataset,
-            shape_ids=(d._make_shape_id("event", "journey", 1, ids=ids),),
+            shape_ids=tuple(
+                d._make_shape_id("event", shape, 1, ids=ids)
+                for shape in ("journey", "funnel", "time-to-event")
+            ),
             owner_id="domains.event",
             ids=ids,
             row_validator=_validate_event,
-            consumers=(),
+            consumers=(
+                *(
+                    ConsumerRegistration(
+                        f"event.{method}",
+                        ("input",),
+                        output,
+                        (d._make_shape_id("event", "journey", 1, ids=ids),),
+                        ("event.exact_journey@v1",),
+                    )
+                    for method, output in (
+                        ("funnel", "event"),
+                        ("time_to_event", "event"),
+                        ("select_subjects", "population"),
+                    )
+                ),
+                ConsumerRegistration(
+                    "event.where",
+                    ("input",),
+                    "event",
+                    tuple(
+                        d._make_shape_id("event", shape, 1, ids=ids)
+                        for shape in ("funnel", "time-to-event")
+                    ),
+                    ("event.current_rows@v1",),
+                ),
+            ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=decode_state,
-            unique_tie_breakers=((event_field_id("journey_id"), event_field_id("step_key")),),
-            node_payload_types=(EventPayload,),
+            node_payload_types=(
+                EventPayload,
+                EventFunnelPayload,
+                EventTimeToEventPayload,
+                RetainedRowsPayload,
+            ),
+            consumer_admission=lambda dataset, method: (
+                isinstance(dataset.row_contract.family_semantics, EventJourneySemantics)
+                and type(dataset.row_contract.family_semantics.matching) is FirstPerSubject
+                if method in ("event.funnel", "event.select_subjects")
+                else True
+            ),
             contract_facts=_facts,
         )
     )

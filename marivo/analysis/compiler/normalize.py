@@ -9,7 +9,12 @@ from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity, _EntityFieldIdentity
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
-from marivo.analysis.domains.contracts import EventPayload
+from marivo.analysis.domains.contracts import (
+    EventFunnelPayload,
+    EventPayload,
+    EventSelectionPayload,
+    EventTimeToEventPayload,
+)
 from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
@@ -18,6 +23,7 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.coordinates import functional_path, governed_path, path_entities
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
+from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
 from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
@@ -75,6 +81,9 @@ def required_entities(
         elif isinstance(payload, EventPayload):
             for step in payload.definition.steps:
                 ids.update(path_entities(registry, step.source.ref.path, (step.participant_path,)))
+        elif isinstance(payload, EventFunnelPayload):
+            for event_axis in payload.axes:
+                ids.update(path_entities(registry, event_axis.subject.ref.path, (event_axis.path,)))
         elif isinstance(payload, MetricPayload):
             definition = payload.definition
             entity = definition.entity.ref.path
@@ -125,6 +134,9 @@ def required_entities(
         elif not isinstance(
             payload,
             (
+                EventTimeToEventPayload,
+                EventSelectionPayload,
+                PopulationSamplePayload,
                 RetainedRowsPayload,
                 RetainedFoldPayload,
                 ComparePayload,
@@ -157,6 +169,11 @@ def required_entities(
         entity = identity.entity_ref.path
         needed = any(
             (
+                isinstance(root.payload, PopulationPayload)
+                and root.payload.predicate is not None
+                and root.payload.entity.ref.path == entity
+            )
+            or (
                 isinstance(root.payload, EventPayload)
                 and any(
                     entity
@@ -203,7 +220,9 @@ def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV
     found: dict[str, BoundSourceParametersV1] = {}
     for root in logical_roots(dataset):
         payload = root.payload
-        if isinstance(payload, (PopulationPayload, MetricPayload, EventPayload)):
+        if isinstance(
+            payload, (PopulationPayload, MetricPayload, EventPayload, EventFunnelPayload)
+        ):
             for capture in payload.captures:
                 previous = found.setdefault(capture.entity_ref.path, capture)
                 if previous.exact_value_digest != capture.exact_value_digest:

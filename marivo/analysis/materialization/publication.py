@@ -8,7 +8,7 @@ from dataclasses import replace
 from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
-from marivo.analysis.domains.contracts import EventPayload
+from marivo.analysis.domains.contracts import EventPayload, EventSelectionPayload
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -33,6 +33,8 @@ from marivo.analysis.observation.contracts import (
     scope_payload,
     semantic_dependency_digest,
 )
+from marivo.analysis.observation.population_sample import PopulationSamplePayload
+from marivo.analysis.observation.sampling import EntitySamplingPolicy
 
 
 def materialization_contract(
@@ -76,7 +78,11 @@ def materialization_contract(
             sampled=(inherited is not None and inherited.sampling_execution is not None)
             or any(item.sampling_execution is not None for item in input_descriptors)
             or any(
-                isinstance(item.payload, PopulationPayload) and item.payload.sampling is not None
+                isinstance(item.payload, PopulationSamplePayload)
+                or (
+                    isinstance(item.payload, PopulationPayload)
+                    and item.payload.sampling is not None
+                )
                 for item in logical_roots(dataset)
             ),
         ),
@@ -142,15 +148,26 @@ def make_descriptor(
     from marivo.analysis.operators.contracts import comparison_basis
 
     basis = comparison_basis(dataset)
+    selection_authority = (
+        _selection_population_authority(
+            dataset, input_descriptors or (() if inherited is None else (inherited,)), validations
+        )
+        if any(isinstance(root.payload, EventSelectionPayload) for root in roots)
+        or (
+            inherited is not None
+            and inherited.subject_selection_evidence is not None
+            and dataset.kind == "population"
+        )
+        else None
+    )
+    retained_inputs = (inherited,) if inherited is not None else input_descriptors
+    _validate_sampling(roots, sampling, retained_inputs)
     if inherited is not None:
-        if sampling != (inherited.sampling_execution or ()):
-            raise MaterializationError(
-                expected="the exact committed sampling realization of the input Artifact",
-                received="retained continuation changed its sampling realization",
-                repair="Consume the selected checkpoint without resampling its membership.",
-                stage="publication",
-            )
-        population_definition = inherited.population_authority.definition_fingerprint
+        population_definition = (
+            dataset.definition_fingerprint
+            if dataset.kind == "population"
+            else inherited.population_authority.definition_fingerprint
+        )
         for root in roots:
             if root.operator_id in ("session.observe", "session.events.match"):
                 selected = root.inputs[0].root
@@ -177,11 +194,13 @@ def make_descriptor(
                 if isinstance(dataset._owner, ObservationOwner)
                 else inherited.semantic_dependency_digest
             ),
-            population_authority=replace(
+            population_authority=selection_authority
+            or replace(
                 inherited.population_authority,
                 definition_fingerprint=population_definition,
                 validation_results=validations,
             ),
+            sampling_execution=sampling or None,
             operator_implementation_versions=tuple(
                 dict.fromkeys(
                     (
@@ -200,29 +219,39 @@ def make_descriptor(
                 warning_check_count=0,
             ),
             comparison_basis=basis,
+            event_evidence=inherited.event_evidence if dataset.kind == "event" else None,
+            subject_selection_evidence=inherited.subject_selection_evidence
+            if dataset.kind == "population"
+            else None,
             candidate_evidence=(
                 inherited.candidate_evidence
                 if dataset.row_contract.shape_id.family_id == "candidate"
                 else None
             ),
         )
-    sampled_roots = tuple(root for root in roots if root.operator_id == "population.sample")
-    if len(sampled_roots) != len(sampling) or any(
-        not isinstance(root.payload, PopulationPayload)
-        or root.payload.sampling is None
-        or receipt.ordinal != ordinal
-        or receipt.population_definition_fingerprint != root.definition_fingerprint
-        or receipt.target_population_definition_fingerprint
-        != root.payload.target_population_definition_fingerprint
-        or receipt.target_rows != root.payload.sampling.target_rows
-        or receipt.seed != root.payload.sampling.seed
-        for ordinal, (root, receipt) in enumerate(zip(sampled_roots, sampling, strict=True))
-    ):
-        raise MaterializationError(
-            expected="one exact realized receipt for every authored sampling requirement",
-            received="inconsistent sampling execution facts",
-            repair="Execute the complete sampled Population through its registered physical fence.",
-            stage="publication",
+    if selection_authority is not None:
+        return ArtifactDescriptor(
+            definition_fingerprint=dataset.definition_fingerprint,
+            row_contract=dataset.row_contract,
+            row_set_contract=dataset.row_set_contract,
+            realized_schema=storage.realized_schema,
+            bounded_lineage=dataset._lineage,
+            semantic_dependency_digest=semantic_dependency_digest(dataset),
+            population_authority=selection_authority,
+            sampling_execution=sampling or None,
+            operator_implementation_versions=tuple(
+                (name, 1) for name in dict.fromkeys(root.operator_id for root in roots)
+            ),
+            dataset_materialization_contract=materialization,
+            storage_receipt=storage.primary_receipt,
+            retained_parts=storage.retained_parts,
+            quality_summary=QualitySummary(
+                sample_size=storage.realized_row_count,
+                evaluated_check_count=len(validations) + 1,
+                failed_check_count=0,
+                warning_check_count=0,
+            ),
+            comparison_basis=basis,
         )
     owning_root = current_root
     while not isinstance(owning_root.payload, (PopulationPayload, MetricPayload, EventPayload)):
@@ -340,6 +369,119 @@ def make_descriptor(
         ),
         comparison_basis=basis,
     )
+
+
+def _sample_policy(root: LogicalRootHandle) -> tuple[EntitySamplingPolicy, str] | None:
+    payload = root.payload
+    if isinstance(payload, PopulationSamplePayload):
+        return payload.policy, payload.target_population_definition_fingerprint
+    if (
+        isinstance(payload, PopulationPayload)
+        and payload.sampling is not None
+        and payload.target_population_definition_fingerprint is not None
+    ):
+        return payload.sampling, payload.target_population_definition_fingerprint
+    return None
+
+
+def _validate_sampling(
+    roots: tuple[LogicalRootHandle, ...],
+    sampling: tuple[SamplingRealization, ...],
+    retained_inputs: tuple[ArtifactDescriptor, ...],
+) -> None:
+    inherited = tuple(
+        receipt for item in retained_inputs for receipt in item.sampling_execution or ()
+    )
+    sampled_roots = tuple(root for root in roots if root.operator_id == "population.sample")
+    if inherited and sampled_roots:
+        raise MaterializationError(
+            expected="one sampling call on an unsampled Population",
+            received="a sampling request after retained sampling authority",
+            repair="Construct a new sample branch from the unsampled Population.",
+            stage="publication",
+        )
+    if sampling[: len(inherited)] != inherited or len(sampling) != len(inherited) + len(
+        sampled_roots
+    ):
+        raise MaterializationError(
+            expected="the exact inherited sampling receipts followed by each authored realization",
+            received="missing, altered or additional sampling execution facts",
+            repair="Execute the complete sampled Population through its registered physical fence.",
+            stage="publication",
+        )
+    for ordinal, (root, receipt) in enumerate(
+        zip(sampled_roots, sampling[len(inherited) :], strict=True), start=len(inherited)
+    ):
+        request = _sample_policy(root)
+        if request is None or (
+            receipt.ordinal != ordinal
+            or receipt.population_definition_fingerprint != root.definition_fingerprint
+            or receipt.target_population_definition_fingerprint != request[1]
+            or receipt.target_rows != request[0].target_rows
+            or receipt.seed != request[0].seed
+        ):
+            raise MaterializationError(
+                expected="one exact realized receipt for every authored sampling requirement",
+                received="inconsistent sampling execution facts",
+                repair="Execute the complete sampled Population through its registered physical fence.",
+                stage="publication",
+            )
+
+
+def _selection_population_authority(
+    dataset: Dataset,
+    inputs: tuple[ArtifactDescriptor, ...],
+    validations: tuple[tuple[str, int], ...],
+) -> PopulationAuthority:
+    retained = {item.definition_fingerprint: item for item in inputs}
+
+    def visit(value: Dataset) -> PopulationAuthority:
+        if isinstance(value, MaterializedDataset):
+            return replace(
+                retained[value.definition_fingerprint].population_authority,
+                validation_results=validations,
+            )
+        root = value._root
+        if not isinstance(root, LogicalRootHandle):
+            raise MaterializationError(
+                expected="exact selected Population ancestry",
+                received="invalid definition",
+                repair="Reconstruct the selected Population.",
+                stage="publication",
+            )
+        payload = root.payload
+        if isinstance(payload, PopulationPayload) and not value._inputs:
+            return PopulationAuthority(
+                value.definition_fingerprint,
+                payload.entity.ref.path,
+                payload.entity.identity_signature,
+                scope_payload(payload.time_scope),
+                _version_selection_payload(payload.version_selection),
+                validations,
+            )
+        if not value._inputs:
+            raise MaterializationError(
+                expected="complete selected Population ancestry",
+                received="missing input",
+                repair="Reconstruct the selected Population.",
+                stage="publication",
+            )
+        authority = visit(value._inputs[0])
+        if value.kind == "population":
+            return replace(
+                authority,
+                definition_fingerprint=value.definition_fingerprint,
+                validation_results=validations,
+            )
+        if isinstance(payload, (MetricPayload, EventPayload)):
+            return replace(
+                authority,
+                definition_fingerprint=payload.definition.population_definition,
+                validation_results=validations,
+            )
+        return authority
+
+    return visit(dataset)
 
 
 def _delta_descriptor(

@@ -10,7 +10,10 @@ from datetime import datetime
 import ibis.expr.datatypes as dt
 import pyarrow as pa
 
-from marivo.analysis.domains.completeness import BoundedCompletenessDeclarationV1
+from marivo.analysis.domains.completeness import (
+    BoundedCompletenessDeclarationV1,
+    EventCoverageResolution,
+)
 from marivo.analysis.domains.contracts import EventJourneySemantics
 from marivo.analysis.event import FirstPerSubject
 from marivo.analysis.evidence._dataset_types import Finding
@@ -22,6 +25,7 @@ from marivo.analysis.materialization.event_codec import (
     retained_declarations,
     validate_semantics,
 )
+from marivo.analysis.materialization.event_reducer_codec import EventReducerEvidenceSummary
 from marivo.analysis.materialization.storage import _compare, _matches_type, _Value, _value
 
 
@@ -44,6 +48,13 @@ def _semantics(descriptor: ArtifactDescriptor) -> EventJourneySemantics:
 
 
 def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
+    if descriptor.row_contract.shape_id.local_shape_id != "journey":
+        from marivo.analysis.materialization.event_reducer_publication import (
+            validate_descriptor as validate_reducer,
+        )
+
+        validate_reducer(descriptor)
+        return
     semantics = _semantics(descriptor)
     validate_semantics(semantics)
     if (
@@ -53,7 +64,10 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
     ):
         raise invalid("Event subject identity differs from retained Population authority")
     summary = descriptor.event_evidence
-    if summary is None or summary.row_count != descriptor.storage_receipt.realized_row_count:
+    if (
+        not isinstance(summary, EventEvidenceSummary)
+        or summary.row_count != descriptor.storage_receipt.realized_row_count
+    ):
         raise invalid("missing or inconsistent Event journey Evidence")
     # Decode again at publication so native, in-process values have the same closed contract.
     decode_evidence(evidence_payload(summary))
@@ -81,6 +95,18 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
         not summary.coverage.complete and summary.incomplete_journey_count
     ):
         raise invalid("Event journey completion status contradicts coverage authority")
+    validate_coverage(semantics, summary.coverage)
+    if (
+        any(part.contract_id != "population_sampling_state" for part in descriptor.retained_parts)
+        or descriptor.comparison_inputs
+        or descriptor.dataset_materialization_contract.finding_extractor_id != "none"
+        or descriptor.dataset_materialization_contract.finding_policy_id != "zero_findings@v1"
+    ):
+        raise invalid("unregistered Event journey retained authority or Finding policy")
+
+
+def validate_coverage(semantics: EventJourneySemantics, coverage: EventCoverageResolution) -> None:
+    """Bind exact retained coverage to its declared, catalog-free journey authority."""
     expected = tuple(
         dict.fromkeys(
             zip(
@@ -92,8 +118,7 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
         )
     )
     actual = tuple(
-        (fact.event_ref, fact.event_fingerprint, fact.source_origin_ref)
-        for fact in summary.coverage.events
+        (fact.event_ref, fact.event_fingerprint, fact.source_origin_ref) for fact in coverage.events
     )
     if actual != expected:
         raise invalid("Event coverage is not bound to the exact retained source authority")
@@ -104,7 +129,7 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
         for declaration in retained_declarations(semantics)
         for event in declaration.inputs
     }
-    for fact in summary.coverage.events:
+    for fact in coverage.events:
         declaration = declarations.get(fact.event_ref)
         if (
             declaration is not None
@@ -141,17 +166,10 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
             )
         ):
             raise invalid("Event declared coverage differs from its exact retained assumption")
-    if (
-        any(part.contract_id != "population_sampling_state" for part in descriptor.retained_parts)
-        or descriptor.comparison_inputs
-        or descriptor.dataset_materialization_contract.finding_extractor_id != "none"
-        or descriptor.dataset_materialization_contract.finding_policy_id != "zero_findings@v1"
-    ):
-        raise invalid("unregistered Event journey retained authority or Finding policy")
 
 
 def bind_event_summary(
-    descriptor: ArtifactDescriptor, summary: EventEvidenceSummary
+    descriptor: ArtifactDescriptor, summary: EventEvidenceSummary | EventReducerEvidenceSummary
 ) -> ArtifactDescriptor:
     """Bind source-side bounded proof to the exact staged descriptor before commit."""
     result = replace(descriptor, event_evidence=summary)
@@ -370,7 +388,7 @@ def build_event_publication(
     and binds that result directly, without transferring private rows to this helper.
     """
     original = summary or descriptor.event_evidence
-    if original is None:
+    if not isinstance(original, EventEvidenceSummary):
         raise invalid("missing Event journey native matching and coverage proof")
     result = bind_event_summary(descriptor, original)
     validator = EventRowValidator(_semantics(result))

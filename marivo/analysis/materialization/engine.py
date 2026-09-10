@@ -52,9 +52,27 @@ def ordered_relation(
 ) -> ir.Table:
     if row.shape_id.family_id == "event":
         from marivo.analysis.compiler.event import canonical_event_rows
-        from marivo.analysis.domains.contracts import EventJourneySemantics
+        from marivo.analysis.compiler.event_reducers import (
+            canonical_funnel_rows,
+            canonical_time_to_event_rows,
+        )
+        from marivo.analysis.domains.contracts import (
+            EventFunnelSemantics,
+            EventJourneySemantics,
+            EventTimeToEventSemantics,
+        )
 
         semantics = row.family_semantics
+        if isinstance(semantics, EventTimeToEventSemantics):
+            return canonical_time_to_event_rows(table)
+        if isinstance(semantics, EventFunnelSemantics):
+            return canonical_funnel_rows(
+                table,
+                step_keys=tuple(step.key for step in semantics.journey.pattern.steps),
+                axis_columns=tuple(
+                    field.name for field in row.schema.columns[: len(semantics.axis_refs)]
+                ),
+            )
         if not isinstance(semantics, EventJourneySemantics):
             raise codec.invalid("missing Event journey ordering authority")
         return canonical_event_rows(table, tuple(step.key for step in semantics.pattern.steps))

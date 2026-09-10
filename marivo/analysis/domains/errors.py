@@ -11,6 +11,19 @@ class EventCompletenessError(EventConstructionError):
     """A declaration or receipt lacks the requested exact coverage authority."""
 
 
+class EventReducerError(EventConstructionError):
+    """A reducer input lacks its exact retained Event authority."""
+
+
+def reducer_error(expected: str, received: str) -> EventReducerError:
+    return EventReducerError(
+        expected=expected,
+        received=received,
+        location="event.reducer",
+        repair="Use an unfiltered exact journey and its retained PatternStep values; funnel and DroppedBefore require first_per_subject. Filter only admitted summary fields and explicitly bind current sources for Dimension enrichment.",
+    )
+
+
 def event_error(
     expected: str, received: str, *, location: str = "events.match"
 ) -> EventConstructionError:

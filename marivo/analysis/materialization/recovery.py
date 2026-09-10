@@ -9,6 +9,7 @@ from marivo.analysis.materialization.contracts import ArtifactRecord
 from marivo.analysis.observation.contracts import (
     ObservationActionPort,
     ObservationRuntimeOwner,
+    ObservationSourceContext,
     make_family_registry,
     make_ids,
 )
@@ -21,6 +22,7 @@ def recover_dataset(
     session_ref: str,
     store_id: str,
     action_port: ObservationActionPort,
+    source_context: ObservationSourceContext | None = None,
 ) -> MaterializedDataset:
     """Decode only committed metadata; a retained owner has no catalog or origin."""
     descriptor = record.descriptor
@@ -30,6 +32,8 @@ def recover_dataset(
         session_id=session_ref,
         store_id=store_id,
         action_port=action_port,
+        source_context=source_context,
+        sampling_authority_snapshot=descriptor.sampling_execution is not None,
         comparison_basis_snapshot=descriptor.comparison_basis,
         candidate_definition_snapshot=None
         if descriptor.candidate_evidence is None

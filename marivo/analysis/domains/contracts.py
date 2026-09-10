@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Literal
 
@@ -14,6 +14,7 @@ from marivo.analysis.domains.completeness import CompletenessDeclaration, declar
 from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject, PatternStep
 from marivo.analysis.observation.contracts import dimension_payload, entity_payload, scope_payload
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
+from marivo.analysis.subject import DroppedBefore
 from marivo.semantic.ir import TargetDimensionContract, TargetEntityContract
 
 
@@ -142,4 +143,143 @@ def journey_identity_digest(semantics: EventJourneySemantics) -> str:
             semantics.matching.model_dump_json(),
             semantics.step_event_fingerprints,
         )
+    )
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class EventFunnelSemantics(d.DatasetFamilyRowSemantics, _token=d._CORE_TOKEN):
+    journey_json: str
+    axis_refs: tuple[str, ...] = ()
+    axis_dependency_fingerprints: tuple[str, ...] = ()
+    kind: Literal["event/funnel@v1"] = field(default="event/funnel@v1", init=False)
+
+    @property
+    def journey(self) -> EventJourneySemantics:
+        return decode_journey_semantics(self.journey_json)
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class EventTimeToEventSemantics(d.DatasetFamilyRowSemantics, _token=d._CORE_TOKEN):
+    journey_json: str
+    from_step_json: str
+    to_step_json: str
+    kind: Literal["event/time-to-event@v1"] = field(default="event/time-to-event@v1", init=False)
+
+    @property
+    def journey(self) -> EventJourneySemantics:
+        return decode_journey_semantics(self.journey_json)
+
+    @property
+    def from_step(self) -> PatternStep:
+        return PatternStep.model_validate_json(self.from_step_json)
+
+    @property
+    def to_step(self) -> PatternStep:
+        return PatternStep.model_validate_json(self.to_step_json)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class EventAxisBinding:
+    dimension: TargetDimensionContract
+    subject: TargetEntityContract
+    path: tuple[str, ...]
+    dependency_fingerprint: str
+
+    def identity_payload(self) -> CanonicalValue:
+        return (
+            dimension_payload(self.dimension),
+            entity_payload(self.subject),
+            self.path,
+            self.dependency_fingerprint,
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False, eq=False, kw_only=True)
+class EventFunnelPayload(_LogicalNodePayload, _token=d._CORE_TOKEN):
+    semantics: EventFunnelSemantics
+    axes: tuple[EventAxisBinding, ...] = ()
+    captures: tuple[BoundSourceParametersV1, ...] = ()
+
+    @property
+    def identity_payload(self) -> CanonicalValue:
+        return (
+            d._descriptor_payload(self.semantics),
+            tuple(axis.identity_payload() for axis in self.axes),
+            tuple(item.identity_payload() for item in self.captures),
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False, eq=False, kw_only=True)
+class EventTimeToEventPayload(_LogicalNodePayload, _token=d._CORE_TOKEN):
+    semantics: EventTimeToEventSemantics
+
+    @property
+    def identity_payload(self) -> CanonicalValue:
+        return (d._descriptor_payload(self.semantics),)
+
+
+@dataclass(frozen=True, slots=True, repr=False, eq=False, kw_only=True)
+class EventSelectionPayload(_LogicalNodePayload, _token=d._CORE_TOKEN):
+    journey: EventJourneySemantics
+    selection: DroppedBefore
+
+    @property
+    def identity_payload(self) -> CanonicalValue:
+        return (d._descriptor_payload(self.journey), self.selection.fingerprint)
+
+
+def encode_journey_semantics(value: EventJourneySemantics) -> str:
+    return json.dumps(asdict(value), sort_keys=True, separators=(",", ":"))
+
+
+def decode_journey_semantics(value: str) -> EventJourneySemantics:
+    from marivo.analysis.domains.errors import reducer_error
+
+    raw: object = json.loads(value)
+    if not isinstance(raw, dict) or raw.get("kind") != "event/journey@v1":
+        raise reducer_error("closed retained journey authority", "invalid journey encoding")
+
+    def text(name: str) -> str:
+        result: object = raw.get(name)
+        if not isinstance(result, str):
+            raise reducer_error("a retained journey text fact", "invalid journey field")
+        return result
+
+    def texts(name: str) -> tuple[str, ...]:
+        result: object = raw.get(name)
+        if not isinstance(result, list) or any(not isinstance(item, str) for item in result):
+            raise reducer_error("retained ordered text facts", "invalid journey sequence")
+        return tuple(item for item in result if isinstance(item, str))
+
+    signature: object = raw.get("subject_identity_signature")
+    if not isinstance(signature, list):
+        raise reducer_error("a complete retained subject signature", "invalid identity signature")
+    pairs: list[tuple[str, str]] = []
+    for pair in signature:
+        if (
+            not isinstance(pair, list)
+            or len(pair) != 2
+            or not all(isinstance(part, str) for part in pair)
+        ):
+            raise reducer_error("ordered name and type pairs", "invalid identity signature")
+        first: object = pair[0]
+        second: object = pair[1]
+        if isinstance(first, str) and isinstance(second, str):
+            pairs.append((first, second))
+    return EventJourneySemantics(
+        _token=d._CORE_TOKEN,
+        pattern_json=text("pattern_json"),
+        matching_json=text("matching_json"),
+        subject_entity_ref=text("subject_entity_ref"),
+        subject_identity_signature=tuple(pairs),
+        occurrence_identity_types=texts("occurrence_identity_types"),
+        cohort_start=text("cohort_start"),
+        cohort_end=text("cohort_end"),
+        completion_through=text("completion_through"),
+        population_definition=text("population_definition"),
+        completeness_json=text("completeness_json"),
+        source_dependency_fingerprint=text("source_dependency_fingerprint"),
+        step_event_fingerprints=texts("step_event_fingerprints"),
+        source_origins=texts("source_origins"),
+        sampling_authority=text("sampling_authority"),
     )

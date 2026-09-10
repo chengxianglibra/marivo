@@ -5,6 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.event_reducer_codec import EventReducerEvidenceSummary
 
 import ibis.expr.datatypes as dt
 
@@ -381,7 +385,13 @@ def decode_coverage(value: object) -> EventCoverageResolution:
     return result
 
 
-def evidence_payload(value: EventEvidenceSummary | None) -> object:
+def evidence_payload(value: EventEvidenceSummary | EventReducerEvidenceSummary | None) -> object:
+    if value is not None and not isinstance(value, EventEvidenceSummary):
+        from marivo.analysis.materialization.event_reducer_codec import (
+            evidence_payload as reducer_payload,
+        )
+
+        return reducer_payload(value)
     return (
         None
         if value is None
@@ -408,7 +418,16 @@ def _count(value: object) -> int:
     return result
 
 
-def decode_evidence(value: object) -> EventEvidenceSummary | None:
+def decode_evidence(value: object) -> EventEvidenceSummary | EventReducerEvidenceSummary | None:
+    if isinstance(value, dict) and value.get("schema") in (
+        "marivo.event_funnel_evidence/v1",
+        "marivo.event_time_to_event_evidence/v1",
+    ):
+        from marivo.analysis.materialization.event_reducer_codec import (
+            decode_evidence as decode_reducer,
+        )
+
+        return decode_reducer(value)
     if value is None:
         return None
     obj = _obj(value, "schema " + " ".join(_COUNT_FIELDS) + " coverage")

@@ -13,12 +13,18 @@ from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.normalize import required_entities
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
+from marivo.analysis.domains.contracts import (
+    EventFunnelPayload,
+    EventSelectionPayload,
+    EventTimeToEventPayload,
+)
 from marivo.analysis.observation.contracts import (
     ObservationOwner,
     RetainedRowsPayload,
     source_owner_of,
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
+from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
@@ -158,9 +164,16 @@ def place(
             candidate = (
                 child_domains[0]
                 if child_domains
+                and not (
+                    isinstance(value._root.payload, EventFunnelPayload) and value._root.payload.axes
+                )
                 and isinstance(
                     value._root.payload,
                     (
+                        EventFunnelPayload,
+                        EventTimeToEventPayload,
+                        EventSelectionPayload,
+                        PopulationSamplePayload,
                         RetainedRowsPayload,
                         RetainedFoldPayload,
                         ComparePayload,

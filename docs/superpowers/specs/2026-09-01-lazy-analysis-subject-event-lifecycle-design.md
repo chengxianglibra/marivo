@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-07
+Revised: 2026-09-10
 
 Status: accepted
 
@@ -421,6 +421,20 @@ adds its own current semantic authority while retaining original selection time
 and proof. An upstream unknown selection still fails before any filtered output
 can publish. Sampling restrictions and predicate order follow Module 2 unchanged.
 
+During private implementation, explicit `DatasetRuntime.sources(...)` assembly
+sets an in-memory, Session-local semantic context. Only an explicit enrichment
+such as this Dimension filter or grouped Event funnel consults it. Construction
+immediately captures that context's exact dependencies and parameter values;
+later source assembly cannot rebind an existing Logical node. Pure Artifact
+recovery, ungrouped reducers, subject selection and identity-only sampling do not
+require or consult a current catalog.
+
+A subsequent Metric with explicitly authored Dimensions or a time axis similarly
+enriches the selected identity relation from the current governed Entity source
+when the required columns are absent. This join preserves selected membership;
+missing current atemporal subject rows fail validation instead of disappearing
+from the Metric. An identity-only Metric continuation does not require this join.
+
 Set algebra, uploaded identities, identity-component predicates, temporal
 Dimension evaluation, and implicit collection-membership rules remain outside
 this filter contract.
@@ -502,6 +516,11 @@ def dropped_before(*, step: PatternStep) -> DroppedBefore:
 `step` must be one exact non-initial step retained exactly once by the journey's
 Pattern. It cannot be a key string, ordinal, Event ref, or structurally similar
 step from another Pattern.
+
+Exact step identity is the complete retained Event, participant, and key value,
+with exactly one matching member in the receiver's ordered Pattern. Equal copied
+or cold-reconstructed values are admitted. Same-key values with a different
+Event or participant are foreign; Python object identity is not authority.
 
 For a `first_per_subject` journey, it selects the subject when:
 
@@ -931,9 +950,11 @@ Nullability is closed by shape:
 Governed funnel/distribution axes retain source nullability because null is an
 explicit group. No other field becomes nullable from a backend outer join.
 
-Canonical presentation ordering is part of each row-set contract: journey and
-time-to-event rows use subject identity, anchor time, anchor Event identity, then
-Pattern order where applicable; funnel and funnel Delta use canonical axis tuple
+Canonical presentation ordering is part of each row-set contract: journey rows
+use subject identity, anchor time, anchor Event identity, then Pattern order.
+Time-to-event rows use subject identity, `from_time`, `from_event_identity`, then
+`journey_id`, with nulls last. These are retained public fields; no origin anchor
+or additional sorting part is required after recovery. Funnel and funnel Delta use canonical axis tuple
 then Pattern order; history uses subject identity then `valid_from`;
 distribution uses canonical `at` order, axis tuple, then StateModel order;
 transitions and dwell use StateModel declaration order; violations use subject,
@@ -1010,6 +1031,8 @@ Entity or reachable through one unique governed to-one path. Its value is
 resolved at the subject's first-step occurrence. Ambiguous, to-many, unversioned
 historical, incompatible, duplicate, or colliding axes fail before execution.
 Null axis values form an explicit group.
+Axis names must not collide with journey structure, generated reducer fields,
+or reserved internal columns; a join suffix cannot change an axis's meaning.
 
 The ordered public schema is:
 
@@ -1043,6 +1066,22 @@ conversion_first     = reached_count / resolved_cohort_count
 Zero denominators yield null rates. Grouped additive counts, including the null
 axis group, must reconcile exactly to the ungrouped funnel. Rates are recomputed
 from components and never summed or averaged.
+
+`resolved_cohort_count` excludes every subject whose target-step reach is
+unknown. `coverage_censored_count` counts only entered subjects whose target
+reach is unknown. Reach truth follows the first missing step in the canonical
+assignment: unknown reach there makes all later reach unknown; proven absence
+there makes every later step unreachable. Complete coverage for a later Event
+does not turn its unassigned null row into independent negative evidence.
+Funnel, time-to-event, and subject selection share this classification.
+Absence is proved by coverage of the exact attempt's interval from its last
+reached predecessor through `completion_through`. A coverage fact that is
+incomplete for the full cohort can still prove this narrower interval; its
+global completeness flag alone does not decide attempt reach.
+
+With no axes an empty input emits one zero-count row per Pattern step, with null
+rates. With axes, density is over realized groups only; no synthetic group is
+invented for empty input.
 
 With no axes, the reducer consumes the exact source journey rows. Adding axes
 explicitly joins the exact current Dimension paths even when the journey
