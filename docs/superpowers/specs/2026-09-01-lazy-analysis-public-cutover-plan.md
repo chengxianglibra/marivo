@@ -2,19 +2,21 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-10
+Revised: 2026-09-11
 
-Status: Slices 0-4, 5a, 5c, 5d, 6a-6e and 7a-7b complete; Slice 5b implemented, technical acceptance pending
+Status: Slices 0-4, 5a-5d, 6a-6e and 7a-7b complete
 
-Slice 5b implementation and the supplied review follow-up are recorded under its
+Slice 5b implementation, supplied review follow-up and completed independent
+technical acceptance are recorded under its
 [private execution record](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md).
-The owner authorized a scoped commit using the revised daily-development
-workflow. The later acceptance records below close Slice 4d and 5a; no complete
-5b technical acceptance is claimed until its independent gate completes.
+The owner explicitly requested the full gate on 2026-09-11. Candidate
+`355442f6...` passed 7090 default tests, 1224 Runtime tests and the isolated object
+connector gate, with 15 fresh Slice 5b evidence records and no skipped tests.
+This closes private Slice 5b technical acceptance without public activation.
 
 Slice 5c's private implementation and technical gate are complete under its
 [execution record](../plans/2026-09-09-lazy-analysis-slice-5c-execution.md).
-This does not close 5b or parent Slice 5, or activate a public surface.
+Its gate remains independent of Slice 5b and does not activate a public surface.
 
 ## Outcome
 
@@ -2368,7 +2370,7 @@ successful attribution method cannot stand in for the others.
 | Unit | Prerequisite | Bounded outcome and independent gate |
 | --- | --- | --- |
 | 5a: Metric comparison (complete) | 3b, 4d | Produce and cold-recover Delta for each admitted alignment and input-authority topology. Prove realization sharing, scope/key preservation, one-sided and unavailable values, and immutable materialized operands. Own the first registered multi-input local consumer, explicit operand roles, complete combined-input validation/budgets, and the real independent-source comparison journey allocated from parent Slice 4. |
-| 5b: additive and component-mix attribution | 5a | Produce reconciled joint/hierarchy Attribution with exact component/partition admission, logical axis expansion, retained-state barriers, Top-K/Other/null masks, and scoped Finding identity. |
+| 5b: additive and component-mix attribution (complete) | 5a | Produce reconciled joint/hierarchy Attribution with exact component/partition admission, logical axis expansion, retained-state barriers, Top-K/Other/null masks, and scoped Finding identity; [independent technical acceptance](../plans/2026-09-08-lazy-analysis-slice-5b-execution.md) completed on 2026-09-11. |
 | 5c: distinct-membership attribution (complete) | 5b's shared attribution contracts | Execute exact source-private membership preparation/allocation. Prove independent numerical reconciliation, sufficient-state admission, cold recovery, and identity redaction without origin replay or local raw-key transfer. |
 | 5d: distribution-Shapley attribution (complete) | 5b's shared attribution contracts | Execute exact source-side distribution/coalition work and its admitted bounded local combination. Prove independent numerical results, mapped-player limits, Top-K/Other semantics, complete-input guards, and fail-closed missing/corrupt-state recovery. |
 

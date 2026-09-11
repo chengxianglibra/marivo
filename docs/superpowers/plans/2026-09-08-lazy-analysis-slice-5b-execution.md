@@ -1,6 +1,6 @@
 # Slice 5b: private additive and component-mix attribution
 
-Status: implementation complete; full private technical acceptance pending.
+Status: implementation and full private technical acceptance complete (2026-09-11).
 
 ## Prerequisite and authorization
 
@@ -273,3 +273,65 @@ the implementation, regression tests, owning design amendments and this record.
 The owned MinIO container was removed after validation. With no other containers
 running, Colima was restored to its initially stopped state; the Docker context
 remained `default`.
+
+## Completed technical acceptance (2026-09-11)
+
+The owner explicitly requested full technical acceptance after the scoped commit.
+Acceptance was rerun against `1a4faff55eb5cd320f32295ac7d082f3eec0f9a7`
+plus the one-line shared-worker repair below. Earlier implementation and
+interrupted gate results do not substitute for this final candidate.
+
+The first current-candidate Runtime attempt passed 753 tests and reported five
+Correlation failures. An unchanged serial Kendall reproduction failed in 3.44
+seconds. A diagnostic worker trace identified `UnboundLocalError`: the Event
+integration had changed the Correlation output to `_Frames(result, parts,
+schema)` without assigning `parts`. Association owns no retained parts, so the
+repair restores `_Frames(result, (), schema)`. Existing Runtime tests reproduce
+the defect and verify the repair; no assertion, deadline or test selection was
+weakened. The failed attempt and diagnostic trace remain under
+`evidence/slice-5b/gate-20260911T054100Z/` and are excluded from acceptance.
+
+The accepted candidate contains 980 Python source/test and configuration files,
+SHA-256 `355442f645829792a8a165c59f5df169aa6bea8dde5488496081e4294f32edbe`.
+Every gate checked the same complete manifest before and after execution:
+
+| Gate | Result |
+| --- | --- |
+| Correlation Runtime regression, including existing storage and cold journeys | 51 passed |
+| `make check-agent` | Ruff, import boundaries, typing and API docs passed; 7090 default tests passed |
+| `make runtime-test-agent` with two workers and verbose diagnostics | 1224 passed |
+| `make object-storage-test` against isolated versioned MinIO | 1 passed |
+
+All four test reports have zero failures, errors and skips. The final full
+Runtime rerun includes all five previously failing Correlation cases. It also
+regenerates 15 candidate-bound Slice 5b records: eight logical/materialized
+operand combinations, two independent-source cases, three source-proof and
+sampling cases, and both three-process retained Attribution journeys. Additive
+and component-mix recover 11 and 12 rows respectively. Each journey uses three
+distinct interpreters, closes the source, preserves rows, contracts, Findings
+and input lineage, and reuses exact Artifact bindings without new persisted
+work in its cold phase.
+
+The final gate follows the current test selection rather than resurrecting the
+historical three-storage Cartesian matrix. Functional Attribution recovery uses
+local Parquet; engine and object protocol boundaries remain covered by their
+own checks. Current Correlation tests still include object checkpoint/recovery
+parameters, so the isolated endpoint was supplied to the complete Runtime gate
+as well as the independent connector smoke. No missing-endpoint skips were
+accepted. This explicit technical gate does not run packaging or publishing.
+
+The [gate record](evidence/slice-5b/gate-20260911T060300Z/gate.json) retains the
+commands, log checksums, JUnit counts and candidate identity. Its adjacent
+`candidate.json`, full logs, XML reports and `attribution-index.json` retain the
+underlying evidence. The shared Runtime manifest has 979 files because it omits
+`pytest.ini`; the gate additionally pins that file, and the evidence index
+verifies both manifests against the same candidate. Generated evidence remains
+local and excluded from the commit.
+
+All fixture buckets and the owned MinIO container were removed after the gate.
+Colima was restored to its initially stopped state, the Docker context stayed
+`default`, and unrelated stopped containers and local evidence were preserved.
+
+Slice 5b is privately technically accepted. This closes its independent gate;
+public exports, Help, public Agent acceptance and release remain governed by
+their separately allocated slices.
