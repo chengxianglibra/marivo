@@ -12,39 +12,18 @@ import pytest
 from ibis.backends.duckdb import Backend
 
 from marivo.analysis.domains.completeness import (
-    BoundedCoverageStartV1,
     EventCoverageReceiptV1,
     EventCoverageRequestV1,
-    SourceOriginCoverageStartV1,
 )
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
 from marivo.analysis.materialization.reads import payload_batches
 from marivo.analysis.materialization.storage import ReadPolicy
 from tests.lazy_adapter_runtime_worker import snapshot
-from tests.lazy_lifecycle_fixtures import END, START, history, setup_lifecycle
+from tests.lazy_lifecycle_fixtures import END, START, history, receipt, setup_lifecycle
 
 pytestmark = pytest.mark.runtime
-
-
-def receipt(
-    request: EventCoverageRequestV1, *, bounded: bool = False, prefix: bool = False
-) -> EventCoverageReceiptV1:
-    return EventCoverageReceiptV1(
-        event_ref=request.event_ref,
-        event_fingerprint=request.event_fingerprint,
-        source_entity_ref=request.source_entity_ref,
-        source_origin_ref=request.source_origin_ref,
-        occurred_at_ref=request.occurred_at_ref,
-        coverage_start=BoundedCoverageStartV1(complete_from=START - timedelta(days=100))
-        if bounded
-        else SourceOriginCoverageStartV1(source_origin_ref=request.source_origin_ref),
-        complete_through=START + timedelta(hours=4) if prefix else END,
-        authority="fixture.origin@v1",
-        observed_at=END,
-        source_binding_fingerprint=request.source_binding_fingerprint,
-        execution_domain_id=request.execution_domain_id,
-    )
 
 
 @pytest.mark.parametrize("mode", ["origin", "bounded", "prefix", "supplemented"])
@@ -65,7 +44,9 @@ def test_provider_origin_and_lookback_are_independent_of_window(tmp_path: Path, 
         )
     result = history(sources, complete=mode == "supplemented").execute()
     record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.lifecycle_evidence is not None
+    assert record is not None and isinstance(
+        record.descriptor.lifecycle_evidence, LifecycleEvidenceSummary
+    )
     summary = record.descriptor.lifecycle_evidence
     assert Counter(request.event_ref.path for request in requests) == {
         "sales.started": 1,

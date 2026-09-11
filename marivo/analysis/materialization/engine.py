@@ -64,6 +64,10 @@ def ordered_relation(
                 f.name for f in row.schema.columns[: len(row.family_semantics.current.axis_refs)]
             ),
         )
+    if row.shape_id.family_id == "lifecycle":
+        from marivo.analysis.compiler.lifecycle_reducers import canonical_rows
+
+        return canonical_rows(table, row)
     if row.shape_id.family_id == "event":
         from marivo.analysis.compiler.event import canonical_event_rows
         from marivo.analysis.compiler.event_reducers import (
@@ -155,7 +159,7 @@ def validate_engine_relation(
     if count != receipt.realized_row_count:
         _integrity("the exact engine receipt row count", "engine relation count differs")
     record("engine_check.input_schema", backend.compile(table.limit(0)))
-    realized = _realized_schema(row.schema, backend.to_pyarrow(table.limit(0)).schema)
+    realized = _realized_schema(row, backend.to_pyarrow(table.limit(0)).schema)
     if codec.schema_fingerprint(realized) != receipt.schema_fingerprint:
         _integrity("the exact engine receipt schema", "engine schema differs")
 
@@ -267,7 +271,7 @@ def write_engine_dataset(
     # LIMIT 0 obtains only the physical schema, never primary data.
     record("engine_check.primary_schema", backend.compile(primary.limit(0)))
     schema = backend.to_pyarrow(primary.limit(0)).schema
-    realized = _realized_schema(row.schema, schema)
+    realized = _realized_schema(row, schema)
     specs: list[tuple[str, str, int, ir.Table, int]] = [("primary", "", 0, primary, count)]
     for part in recipe.retained_parts:
         if isinstance(part, RetainedRelationSpec):

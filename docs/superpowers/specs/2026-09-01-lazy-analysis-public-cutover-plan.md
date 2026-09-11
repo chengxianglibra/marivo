@@ -2820,7 +2820,7 @@ protocol without acquiring its Metric-only admission rules.
 | 7b: Event reducers and subject selection — complete | 7a | Private logical and recovered engine funnel, time-to-event and complete DroppedBefore selection passed, including no rematching, exact reach propagation, local result filtering and the Metric -> Event -> Population -> Metric loop; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7b-execution.md). |
 | 7c: Event funnel comparison and attribution — complete | 7b; 5a-5b's shared contracts | Private complete-journey comparison and loss-rate attribution passed compatibility, scoped endpoint reconciliation, native/compact-local parity, cold recovery and atomic rejection without rematching; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7c-execution.md). |
 | 7d: Lifecycle replay and canonical retention — complete | 7a's shared identity seam; 4d | Private native replay and source-offline recovery passed inception/coverage, lossless transition and violation traces, same-time confluence, empty histories, exact membership and atomic required-part failure/cancellation; [implementation and frozen gates](../plans/2026-09-11-lazy-analysis-slice-7d-execution.md). |
-| 7e: Lifecycle reducers and subject selection | 7d; 7b for the Event continuation | Execute distribution, transitions, dwell, violations, and in-state selection from recovered history. Prove exact part consumption, clipped-duration meaning, coverage-sensitive membership, no trigger replay, and continuation into Metric and Event sources. |
+| 7e: Lifecycle reducers and subject selection — complete | 7d; 7b for the Event continuation | Private logical/recovered distribution, transitions, dwell, violations and complete InState selection passed exact part consumption, clipped-duration references, source-offline cold binding and Metric/Event continuation; [implementation and frozen gates](../plans/2026-09-11-lazy-analysis-slice-7e-execution.md). |
 
 7d can proceed independently of 7b-7c after its named prerequisites pass. The
 complete loop starting from an Entity-outlier Candidate additionally consumes
@@ -2965,8 +2965,58 @@ The current 968-file candidate is
 `evidence/slice-7d/review-triage/gates.json` verifies 187 focused tests, typing of
 five modified modules, `make check-agent` with 7,069 default tests and 468 source
 files, and 237 Runtime regressions with two workers. All candidate and log hashes
-match; both independent-process recovery proofs were refreshed. Private Slice
-7d remains complete, with public activation and Slice 7e still deferred.
+match; both independent-process recovery proofs were refreshed. At that review
+checkpoint, private Slice 7d was complete, with public activation and Slice 7e
+still deferred.
+
+### Slice 7e observed acceptance (2026-09-11)
+
+Private Lifecycle reducers and complete subject selection are accepted on the
+978-file executable candidate
+`bc16da43c38067b1e0d9d6ff22326c41b2faba8b62de9babaf414bf4b28e38be`.
+The [execution record](../plans/2026-09-11-lazy-analysis-slice-7e-execution.md)
+records baseline revalidation and the exact implementation boundaries.
+`evidence/slice-7e/gates.json` binds 156 focused tests, explicit typing of 22
+modified source modules and 10 test/worker files, `make check-agent` with 472
+source modules and 7,088 default tests, and 292 Runtime regressions to one
+unchanged candidate. Lifecycle (99), Event (108) and shared
+membership/materialization (85) Runtime gates ran after the broad check with
+at most two workers. Every gate log and candidate checksum was verified.
+
+Local and engine three-process tests independently produce history, execute
+reducers and selection with trigger readers and original Population enumeration
+disabled, and cold-bind the final Artifacts without execution. Required Dimension
+and downstream Metric sources remain explicit dependencies. Exact retained-role
+reads, dense/null groups including no-interval members, coverage-prefix and window
+boundaries, same-time legal traces, completed clipped-window duration statistics,
+local filtering, malformed Evidence and atomic failure/cancellation are covered.
+Unknown membership cannot be hidden by filtering, sampling or a downstream
+Metric/Event consumer; a complete empty Population can publish. The full private
+Metric -> Lifecycle -> Population -> Metric/Event continuation is verified.
+
+This closes only private Slice 7e. Public exports, the existing public `as_of`
+constructor, Help/site activation and integrated public Slice 7 acceptance remain
+separately gated. No commit, push or release was performed.
+
+The adversarial review follow-up supersedes the initial 7e candidate with
+`a9a1ddbe562ae795499e055852709e6cbfff3e117021ab9a6e2f8102b0813df3`
+(979 executable files). Generic duration admission is again int64; only the
+three exact dwell statistics admit floating microseconds through their row
+owner. Transition-pair ordering has one owner, history-only retained handling
+is explicit, and same-plan Lifecycle continuation now uses the correct final
+publication validator. The linked execution record adjudicates every review
+item, retaining the private/public constructor and disclosure boundary.
+
+`evidence/slice-7e/review-fix/gates.json` records 210 focused tests, explicit
+typing of 23 modified source modules and 13 test/worker files, `make check-agent`
+with 7,090 default tests and 472 source modules, and 309 Runtime regressions
+(116 Lifecycle, 108 Event, 85 shared) after the broad check. All candidate/log
+hashes match and Runtime concurrency is two. New evidence covers independent
+multi-subject numerical references and engine/local parity, declared ordering,
+5,000-subject native identity retention and canaries, incompatible-input
+rejection before data work, and one same-plan membership realization into
+Metric/Event/Lifecycle. Both cold three-process proofs were refreshed. This
+follow-up does not activate public APIs or close parent Slice 7 acceptance.
 
 ### Owned implementation
 

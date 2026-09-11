@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from marivo.analysis.materialization.event_comparison_codec import FunnelEvidenceSummary
     from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
+    from marivo.analysis.materialization.lifecycle_reducer_codec import ContinuationEvidence
 
 import hashlib
 import json
@@ -740,7 +741,7 @@ class ArtifactDescriptor:
     event_evidence: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
     subject_selection_evidence: EventSelectionEvidenceSummary | None = None
     funnel_evidence: FunnelEvidenceSummary | None = None
-    lifecycle_evidence: LifecycleEvidenceSummary | None = None
+    lifecycle_evidence: LifecycleEvidenceSummary | ContinuationEvidence | None = None
 
     @property
     def row_contract_fingerprint(self) -> str:
@@ -899,8 +900,9 @@ def decode_schema(value: object, ids: d._StableIdRegistry) -> d.DatasetSchema:
 
 def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
     from marivo.analysis.domains.lifecycle import LifecycleSemantics
+    from marivo.analysis.domains.lifecycle_reducers import REDUCER_TYPES
 
-    if isinstance(value, LifecycleSemantics):
+    if isinstance(value, (LifecycleSemantics, *REDUCER_TYPES)):
         from dataclasses import asdict
 
         return asdict(value)
@@ -1035,6 +1037,17 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
         )
 
         return decode_funnel_semantics(value)
+    if kind in (
+        "lifecycle/distribution@v1",
+        "lifecycle/transitions@v1",
+        "lifecycle/dwell@v1",
+        "lifecycle/violations@v1",
+    ):
+        from marivo.analysis.materialization.lifecycle_reducer_codec import (
+            decode_semantics as decode_lifecycle_reducer,
+        )
+
+        return decode_lifecycle_reducer(value)
     if kind == "lifecycle/history@v1":
         from marivo.analysis.materialization.lifecycle_codec import (
             decode_semantics as decode_lifecycle,
@@ -1602,7 +1615,11 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
 
         validate_lifecycle(result)
     elif result.lifecycle_evidence is not None:
-        raise invalid("Lifecycle Evidence outside its family")
+        from marivo.analysis.materialization.lifecycle_reducer_codec import (
+            validate_descriptor as validate_lifecycle_selection,
+        )
+
+        validate_lifecycle_selection(result)
     if row.shape_id.family_id == "event":
         from marivo.analysis.materialization.event_publication import (
             validate_descriptor as validate_event_descriptor,

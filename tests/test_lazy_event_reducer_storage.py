@@ -90,7 +90,7 @@ def _journey() -> tuple[LogicalEventDataset, EventCoverageResolution]:
 
 
 def _descriptor(logical: LogicalDataset, table: pa.Table) -> ArtifactDescriptor:
-    realized = _realized_schema(logical.schema, table.schema)
+    realized = _realized_schema(logical.row_contract, table.schema)
     receipt = replace(
         base_descriptor().storage_receipt,
         schema_fingerprint=schema_fingerprint(realized),

@@ -6,6 +6,7 @@ import pytest
 
 from marivo.analysis.domains.lifecycle import ROLES, MaterializedLifecycleDataset
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
 from tests.lazy_lifecycle_fixtures import history, setup_lifecycle
 
 pytestmark = pytest.mark.runtime
@@ -22,7 +23,7 @@ def test_native_history_and_cold_recovery(tmp_path: Path, engine: bool) -> None:
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None
     assert tuple(p.role for p in record.descriptor.retained_parts) == ROLES
-    assert record.descriptor.lifecycle_evidence is not None
+    assert isinstance(record.descriptor.lifecycle_evidence, LifecycleEvidenceSummary)
     assert record.descriptor.lifecycle_evidence.transition_count == 1
     assert record.descriptor.lifecycle_evidence.violation_count == 1
     database.unlink()
@@ -120,7 +121,9 @@ def test_large_history_uses_native_identity_execution(tmp_path: Path) -> None:
     ):
         result = history(sources).execute()
     record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.lifecycle_evidence is not None
+    assert record is not None and isinstance(
+        record.descriptor.lifecycle_evidence, LifecycleEvidenceSummary
+    )
     assert record.descriptor.lifecycle_evidence.row_count == 5000
     assert record.descriptor.lifecycle_evidence.subject_count >= 5000
     assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0
@@ -143,7 +146,9 @@ def test_empty_history_retains_every_admitted_subject(tmp_path: Path, complete: 
     result = history(sources, complete=complete).execute()
     assert result.to_pandas().empty
     record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.lifecycle_evidence is not None
+    assert record is not None and isinstance(
+        record.descriptor.lifecycle_evidence, LifecycleEvidenceSummary
+    )
     ledger = next(p for p in record.descriptor.retained_parts if p.role == ROLES[1])
     rows = pa.Table.from_batches(
         list(payload_batches(tmp_path, ledger.storage_receipt, policy=ReadPolicy(), audit=True))
@@ -192,7 +197,9 @@ def test_history_uses_exact_admitted_membership(tmp_path: Path, mode: str) -> No
             connection.execute("DROP TABLE orders")
     result = history(sources, population=population).execute()
     record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.lifecycle_evidence is not None
+    assert record is not None and isinstance(
+        record.descriptor.lifecycle_evidence, LifecycleEvidenceSummary
+    )
     ledger = next(
         p for p in record.descriptor.retained_parts if p.role == "lifecycle_subject_coverage"
     )

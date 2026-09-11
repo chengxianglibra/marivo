@@ -8,16 +8,15 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.contracts import ArtifactDescriptor
+    from marivo.analysis.materialization.lifecycle_reducer_codec import ContinuationEvidence
 
-from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.domains.completeness import EventCoverageResolution
 from marivo.analysis.domains.lifecycle import (
     ROLES,
     LifecycleSemantics,
-    validate_lifecycle_semantics,
 )
-from marivo.analysis.materialization.contracts import _array, _obj, _text
+from marivo.analysis.materialization.contracts import _obj
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.event_codec import (
     coverage_payload,
@@ -33,31 +32,10 @@ def invalid(detail: str) -> MaterializationError:
 
 
 def decode_semantics(value: object) -> LifecycleSemantics:
-    obj = _obj(
-        value,
-        "kind source_json model_ref states initial terminals inceptions transitions seed_fingerprint",
-    )
-    transitions: list[tuple[str, str, str]] = []
-    for item in _array(obj["transitions"]):
-        row = _array(item)
-        if len(row) != 3:
-            raise invalid("invalid Lifecycle transition arity")
-        transitions.append((_text(row[0]), _text(row[1]), _text(row[2])))
-    result = LifecycleSemantics(
-        _token=d._CORE_TOKEN,
-        source_json=_text(obj["source_json"]),
-        model_ref=_text(obj["model_ref"]),
-        states=tuple(_text(x) for x in _array(obj["states"])),
-        initial=_text(obj["initial"]),
-        terminals=tuple(_text(x) for x in _array(obj["terminals"])),
-        inceptions=tuple(_text(x) for x in _array(obj["inceptions"])),
-        transitions=tuple(transitions),
-        seed_fingerprint=_text(obj["seed_fingerprint"]),
-    )
-    if obj["kind"] != result.kind:
-        raise invalid("invalid Lifecycle semantics kind")
+    from marivo.analysis.domains.lifecycle import decode_lifecycle_semantics
+
     try:
-        validate_lifecycle_semantics(result)
+        result = decode_lifecycle_semantics(value)
     except DatasetConstructionError:
         raise invalid("invalid retained Lifecycle model authority") from None
     validate_source(result.source)
@@ -77,13 +55,25 @@ class LifecycleEvidenceSummary:
     left_clipped_count: int
 
 
-def evidence_payload(value: LifecycleEvidenceSummary | None) -> object:
+def evidence_payload(value: LifecycleEvidenceSummary | ContinuationEvidence | None) -> object:
+    if value is not None and not isinstance(value, LifecycleEvidenceSummary):
+        from marivo.analysis.materialization.lifecycle_reducer_codec import (
+            evidence_payload as continuation_payload,
+        )
+
+        return continuation_payload(value)
     return (
         None if value is None else {**asdict(value), "coverage": coverage_payload(value.coverage)}
     )
 
 
-def decode_evidence(value: object) -> LifecycleEvidenceSummary | None:
+def decode_evidence(value: object) -> LifecycleEvidenceSummary | ContinuationEvidence | None:
+    if isinstance(value, dict) and "kind" in value:
+        from marivo.analysis.materialization.lifecycle_reducer_codec import (
+            decode_evidence as decode_continuation,
+        )
+
+        return decode_continuation(value)
     if value is None:
         return None
     fields = "row_count subject_count seeded_count not_incepted_count coverage_censored_count transition_count violation_count left_clipped_count"
@@ -105,12 +95,22 @@ def decode_evidence(value: object) -> LifecycleEvidenceSummary | None:
 
 
 def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
+    if str(descriptor.row_contract.shape_id) != "lifecycle/history@v1":
+        from marivo.analysis.materialization.lifecycle_reducer_codec import (
+            validate_descriptor as validate_continuation,
+        )
+
+        validate_continuation(descriptor)
+        return
     semantics = descriptor.row_contract.family_semantics
     if not isinstance(semantics, LifecycleSemantics):
         raise invalid("missing Lifecycle history semantics")
     decode_semantics(json.loads(json.dumps(asdict(semantics))))
     summary = decode_evidence(evidence_payload(descriptor.lifecycle_evidence))
-    if summary is None or summary.row_count != descriptor.storage_receipt.realized_row_count:
+    if (
+        not isinstance(summary, LifecycleEvidenceSummary)
+        or summary.row_count != descriptor.storage_receipt.realized_row_count
+    ):
         raise invalid("missing or inconsistent Lifecycle Evidence")
     if (
         descriptor.population_authority.entity_ref != semantics.source.subject_entity_ref

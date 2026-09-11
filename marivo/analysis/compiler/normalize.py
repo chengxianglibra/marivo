@@ -18,6 +18,10 @@ from marivo.analysis.domains.contracts import (
 from marivo.analysis.domains.event_attribution import FunnelAttributePayload
 from marivo.analysis.domains.event_comparison import FunnelComparePayload
 from marivo.analysis.domains.lifecycle import LifecyclePayload
+from marivo.analysis.domains.lifecycle_reducers import (
+    LifecycleReducerPayload,
+    LifecycleSelectionPayload,
+)
 from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
@@ -84,7 +88,7 @@ def required_entities(
         elif isinstance(payload, (EventPayload, LifecyclePayload)):
             for step in payload.definition.steps:
                 ids.update(path_entities(registry, step.source.ref.path, (step.participant_path,)))
-        elif isinstance(payload, EventFunnelPayload):
+        elif isinstance(payload, (EventFunnelPayload, LifecycleReducerPayload)):
             for event_axis in payload.axes:
                 ids.update(path_entities(registry, event_axis.subject.ref.path, (event_axis.path,)))
         elif isinstance(payload, MetricPayload):
@@ -139,6 +143,7 @@ def required_entities(
             (
                 EventTimeToEventPayload,
                 EventSelectionPayload,
+                LifecycleSelectionPayload,
                 PopulationSamplePayload,
                 RetainedRowsPayload,
                 RetainedFoldPayload,
@@ -227,7 +232,14 @@ def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV
         payload = root.payload
         if isinstance(
             payload,
-            (PopulationPayload, MetricPayload, EventPayload, LifecyclePayload, EventFunnelPayload),
+            (
+                PopulationPayload,
+                MetricPayload,
+                EventPayload,
+                LifecyclePayload,
+                EventFunnelPayload,
+                LifecycleReducerPayload,
+            ),
         ):
             for capture in payload.captures:
                 previous = found.setdefault(capture.entity_ref.path, capture)

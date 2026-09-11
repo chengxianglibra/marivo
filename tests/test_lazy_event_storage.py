@@ -124,7 +124,7 @@ def _value() -> tuple[LogicalEventDataset, ArtifactDescriptor, pa.Table, EventEv
         ]
     )
     table = pa.Table.from_pylist(records, schema=arrow_schema)
-    realized = _realized_schema(logical.schema, arrow_schema)
+    realized = _realized_schema(logical.row_contract, arrow_schema)
     receipt = replace(
         base_descriptor().storage_receipt,
         schema_fingerprint=schema_fingerprint(realized),
@@ -628,7 +628,7 @@ def test_event_composite_occurrence_identity_preserves_decimal_precision_and_tup
     row_contract = replace(
         descriptor.row_contract, _token=d._CORE_TOKEN, family_semantics=semantics
     )
-    realized = _realized_schema(row_contract.schema, table.schema)
+    realized = _realized_schema(row_contract, table.schema)
     descriptor = replace(
         descriptor,
         row_contract=row_contract,

@@ -21,7 +21,12 @@ from marivo.analysis.domains.event_attribution import (
     FunnelAttributionSemantics,
 )
 from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelDeltaSemantics
-from marivo.analysis.domains.lifecycle import LifecyclePayload
+from marivo.analysis.domains.lifecycle import LifecyclePayload, LifecycleSemantics
+from marivo.analysis.domains.lifecycle_reducers import (
+    REDUCER_TYPES,
+    LifecycleReducerPayload,
+    LifecycleSelectionPayload,
+)
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -53,6 +58,7 @@ class ImplementationRegistration:
 _ROW_METHODS = frozenset(
     {
         "event.where",
+        "lifecycle.where",
         "candidate.where",
         "candidate.rank",
         "candidate.limit",
@@ -89,6 +95,8 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         root.payload,
         (
             LifecyclePayload,
+            LifecycleReducerPayload,
+            LifecycleSelectionPayload,
             EventPayload,
             EventFunnelPayload,
             EventTimeToEventPayload,
@@ -99,6 +107,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     if dataset._inputs and root.operator_id.startswith(
         (
             "event.",
+            "lifecycle.",
             "metric.",
             "delta.",
             "attribution.",
@@ -275,6 +284,8 @@ def admit_retained_rows(dataset: Dataset) -> None:
     if not isinstance(
         semantics,
         (
+            LifecycleSemantics,
+            *REDUCER_TYPES,
             EventJourneySemantics,
             FunnelDeltaSemantics,
             FunnelAttributionSemantics,
