@@ -99,7 +99,7 @@ def _payload_check(
         for batch in stream:
             seen = True
             if validator is not None:
-                realized = storage._realized_schema(row.schema, batch.schema)
+                realized = storage._realized_schema(row, batch.schema)
                 if codec.schema_fingerprint(realized) != receipt.schema_fingerprint:
                     raise StorageAccessError("mutated")
                 validator.accept(batch)
@@ -146,7 +146,7 @@ def _payload_check(
             raise StorageAccessError("mutated")
         if validator is not None:
             validator.finish()
-            if row.shape_id.family_id == "lifecycle":
+            if str(row.shape_id) == "lifecycle/history@v1":
                 from marivo.analysis.materialization.lifecycle_publication import inspect_history
 
                 inspect_history(root, descriptor, bindings, policy)

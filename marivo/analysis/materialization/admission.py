@@ -62,6 +62,7 @@ from marivo.analysis.domains.lifecycle import (
     LogicalLifecycleDataset,
     MaterializedLifecycleDataset,
 )
+from marivo.analysis.domains.lifecycle_reducers import REDUCER_TYPES, LifecycleReducerPayload
 from marivo.analysis.evidence import _dataset_reads
 from marivo.analysis.evidence._dataset_types import (
     ArtifactDigest,
@@ -97,6 +98,11 @@ from marivo.analysis.materialization.event_reducer_codec import (
 from marivo.analysis.materialization.execution_key import execution_key
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
+from marivo.analysis.materialization.lifecycle_reducer_codec import (
+    ContinuationEvidence,
+    LifecycleReducerEvidence,
+    LifecycleSelectionEvidence,
+)
 from marivo.analysis.materialization.local import LocalPolicy
 from marivo.analysis.materialization.local_worker import (
     ArtifactInput,
@@ -863,7 +869,9 @@ class DatasetRuntime:
                         )
                     ) or (
                         isinstance(value._root, LogicalRootHandle)
-                        and isinstance(value._root.payload, EventFunnelPayload)
+                        and isinstance(
+                            value._root.payload, (EventFunnelPayload, LifecycleReducerPayload)
+                        )
                         and bool(value._root.payload.axes)
                     ):
                         binding = source_binding(value)
@@ -984,11 +992,13 @@ class DatasetRuntime:
                 association_summary: AssociationSearchSummary | None = None
                 forecast_summary: ForecastTrainingSummary | None = None
                 candidate_summary: CandidateSearchSummary | None = None
-                lifecycle_summary: LifecycleEvidenceSummary | None = None
+                lifecycle_summary: LifecycleEvidenceSummary | ContinuationEvidence | None = None
                 event_summary: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
                 selection_summary: EventSelectionEvidenceSummary | None = None
                 for input_record in records.values():
                     descriptor = input_record.descriptor
+                    if descriptor.lifecycle_evidence is not None:
+                        lifecycle_summary = descriptor.lifecycle_evidence
                     if descriptor.event_evidence is not None:
                         event_summary = descriptor.event_evidence
                     if descriptor.subject_selection_evidence is not None:
@@ -1040,6 +1050,28 @@ class DatasetRuntime:
                                     proof_recipe,
                                     source_boundary.dataset.row_contract,
                                     self._record_statement,
+                                )
+                        if proof_recipe.lifecycle_reducer_coverage is not None and (
+                            isinstance(
+                                source_boundary.dataset.row_contract.family_semantics, REDUCER_TYPES
+                            )
+                            or proof_recipe.lifecycle_selection_payload is not None
+                        ):
+                            from marivo.analysis.materialization.lifecycle_reducer_publication import (
+                                native_summary as continuation_summary,
+                            )
+
+                            with _engine_deadline(proof_backend):
+                                lifecycle_summary = continuation_summary(
+                                    proof_backend,
+                                    proof_recipe,
+                                    source_boundary.dataset.row_contract,
+                                    self._record_statement,
+                                    filtered=isinstance(
+                                        source_boundary.dataset._root, LogicalRootHandle
+                                    )
+                                    and source_boundary.dataset._root.operator_id
+                                    == "lifecycle.where",
                                 )
                         if proof_recipe.event_proof is not None:
                             from marivo.analysis.materialization.event_codec import (
@@ -1627,7 +1659,35 @@ class DatasetRuntime:
                     self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
                 findings: tuple[Finding, ...] = ()
-                if dataset.kind == "lifecycle":
+                if dataset.kind == "lifecycle" or (
+                    dataset.kind == "population"
+                    and isinstance(lifecycle_summary, LifecycleSelectionEvidence)
+                ):
+                    if (
+                        isinstance(lifecycle_summary, LifecycleReducerEvidence)
+                        and physical.local_steps
+                    ):
+                        from marivo.analysis.materialization.lifecycle_reducer_publication import (
+                            summary_from_batches as lifecycle_batch_summary,
+                        )
+                        from marivo.analysis.materialization.reads import payload_batches
+
+                        lifecycle_summary = lifecycle_batch_summary(
+                            payload_batches(
+                                self.store.project_root,
+                                descriptor.storage_receipt,
+                                policy=_READ_POLICY,
+                                bindings=object_bindings,
+                                row=descriptor.row_contract,
+                                rows=descriptor.row_set_contract,
+                                audit=True,
+                            ),
+                            lifecycle_summary,
+                        )
+                    if isinstance(lifecycle_summary, LifecycleSelectionEvidence):
+                        lifecycle_summary = replace(
+                            lifecycle_summary, row_count=storage.primary_receipt.realized_row_count
+                        )
                     from marivo.analysis.materialization.lifecycle_codec import (
                         validate_descriptor as validate_lifecycle,
                     )
@@ -2036,6 +2096,13 @@ class DatasetRuntime:
                 for reference, record in records.items()
                 if record.descriptor.event_evidence is not None
             }
+            event_coverages.update(
+                {
+                    reference: record.descriptor.lifecycle_evidence.coverage
+                    for reference, record in records.items()
+                    if record.descriptor.lifecycle_evidence is not None
+                }
+            )
             if isinstance(source_dataset, LogicalDataset):
                 from marivo.analysis.datasets.descriptors import _canonical_digest
 
@@ -2061,6 +2128,12 @@ class DatasetRuntime:
                                 )
                             )
             phase = "ibis_expression_construction"
+            from marivo.analysis.materialization.retained import required_primary_input
+
+            primary_inputs = {
+                value.state.artifact_ref.ref: required_primary_input(source_dataset, value)
+                for value in artifact_inputs(source_dataset)
+            }
             engine_inputs: list[tuple[ir.Table, EngineReceipt, DatasetRowContract]] = []
             if isinstance(source_step.binding, EngineBinding):
                 from marivo.analysis.compiler.lowering import compile_retained_rows
@@ -2080,7 +2153,8 @@ class DatasetRuntime:
                     )
                     retained_scans[reference] = table
                     tables[reference] = table
-                    engine_inputs.append((table, receipt, descriptor.row_contract))
+                    if primary_inputs[reference]:
+                        engine_inputs.append((table, receipt, descriptor.row_contract))
                     retained_parts[reference] = self._engine_parts(
                         backend,
                         descriptor,
@@ -2107,7 +2181,8 @@ class DatasetRuntime:
                     from marivo.analysis.materialization.engine import attach_engine_scan
 
                     table = attach_engine_scan(backend, self.store.project_root, receipt)
-                    engine_inputs.append((table, receipt, descriptor.row_contract))
+                    if primary_inputs[reference]:
+                        engine_inputs.append((table, receipt, descriptor.row_contract))
                     entity = normalize_target_entity(
                         source_step.binding.owner.semantic_registry,
                         descriptor.population_authority.entity_ref,
@@ -2123,7 +2198,7 @@ class DatasetRuntime:
                                 if value.state.artifact_ref.ref == reference
                             ),
                         )
-                        if descriptor.row_contract.shape_id.family_id == "metric"
+                        if descriptor.row_contract.shape_id.family_id in ("metric", "lifecycle")
                         else {}
                     )
                     scans[reference] = CompiledArtifactScan(
@@ -2511,6 +2586,18 @@ class DatasetRuntime:
                     )
                 else:
                     component_schema(descriptor.row_contract, part.role, schema)
+                    if str(descriptor.row_contract.shape_id) == "lifecycle/history@v1":
+                        from marivo.analysis.materialization.lifecycle_publication import (
+                            validate_relation,
+                        )
+
+                        validate_relation(
+                            backend,
+                            table,
+                            descriptor.row_contract,
+                            part.role,
+                            self._record_statement,
+                        )
                 self._record_statement("engine_check.part_count", backend.compile(table.count()))
                 count: object = backend.execute(table.count())
                 if count != receipt.realized_row_count:

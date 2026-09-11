@@ -42,6 +42,7 @@ from marivo.analysis.datasets.descriptors import (
     _ResolvedPhysicalType,
     _StaticRowBound,
 )
+from marivo.analysis.domains.lifecycle_reducers import is_fragment_duration
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
     FileEntry,
@@ -344,12 +345,18 @@ def _matches_type(logical: str, actual: pa.DataType) -> bool:
     return check is not None and bool(check(actual))
 
 
-def _realized_schema(logical: DatasetSchema, actual: pa.Schema) -> DatasetSchema:
+def _realized_schema(row: DatasetRowContract, actual: pa.Schema) -> DatasetSchema:
+    logical = row.schema
     if actual.names != [column.name for column in logical.columns]:
         _fail("the exact ordered primary column names", "primary columns differ")
     columns: list[DatasetField] = []
     for expected, field in zip(logical.columns, actual, strict=True):
-        if not _matches_type(expected.logical_type_id, field.type):
+        fragment = is_fragment_duration(row, expected)
+        if not (
+            pa.types.is_float64(field.type)
+            if fragment
+            else _matches_type(expected.logical_type_id, field.type)
+        ):
             _fail("an Arrow type admitted by each logical field", "logical type mismatch")
         identity = expected.identity
         if isinstance(identity, _EntityFieldIdentity):
@@ -360,8 +367,10 @@ def _realized_schema(logical: DatasetSchema, actual: pa.Schema) -> DatasetSchema
             ):
                 _fail("the exact ordered typed identity struct", "identity schema mismatch")
         physical = expected.physical_type_state
-        if isinstance(physical, _ResolvedPhysicalType) and not _matches_type(
-            physical.physical_type_id, field.type
+        if isinstance(physical, _ResolvedPhysicalType) and not (
+            physical.physical_type_id == "duration" and pa.types.is_float64(field.type)
+            if fragment
+            else _matches_type(physical.physical_type_id, field.type)
         ):
             _fail("the exact already resolved physical field type", "physical type mismatch")
         physical_id = (
@@ -476,6 +485,20 @@ class _RowValidator:
         from marivo.analysis.operators.association_contracts import association_orders
 
         self.authored_orders = association_orders(contract, rows)
+        from marivo.analysis.domains.lifecycle_reducers import (
+            REDUCER_TYPES,
+            TransitionsSemantics,
+            history_semantics,
+        )
+
+        self.lifecycle_pairs: tuple[tuple[str, str], ...] | None = None
+        self.previous_lifecycle_pair: int | None = None
+        if isinstance(contract.family_semantics, REDUCER_TYPES):
+            lifecycle = history_semantics(contract.family_semantics)
+            if isinstance(contract.family_semantics, TransitionsSemantics):
+                self.lifecycle_pairs = lifecycle.transition_pairs
+            elif "model_state" in by_id.values():
+                self.authored_orders["model_state"] = lifecycle.states
         from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
 
         if isinstance(contract.family_semantics, FunnelDeltaSemantics):
@@ -580,10 +603,30 @@ class _RowValidator:
                 _value(batch.column(batch.schema.get_field_index(name))[offset])
                 for name, _, _ in self.terms
             )
-            if self.previous is not None:
+            if self.lifecycle_pairs is not None:
+                pair = (
+                    batch["from_model_state"][offset].as_py(),
+                    batch["to_model_state"][offset].as_py(),
+                )
+                if pair not in self.lifecycle_pairs:
+                    _fail("declared Lifecycle transition pair", "unknown pair")
+                ordinal = self.lifecycle_pairs.index(pair)
+                if (
+                    self.previous_lifecycle_pair is not None
+                    and ordinal <= self.previous_lifecycle_pair
+                ):
+                    _fail(
+                        "strictly increasing declared transition pairs",
+                        "duplicate or unordered pair",
+                    )
+                self.previous_lifecycle_pair = ordinal
+            elif self.previous is not None:
                 comparison = 0
                 for left, right, (name, direction, nulls) in zip(
-                    self.previous, ordered, self.terms, strict=True
+                    self.previous,
+                    ordered,
+                    self.terms,
+                    strict=True,
                 ):
                     if name in self.authored_orders:
                         values = self.authored_orders[name]
@@ -738,7 +781,7 @@ def write_local_dataset(
                     selected = batch.select(projection)
                     schema = selected.schema
                     if not schemas:
-                        realized = _realized_schema(row_contract.schema, schema)
+                        realized = _realized_schema(row_contract, schema)
                         schema = pa.schema(
                             [
                                 pa.field(field.name, schema.field(field.name).type, field.nullable)
@@ -1020,7 +1063,7 @@ def _open_primary(
 ) -> tuple[pq.ParquetFile, Path]:
     parquet, data = _open_payload(project_root, receipt)
     try:
-        realized = _realized_schema(row.schema, parquet.schema_arrow)
+        realized = _realized_schema(row, parquet.schema_arrow)
         if schema_fingerprint(realized) != receipt.schema_fingerprint:
             _integrity("the exact realized schema fingerprint", "retained schema mismatch")
         for field, actual in zip(row.schema.columns, parquet.schema_arrow, strict=True):
@@ -1102,7 +1145,9 @@ def _to_dataframe(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
             result[field.name] = pd.Series(
                 [_value(array[index]) for index in range(table.num_rows)], dtype=object
             )
-        if field.logical_type_id == "duration":
+        if is_fragment_duration(row, field):
+            result[field.name] = pd.to_timedelta(table.column(field.name).to_pandas(), unit="us")
+        elif field.logical_type_id == "duration":
             result[field.name] = pd.Series(
                 table.column(field.name).cast(pa.duration("us")),
                 dtype=pd.ArrowDtype(pa.duration("us")),

@@ -107,6 +107,11 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
     """Propagate consumed state to the exact input, respecting producer boundaries."""
     from marivo.analysis.domains.event_attribution import FunnelAttributePayload
     from marivo.analysis.domains.event_comparison import FunnelComparePayload
+    from marivo.analysis.domains.lifecycle_reducers import (
+        LifecycleReducerPayload,
+        LifecycleSelectionPayload,
+        consumed_roles,
+    )
     from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.contracts import ComparePayload
     from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
@@ -132,6 +137,8 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
                 "session.lifecycle.replay",
             ):
                 child_demand: set[str] = set()
+            elif isinstance(payload, (LifecycleReducerPayload, LifecycleSelectionPayload)):
+                child_demand = consumed_roles(payload)
             elif isinstance(
                 payload,
                 (
@@ -155,7 +162,7 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
 def _row_part_roles(row: DatasetRowContract) -> set[str]:
     from marivo.analysis.domains.event_attribution import COMPONENT_ROLE, FunnelAttributionSemantics
 
-    if row.shape_id.family_id == "lifecycle":
+    if str(row.shape_id) == "lifecycle/history@v1":
         from marivo.analysis.domains.lifecycle import ROLES
 
         return set(ROLES)
@@ -366,6 +373,23 @@ def checked_component_batches(
 
 
 def _part_state_columns(row: DatasetRowContract, role: str) -> tuple[tuple[str, str, bool], ...]:
+    if str(row.shape_id) == "lifecycle/history@v1":
+        from marivo.analysis.domains.lifecycle import PART_COLUMNS, ROLES
+
+        if role not in ROLES:
+            _integrity("an exact Lifecycle retained role", "unknown history part")
+        return tuple(
+            (
+                name,
+                "integer"
+                if name == "transition_ordinal"
+                else "timestamp"
+                if name in ("occurred_at", "inception_at", "known_through")
+                else "string",
+                name in ("inception_at", "known_through"),
+            )
+            for name in PART_COLUMNS[ROLES.index(role)]
+        )
     from marivo.analysis.domains.event_attribution import (
         COMPONENT_COLUMNS,
         COMPONENT_ROLE,
@@ -396,3 +420,26 @@ def _part_state_columns(row: DatasetRowContract, role: str) -> tuple[tuple[str, 
     if authority is None:
         _integrity("a required role owned by the Metric contract", "unknown Metric part role")
     return fold_state_columns(authority)
+
+
+def required_primary_input(dataset: Dataset, input_dataset: MaterializedDataset) -> bool:
+    """Trace-only reducers need Artifact bindings but do not consume history intervals."""
+    from marivo.analysis.domains.lifecycle_reducers import (
+        LifecycleReducerPayload,
+        TransitionsSemantics,
+        ViolationsSemantics,
+    )
+
+    def visit(value: Dataset, demanded: bool) -> bool:
+        if isinstance(value, MaterializedDataset):
+            return demanded and value.state.artifact_ref == input_dataset.state.artifact_ref
+        if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
+            return False
+        payload = value._root.payload
+        if isinstance(payload, LifecycleReducerPayload):
+            demanded = not isinstance(
+                payload.semantics, (TransitionsSemantics, ViolationsSemantics)
+            )
+        return any(visit(child, demanded) for child in value._inputs)
+
+    return visit(dataset, True)

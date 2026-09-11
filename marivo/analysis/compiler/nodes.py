@@ -15,6 +15,7 @@ from marivo.semantic.ir import TargetEntityContract
 if TYPE_CHECKING:
     from marivo.analysis.domains.completeness import EventCoverageResolution
     from marivo.analysis.domains.contracts import EventSelectionPayload
+    from marivo.analysis.domains.lifecycle_reducers import LifecycleSelectionPayload
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -91,6 +92,9 @@ class CompiledDataset:
     candidate_proof: ir.Table | None = None
     candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
     lifecycle_coverage: EventCoverageResolution | None = None
+    lifecycle_reducer_coverage: EventCoverageResolution | None = None
+    lifecycle_selection_payload: LifecycleSelectionPayload | None = None
+    lifecycle_selection_proof: ir.Table | None = None
     event_proof: ir.Table | None = None
     event_coverage: EventCoverageResolution | None = None
     event_reducer_proof: ir.Table | None = None

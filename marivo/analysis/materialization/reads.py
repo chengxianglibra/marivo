@@ -308,7 +308,7 @@ def read_table(
         row=row_contract,
         rows=row_set_contract,
     ):
-        realized = storage._realized_schema(row_contract.schema, batch.schema)
+        realized = storage._realized_schema(row_contract, batch.schema)
         if codec.schema_fingerprint(realized) != receipt.schema_fingerprint:
             _integrity("the exact selected realized schema", "receipt schema differs")
         if schema is not None and not schema.equals(batch.schema, check_metadata=False):

@@ -542,6 +542,9 @@ def bind_predicates(
         )
         from marivo.analysis.domains.event_comparison import filterable_field as funnel_delta_field
         from marivo.analysis.domains.event_reducers import event_filterable_field
+        from marivo.analysis.domains.lifecycle_reducers import (
+            filterable_field as lifecycle_filterable_field,
+        )
         from marivo.analysis.operators.attribution_contracts import attribution_filterable_field
         from marivo.analysis.operators.correlate import association_filterable_field
         from marivo.analysis.operators.discovery import candidate_filterable_field
@@ -556,6 +559,7 @@ def bind_predicates(
             and not candidate_filterable_field(resolved)
             and not funnel_delta_field(resolved)
             and not event_filterable_field(resolved)
+            and not lifecycle_filterable_field(resolved)
         ):
             _error("retained Metric, Dimension or exact generated row field", resolved.role_id)
         literal: CanonicalValue

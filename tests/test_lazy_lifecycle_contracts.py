@@ -31,8 +31,11 @@ def test_source_free_history_contract() -> None:
         "left_clipped",
     )
     assert producer_contract("session.lifecycle.replay").retained_contract_ids == ROLES
-    assert not hasattr(dataset, "where")
-    assert not hasattr(dataset, "distribution")
+    from marivo.analysis.datasets.errors import DatasetConstructionError
+
+    with pytest.raises(DatasetConstructionError):
+        dataset.where()
+    assert callable(dataset.distribution)
     assert "\n" not in repr(dataset)
     semantics = dataset.row_contract.family_semantics
     assert _semantics(json.loads(json.dumps(_semantics_payload(semantics)))) == semantics

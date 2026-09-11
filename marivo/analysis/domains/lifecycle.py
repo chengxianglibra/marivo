@@ -50,7 +50,11 @@ from marivo.semantic.event import participant_role
 if TYPE_CHECKING:
     import pandas
 
+    from marivo.analysis.domains.lifecycle_reducers import InState
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
+    from marivo.analysis.observation.contracts import DimensionInput
+    from marivo.analysis.observation.population import LogicalPopulationDataset
+    from marivo.analysis.observation.predicates import AnalysisPredicate
 
 ROLES = (
     "lifecycle_legal_transition_trace",
@@ -123,6 +127,11 @@ class LifecycleSemantics(d.DatasetFamilyRowSemantics, _token=d._CORE_TOKEN):
     kind: Literal["lifecycle/history@v1"] = field(default="lifecycle/history@v1", init=False)
 
     @property
+    def transition_pairs(self) -> tuple[tuple[str, str], ...]:
+        """Distinct modeled state pairs in first-declaration order."""
+        return tuple(dict.fromkeys((a, b) for a, _, b in self.transitions))
+
+    @property
     def source(self) -> EventJourneySemantics:
         return decode_journey_semantics(self.source_json)
 
@@ -148,6 +157,78 @@ class LogicalLifecycleDataset(LogicalDataset, _token=d._CORE_TOKEN, family_id="l
 
     __slots__ = ()
 
+    def distribution(
+        self,
+        *,
+        at: tuple[datetime, ...],
+        axes: list[DimensionInput] | tuple[DimensionInput, ...] = (),
+    ) -> LogicalLifecycleDataset:
+        """Count states at explicit aware at instants, optionally grouped by axes.
+
+        Args:
+            at: Unique aware checkpoints inside the replay window, including its end.
+            axes: Governed to-one Dimensions evaluated at each requested checkpoint.
+
+        Returns a logical distribution. Example: ``history.distribution(at=(checkpoint,))``.
+        Constraints: Exact retained subject coverage and to-one axes are required.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import reduce
+
+        return reduce(self, "distribution", at=at, axes=axes)
+
+    def transitions(self) -> LogicalLifecycleDataset:
+        """Count declared transition pairs; no parameters; return a logical summary.
+
+        Example: ``history.transitions()``. Constraints: Exact legal trace required.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import reduce
+
+        return reduce(self, "transitions")
+
+    def dwell(self) -> LogicalLifecycleDataset:
+        """Summarize completed clipped fragments; no parameters; return a logical summary.
+
+        Example: ``history.dwell()``. Constraints: Exact positive history intervals required.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import reduce
+
+        return reduce(self, "dwell")
+
+    def violations(self) -> LogicalLifecycleDataset:
+        """Project illegal triggers; no parameters; return logical violation observations.
+
+        Example: ``history.violations()``. Constraints: Exact violation trace required.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import reduce
+
+        return reduce(self, "violations")
+
+    def select_subjects(self, selection: InState) -> LogicalPopulationDataset:
+        """Return complete Population membership using the exact InState selection.
+
+        Args:
+            selection: Private domain InState bound to the exact retained StateModel.
+
+        Example: ``history.select_subjects(in_state(paid, at=checkpoint))``.
+        Constraints: Any unknown member blocks execution atomically.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import select_subjects
+
+        return select_subjects(self, selection)
+
+    def where(self, *predicates: AnalysisPredicate) -> LogicalLifecycleDataset:
+        """Filter independent summary rows by predicates, returning a logical Dataset.
+
+        Args:
+            predicates: Conjoined predicates over the shape's admitted summary fields.
+
+        Example: ``summary.where(gt(summary.fields.get("subject_count"), 0))``.
+        Constraints: History and identity predicates are forbidden.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import where
+
+        return where(self, predicates)
+
     def execute(self) -> MaterializedLifecycleDataset:
         """Execute history and its required parts; no parameters.
 
@@ -163,6 +244,78 @@ class MaterializedLifecycleDataset(
     """Immutable retained replay history with atomic private parts."""
 
     __slots__ = ()
+
+    def distribution(
+        self,
+        *,
+        at: tuple[datetime, ...],
+        axes: list[DimensionInput] | tuple[DimensionInput, ...] = (),
+    ) -> LogicalLifecycleDataset:
+        """Count states at explicit aware at instants, optionally grouped by axes.
+
+        Args:
+            at: Unique aware checkpoints inside the replay window, including its end.
+            axes: Governed to-one Dimensions evaluated at each requested checkpoint.
+
+        Returns a logical distribution. Example: ``history.distribution(at=(checkpoint,))``.
+        Constraints: Exact retained subject coverage and to-one axes are required.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import reduce
+
+        return reduce(self, "distribution", at=at, axes=axes)
+
+    def transitions(self) -> LogicalLifecycleDataset:
+        """Count declared transition pairs; no parameters; return a logical summary.
+
+        Example: ``history.transitions()``. Constraints: Exact legal trace required.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import reduce
+
+        return reduce(self, "transitions")
+
+    def dwell(self) -> LogicalLifecycleDataset:
+        """Summarize completed clipped fragments; no parameters; return a logical summary.
+
+        Example: ``history.dwell()``. Constraints: Exact positive history intervals required.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import reduce
+
+        return reduce(self, "dwell")
+
+    def violations(self) -> LogicalLifecycleDataset:
+        """Project illegal triggers; no parameters; return logical violation observations.
+
+        Example: ``history.violations()``. Constraints: Exact violation trace required.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import reduce
+
+        return reduce(self, "violations")
+
+    def select_subjects(self, selection: InState) -> LogicalPopulationDataset:
+        """Return complete Population membership using the exact InState selection.
+
+        Args:
+            selection: Private domain InState bound to the exact retained StateModel.
+
+        Example: ``history.select_subjects(in_state(paid, at=checkpoint))``.
+        Constraints: Any unknown member blocks execution atomically.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import select_subjects
+
+        return select_subjects(self, selection)
+
+    def where(self, *predicates: AnalysisPredicate) -> LogicalLifecycleDataset:
+        """Filter independent summary rows by predicates, returning a logical Dataset.
+
+        Args:
+            predicates: Conjoined predicates over the shape's admitted summary fields.
+
+        Example: ``summary.where(gt(summary.fields.get("subject_count"), 0))``.
+        Constraints: History and identity predicates are forbidden.
+        """
+        from marivo.analysis.domains.lifecycle_reducers import where
+
+        return where(self, predicates)
 
     def to_pandas(self) -> pandas.DataFrame:
         """Return an isolated retained history copy; no parameters.
@@ -496,6 +649,19 @@ def validate_history(row: d.DatasetRowContract, rows: d.DatasetRowSetContract) -
 
 
 def register_lifecycle(registry: DatasetFamilyRegistry, ids: d._StableIdRegistry) -> None:
+    from marivo.analysis.datasets.registry import ConsumerRegistration
+    from marivo.analysis.domains.lifecycle_reducers import (
+        REDUCER_TYPES,
+        LifecycleReducerPayload,
+        validate_reducer,
+    )
+
+    def validate(row: d.DatasetRowContract, rows: d.DatasetRowSetContract) -> None:
+        if isinstance(row.family_semantics, REDUCER_TYPES):
+            validate_reducer(row, rows)
+        else:
+            validate_history(row, rows)
+
     def decode(state: MaterializedDatasetState) -> MaterializedDatasetState:
         _validate_materialized_state(state, ids=ids)
         return state
@@ -505,16 +671,107 @@ def register_lifecycle(registry: DatasetFamilyRegistry, ids: d._StableIdRegistry
             family_id="lifecycle",
             logical_type=LogicalLifecycleDataset,
             materialized_type=MaterializedLifecycleDataset,
-            shape_ids=(d._make_shape_id("lifecycle", "history", 1, ids=ids),),
+            shape_ids=tuple(
+                d._make_shape_id("lifecycle", shape, 1, ids=ids)
+                for shape in ("history", "distribution", "transitions", "dwell", "violations")
+            ),
             owner_id="domains.lifecycle",
             ids=ids,
-            row_validator=validate_history,
-            consumers=(),
+            row_validator=validate,
+            consumers=(
+                *(
+                    ConsumerRegistration(
+                        f"lifecycle.{method}",
+                        ("input",),
+                        output,
+                        (d._make_shape_id("lifecycle", "history", 1, ids=ids),),
+                        ("lifecycle.exact_history@v1",),
+                    )
+                    for method, output in (
+                        ("distribution", "lifecycle"),
+                        ("transitions", "lifecycle"),
+                        ("dwell", "lifecycle"),
+                        ("violations", "lifecycle"),
+                        ("select_subjects", "population"),
+                    )
+                ),
+                ConsumerRegistration(
+                    "lifecycle.where",
+                    ("input",),
+                    "lifecycle",
+                    tuple(
+                        d._make_shape_id("lifecycle", shape, 1, ids=ids)
+                        for shape in ("distribution", "transitions", "dwell", "violations")
+                    ),
+                    ("lifecycle.current_rows@v1",),
+                ),
+            ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=decode,
-            node_payload_types=(LifecyclePayload, RetainedRowsPayload),
+            node_payload_types=(LifecyclePayload, LifecycleReducerPayload, RetainedRowsPayload),
             contract_facts=lambda dataset: (
-                ("history", "canonical intervals and three required retained roles"),
+                (
+                    "meaning",
+                    {
+                        "history": "canonical intervals with exact legal-transition, coverage and violation roles",
+                        "distribution": "known state counts and separately disclosed unknown membership at explicit checkpoints",
+                        "transitions": "observed legal trigger counts; retained coverage qualifies interpretation",
+                        "dwell": "completed_window_fragment_duration@v1; left-clipped completed fragments included",
+                        "violations": "recorded modeled-trigger observations; zero Findings",
+                    }[dataset.row_contract.shape_id.local_shape_id],
+                ),
             ),
         )
     )
+
+
+def decode_lifecycle_semantics(value: object) -> LifecycleSemantics:
+    """Decode the closed pure history value without importing execution owners."""
+    names = {
+        "kind",
+        "source_json",
+        "model_ref",
+        "states",
+        "initial",
+        "terminals",
+        "inceptions",
+        "transitions",
+        "seed_fingerprint",
+    }
+    if not isinstance(value, dict) or set(value) != names:
+        raise lifecycle_error("exact history semantics", "invalid retained model fields")
+
+    def text(item: object) -> str:
+        if type(item) is not str or not item:
+            raise lifecycle_error("non-empty semantic text", "invalid model value")
+        return item
+
+    def texts(item: object) -> tuple[str, ...]:
+        if not isinstance(item, (tuple, list)):
+            raise lifecycle_error("immutable semantic sequence", "invalid model sequence")
+        return tuple(text(x) for x in item)
+
+    transitions: list[tuple[str, str, str]] = []
+    incoming: object = value["transitions"]
+    if not isinstance(incoming, (tuple, list)):
+        raise lifecycle_error("exact transition triples", "invalid transition sequence")
+    for item in incoming:
+        parts = texts(item)
+        if len(parts) != 3:
+            raise lifecycle_error("exact transition triple", "invalid transition arity")
+        transitions.append((parts[0], parts[1], parts[2]))
+    result = LifecycleSemantics(
+        _token=d._CORE_TOKEN,
+        source_json=text(value["source_json"]),
+        model_ref=text(value["model_ref"]),
+        states=texts(value["states"]),
+        initial=text(value["initial"]),
+        terminals=texts(value["terminals"]),
+        inceptions=texts(value["inceptions"]),
+        transitions=tuple(transitions),
+        seed_fingerprint=text(value["seed_fingerprint"]),
+    )
+    if value["kind"] != result.kind:
+        raise lifecycle_error("canonical Lifecycle history", "invalid model kind")
+    validate_lifecycle_semantics(result)
+    return result

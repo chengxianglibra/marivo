@@ -10,6 +10,9 @@ from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedD
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.domains.contracts import EventPayload, EventSelectionPayload
 from marivo.analysis.domains.lifecycle import LifecyclePayload
+from marivo.analysis.domains.lifecycle_reducers import (
+    LifecycleSelectionPayload,
+)
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -153,7 +156,10 @@ def make_descriptor(
         _selection_population_authority(
             dataset, input_descriptors or (() if inherited is None else (inherited,)), validations
         )
-        if any(isinstance(root.payload, EventSelectionPayload) for root in roots)
+        if any(
+            isinstance(root.payload, (EventSelectionPayload, LifecycleSelectionPayload))
+            for root in roots
+        )
         or (
             inherited is not None
             and inherited.subject_selection_evidence is not None
@@ -224,6 +230,9 @@ def make_descriptor(
                 warning_check_count=0,
             ),
             comparison_basis=basis,
+            lifecycle_evidence=inherited.lifecycle_evidence
+            if dataset.kind in ("lifecycle", "population")
+            else None,
             event_evidence=inherited.event_evidence if dataset.kind == "event" else None,
             subject_selection_evidence=inherited.subject_selection_evidence
             if dataset.kind == "population"

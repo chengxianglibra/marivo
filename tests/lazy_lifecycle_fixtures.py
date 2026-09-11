@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from marivo.analysis import time_scope
-from marivo.analysis.domains.completeness import SourceOriginCompletenessDeclarationV1
+from marivo.analysis.domains.completeness import (
+    BoundedCoverageStartV1,
+    EventCoverageReceiptV1,
+    EventCoverageRequestV1,
+    SourceOriginCompletenessDeclarationV1,
+    SourceOriginCoverageStartV1,
+)
 from marivo.analysis.domains.lifecycle import LogicalLifecycleDataset
 from marivo.analysis.domains.subject import PopulationInput
 from marivo.analysis.lifecycle import FromInception
@@ -91,4 +97,24 @@ def history(
         )
         if complete
         else (),
+    )
+
+
+def receipt(
+    request: EventCoverageRequestV1, *, bounded: bool = False, prefix: bool = False
+) -> EventCoverageReceiptV1:
+    return EventCoverageReceiptV1(
+        event_ref=request.event_ref,
+        event_fingerprint=request.event_fingerprint,
+        source_entity_ref=request.source_entity_ref,
+        source_origin_ref=request.source_origin_ref,
+        occurred_at_ref=request.occurred_at_ref,
+        coverage_start=BoundedCoverageStartV1(complete_from=START - timedelta(days=100))
+        if bounded
+        else SourceOriginCoverageStartV1(source_origin_ref=request.source_origin_ref),
+        complete_through=START + timedelta(hours=4) if prefix else END,
+        authority="fixture.origin@v1",
+        observed_at=END,
+        source_binding_fingerprint=request.source_binding_fingerprint,
+        execution_domain_id=request.execution_domain_id,
     )

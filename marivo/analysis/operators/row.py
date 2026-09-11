@@ -21,6 +21,11 @@ from marivo.analysis.datasets.descriptors import (
 )
 from marivo.analysis.datasets.handles import CanonicalValue
 from marivo.analysis.domains.contracts import EventFunnelSemantics, EventTimeToEventSemantics
+from marivo.analysis.domains.lifecycle_reducers import (
+    REDUCER_TYPES,
+    TransitionsSemantics,
+    history_semantics,
+)
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -104,7 +109,8 @@ def select_parts(
     from marivo.analysis.operators.forecast_contracts import ForecastSemantics
 
     if isinstance(
-        semantics, (EventFunnelSemantics, EventTimeToEventSemantics, FunnelDeltaSemantics)
+        semantics,
+        (*REDUCER_TYPES, EventFunnelSemantics, EventTimeToEventSemantics, FunnelDeltaSemantics),
     ):
         return tuple(part for part in parts if part.role == "population_sampling_state")
     if isinstance(
@@ -264,6 +270,17 @@ def frame_comparator(
         authored["step_key"] = tuple(
             step.key for step in row.family_semantics.journey.pattern.steps
         )
+    if isinstance(row.family_semantics, REDUCER_TYPES):
+        history = history_semantics(row.family_semantics)
+        if isinstance(row.family_semantics, TransitionsSemantics):
+            pairs = history.transition_pairs
+            ordinals = [
+                pairs.index(pair)
+                for pair in zip(frame.from_model_state, frame.to_model_state, strict=True)
+            ]
+            return lambda a, b: (ordinals[a] > ordinals[b]) - (ordinals[a] < ordinals[b])
+        if "model_state" in columns:
+            authored["model_state"] = history.states
     for name, values in authored.items():
         columns[name] = [values.index(value) for value in columns[name]]
 
@@ -357,6 +374,7 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
             "forecast.where",
             "candidate.where",
             "event.where",
+            "lifecycle.where",
         )
         and call.predicate is not None
     ):
