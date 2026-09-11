@@ -92,6 +92,14 @@ class PartWriteSpec:
     column_names: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class IndependentPartWrite:
+    """An independently counted canonical Lifecycle part in the primary transaction."""
+
+    role: str
+    batches: Iterable[pa.RecordBatch]
+
+
 _ReceiptT = TypeVar("_ReceiptT", bound=StorageReceipt, covariant=True)
 
 
@@ -643,6 +651,7 @@ def write_local_dataset(
     row_contract: DatasetRowContract,
     row_set_contract: DatasetRowSetContract,
     parts: tuple[PartWriteSpec, ...] = (),
+    independent_parts: tuple[IndependentPartWrite, ...] = (),
     sampling: tuple[codec.SamplingRealization, ...] = (),
     source_key_validation: bool = False,
     event: Callable[[str], None],
@@ -662,6 +671,15 @@ def write_local_dataset(
         for part in parts
     ):
         reject_source_private_transfer()
+    if independent_parts:
+        from marivo.analysis.domains.lifecycle import ROLES
+
+        if (
+            row_contract.shape_id.family_id != "lifecycle"
+            or tuple(part.role for part in independent_parts) != ROLES
+            or parts
+        ):
+            _fail("the three canonical Lifecycle roles", "invalid independent retained parts")
     staging = _checked_path(project_root, staging_path)
     final = _checked_path(project_root, final_path)
     if staging.exists() or final.exists() or staging == final:
@@ -762,6 +780,49 @@ def write_local_dataset(
         retained_specs = tuple(
             (part.role, part.contract_id, part.contract_version) for part in parts
         )
+        for independent in independent_parts:
+            from marivo.analysis.materialization.lifecycle_publication import part_schema
+            from marivo.analysis.materialization.retained import checked_component_batches
+
+            event("lifecycle_part_write")
+            event(f"lifecycle_part_write.{independent.role}")
+            directory = f"parts/{independent.role}"
+            target = staging / directory
+            _create_directory(target)
+            part_count = 0
+            part_schema_value: pa.Schema | None = None
+            part_writer: pq.ParquetWriter | None = None
+            part_sink = _BudgetFile(target / "data.parquet", budget)
+            try:
+                for incoming in checked_component_batches(
+                    independent.batches, row_contract, independent.role
+                ):
+                    batch = _normalize_batch(incoming, policy.max_batch_bytes)
+                    if part_schema_value is None:
+                        part_schema_value = batch.schema
+                        part_schema(row_contract, independent.role, part_schema_value)
+                        part_writer = pq.ParquetWriter(
+                            part_sink,
+                            part_schema_value,
+                            compression="zstd",
+                            use_dictionary=False,
+                            write_page_checksum=True,
+                        )
+                    if not batch.schema.equals(part_schema_value, check_metadata=False):
+                        _fail("one canonical part schema", "changing Lifecycle part schema")
+                    assert part_writer is not None
+                    part_writer.write_batch(batch, row_group_size=policy.row_group_rows)
+                    part_count += batch.num_rows
+            finally:
+                if part_writer is not None:
+                    part_writer.close()
+                part_sink.close()
+            if part_schema_value is None:
+                _fail("an empty or populated schema-carrying part", "missing Lifecycle part stream")
+            schemas.append(part_schema_value)
+            directories += (directory,)
+            row_counts += (part_count,)
+            retained_specs += ((independent.role, independent.role, 1),)
         if sampling:
             directory = "parts/population_sampling_state"
             target = staging / directory

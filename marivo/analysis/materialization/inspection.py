@@ -107,6 +107,9 @@ def _payload_check(
                 if part is not None and part.contract_id in (
                     "metric.sufficient_components",
                     "delta.sufficient_components",
+                    "lifecycle_legal_transition_trace",
+                    "lifecycle_subject_coverage",
+                    "lifecycle_violation_trace",
                 ):
                     if (
                         hashlib.sha256(batch.schema.serialize().to_pybytes()).hexdigest()
@@ -143,6 +146,10 @@ def _payload_check(
             raise StorageAccessError("mutated")
         if validator is not None:
             validator.finish()
+            if row.shape_id.family_id == "lifecycle":
+                from marivo.analysis.materialization.lifecycle_publication import inspect_history
+
+                inspect_history(root, descriptor, bindings, policy)
     finally:
         stream.close()
 

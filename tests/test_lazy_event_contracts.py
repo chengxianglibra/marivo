@@ -686,3 +686,12 @@ def test_retained_authority_size_is_checked_without_source_work(parameter: str, 
         assert isinstance(semantics, EventJourneySemantics)
         retained = semantics.pattern_json if parameter == "pattern" else semantics.completeness_json
         assert len(retained.encode("utf-8")) == size
+
+
+def test_event_semantic_digest_preserves_pre_lifecycle_authority() -> None:
+    from marivo.analysis.observation.contracts import semantic_dependency_digest
+
+    # Captured from the Slice 7c baseline for this fixed source-free definition.
+    assert semantic_dependency_digest(match(make_event_sources())) == (
+        "d5472d03d796375c029fe7b8956f928057ec220081a2ad484dad4947e28f168e"
+    )

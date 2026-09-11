@@ -65,6 +65,9 @@ _SCHEMA = (
 class NoIoActionPort:
     """Explicit test port proving definition actions do not cross runtime boundaries."""
 
+    def execute_lifecycle(self, dataset: object) -> Never:
+        raise AssertionError("Construction performed Lifecycle execution")
+
     def execute_event(self, dataset: object) -> Never:
         raise AssertionError("Construction performed Event execution")
 

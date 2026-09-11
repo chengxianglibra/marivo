@@ -17,6 +17,7 @@ from marivo.analysis.domains.contracts import (
 )
 from marivo.analysis.domains.event_attribution import FunnelAttributePayload
 from marivo.analysis.domains.event_comparison import FunnelComparePayload
+from marivo.analysis.domains.lifecycle import LifecyclePayload
 from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
@@ -80,7 +81,7 @@ def required_entities(
                     registry, field.identity.identity_id.split(":", 1)[1]
                 )
                 path(entity, dimension.entity_ref.path)
-        elif isinstance(payload, EventPayload):
+        elif isinstance(payload, (EventPayload, LifecyclePayload)):
             for step in payload.definition.steps:
                 ids.update(path_entities(registry, step.source.ref.path, (step.participant_path,)))
         elif isinstance(payload, EventFunnelPayload):
@@ -178,7 +179,7 @@ def required_entities(
                 and root.payload.entity.ref.path == entity
             )
             or (
-                isinstance(root.payload, EventPayload)
+                isinstance(root.payload, (EventPayload, LifecyclePayload))
                 and any(
                     entity
                     in path_entities(registry, step.source.ref.path, (step.participant_path,))
@@ -225,7 +226,8 @@ def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV
     for root in logical_roots(dataset):
         payload = root.payload
         if isinstance(
-            payload, (PopulationPayload, MetricPayload, EventPayload, EventFunnelPayload)
+            payload,
+            (PopulationPayload, MetricPayload, EventPayload, LifecyclePayload, EventFunnelPayload),
         ):
             for capture in payload.captures:
                 previous = found.setdefault(capture.entity_ref.path, capture)

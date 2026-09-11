@@ -90,6 +90,7 @@ class CompiledDataset:
     association_proof: ir.Table | None = None
     candidate_proof: ir.Table | None = None
     candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
+    lifecycle_coverage: EventCoverageResolution | None = None
     event_proof: ir.Table | None = None
     event_coverage: EventCoverageResolution | None = None
     event_reducer_proof: ir.Table | None = None

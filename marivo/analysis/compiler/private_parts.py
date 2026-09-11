@@ -26,6 +26,8 @@ def selected_private_parts(
 def private_part_specs(
     row: DatasetRowContract, parts: PrivateRelations
 ) -> tuple[RetainedRelationSpec, ...]:
+    if row.shape_id.family_id == "lifecycle":
+        return tuple(RetainedRelationSpec(role, role, 1, table) for role, table in parts)
     return (*distinct.membership_specs(row, parts), *distribution.distribution_specs(row, parts))
 
 
