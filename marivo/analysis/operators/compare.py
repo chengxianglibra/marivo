@@ -29,6 +29,7 @@ from marivo.analysis.datasets.descriptors import (
     _make_row_set_contract,
     _make_schema,
     _make_shape_id,
+    _RuntimeMetricFieldIdentity,
     _singleton_cardinality,
     _StableIdRegistry,
     _unknown_row_bound,
@@ -246,11 +247,15 @@ def compare(
             "unambiguous retained coordinate and generated comparison names",
             "coordinate name collides with a generated comparison field",
         )
-    if not isinstance(a.identity, _CatalogFieldIdentity):
+    if not isinstance(a.identity, (_CatalogFieldIdentity, _RuntimeMetricFieldIdentity)):
         raise comparison_error("exact retained Metric identity", "unsupported Metric identity")
     semantics = DeltaSemantics(
         _token=_CORE_TOKEN,
-        metric_ref=a.identity.identity_id.split(":", 1)[1],
+        metric_ref=(
+            a.identity.identity_id.split(":", 1)[1]
+            if isinstance(a.identity, _CatalogFieldIdentity)
+            else a.identity.identity_id
+        ),
         metric_unit=left.metric_bindings[0][1],
         numeric_type=promoted,
         exact_empty_zero=left.metric_bindings[0][5] == "zero",

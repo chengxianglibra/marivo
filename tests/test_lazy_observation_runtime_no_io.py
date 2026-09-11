@@ -121,6 +121,9 @@ guards = (
     (NoIoActionPort, 'execute_delta', 'run'),
     (NoIoActionPort, 'execute_attribution', 'run'),
 )
+total = mv.runtime_metric.aggregate(ref.measure("sales.orders.amount"), agg="sum", label="runtime_total")
+weighted = mv.runtime_metric.weighted_mean(ref.measure("sales.orders.amount"), ref.measure("sales.orders.weight"), label="weighted")
+mixed = mv.runtime_metric.linear(add=(revenue, total), subtract=(weighted,), label="mixed")
 with ExitStack() as stack:
     for owner, name, kind in guards:
         stack.enter_context(patch.object(owner, name, reject(kind)))
@@ -130,6 +133,7 @@ with ExitStack() as stack:
         semantic_registry=semantic_registry, sidecar=sidecar, action_port=port,
         session_id='session-observation', store_id='store-observation',
     )
+    sources.observe((total, weighted, mixed)).metric(mixed).aggregate()
     event_delta = event_input.funnel().compare(event_input.funnel())
     event_attribution = event_delta.attribute(target=event_target, axes=[region])
     assert 'delta.attribute' in event_delta.contract().render()

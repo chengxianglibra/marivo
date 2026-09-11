@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
 from typing import Literal, NoReturn, cast
 
@@ -11,7 +12,7 @@ import ibis
 import ibis.expr.datatypes as dt
 
 from marivo._temporal import Grain as TemporalGrain
-from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag, _create_ref
+from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind, SemanticKindTag, _create_ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic._metric_resolution import (
     fold_ir_to_input,
@@ -48,6 +49,9 @@ from marivo.semantic.metric_graph import (
     TargetMetricContract,
     TargetMetricCumulative,
     WeightedMeanAggregateNodeV1,
+    component_node,
+    component_predicate,
+    node_child_ids,
 )
 from marivo.semantic.metric_graph_canonical import (
     canonicalize_slices,
@@ -55,8 +59,9 @@ from marivo.semantic.metric_graph_canonical import (
     intern_nodes,
     node_fingerprint,
 )
+from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.unit_algebra import linear_unit, linear_units_conflict, ratio_unit
-from marivo.semantic.validator import Registry, normalize_target_entity
+from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
 
 
 class MetricGraphLoweringError(ValueError):
@@ -940,8 +945,13 @@ def lower_catalog_metric(
     return lower_catalog_metrics(registry, (metric_id,), sidecar=sidecar)
 
 
-def _target_metric_error(metric_id: str, expected: str, received: str) -> NoReturn:
-    action = "Use typed governed aggregate, weighted-mean, ratio, linear, slice, or cumulative builders with exact component and temporal contracts."
+def _target_metric_error(
+    metric_id: str,
+    expected: str,
+    received: str,
+    *,
+    action: str = "Use typed governed aggregate, weighted-mean, ratio, linear, slice, or cumulative builders with exact component and temporal contracts.",
+) -> NoReturn:
     raise SemanticLoadError(
         kind="invalid_target_metric",
         message="The Metric cannot supply a private lazy computation contract.",
@@ -951,6 +961,41 @@ def _target_metric_error(metric_id: str, expected: str, received: str) -> NoRetu
         hint=action,
         repair=repair(kind="reauthor", canonical_id="metric", action=action),
     )
+
+
+def _validate_component_slice(
+    registry: Registry, condition: CanonicalSliceEntryV1, metric_id: str
+) -> None:
+    """Validate literal types against declared Dimension facts without source work."""
+    op, value = component_predicate(condition.value)
+    dimension = normalize_target_dimension(registry, condition.dimension_ref.path)
+    dtype = dt.dtype(dimension.logical_type)
+    values = value if isinstance(value, tuple) else (value,)
+    for scalar in values:
+        compatible = (
+            (scalar is None and op in ("==", "!=", "in"))
+            or (dtype.is_string() and type(scalar) is str)
+            or (dtype.is_boolean() and type(scalar) is bool)
+            or (dtype.is_integer() and type(scalar) is int)
+            or ((dtype.is_floating() or dtype.is_decimal()) and type(scalar) in (int, float))
+            or (dtype.is_temporal() and type(scalar) is str)
+        )
+        if compatible and scalar is not None:
+            try:
+                dt.normalize(dtype, scalar)
+            except (TypeError, ValueError, OverflowError):
+                compatible = False
+        if not compatible:
+            _target_metric_error(
+                metric_id,
+                f"slice {op!r} literals compatible with {dimension.ref.path} ({dtype})",
+                f"incompatible {type(scalar).__name__} literal",
+                action=(
+                    f"Replace the slice value for {dimension.ref.path} with a {dtype} literal "
+                    "or a sequence of that type for in/between. Use valid temporal strings "
+                    "for temporal Dimensions and non-null bounds for between."
+                ),
+            )
 
 
 def _target_measure_type(
@@ -989,6 +1034,105 @@ def normalize_target_metric(
     if metric_id not in registry.metrics:
         _target_metric_error(metric_id, "a loaded Metric", "Metric not loaded")
     forest = lower_catalog_metrics(registry, (metric_id,), sidecar=sidecar)
+    return _normalize_target_graph(
+        registry,
+        forest,
+        metric_id,
+        registry.metrics[metric_id].name,
+        sidecar,
+        _create_ref(SemanticKind.METRIC, metric_id),
+    )
+
+
+def normalize_target_metric_inputs(
+    registry: Registry,
+    inputs: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
+    *,
+    sidecar: CompiledExpressionSidecar | None = None,
+) -> tuple[TargetMetricContract, ...]:
+    """Normalize the complete bounded forest before deriving each root's state."""
+    from marivo.semantic.runtime_metric import runtime_metric_leaf_refs
+    from marivo.semantic.runtime_metric_lowering import lower_metric_inputs
+
+    for item in inputs:
+        if isinstance(item, RuntimeMetricExpr):
+            runtime_metric_leaf_refs(item)
+        if type(item) is Ref and item.path not in registry.metrics:
+            _target_metric_error(item.path, "a loaded Metric", "Metric not loaded")
+    forest = lower_metric_inputs(registry, inputs, sidecar=sidecar)
+    for presentation in forest.presentation.labels:
+        label = presentation.label
+        if (
+            not label.strip()
+            or len(label) > 160
+            or any(ord(char) < 32 for char in label)
+            or unicodedata.normalize("NFC", label) != label
+        ):
+            raise ValueError(
+                "Runtime Metric labels require non-empty NFC text of at most 160 characters without controls"
+            )
+    nodes = {item.node_id: item.node for item in forest.graph.nodes}
+    result: list[TargetMetricContract] = []
+    for index, (expression, root, identity, dependencies) in enumerate(
+        zip(inputs, forest.graph.roots, forest.identities, forest.root_dependency_refs, strict=True)
+    ):
+        reachable: set[str] = set()
+        pending = [root]
+        while pending:
+            node_id = pending.pop()
+            if node_id not in reachable:
+                reachable.add(node_id)
+                pending.extend(node_child_ids(nodes[node_id]))
+        prefix = f"root[{index}]"
+        root_forest = replace(
+            forest,
+            graph=replace(
+                forest.graph,
+                roots=(root,),
+                nodes=tuple(item for item in forest.graph.nodes if item.node_id in reachable),
+                occurrences=tuple(
+                    replace(
+                        item,
+                        path="root[0]" + item.path.removeprefix(prefix),
+                        child_paths=tuple(
+                            "root[0]" + path.removeprefix(prefix) for path in item.child_paths
+                        ),
+                    )
+                    for item in forest.graph.occurrences
+                    if item.path == prefix or item.path.startswith(prefix + ".")
+                ),
+            ),
+            identities=(identity,),
+            dependency_digest=dependency_digest(
+                registry,
+                sidecar=sidecar,
+                semantic_refs=tuple(_create_ref(item.kind, item.path) for item in dependencies),
+            ),
+        )
+        name = (
+            expression.label
+            if isinstance(expression, RuntimeMetricExpr)
+            else registry.metrics[expression.path].name
+        )
+        key = (
+            "runtime_metric:" + root
+            if isinstance(expression, RuntimeMetricExpr)
+            else expression.path
+        )
+        result.append(
+            _normalize_target_graph(registry, root_forest, key, name, sidecar, expression)
+        )
+    return tuple(result)
+
+
+def _normalize_target_graph(
+    registry: Registry,
+    forest: MetricExpressionForestV1,
+    metric_id: str,
+    name: str,
+    sidecar: CompiledExpressionSidecar | None,
+    expression: Ref[SemanticKindTag] | RuntimeMetricExpr,
+) -> TargetMetricContract:
     for dependency in forest.dependency_digest.entries:
         if dependency.ref.kind is not SemanticKind.METRIC:
             continue
@@ -1040,11 +1184,30 @@ def normalize_target_metric(
         else:
             policies[role] = declaration.fanout_policy
 
-    contribution_policies(metric_id, "value")
+    from marivo.semantic.runtime_metric import RuntimeLinearExpr, RuntimeRatioExpr, RuntimeSliceExpr
+
+    def input_policies(value: Ref[SemanticKindTag] | RuntimeMetricExpr, role: str) -> None:
+        if type(value) is Ref:
+            contribution_policies(value.path, role)
+        elif isinstance(value, RuntimeRatioExpr):
+            input_policies(value.numerator, f"{role}.numerator")
+            input_policies(value.denominator, f"{role}.denominator")
+        elif isinstance(value, RuntimeLinearExpr):
+            for index, term in enumerate((*value.add, *value.subtract)):
+                input_policies(term, f"{role}.term[{index}]")
+        elif isinstance(value, RuntimeSliceExpr):
+            input_policies(value.metric, role)
+
+    input_policies(expression, "value")
 
     def visit(node_id: str, role: str) -> tuple[str, bool, str | None]:
         nonlocal source_recompute
         node = nodes[node_id]
+        if isinstance(node, SliceNodeV1):
+            node = component_node(forest.graph, node_id)
+        if isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
+            for condition in node.filter:
+                _validate_component_slice(registry, condition, metric_id)
         if isinstance(node, AggregateNodeV1):
             if node.target_ref.kind is SemanticKind.ENTITY:
                 if node.agg not in ("count", "count_distinct"):
@@ -1228,6 +1391,8 @@ def normalize_target_metric(
             )
         if isinstance(node, CumulativeNodeV1):
             child = nodes[node.child_id]
+            if isinstance(child, SliceNodeV1):
+                child = component_node(forest.graph, node.child_id)
             if not (
                 isinstance(child, WeightedMeanAggregateNodeV1)
                 or (
@@ -1266,6 +1431,8 @@ def normalize_target_metric(
 
     output_type, nullable, unit = visit(forest.graph.roots[0], "value")
     root_node = nodes[forest.graph.roots[0]]
+    if isinstance(root_node, SliceNodeV1):
+        root_node = component_node(forest.graph, forest.graph.roots[0])
     null_rule: Literal["ignore_null_inputs", "non_null_pairs", "null_component_or_zero_denominator"]
     if isinstance(root_node, RatioNodeV1):
         null_rule = "null_component_or_zero_denominator"
@@ -1274,7 +1441,8 @@ def normalize_target_metric(
     else:
         null_rule = "ignore_null_inputs"
     return TargetMetricContract(
-        ref=_ref_payload("metric", metric_id),
+        identity=forest.identities[0],
+        name=name,
         graph=forest.graph,
         dependency_fingerprint=forest.dependency_digest.digest,
         computation_roots=tuple(
@@ -1290,7 +1458,9 @@ def normalize_target_metric(
         ),
         logical_type=output_type,
         nullable=nullable,
-        unit=registry.metrics[metric_id].unit_override or unit,
+        unit=(registry.metrics[metric_id].unit_override or unit)
+        if isinstance(forest.identities[0], CatalogMetricIdentity)
+        else unit,
         null_rule=null_rule,
         empty_rule="null" if nullable else "zero",
         cumulative=tuple(cumulative),

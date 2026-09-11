@@ -7,7 +7,7 @@ contains no executable expressions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 
 from typing_extensions import TypeAliasType
@@ -216,6 +216,58 @@ class MetricExpressionGraphV1:
     occurrences: tuple[ExpressionOccurrenceV1, ...]
 
 
+def component_predicate(
+    value: CanonicalValue,
+) -> tuple[str, CanonicalScalar | tuple[CanonicalScalar, ...]]:
+    """Validate the existing closed slice operators before execution admission."""
+    op = "in" if isinstance(value, tuple) else "=="
+    if (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and isinstance(value[0], tuple)
+        and len(value[0]) == 2
+        and value[0][0] == "op"
+        and isinstance(value[0][1], str)
+        and isinstance(value[1], tuple)
+        and len(value[1]) == 2
+        and value[1][0] == "value"
+    ):
+        op, value = value[0][1], value[1][1]
+    if op in ("in", "between"):
+        if not isinstance(value, tuple):
+            raise ValueError("Slice membership/range requires a scalar sequence")
+        scalars = tuple(
+            item for item in value if item is None or isinstance(item, (str, int, float, bool))
+        )
+        if len(scalars) != len(value) or not scalars or (op == "between" and len(scalars) != 2):
+            raise ValueError(
+                "Slice membership requires non-empty scalars; between requires two bounds"
+            )
+        return op, scalars
+    if op in ("==", "!=", ">", ">=", "<", "<=") and (
+        value is None or isinstance(value, (str, int, float, bool))
+    ):
+        if value is None and op not in ("==", "!="):
+            raise ValueError("Slice ordering requires a non-null scalar")
+        return op, value
+    raise ValueError("Slice comparison requires one registered operator and a scalar")
+
+
+def component_node(
+    graph: MetricExpressionGraphV1, node_id: str
+) -> AggregateNodeV1 | WeightedMeanAggregateNodeV1:
+    """Resolve a canonical leaf slice as one independently keyed contribution."""
+    nodes = {record.node_id: record.node for record in graph.nodes}
+    node = nodes[node_id]
+    predicates: tuple[CanonicalSliceEntryV1, ...] = ()
+    while isinstance(node, SliceNodeV1):
+        predicates += node.predicates
+        node = nodes[node.child_id]
+    if not isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
+        raise TypeError("Expected a canonical aggregate or sliced aggregate component")
+    return replace(node, filter=(*node.filter, *predicates)) if predicates else node
+
+
 @dataclass(frozen=True, slots=True)
 class TargetMetricComponent:
     """Intrinsic leaf state and role derived from the canonical Metric graph."""
@@ -247,7 +299,8 @@ class TargetMetricCumulative:
 class TargetMetricContract:
     """Private source-free Metric facts, with no coordinate admission claim."""
 
-    ref: RefPayloadV1
+    identity: MetricIdentity
+    name: str
     graph: MetricExpressionGraphV1
     dependency_fingerprint: str
     computation_roots: tuple[RefPayloadV1, ...]
@@ -262,6 +315,20 @@ class TargetMetricContract:
     cumulative: tuple[TargetMetricCumulative, ...] = ()
     source_requirements: tuple[str, ...] = ()
     requires_source_recompute: bool = False
+
+    @property
+    def key(self) -> str:
+        """Return the disjoint private catalog/runtime state key."""
+        if isinstance(self.identity, CatalogMetricIdentity):
+            return self.identity.metric_ref.path
+        return "runtime_metric:" + self.identity.expression_fingerprint
+
+    @property
+    def identity_id(self) -> str:
+        """Return the canonical Dataset field identity."""
+        if isinstance(self.identity, CatalogMetricIdentity):
+            return "metric:" + self.identity.metric_ref.path
+        return self.key
 
 
 @dataclass(frozen=True)

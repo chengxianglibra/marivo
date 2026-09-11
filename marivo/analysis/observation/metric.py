@@ -56,11 +56,11 @@ from marivo.analysis.operators.forecast_contracts import (
     ForecastHorizon,
     ForecastModel,
 )
-from marivo.refs import Ref, SemanticKind
+from marivo.refs import MetricKind, Ref, SemanticKind
 from marivo.semantic._quantile import QuantileMetricInput
 from marivo.semantic.catalog import MetricEntry
 from marivo.semantic.ir import TargetDimensionContract
-from marivo.semantic.metric_graph_lowering import normalize_target_metric
+from marivo.semantic.metric_graph_lowering import normalize_target_metric_inputs
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import normalize_target_entity
 
@@ -221,10 +221,12 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
             _rollup(self, drop_dimensions=drop_dimensions, grain=grain, drop_time=drop_time)
         )
 
-    def metric(self, metric: MetricInput) -> LogicalMetricDataset:
+    def metric(self, metric: MetricInput | DatasetFieldRef) -> LogicalMetricDataset:
         """Project one retained metric identity and return a Logical Metric.
 
-        Example: ``metrics.metric(revenue)``. Constraints: Exact retained identity only.
+        Args: metric: Exact Metric input or current retained Metric field selector.
+        Example: ``metrics.metric(metrics.fields.get("revenue"))``.
+        Constraints: The selector must belong to this Session and current binding.
         """
         return _project(self, metric)
 
@@ -383,10 +385,12 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
             _rollup(self, drop_dimensions=drop_dimensions, grain=grain, drop_time=drop_time)
         )
 
-    def metric(self, metric: MetricInput) -> LogicalMetricDataset:
+    def metric(self, metric: MetricInput | DatasetFieldRef) -> LogicalMetricDataset:
         """Project one retained metric identity and return Logical Metric.
 
-        Example: ``metrics.metric(revenue)``. Constraints: Consumes the exact scan leaf.
+        Args: metric: Exact Metric input or current retained Metric field selector.
+        Example: ``metrics.metric(metrics.fields.get("revenue"))``.
+        Constraints: Consumes the exact scan leaf; selectors retain Session ownership.
         """
         return _project(self, metric)
 
@@ -447,7 +451,8 @@ def make_observation(
         raise construction_error(
             "one to sixteen ordered Metrics", "empty or oversized Metric inputs"
         )
-    references = []
+    references: list[Ref[MetricKind] | RuntimeMetricExpr] = []
+    reference: Ref[MetricKind] | RuntimeMetricExpr
     for item in submitted:
         if isinstance(item, QuantileMetricInput):
             item = item.metric
@@ -455,21 +460,21 @@ def make_observation(
             if type(item) is not MetricEntry or item._catalog is not owner.catalog_identity:
                 raise construction_error("current exact Metric entry", "foreign or stale entry")
             reference = item.ref
-        elif type(item) is Ref and item.kind is SemanticKind.METRIC:
+        elif (type(item) is Ref and item.kind is SemanticKind.METRIC) or isinstance(
+            item, RuntimeMetricExpr
+        ):
             reference = item
-        elif isinstance(item, RuntimeMetricExpr):
-            raise construction_error(
-                "initial governed catalog Metric graph", "runtime expression outside this slice"
-            )
         else:
             raise construction_error("exact Metric ref or current entry", type(item).__name__)
         references.append(reference)
-    if len(set(references)) != len(references):
+    try:
+        normalized = normalize_target_metric_inputs(
+            owner.semantic_registry, tuple(references), sidecar=owner.sidecar
+        )
+    except (ValueError, TypeError) as error:
+        raise construction_error("a complete governed Metric graph", str(error)) from error
+    if len({item.identity_id for item in normalized}) != len(normalized):
         raise construction_error("duplicate-free exact Metric identities", "duplicate Metric")
-    normalized = tuple(
-        normalize_target_metric(owner.semantic_registry, item.path, sidecar=owner.sidecar)
-        for item in references
-    )
     distributions = []
     for item, metric in zip(submitted, normalized, strict=True):
         basis = make_distribution(
@@ -572,14 +577,17 @@ def make_observation(
                     ),
                 )
             )
-    from marivo.semantic.metric_graph import AggregateNodeV1, WeightedMeanAggregateNodeV1
+    from marivo.semantic.metric_graph import (
+        AggregateNodeV1,
+        WeightedMeanAggregateNodeV1,
+        component_node,
+    )
     from marivo.semantic.validator import normalize_target_dimension
 
     filter_dependencies: list[str] = []
     for metric in normalized:
-        nodes = {record.node_id: record.node for record in metric.graph.nodes}
         for component in metric.components:
-            node = nodes[component.node_id]
+            node = component_node(metric.graph, component.node_id)
             if not isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
                 continue
             for condition in node.filter:
@@ -630,6 +638,17 @@ def make_observation(
     )
     definition = coordinates.bind_aggregation(owner, definition)
     row, row_set = metric_contracts(definition, registry.get("metric").ids, owner.semantic_registry)
+    bindings = tuple(
+        (expression, field.field_id.value)
+        for expression, field in zip(
+            references,
+            (field for field in row.schema.columns if field.role_id == "metric"),
+            strict=True,
+        )
+        if isinstance(expression, RuntimeMetricExpr)
+    )
+    if bindings:
+        owner = replace(owner, runtime_metric_bindings=bindings)
     return _checked(
         _make_logical_dataset(
             owner=owner,
@@ -646,7 +665,7 @@ def make_observation(
                 "metric.component_reconciliation@v1",
                 "metric.source_capability@v1",
             ),
-            dependency_facts=tuple(f"metric:{item.ref.path}" for item in normalized),
+            dependency_facts=tuple(item.identity_id for item in normalized),
             contract_versions=producer_contract("session.observe").versions,
         )
     )
@@ -689,14 +708,14 @@ def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> Logic
     )
 
 
-def _project(dataset: Dataset, metric: MetricInput) -> LogicalMetricDataset:
+def _project(dataset: Dataset, metric: MetricInput | DatasetFieldRef) -> LogicalMetricDataset:
     if isinstance(metric, QuantileMetricInput):
         raise construction_error(
             "a Metric ref selecting an existing percentile method",
             "a quantile method input at projection",
             repair="Select the Metric ref here; author percentile methods only in observe().",
         )
-    selector = dataset.fields.metric(metric)
+    selector = metric if isinstance(metric, DatasetFieldRef) else dataset.fields.metric(metric)
     from marivo.analysis.datasets.fields import validate_field_ref
 
     selected = validate_field_ref(dataset, selector, allowed_roles=("metric",))
@@ -739,28 +758,34 @@ def _project(dataset: Dataset, metric: MetricInput) -> LogicalMetricDataset:
     payload: MetricPayload | RetainedRowsPayload
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, MetricPayload):
         identity = selected.identity
-        from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity
+        from marivo.analysis.datasets.descriptors import (
+            _CatalogFieldIdentity,
+            _RuntimeMetricFieldIdentity,
+        )
 
-        if not isinstance(identity, _CatalogFieldIdentity):
-            raise construction_error(
-                "initial catalog Metric identity", "unsupported runtime Metric"
-            )
+        if not isinstance(identity, (_CatalogFieldIdentity, _RuntimeMetricFieldIdentity)):
+            raise construction_error("a retained Metric identity", "invalid value identity")
+        selected_key = next(
+            metric.key
+            for metric in root.payload.definition.metrics
+            if metric.identity_id == identity.identity_id
+        )
         definition = replace(
             root.payload.definition,
             metrics=tuple(
                 item
                 for item in root.payload.definition.metrics
-                if f"metric:{item.ref.path}" == identity.identity_id
+                if item.identity_id == identity.identity_id
             ),
             distributions=tuple(
                 item
                 for item in root.payload.definition.distributions
-                if f"metric:{item.metric_ref}" == identity.identity_id
+                if item.metric_ref == selected_key
             ),
             distinct_memberships=tuple(
                 item
                 for item in root.payload.definition.distinct_memberships
-                if f"metric:{item.metric_ref}" == identity.identity_id
+                if item.metric_ref == selected_key
             ),
         )
         payload = MetricPayload(

@@ -6,8 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from marivo.introspection._fuzzy import did_you_mean
-from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind, SemanticKindTag
-from marivo.refs import ref as ref_factory
+from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind, SemanticKindTag, _create_ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic._metric_resolution import (
     fold_input_to_ir,
@@ -609,7 +608,7 @@ def lower_metric_inputs(
             identities.append(
                 CatalogMetricIdentity(
                     kind="catalog",
-                    metric_ref=RefPayloadV1.from_ref(ref_factory.metric(catalog_id)),
+                    metric_ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.METRIC, catalog_id)),
                 )
             )
         else:

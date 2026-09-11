@@ -71,7 +71,7 @@ def validate_driver_definition(definition: DriverCandidateDefinition) -> None:
         len(current.metrics) != 1
         or len(baseline.metrics) != 1
         or current.metrics != baseline.metrics
-        or "metric:" + current.metrics[0].metric_ref != definition.metric_key
+        or d._metric_identity_id(current.metrics[0].metric_ref) != definition.metric_key
         or current.time_grain() != baseline.time_grain()
         or current.temporal_snapshot() != baseline.temporal_snapshot()
         or (definition.metric_unit is not None and type(definition.metric_unit) is not str)
@@ -180,7 +180,7 @@ def driver_axes(
         original.approximation_class,
         original.current_fold_authority,
         original.baseline_fold_authority,
-        "metric:" + original.metric_ref,
+        d._metric_identity_id(original.metric_ref),
         original.metric_unit,
         paths,
         scope,

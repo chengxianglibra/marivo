@@ -74,7 +74,8 @@ def finding_registration(descriptor: ArtifactDescriptor) -> FindingRegistration:
         raise invalid("missing Association authority")
     subjects = tuple(
         t.AssociationFindingSubjectV1(
-            metric_a=d._catalog_identity(a), metric_b=d._catalog_identity(b)
+            metric_a=d._metric_identity_from_key(a.removeprefix("metric:")),
+            metric_b=d._metric_identity_from_key(b.removeprefix("metric:")),
         )
         for a, b in combinations(s.metric_keys, 2)
     )
@@ -174,7 +175,8 @@ def build_association_publication(
             continue
         assert isinstance(coefficient, float)
         subject = t.AssociationFindingSubjectV1(
-            metric_a=d._catalog_identity(a), metric_b=d._catalog_identity(b)
+            metric_a=d._metric_identity_from_key(a.removeprefix("metric:")),
+            metric_b=d._metric_identity_from_key(b.removeprefix("metric:")),
         )
         lag = (
             t.AssociationLagV1(

@@ -808,6 +808,21 @@ class DatasetRuntime:
         result = self._execute(dataset)
         if not isinstance(result, MaterializedMetricDataset):
             raise _error("presentation")
+        if dataset._owner.runtime_metric_bindings:
+            from marivo.analysis.datasets.base import _make_materialized_dataset
+
+            result = _make_materialized_dataset(
+                owner=replace(
+                    result._owner, runtime_metric_bindings=dataset._owner.runtime_metric_bindings
+                ),
+                registry=result._registry,
+                family_id="metric",
+                row_contract=result.row_contract,
+                row_set_contract=result.row_set_contract,
+                state=result.state,
+                definition_fingerprint=result.definition_fingerprint,
+            )
+            assert isinstance(result, MaterializedMetricDataset)
         return result
 
     def execute_population(

@@ -1132,6 +1132,18 @@ Catalog inputs use exact current-catalog normalization. A
 one stable non-empty public label, resolve a complete governed Metric graph,
 and satisfy the same Entity and aggregation contracts as a catalog Metric.
 
+Normalization preserves the ordered catalog/runtime forest and each root's full
+governed dependency closure. Canonical leaf slices remain independently keyed
+contributions: their predicates apply before aggregation and remain represented
+in retained fold authority, even when another branch uses the same unsliced
+Measure. Labels are presentation metadata, not catalog paths or value identity.
+In-process expression selectors require a retained owner binding; cold recovery
+exposes the persisted fields without inventing live expression authority.
+Component slice literals are checked against the declared Dimension type during
+normalization, including membership elements and non-null range bounds. An
+incompatible or unparseable literal fails before Run admission with the exact
+Dimension and a typed-value repair.
+
 One Metric may be passed directly. A list or tuple must be non-empty, ordered,
 duplicate-free, and within the registered arity bound. Sets, generators,
 mappings, arbitrary iterables, strings, physical columns, callables, pandas
@@ -1533,7 +1545,11 @@ Metric projection is lazy:
 one = features.metric(revenue)
 ```
 
-Its signature accepts one exact Metric identity already present in the Dataset.
+Its signature accepts one exact Metric identity already present in the Dataset,
+or a current Session-owned `DatasetFieldRef` with the Metric role. After cold
+recovery, use `features.metric(features.fields.get("revenue"))` (or the retained
+field id) without rebuilding a Runtime expression. The selector must match the
+current field binding; foreign, stale and non-Metric selectors fail locally.
 It returns another `MetricDataset` with:
 
 - the same Population and target-Population authority;

@@ -51,7 +51,13 @@ class SourceBinding:
     def same_domain(self, other: ExecutionBinding) -> bool:
         return (
             isinstance(other, SourceBinding)
-            and self.owner is other.owner
+            and self.owner.session_id == other.owner.session_id
+            and self.owner.store_id == other.owner.store_id
+            and self.owner.catalog_identity is other.owner.catalog_identity
+            and self.owner.semantic_registry is other.owner.semantic_registry
+            and self.owner.sidecar is other.owner.sidecar
+            and self.owner.binding_scopes is other.owner.binding_scopes
+            and self.owner.action_port is other.owner.action_port
             and self.datasource_id == other.datasource_id
             and self.adapter == other.adapter
             and self.adapter_versions == other.adapter_versions

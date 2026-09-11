@@ -229,7 +229,7 @@ def _definition(
             raise discovery_error("one time-bearing Delta", "unsupported discovery receiver")
         fold = incoming.current_fold_authority
         baseline = incoming.baseline_fold_authority
-        metric_key = "metric:" + incoming.metric_ref
+        metric_key = d._metric_identity_id(incoming.metric_ref)
         metric_unit = incoming.metric_unit
         approximation = incoming.approximation_class
     else:
@@ -241,7 +241,9 @@ def _definition(
             )
             or entity_objective != isinstance(incoming, EntityPresentMetricSemantics)
             or len(metrics) != 1
-            or not isinstance(metrics[0].identity, d._CatalogFieldIdentity)
+            or not isinstance(
+                metrics[0].identity, (d._CatalogFieldIdentity, d._RuntimeMetricFieldIdentity)
+            )
             or (
                 not metrics[0].logical_type_id.startswith(("int", "uint", "float", "decimal"))
                 and metrics[0].logical_type_id not in ("integer", "floating")
@@ -312,7 +314,7 @@ def validate_definition(definition: CandidateDefinition) -> None:
     authority = decode_fold_authority(definition.fold_authority)
     if (
         len(authority.metrics) != 1
-        or "metric:" + authority.metrics[0].metric_ref != definition.metric_key
+        or d._metric_identity_id(authority.metrics[0].metric_ref) != definition.metric_key
         or (definition.objective != "entity_outliers" and authority.time_grain() is None)
         or (definition.objective == "entity_outliers" and authority.time_grain() is not None)
         or (definition.metric_unit is not None and type(definition.metric_unit) is not str)

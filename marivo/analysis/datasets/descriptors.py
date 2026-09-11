@@ -202,6 +202,10 @@ class _RuntimeMetricFieldIdentity(DatasetFieldIdentity, _token=_CORE_TOKEN):
     expression_fingerprint: str
     kind: Literal["runtime_metric"] = field(default="runtime_metric", init=False)
 
+    @property
+    def identity_id(self) -> str:
+        return "runtime_metric:" + self.expression_fingerprint
+
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class _GeneratedFieldIdentity(DatasetFieldIdentity, _token=_CORE_TOKEN):
@@ -426,6 +430,17 @@ def _runtime_metric_identity(expression_fingerprint: str) -> DatasetFieldIdentit
     return _RuntimeMetricFieldIdentity(
         _token=_CORE_TOKEN, expression_fingerprint=expression_fingerprint
     )
+
+
+def _metric_identity_from_key(key: str) -> DatasetFieldIdentity:
+    """Decode the disjoint private Metric key without inventing catalog refs."""
+    if key.startswith("runtime_metric:"):
+        return _runtime_metric_identity(key.removeprefix("runtime_metric:"))
+    return _catalog_identity("metric:" + key)
+
+
+def _metric_identity_id(key: str) -> str:
+    return key if key.startswith("runtime_metric:") else "metric:" + key
 
 
 def _generated_identity(producer_field_id: DatasetFieldId) -> DatasetFieldIdentity:

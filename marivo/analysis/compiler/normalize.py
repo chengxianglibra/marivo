@@ -39,7 +39,7 @@ from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.semantic.ir import TargetEntityContract
-from marivo.semantic.metric_graph import AggregateNodeV1, WeightedMeanAggregateNodeV1
+from marivo.semantic.metric_graph import component_node
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
 
 
@@ -124,20 +124,15 @@ def required_entities(
                             registry, component.status_time_dimension.path
                         )
                         path(component.computation_root.path, axis.entity_ref.path)
-                for record in metric.graph.nodes:
-                    node = record.node
-                    if isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
-                        for condition in node.filter:
-                            dimension = normalize_target_dimension(
-                                registry, condition.dimension_ref.path
-                            )
-                            for component in metric.components:
-                                if component.node_id == record.node_id:
-                                    source = component.computation_root.path
-                                    route = governed_path(
-                                        registry, source, dimension.entity_ref.path
-                                    )
-                                    ids.update(path_entities(registry, source, (route,)))
+                for component in metric.components:
+                    node = component_node(metric.graph, component.node_id)
+                    for condition in node.filter:
+                        dimension = normalize_target_dimension(
+                            registry, condition.dimension_ref.path
+                        )
+                        source = component.computation_root.path
+                        route = governed_path(registry, source, dimension.entity_ref.path)
+                        ids.update(path_entities(registry, source, (route,)))
         elif not isinstance(
             payload,
             (
