@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.contracts import RunFailure
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.resources import discharge_resources
 from marivo.analysis.materialization.store import SessionStore
 from marivo.introspection.live.model import LiveHelpTarget
@@ -21,13 +22,37 @@ def reconcile_session(
     *,
     event: Callable[[str], None],
     object_bindings: tuple[S3Access, ...] = (),
+    run_ref: str | None = None,
 ) -> None:
-    """Resolve only the guarded Session's admissions and exact resource obligations."""
+    """Resolve guarded Session obligations, optionally selecting one exact Run.
+
+    The caller owns the Session writer guard. Selection never bypasses backend
+    terminal/fencing proof or admits a successful publication.
+    """
     event("reconciliation")
     entries = store.recovery_snapshot(session_ref)
+    if run_ref is not None:
+        selected = store.run(run_ref)
+        if (
+            selected is None
+            or selected.session_ref != session_ref
+            or selected.lifecycle == "succeeded"
+        ):
+            raise MaterializationError(
+                expected="an incomplete or failed Run belonging to the selected Session",
+                received="unknown or foreign Run"
+                if selected is None or selected.session_ref != session_ref
+                else "committed success",
+                repair="Inspect this Session's Runs and select an incomplete or failed Run for recovery.",
+                stage="reconciliation",
+                run_ref=run_ref,
+            )
+        # A failed Run with no remaining obligations is an idempotent success.
     # The read transaction is closed before any external proof or deletion.
     for entry in entries:
         run = entry.run
+        if run_ref is not None and run.run_ref != run_ref:
+            continue
         resolved = discharge_resources(store, entry.resources, object_bindings)
         if run.lifecycle == "incomplete":
             store.fail(

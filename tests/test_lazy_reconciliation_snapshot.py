@@ -15,7 +15,7 @@ from marivo.analysis.materialization.contracts import (
     RunFailure,
     RunRecord,
 )
-from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
 from marivo.analysis.materialization.resources import (
     backend_reservation,
     confirm_execution_termination,
@@ -302,3 +302,45 @@ def test_local_execution_proof_retires_only_after_durable_discharge(
     store.discharge(resource)
     assert store.resources("session") == ()
     assert not confirm_execution_termination(resource)
+
+
+@pytest.mark.parametrize("selection", ("missing", "foreign", "succeeded", "failed"))
+def test_exact_run_selection_is_checked_by_reconciliation_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selection: str
+) -> None:
+    store = _store(tmp_path)
+    if selection == "foreign":
+        store.create_session("foreign", session_ref="foreign")
+        store.admit("foreign", "f" * 64, _input(), run_ref="selected")
+    elif selection == "succeeded":
+        store.publish("run", "artifact", descriptor())
+        store.admit("session", "f" * 64, _input(), run_ref="pending")
+    elif selection == "failed":
+        store.fail("run", _failure())
+        store.admit("session", "f" * 64, _input(), run_ref="pending")
+    run_ref = (
+        "missing" if selection == "missing" else "selected" if selection == "foreign" else "run"
+    )
+    with sqlite3.connect(store.db_path) as connection:
+        before = tuple(connection.iterdump())
+
+    def forbidden(*args: object, **kwargs: object) -> tuple[ResourceRecord, ...]:
+        pytest.fail("invalid or completed selection must not touch external resources")
+
+    monkeypatch.setattr(reconciliation, "discharge_resources", forbidden)
+    with session_writer_guard(store.layout.lock_path("session")):
+        if selection == "failed":
+            reconciliation.reconcile_session(
+                store, "session", event=lambda _: None, run_ref=run_ref
+            )
+        else:
+            with pytest.raises(MaterializationError) as caught:
+                reconciliation.reconcile_session(
+                    store, "session", event=lambda _: None, run_ref=run_ref
+                )
+            assert caught.value.stage == "reconciliation"
+            assert caught.value.run_ref == run_ref
+            assert caught.value.expected and caught.value.received
+            assert caught.value.repair is not None
+    with sqlite3.connect(store.db_path) as connection:
+        assert tuple(connection.iterdump()) == before
