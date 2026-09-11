@@ -124,6 +124,8 @@ from marivo.semantic.metric_graph import (
     SliceNodeV1,
     TargetMetricContract,
     WeightedMeanAggregateNodeV1,
+    component_node,
+    component_predicate,
 )
 from marivo.semantic.validator import normalize_target_dimension
 
@@ -197,7 +199,7 @@ def _and(predicates: list[ir.BooleanValue]) -> ir.BooleanValue:
 
 
 def _hidden(metric: TargetMetricContract, node_id: str, state: str) -> str:
-    digest = _canonical_digest((metric.ref.path, node_id))[:20]
+    digest = _canonical_digest((metric.key, node_id))[:20]
     return f"__mv_{digest}_{state}"
 
 
@@ -1104,7 +1106,7 @@ class _Compiler:
         membership: ir.Table,
         selections: tuple[_Selection, ...] = (),
     ) -> tuple[ir.Table, ir.Table | None]:
-        node = next(record.node for record in metric.graph.nodes if record.node_id == node_id)
+        node = component_node(metric.graph, node_id)
         component = next(item for item in metric.components if item.node_id == node_id)
         root = component.computation_root.path
         table = self.tables[root]
@@ -1154,26 +1156,28 @@ class _Compiler:
             )
         for index, condition in enumerate(node.filter):
             alias = f"__mv_filter_{index}"
-            value = condition.value
-            if (
-                isinstance(value, tuple)
-                and len(value) == 2
-                and value[0] == ("op", "in")
-                and isinstance(value[1], tuple)
-                and len(value[1]) == 2
-                and value[1][0] == "value"
-            ):
-                value = value[1][1]
-            if isinstance(value, tuple) and all(
-                isinstance(item, (str, int, float, bool)) for item in value
-            ):
-                table = table.filter(table[alias].isin(value))
-            elif value is None or isinstance(value, (str, int, float, bool)):
-                table = table.filter(
-                    table[alias].isnull() if value is None else table[alias] == value
-                )
+            op, value = component_predicate(condition.value)
+            column = table[alias]
+            if op == "in" and isinstance(value, tuple):
+                table = table.filter(column.isin(value))
+            elif op == "between" and isinstance(value, tuple):
+                table = table.filter((column >= value[0]) & (column <= value[1]))
+            elif not isinstance(value, tuple):
+                if op == "==":
+                    predicate = column.isnull() if value is None else column == value
+                elif op == "!=":
+                    predicate = column.notnull() if value is None else column != value
+                elif op == ">":
+                    predicate = column > value
+                elif op == ">=":
+                    predicate = column >= value
+                elif op == "<":
+                    predicate = column < value
+                else:
+                    predicate = column <= value
+                table = table.filter(predicate)
             else:
-                raise compilation_error("scalar component slice", "unsupported slice literal")
+                raise compilation_error("a registered component slice", "invalid slice value")
         if node.filter:
             table = table.select(*original_columns).distinct()
         if metric.cumulative and definition.time_axis is not None:
@@ -1198,7 +1202,7 @@ class _Compiler:
                 ((status_axis.source_column, "__mv_status"),),
             )
             self._count(
-                f"{metric.ref.path}.status_time_non_null",
+                f"{metric.key}.status_time_non_null",
                 table.filter(table["__mv_status"].isnull()),
             )
             keys.append("__mv_status")
@@ -1245,7 +1249,7 @@ class _Compiler:
                         (
                             item
                             for item in definition.distributions
-                            if item.metric_ref == metric.ref.path
+                            if item.metric_ref == metric.key
                         ),
                         None,
                     )
@@ -1399,6 +1403,8 @@ class _Compiler:
                 nodes: dict[str, MetricGraphNodeV1] = nodes,
             ) -> ir.Value:
                 node = nodes[node_id]
+                if any(component.node_id == node_id for component in metric.components):
+                    node = component_node(metric.graph, node_id)
                 if isinstance(node, AggregateNodeV1):
                     component = next(item for item in metric.components if item.node_id == node_id)
                     if component.requires_source_recompute:
@@ -1429,7 +1435,7 @@ class _Compiler:
                     )
                     if node.zero_division == "error":
                         self._count(
-                            f"{metric.ref.path}.nonzero_denominator", table.filter(denominator == 0)
+                            f"{metric.key}.nonzero_denominator", table.filter(denominator == 0)
                         )
                     return numerator / denominator.nullif(0)
                 if isinstance(node, LinearNodeV1):
@@ -1471,9 +1477,9 @@ class _Compiler:
                 part, private_relation = self._component(
                     metric, node_id, definition, membership, selections
                 )
-                if private_relation is not None and metric.ref.path in required_private_parts:
+                if private_relation is not None and metric.key in required_private_parts:
                     retained_private_parts.append(
-                        (required_private_parts[metric.ref.path][0], private_relation)
+                        (required_private_parts[metric.key][0], private_relation)
                     )
                 names = _state_names(metric)
                 keys = tuple(name for name in part.columns if not name.startswith("__mv_"))

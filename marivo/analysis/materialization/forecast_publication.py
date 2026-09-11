@@ -142,7 +142,9 @@ def finding_registration(descriptor: ArtifactDescriptor) -> FindingRegistration:
         extractor_contract_version=str(contract.finding_extractor_version),
         shape_id=descriptor.row_contract.shape_id,
         finding_type="forecast_point",
-        subject=t.MetricFindingSubjectV1(metric=d._catalog_identity(s.metric_key)),
+        subject=t.MetricFindingSubjectV1(
+            metric=d._metric_identity_from_key(s.metric_key.removeprefix("metric:"))
+        ),
         coordinates=tuple(
             CoordinateRule(f, "time" if f.role_id == "time_dimension" else "dimension")
             for f in descriptor.realized_schema.columns

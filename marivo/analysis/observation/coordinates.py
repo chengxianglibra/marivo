@@ -35,6 +35,7 @@ from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CumulativeAnchorV1,
     WeightedMeanAggregateNodeV1,
+    component_node,
 )
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
 
@@ -191,7 +192,7 @@ def _bind_coordinate_path(
                 if component.fanout_policy != "aggregate_then_join":
                     raise construction_error(
                         "a contribution-safe coordinate path for every component",
-                        f"{metric.ref.path}:{component.role}: fanout to {axis.ref.path}",
+                        f"{metric.key}:{component.role}: fanout to {axis.ref.path}",
                         repair="Use a coordinate on the component's contribution root, or author the exact aggregate_then_join Metric contract.",
                     )
                 overlap = True
@@ -352,9 +353,8 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
     contracts = []
     selected_snapshot = definition.temporal_snapshot
     for metric in definition.metrics:
-        nodes = {record.node_id: record.node for record in metric.graph.nodes}
         for component in metric.components:
-            node = nodes[component.node_id]
+            node = component_node(metric.graph, component.node_id)
             if isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
                 for condition in node.filter:
                     dimension = normalize_target_dimension(
@@ -373,7 +373,7 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
                     ):
                         raise construction_error(
                             "a governed semijoin contribution filter",
-                            f"{metric.ref.path}:{component.role}: unsafe fanout filter",
+                            f"{metric.key}:{component.role}: unsafe fanout filter",
                             repair="Author this component's exact aggregate_then_join contract before using its one-to-many filter.",
                         )
         axes = tuple(
@@ -391,7 +391,7 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
         if len(axes) > 1:
             raise construction_error(
                 "one common governed status/cumulative time axis",
-                f"{metric.ref.path}: incompatible component time axes",
+                f"{metric.key}: incompatible component time axes",
             )
         if metric.cumulative:
             keys = {_anchor_key(item.anchor) for item in metric.cumulative}
@@ -401,12 +401,12 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
             ):
                 raise construction_error(
                     "compatible cumulative anchors on every component",
-                    f"{metric.ref.path}: mixed cumulative component graph",
+                    f"{metric.key}: mixed cumulative component graph",
                 )
             if definition.time_axis is None and definition.time_scope is None:
                 raise construction_error(
                     "a finite cumulative evaluation endpoint without a time coordinate",
-                    f"{metric.ref.path}: missing observation time_scope",
+                    f"{metric.key}: missing observation time_scope",
                     repair="Supply an explicit finite observation time_scope; membership scope does not provide an evaluation endpoint.",
                 )
             for cumulative in metric.cumulative:
@@ -421,14 +421,14 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
                     if selected_snapshot is not None and selected_snapshot != snapshot:
                         raise construction_error(
                             "one compatible certified calendar authority",
-                            f"{metric.ref.path}: incompatible reset calendar",
+                            f"{metric.key}: incompatible reset calendar",
                         )
                     selected_snapshot = snapshot
         if definition.time_axis is not None:
             if axes and definition.time_axis.ref.path != axes[0]:
                 raise construction_error(
                     "the exact governed status/cumulative time axis",
-                    f"{metric.ref.path}: {definition.time_axis.ref.path}",
+                    f"{metric.key}: {definition.time_axis.ref.path}",
                 )
             grain = definition.grain
             if grain is None:
@@ -445,7 +445,7 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
                     if width is None or grain.count is None or span % (width * grain.count):
                         raise construction_error(
                             "a trailing span divisible by the fixed query grain",
-                            f"{metric.ref.path}:{item.role}: incompatible trailing grain",
+                            f"{metric.key}:{item.role}: incompatible trailing grain",
                         )
                 else:
                     reset = anchor[1]
@@ -478,7 +478,7 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
                         ):
                             raise construction_error(
                                 "display buckets contained in one certified reset period",
-                                f"{metric.ref.path}:{item.role}",
+                                f"{metric.key}:{item.role}",
                             )
                     else:
                         token = reset.to_token() if isinstance(reset, Grain) else reset
@@ -491,7 +491,7 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
                         ):
                             raise construction_error(
                                 "display buckets contained in one reset period",
-                                f"{metric.ref.path}:{item.role}: {grain.to_token()} under {token}",
+                                f"{metric.key}:{item.role}: {grain.to_token()} under {token}",
                             )
         partitions = (
             ("entity_identity", "disjoint"),
@@ -499,7 +499,7 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
         )
         contracts.append(
             MetricCoordinateAggregationV1(
-                metric.ref.path,
+                metric.key,
                 tuple(component.role for component in metric.components),
                 partitions,
                 axes,

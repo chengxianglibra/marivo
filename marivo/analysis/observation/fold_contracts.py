@@ -33,10 +33,13 @@ from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CumulativeNodeV1,
     LinearNodeV1,
+    MetricGraphNodeV1,
     RatioNodeV1,
     SliceNodeV1,
     TargetMetricContract,
     WeightedMeanAggregateNodeV1,
+    component_node,
+    node_child_ids,
 )
 
 if TYPE_CHECKING:
@@ -296,14 +299,15 @@ def _metric_authority(
     nodes: list[FoldNodeV1] = []
     by_id = {item.node_id: item.node for item in metric.graph.nodes}
     membership = next(
-        (item for item in definition.distinct_memberships if item.metric_ref == metric.ref.path),
+        (item for item in definition.distinct_memberships if item.metric_ref == metric.key),
         None,
     )
     distribution = next(
-        (item for item in definition.distributions if item.metric_ref == metric.ref.path), None
+        (item for item in definition.distributions if item.metric_ref == metric.key), None
     )
+    node: MetricGraphNodeV1
     for component in {item.node_id: item for item in metric.components}.values():
-        node = by_id[component.node_id]
+        node = component_node(metric.graph, component.node_id)
         kind: Literal["sum", "count", "min", "max", "mean", "weighted_mean", "opaque"] = "opaque"
         if isinstance(node, WeightedMeanAggregateNodeV1):
             kind = "weighted_mean"
@@ -349,7 +353,7 @@ def _metric_authority(
             kind = "opaque"
         if cumulative:
             temporal = "last"
-        digest = _canonical_digest((metric.ref.path, component.node_id))[:20]
+        digest = _canonical_digest((metric.key, component.node_id))[:20]
         components.append(
             FoldComponentV1(
                 node_id=component.node_id,
@@ -370,8 +374,19 @@ def _metric_authority(
                 cumulative=cumulative,
             )
         )
+    component_ids = {item.node_id for item in metric.components}
+    reachable: set[str] = set()
+    pending = list(metric.graph.roots)
+    while pending:
+        node_id = pending.pop()
+        if node_id not in reachable:
+            reachable.add(node_id)
+            if node_id not in component_ids:
+                pending.extend(node_child_ids(by_id[node_id]))
     for node_id, node in by_id.items():
-        if isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
+        if node_id not in reachable:
+            continue
+        if node_id in component_ids:
             nodes.append(FoldNodeV1(node_id=node_id, kind="component"))
         elif isinstance(node, RatioNodeV1):
             nodes.append(
@@ -409,11 +424,11 @@ def _metric_authority(
             )
             nodes.append(FoldNodeV1(node_id=node_id, kind="component"))
     contract = next(
-        item for item in definition.aggregation_contracts if item.metric_ref == metric.ref.path
+        item for item in definition.aggregation_contracts if item.metric_ref == metric.key
     )
     return MetricFoldAuthorityV1(
-        metric_ref=metric.ref.path,
-        field_id=f"metric.{_canonical_digest(metric.ref.path)[:32]}@v1",
+        metric_ref=metric.key,
+        field_id=f"metric.{_canonical_digest(metric.key)[:32]}@v1",
         root_id=metric.graph.roots[0],
         nodes=tuple(nodes),
         components=tuple(components),

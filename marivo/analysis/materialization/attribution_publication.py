@@ -138,9 +138,7 @@ def finding_registration(descriptor: ArtifactDescriptor) -> FindingRegistration 
         extractor_contract_version=str(contract.finding_extractor_version),
         shape_id=descriptor.row_contract.shape_id,
         finding_type="contribution",
-        subject=t.MetricFindingSubjectV1(
-            metric=d._catalog_identity("metric:" + semantics.metric_ref)
-        ),
+        subject=t.MetricFindingSubjectV1(metric=d._metric_identity_from_key(semantics.metric_ref)),
         coordinates=tuple(coordinates),
         source_artifact_refs=tuple(
             ArtifactRef(ref=ref)

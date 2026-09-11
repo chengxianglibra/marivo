@@ -47,9 +47,7 @@ def make_distribution(
         or metric.components[0].time_fold is not None
     ):
         return None
-    kind, _, _ = _target_measure_type(
-        registry, node.target_ref.path, sidecar, metric_id=metric.ref.path
-    )
+    kind, _, _ = _target_measure_type(registry, node.target_ref.path, sidecar, metric_id=metric.key)
     if not dt.dtype(kind).is_numeric():
         return None
     from marivo.refs import _create_ref
@@ -58,7 +56,7 @@ def make_distribution(
     column = sidecar.bodies[_create_ref(SemanticKind.MEASURE, node.target_ref.path)].source_column
     assert column is not None
     return DistributionAuthorityV1(
-        metric_ref=metric.ref.path,
+        metric_ref=metric.key,
         aggregate_node_id=metric.components[0].node_id,
         target_ref=node.target_ref.path,
         computation_root=metric.components[0].computation_root.path,

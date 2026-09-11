@@ -31,6 +31,8 @@ from marivo.analysis.datasets.descriptors import (
     _make_row_set_contract,
     _make_schema,
     _make_shape_id,
+    _runtime_metric_identity,
+    _RuntimeMetricFieldIdentity,
     _singleton_cardinality,
     _StableIdRegistry,
     _unknown_row_bound,
@@ -91,7 +93,7 @@ from marivo.semantic.ir import (
     TargetValiditySelection,
     TargetValidityVersion,
 )
-from marivo.semantic.metric_graph import TargetMetricContract
+from marivo.semantic.metric_graph import CatalogMetricIdentity, TargetMetricContract
 from marivo.semantic.metric_graph_lowering import dependency_digest
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import Registry
@@ -700,7 +702,7 @@ class MetricDefinition:
             entity_payload(self.entity),
             tuple(
                 (
-                    item.ref.path,
+                    item.key,
                     item.dependency_fingerprint,
                     item.required_state,
                     item.logical_type,
@@ -1119,13 +1121,17 @@ def metric_contracts(
     columns = list(coordinates)
     bindings: list[MetricBinding] = []
     for metric in definition.metrics:
-        field_id = _make_field_id(f"metric.{_canonical_digest(metric.ref.path)[:32]}@v1")
+        field_id = _make_field_id(f"metric.{_canonical_digest(metric.key)[:32]}@v1")
         columns.append(
             _make_field(
                 field_id=field_id,
-                name=registry.metrics[metric.ref.path].name,
+                name=metric.name,
                 role_id="metric",
-                identity=_catalog_identity(f"metric:{metric.ref.path}"),
+                identity=(
+                    _catalog_identity(metric.identity_id)
+                    if isinstance(metric.identity, CatalogMetricIdentity)
+                    else _runtime_metric_identity(metric.identity.expression_fingerprint)
+                ),
                 derivation_identity=metric.dependency_fingerprint,
                 logical_type_id=metric.logical_type,
                 physical_type_state=_deferred_type(metric.logical_type, ids=ids),
@@ -1142,7 +1148,7 @@ def metric_contracts(
                 or tuple(
                     dict.fromkeys(
                         state
-                        for component in fold_metrics[metric.ref.path].components
+                        for component in fold_metrics[metric.key].components
                         for state, _ in component.state_columns
                     )
                 ),
@@ -1200,7 +1206,7 @@ def metric_contracts(
             _token=_CORE_TOKEN,
             name=(
                 column.identity.identity_id.replace(":", "__").replace(".", "__")
-                if isinstance(column.identity, _CatalogFieldIdentity)
+                if isinstance(column.identity, (_CatalogFieldIdentity, _RuntimeMetricFieldIdentity))
                 and (names.count(column.name) > 1 or column.name == "entity_identity")
                 else column.name
             ),
@@ -1327,10 +1333,28 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
         raise construction_error(
             "coordinates followed by ordered Metric values", "invalid field role order"
         )
-    if any(not isinstance(column.identity, _CatalogFieldIdentity) for column in values):
+    if any(
+        not isinstance(column.identity, (_CatalogFieldIdentity, _RuntimeMetricFieldIdentity))
+        for column in values
+    ):
         raise construction_error(
-            "exact initial catalog Metric identities", "invalid value identity"
+            "exact catalog or runtime Metric identities", "invalid value identity"
         )
+    for column, fold in zip(values, authority.metrics, strict=True):
+        value_identity = column.identity
+        if isinstance(value_identity, _CatalogFieldIdentity):
+            valid = value_identity.identity_id == "metric:" + fold.metric_ref
+        elif isinstance(value_identity, _RuntimeMetricFieldIdentity):
+            valid = (
+                value_identity.identity_id == fold.metric_ref
+                and value_identity.expression_fingerprint == fold.root_id
+            )
+        else:
+            valid = False
+        if not valid:
+            raise construction_error(
+                "Metric identity matching its retained graph", "mismatched fold identity"
+            )
     if any(
         bool(binding[3]) != bool(fold_state_names(fold))
         for binding, fold in zip(semantics.metric_bindings, authority.metrics, strict=True)
@@ -1347,7 +1371,7 @@ def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) ->
         {
             column.identity.identity_id
             for column in values
-            if isinstance(column.identity, _CatalogFieldIdentity)
+            if isinstance(column.identity, (_CatalogFieldIdentity, _RuntimeMetricFieldIdentity))
         }
     ) != len(values):
         raise construction_error("distinct Metric semantic identities", "duplicate Metric identity")
@@ -1788,10 +1812,7 @@ def semantic_dependency_digest(
             semantic_facts = (
                 "metric",
                 entity_payload(definition.entity),
-                tuple(
-                    (metric.ref.path, metric.dependency_fingerprint)
-                    for metric in definition.metrics
-                ),
+                tuple((metric.key, metric.dependency_fingerprint) for metric in definition.metrics),
                 definition.source_dependency_fingerprint,
                 definition.coordinate_dependencies,
                 None

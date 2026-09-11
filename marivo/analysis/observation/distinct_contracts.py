@@ -17,6 +17,7 @@ from marivo.semantic.metric_graph import (
     CumulativeNodeV1,
     SliceNodeV1,
     TargetMetricContract,
+    component_node,
 )
 
 if TYPE_CHECKING:
@@ -85,7 +86,10 @@ def make_distinct_membership(
     ):
         return None
     component = metric.components[0]
-    if component.node_id != node_id or component.time_fold is not None:
+    if component.time_fold is not None:
+        return None
+    node = component_node(metric.graph, component.node_id)
+    if not isinstance(node, AggregateNodeV1):
         return None
     signature: tuple[tuple[str, str], ...] = ()
     source_column = ""
@@ -99,7 +103,7 @@ def make_distinct_membership(
         target_kind = "entity"
     elif node.target_ref.kind is SemanticKind.MEASURE:
         logical_type, _, _ = _target_measure_type(
-            registry, node.target_ref.path, sidecar, metric_id=metric.ref.path
+            registry, node.target_ref.path, sidecar, metric_id=metric.key
         )
         if not supported_distinct_key_type(logical_type):
             return None
@@ -114,8 +118,8 @@ def make_distinct_membership(
     else:
         return None
     return DistinctMembershipAuthorityV1(
-        metric_ref=metric.ref.path,
-        aggregate_node_id=node_id,
+        metric_ref=metric.key,
+        aggregate_node_id=component.node_id,
         target_ref=node.target_ref.path,
         target_kind=target_kind,
         computation_root=component.computation_root.path,

@@ -1784,12 +1784,18 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             raise invalid("missing Metric row semantics")
         retained_fields = {binding[0] for binding in semantics.metric_bindings if binding[3]}
         expected_roles = {
-            "metric_components." + d._canonical_digest(column.identity.identity_id[7:])[:20]
+            "metric_components."
+            + d._canonical_digest(
+                column.identity.identity_id[7:]
+                if isinstance(column.identity, d._CatalogFieldIdentity)
+                else column.identity.identity_id
+            )[:20]
             for column in row.schema.columns
             if column.role_id == "metric"
             and column.field_id in retained_fields
-            and isinstance(column.identity, d._CatalogFieldIdentity)
-            and column.identity.identity_id.startswith("metric:")
+            and isinstance(
+                column.identity, (d._CatalogFieldIdentity, d._RuntimeMetricFieldIdentity)
+            )
         }
         component_parts = tuple(
             item for item in parts if item.contract_id == "metric.sufficient_components"

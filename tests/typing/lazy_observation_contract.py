@@ -31,6 +31,8 @@ def states(
     assert_type(logical.where(gt(revenue, 0)), LogicalMetricDataset)
     assert_type(retained.where(gt(revenue, 0)), LogicalMetricDataset)
     assert_type(retained.metric(revenue), LogicalMetricDataset)
+    assert_type(retained.metric(retained.fields.get("revenue")), LogicalMetricDataset)
+    assert_type(logical.metric(logical.fields.get("revenue")), LogicalMetricDataset)
     assert_type(
         logical.with_dimensions(ref.dimension("sales.customers.region")), LogicalMetricDataset
     )

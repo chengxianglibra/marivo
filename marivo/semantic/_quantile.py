@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.refs import MetricKind, Ref
+from marivo.semantic.runtime_metric import RuntimeMetricExpr
 
 QuantileMethod = Literal["linear_interpolation@v1", "duckdb_tdigest@v1"]
 
@@ -22,13 +23,15 @@ class QuantileMethodV1(BaseModel):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class QuantileMetricInput:
-    """Explicit private method on a governed median/percentile Metric ref."""
+    """Explicit private method on a governed median/percentile Metric input."""
 
-    metric: Ref[MetricKind]
+    metric: Ref[MetricKind] | RuntimeMetricExpr
     method: QuantileMethod
 
 
-def quantile_metric(metric: Ref[MetricKind], *, method: QuantileMethod) -> QuantileMetricInput:
+def quantile_metric(
+    metric: Ref[MetricKind] | RuntimeMetricExpr, *, method: QuantileMethod
+) -> QuantileMetricInput:
     """Select a private method; q remains owned by the governed Metric declaration.
 
     Args: metric: Governed percentile Metric. method: Exact registered method id.

@@ -83,7 +83,7 @@ def correlate(
             "float32",
             "float64",
             "decimal",
-        ) or not isinstance(f.identity, d._CatalogFieldIdentity):
+        ) or not isinstance(f.identity, (d._CatalogFieldIdentity, d._RuntimeMetricFieldIdentity)):
             raise correlation_error(
                 "quantitative governed Metric fields", "unsupported value or identity type"
             )
@@ -112,7 +112,7 @@ def correlate(
         metric_keys=tuple(
             f.identity.identity_id
             for f in metrics
-            if isinstance(f.identity, d._CatalogFieldIdentity)
+            if isinstance(f.identity, (d._CatalogFieldIdentity, d._RuntimeMetricFieldIdentity))
         ),
         metric_units=tuple(item[1] for item in incoming.metric_bindings),
         approximations=tuple(
@@ -223,7 +223,7 @@ def validate_association(row: d.DatasetRowContract, rows: d.DatasetRowSetContrac
     if (
         not 2 <= n <= 16
         or len(set(s.metric_keys)) != n
-        or any(not k.startswith("metric:") for k in s.metric_keys)
+        or any(not k.startswith(("metric:", "runtime_metric:")) for k in s.metric_keys)
         or len(s.metric_units) != n
         or len(s.approximations) != n
     ):
@@ -233,9 +233,9 @@ def validate_association(row: d.DatasetRowContract, rows: d.DatasetRowSetContrac
     for a in s.approximations:
         decode_approximation(a)
     authority = decode_fold_authority(s.fold_authority)
-    if tuple("metric:" + item.metric_ref for item in authority.metrics) != s.metric_keys or (
-        (authority.time_grain() is not None) != ("time" in s.input_shape)
-    ):
+    if tuple(
+        d._metric_identity_id(item.metric_ref) for item in authority.metrics
+    ) != s.metric_keys or ((authority.time_grain() is not None) != ("time" in s.input_shape)):
         raise correlation_error(
             "Metric bindings and time authority matching the retained fold contract",
             "inconsistent Association source authority",

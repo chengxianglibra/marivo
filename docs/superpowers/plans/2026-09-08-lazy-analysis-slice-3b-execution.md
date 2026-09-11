@@ -1,6 +1,8 @@
 # Slice 3b: retained-state folds and checkpoint continuations
 
-Status: Slice 3b implemented and accepted on 2026-09-08; parent Slice 3 is complete.
+Status: Retained-state Slice 3b acceptance was recorded on 2026-09-08.
+The 2026-09-11 Runtime Metric prerequisite supplement below is independently
+validated and does not activate the public cutover.
 
 ## Parent milestone and prerequisite units
 
@@ -299,3 +301,80 @@ versions, isolated versioned buckets and existing resource limits. The local
 `service-cleanup.json` records removal of its anonymous data volume and return
 of Colima to its prior stopped state after the final gate. Unrelated containers
 are preserved. No commit, push, release or public surface change was performed.
+
+
+## 2026-09-11 Runtime Metric prerequisite supplement
+
+The isolated Slice 8a assembly reproduced a private input gap: lazy Observation
+rejected every Runtime Metric before graph construction. This supplement repairs
+that original Observation/semantic/compiler ownership boundary in the source
+checkout. It does not apply the isolated candidate, replace storage adapters,
+activate the public Dataset facade, commit, install or release anything.
+
+### Shared implementation contract
+
+- The existing bounded `lower_metric_inputs` forest is normalized into independent
+  per-root Target Metric contracts. Catalog/runtime identity is a closed union;
+  private state keys distinguish runtime fingerprints from catalog paths. Root
+  presentation names never become catalog refs or computation identity.
+- Canonical leaf Slice nodes own distinct contribution state. Their predicates
+  are applied to governed source contributions, including slices nested inside
+  ratios, linear expressions and weighted means. Canonical graph identities stay
+  intact; equal unsliced leaves do not erase branch-local filters.
+- Runtime roots retain complete dependency fingerprints, type/unit facts, source
+  and temporal authority, component fold state, and the existing membership and
+  distribution protocols. The private quantile selector accepts Runtime roots for
+  both exact registered methods; no alternate algorithms or fallback are added.
+- Dataset owners retain only the submitted in-process expression-to-field bindings.
+  Execution carries those bindings to its returned Dataset. Cold reconstruction
+  has no expression object authority and uses `fields.get(name)` or retained field
+  selectors instead. Source placement compares the actual Session, registry,
+  sidecar, binding scopes and action authority across immutable owner snapshots.
+- Comparison, discovery, forecast, correlation and Finding identity paths accept
+  the same closed runtime identity, without changing their algorithm admission.
+  Unsupported retained distinct/distribution folds remain rejected in this source
+  checkout; Slice 8a's Parquet amendment remains a separate integration change.
+
+### Acceptance and replay
+
+`tests/test_lazy_runtime_metric.py` covers the five constructors and nested mixed
+forests, independent numerical expectations, exact identity/name handling,
+complexity and governance failures, retained projection and folding, empty/null
+and zero-denominator behavior, both percentile methods, damaged private parts,
+and three independent source-offline/cold processes. The existing fresh-process
+Observation no-I/O audit now observes Runtime roots with telemetry enabled;
+internal lowering uses pure ref construction. Public eager Runtime tests remain
+regression coverage, not evidence of lazy public activation.
+
+Final logs and candidate manifests belong in a new
+`evidence/slice-3b-runtime-metric-*` directory. The broad gate is `make check-agent`;
+focused Runtime acceptance includes the new suite and affected retained,
+distinct, distribution and materialization journeys. Only passing final records
+bound to the candidate manifest constitute supplement acceptance.
+
+For Slice 8a replay, carry the shared Target Metric identity and component
+normalization changes together with Observation, compiler, codecs, Runtime
+binding preservation, operator identity handling and the acceptance tests.
+Resolve its Parquet transport differences in the isolated assembly, then rerun
+`Session.observe(expression)` through the public candidate facade and the affected
+integration gates. This source-checkout supplement does not certify Slice 8a,
+8b, 8c or 9 completion.
+
+### Review corrections to the supplement
+
+The first supplement acceptance did not exercise cold Runtime Metric projection
+or Dimension-typed slice literal rejection. The review reproduced both gaps;
+its earlier green gates do not certify these paths.
+
+Metric projection now accepts an exact retained `DatasetFieldRef` and validates
+its Session, binding fingerprint and Metric role. The three-process journey
+projects the recovered linear field and compares that projection using only
+retained state, then verifies cold exact hits do not create Runs or source work.
+Source-free normalization now validates slice literals against declared Dimension
+types, including every membership/range element and temporal parseability;
+errors identify the Dimension and typed-value repair before admission.
+
+The correction evidence is recorded separately under
+`evidence/slice-3b-review-fixes-*`, preserving the original acceptance manifests.
+Replay these selector signatures, validation changes and tests with the complete
+Slice 3b supplement; the public cutover boundary remains unchanged.

@@ -76,7 +76,9 @@ def forecast(
     ):
         raise forecast_error("finite interval_level in (0, 1)", "invalid interval level")
     metric = metrics[0]
-    if not isinstance(metric.identity, d._CatalogFieldIdentity) or (
+    if not isinstance(
+        metric.identity, (d._CatalogFieldIdentity, d._RuntimeMetricFieldIdentity)
+    ) or (
         not metric.logical_type_id.startswith(("int", "uint", "float", "decimal"))
         and metric.logical_type_id not in ("integer", "floating")
     ):
@@ -202,7 +204,7 @@ def validate_forecast(row: d.DatasetRowContract, rows: d.DatasetRowSetContract) 
     authority = decode_fold_authority(s.fold_authority)
     if (
         len(authority.metrics) != 1
-        or "metric:" + authority.metrics[0].metric_ref != s.metric_key
+        or d._metric_identity_id(authority.metrics[0].metric_ref) != s.metric_key
         or authority.time_grain() is None
         or authority.time_scope() is None
     ):
