@@ -296,6 +296,8 @@ def write_engine_dataset(
     receipts: list[EngineReceipt] = []
     total = 0
     for index, (role, _contract, _version, expression, row_count) in enumerate(specs):
+        if row.shape_id.family_id == "lifecycle" and role.startswith("parts/lifecycle_"):
+            event(f"lifecycle_part_write.{role.removeprefix('parts/')}")
         directory = staging / role
         _create_directory(directory)
         path = directory / "payload.duckdb"

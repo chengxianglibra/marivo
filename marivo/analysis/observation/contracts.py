@@ -100,6 +100,10 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
+    from marivo.analysis.domains.lifecycle import (
+        LogicalLifecycleDataset,
+        MaterializedLifecycleDataset,
+    )
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
     from marivo.analysis.observation.population import (
@@ -169,9 +173,15 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
+        if self.producer_id == "session.lifecycle.replay":
+            from marivo.analysis.domains.lifecycle import ROLES
+
+            return ROLES
         if self.producer_id == "delta.funnel_attribute":
             return ("event_funnel.additive_components",)
-        if self.producer_id.startswith(("discover.", "candidate.", "session.events.", "event.")):
+        if self.producer_id.startswith(
+            ("discover.", "candidate.", "session.events.", "event.", "session.lifecycle.")
+        ):
             return ()
         if self.contract_stem.startswith(("association", "forecast")):
             return ()
@@ -215,7 +225,9 @@ class ObservationProducerContract:
                 ("bounded_algebraic_findings", "v1"),
                 ("event_funnel.additive_components", "v1"),
             )
-        if self.producer_id.startswith(("discover.", "candidate.", "session.events.", "event.")):
+        if self.producer_id.startswith(
+            ("discover.", "candidate.", "session.events.", "event.", "session.lifecycle.")
+        ):
             return (*common, ("none", "v1"), ("zero_findings", "v1"))
         if self.contract_stem.startswith("forecast"):
             return (
@@ -269,6 +281,7 @@ class ObservationProducerContract:
 
 
 _PRODUCER_CONTRACTS = (
+    ObservationProducerContract("session.lifecycle.replay", "lifecycle_history"),
     ObservationProducerContract("session.events.match", "event_journey"),
     ObservationProducerContract("event.compare", "funnel_delta"),
     ObservationProducerContract("delta.funnel_attribute", "funnel_attribution"),
@@ -327,6 +340,10 @@ def producer_contract(operator_id: str) -> ObservationProducerContract:
 
 class ObservationActionPort(Protocol):
     """Required execution/read owner; definition construction never invokes this port."""
+
+    def execute_lifecycle(
+        self, dataset: LogicalLifecycleDataset
+    ) -> MaterializedLifecycleDataset: ...
 
     def execute_event(self, dataset: LogicalEventDataset) -> MaterializedEventDataset: ...
 
@@ -877,6 +894,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "forecast",
                 "candidate",
                 "event",
+                "lifecycle",
             }
         ),
         shapes=frozenset(
@@ -898,6 +916,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
                 ("population", "entity-membership", 1),
                 ("event", "journey", 1),
+                ("lifecycle", "history", 1),
                 ("event", "funnel", 1),
                 ("delta", "funnel", 1),
                 ("attribution", "funnel-loss-rate", 1),
@@ -1667,6 +1686,9 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     from marivo.analysis.domains.event import register_event
 
     register_event(registry, ids)
+    from marivo.analysis.domains.lifecycle import register_lifecycle
+
+    register_lifecycle(registry, ids)
     registry.freeze()
     return registry
 
@@ -1687,6 +1709,7 @@ def semantic_dependency_digest(
     )
     from marivo.analysis.domains.event_attribution import FunnelAttributePayload
     from marivo.analysis.domains.event_comparison import FunnelComparePayload
+    from marivo.analysis.domains.lifecycle import LifecyclePayload
     from marivo.analysis.observation.population_sample import PopulationSamplePayload
     from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.attribution_contracts import AttributePayload
@@ -1748,6 +1771,8 @@ def semantic_dependency_digest(
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
             )
+        elif isinstance(payload, LifecyclePayload):
+            semantic_facts = ("lifecycle", payload.identity_payload)
         elif isinstance(payload, EventPayload):
             semantic_facts = (
                 "event",

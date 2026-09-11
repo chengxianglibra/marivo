@@ -127,7 +127,10 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
             return
         payload = value._root.payload
         for child in value._inputs:
-            if value._root.operator_id == "session.observe":
+            if value._root.operator_id in (
+                "session.observe",
+                "session.lifecycle.replay",
+            ):
                 child_demand: set[str] = set()
             elif isinstance(
                 payload,
@@ -152,6 +155,10 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
 def _row_part_roles(row: DatasetRowContract) -> set[str]:
     from marivo.analysis.domains.event_attribution import COMPONENT_ROLE, FunnelAttributionSemantics
 
+    if row.shape_id.family_id == "lifecycle":
+        from marivo.analysis.domains.lifecycle import ROLES
+
+        return set(ROLES)
     if isinstance(row.family_semantics, FunnelAttributionSemantics):
         return {COMPONENT_ROLE}
 
@@ -213,6 +220,11 @@ def validate_source_private_relation(
     """Inspect source-private state natively; return only scalar violations."""
     from marivo.analysis.observation.distinct_contracts import membership_part_authorities
 
+    if row.shape_id.family_id == "lifecycle":
+        from marivo.analysis.materialization.lifecycle_publication import validate_relation
+
+        validate_relation(backend, table, row, role, record)
+        return
     if role.startswith(("metric_distribution.", "delta_distribution.")):
         from marivo.analysis.materialization.distribution import validate_distribution_relation
 
@@ -275,6 +287,10 @@ def selected_parts(
 
 def component_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> tuple[str, ...]:
     """Validate meaning from the owner; the receipt separately pins physical schema."""
+    if row.shape_id.family_id == "lifecycle":
+        from marivo.analysis.materialization.lifecycle_publication import part_schema
+
+        return part_schema(row, role, schema)
     states = _part_state_columns(row, role)
     keys = tuple(field for field in row.schema.columns if field.field_id in row.key_field_ids)
     expected = (*(field.name for field in keys), *(name for name, _, _ in states))
@@ -309,7 +325,18 @@ def checked_component_batches(
     batches: Iterable[pa.RecordBatch], row: DatasetRowContract, role: str
 ) -> Iterable[pa.RecordBatch]:
     """Check required component support fields as actual data, independently of headers."""
-    nonnull = tuple(name for name, _, nullable in _part_state_columns(row, role) if not nullable)
+    if row.shape_id.family_id == "lifecycle":
+        from marivo.analysis.domains.lifecycle import PART_COLUMNS, ROLES
+
+        nonnull = tuple(
+            name
+            for name in PART_COLUMNS[ROLES.index(role)]
+            if name not in ("inception_at", "known_through")
+        )
+    else:
+        nonnull = tuple(
+            name for name, _, nullable in _part_state_columns(row, role) if not nullable
+        )
     for batch in batches:
         component_schema(row, role, batch.schema)
         if any(batch.column(name).null_count for name in nonnull):

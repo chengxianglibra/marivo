@@ -10,7 +10,9 @@ from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.domains.event import LogicalEventDataset, make_match
+from marivo.analysis.domains.lifecycle import LogicalLifecycleDataset, make_replay
 from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject
+from marivo.analysis.lifecycle import FromInception
 from marivo.analysis.observation.contracts import (
     EntityInput,
     MetricInput,
@@ -28,8 +30,9 @@ from marivo.analysis.observation.metric import (
 )
 from marivo.analysis.observation.population import LogicalPopulationDataset, make_population
 from marivo.analysis.observation.source_bindings import SourceBindingMap, SourceBindingScopes
+from marivo.refs import Ref, StateModelKind
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog import SemanticCatalog, StateModelEntry
 from marivo.semantic.validator import Registry
 
 
@@ -82,11 +85,55 @@ class LazyEvents:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class LazyLifecycle:
+    """Private source-free replay construction."""
+
+    _owner: ObservationOwner
+    _registry: DatasetFamilyRegistry
+
+    def replay(
+        self,
+        model: Ref[StateModelKind] | StateModelEntry,
+        *,
+        window: TimeScope,
+        seed: FromInception,
+        population: PopulationInput | None = None,
+        completeness: tuple[CompletenessDeclaration, ...] = (),
+    ) -> LogicalLifecycleDataset:
+        """Describe canonical history for model within window, seeded by seed.
+
+        Args:
+            model: Exact current StateModel.
+            window: Aware half-open replay window.
+            seed: Required from_inception value.
+            population: Optional exact subject membership.
+            completeness: Source-origin coverage assumptions for exact trigger Events.
+        Returns: A logical history Dataset.
+        Example: ``sources.lifecycle.replay(model, window=window, seed=from_inception())``.
+        Constraints: Construction is source-free; versions require explicit membership.
+        """
+        return make_replay(
+            self._owner,
+            self._registry,
+            model,
+            window=window,
+            seed=seed,
+            population=population,
+            completeness=completeness,
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class LazySources:
     """Private source facade carrying already admitted in-memory authority."""
 
     _owner: ObservationOwner
     _registry: DatasetFamilyRegistry
+
+    @property
+    def lifecycle(self) -> LazyLifecycle:
+        """Return the private construction-only Lifecycle source namespace."""
+        return LazyLifecycle(self._owner, self._registry)
 
     @property
     def events(self) -> LazyEvents:
@@ -166,6 +213,7 @@ def make_lazy_sources(
         "execute_population",
         "execute_metric",
         "execute_event",
+        "execute_lifecycle",
         "show",
         "to_pandas",
         "evidence_digest",

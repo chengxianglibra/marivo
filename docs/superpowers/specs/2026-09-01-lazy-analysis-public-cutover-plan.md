@@ -2819,7 +2819,7 @@ protocol without acquiring its Metric-only admission rules.
 | 7a: Event matching and journey authority — complete | 3b, 4d | Private shared subject-identity admission, Event completeness, all three matching policies, and journey materialization/recovery passed; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7a-execution.md). |
 | 7b: Event reducers and subject selection — complete | 7a | Private logical and recovered engine funnel, time-to-event and complete DroppedBefore selection passed, including no rematching, exact reach propagation, local result filtering and the Metric -> Event -> Population -> Metric loop; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7b-execution.md). |
 | 7c: Event funnel comparison and attribution — complete | 7b; 5a-5b's shared contracts | Private complete-journey comparison and loss-rate attribution passed compatibility, scoped endpoint reconciliation, native/compact-local parity, cold recovery and atomic rejection without rematching; [exact implementation and gates](../plans/2026-09-10-lazy-analysis-slice-7c-execution.md). |
-| 7d: Lifecycle replay and canonical retention | 7a's shared identity seam; 4d | Materialize and cold-recover history with all three required retained roles. Prove inception/coverage, legal and illegal transitions, same-time loops, subjects without positive intervals, and atomic failure/cancellation for required parts. |
+| 7d: Lifecycle replay and canonical retention — complete | 7a's shared identity seam; 4d | Private native replay and source-offline recovery passed inception/coverage, lossless transition and violation traces, same-time confluence, empty histories, exact membership and atomic required-part failure/cancellation; [implementation and frozen gates](../plans/2026-09-11-lazy-analysis-slice-7d-execution.md). |
 | 7e: Lifecycle reducers and subject selection | 7d; 7b for the Event continuation | Execute distribution, transitions, dwell, violations, and in-state selection from recovered history. Prove exact part consumption, clipped-duration meaning, coverage-sensitive membership, no trigger replay, and continuation into Metric and Event sources. |
 
 7d can proceed independently of 7b-7c after its named prerequisites pass. The
@@ -2918,6 +2918,55 @@ This closes only private Slice 7c. It consumes shared 5a–5b protocols without
 closing Slice 5b's independent gate. Public exports, Help, bilingual site
 activation, integrated D/L/M journeys and Lifecycle remain separately gated.
 No commit, push or release work was performed.
+
+### Slice 7d observed acceptance (2026-09-11)
+
+Private Lifecycle replay and canonical retention are accepted on the 968-file
+executable candidate
+`489ac9e0573cb30fe7a0a10ed6ee25b9a0ba4b9d50d69a765f3d1086ede2624a`.
+The [execution record](../plans/2026-09-11-lazy-analysis-slice-7d-execution.md)
+defines the fingerprint and seven independently recorded gates in
+`evidence/slice-7d/gates.json`: 175 focused tests, explicit typing of eight test
+files, the full `make check-agent` gate (468 source files and 7,062 default
+tests), 40 Lifecycle Runtime tests, 108 Event Runtime tests, 85 shared Runtime
+tests and the final 233-test combined Runtime gate after the full check.
+All gate fingerprints and log checksums match; Runtime concurrency is two.
+
+Local Parquet and engine acceptance each use three independent interpreters.
+Production, source-offline inspection and exact cold binding preserve the main
+history, every mandatory role, descriptor and bounded Evidence without trigger
+execution. Native SDK stubs cover object version ownership and per-role upload
+failure/cancellation without starting an object service. Source-origin coverage,
+inception lookback, same-time loops and confluence, empty history subjects,
+membership, missing/corrupt parts, deadlines and retry cleanup are covered.
+
+This closes only private Slice 7d. Slice 7e reducers and `InState`, public
+exports, Help and bilingual site activation, and integrated public journeys
+remain separately gated. No commit, push or release was performed.
+
+The 2026-09-11 review-fix acceptance supersedes the original candidate with
+`c5f4190f9ad4e5012af836914f85325211850970b1ca6e4fb42e48cc5e3e9b4f`
+(968 executable files). Native confluence now checks all simultaneous
+cross-Event interleavings while preserving each Event's own identity order;
+corrupt retained model metadata now produces Artifact integrity repairs.
+`evidence/slice-7d/review-fix/gates.json` records 181 focused tests, explicit
+typing of five modified modules, `make check-agent` with 7,068 default tests and
+468 source files, and 237 Runtime regressions after that broad gate. Every gate
+retains matching fingerprints and verified logs. Both local and engine
+three-process recovery proofs were refreshed against this candidate. The linked
+execution record describes the fixes and preserved scope.
+
+Additional review triage restores the unchanged Slice 7c Event semantic digest,
+removes the unnecessary Event retained-demand boundary edit, corrects Lifecycle
+Finding guidance, and removes positional SQL-term mutations. Broader strategy,
+role and writer refactors are deferred with reasons in the execution record.
+The current 968-file candidate is
+`732f7d27075a62fad48928bd762ec95c62fffde18c417e3513880112b8621011`.
+`evidence/slice-7d/review-triage/gates.json` verifies 187 focused tests, typing of
+five modified modules, `make check-agent` with 7,069 default tests and 468 source
+files, and 237 Runtime regressions with two workers. All candidate and log hashes
+match; both independent-process recovery proofs were refreshed. Private Slice
+7d remains complete, with public activation and Slice 7e still deferred.
 
 ### Owned implementation
 

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.event_comparison_codec import FunnelEvidenceSummary
+    from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
 
 import hashlib
 import json
@@ -739,6 +740,7 @@ class ArtifactDescriptor:
     event_evidence: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
     subject_selection_evidence: EventSelectionEvidenceSummary | None = None
     funnel_evidence: FunnelEvidenceSummary | None = None
+    lifecycle_evidence: LifecycleEvidenceSummary | None = None
 
     @property
     def row_contract_fingerprint(self) -> str:
@@ -896,6 +898,12 @@ def decode_schema(value: object, ids: d._StableIdRegistry) -> d.DatasetSchema:
 
 
 def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
+    from marivo.analysis.domains.lifecycle import LifecycleSemantics
+
+    if isinstance(value, LifecycleSemantics):
+        from dataclasses import asdict
+
+        return asdict(value)
     from marivo.analysis.domains.event_attribution import FunnelAttributionSemantics
     from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
 
@@ -1027,6 +1035,12 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
         )
 
         return decode_funnel_semantics(value)
+    if kind == "lifecycle/history@v1":
+        from marivo.analysis.materialization.lifecycle_codec import (
+            decode_semantics as decode_lifecycle,
+        )
+
+        return decode_lifecycle(value)
     if kind in ("event/funnel@v1", "event/time-to-event@v1"):
         from marivo.analysis.materialization.event_reducer_codec import (
             decode_semantics as decode_reducer,
@@ -1337,6 +1351,9 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
     from marivo.analysis.materialization.forecast_codec import (
         evidence_payload as forecast_evidence_payload,
     )
+    from marivo.analysis.materialization.lifecycle_codec import (
+        evidence_payload as lifecycle_evidence_payload,
+    )
 
     return {
         "schema": "marivo.dataset_artifact_descriptor/v1",
@@ -1386,6 +1403,7 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         "association_evidence": association_evidence_payload(value.association_evidence),
         "forecast_evidence": forecast_evidence_payload(value.forecast_evidence),
         "candidate_evidence": candidate_evidence_payload(value.candidate_evidence),
+        "lifecycle_evidence": lifecycle_evidence_payload(value.lifecycle_evidence),
         "event_evidence": event_evidence_payload(value.event_evidence),
         "subject_selection_evidence": selection_evidence_payload(value.subject_selection_evidence),
     }
@@ -1417,6 +1435,9 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     from marivo.analysis.materialization.forecast_codec import (
         decode_evidence as decode_forecast_evidence,
     )
+    from marivo.analysis.materialization.lifecycle_codec import (
+        decode_evidence as decode_lifecycle_evidence,
+    )
     from marivo.analysis.observation.contracts import (
         make_family_registry,
         make_ids,
@@ -1426,7 +1447,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     ids = make_ids(())
     obj = _obj(
         parse_json(text),
-        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence",
+        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence lifecycle_evidence",
     )
     if obj["schema"] != "marivo.dataset_artifact_descriptor/v1":
         raise invalid("unsupported Artifact descriptor or sampling contract")
@@ -1524,6 +1545,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         decode_event_evidence(obj["event_evidence"]),
         decode_selection_evidence(obj["subject_selection_evidence"]),
         decode_funnel_evidence(obj["funnel_evidence"]),
+        decode_lifecycle_evidence(obj["lifecycle_evidence"]),
     )
     if result.funnel_evidence is not None and result.row_contract.family_semantics.kind not in (
         "delta/funnel@v1",
@@ -1573,6 +1595,14 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     )
     if materialization_payload(contract) != materialization_payload(expected_contract):
         raise invalid("unregistered materialization contract")
+    if row.shape_id.family_id == "lifecycle":
+        from marivo.analysis.materialization.lifecycle_codec import (
+            validate_descriptor as validate_lifecycle,
+        )
+
+        validate_lifecycle(result)
+    elif result.lifecycle_evidence is not None:
+        raise invalid("Lifecycle Evidence outside its family")
     if row.shape_id.family_id == "event":
         from marivo.analysis.materialization.event_publication import (
             validate_descriptor as validate_event_descriptor,
@@ -2140,6 +2170,9 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
     from marivo.analysis.materialization.forecast_codec import (
         evidence_payload as forecast_evidence_payload,
     )
+    from marivo.analysis.materialization.lifecycle_codec import (
+        evidence_payload as lifecycle_evidence_payload,
+    )
 
     contract = descriptor.dataset_materialization_contract
     quality = digest(descriptor.quality_summary.model_dump(mode="json"))
@@ -2176,6 +2209,8 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         )
 
         value["funnel_evidence"] = funnel_payload(descriptor.funnel_evidence)
+    if descriptor.lifecycle_evidence is not None:
+        value["lifecycle_evidence"] = lifecycle_evidence_payload(descriptor.lifecycle_evidence)
     if descriptor.event_evidence is not None:
         value["event_evidence"] = event_evidence_payload(descriptor.event_evidence)
         value["event_semantics"] = _semantics_payload(descriptor.row_contract.family_semantics)

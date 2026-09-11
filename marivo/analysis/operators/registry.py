@@ -21,6 +21,7 @@ from marivo.analysis.domains.event_attribution import (
     FunnelAttributionSemantics,
 )
 from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelDeltaSemantics
+from marivo.analysis.domains.lifecycle import LifecyclePayload
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -86,7 +87,13 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     roles = tuple(item.role for item in root.inputs)
     if isinstance(
         root.payload,
-        (EventPayload, EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload),
+        (
+            LifecyclePayload,
+            EventPayload,
+            EventFunnelPayload,
+            EventTimeToEventPayload,
+            EventSelectionPayload,
+        ),
     ):
         return ImplementationRegistration(root.operator_id, roles, "duckdb", None)
     if dataset._inputs and root.operator_id.startswith(

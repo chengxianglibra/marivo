@@ -57,6 +57,11 @@ from marivo.analysis.domains.contracts import (
 from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
 from marivo.analysis.domains.event_attribution import FunnelAttributePayload, FunnelAttributeSpec
 from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelCompareSpec
+from marivo.analysis.domains.lifecycle import (
+    LifecyclePayload,
+    LogicalLifecycleDataset,
+    MaterializedLifecycleDataset,
+)
 from marivo.analysis.evidence import _dataset_reads
 from marivo.analysis.evidence._dataset_types import (
     ArtifactDigest,
@@ -91,6 +96,7 @@ from marivo.analysis.materialization.event_reducer_codec import (
 )
 from marivo.analysis.materialization.execution_key import execution_key
 from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
 from marivo.analysis.materialization.local import LocalPolicy
 from marivo.analysis.materialization.local_worker import (
     ArtifactInput,
@@ -124,6 +130,7 @@ from marivo.analysis.materialization.sampling import (
 )
 from marivo.analysis.materialization.storage import (
     DatasetWriteResult,
+    IndependentPartWrite,
     PartWriteSpec,
     ReadPolicy,
     sampling_state_read,
@@ -751,6 +758,12 @@ class DatasetRuntime:
             raise _error("presentation")
         return result
 
+    def execute_lifecycle(self, dataset: LogicalLifecycleDataset) -> MaterializedLifecycleDataset:
+        result = self._execute(dataset)
+        if not isinstance(result, MaterializedLifecycleDataset):
+            raise _error("publication")
+        return result
+
     def execute_event(self, dataset: LogicalEventDataset) -> MaterializedEventDataset:
         result = self._execute(dataset)
         if not isinstance(result, MaterializedEventDataset):
@@ -845,7 +858,8 @@ class DatasetRuntime:
                     if (
                         isinstance(value._root, LogicalRootHandle)
                         and isinstance(
-                            value._root.payload, (PopulationPayload, MetricPayload, EventPayload)
+                            value._root.payload,
+                            (PopulationPayload, MetricPayload, EventPayload, LifecyclePayload),
                         )
                     ) or (
                         isinstance(value._root, LogicalRootHandle)
@@ -970,6 +984,7 @@ class DatasetRuntime:
                 association_summary: AssociationSearchSummary | None = None
                 forecast_summary: ForecastTrainingSummary | None = None
                 candidate_summary: CandidateSearchSummary | None = None
+                lifecycle_summary: LifecycleEvidenceSummary | None = None
                 event_summary: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
                 selection_summary: EventSelectionEvidenceSummary | None = None
                 for input_record in records.values():
@@ -1014,6 +1029,18 @@ class DatasetRuntime:
                             )
                         )
                         proof_backend, proof_recipe, _ = prepared[source_boundary.output]
+                        if proof_recipe.lifecycle_coverage is not None:
+                            from marivo.analysis.materialization.lifecycle_publication import (
+                                native_summary,
+                            )
+
+                            with _engine_deadline(proof_backend):
+                                lifecycle_summary = native_summary(
+                                    proof_backend,
+                                    proof_recipe,
+                                    source_boundary.dataset.row_contract,
+                                    self._record_statement,
+                                )
                         if proof_recipe.event_proof is not None:
                             from marivo.analysis.materialization.event_codec import (
                                 summary_from_proof,
@@ -1256,7 +1283,26 @@ class DatasetRuntime:
                                     object_bindings=object_bindings,
                                 )
                             else:
-                                self._require_projected_parts(recipe)
+                                independent_parts: tuple[IndependentPartWrite, ...] = ()
+                                if dataset.kind == "lifecycle":
+                                    from marivo.analysis.compiler.nodes import RetainedRelationSpec
+
+                                    independent_parts = tuple(
+                                        IndependentPartWrite(
+                                            part.role,
+                                            self._batches(
+                                                current_backend,
+                                                part.expression,
+                                                self._batch_rows(
+                                                    current_backend, tables, part.expression
+                                                ),
+                                            ),
+                                        )
+                                        for part in recipe.retained_parts
+                                        if isinstance(part, RetainedRelationSpec)
+                                    )
+                                else:
+                                    self._require_projected_parts(recipe)
                                 incoming = self._batches(
                                     current_backend,
                                     recipe.expression,
@@ -1278,6 +1324,7 @@ class DatasetRuntime:
                                     incoming,
                                     run.run_ref,
                                     parts=output_parts,
+                                    independent_parts=independent_parts,
                                     sampling=tuple(sampling),
                                     source_key_validation=True,
                                     target=target,
@@ -1580,6 +1627,13 @@ class DatasetRuntime:
                     self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
                 findings: tuple[Finding, ...] = ()
+                if dataset.kind == "lifecycle":
+                    from marivo.analysis.materialization.lifecycle_codec import (
+                        validate_descriptor as validate_lifecycle,
+                    )
+
+                    descriptor = replace(descriptor, lifecycle_evidence=lifecycle_summary)
+                    validate_lifecycle(descriptor)
                 if dataset.kind == "event":
                     from marivo.analysis.materialization.event_publication import bind_event_summary
 
@@ -1986,12 +2040,15 @@ class DatasetRuntime:
                 from marivo.analysis.datasets.descriptors import _canonical_digest
 
                 for event_root in logical_roots(source_dataset):
-                    if isinstance(event_root.payload, EventPayload):
+                    if isinstance(event_root.payload, (EventPayload, LifecyclePayload)):
                         phase = "source_binding"
                         with _engine_deadline(backend):
                             event_coverages[event_root.definition_fingerprint] = (
                                 resolve_event_coverage(
                                     event_root.payload.definition,
+                                    require_source_origin=isinstance(
+                                        event_root.payload, LifecyclePayload
+                                    ),
                                     provider=self.event_coverage_provider,
                                     backend=backend,
                                     source_binding_fingerprint=_canonical_digest(
@@ -2233,6 +2290,7 @@ class DatasetRuntime:
         run_ref: str,
         *,
         parts: tuple[PartWriteSpec, ...] = (),
+        independent_parts: tuple[IndependentPartWrite, ...] = (),
         sampling: tuple[SamplingRealization, ...] = (),
         source_key_validation: bool,
         target: MaterializationTarget,
@@ -2283,6 +2341,7 @@ class DatasetRuntime:
             row_contract=dataset.row_contract,
             row_set_contract=dataset.row_set_contract,
             parts=parts,
+            independent_parts=independent_parts,
             sampling=sampling,
             source_key_validation=source_key_validation,
             policy=target.policy,

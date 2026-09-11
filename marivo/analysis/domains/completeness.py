@@ -277,6 +277,7 @@ def resolve_event_coverage(
     backend: Backend | None = None,
     source_binding_fingerprint: str = "",
     execution_domain_id: str = "",
+    require_source_origin: bool = False,
 ) -> EventCoverageResolution:
     """Read each distinct Event receipt once within the caller-owned source action."""
     declarations = {event: value for value in definition.completeness for event in value.inputs}
@@ -344,7 +345,7 @@ def resolve_event_coverage(
                 else None
             )
             complete = (
-                lower is None or lower <= start
+                lower is None or (not require_source_origin and lower <= start)
             ) and receipt.complete_through >= definition.completion_through
             if complete or event not in declarations:
                 facts.append(

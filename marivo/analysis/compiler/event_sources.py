@@ -114,6 +114,7 @@ def lower_event_sources(
     *,
     freeze: Callable[[ir.Table], ir.Table],
     add_validation: Callable[[CompiledValidation], None],
+    from_inception: bool = False,
 ) -> tuple[EventStepRelation, ...]:
     """Resolve each Event once and each role at its own occurrence instant."""
     sources: dict[str, ir.Table] = {}
@@ -147,7 +148,11 @@ def lower_event_sources(
             source = source.filter(
                 source.__event_instant.isnull()
                 | (
-                    (source.__event_instant >= definition.cohort_window.start)
+                    (
+                        ibis.literal(True)
+                        if from_inception
+                        else source.__event_instant >= definition.cohort_window.start
+                    )
                     & (source.__event_instant < definition.completion_through)
                 )
             )
