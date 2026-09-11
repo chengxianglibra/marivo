@@ -2373,9 +2373,9 @@ family, and generated-field contract introduced here. The canonical inventory
 is:
 
 ```text
-analysis.PopulationDataset
-analysis.EventDataset
-analysis.LifecycleDataset
+analysis.population
+analysis.event_dataset
+analysis.lifecycle_dataset
 analysis.events.match
 analysis.event_matching
 analysis.event_matching.first_per_subject

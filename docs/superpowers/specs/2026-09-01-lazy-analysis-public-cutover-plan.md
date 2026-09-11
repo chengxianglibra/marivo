@@ -3114,6 +3114,13 @@ target semantic normalizers must be implemented and privately exercised in
 family must supply its complete native capability/Help inputs. Test fixtures,
 type declarations, and a list of future Help targets are not that evidence.
 
+The native-input prerequisite was repaired privately on 2026-09-11; the
+[owner acceptance record](../plans/2026-09-11-lazy-analysis-native-disclosure-inputs.md)
+records the five providers, accepted 100-symbol coverage, executable examples,
+unchanged public snapshots and fingerprinted gates. This closes only that
+prerequisite, not Slice 8a or the other Slice 8 entry conditions. Public facade,
+semantic, persistence and installed-surface assembly remain separately gated.
+
 | Unit | Prerequisite | Bounded outcome and independent gate |
 | --- | --- | --- |
 | 8a: cutover assembly and disclosure preparation | All units in 1-7 | Refresh the affected Slice 0 inventory against the current tree. Assemble exact public facade/export bindings, semantic activation, native Help, executable examples, current EN/ZH docs, skills, and deletion/test-replacement lists into one reviewable switch set. Identify any missing private implementation before activation. |
