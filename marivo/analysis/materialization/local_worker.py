@@ -615,7 +615,7 @@ def _execute_graph(
             validate_frame(result, call.output_row, call.output_rows)
             budget.live_bytes += result_size
             schema = pa.Schema.from_pandas(result, preserve_index=False)
-            value = _Frames(result, parts, schema)
+            value = _Frames(result, (), schema)
             handoffs.append((id(source.frame), id(result)))
             output_row = call.output_row
             del source
