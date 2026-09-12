@@ -117,6 +117,33 @@ capability error, distinct from an ordinary compile failure.
 
 ## Semantic period alignment
 
+### Private lazy Dataset source execution
+
+The private Population/Metric compiler captures the persisted Session report
+timezone in its immutable definition. Source resolution probes the actual reader
+before the Runtime establishes its UTC execution environment. Explicit parse
+timezones override that reader default; civil dates retain their date meaning.
+The native DuckDB recipe parses supported string/integer partitions, localizes
+wall clocks, and converts instants before filtering and bucketing. It uses native
+timezone operations across DST, rather than the legacy Frame offset strategy.
+Explicit fixed-offset authority remains fixed and is recorded as such.
+
+Lazy `time_scope` endpoints are literal half-open bounds: a date-only end is
+excluded at that midnight. String/hour sources are parsed into their governed
+time coordinates; the exact-hour upper bucket is excluded, while a bucket whose
+start precedes a partial-hour endpoint remains eligible. Source physical type
+validation preserves declared precision independently of logical date/timestamp
+classification. DuckDB timezone conversion that cannot preserve submicrosecond
+precision fails explicitly; it never silently truncates the source.
+
+Certified calendars own their boundary timezone independently of the source read
+timezone. Calendar resets use those civil boundaries, while a trailing day/week
+retains its fixed 86,400/604,800-second duration. Artifact descriptors retain the
+adopted per-axis physical kind, read timezone and source, boundary timezone, and
+report authority. Retained fold contracts carry the same report/calendar meaning,
+so source-offline continuations do not re-resolve host or datasource timezones.
+This is a private Slice 3a prerequisite; public assembly remains a separate gate.
+
 Fiscal, retail, and other governed partitions are semantic period calendars,
 not analysis-local files. Their certified snapshot owns the civil boundary
 timezone and is persisted in the frame temporal contract. Built-in Gregorian/ISO

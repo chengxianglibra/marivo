@@ -49,6 +49,7 @@ from marivo.analysis.observation.predicates import (
     bind_predicates,
 )
 from marivo.analysis.observation.sampling import EntitySamplingPolicy
+from marivo.analysis.observation.temporal import time_zone
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import DimensionEntry, EntityEntry
 from marivo.semantic.validator import normalize_target_entity, normalize_target_version_selection
@@ -192,6 +193,8 @@ def make_population(
         boundary = time_scope.end
         if not isinstance(boundary, datetime):
             boundary = datetime.combine(boundary, time.min)
+        if boundary.tzinfo is None and normalized.version.timezone is not None:
+            boundary = boundary.replace(tzinfo=time_zone(owner.report_time.timezone))
         selection = normalize_target_version_selection(
             normalized, boundary=boundary, interpretation="before_endpoint"
         )
@@ -217,6 +220,7 @@ def make_population(
         payload=PopulationPayload(
             _token=_CORE_TOKEN,
             entity=normalized,
+            report_time=owner.report_time,
             time_scope=time_scope,
             reference_axis=axis,
             version_selection=selection,
@@ -290,6 +294,7 @@ def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> Logic
     payload = PopulationPayload(
         _token=_CORE_TOKEN,
         entity=entity,
+        report_time=owner.report_time,
         time_scope=None if previous is None else previous.time_scope,
         reference_axis=None if previous is None else previous.reference_axis,
         version_selection=None if previous is None else previous.version_selection,

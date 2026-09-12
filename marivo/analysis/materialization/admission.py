@@ -170,6 +170,7 @@ from marivo.analysis.observation.population import (
 )
 from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.private_parts import source_private_part_authorities
+from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.analysis.operators.association import (
     LogicalAssociationDataset,
     MaterializedAssociationDataset,
@@ -231,6 +232,7 @@ from marivo.datasource.backends import _build_backend_from_effective, _effective
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList, TableSourceIR
 from marivo.datasource.json_source import read_json_source
+from marivo.datasource.timezone import probe_engine_timezone
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.ir import TargetEntityContract
@@ -403,8 +405,13 @@ class DatasetRuntime:
         object_bindings: tuple[S3Access, ...] = (),
         event_coverage_provider: EventCoverageProvider | None = None,
     ) -> None:
-        if store.session(session_ref) is None:
+        session_record = store.session(session_ref)
+        if session_record is None:
             raise _error("authority_resolution")
+        self.report_time = ReportTimeAuthority(
+            timezone=session_record.report_timezone_name,
+            resolution=session_record.report_timezone_resolution,
+        )
         self.store = store
         self.target = target
         self.object_bindings = object_bindings
@@ -505,6 +512,7 @@ class DatasetRuntime:
             session_id=self.session_ref,
             store_id=self.store.store_id,
             catalog=catalog,
+            report_time=self.report_time,
         )
         self._source_context.current = sources._owner
         return sources
@@ -1670,6 +1678,31 @@ class DatasetRuntime:
                         for value in retained_inputs
                     ),
                 )
+                temporal = {
+                    item.model_dump_json(): item
+                    for record in records.values()
+                    for item in record.descriptor.temporal_execution
+                }
+                for _, recipe, _ in prepared.values():
+                    if recipe.temporal_execution is not None:
+                        temporal[recipe.temporal_execution.model_dump_json()] = (
+                            recipe.temporal_execution
+                        )
+                for _, recipe, _ in prepared.values():
+                    selections = dict(recipe.version_selections)
+                    population = descriptor.population_authority
+                    if population.definition_fingerprint in selections:
+                        descriptor = replace(
+                            descriptor,
+                            population_authority=replace(
+                                population,
+                                version_selection=selections[population.definition_fingerprint],
+                            ),
+                        )
+                self._event("temporal_authority")
+                descriptor = replace(
+                    descriptor, temporal_execution=tuple(temporal[key] for key in sorted(temporal))
+                )
                 validate_sampling_state(
                     self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
@@ -2061,6 +2094,13 @@ class DatasetRuntime:
             if not isinstance(candidate, Backend):
                 raise _error("execution_boundary", run_ref)
             backend = candidate
+            read_time = None
+            if isinstance(source_step.binding, SourceBinding):
+                self._event("source_timezone")
+                profile = require_profile_for_backend_type("duckdb")
+                if profile.timezone_probe_sql is not None:
+                    self._record_statement("source_timezone", profile.timezone_probe_sql)
+                read_time = probe_engine_timezone(backend)
             backend.raw_sql("SET threads=1")
             backend.raw_sql("SET TimeZone='UTC'")
             backend.raw_sql("SET memory_limit='256MiB'")
@@ -2221,11 +2261,15 @@ class DatasetRuntime:
                     )
                 if not isinstance(source_dataset, LogicalDataset):
                     raise _error("implementation_registration", run_ref)
+                if read_time is None:
+                    raise _error("authority_resolution", run_ref)
                 recipe = compile_dataset(
                     source_dataset,
                     tables,
                     scans=scans,
                     source_owner=source_step.binding.owner,
+                    read_timezone=read_time.engine_timezone_name,
+                    read_timezone_source=read_time.read_tz_resolution,
                     event_coverages=event_coverages,
                 )
             if source_step.correlation_preparation:

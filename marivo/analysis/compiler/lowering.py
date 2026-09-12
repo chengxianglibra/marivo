@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
+from zoneinfo import ZoneInfo
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -34,6 +36,7 @@ from marivo.analysis.compiler.private_parts import (
     private_part_validations,
     selected_private_parts,
 )
+from marivo.analysis.compiler.source_time import boundary_instant, source_time
 from marivo.analysis.compiler.temporal import bucket, bucket_end, cumulative_start
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
@@ -43,7 +46,11 @@ from marivo.analysis.datasets.descriptors import (
     _EntityFieldIdentity,
     _OrderedOrdering,
 )
-from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+from marivo.analysis.datasets.handles import (
+    CanonicalValue,
+    LogicalRootHandle,
+    MaterializedScanLeafHandle,
+)
 from marivo.analysis.domains.completeness import EventCoverageResolution, resolve_event_coverage
 from marivo.analysis.domains.contracts import (
     EventFunnelPayload,
@@ -69,6 +76,7 @@ from marivo.analysis.observation.contracts import (
     PopulationPayload,
     RankSpec,
     RetainedRowsPayload,
+    _version_selection_payload,
     metric_contracts,
     source_owner_of,
 )
@@ -85,11 +93,18 @@ from marivo.analysis.observation.fold_contracts import (
     MetricFoldAuthorityV1,
     RetainedFoldPayload,
     coverage_columns,
+    decode_fold_authority,
     fold_part_role,
     fold_state_names,
 )
 from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.private_parts import source_private_part_authorities
+from marivo.analysis.observation.temporal import (
+    SourceTimeAuthority,
+    TemporalExecution,
+    civil_bound,
+    time_zone,
+)
 from marivo.analysis.operators.association_contracts import CorrelatePayload, association_orders
 from marivo.analysis.operators.attribution_contracts import (
     AttributePayload,
@@ -105,18 +120,17 @@ from marivo.analysis.operators.driver_contracts import (
 )
 from marivo.refs import SemanticKind
 from marivo.semantic.ir import (
-    DateParse,
-    DatetimeParse,
+    HourPrefixParse,
     TargetDimensionContract,
     TargetEntityContract,
     TargetSnapshotSelection,
     TargetSnapshotVersion,
     TargetValiditySelection,
     TargetValidityVersion,
-    TimestampParse,
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
+    CumulativeAnchorV1,
     CumulativeNodeV1,
     LinearNodeV1,
     MetricGraphNodeV1,
@@ -127,7 +141,7 @@ from marivo.semantic.metric_graph import (
     component_node,
     component_predicate,
 )
-from marivo.semantic.validator import normalize_target_dimension
+from marivo.semantic.validator import normalize_target_dimension, normalize_target_version_selection
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -292,6 +306,20 @@ def _declared_cast(value: ir.Value, logical_type: str) -> ir.Value:
     return ops.Cast(value, to=target).to_expr()
 
 
+def _source_type_matches(actual: dt.DataType, declared: str) -> bool:
+    expected = dt.dtype(declared)
+    if actual == expected or (declared == "decimal" and isinstance(actual, dt.Decimal)):
+        return True
+    return (
+        isinstance(actual, dt.Timestamp)
+        and isinstance(expected, dt.Timestamp)
+        and expected.scale is None
+        and actual.scale == 6
+        and expected.timezone == actual.timezone
+        and expected.nullable == actual.nullable
+    )
+
+
 def _physical_casts(expression: ir.Table) -> ir.Table:
     # DuckDB widens integer SUM physically while Ibis retains its int64 type.
     return expression.select(
@@ -302,6 +330,12 @@ def _physical_casts(expression: ir.Table) -> ir.Table:
             for name in expression.columns
         }
     )
+
+
+def _fold_zone(semantics: EntityPresentMetricSemantics | EntityReducedMetricSemantics) -> str:
+    authority = decode_fold_authority(semantics.fold_authority)
+    snapshot = authority.temporal_snapshot()
+    return authority.report_time.timezone if snapshot is None else snapshot.boundary_timezone
 
 
 def _duration_seconds(start: ir.Value, end: ir.Value) -> ir.NumericValue:
@@ -490,9 +524,27 @@ def lower_fold(
             if spec.grain is not None and target_time is not None:
                 target_start = grouped[target_time].cast("timestamp")
                 target_end = bucket_end(target_start, spec.grain, semantics.fold_temporal_snapshot)
+                if decode_fold_authority(semantics.fold_authority).instant_coverage:
+                    target_start = boundary_instant(_fold_zone(semantics), target_start)
+                    target_end = boundary_instant(_fold_zone(semantics), target_end)
             elif semantics.fold_time_scope is not None:
-                target_start = ibis.literal(semantics.fold_time_scope.start).cast("timestamp")
-                target_end = ibis.literal(semantics.fold_time_scope.end).cast("timestamp")
+                fold = decode_fold_authority(semantics.fold_authority)
+                target_start = ibis.literal(
+                    civil_bound(
+                        semantics.fold_time_scope.start,
+                        report=fold.report_time.timezone,
+                        boundary="UTC",
+                        civil_date=not fold.instant_coverage,
+                    )
+                ).cast("timestamp")
+                target_end = ibis.literal(
+                    civil_bound(
+                        semantics.fold_time_scope.end,
+                        report=fold.report_time.timezone,
+                        boundary="UTC",
+                        civil_date=not fold.instant_coverage,
+                    )
+                ).cast("timestamp")
             else:
                 target_start, target_end = grouped[start], grouped[end]
             duration = _duration_seconds(target_start, target_end)
@@ -536,10 +588,16 @@ class _Compiler:
         scans: Mapping[str, CompiledArtifactScan],
         source_owner: ObservationOwner | None = None,
         event_coverages: Mapping[str, EventCoverageResolution] | None = None,
+        read_timezone: str | None = None,
+        read_timezone_source: Literal["engine", "system_fallback"] = "engine",
     ) -> None:
         self.dataset = dataset
         self.owner = source_owner_of(dataset) if source_owner is None else source_owner
         self.registry = self.owner.semantic_registry
+        self.read_timezone = read_timezone
+        self.read_timezone_source = read_timezone_source
+        self.time_authorities: dict[tuple[str, str], SourceTimeAuthority] = {}
+        self.version_selections: dict[str, CanonicalValue] = {}
         self.tables = tables
         self.scans = scans
         self.datasets: dict[int, Dataset] = {}
@@ -588,32 +646,12 @@ class _Compiler:
                     "ordered declared semantic source columns", "source schema mismatch"
                 )
             if any(
-                table[name].type() != dt.dtype(kind)
-                and not (kind == "decimal" and isinstance(table[name].type(), dt.Decimal))
-                for name, kind in entity.columns
+                not _source_type_matches(table[name].type(), kind) for name, kind in entity.columns
             ):
                 raise compilation_error(
                     "exact declared semantic source types", "source type mismatch"
                 )
             self._validate_source(entity, table)
-            if isinstance(entity.version, TargetSnapshotVersion):
-                if entity.version.format is not None or entity.version.timezone is not None:
-                    raise compilation_error(
-                        "native unformatted snapshot coordinate",
-                        "unsupported snapshot format or timezone",
-                    )
-                self._validate_temporal_axis(
-                    normalize_target_dimension(self.registry, entity.version.coordinate_ref.path)
-                )
-            elif isinstance(entity.version, TargetValidityVersion):
-                if entity.version.timezone is not None:
-                    raise compilation_error(
-                        "native validity coordinate", "unsupported validity timezone"
-                    )
-                for reference in (entity.version.valid_from_ref, entity.version.valid_to_ref):
-                    self._validate_temporal_axis(
-                        normalize_target_dimension(self.registry, reference.path)
-                    )
         for root in logical_roots(dataset):
             payload = root.payload
             if isinstance(payload, PopulationPayload) and payload.reference_axis is not None:
@@ -624,20 +662,120 @@ class _Compiler:
                         self._validate_temporal_axis(axis)
 
     def _validate_temporal_axis(self, axis: TargetDimensionContract) -> None:
-        source_type = self.tables[axis.entity_ref.path][axis.source_column].type()
-        parse = self.registry.dimensions[axis.ref.path].parse
-        if (
-            axis.timezone is not None
-            or source_type != dt.dtype(axis.logical_type)
-            or (
-                parse is not None
-                and not isinstance(parse, (DateParse, DatetimeParse, TimestampParse))
-            )
-        ):
+        self._time_column(self.tables[axis.entity_ref.path], axis.source_column, axis)
+
+    def _axis_value(
+        self,
+        value: ir.Value,
+        axis: TargetDimensionContract,
+        zone: str | None = None,
+        prefix: ir.Value | None = None,
+    ) -> ir.Value:
+        if not axis.is_time_dimension:
+            return value
+        result, authority = source_time(
+            value,
+            axis,
+            boundary_timezone=zone or self.owner.report_time.timezone,
+            read_timezone=self.read_timezone,
+            read_source=self.read_timezone_source,
+            prefix=prefix,
+        )
+        self.time_authorities[(axis.ref.path, authority.boundary_timezone)] = authority
+        return result
+
+    def _prefix_axis(self, axis: TargetDimensionContract) -> TargetDimensionContract | None:
+        parse = axis.parse
+        if not isinstance(parse, HourPrefixParse):
+            return None
+        prefix = normalize_target_dimension(self.registry, parse.prefix)
+        if prefix.entity_ref != axis.entity_ref or prefix.logical_type != "date":
             raise compilation_error(
-                "native date/timestamp coordinate without parsing or timezone conversion",
-                "unsupported temporal source representation",
+                "a same-Entity civil-date hour prefix", "invalid composite time axis"
             )
+        return prefix
+
+    def _require_prefix_axis(self, axis: TargetDimensionContract) -> TargetDimensionContract:
+        prefix = self._prefix_axis(axis)
+        if prefix is None:
+            raise compilation_error("an exact composite prefix", "missing prefix")
+        return prefix
+
+    def _time_column(
+        self, table: ir.Table, name: str, axis: TargetDimensionContract, zone: str | None = None
+    ) -> ir.Value:
+        prefix_axis = self._prefix_axis(axis)
+        prefix = None
+        if prefix_axis is not None:
+            prefix_name = (
+                name + "__prefix"
+                if name + "__prefix" in table.columns
+                else prefix_axis.source_column
+            )
+            prefix = self._axis_value(table[prefix_name], prefix_axis, zone)
+            self._count(
+                "temporal.hour_range",
+                table.filter((table[name].cast("int64") < 0) | (table[name].cast("int64") > 23)),
+            )
+        return self._axis_value(table[name], axis, zone, prefix)
+
+    def _zone(self, definition: MetricDefinition) -> str:
+        return (
+            definition.report_time.timezone
+            if definition.temporal_snapshot is None
+            else definition.temporal_snapshot.boundary_timezone
+        )
+
+    def _bound(
+        self, value: date | datetime, definition: MetricDefinition | None = None
+    ) -> date | datetime:
+        zone = self.owner.report_time.timezone if definition is None else self._zone(definition)
+        axis = None if definition is None else definition.reference_axis or definition.time_axis
+        return civil_bound(
+            value,
+            report=self.owner.report_time.timezone,
+            boundary=zone,
+            civil_date=axis is not None and axis.logical_type == "date",
+        )
+
+    def _scope_bound(
+        self, value: date | datetime, axis: TargetDimensionContract
+    ) -> date | datetime:
+        return civil_bound(
+            value,
+            report=self.owner.report_time.timezone,
+            boundary="UTC",
+            civil_date=axis.logical_type == "date",
+        )
+
+    def _instant(
+        self, value: ir.Value, definition: MetricDefinition, axis: TargetDimensionContract
+    ) -> ir.Value:
+        if axis.logical_type == "date":
+            return value
+        return boundary_instant(self._zone(definition), value)
+
+    def _cumulative_bounds(
+        self,
+        end: ir.Value,
+        definition: MetricDefinition,
+        axis: TargetDimensionContract,
+        anchor: CumulativeAnchorV1,
+        *,
+        bucket_start: ir.Value | None = None,
+    ) -> tuple[ir.Value, ir.Value | None]:
+        instant_end = self._instant(end, definition, axis)
+        if definition.time_scope is not None:
+            instant_end = ibis.least(
+                instant_end,
+                ibis.literal(self._scope_bound(definition.time_scope.end, axis)).cast("timestamp"),
+            )
+        if anchor != "all_history" and anchor[0] == "trailing":
+            return instant_end, cumulative_start(anchor, instant_end, definition.temporal_snapshot)
+        lower = cumulative_start(
+            anchor, end, definition.temporal_snapshot, bucket_start=bucket_start
+        )
+        return instant_end, None if lower is None else self._instant(lower, definition, axis)
 
     def _count(self, name: str, table: ir.Table) -> None:
         occurrence = self.validation_occurrences.get(name, 0)
@@ -669,8 +807,28 @@ class _Compiler:
                 f"{prefix}.snapshot_non_null", table.filter(table[version.source_column].isnull())
             )
         elif isinstance(version, TargetValidityVersion):
-            start, end = table[version.valid_from_column], table[version.valid_to_column]
-            open_end = self._open_end(end, version.open_end)
+            start_axis = normalize_target_dimension(self.registry, version.valid_from_ref.path)
+            end_axis = normalize_target_dimension(self.registry, version.valid_to_ref.path)
+            open_end = self._open_end(table[version.valid_to_column], version.open_end)
+            table = table.mutate(__mv_open_end=open_end)
+            table = table.mutate(
+                **{
+                    version.valid_to_column: table["__mv_open_end"].ifelse(
+                        ibis.null(), table[version.valid_to_column]
+                    )
+                }
+            )
+            table = table.mutate(
+                __mv_valid_start=self._time_column(
+                    table, version.valid_from_column, start_axis, "UTC"
+                ),
+                __mv_valid_end=self._time_column(table, version.valid_to_column, end_axis, "UTC"),
+            )
+            start, end = table["__mv_valid_start"], table["__mv_valid_end"]
+            open_end = table["__mv_open_end"]
+            self._unique(
+                f"{prefix}.parsed_version_unique", table, (*entity.primary_key, "__mv_valid_start")
+            )
             invalid = start.isnull() | (
                 ~open_end
                 & _boolean(end <= start if version.interval == "closed_open" else end < start)
@@ -678,12 +836,12 @@ class _Compiler:
             self._count(f"{prefix}.validity_well_formed", table.filter(invalid))
             left, right = table, table.view()
             keys = [_boolean(left[name] == right[name]) for name in entity.primary_key]
-            earlier = _boolean(left[version.valid_from_column] < right[version.valid_from_column])
-            left_end = left[version.valid_to_column]
-            overlaps = self._open_end(left_end, version.open_end) | _boolean(
-                left_end > right[version.valid_from_column]
+            earlier = _boolean(left["__mv_valid_start"] < right["__mv_valid_start"])
+            left_end = left["__mv_valid_end"]
+            overlaps = left["__mv_open_end"] | _boolean(
+                left_end > right["__mv_valid_start"]
                 if version.interval == "closed_open"
-                else left_end >= right[version.valid_from_column]
+                else left_end >= right["__mv_valid_start"]
             )
             self._count(
                 f"{prefix}.validity_non_overlapping",
@@ -710,6 +868,19 @@ class _Compiler:
         *,
         selected_target: ir.Table | None = None,
     ) -> ir.Table:
+        extras = []
+        for name, alias in columns:
+            for dimension in self.registry.dimensions.values():
+                if (
+                    dimension.entity == target
+                    and dimension.source_column == name
+                    and isinstance(dimension.parse, HourPrefixParse)
+                ):
+                    axis = normalize_target_dimension(self.registry, dimension.semantic_id)
+                    prefix_axis = self._prefix_axis(axis)
+                    if prefix_axis is not None:
+                        extras.append((prefix_axis.source_column, alias + "__prefix"))
+        columns = (*columns, *dict.fromkeys(extras))
         if source == target:
             return table.mutate(**{alias: table[name] for name, alias in columns})
         route = functional_path(self.registry, source, target, allow_versioned_target=True)
@@ -745,6 +916,46 @@ class _Compiler:
 
     def _population(self, root: LogicalRootHandle, payload: PopulationPayload) -> _Rows:
         entity = payload.entity
+        selection = payload.version_selection
+        version = entity.version
+        if version is not None and payload.time_scope is not None:
+            axis_ref = (
+                version.coordinate_ref
+                if isinstance(version, TargetSnapshotVersion)
+                else version.valid_from_ref
+            )
+            version_axis = normalize_target_dimension(self.registry, axis_ref.path)
+            end = payload.time_scope.end
+            boundary = (
+                end if isinstance(end, datetime) else datetime.combine(end, datetime.min.time())
+            )
+            if version_axis.logical_type != "date" and boundary.tzinfo is None:
+                boundary = boundary.replace(tzinfo=time_zone(payload.report_time.timezone))
+            zone = version.timezone or (
+                self.read_timezone
+                if version_axis.logical_type != "date"
+                else payload.report_time.timezone
+            )
+            if zone is None:
+                raise compilation_error(
+                    "resolved version read timezone", "missing version authority"
+                )
+            resolved_zone = time_zone(zone)
+            version_timezone = zone if isinstance(resolved_zone, ZoneInfo) else None
+            if version_timezone is None and isinstance(version, TargetSnapshotVersion):
+                boundary = (
+                    boundary.replace(tzinfo=resolved_zone)
+                    if boundary.tzinfo is None
+                    else boundary.astimezone(resolved_zone)
+                ).replace(tzinfo=None)
+            selection = normalize_target_version_selection(
+                replace(entity, version=replace(version, timezone=version_timezone)),
+                boundary=boundary,
+                interpretation="before_endpoint",
+            )
+            self.version_selections[root.definition_fingerprint] = _version_selection_payload(
+                selection
+            )
         if root.inputs:
             previous = self._visit(root.inputs[0].root)
             table = previous.membership
@@ -757,13 +968,20 @@ class _Compiler:
                 )
         else:
             table = self.tables[entity.ref.path]
-            version, selection = entity.version, payload.version_selection
             if isinstance(version, TargetSnapshotVersion) and isinstance(
                 selection, TargetSnapshotSelection
             ):
+                version_axis = normalize_target_dimension(
+                    self.registry, version.coordinate_ref.path
+                )
+                version_value = self._time_column(
+                    table,
+                    version.source_column,
+                    version_axis,
+                    version.timezone or self.read_timezone or self.owner.report_time.timezone,
+                )
                 table = table.filter(
-                    table[version.source_column]
-                    == ibis.literal(selection.period).cast(table[version.source_column].type())
+                    version_value == ibis.literal(selection.period).cast(version_value.type())
                 )
                 self.validations.append(
                     CompiledValidation(
@@ -774,8 +992,13 @@ class _Compiler:
             elif isinstance(version, TargetValidityVersion) and isinstance(
                 selection, TargetValiditySelection
             ):
-                start, end = table[version.valid_from_column], table[version.valid_to_column]
-                boundary = ibis.literal(selection.boundary).cast(start.type())
+                start_axis = normalize_target_dimension(self.registry, version.valid_from_ref.path)
+                end_axis = normalize_target_dimension(self.registry, version.valid_to_ref.path)
+                start = self._time_column(table, version.valid_from_column, start_axis, "UTC")
+                end = self._time_column(table, version.valid_to_column, end_axis, "UTC")
+                boundary = ibis.literal(
+                    self._scope_bound(datetime.fromisoformat(selection.boundary), start_axis)
+                ).cast(start.type())
                 start_ok = _boolean(
                     start < boundary if selection.start_operator == "lt" else start <= boundary
                 )
@@ -791,9 +1014,10 @@ class _Compiler:
                     axis.entity_ref.path,
                     ((axis.source_column, "__mv_scope"),),
                 )
-                column = table["__mv_scope"]
+                column = self._time_column(table, "__mv_scope", axis, "UTC")
                 table = table.filter(
-                    column >= payload.time_scope.start, column < payload.time_scope.end
+                    column >= self._scope_bound(payload.time_scope.start, axis),
+                    column < self._scope_bound(payload.time_scope.end, axis),
                 ).drop("__mv_scope")
             if version is not None:
                 self._unique(
@@ -890,7 +1114,7 @@ class _Compiler:
     ) -> ir.Table:
         """Join shared coordinate paths once, preserving their governed tuples."""
         original = tuple(table.columns)
-        aliases: dict[str, str] = {}
+        aliases: dict[str, tuple[str, TargetDimensionContract, str | None]] = {}
         mappings: dict[tuple[str, ...], tuple[str, dict[str, str]]] = {
             (): (source, {name: name for name in table.columns})
         }
@@ -943,22 +1167,48 @@ class _Compiler:
                 if filter_axes is not None
                 else axis.ref.path.rsplit(".", 1)[-1]
             )
-            aliases[alias] = mapping[axis.source_column]
-        table = table.select(
-            *(name for name in original if name not in aliases),
-            **{alias: table[name] for alias, name in aliases.items()},
-        )
+            prefix_axis = self._prefix_axis(axis)
+            aliases[alias] = (
+                mapping[axis.source_column],
+                axis,
+                None if prefix_axis is None else mapping[prefix_axis.source_column],
+            )
+        projected: dict[str, ir.Value] = {}
+        for alias, (name, axis, prefix_name) in aliases.items():
+            prefix_value = (
+                None
+                if prefix_name is None
+                else self._axis_value(
+                    table[prefix_name], self._require_prefix_axis(axis), self._zone(definition)
+                )
+            )
+            projected[alias] = self._axis_value(
+                table[name], axis, self._zone(definition), prefix_value
+            )
+            if axis.is_time_dimension and axis.logical_type == "timestamp":
+                projected["__mv_instant_" + alias] = self._axis_value(
+                    table[name], axis, "UTC", prefix_value
+                )
+        table = table.select(*(name for name in original if name not in projected), **projected)
         if definition.time_axis is not None and filter_axes is None:
             name = definition.time_axis.ref.path.rsplit(".", 1)[-1]
             if spine and definition.time_scope is not None:
-                lower: ir.Value = ibis.literal(definition.time_scope.start)
+                axis = definition.time_axis
+                column = (
+                    table["__mv_instant_" + name]
+                    if axis.logical_type == "timestamp"
+                    else table[name]
+                )
+                lower: ir.Value = ibis.literal(self._scope_bound(definition.time_scope.start, axis))
                 if any(metric.cumulative for metric in definition.metrics):
-                    # Display buckets require calendar coverage; earlier base
-                    # contributions retain their independent history authority.
-                    lower = bucket(lower, definition.grain, definition.temporal_snapshot)
+                    display_start = bucket(
+                        ibis.literal(self._bound(definition.time_scope.start, definition)),
+                        definition.grain,
+                        definition.temporal_snapshot,
+                    )
+                    lower = ibis.least(lower, self._instant(display_start, definition, axis))
                 table = table.filter(
-                    table[name] >= lower,
-                    table[name] < definition.time_scope.end,
+                    column >= lower, column < self._scope_bound(definition.time_scope.end, axis)
                 )
             if definition.temporal_snapshot is not None:
                 snapshot = definition.temporal_snapshot
@@ -1031,17 +1281,6 @@ class _Compiler:
         if definition.time_axis is not None:
             name = definition.time_axis.ref.path.rsplit(".", 1)[-1]
             names.append(name)
-            if definition.time_scope is not None:
-                table = table.filter(table[name] < definition.time_scope.end)
-                if not any(metric.cumulative for metric in definition.metrics):
-                    table = table.filter(
-                        table[name]
-                        >= bucket(
-                            ibis.literal(definition.time_scope.start),
-                            definition.grain,
-                            definition.temporal_snapshot,
-                        )
-                    )
         if definition.entity_present:
             names.insert(0, "entity_identity")
         if not names:
@@ -1074,22 +1313,30 @@ class _Compiler:
             raise compilation_error("selected original cumulative times", "missing expansion time")
         end = bucket_end(endpoints[time_name], grain, definition.temporal_snapshot)
         if definition.time_scope is not None:
-            end = ibis.least(end, ibis.literal(definition.time_scope.end).cast("timestamp"))
+            end = ibis.least(
+                end,
+                ibis.literal(self._bound(definition.time_scope.end, definition)).cast("timestamp"),
+            )
         conditions = [
             table[name].identical_to(endpoints[name])
             for name in endpoints.columns
             if name != time_name
         ]
-        timestamp = table[time_name]
-        conditions.append(_boolean(timestamp < end))
-        lower = cumulative_start(
+        occurrence = (
+            table["__mv_instant_" + time_name]
+            if axis.logical_type == "timestamp"
+            else table[time_name]
+        )
+        end, lower = self._cumulative_bounds(
+            bucket_end(endpoints[time_name], grain, definition.temporal_snapshot),
+            definition,
+            axis,
             cumulative.anchor,
-            end,
-            definition.temporal_snapshot,
             bucket_start=endpoints[time_name],
         )
+        conditions.append(_boolean(occurrence < end))
         if lower is not None:
-            conditions.append(_boolean(timestamp >= lower))
+            conditions.append(_boolean(occurrence >= lower))
         joined = table.join(endpoints, conditions, how="inner")
         return joined.select(
             **{
@@ -1129,15 +1376,16 @@ class _Compiler:
             table = self._enrich(
                 table, root, axis.entity_ref.path, ((axis.source_column, "__mv_scope"),)
             )
-            column = table["__mv_scope"]
-            table = table.filter(column < definition.time_scope.end)
+            column = self._time_column(table, "__mv_scope", axis, "UTC")
+            table = table.filter(column < self._scope_bound(definition.time_scope.end, axis))
             if not metric.cumulative:
-                table = table.filter(column >= definition.time_scope.start)
+                table = table.filter(column >= self._scope_bound(definition.time_scope.start, axis))
             elif definition.time_axis is None:
-                boundary = cumulative_start(
+                _, boundary = self._cumulative_bounds(
+                    ibis.literal(self._bound(definition.time_scope.end, definition)),
+                    definition,
+                    axis,
                     metric.cumulative[0].anchor,
-                    ibis.literal(definition.time_scope.end),
-                    definition.temporal_snapshot,
                 )
                 if boundary is not None:
                     table = table.filter(column >= boundary)
@@ -1200,6 +1448,11 @@ class _Compiler:
                 root,
                 status_axis.entity_ref.path,
                 ((status_axis.source_column, "__mv_status"),),
+            )
+            table = table.mutate(
+                __mv_status=self._time_column(
+                    table, "__mv_status", status_axis, self._zone(definition)
+                )
             )
             self._count(
                 f"{metric.key}.status_time_non_null",
@@ -1357,17 +1610,24 @@ class _Compiler:
         end = bucket_end(start, grain, definition.temporal_snapshot)
         if definition.time_scope is not None:
             # A selected partial last bucket ends at the authored observation end.
-            end = ibis.least(end, ibis.literal(definition.time_scope.end).cast("timestamp"))
+            end = ibis.least(
+                end,
+                ibis.literal(self._bound(definition.time_scope.end, definition)).cast("timestamp"),
+            )
         conditions = [
             table[name].identical_to(endpoints[f"__mv_endpoint_{name}"])
             for name in endpoint_names
             if name != axis_name
         ]
-        source_time = table["__mv_cumulative_time"]
-        conditions.append(_boolean(source_time < end))
-        lower = cumulative_start(
-            metric.cumulative[0].anchor, end, definition.temporal_snapshot, bucket_start=start
+        source_time = self._time_column(table, "__mv_cumulative_time", over, "UTC")
+        end, lower = self._cumulative_bounds(
+            bucket_end(start, grain, definition.temporal_snapshot),
+            definition,
+            over,
+            metric.cumulative[0].anchor,
+            bucket_start=start,
         )
+        conditions.append(_boolean(source_time < end))
         if lower is not None:
             conditions.append(_boolean(source_time >= lower))
         original = tuple(table.columns)
@@ -1501,7 +1761,7 @@ class _Compiler:
             table = table.filter(
                 table[name]
                 >= bucket(
-                    ibis.literal(definition.time_scope.start),
+                    ibis.literal(self._bound(definition.time_scope.start, definition)),
                     definition.grain,
                     definition.temporal_snapshot,
                 )
@@ -1524,18 +1784,42 @@ class _Compiler:
                         bucket_start, definition.grain, definition.temporal_snapshot
                     )
                 elif definition.time_scope is not None:
-                    bucket_start = ibis.literal(definition.time_scope.start).cast("timestamp")
-                    bucket_finish = ibis.literal(definition.time_scope.end).cast("timestamp")
+                    bucket_start = ibis.literal(
+                        self._bound(definition.time_scope.start, definition)
+                    ).cast("timestamp")
+                    bucket_finish = ibis.literal(
+                        self._bound(definition.time_scope.end, definition)
+                    ).cast("timestamp")
                 else:
                     raise compilation_error(
                         "an exact cumulative evaluation boundary", "missing endpoint"
                     )
+                time_axis = definition.time_axis or definition.reference_axis
+                if time_axis is not None:
+                    if definition.time_axis is not None:
+                        bucket_start = self._instant(bucket_start, definition, time_axis)
+                        bucket_finish = self._instant(bucket_finish, definition, time_axis)
+                    elif definition.time_scope is not None:
+                        bucket_start = ibis.literal(
+                            self._scope_bound(definition.time_scope.start, time_axis)
+                        ).cast("timestamp")
+                        bucket_finish = ibis.literal(
+                            self._scope_bound(definition.time_scope.end, time_axis)
+                        ).cast("timestamp")
                 start, end = bucket_start, bucket_finish
-                if definition.time_scope is not None:
+                if definition.time_scope is not None and time_axis is not None:
                     start = ibis.greatest(
-                        start, ibis.literal(definition.time_scope.start).cast("timestamp")
+                        start,
+                        ibis.literal(
+                            self._scope_bound(definition.time_scope.start, time_axis)
+                        ).cast("timestamp"),
                     )
-                    end = ibis.least(end, ibis.literal(definition.time_scope.end).cast("timestamp"))
+                    end = ibis.least(
+                        end,
+                        ibis.literal(self._scope_bound(definition.time_scope.end, time_axis)).cast(
+                            "timestamp"
+                        ),
+                    )
                 table = table.mutate(
                     **{
                         endpoint: end,
@@ -2319,6 +2603,13 @@ class _Compiler:
             (*parts, *private_part_specs(self.dataset.row_contract, rows.parts)),
             preparations,
             self.attribution_proof,
+            version_selections=tuple(self.version_selections.items()),
+            temporal_execution=TemporalExecution(
+                report=self.owner.report_time,
+                axes=tuple(self.time_authorities[key] for key in sorted(self.time_authorities)),
+            )
+            if self.time_authorities
+            else None,
             lifecycle_coverage=self.lifecycle_coverage
             if str(self.dataset.row_contract.shape_id) == "lifecycle/history@v1"
             else None,
@@ -2366,10 +2657,18 @@ def compile_dataset(
     scans: Mapping[str, CompiledArtifactScan] | None = None,
     source_owner: ObservationOwner | None = None,
     event_coverages: Mapping[str, EventCoverageResolution] | None = None,
+    read_timezone: str | None = None,
+    read_timezone_source: Literal["engine", "system_fallback"] = "engine",
 ) -> CompiledDataset:
     """Lower a logical Dataset using exact source tables without executing or reading rows."""
     return _Compiler(
-        dataset, tables, {} if scans is None else scans, source_owner, event_coverages
+        dataset,
+        tables,
+        {} if scans is None else scans,
+        source_owner,
+        event_coverages,
+        read_timezone,
+        read_timezone_source,
     ).compile()
 
 

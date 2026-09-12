@@ -254,6 +254,8 @@ def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetD
         nullable=dt.dtype(data_type).nullable,
         is_time_dimension=dimension.is_time_dimension,
         granularity=dimension.granularity,
+        physical_type=data_type,
+        parse=parse,
         is_default=dimension.is_default,
         timezone=(
             parse.timezone

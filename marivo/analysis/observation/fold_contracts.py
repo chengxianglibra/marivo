@@ -27,6 +27,7 @@ from marivo.analysis.datasets.descriptors import (
     _descriptor_payload,
 )
 from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
+from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.refs import SemanticKind
 from marivo.semantic._quantile import QuantileMethodV1
 from marivo.semantic.metric_graph import (
@@ -131,6 +132,8 @@ class FoldAuthorityV1(BaseModel):
     scope: tuple[str, str] | None = None
     calendar_json: str | None = None
     coverage: Literal["current_rows"] = "current_rows"
+    report_time: ReportTimeAuthority = ReportTimeAuthority()
+    instant_coverage: bool = False
 
     def to_json(self) -> str:
         return self.model_dump_json()
@@ -439,13 +442,19 @@ def _metric_authority(
 
 
 def make_fold_authority(definition: MetricDefinition) -> str:
+    axis = definition.reference_axis or definition.time_axis
+    scope = (
+        None
+        if definition.time_scope is None
+        else (definition.time_scope.start.isoformat(), definition.time_scope.end.isoformat())
+    )
     return FoldAuthorityV1(
         schema_version=1,
+        report_time=definition.report_time,
+        instant_coverage=axis is not None and axis.logical_type == "timestamp",
         metrics=tuple(_metric_authority(metric, definition) for metric in definition.metrics),
         grain=grain_authority(definition.grain),
-        scope=None
-        if definition.time_scope is None
-        else (definition.time_scope.start.isoformat(), definition.time_scope.end.isoformat()),
+        scope=None if scope is None else (scope[0], scope[1]),
         calendar_json=None
         if definition.temporal_snapshot is None
         else json.dumps(

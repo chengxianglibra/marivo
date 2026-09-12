@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING, Literal
 
 import ibis.expr.types as ir
 
+from marivo.analysis.datasets.handles import CanonicalValue
 from marivo.analysis.observation.sampling import EntitySamplingPolicy
+from marivo.analysis.observation.temporal import TemporalExecution
 from marivo.analysis.operators.candidate_contracts import CandidateDefinition
 from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
 from marivo.semantic.ir import TargetEntityContract
@@ -103,3 +105,5 @@ class CompiledDataset:
     selection_coverage: EventCoverageResolution | None = None
     selection_payload: EventSelectionPayload | None = None
     selection_input_definition: str | None = None
+    temporal_execution: TemporalExecution | None = None
+    version_selections: tuple[tuple[str, CanonicalValue], ...] = ()
