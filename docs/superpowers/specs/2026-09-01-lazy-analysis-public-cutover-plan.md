@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-12
 
-Status: Slices 0-8 complete, including installed-package verification in 8c; Slice 9 pending
+Status: Slices 0-8 and 9a complete; Slices 9b-9d and release readiness pending
 
 Slice 5b implementation, supplied review follow-up and completed independent
 technical acceptance are recorded under its
@@ -3146,7 +3146,8 @@ processes, all 29 release tests, and the 4,824-test broad gate. It replaces the
 remaining eager wheel smoke and resolves the Help test's packaged skill from the
 installed package; no library implementation changed. The exact candidate,
 distribution bytes, origins, negative audit and final status patch are linked in
-that record. Slice 9 remains pending; this candidate is not release-ready.
+that record. Slice 9a completion is recorded below; Slices 9b-9d remain pending
+and this candidate is not release-ready.
 
 These units organize preparation and verification, not separate public releases.
 Slice 8 activates already working semantics and reads; it must not absorb a
@@ -3298,7 +3299,7 @@ real-Agent journeys.
 
 | Unit | Prerequisite | Evidence owned |
 | --- | --- | --- |
-| 9a: deterministic and installed-package gates | 8c | Full repository, public contract, numerical, Help/example, bilingual docs/site, and distribution checks below. |
+| 9a: deterministic and installed-package gates — complete | 8c | Full repository, public contract, numerical, Help/example, bilingual docs/site, and distribution checks below. |
 | 9b: backend and execution-economics matrix | 9a | Terminal evidence for every claimed method/adapter/reader/writer path, source/local parity, query/transfer counts, and exact resource limits. Reuse unit harnesses against the candidate; do not infer support from compilation. |
 | 9c: adversarial runtime and read acceptance | 9a | Admission ordering, contention, precommit failure, committed-success recovery, unknown outcomes, required parts, cross-Session boundaries, scoped reads, and forbidden disclosure on the candidate. |
 | 9d: real-Agent integration journeys | 9a | Execute every journey below with fresh terminal Run/Artifact/Evidence or exact pre-admission rejection proof. Close only after 9b and 9c also pass for the same candidate. |
@@ -3307,6 +3308,23 @@ real-Agent journeys.
 candidate SHA and fixture/backend configuration. Changes during acceptance
 invalidate affected evidence and require the final full gate on the resulting
 revision; a successful earlier sub-slice is not proof of the installed switch.
+
+### Slice 9a completion
+
+The [Slice 9a execution record](../plans/2026-09-12-lazy-analysis-slice-9a-deterministic.md)
+closes the deterministic and installed-package unit on macOS with Python 3.12.13,
+at HEAD `df633187b99c00ef6af323e6c9a646d8d33db910` plus its recorded documentation
+changes. Tested candidate
+`1daa6834c32ec6da7bc6604bacfe2f5f55c89ece5f6c2cccfa5616171edf9360`
+passed all 4,824 default tests, including 329 cases in the numeric modules; all
+required Help/example, API, bilingual site and distribution checks; and all 29
+release tests. Nested wheel acceptance passed 361 contract tests, five Runtime
+examples and the three-process public production/offline-continuation/recovery
+journey. The record binds the exact source manifests, final installed package
+hashes, command logs and terminal identities. No implementation or test repair
+was needed; all 785 earlier evidence files were preserved. Only status text
+followed the gates. This closes 9a for the approved environment, not the backend,
+adversarial or real-Agent units; 9b-9d and release readiness remain pending.
 
 ### Static and deterministic gates
 
