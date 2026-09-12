@@ -11,6 +11,7 @@ from typing import Literal
 import pyarrow as pa
 import pytest
 
+from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local import LocalPolicy
@@ -23,6 +24,8 @@ from marivo.analysis.materialization.local_worker import (
     StreamInput,
     supervise,
 )
+from marivo.analysis.operators import registry as implementations
+from marivo.analysis.operators.registry import ImplementationRegistration
 from marivo.refs import ref
 from tests.lazy_attribute_fixtures import REGION, inputs
 from tests.lazy_local_fixtures import standalone_worker_reservation
@@ -159,6 +162,17 @@ def test_failed_attribution_worker_publishes_no_artifact_and_releases_resources(
     fixture.database.rename(tmp_path / "warehouse.offline")
     runtime.local_policy = replace(LocalPolicy(), deadline_seconds=0.5 if mode == "timeout" else 5)
     code = "import time; time.sleep(30)" if mode == "timeout" else "import os; os._exit(3)"
+    original = implementations.implementation
+
+    def local_attribute(dataset: LogicalDataset) -> ImplementationRegistration:
+        registered = original(dataset)
+        return (
+            replace(registered, source_adapter=None)
+            if registered.operator_id == "delta.attribute"
+            else registered
+        )
+
+    monkeypatch.setattr(implementations, "implementation", local_attribute)
     monkeypatch.setattr(admission, "supervise", partial(supervise, worker_code=code))
     started = time.monotonic()
     with pytest.raises(MaterializationError):

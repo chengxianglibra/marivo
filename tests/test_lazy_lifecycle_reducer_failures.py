@@ -37,7 +37,7 @@ def test_only_consumed_parts_are_opened(
     assert record is not None
     receipt = next(p.storage_receipt for p in record.descriptor.retained_parts if p.role == role)
     assert isinstance(receipt, LocalReceipt)
-    (tmp_path / receipt.qualified_relation_ref).unlink()
+    (tmp_path / receipt.project_relative_path / "data.parquet").unlink()
     database.unlink()
     logical: LogicalLifecycleDataset | LogicalPopulationDataset
     if method == "selection":
@@ -69,8 +69,10 @@ def test_corrupt_required_part_is_not_reconstructed(tmp_path: Path, role: str) -
     assert record is not None
     receipt = next(p.storage_receipt for p in record.descriptor.retained_parts if p.role == role)
     assert isinstance(receipt, LocalReceipt)
-    (tmp_path / receipt.qualified_relation_ref).chmod(0o600)
-    (tmp_path / receipt.qualified_relation_ref).write_bytes(b"corrupt-private-history-part")
+    (tmp_path / receipt.project_relative_path / "data.parquet").chmod(0o600)
+    (tmp_path / receipt.project_relative_path / "data.parquet").write_bytes(
+        b"corrupt-private-history-part"
+    )
     database.unlink()
     logical = (
         h.transitions()

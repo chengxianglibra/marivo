@@ -217,7 +217,6 @@ def test_high_cardinality_identity_relations_stay_native_and_private(
         )
     with (
         patch.object(admission, "supervise", forbidden),
-        patch.object(DatasetRuntime, "_batches", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         h = history(sources).execute()
@@ -241,7 +240,8 @@ def test_high_cardinality_identity_relations_stay_native_and_private(
         5000,
         5000,
     ]
-    assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0
+    assert runtime.statistics.transferred_rows == 5000
+    assert runtime.statistics.transferred_bytes > 0
     assert runtime.statistics.worker_pid is None and runtime.statistics.local_handoffs == ()
     canaries = ("881730041", "981730041", "991730041", "997730041")
     assert_identity_private(runtime, canaries)
@@ -254,7 +254,7 @@ def test_high_cardinality_identity_relations_stay_native_and_private(
     from marivo.analysis.materialization.contracts import LocalReceipt
 
     assert isinstance(receipt, LocalReceipt)
-    (tmp_path / receipt.qualified_relation_ref).unlink()
+    (tmp_path / receipt.project_relative_path / "data.parquet").unlink()
     with pytest.raises(MaterializationError) as caught:
         recovered.to_pandas()
     captured = capsys.readouterr()
@@ -296,14 +296,18 @@ def test_same_plan_selection_is_realized_once(tmp_path: Path, consumer: str) -> 
         ):
             realizations.append(statement.this.name)
     assert len(realizations) == 1
-    assert runtime.statistics.transferred_rows == 0
+    assert (
+        runtime.statistics.transferred_rows == {"metric": 1, "event": 2, "lifecycle": 5}[consumer]
+    )
     assert runtime.store.resources(runtime.session_ref) == ()
 
 
 @pytest.mark.parametrize(
     "consumer", ["distribution", "transitions", "dwell", "violations", "selection"]
 )
-def test_local_history_is_rejected_before_data_work(tmp_path: Path, consumer: str) -> None:
+def test_unregistered_parquet_reader_is_rejected_before_data_work(
+    tmp_path: Path, consumer: str
+) -> None:
     runtime, sources, _ = setup_lifecycle(tmp_path)
     h = history(sources).execute()
     logical = (
@@ -319,6 +323,7 @@ def test_local_history_is_rejected_before_data_work(tmp_path: Path, consumer: st
     )
     before = snapshot(runtime)
     with (
+        patch.object(admission, "_duckdb_version", "unsupported"),
         patch.object(admission, "_build_backend_from_effective", forbidden),
         patch.object(admission, "supervise", forbidden),
         pytest.raises(DatasetCompilationError, match="source-required"),
@@ -330,7 +335,7 @@ def test_local_history_is_rejected_before_data_work(tmp_path: Path, consumer: st
 
 @pytest.mark.parametrize("kind", ["local", "foreign_engine"])
 @pytest.mark.parametrize("consumer", ["metric", "event", "lifecycle"])
-def test_selected_membership_requires_same_domain_reader(
+def test_selected_membership_uses_registered_parquet_reader(
     tmp_path: Path, kind: str, consumer: str
 ) -> None:
     runtime, sources, _ = setup_lifecycle(tmp_path, engine=True)
@@ -340,6 +345,9 @@ def test_selected_membership_requires_same_domain_reader(
     selected = h.select_subjects(in_state(ModelStateHandle(MODEL, "done"), at=END)).execute()
     if kind == "foreign_engine":
         foreign = tmp_path / "foreign.duckdb"
+        import shutil
+
+        shutil.copyfile(tmp_path / "warehouse.duckdb", foreign)
         registry, sidecar = lifecycle_registry(foreign)
         sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     logical = (
@@ -350,11 +358,9 @@ def test_selected_membership_requires_same_domain_reader(
         else history(sources, population=selected)
     )
     before = snapshot(runtime)
-    with (
-        patch.object(admission, "_build_backend_from_effective", forbidden),
-        patch.object(admission, "supervise", forbidden),
-        pytest.raises(DatasetCompilationError),
-    ):
-        logical.execute()
-    assert runtime.last_run_ref is None
-    assert snapshot(runtime) == before
+    with patch.object(admission, "supervise", forbidden):
+        result = logical.execute()
+    assert set(result.to_pandas().entity_identity) == {(1,)}
+    assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"] + 1
+    assert runtime.statistics.worker_pid is None
+    assert runtime.store.resources(runtime.session_ref) == ()

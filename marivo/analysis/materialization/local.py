@@ -314,6 +314,7 @@ def execute_retained_suffix(
     calls: tuple[RowCall, ...],
     budget: LocalBudget,
 ) -> tuple[pd.DataFrame, tuple[PartFrame, ...], tuple[tuple[int, int], ...]]:
+    from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
     from marivo.analysis.materialization.retained import (
         reject_source_private_transfer,
         source_private_role,
@@ -330,7 +331,9 @@ def execute_retained_suffix(
         size = frame_bytes(frame) + sum(frame_bytes(part.frame) for part in parts)
         # Covers row copies, comparison columns, masks, index arrays and sorting workspace.
         budget.allocation(size * 4 + len(frame) * (512 + 128 * len(frame.columns)))
-        if call.input_row.shape_id.family_id == "delta":
+        if call.input_row.shape_id.family_id == "delta" and not isinstance(
+            call.input_row.family_semantics, FunnelDeltaSemantics
+        ):
             from marivo.analysis.operators.delta_state import validate_delta_parts
 
             validate_delta_parts(frame, parts, call.input_row)

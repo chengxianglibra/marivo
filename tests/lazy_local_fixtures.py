@@ -1,13 +1,17 @@
 """Minimal real-source fixtures for local Metric row continuations."""
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import pandas as pd
 import pyarrow as pa
 
+from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import ResourceRecord
@@ -24,6 +28,8 @@ from marivo.analysis.materialization.worker_lifetime import (
 )
 from marivo.analysis.observation.contracts import MetricPayload, RetainedRowsPayload
 from marivo.analysis.observation.metric import LogicalMetricDataset
+from marivo.analysis.operators import registry as implementations
+from marivo.analysis.operators.registry import ImplementationRegistration
 from marivo.analysis.operators.row import RowCall
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.refs import ref
@@ -31,6 +37,23 @@ from tests.lazy_execution_fixtures import make_execution_registry, seed_executio
 
 REVENUE = ref.metric("sales.revenue")
 COUNT = ref.metric("sales.order_count")
+
+
+@contextmanager
+def pandas_methods(*operator_ids: str) -> Iterator[None]:
+    """Preselect registered pandas methods by making their source lowerers absent."""
+    original = implementations.implementation
+
+    def selected(dataset: LogicalDataset) -> ImplementationRegistration:
+        value = original(dataset)
+        return (
+            replace(value, source_adapter=None, source_preparation_adapter=None)
+            if value.operator_id in operator_ids
+            else value
+        )
+
+    with patch.object(implementations, "implementation", selected):
+        yield
 
 
 def setup_local(

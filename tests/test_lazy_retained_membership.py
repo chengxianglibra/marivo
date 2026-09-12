@@ -11,7 +11,6 @@ import duckdb
 import pytest
 
 from marivo.analysis import grain, time_scope
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.materialization import admission
@@ -181,7 +180,7 @@ def test_true_entity_time_multiplicity_is_rejected_before_identity_projection(
 
 
 @pytest.mark.parametrize("kind", ["parquet"])
-def test_local_identity_never_implicitly_imports_into_source(
+def test_local_identity_uses_registered_native_parquet_membership(
     tmp_path: Path,
     kind: Literal["parquet", "object"],
     request: pytest.FixtureRequest,
@@ -199,8 +198,10 @@ def test_local_identity_never_implicitly_imports_into_source(
     checkpoint = sources.population(ref.entity("sales.customers")).execute()
     runtime.target = LocalTarget()
     observed = sources.observe(REVENUE, population=checkpoint)
-    with pytest.raises(DatasetCompilationError, match="source-required"):
-        observed.execute()
+    result = observed.execute()
+    assert len(result.to_pandas()) == len(checkpoint.to_pandas())
+    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.primary_queries == 1
     assert runtime.store.resources(runtime.session_ref) == ()
 
 

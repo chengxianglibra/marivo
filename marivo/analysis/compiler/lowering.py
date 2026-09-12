@@ -41,6 +41,7 @@ from marivo.analysis.compiler.temporal import bucket, bucket_end, cumulative_sta
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
     DatasetRowContract,
+    DatasetRowSetContract,
     _canonical_digest,
     _CatalogFieldIdentity,
     _EntityFieldIdentity,
@@ -61,7 +62,7 @@ from marivo.analysis.domains.contracts import (
     EventTimeToEventSemantics,
 )
 from marivo.analysis.domains.event_attribution import FunnelAttributePayload
-from marivo.analysis.domains.event_comparison import FunnelComparePayload
+from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelDeltaSemantics
 from marivo.analysis.domains.lifecycle import LifecyclePayload, LifecycleSemantics
 from marivo.analysis.domains.lifecycle_reducers import (
     LifecycleReducerPayload,
@@ -160,6 +161,17 @@ class _Rows:
     selections: tuple[_Selection, ...] = ()
     ordering: tuple[tuple[str, str, str], ...] = ()
     parts: PrivateRelations = ()
+
+
+def _authored_orders(
+    row: DatasetRowContract, rows: DatasetRowSetContract
+) -> dict[str, tuple[str | int, ...]]:
+    orders = association_orders(row, rows)
+    if isinstance(row.family_semantics, FunnelDeltaSemantics):
+        orders["step_key"] = tuple(
+            step.key for step in row.family_semantics.current.journey.pattern.steps
+        )
+    return orders
 
 
 def _named_validations(
@@ -2385,7 +2397,7 @@ class _Compiler:
                         (names[term.field_id], term.direction, term.nulls)
                         for term in retained_ordering.terms
                     ),
-                    association_orders(value.row_contract, value.row_set_contract),
+                    _authored_orders(value.row_contract, value.row_set_contract),
                 )
             if payload.limit_count is not None:
                 table = table.limit(payload.limit_count)
@@ -2585,7 +2597,7 @@ class _Compiler:
             expression = self._order(
                 expression,
                 terms,
-                association_orders(self.dataset.row_contract, self.dataset.row_set_contract),
+                _authored_orders(self.dataset.row_contract, self.dataset.row_set_contract),
             )
         elif key_names:
             expression = self._order(
@@ -2600,7 +2612,13 @@ class _Compiler:
             expression,
             validations,
             primary,
-            (*parts, *private_part_specs(self.dataset.row_contract, rows.parts)),
+            (
+                *parts,
+                *private_part_specs(
+                    self.dataset.row_contract,
+                    tuple((role, _physical_casts(table)) for role, table in rows.parts),
+                ),
+            ),
             preparations,
             self.attribution_proof,
             version_selections=tuple(self.version_selections.items()),
@@ -3120,7 +3138,7 @@ def compile_retained_rows(
                 tuple(
                     (names[term.field_id], term.direction, term.nulls) for term in ordering.terms
                 ),
-                association_orders(value.row_contract, value.row_set_contract),
+                _authored_orders(value.row_contract, value.row_set_contract),
             )
         if payload.limit_count is not None:
             result = result.limit(payload.limit_count)
@@ -3179,7 +3197,7 @@ def compile_retained_rows(
         expression = _Compiler._order(
             expression,
             tuple((names[term.field_id], term.direction, term.nulls) for term in ordering.terms),
-            association_orders(dataset.row_contract, dataset.row_set_contract),
+            _authored_orders(dataset.row_contract, dataset.row_set_contract),
         )
     elif keys:
         expression = _Compiler._order(expression, tuple((key, "ascending", "last") for key in keys))
@@ -3192,7 +3210,10 @@ def compile_retained_rows(
         tuple(field.name for field in dataset.schema.columns),
         (
             *retained_part_specs(dataset.row_contract),
-            *private_part_specs(dataset.row_contract, private_parts[id(dataset)]),
+            *private_part_specs(
+                dataset.row_contract,
+                tuple((role, _physical_casts(table)) for role, table in private_parts[id(dataset)]),
+            ),
         ),
         preparations=named_preparations,
         attribution_proof=attribution_proof,

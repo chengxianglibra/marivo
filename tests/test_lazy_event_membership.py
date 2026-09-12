@@ -79,7 +79,7 @@ def test_selected_identity_authority_drives_events_without_origin_replay(
         == selected.definition_fingerprint
     )
     assert record.evidence.finding_count == 0
-    assert runtime.statistics.transferred_rows == 0
+    assert runtime.statistics.transferred_rows == len(expected)
     assert runtime.statistics.local_handoffs == ()
     if retained and kind != "population":
         assert all('"orders"' not in sql for _, sql in runtime.statistics.statements)

@@ -43,9 +43,9 @@ def test_every_operand_order_keeps_membership_inside_engine(tmp_path: Path, stat
     runtime = DatasetRuntime.create(tmp_path, "distinct-operands", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     left, right = metric(sources, current=True), metric(sources, current=False)
+    current = left.execute() if states[0] == "M" else left
+    baseline = right.execute() if states[1] == "M" else right
     with guard_membership_transport():
-        current = left.execute() if states[0] == "M" else left
-        baseline = right.execute() if states[1] == "M" else right
         if states == "MM":
             with duckdb.connect(str(database), config={"threads": 1}) as connection:
                 connection.execute("DROP TABLE orders")

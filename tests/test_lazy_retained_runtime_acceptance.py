@@ -99,7 +99,7 @@ def test_retained_folds_and_shared_checkpoint_cold_binding(tmp_path: Path, kind:
         assert outputs[1]["rows"][0] == pytest.approx([sum(values) / len(values)])
         for output in outputs:
             stats = output["statistics"]
-            assert stats["transferred_rows"] == 0 and stats["worker_pid"] is None
+            assert stats["transferred_rows"] == 1 and stats["worker_pid"] is None
             assert '"customers"' not in json.dumps(stats["statements"])
     assert candidate == _manifest()
     evidence = {

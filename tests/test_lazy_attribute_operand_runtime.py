@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -9,9 +10,11 @@ import duckdb
 import pytest
 
 from marivo.analysis import time_scope
-from marivo.analysis.datasets.base import MaterializedDataset
+from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.observation.metric import LogicalMetricDataset
+from marivo.analysis.operators import registry as implementations
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
+from marivo.analysis.operators.registry import ImplementationRegistration
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.refs import ref
 from tests.lazy_attribute_runtime_evidence import record as _record
@@ -42,8 +45,9 @@ def _metric(sources: LazySources, method: Method, *, current: bool) -> LogicalMe
 
 @pytest.mark.parametrize("states", ["LL", "LM", "ML", "MM"])
 @pytest.mark.parametrize("method", ["additive", "component"])
+@pytest.mark.parametrize("execution", ["native", "pandas"])
 def test_all_metric_operand_authorities_feed_exact_attribution(
-    tmp_path: Path, states: str, method: Method
+    tmp_path: Path, states: str, method: Method, execution: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     candidate = _manifest()
     fixture = setup_retained(tmp_path)
@@ -69,6 +73,17 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
     baseline = right.execute() if states[1] == "M" else right
     if states == "MM":
         fixture.database.rename(tmp_path / "warehouse.offline")
+    original = implementations.implementation
+
+    def selected(dataset: LogicalDataset) -> ImplementationRegistration:
+        registered = original(dataset)
+        return (
+            replace(registered, source_adapter=None)
+            if execution == "pandas" and registered.operator_id == "delta.attribute"
+            else registered
+        )
+
+    monkeypatch.setattr(implementations, "implementation", selected)
     before = snapshot(fixture.runtime)
     logical = current.compare(baseline).attribute(axes=[CHANNEL], top_k=1)
     assert snapshot(fixture.runtime) == before
@@ -91,9 +106,10 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
         assert frame.overall_delta.tolist() == pytest.approx([12.5, 12.5])
     assert frame.share_of_negative_pool.isna().all()
     assert len(result.findings().items) == 2
-    assert (worker_pid is None) == (states == "LL")
+    assert (worker_pid is None) == (execution == "native")
+    assert primary_queries == 1
     if states == "MM":
-        assert primary_queries == 0
+        assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
     run = fixture.runtime.store.run(result.state.producing_run_ref)
     assert run is not None
     assert run.input_artifact_refs == tuple(
@@ -106,7 +122,7 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
     assert snapshot(fixture.runtime) == completed
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
     _record(
-        f"operand-{method}-{states}",
+        f"operand-{execution}-{method}-{states}",
         candidate,
         {
             "method": method,
@@ -122,6 +138,17 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
             "after": completed,
         },
     )
+    if states == "MM":
+        ranked = logical.rank(logical.fields.get("contribution")).limit(1).execute()
+        values = ranked.to_pandas()
+        assert values.contribution.tolist() == pytest.approx(
+            [10.0 if method == "additive" else 7.5]
+        )
+        assert values["rank"].tolist() == [1]
+        assert ranked.findings().items == ()
+        assert ranked.evidence_digest.finding_count == 0
+        assert (fixture.runtime.statistics.worker_pid is None) == (execution == "native")
+        assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
 
 
 @pytest.mark.parametrize("method", ["additive", "component"])

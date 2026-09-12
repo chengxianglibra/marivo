@@ -43,7 +43,12 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
             gt(metric.fields.metric(ref.metric("sales.revenue")), 10)
         ).execute()
         retained = journey(sources, population=membership).execute()
-        assert runtime.statistics.transferred_rows == 0
+        produced_record = runtime.store.artifact(retained.state.artifact_ref.ref)
+        assert produced_record is not None
+        assert (
+            runtime.statistics.transferred_rows
+            == produced_record.descriptor.storage_receipt.realized_row_count
+        )
         assert_identity_private(runtime)
         return {
             "pid": os.getpid(),
@@ -135,7 +140,10 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
                 record.descriptor.subject_selection_evidence
             ),
         }
-    assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0
+    if mode == "cold":
+        assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0
+    else:
+        assert runtime.statistics.worker_pid is None
     assert runtime.statistics.local_handoffs == ()
     assert runtime.store.resources(runtime.session_ref) == ()
     assert_identity_private(runtime)

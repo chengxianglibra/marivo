@@ -10,7 +10,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local import LocalPolicy
 from marivo.analysis.materialization.targets import LocalTarget
 from marivo.refs import ref
-from tests.lazy_local_fixtures import setup_local
+from tests.lazy_local_fixtures import pandas_methods, setup_local
 from tests.lazy_materialization_crash_worker import snapshot
 
 pytestmark = pytest.mark.runtime
@@ -89,7 +89,10 @@ def test_raw_entity_checkpoint_rejected_before_admission(tmp_path: Path) -> None
     ).execute()
     before = snapshot(runtime)
     for method in ("pearson", "spearman", "kendall"):
-        with pytest.raises(DatasetCompilationError, match="source-required"):
+        with (
+            pandas_methods("metric.correlate"),
+            pytest.raises(DatasetCompilationError, match="source-required"),
+        ):
             metric.correlate(method=method).execute()
         assert before == snapshot(runtime)
 
@@ -109,7 +112,7 @@ def test_selected_engine_receipt_mutation_rolls_back(tmp_path: Path) -> None:
 
     def mutate(event: str) -> None:
         if event == "after_rename":
-            path = tmp_path / receipt.qualified_relation_ref
+            path = tmp_path / receipt.project_relative_path / "data.parquet"
             path.chmod(0o600)
             with path.open("ab") as stream:
                 stream.write(b"private-correlation-receipt-mutation")
@@ -117,7 +120,7 @@ def test_selected_engine_receipt_mutation_rolls_back(tmp_path: Path) -> None:
     runtime.target = LocalTarget()
     runtime._hook = mutate
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError, match="mutated"):
+    with pytest.raises(MaterializationError, match="backing size changed"):
         metric.correlate(method="kendall").execute()
     unchanged_bundle(before, snapshot(runtime))
 

@@ -8,7 +8,7 @@ from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.refs import ref
-from tests.lazy_local_fixtures import setup_local
+from tests.lazy_local_fixtures import pandas_methods, setup_local
 
 pytestmark = pytest.mark.runtime
 
@@ -87,7 +87,7 @@ def test_authored_pair_order_private_transfers_and_direct_handoffs(
 @pytest.mark.parametrize("method", ["pearson", "spearman", "kendall"])
 @pytest.mark.parametrize("kind", ["local", "object"])
 def test_nonidentity_checkpoint_uses_local_exact_method(
-    tmp_path: Path, request: pytest.FixtureRequest, method: CorrelationMethod, kind: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: CorrelationMethod, kind: str
 ) -> None:
     import duckdb
 
@@ -97,8 +97,12 @@ def test_nonidentity_checkpoint_uses_local_exact_method(
     with duckdb.connect(str(database), config={"threads": 1}) as connection:
         connection.execute("UPDATE orders SET channel = CAST(id AS VARCHAR)")
     if kind == "object":
-        access = request.getfixturevalue("object_connection_access")
-        assert isinstance(access, S3Access)
+        from tests.lazy_candidate_object_fixtures import stub_candidate_objects
+
+        access = S3Access(
+            "fixture", "http://127.0.0.1:9", "bucket", "private-key", "private-secret"
+        )
+        stub_candidate_objects(monkeypatch, access)
         runtime.object_bindings = (access,)
         runtime.target = ObjectTarget(access.object_store_ref)
     metric = (
@@ -108,7 +112,9 @@ def test_nonidentity_checkpoint_uses_local_exact_method(
         .execute()
     )
     database.rename(tmp_path / "source.offline")
-    result = metric.correlate(method=method).execute()
+    runtime.target = LocalTarget()
+    with pandas_methods("metric.correlate"):
+        result = metric.correlate(method=method).execute()
     assert abs(result.to_pandas().coefficient.iloc[0]) == pytest.approx(1.0)
     assert runtime.statistics.worker_pid is not None
     assert runtime.statistics.primary_queries == 0

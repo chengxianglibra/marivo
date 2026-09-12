@@ -24,11 +24,11 @@ not acquire a new local/engine/object Cartesian product.
 | Lifecycle source-offline history and canonical-part recovery | `test_lazy_lifecycle_runtime_acceptance.py` with `lazy_lifecycle_worker.py`: three independent interpreters compare primary and every required part, exact cold binding and zero source execution; `test_lazy_lifecycle_runtime.py` verifies corrupt model metadata produces integrity reports and typed cold-recovery errors; `MARIVO_SLICE7D_EVIDENCE_DIR` retains process and candidate evidence |
 | Private Lifecycle reducers and complete InState selection | `test_lazy_lifecycle_reducers_runtime.py`: logical/recovered distribution, transitions, dwell and violations; checkpoint coverage, grouped retained membership, local result filtering and Metric -> Lifecycle -> Population -> Metric/Event; `test_lazy_lifecycle_reducer_failures.py`: exact role consumption, corruption, empty membership, atomic failure/cancellation and retry |
 | Lifecycle reducer source-offline cold binding | `test_lazy_lifecycle_reducer_runtime_acceptance.py` with `lazy_lifecycle_reducer_worker.py`: separate producer, trigger-offline continuation and cold binding processes; original Population enumeration disabled, engine history with local/engine terminal outputs, exact Evidence/descriptor/row hashes and no cold source execution; `MARIVO_SLICE7E_EVIDENCE_DIR` captures candidate-bound process evidence |
-| Lifecycle reducer adversarial acceptance | `test_lazy_lifecycle_reducer_review_runtime.py`: independent multi-subject grouped and rational-duration references, engine/local result and filter parity, declared ordering, 5,000-subject native transfer and identity canaries, same-plan single membership realization into Metric/Event/Lifecycle, and pre-data rejection of local/foreign-engine identity inputs |
+| Lifecycle reducer adversarial acceptance | `test_lazy_lifecycle_reducer_review_runtime.py`: independent multi-subject grouped and rational-duration references, engine/local result and filter parity, declared ordering, 5,000-subject native transfer and identity canaries, same-plan single membership realization into Metric/Event/Lifecycle, registered native Parquet membership across local and independent DuckDB files, and pre-data rejection of unregistered adapter versions |
 | Lifecycle object bundle ownership and exact versions | `test_lazy_lifecycle_object.py`: native SDK stubs, four version-pinned row sets, per-role upload failure/cancellation and complete owned-version cleanup; no external object service |
 | S3 versioning, conditional PUT, exact VersionId reads, missing access, cleanup ownership and unknown request results | `test_lazy_object_storage_contracts.py` and `test_lazy_object_access_boundaries.py`, with native SDK stubs and real local SessionStore files |
 | Acknowledgement without durable request discharge | One fresh-process Runtime check, using the local journal and a stubbed SDK acknowledgement |
-| Live object connector | `test_object_storage_connection.py`: real SDK connection, versioned writes, fixed-version read and deletion |
+| Live object connector and declared materialization paths | `test_object_storage_connection.py`: real SDK connection, versioned writes, fixed-version read and deletion; distinct/exact-distribution/T-Digest primary and private parts with source-offline continuation; Pearson/Spearman/Kendall publication and cold binding in three processes |
 
 The former MinIO analysis/fold/inspection matrices and remote crash/proxy scenarios
 are removed. Object-specific protocol contracts remain at the SDK and journal
@@ -43,7 +43,7 @@ they are not the current recurring test matrix.
 - `make runtime-test TESTS='tests/test_lazy_local_execution.py'`: focused functional checks.
 - `make runtime-test`: complete functional Runtime selection when explicitly needed.
 - `MARIVO_TEST_S3_ENDPOINT=http://127.0.0.1:9000 make object-storage-test`: isolated
-  versioned object connector smoke. The fixture owns a unique bucket and its cleanup;
+  versioned object connector and materialization gate. The fixture owns a unique bucket and its cleanup;
   the caller owns the service lifecycle.
 - `make release-check`: daily, full functional Runtime, object connector, and packaging gates.
 
@@ -64,3 +64,24 @@ proves independent execution while the owning Session remains blocked.
 Local publication crash points are separately parameterized for xdist scheduling.
 When `MARIVO_SLICE2B_EVIDENCE_PATH` is set, each case writes a sibling file with the
 crash point appended to the requested filename stem, avoiding concurrent overwrites.
+
+## Slice 9b diagnostics
+
+`tests.lazy_acceptance_capture` is an opt-in observer, loaded with
+`-p tests.lazy_acceptance_capture` and `MARIVO_SLICE9B_EVIDENCE_DIR`. It records
+existing selected steps, terminal receipts, Run/Artifact counts, query/transfer
+statistics, available worker RSS and timings. Test nodes remain the owners of
+row, authority, repair and recovery assertions; this is not a support registry.
+Adapter-internal metadata and storage wire request counts are uninstrumented,
+not zero. Native primary/independent-part streams count decoded transfer once;
+parts split from the primary batch are separate storage receipts, not additional
+source transfers. Exact recovery still requires zero execution and zero copies.
+
+Tests intended to exercise pandas preselect an absent source lowerer using the
+existing implementation registry. Native Parquet continuations are separately
+accepted. A successful basic SQLite/MySQL/PostgreSQL/ClickHouse/Trino query does
+not register that backend for Dataset analysis. Ordinary Runtime tests use local
+storage or SDK stubs; only the object gate requests `object_connection_access`.
+Funnel comparison tests cover authored step order through publication and
+filtering. Distinct temporal checkpoints validate physical coordinate types in
+both the primary rows and independent membership parts before cold reuse.

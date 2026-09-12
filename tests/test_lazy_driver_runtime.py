@@ -7,7 +7,6 @@ from pathlib import Path
 import ibis
 import pytest
 
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import LocalTarget
@@ -79,7 +78,7 @@ def test_scoped_days_survive_driver_and_local_row_continuations(
     output = result.to_pandas()
     assert output.comparison_ordinal.tolist() == [1]
     assert output.current_time.iloc[0].month == 2 and output.baseline_time.iloc[0].month == 1
-    assert cold.statistics.primary_queries == 0 and cold.statistics.worker_pid is not None
+    assert cold.statistics.primary_queries == 1 and cold.statistics.worker_pid is None
     original = fixture.runtime.store.artifact(candidates.state.artifact_ref.ref)
     changed = cold.store.artifact(result.state.artifact_ref.ref)
     assert original is not None and changed is not None
@@ -210,12 +209,6 @@ def test_entity_driver_scope_privacy_and_retained_permission(tmp_path: Path, kin
     assert result.to_pandas().axis_cardinality.tolist() == [3, 3]
     fixture.database.rename(tmp_path / "source.offline")
     selected = result.where(gt(result.fields.get("score"), 0))
-    if kind == "local":
-        before = snapshot(fixture.runtime)
-        with pytest.raises(DatasetCompilationError, match="source-required"):
-            selected.execute()
-        assert snapshot(fixture.runtime) == before
-    else:
-        continued = selected.execute()
-        assert len(continued.to_pandas()) == 2
-        assert fixture.runtime.statistics.worker_pid is None
+    continued = selected.execute()
+    assert len(continued.to_pandas()) == 2
+    assert fixture.runtime.statistics.worker_pid is None

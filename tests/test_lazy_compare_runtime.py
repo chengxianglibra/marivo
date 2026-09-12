@@ -204,7 +204,8 @@ def test_repeated_checkpoint_keeps_two_operand_occurrences_and_immutable_rows(
     run = runtime.store.run(result.state.producing_run_ref)
     assert run is not None
     assert run.input_artifact_refs == (checkpoint.state.artifact_ref.ref,) * 2
-    assert runtime.statistics.primary_queries == 0
+    assert runtime.statistics.primary_queries == 1
+    assert runtime.statistics.worker_pid is None
 
 
 @pytest.mark.parametrize("shape", ["entity", "dimension"])
@@ -258,8 +259,8 @@ def test_delta_row_operations_preserve_source_and_retained_numerical_results(
         assert runtime.statistics.worker_pid is None
         assert continued.findings().items == ()
     else:
-        assert runtime.statistics.worker_pid is not None
-        assert runtime.statistics.primary_queries == 0
+        assert runtime.statistics.worker_pid is None
+        assert runtime.statistics.primary_queries == 1
     _record(
         f"row-operation-parity-{shape}",
         candidate,

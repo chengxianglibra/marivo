@@ -24,6 +24,7 @@ from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_event_fixtures import make_event_registry
 from tests.lazy_event_runtime_fixtures import journey, setup_event
+from tests.lazy_local_fixtures import pandas_methods
 
 pytestmark = pytest.mark.runtime
 
@@ -73,8 +74,11 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
         runtime.target = LocalTarget()
     with patch.object(registry, "implementation", implementation):
         result = delta.execute()
+        first = delta.where(eq(delta.fields.get("step_key"), "start")).execute()
         attributed = attribution.execute()
     frame = result.to_pandas()
+    assert frame.step_key.tolist() == ["start", "finish"]
+    assert first.to_pandas().step_key.tolist() == ["start"]
     assert frame.loss_rate_delta.tolist()[1] == 0.0
     contributions = attributed.to_pandas()
     assert contributions.contribution.sum() == 0.0
@@ -87,7 +91,8 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
     rebound = cold.artifact(attributed.state.artifact_ref)
     pd.testing.assert_frame_equal(rebound.to_pandas(), contributions)
     if not local:
-        assert runtime.statistics.transferred_rows == 0
+        assert runtime.statistics.transferred_rows == len(contributions)
+        assert runtime.statistics.worker_pid is None
     else:
         assert runtime.statistics.worker_pid is not None
     checkpoint = cold.artifact(result.state.artifact_ref)
@@ -198,7 +203,7 @@ def test_complete_local_inputs_obey_combined_budget(tmp_path: Path) -> None:
     runtime.target = LocalTarget()
     runtime.local_policy = LocalPolicy(max_method_rows=3)
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
+    with pandas_methods("event.compare"), pytest.raises(MaterializationError):
         output.execute()
     assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"]
     assert runtime.store.resources(runtime.session_ref) == ()

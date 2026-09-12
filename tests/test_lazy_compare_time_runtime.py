@@ -109,8 +109,8 @@ def test_repeated_dimension_members_keep_exact_paired_time_rows_in_both_routes(
     database.rename(tmp_path / "warehouse.offline")
     retained = retained_current.compare(retained_baseline).execute()
     retained_frame, retained_findings = _check_rows_and_findings(retained)
-    assert runtime.statistics.primary_queries == 0
-    assert runtime.statistics.worker_pid is not None
+    assert runtime.statistics.primary_queries == 1
+    assert runtime.statistics.worker_pid is None
     assert retained_frame.equals(source_frame)
     assert [finding.canonical_item_key for finding in retained_findings] == [
         finding.canonical_item_key for finding in source_findings

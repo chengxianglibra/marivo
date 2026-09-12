@@ -64,6 +64,9 @@ def test_entity_summary_is_closed_and_distinct_from_time_moments() -> None:
     assert isinstance(decoded, dict) and isinstance(decoded["evaluation"], dict)
     assert "entity_identity" not in decoded["evaluation"]
     assert decode_evidence(None) is None
+    from marivo.analysis.operators.candidate_contracts import CandidateDefinition
+
+    assert isinstance(evidence.definition, CandidateDefinition)
     empty = replace(
         evidence,
         row_count=0,
@@ -249,7 +252,7 @@ def test_engine_metric_checkpoint_scores_without_origin_and_cold_reuses(
         == checkpoint.state.artifact_ref.ref
     )
     assert runtime.statistics.source_fences == 1
-    assert runtime.statistics.transferred_rows == 0 and runtime.statistics.worker_pid is None
+    assert runtime.statistics.transferred_rows == 1 and runtime.statistics.worker_pid is None
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
     retained = cold.artifact(checkpoint.state.artifact_ref)
     assert isinstance(retained, MaterializedMetricDataset)

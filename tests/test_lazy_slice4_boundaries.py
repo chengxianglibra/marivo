@@ -75,8 +75,8 @@ def test_independent_equal_argument_sources_keep_exact_registered_unary_branches
         for checkpoint, expected in zip(source_results, (11, 29), strict=True):
             output = checkpoint.where(gt(revenue, 10)).aggregate().execute()
             assert output.to_pandas()["revenue"].tolist() == [expected]
-            assert runtime.statistics.primary_queries == 0
-            assert runtime.statistics.worker_pid is not None
+            assert runtime.statistics.primary_queries == 1
+            assert runtime.statistics.worker_pid is None
             branch_evidence.append(
                 {
                     "input": str(checkpoint.state.artifact_ref),
