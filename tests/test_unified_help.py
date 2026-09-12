@@ -60,7 +60,7 @@ _SURFACE_NAMES: tuple[HelpSurface, ...] = (
 )
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SLICE3_ACTIVE_GUIDANCE = (
-    _REPO_ROOT / "marivo" / "skills" / "marivo-analysis" / "SKILL.md",
+    Path(marivo.__file__).resolve().parent / "skills" / "marivo-analysis" / "SKILL.md",
     _REPO_ROOT
     / "site"
     / "src"
