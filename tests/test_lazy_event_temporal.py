@@ -10,7 +10,6 @@ import duckdb
 import pytest
 
 from marivo.analysis import time_scope
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.domains.completeness import BoundedCompletenessDeclarationV1
 from marivo.analysis.domains.contracts import EventJourneySemantics
 from marivo.analysis.event import every_start, first_per_subject, sequence, step
@@ -157,16 +156,19 @@ def test_missing_or_overlapping_occurrence_versions_fail_atomically(
     assert runtime.store.resources(runtime.session_ref) == ()
 
 
-def test_retained_local_membership_cannot_cross_the_event_source_boundary(tmp_path: Path) -> None:
+def test_retained_parquet_membership_is_scanned_by_the_event_source(tmp_path: Path) -> None:
     runtime, sources, _ = setup_event(tmp_path)
     population = sources.population(ref.entity("sales.customers")).execute()
     before = snapshot(runtime)
     runtime.target = LocalTarget()
-    with pytest.raises(DatasetCompilationError, match="source-required"):
-        journey(sources, population=population).execute()
+    result = journey(sources, population=population).execute()
     after = snapshot(runtime)
-    assert after["dataset_artifacts"] == before["dataset_artifacts"]
-    assert after["dataset_evidence"] == before["dataset_evidence"]
+    assert after["dataset_artifacts"] == before["dataset_artifacts"] + 1
+    assert after["dataset_evidence"] == before["dataset_evidence"] + 1
+    run = runtime.store.run(result.state.producing_run_ref)
+    assert run is not None and run.input_artifact_refs == (population.state.artifact_ref.ref,)
+    assert runtime.statistics.worker_pid is None
+    assert runtime.revalidate(result.state.artifact_ref).storage_authority == "readable"
     assert runtime.store.resources(runtime.session_ref) == ()
 
 

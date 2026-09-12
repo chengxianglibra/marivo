@@ -74,7 +74,9 @@ def run(project: Path, phase: str) -> None:
             assert facts["attribution_definition"] == attribution.definition_fingerprint
             assert runtime.statistics.primary_queries == 0
             assert runtime.statistics.validation_queries == 0
-        assert runtime.statistics.transferred_rows == 0
+            assert runtime.statistics.transferred_rows == 0
+        if phase == "continue":
+            assert runtime.statistics.transferred_rows == len(contributions.to_pandas())
     assert_identity_private(runtime)
     manifest.write_text(json.dumps(facts, sort_keys=True))
     root = Path(__file__).resolve().parents[1]

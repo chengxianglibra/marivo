@@ -191,8 +191,8 @@ def test_engine_candidate_membership_reads_checkpoint_after_selection_source_dro
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("kind", ["local", "foreign_engine"])
-def test_candidate_identity_cannot_import_into_incompatible_source_before_run(
-    tmp_path: Path, kind: str
+def test_candidate_identity_requires_registered_adapter_version_before_run(
+    tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime, sources, _ = setup_entity_candidate(tmp_path)
     if kind == "foreign_engine":
@@ -204,6 +204,7 @@ def test_candidate_identity_cannot_import_into_incompatible_source_before_run(
         seed_execution_database(foreign)
         registry, sidecar = make_execution_registry(foreign)
         sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    monkeypatch.setattr(duckdb, "__version__", "unsupported")
     observed = sources.observe(LINE_REVENUE, population=checkpoint)
     assert isinstance(observed._root, LogicalRootHandle)
     assert isinstance(observed._root.inputs[0].root, MaterializedScanLeafHandle)

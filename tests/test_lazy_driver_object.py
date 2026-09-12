@@ -83,10 +83,10 @@ def test_driver_object_roundtrip_preserves_original_screening_authority(
     evidence = selected_record.descriptor.candidate_evidence
     assert evidence.definition == original.definition
     assert evidence.evaluation == original.evaluation and evidence.row_count == 1
-    assert reopened.statistics.primary_queries == 0
+    assert reopened.statistics.primary_queries == 1
 
 
-def test_entity_driver_object_keeps_native_continuation_barrier(
+def test_entity_driver_object_rejects_unregistered_native_reader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     fixture = setup_driver(tmp_path)
@@ -111,6 +111,9 @@ def test_entity_driver_object_keeps_native_continuation_barrier(
     assert "<identity>" in rendered and "axis_concentration" in rendered
     assert "{'id':" not in rendered
     assert recovered.findings().items == () and recovered.evidence_digest.finding_count == 0
+    from marivo.analysis.materialization import admission
+
+    monkeypatch.setattr(admission, "_duckdb_version", "unsupported")
     before, reads = snapshot(reopened), tuple(objects.reads)
     for successor in (
         recovered.where(gt(recovered.fields.get("score"), 0)),

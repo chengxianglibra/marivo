@@ -116,7 +116,6 @@ def test_large_history_uses_native_identity_execution(tmp_path: Path) -> None:
         )
     with (
         patch.object(admission, "supervise", forbidden),
-        patch.object(DatasetRuntime, "_batches", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         result = history(sources).execute()
@@ -126,7 +125,14 @@ def test_large_history_uses_native_identity_execution(tmp_path: Path) -> None:
     )
     assert record.descriptor.lifecycle_evidence.row_count == 5000
     assert record.descriptor.lifecycle_evidence.subject_count >= 5000
-    assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0
+    assert runtime.statistics.transferred_rows == sum(
+        receipt.realized_row_count
+        for receipt in (
+            record.descriptor.storage_receipt,
+            *(part.storage_receipt for part in record.descriptor.retained_parts),
+        )
+    )
+    assert runtime.statistics.transferred_bytes > 0
     assert runtime.statistics.local_handoffs == ()
     assert_identity_private(runtime, ("881730041", "981730041"))
 

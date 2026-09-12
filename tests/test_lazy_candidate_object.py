@@ -54,6 +54,9 @@ def test_candidate_object_roundtrip_and_local_continuation(
         database.rename(tmp_path / "origin.offline")
         if objective == "entity_outliers":
             before = snapshot(runtime)
+            from marivo.analysis.materialization import admission
+
+            monkeypatch.setattr(admission, "_duckdb_version", "unsupported")
             old_reads = tuple(reads)
             with pytest.raises(DatasetCompilationError, match="source-required"):
                 discover(retained, objective).execute()
@@ -106,6 +109,9 @@ def test_candidate_object_roundtrip_and_local_continuation(
         rendered = capsys.readouterr().out
         assert "<identity>" in rendered and "entity_mad_threshold_met" in rendered
         assert "{'id':" not in rendered
+        from marivo.analysis.materialization import admission
+
+        monkeypatch.setattr(admission, "_duckdb_version", "unsupported")
         old_reads = tuple(reads)
         before = snapshot(reopened)
         for continuation in (
@@ -134,7 +140,8 @@ def test_candidate_object_roundtrip_and_local_continuation(
     selected_evidence = selected_record.descriptor.candidate_evidence
     assert selected_evidence.definition == original.definition
     assert selected_evidence.evaluation == original.evaluation and selected_evidence.row_count == 1
-    assert reopened.statistics.primary_queries == 0
+    assert reopened.statistics.primary_queries == 1
+    assert reopened.statistics.worker_pid is None
 
 
 @pytest.mark.parametrize("objective", ["point_anomalies", "entity_outliers"])

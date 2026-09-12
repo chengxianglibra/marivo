@@ -95,7 +95,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
     record = runtime.store.artifact(refs["candidate"])
     assert record is not None and result.findings().items == ()
     assert runtime.statistics.worker_pid is None
-    assert runtime.statistics.transferred_rows == 0
+    assert runtime.statistics.transferred_rows == (0 if mode == "cold" else 1)
     if mode != "produce":
         assert all('"orders"' not in sql for _, sql in runtime.statistics.statements)
     with duckdb.connect(str(database), read_only=True, config={"threads": 1}) as connection:

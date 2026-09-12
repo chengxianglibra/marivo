@@ -70,7 +70,8 @@ def test_real_candidate_authorities(
     assert selected_record is not None and selected_record.descriptor.candidate_evidence is not None
     assert selected_record.descriptor.candidate_evidence.definition == evidence.definition
     assert selected_record.descriptor.candidate_evidence.evaluation == evidence.evaluation
-    assert runtime.statistics.primary_queries == 0
+    assert runtime.statistics.primary_queries == 1
+    assert runtime.statistics.worker_pid is None
     assert logical.execute().state.artifact_ref == result.state.artifact_ref
 
 

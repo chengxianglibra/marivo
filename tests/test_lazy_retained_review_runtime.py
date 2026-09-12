@@ -9,7 +9,6 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -20,6 +19,7 @@ from marivo.analysis.observation.predicates import gt
 from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
+from tests.lazy_local_fixtures import pandas_methods
 from tests.lazy_retained_fixtures import setup_retained
 
 pytestmark = pytest.mark.runtime
@@ -136,45 +136,43 @@ def test_substantial_local_metric_checkpoint_folds_with_source_offline(
 
     for name in ("_build_backend_from_effective", "_effective_kwargs", "compile_dataset"):
         monkeypatch.setattr(admission, name, forbidden)
-    selected = checkpoint.where(gt(REVENUE, 4))
-    logical = selected.aggregate()
-    result = logical.execute()
-    selected_values = [
-        (identity % 7) + 1 for identity in range(1, count + 1) if (identity % 7) + 1 > 4
-    ]
-    frame = result.to_pandas()
-    assert frame["revenue"].tolist() == [sum(selected_values)]
-    assert frame["mean_amount"].tolist() == pytest.approx(
-        [sum(selected_values) / len(selected_values)]
-    )
-    assert fixture.runtime.statistics.primary_queries == 0
-    assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
-    assert fixture.runtime.statistics.events.get("credential_resolution", 0) == 0
-    assert fixture.runtime.statistics.worker_pid is not None
-    assert len(fixture.runtime.statistics.local_handoffs) == 2
-    assert (
-        fixture.runtime.statistics.local_handoffs[0][1]
-        == fixture.runtime.statistics.local_handoffs[1][0]
-    )
-    assert fixture.runtime.local_policy.max_input_rows == 100_000
-    output = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
-    assert output is not None and isinstance(output.descriptor.storage_receipt, LocalReceipt)
-    assert all(
-        part.storage_receipt.realized_row_count == 1 for part in output.descriptor.retained_parts
-    )
-    assert fixture.runtime.store.artifact(checkpoint.state.artifact_ref.ref) == original
-    assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
-    before = snapshot(fixture.runtime)
-    # Stored identities cannot enter an unrelated source domain through upload.
-    with pytest.raises(DatasetCompilationError, match="source-required"):
-        fixture.sources.observe(MEAN, population=checkpoint).execute()
-    assert snapshot(fixture.runtime) == before
-    assert logical.execute().state.artifact_ref == result.state.artifact_ref
-    assert snapshot(fixture.runtime) == before
-    assert fixture.runtime.statistics.worker_pid is None
-    assert fixture.runtime.statistics.events == {"reconciliation": 1}
-    reopened = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref)
-    recovered = reopened.artifact(result.state.artifact_ref)
-    assert isinstance(recovered, MaterializedMetricDataset)
-    assert recovered.to_pandas().equals(frame)
-    assert snapshot(reopened) == before
+    with pandas_methods("metric.where"):
+        selected = checkpoint.where(gt(REVENUE, 4))
+        logical = selected.aggregate()
+        result = logical.execute()
+        selected_values = [
+            (identity % 7) + 1 for identity in range(1, count + 1) if (identity % 7) + 1 > 4
+        ]
+        frame = result.to_pandas()
+        assert frame["revenue"].tolist() == [sum(selected_values)]
+        assert frame["mean_amount"].tolist() == pytest.approx(
+            [sum(selected_values) / len(selected_values)]
+        )
+        assert fixture.runtime.statistics.primary_queries == 0
+        assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
+        assert fixture.runtime.statistics.events.get("credential_resolution", 0) == 0
+        assert fixture.runtime.statistics.worker_pid is not None
+        assert len(fixture.runtime.statistics.local_handoffs) == 2
+        assert (
+            fixture.runtime.statistics.local_handoffs[0][1]
+            == fixture.runtime.statistics.local_handoffs[1][0]
+        )
+        assert fixture.runtime.local_policy.max_input_rows == 100_000
+        output = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
+        assert output is not None and isinstance(output.descriptor.storage_receipt, LocalReceipt)
+        assert all(
+            part.storage_receipt.realized_row_count == 1
+            for part in output.descriptor.retained_parts
+        )
+        assert fixture.runtime.store.artifact(checkpoint.state.artifact_ref.ref) == original
+        assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
+        before = snapshot(fixture.runtime)
+        assert logical.execute().state.artifact_ref == result.state.artifact_ref
+        assert snapshot(fixture.runtime) == before
+        assert fixture.runtime.statistics.worker_pid is None
+        assert fixture.runtime.statistics.events == {"reconciliation": 1}
+        reopened = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref)
+        recovered = reopened.artifact(result.state.artifact_ref)
+        assert isinstance(recovered, MaterializedMetricDataset)
+        assert recovered.to_pandas().equals(frame)
+        assert snapshot(reopened) == before

@@ -178,7 +178,6 @@ def test_high_cardinality_reducers_keep_all_identity_relations_native(tmp_path: 
         )
     with (
         patch.object(admission, "supervise", forbidden),
-        patch.object(DatasetRuntime, "_batches", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         receiver = journey(sources).execute()
@@ -204,7 +203,8 @@ def test_high_cardinality_reducers_keep_all_identity_relations_native(tmp_path: 
     assert duration_summary.row_count == duration_summary.incomplete_count == 5000
     assert selection_summary is not None
     assert selection_summary.row_count == selection_summary.selected_subject_count == 5000
-    assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0
+    assert runtime.statistics.transferred_rows == 5000
+    assert runtime.statistics.transferred_bytes > 0
     assert runtime.statistics.worker_pid is None and runtime.statistics.local_handoffs == ()
     assert runtime.store.resources(runtime.session_ref) == ()
     assert_identity_private(runtime, ("881730041", "981730041"))
@@ -255,4 +255,4 @@ def test_retained_partial_receipt_proves_attempt_after_coverage_start(tmp_path: 
     assert attempts.to_pandas().completion_status.tolist() == ["complete", "incomplete"]
     assert selected.to_pandas().entity_identity.tolist() == [(2,)]
     assert len(requests) == 2
-    assert cold.statistics.transferred_rows == 0
+    assert cold.statistics.transferred_rows == 1

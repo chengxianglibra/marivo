@@ -6,54 +6,16 @@ from typing import Literal
 import pandas as pd
 import pytest
 
-from marivo.analysis import time_scope
+from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.observation.metric import LogicalMetricDataset
-from marivo.analysis.operators.delta import MaterializedDeltaDataset
-from marivo.semantic._quantile import QuantileMethod, quantile_metric
-from tests.lazy_distinct_fixtures import (
-    CHANNEL,
-    DISTINCT_BUYERS,
-    make_distinct_registry,
-    seed_distinct_database,
-)
-from tests.lazy_distribution_fixtures import (
-    METRIC,
-    make_distribution_registry,
-    seed_distribution_database,
-)
+from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
+from marivo.semantic._quantile import QuantileMethod
+from tests.lazy_distinct_fixtures import CHANNEL
+from tests.lazy_parquet_fixtures import operands
 
 pytestmark = pytest.mark.runtime
-
-
-def operands(
-    project: Path,
-    kind: Literal["distinct", "distribution"],
-    method: QuantileMethod,
-) -> tuple[DatasetRuntime, LogicalMetricDataset, LogicalMetricDataset, Path]:
-    database = project / "warehouse.duckdb"
-    if kind == "distinct":
-        seed_distinct_database(database)
-        registry, sidecar = make_distinct_registry(database)
-        metric = DISTINCT_BUYERS
-    else:
-        seed_distribution_database(database)
-        registry, sidecar = make_distribution_registry(database)
-        metric = quantile_metric(METRIC, method=method)
-    runtime = DatasetRuntime.create(project, "private-parquet")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    return (
-        runtime,
-        sources.observe(metric, time_scope=time_scope(start="2026-02-01", end="2026-02-05"))
-        .with_dimensions(CHANNEL)
-        .aggregate(),
-        sources.observe(metric, time_scope=time_scope(start="2026-01-01", end="2026-01-05"))
-        .with_dimensions(CHANNEL)
-        .aggregate(),
-        database,
-    )
 
 
 @pytest.mark.parametrize(
@@ -74,6 +36,8 @@ def test_private_parquet_cold_continuation_preserves_native_result(
     runtime, current, baseline, database = operands(tmp_path, kind, method)
     expected = current.compare(baseline).attribute(axes=(CHANNEL,)).execute().to_pandas()
     assert float(expected.contribution.sum()) == pytest.approx(1.0)
+    saved: tuple[MaterializedDataset, ...]
+    delta: LogicalDeltaDataset | MaterializedDeltaDataset
     if checkpoint == "operands":
         saved = (current.execute(), baseline.execute())
     else:
@@ -92,8 +56,8 @@ def test_private_parquet_cold_continuation_preserves_native_result(
     database.rename(tmp_path / "source.offline")
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     recovered = tuple(cold.artifact(value.state.artifact_ref) for value in saved)
-    for value in recovered:
-        assert cold.revalidate(value.state.artifact_ref).storage_authority == "readable"
+    for recovered_value in recovered:
+        assert cold.revalidate(recovered_value.state.artifact_ref).storage_authority == "readable"
     if checkpoint == "operands":
         from marivo.analysis.observation.metric import MaterializedMetricDataset
 

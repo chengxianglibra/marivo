@@ -176,7 +176,6 @@ def test_large_identity_relation_stays_inside_the_native_engine(tmp_path: Path) 
         )
     with (
         patch.object(admission, "supervise", forbidden),
-        patch.object(DatasetRuntime, "_batches", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         result = journey(sources).execute()
@@ -186,7 +185,11 @@ def test_large_identity_relation_stays_inside_the_native_engine(tmp_path: Path) 
     assert isinstance(summary, EventEvidenceSummary)
     assert (summary.row_count, summary.journey_count, summary.subject_count) == (10000, 5000, 5000)
     assert summary.missing_row_count == summary.incomplete_journey_count == 5000
-    assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0
+    assert (
+        runtime.statistics.transferred_rows == record.descriptor.storage_receipt.realized_row_count
+    )
+    assert runtime.statistics.transferred_rows == 10000
+    assert runtime.statistics.transferred_bytes > 0
     assert runtime.statistics.worker_pid is None
     assert runtime.statistics.local_handoffs == ()
     assert_identity_private(runtime, ("881730041", "981730041"))

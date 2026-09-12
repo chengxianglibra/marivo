@@ -73,7 +73,7 @@ def test_distribution_receipt_mutation_after_output_rename_rolls_back(tmp_path: 
 
     def mutate(point: str) -> None:
         if point == "after_rename":
-            path = tmp_path / receipt.qualified_relation_ref
+            path = tmp_path / receipt.project_relative_path / "data.parquet"
             path.chmod(0o600)
             with path.open("ab") as stream:
                 stream.write(b"private-distribution-mutation-canary")
@@ -82,7 +82,7 @@ def test_distribution_receipt_mutation_after_output_rename_rolls_back(tmp_path: 
     runtime.target = LocalTarget()
     runtime._hook = mutate
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError, match="mutated"):
+    with pytest.raises(MaterializationError, match="backing size changed"):
         metric.compare(baseline).attribute(axes=(CHANNEL,)).execute()
     assert changed == ["after_rename"]
     after = snapshot(runtime)

@@ -58,7 +58,7 @@ def test_selected_population_metric_enriches_current_subject_dimensions(
     assert frame.entity_identity.tolist() == [(2,)]
     assert frame.region.isna().all()
     assert frame.revenue.tolist() == [100.0]
-    assert runtime.statistics.transferred_rows == 0
+    assert runtime.statistics.transferred_rows == 1
 
 
 @pytest.mark.parametrize("retained", [False, True])
