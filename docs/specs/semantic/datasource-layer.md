@@ -94,7 +94,6 @@ md.trino(
     auth_env="WAREHOUSE_AUTH",
 )
 ```
-
 Every constructor returns its spec and, when executed inside a datasource loader
 file, auto-declares it for the project. `spec.ref` yields the `Ref[datasource]`
 used everywhere downstream.
@@ -154,7 +153,6 @@ Semantic declarations reference a datasource by one exact ref:
 warehouse = ms.ref.datasource("warehouse")  # -> Ref[datasource]
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
-
 `ms.ref.datasource(...)` accepts only the one-segment datasource path. Bare
 strings and kind-qualified strings such as `"datasource.warehouse"` are
 rejected — the exact ref is the contract. Renaming a legacy datasource changes
@@ -207,7 +205,6 @@ md.duckdb(
     http_bearer_token_env="HAWKEYE_TOKEN",
 )
 ```
-
 For custom headers, map every header name to its secret environment variable.
 This supports single-header APIs and machine authentication that requires a
 header pair:
@@ -222,7 +219,6 @@ md.duckdb(
     },
 )
 ```
-
 Bearer and custom-header modes are mutually exclusive. At connection time
 Marivo resolves every environment-backed value and installs a temporary DuckDB
 HTTP secret constrained by `http_scope`; the same connection keeps the scoped
@@ -270,7 +266,6 @@ events_source = md.table(
     },
 )
 ```
-
 The declared type is the output Ibis schema assertion; it does not cast the
 physical value. Projected mode is a complete allowlist: catalog inference cannot
 fill omitted columns, and duplicate physical identifiers are rejected. The
@@ -319,7 +314,6 @@ changes = md.json(
     },
 )
 ```
-
 Parameterized API URLs keep their stable request shape in the semantic project
 and bind request-specific values at analysis time:
 
@@ -336,7 +330,6 @@ samples = md.json(
     },
 )
 ```
-
 `query_params` values are scalars or flat, non-empty scalar lists. Lists encode
 as repeated query keys. `md.source_param(name)` declares a required, non-secret
 runtime value and may resolve to either shape while occupying one complete query
@@ -367,7 +360,6 @@ gpu_servers = md.json(
     query_params={"policy-domain": "gpus"},
 )
 ```
-
 Authentication headers are resolved from the owning DuckDB datasource and are
 sent only when the final URL is inside its declared `http_scope`. The body shape
 stays in `md.json(...)`; only declared non-secret parameter values belong to
@@ -392,7 +384,6 @@ changes = md.json(
     records_path="$.data.change_infos",
 )
 ```
-
 Marivo executes one request for one binding. Automatic page traversal, app-list
 fanout, watermarks, and ingestion remain outside this physical-source contract.
 
@@ -408,9 +399,8 @@ with session.source_bindings(
         },
     }
 ):
-    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+    dataset = session.observe(ms.ref.metric("monitoring.pending_containers"))
 ```
-
 Bindings use exact `Ref[entity]` keys and must provide exactly the declared
 parameter names. They are nested, context-local, and keyed by the owning Session
 runtime, so concurrent agents and another Session in the same task cannot consume
@@ -426,7 +416,6 @@ spec = md.duckdb(name="warehouse", path="/data/warehouse.duckdb")
 md.register(spec)  # writes models/datasources/warehouse.py
 md.test(spec.ref).show()  # validated live round trip
 ```
-
 - `md.register(spec, project_root=...)` persists a spec as a Python file under
   `models/datasources/`; authoring that file by hand is equally valid.
 - `md.remove(name)`, `md.list()`, and `md.describe(name)` manage and inspect the
@@ -507,7 +496,6 @@ snapshot = inspection.sample(
 snapshot.show()
 # Read bounded rows, profiles, coverage, and retained values only when needed.
 ```
-
 For date or timestamp acquisition, use the same public `PartitionScope` through
 `md.time_range("created_at", start=..., end=..., max_rows=...,
 timeout_seconds=...)`. It applies the half-open `[start, end)` predicate after
@@ -564,7 +552,6 @@ preview does not persist an authoring checkpoint or affect readiness.
 ```python
 md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="inspect pruning").show()
 ```
-
 `md.raw_sql(...)` is a normal governed exploration option and the sole terminal
 raw SQL execution path — bounded by
 `timeout_seconds` (default 30), exact row limiting, and read-only enforcement.
@@ -599,7 +586,6 @@ snapshot.show()
 order_id_profile = snapshot.profiles[0]
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
-
 Physical facts remain datasource-owned; semantic refs remain semantic-owned.
 After an entity is registered, semantic authoring reuses the entity ref rather
 than re-supplying `(datasource, source)` tuples. The full write loop is defined

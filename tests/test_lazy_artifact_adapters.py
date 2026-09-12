@@ -8,8 +8,8 @@ import duckdb
 import pytest
 
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import EngineReceipt
-from marivo.analysis.materialization.targets import EngineTarget
+from marivo.analysis.materialization.contracts import LocalReceipt
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
@@ -22,15 +22,13 @@ def test_engine_population_round_trip(tmp_path: Path) -> None:
     database = tmp_path / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
-    runtime = DatasetRuntime.create(
-        tmp_path, "engine", target=EngineTarget(next(iter(registry.datasources)))
-    )
+    runtime = DatasetRuntime.create(tmp_path, "engine", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     logical = sources.population(ref.entity("sales.customers"))
     result = logical.execute()
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None
-    assert isinstance(record.descriptor.storage_receipt, EngineReceipt)
+    assert isinstance(record.descriptor.storage_receipt, LocalReceipt)
     assert result.to_pandas()["entity_identity"].tolist() == [(1,), (2,), (3,), (4,)]
     assert runtime.statistics.transferred_rows == 0
     assert runtime.store.resources(runtime.session_ref) == ()
@@ -42,9 +40,7 @@ def test_engine_checkpoint_observe_never_replays_membership_source(tmp_path: Pat
     database = tmp_path / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
-    runtime = DatasetRuntime.create(
-        tmp_path, "checkpoint", target=EngineTarget(next(iter(registry.datasources)))
-    )
+    runtime = DatasetRuntime.create(tmp_path, "checkpoint", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     population = sources.population(ref.entity("sales.customers")).execute()
     with duckdb.connect(str(database)) as db:
@@ -58,7 +54,7 @@ def test_engine_checkpoint_observe_never_replays_membership_source(tmp_path: Pat
 
 def test_engine_rows_remain_native_after_source_is_removed(tmp_path: Path) -> None:
     runtime, sources, database = setup_local(tmp_path)
-    runtime.target = EngineTarget(next(iter(sources._owner.semantic_registry.datasources)))
+    runtime.target = LocalTarget()
     result = sources.observe(REVENUE).execute()
     database.rename(tmp_path / "offline.duckdb")
     filtered = result.where(gt(REVENUE, 15))
@@ -75,7 +71,7 @@ def test_engine_metric_projection_selects_one_of_two_metrics_without_origin(tmp_
     from tests.lazy_local_fixtures import COUNT
 
     runtime, sources, database = setup_local(tmp_path)
-    runtime.target = EngineTarget(next(iter(sources._owner.semantic_registry.datasources)))
+    runtime.target = LocalTarget()
     original = sources.observe([REVENUE, COUNT]).execute()
     database.rename(tmp_path / "unavailable.duckdb")
     for selected, dropped in ((REVENUE, "order_count"), (COUNT, "revenue")):
@@ -100,9 +96,7 @@ def test_engine_checkpoint_keeps_membership_when_new_source_parameters_change(
     seed_execution_database(database)
     with controlled_json_source() as server:
         registry, sidecar = make_execution_registry(database, api_url=server.url)
-        runtime = DatasetRuntime.create(
-            tmp_path, "captured-engine", target=EngineTarget(next(iter(registry.datasources)))
-        )
+        runtime = DatasetRuntime.create(tmp_path, "captured-engine", target=LocalTarget())
         sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         entity, metric = ref.entity("sales.api"), ref.metric("sales.api_value")
         with sources.source_bindings({entity: {"tenant": "alpha"}}):

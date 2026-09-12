@@ -149,8 +149,12 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
     ) -> LogicalMetricDataset:
         """Rank current numeric values by the exact by selector.
 
-        Args: by: Current value field. order: Direction. ties: Tie method.
+        Args:
+            by: Current value field.
+            order: Direction.
+            ties: Tie method.
             partition_by: Distinct current row-key coordinates.
+
         Returns: Logical Metric with nullable rank and deterministic total order.
         Example: ``metrics.rank(metrics.fields.metric(revenue)).limit(10)``.
         Constraints: Registered non-singleton shapes only; no data work occurs.
@@ -211,8 +215,11 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
     ) -> LogicalMetricDataset:
         """Fold current rows across specified coordinates.
 
-        Args: drop_dimensions: Exact retained Dimensions to remove.
-            grain: Strictly coarser time grain. drop_time: Remove time instead.
+        Args:
+            drop_dimensions: Exact retained Dimensions to remove.
+            grain: Strictly coarser time grain.
+            drop_time: Remove time instead.
+
         Returns: A Logical Metric over the same current contribution state.
         Example: ``metrics.aggregate().rollup(drop_time=True)``.
         Constraints: Entity must be absent; every component fold must be exact.
@@ -314,8 +321,12 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
     ) -> LogicalMetricDataset:
         """Describe ranking over exact retained rows using the current by selector.
 
-        Args: by: Numeric field. order: Direction. ties: Tie method.
+        Args:
+            by: Numeric field.
+            order: Direction.
+            ties: Tie method.
             partition_by: Distinct current key coordinates.
+
         Returns: Logical Metric. Example: ``retained.rank(retained.fields.get('revenue'))``.
         Constraints: Retained execution needs its separately registered local method.
         """
@@ -375,8 +386,11 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
     ) -> LogicalMetricDataset:
         """Fold current rows across specified coordinates.
 
-        Args: drop_dimensions: Exact retained Dimensions to remove.
-            grain: Strictly coarser time grain. drop_time: Remove time instead.
+        Args:
+            drop_dimensions: Exact retained Dimensions to remove.
+            grain: Strictly coarser time grain.
+            drop_time: Remove time instead.
+
         Returns: A Logical Metric over the same current contribution state.
         Example: ``metrics.aggregate().rollup(drop_time=True)``.
         Constraints: Entity must be absent; every component fold must be exact.

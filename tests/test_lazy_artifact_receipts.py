@@ -10,12 +10,13 @@ from marivo.analysis.materialization.errors import IntegrityError
 from tests.lazy_materialization_fixtures import descriptor
 
 
-def _engine() -> c.EngineReceipt:
-    return c.EngineReceipt(
-        "warehouse",
+def _local() -> c.LocalReceipt:
+    entries = (c.FileEntry("data.parquet", 4096, "a" * 64),)
+    return c.LocalReceipt(
+        "sessions/s/artifacts/a/primary",
+        entries,
+        c.manifest_digest(entries),
         "a" * 64,
-        "sessions/s/artifacts/a/primary/payload.duckdb",
-        "b" * 64,
         "c" * 64,
         2,
         4096,
@@ -34,9 +35,7 @@ def _object() -> c.ObjectReceipt:
     )
 
 
-@pytest.mark.parametrize(
-    "receipt", [_engine(), replace(_engine(), realized_byte_count=None), _object()]
-)
+@pytest.mark.parametrize("receipt", [_local(), _object()])
 def test_closed_receipt_round_trip(receipt: c.StorageReceipt) -> None:
     payload = c.receipt_payload(receipt)
     recovered = c.decode_receipt(c.parse_json(c.canonical_json(payload)))
@@ -45,7 +44,7 @@ def test_closed_receipt_round_trip(receipt: c.StorageReceipt) -> None:
     assert "datasource" not in repr(receipt)
 
 
-@pytest.mark.parametrize("receipt", [_engine(), _object()])
+@pytest.mark.parametrize("receipt", [_local(), _object()])
 def test_descriptor_round_trip_with_all_required_parts(receipt: c.StorageReceipt) -> None:
     original = descriptor(metric=True)
     updated = replace(
@@ -68,17 +67,15 @@ def test_descriptor_round_trip_with_all_required_parts(receipt: c.StorageReceipt
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("immutable_relation_protocol", "ordinary_table"),
-        ("qualified_relation_ref", "../foreign.duckdb"),
-        ("qualified_relation_ref", "/absolute.duckdb"),
-        ("relation_version_or_snapshot_token", "mutable"),
+        ("format", "csv"),
+        ("project_relative_path", "../foreign"),
+        ("project_relative_path", "/absolute"),
+        ("bytes_hash", "mutable"),
         ("realized_row_count", True),
     ],
 )
-def test_engine_receipt_rejects_unregistered_or_mutable_authority(
-    field: str, value: object
-) -> None:
-    payload = c.receipt_payload(_engine())
+def test_local_receipt_rejects_unregistered_or_mutable_authority(field: str, value: object) -> None:
+    payload = c.receipt_payload(_local())
     payload[field] = value
     with pytest.raises(IntegrityError):
         c.decode_receipt(payload)
@@ -103,7 +100,7 @@ def test_object_receipt_rejects_unpinned_or_unknown_protocol(field: str, value: 
         c.decode_receipt(payload)
 
 
-@pytest.mark.parametrize("receipt", [_engine(), _object()])
+@pytest.mark.parametrize("receipt", [_local(), _object()])
 def test_receipt_codec_does_not_open_storage(
     receipt: c.StorageReceipt, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -112,3 +109,10 @@ def test_receipt_codec_does_not_open_storage(
 
     monkeypatch.setattr(Path, "open", forbidden)
     assert c.decode_receipt(c.receipt_payload(receipt)) == receipt
+
+
+def test_database_receipt_kind_is_rejected_without_compatibility_decoding() -> None:
+    payload = c.receipt_payload(_local())
+    payload["kind"] = "engine"
+    with pytest.raises(IntegrityError):
+        c.decode_receipt(payload)

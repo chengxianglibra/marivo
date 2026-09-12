@@ -196,18 +196,20 @@ def test_native_pure_example(
 
 @pytest.mark.runtime
 def test_all_runtime_examples_use_committed_v3_state(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import marivo.analysis as mv
     from marivo.analysis.datasets.base import Dataset
     from marivo.analysis.evidence._dataset_types import ArtifactRevalidation, Finding, FindingPage
-    from marivo.analysis.session._disclosure_facade import PreparedSession, PreparedSessionNamespace
     from marivo.analysis.session._lazy_read_model import RunPage, SessionGraph, SucceededRun
-    from tests.lazy_lifecycle_fixtures import lifecycle_registry, setup_lifecycle
+    from tests.lazy_lifecycle_fixtures import setup_lifecycle
     from tests.lazy_runtime_read_fixtures import input_value
 
     runtime, sources, database = setup_lifecycle(tmp_path)
-    semantic_registry, sidecar = lifecycle_registry(database)
-    session = PreparedSession.from_runtime(runtime, semantic_registry, sidecar)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "help-examples"\n')
+    monkeypatch.chdir(tmp_path)
+    session = mv.Session._from_runtime(runtime)
+    session._sources_value = sources
     disclosure = prepare()
     environment = example_inputs(disclosure, sources)
     delta = environment["delta"]
@@ -220,7 +222,7 @@ def test_all_runtime_examples_use_committed_v3_state(
     assert record is not None
     environment.update(
         session=session,
-        namespace=PreparedSessionNamespace(tmp_path, semantic_registry, sidecar),
+        namespace=mv.session,
         materialized=materialized,
         artifact_ref=materialized.state.artifact_ref,
         artifact_digest=materialized.evidence_digest,

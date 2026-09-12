@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from marivo.analysis.errors import PatternStepMismatchError
 from marivo.analysis.event import PatternStep, _event_repair, _fingerprint
-from marivo.analysis.lifecycle import InState
 
 
 class DroppedBefore(BaseModel):
@@ -31,9 +30,6 @@ class DroppedBefore(BaseModel):
         )
 
 
-SubjectSelection = Annotated[DroppedBefore | InState, Field(discriminator="kind")]
-
-
 def dropped_before(*, step: PatternStep) -> DroppedBefore:
     """Build a typed selection for resolved loss before an Event step.
 
@@ -42,7 +38,7 @@ def dropped_before(*, step: PatternStep) -> DroppedBefore:
 
     Returns:
         A frozen ``DroppedBefore`` value accepted by
-        ``session.select_subjects(...)``.
+        ``event_dataset.select_subjects(...)``.
 
     Example:
         >>> selection = mv.dropped_before(step=payment_step)
@@ -66,4 +62,4 @@ def dropped_before(*, step: PatternStep) -> DroppedBefore:
     return DroppedBefore(step=step)
 
 
-__all__ = ["DroppedBefore", "InState", "SubjectSelection", "dropped_before"]
+__all__ = ["DroppedBefore", "dropped_before"]

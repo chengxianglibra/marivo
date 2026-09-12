@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget, S3Access
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.session._lazy_sources import LazySources
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
@@ -28,11 +28,7 @@ def setup_adapter(
     database = project / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
-    target = (
-        EngineTarget(next(iter(registry.datasources)))
-        if kind == "engine"
-        else ObjectTarget("fixture")
-    )
+    target = LocalTarget() if kind == "engine" else ObjectTarget("fixture")
     runtime = DatasetRuntime.create(
         project,
         "adapter",

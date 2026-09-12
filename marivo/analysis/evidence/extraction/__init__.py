@@ -1,1 +1,0 @@
-"""Frame -> canonical finding extractors."""

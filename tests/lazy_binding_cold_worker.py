@@ -15,7 +15,6 @@ from marivo._compat import Never
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import (
-    EngineTarget,
     LocalTarget,
     ObjectTarget,
     S3Access,
@@ -54,7 +53,7 @@ def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
 def run(mode: str, kind: str, project: Path, url: str, session: str) -> dict[str, object]:
     registry, sidecar = make_execution_registry(project / "warehouse.duckdb", api_url=url)
     target = (
-        EngineTarget(next(iter(registry.datasources)))
+        LocalTarget()
         if kind == "engine"
         else ObjectTarget("fixture")
         if kind == "object"

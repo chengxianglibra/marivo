@@ -21,9 +21,9 @@ Trust the verified installed Marivo environment and its live guidance:
 - focused `marivo.help("analysis.<target>")` owns exact signatures,
   constraints, return types, and examples;
 - governed semantic objects own reusable business meaning;
-- `.show()` owns bounded current artifact state;
-- `.contract()` owns mechanically valid next actions;
-- `marivo.help("analysis.boundary.to_pandas")` owns the exact terminal exit;
+- Materialized Dataset `.show()` owns bounded committed result state;
+- Dataset `.contract()` owns current state and mechanically valid next actions;
+- `marivo.help("analysis.actions.to_pandas")` owns the exact terminal exit;
 - structured errors own repair guidance.
 
 Do not reconstruct those contracts from this skill, remembered syntax, or
@@ -47,7 +47,9 @@ change a required conclusion, recommendation, or limitation.
 ### 2. Establish the governed starting point
 
 Use the host-selected verified Marivo environment throughout. Create or resume
-one question-scoped session. Resolve the exact typed semantic inputs together
+one question-scoped Session. Keep Population membership selection separate from
+Metric observation time, and preserve both when continuing from Event or
+Lifecycle subject selections. Resolve the exact typed semantic inputs together
 and inspect readiness only for the required closure. Reuse a current semantic
 handoff for the same project and scope instead of repeating it.
 
@@ -59,9 +61,11 @@ exact typed ref or full semantic identity is already available.
 
 ### 3. Build the minimum typed Evidence chain
 
-Produce a bounded typed Artifact early. Inspect `.show()` when current state
-contributes evidence and use `.contract()` when the mechanically valid next
-actions are unknown. Route method discovery through
+Build the smallest logical Dataset chain that can satisfy the Evidence
+obligation. Logical construction describes work; it is not evidence that rows
+were read or results exist. Inspect `.contract()` when state or the valid next
+action is uncertain. Execute when a result is needed for interpretation or an
+intentional recovery boundary, then inspect the Materialized Dataset with `.show()`. Route method discovery through
 `marivo.help("analysis.methods")`, but choose subsequent methods from the
 question and the Artifact in hand rather than from a fixed recipe.
 
@@ -77,12 +81,14 @@ For every material result, check the semantic identity and exact population;
 time coverage, completeness, censoring, and comparison alignment; grain, units,
 additivity, and reconciliation where applicable; missingness, uncertainty, and
 quality blockers; and the boundary between observation, association,
-projection, hypothesis testing, and causal evidence.
+projection, proposed hypotheses, and causal evidence.
 
 Use `marivo.help("analysis.artifacts")`,
 `marivo.help("analysis.evidence")`, the Artifact's current state, and its
 structured contract for the installed inspection mechanics. Preserve warnings
-and partial coverage. Do not turn absence into zero, association into causation,
+and partial coverage. Exact versus approximate quantile evaluation is part of
+the business meaning: preserve the selected method through comparisons and
+retained continuations, and never change it merely to obtain a result. Do not turn absence into zero, association into causation,
 a point forecast into certainty, or a segment result into a population claim.
 
 ### 5. Synthesize, hand off, or stop
@@ -122,7 +128,7 @@ Do not query business rows through Ibis, DuckDB, pandas readers, backend
 connections, private datasource handles, or ad hoc SQL to bypass Marivo.
 
 Before a terminal conversion, read
-`marivo.help("analysis.boundary.to_pandas")`. Exit typed flow only when the
+`marivo.help("analysis.actions.to_pandas")`. Exit typed flow only when the
 required method is outside the installed governed surface and a bounded typed
 Artifact already establishes the inputs, scope, and Evidence chain. Keep the
 terminal calculation rerunnable alongside the exit, do not export and reload
@@ -133,7 +139,9 @@ Artifact rows, and never feed a terminal result back into typed analysis.
 Use one question-scoped session and carry exact Artifact identities across
 decision rounds. Do not depend on process memory, an implicit latest result,
 imported prior scripts, chat summaries, or repeated successful observations as
-substitutes for persisted identity.
+substitutes for persisted identity. A logical Dataset belongs to its originating
+Session; carry an exact committed Artifact identity when moving between Sessions.
+Never replay origin queries to conceal missing retained state.
 
 When resuming work, start with `marivo.help("analysis.runtime")` and use only its
 public runtime reads to recover the relevant branch. Consult

@@ -15,7 +15,6 @@ from marivo.analysis.datasets.descriptors import DatasetRowContract, _EntityFiel
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
-    EngineReceipt,
     LocalReceipt,
     RetainedPart,
     StorageReceipt,
@@ -70,7 +69,7 @@ def reject_source_private_transfer() -> None:
     raise MaterializationError(
         expected="source-native use of exact retained membership or distribution",
         received="a local or generic retained-part transfer",
-        repair="Use a compatible engine target and source-native attribution execution.",
+        repair="Use the registered native Parquet scan for exact retained-state execution.",
         stage="execution_boundary",
     )
 
@@ -83,14 +82,11 @@ def guard_part_transfer(part: RetainedPart) -> None:
 
 def guard_receipt_transfer(receipt: StorageReceipt) -> None:
     """Recognize only the payload position owned by each retained-part adapter."""
-    if isinstance(receipt, EngineReceipt):
-        parts = receipt.qualified_relation_ref.split("/")
-        part_path = parts[:-1] if parts[-1] == "payload.duckdb" else ()
-    elif isinstance(receipt, LocalReceipt):
+    if isinstance(receipt, LocalReceipt):
         part_path = receipt.project_relative_path.split("/")
     else:
         parts = receipt.immutable_prefix_or_manifest_ref.split("/")
-        part_path = parts[:-1] if parts[-1] == "manifest.json" else ()
+        part_path = parts[:-1] if parts[-1] == "manifest.json" else []
     if len(part_path) >= 2 and part_path[-2] == "parts" and source_private_role(part_path[-1]):
         reject_source_private_transfer()
 
@@ -294,6 +290,13 @@ def selected_parts(
 
 def component_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> tuple[str, ...]:
     """Validate meaning from the owner; the receipt separately pins physical schema."""
+    if source_private_role(role):
+        if role.startswith(("metric_distribution.", "delta_distribution.")):
+            from marivo.analysis.materialization.distribution import distribution_schema
+            from marivo.analysis.observation.distribution_contracts import VALUE
+
+            return (*distribution_schema(row, role, schema), VALUE)
+        return (*membership_schema(row, role, schema), DISTINCT_KEY_COLUMN)
     if row.shape_id.family_id == "lifecycle":
         from marivo.analysis.materialization.lifecycle_publication import part_schema
 
@@ -332,6 +335,11 @@ def checked_component_batches(
     batches: Iterable[pa.RecordBatch], row: DatasetRowContract, role: str
 ) -> Iterable[pa.RecordBatch]:
     """Check required component support fields as actual data, independently of headers."""
+    if source_private_role(role):
+        from marivo.analysis.materialization.private_parquet import checked_private_batches
+
+        yield from checked_private_batches(batches, row, role)
+        return
     if row.shape_id.family_id == "lifecycle":
         from marivo.analysis.domains.lifecycle import PART_COLUMNS, ROLES
 

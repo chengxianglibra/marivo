@@ -28,13 +28,9 @@ from marivo._help.model import (
 )
 from marivo._help.render import PublicHelpTarget, render_help_text
 from marivo._help.route import _resolve_one, route_help_target
-from marivo.analysis._capabilities.model import (
-    ARTIFACT_FAMILIES,
-    AnalysisArtifactFamilyContract,
-)
+from marivo.analysis._capabilities.dataset_model import FamilyInput, TypeInput
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
-from marivo.analysis.constraints import iter_constraints
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
@@ -249,6 +245,8 @@ def test_every_qualified_registry_target_preserves_native_descriptor_identity() 
     for owner, registry in _REGISTRIES.items():
         surface = _SURFACES[owner]
         for canonical_id in registry.canonical_ids():
+            if not canonical_id:
+                continue
             route = route_help_target(f"{owner}.{canonical_id}")
             assert isinstance(route, NativeHelpRoute)
             assert route.owner == owner
@@ -267,6 +265,7 @@ def test_every_unique_unqualified_registry_target_routes_to_its_only_owner() -> 
         canonical_id
         for registry in _REGISTRIES.values()
         for canonical_id in registry.canonical_ids()
+        if canonical_id
     }
     for canonical_id in canonical_ids:
         owners = [
@@ -319,15 +318,12 @@ def test_exact_canonical_target_wins_over_cross_surface_entrypoint_alias(
     assert route.resolved.canonical_id == canonical_target
 
 
-def test_two_normalized_exact_canonical_targets_remain_ambiguous() -> None:
-    with pytest.raises(MarivoHelpTargetError) as exc_info:
-        route_help_target("mv.period_correspondence")
-
-    assert exc_info.value.outcome == "ambiguous"
-    assert exc_info.value.candidates == (
-        "semantic.period_correspondence",
-        "analysis.period_correspondence",
-    )
+def test_removed_alignment_no_longer_conflicts_with_semantic_constructor() -> None:
+    route = route_help_target("period_correspondence")
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "semantic"
+    with pytest.raises(MarivoHelpTargetError):
+        route_help_target("analysis.period_correspondence")
 
 
 def test_global_authoring_composition_topic_wins_over_native_duplicates() -> None:
@@ -364,6 +360,8 @@ def test_global_authoring_routes_to_surface_owned_decision_hubs() -> None:
 def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> None:
     for owner in _SURFACE_NAMES:
         for target in _SURFACES[owner].registry.discovery_ids():
+            if not target:
+                continue
             route = route_help_target(f"{owner}.{target}")
             assert isinstance(route, NativeHelpRoute)
             assert route.owner == owner
@@ -412,7 +410,7 @@ def test_slice5_active_guidance_uses_the_same_progressive_topology_in_both_local
         "analysis.artifacts",
         "analysis.evidence",
         "analysis.runtime",
-        "analysis.boundary.to_pandas",
+        "analysis.actions.to_pandas",
     )
 
     for path in _SLICE3_ACTIVE_GUIDANCE:
@@ -428,13 +426,13 @@ def test_slice3_bounded_target_projections_resolve_independently() -> None:
         "runtime.sessions",
         "runtime.runs",
     ):
-        topic = ANALYSIS_REGISTRY.navigation_topic(owner)
-        projection = tuple(dict.fromkeys((*topic.members, *ANALYSIS_REGISTRY.cross_links(owner))))
-        budget = ANALYSIS_REGISTRY.render_budget(topic.render_class)
-        assert len(projection) <= budget.max_outgoing_routes
-        for target in projection:
-            assert target.canonical_id is not None
-            route = route_help_target(f"{target.surface}.{target.canonical_id}")
+        from marivo.analysis._capabilities.dataset_model import NavigationInput
+
+        topic = ANALYSIS_REGISTRY.by_canonical_id(owner)
+        assert isinstance(topic, NavigationInput)
+        assert len(topic.members) <= 16
+        for target in topic.members:
+            route = route_help_target(f"analysis.{target}")
             assert isinstance(route, NativeHelpRoute)
 
 
@@ -443,8 +441,8 @@ def test_slice3_bounded_target_projections_resolve_independently() -> None:
     (
         ("analysis.recovery", "analysis.runtime.runs"),
         ("analysis.session", "analysis.runtime.sessions"),
-        ("analysis.boundary", "analysis.boundary.to_pandas"),
-        ("analysis.sampling", "analysis.SamplingPolicy"),
+        ("analysis.boundary", "analysis.actions.to_pandas"),
+        ("analysis.SamplingPolicy", "analysis.engine_sample"),
     ),
 )
 def test_slice3_removed_qualified_navigation_targets_do_not_resolve(
@@ -453,25 +451,22 @@ def test_slice3_removed_qualified_navigation_targets_do_not_resolve(
 ) -> None:
     with pytest.raises(MarivoHelpTargetError) as captured:
         route_help_target(target)
-    assert replacement in captured.value.candidates
-
-
-def test_every_analysis_constraint_help_target_resolves() -> None:
-    forbidden = {"help", "datasources", "recovery", "session", "boundary", "sampling"}
-
-    for constraint in iter_constraints():
-        target = constraint.help_target
-        if target is None:
-            continue
-        assert target not in forbidden
-        route = route_help_target(f"analysis.{target}")
-        assert isinstance(route, NativeHelpRoute)
-        assert route.owner == "analysis"
+    assert captured.value.outcome == "unknown"
+    assert isinstance(route_help_target(replacement), NativeHelpRoute)
+    for candidate in captured.value.candidates:
+        route_help_target(candidate)
 
 
 def test_default_analysis_error_repairs_resolve_on_their_declared_surface() -> None:
     for error_type in dict.fromkeys(ANALYSIS_LIVE_SURFACE.error_types.values()):
         if "message" not in inspect.signature(error_type).parameters:
+            continue
+        if any(
+            p.default is inspect.Parameter.empty
+            and p.name != "message"
+            and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+            for p in inspect.signature(error_type).parameters.values()
+        ):
             continue
         error = error_type(message="repair resolution audit")
         if error.repair is None:
@@ -489,13 +484,13 @@ def test_type_and_error_names_remain_exactly_resolvable() -> None:
         for type_name in dict.fromkeys(surface.type_index.values()):
             route = route_help_target(f"{owner}.{type_name}")
             assert isinstance(route, NativeHelpRoute)
-            if owner == "analysis" and type_name in ARTIFACT_FAMILIES:
+            if owner == "analysis":
                 assert route.resolved.kind == "descriptor"
                 assert isinstance(
                     route.resolved.descriptor,
-                    AnalysisArtifactFamilyContract,
+                    (FamilyInput, TypeInput),
                 )
-                assert route.resolved.descriptor.type_name == type_name
+                assert route.resolved.descriptor.canonical_id == type_name
             elif owner == "semantic" and type_name == "ref":
                 assert route.resolved.kind == "descriptor"
                 assert route.resolved.descriptor is _REGISTRIES[owner].by_canonical_id("ref")
@@ -513,13 +508,13 @@ def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None
     for target in (
         "datasource.SourceInspection.sample",
         "semantic.readiness",
-        "analysis.transform.filter",
+        "analysis.datasets.where",
         "analysis.artifact.findings",
         "analysis.session.artifact",
         "analysis.session.get_run",
         "analysis.session.revalidate",
-        "analysis.boundary.to_pandas",
-        "analysis.MetricFrame.as_time_series",
+        "analysis.actions.to_pandas",
+        "analysis.metric_dataset.metric",
     ):
         assert isinstance(route_help_target(target), NativeHelpRoute)
 
@@ -546,8 +541,6 @@ def test_model_state_handle_has_one_semantic_help_owner() -> None:
     (
         "observe",
         "analysis.observe",
-        "Session.observe",
-        "session.observe",
         mv.Session.observe,
     ),
 )
@@ -602,7 +595,7 @@ def test_bound_method_renders_the_same_descriptor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create(name="unified_help", use_datasources=False)
+    session = mv.session.get_or_create(name="unified_help")
     assert _text(session.observe) == _text("analysis.observe")
 
 
@@ -658,7 +651,7 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
     assert "entry.details().show()" in text
     assert 'marivo.help("semantic.preview")' in text
     assert "Analysis handoff (kind-level" in text
-    assert "session.observe(...) -> MetricFrame" in text
+    assert "session.observe(...) -> LogicalMetricDataset" in text
     assert 'marivo.help("analysis.observe")' in text
     assert "result.contract().show()" in text
     assert "Readiness is not inferred here" in text
@@ -685,6 +678,8 @@ def test_root_and_all_focused_registry_help_stay_inside_shared_budgets() -> None
 
     for owner, registry in _REGISTRIES.items():
         for canonical_id in registry.canonical_ids():
+            if not canonical_id:
+                continue
             text = _text(f"{owner}.{canonical_id}")
             assert len(text.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
             assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
@@ -699,6 +694,7 @@ def test_current_rendered_help_never_points_to_removed_domain_help_paths() -> No
             f"{owner}.{canonical_id}"
             for owner, registry in _REGISTRIES.items()
             for canonical_id in registry.canonical_ids()
+            if canonical_id
         ),
     ]
     for target in targets:

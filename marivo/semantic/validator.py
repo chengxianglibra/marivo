@@ -149,7 +149,7 @@ class Registry:
 def _target_error(*, ref: str, expected: str, received: str, action: str) -> NoReturn:
     raise SemanticLoadError(
         kind="invalid_target_semantics",
-        message="The declaration cannot supply the private lazy semantic contract.",
+        message="The declaration cannot supply the typed analysis semantic contract.",
         refs=(ref,),
         expected=expected,
         received=received,
@@ -278,7 +278,7 @@ def _target_time_axis(registry: Registry, entity: EntityIR, path: str) -> Target
 
 
 def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityContract:
-    """Derive target K and version-row facts; keep public assembly validation unchanged."""
+    """Derive stable identity K and independent version-row facts for authoring and analysis."""
     entity = registry.entities.get(entity_id)
     if entity is None:
         _target_error(
@@ -1335,84 +1335,14 @@ def validate_metric_body_ast(
 _AGGREGATE_METHODS = {"sum", "mean", "avg", "count", "nunique", "max", "min"}
 
 
-def _validate_snapshot_versioning(
-    errors: list[SemanticError],
-    ds_id: str,
-    ds_ir: EntityIR,
-    versioning: SnapshotVersioningIR,
+def _validate_entity_versioning(
+    errors: list[SemanticError], entity_id: str, registry: Registry
 ) -> None:
-    """Validate snapshot versioning metadata at assembly time."""
-    partition_name = versioning.partition_field.rsplit(".", 1)[-1]
-    if partition_name not in ds_ir.primary_key:
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_ENTITY_VERSIONING,
-                message=(
-                    f"Snapshot dataset {ds_id!r} partition field "
-                    f"{versioning.partition_field!r} must be part of primary_key."
-                ),
-                refs=(ds_id, versioning.partition_field),
-                details={
-                    "entity": ds_id,
-                    "field": "partition_field",
-                    "partition_field": versioning.partition_field,
-                    "primary_key": list(ds_ir.primary_key),
-                },
-            )
-        )
-
-
-def _validate_validity_versioning(
-    errors: list[SemanticError],
-    ds_id: str,
-    ds_ir: EntityIR,
-    versioning: ValidityVersioningIR,
-    registry: Registry,
-) -> None:
-    """Validate validity versioning metadata at assembly time."""
-    # valid_from local name must be in primary_key
-    valid_from_local = versioning.valid_from.rsplit(".", 1)[-1]
-    if valid_from_local not in ds_ir.primary_key:
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_ENTITY_VERSIONING,
-                message=(
-                    f"Validity entity {ds_id!r} valid_from dimension "
-                    f"{versioning.valid_from!r} must be part of primary_key."
-                ),
-                refs=(ds_id, versioning.valid_from),
-                details={
-                    "entity": ds_id,
-                    "dimension": "valid_from",
-                    "reason": (
-                        f"{versioning.valid_from!r} is not in primary_key {list(ds_ir.primary_key)}"
-                    ),
-                },
-            )
-        )
-
-    # dimension-existence check: valid_from and valid_to must resolve to known dimensions in this entity
-    for label, field_id in (
-        ("valid_from", versioning.valid_from),
-        ("valid_to", versioning.valid_to),
-    ):
-        field = registry.dimensions.get(field_id)
-        if field is None or field.entity != ds_id:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_ENTITY_VERSIONING,
-                    message=(
-                        f"Validity entity {ds_id!r} {label} dimension "
-                        f"{field_id!r} does not resolve to a known dimension on this entity."
-                    ),
-                    refs=(ds_id, field_id),
-                    details={
-                        "entity": ds_id,
-                        "dimension": label,
-                        "ref": field_id,
-                    },
-                )
-            )
+    """Validate stable identity and separate version coordinates with the sole normalizer."""
+    try:
+        normalize_target_entity(registry, entity_id)
+    except SemanticError as error:
+        errors.append(error)
 
 
 def _validate_measure_refs(registry: Registry) -> list[SemanticError]:
@@ -1987,10 +1917,7 @@ def assembly_validate(
 
         versioning = ds_ir.versioning
         if versioning is not None:
-            if isinstance(versioning, SnapshotVersioningIR):
-                _validate_snapshot_versioning(errors, ds_id, ds_ir, versioning)
-            elif isinstance(versioning, ValidityVersioningIR):
-                _validate_validity_versioning(errors, ds_id, ds_ir, versioning, registry)
+            _validate_entity_versioning(errors, ds_id, registry)
 
     # -- Validate entity refs on dimensions ----------------------------------
     for f_id, f_ir in registry.dimensions.items():

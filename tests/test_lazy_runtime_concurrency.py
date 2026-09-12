@@ -22,7 +22,6 @@ from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.targets import (
-    EngineTarget,
     LocalTarget,
     ObjectTarget,
     S3Access,
@@ -68,7 +67,7 @@ def test_busy_contender_preserves_real_producer(
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
     target = (
-        EngineTarget(next(iter(registry.datasources)))
+        LocalTarget()
         if kind == "engine"
         else ObjectTarget("fixture")
         if kind == "object"
@@ -391,7 +390,7 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
         )
         registry.freeze()
         target = (
-            EngineTarget(next(iter(registry.datasources)))
+            LocalTarget()
             if kind == "engine"
             else ObjectTarget("fixture")
             if kind == "object"

@@ -4,8 +4,8 @@ from datetime import datetime
 
 import ibis
 
-from marivo.analysis.executor.bucketing import bucket_start_expr
-from marivo.analysis.windows.grain import Grain
+from marivo.analysis import grain
+from marivo.analysis.compiler.temporal import bucket as bucket_start_expr
 
 
 def _local_col():
@@ -24,7 +24,7 @@ def _local_col():
 def test_subday_bucket_floors_to_local_midnight_anchor():
     con = ibis.duckdb.connect(":memory:")
     t, col = _local_col()
-    expr = bucket_start_expr(col, Grain(count=10, unit="minute"))
+    expr = bucket_start_expr(col, grain("minute", count=10))
     out = [str(x) for x in con.to_pandas(t.mutate(b=expr))["b"]]
     assert out == [
         "2026-06-03 00:00:00",
@@ -36,7 +36,7 @@ def test_subday_bucket_floors_to_local_midnight_anchor():
 def test_count_one_minute_matches_truncate():
     con = ibis.duckdb.connect(":memory:")
     t, col = _local_col()
-    dynamic = bucket_start_expr(col, Grain(count=1, unit="minute"))
+    dynamic = bucket_start_expr(col, grain("minute"))
     truncated = col.truncate("m")
     a = list(con.to_pandas(t.mutate(b=dynamic))["b"])
     b = list(con.to_pandas(t.mutate(b=truncated))["b"])

@@ -165,7 +165,8 @@ def test_runtime_forest_three_process_source_offline_and_cold_binding(tmp_path: 
         assert result["linear"] == pytest.approx([280 - 140 / 3])
         assert result["projected_linear"] == pytest.approx([280 - 140 / 3])
         assert result["projected_delta"] == [0]
-        assert result["queries"] == 0
+        assert result["source_fences"] == 0
+    assert cold["queries"] == 0
 
 
 def test_runtime_bounds_governed_leaves_and_temporal_fold_fail_before_execution() -> None:
@@ -198,7 +199,7 @@ def test_runtime_private_membership_and_distribution_recover_exactly(
 ) -> None:
     from marivo.semantic._quantile import quantile_metric
 
-    fixture = setup_retained(tmp_path, "engine")
+    fixture = setup_retained(tmp_path)
     distinct = rm.aggregate(AMOUNT, agg="count_distinct", label="distinct")
     median = rm.aggregate(AMOUNT, agg="median", label="median")
     checkpoint = (
@@ -228,21 +229,22 @@ def test_runtime_private_membership_and_distribution_recover_exactly(
         for part in record.descriptor.retained_parts
         if part.contract_id == "metric.distribution"
     )
-    assert receipt.kind == "engine"
-    path = tmp_path / receipt.qualified_relation_ref
+    assert receipt.kind == "local"
+    path = tmp_path / receipt.project_relative_path / "data.parquet"
     if method == "linear_interpolation@v1":
         path.unlink()
     else:
-        import duckdb
+        import pyarrow as pa
+        import pyarrow.compute as pc
+        import pyarrow.parquet as pq
 
         path.chmod(0o600)
-        with duckdb.connect(str(path), config={"threads": 1}) as connection:
-            names = connection.execute("show tables").fetchall()
-            assert len(names) == 1
-            quoted = '"' + str(names[0][0]).replace('"', '""') + '"'
-            connection.execute(
-                f"UPDATE {quoted} SET __mv_distribution_frequency = __mv_distribution_frequency + 1"
-            )
+        table = pq.read_table(path)
+        name = "__mv_distribution_frequency"
+        changed = table.set_column(
+            table.schema.get_field_index(name), name, pc.add(table[name], pa.scalar(1))
+        )
+        pq.write_table(changed, path)
     assert checkpoint.to_pandas()["median"].tolist() == [10]
     from marivo.analysis.materialization.errors import MaterializationError
 

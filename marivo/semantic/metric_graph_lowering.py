@@ -1456,7 +1456,7 @@ def _normalize_target_graph(
             for component in components
             for state in component.required_state
         ),
-        logical_type=output_type,
+        logical_type="decimal" if dt.dtype(output_type).is_decimal() else output_type,
         nullable=nullable,
         unit=(registry.metrics[metric_id].unit_override or unit)
         if isinstance(forest.identities[0], CatalogMetricIdentity)

@@ -1,129 +1,77 @@
-"""Real-backend E2E for DuckDB DECIMAL observation and metric composition.
-
-issue #93 — the MR !84 unit tests cover the coercion in isolation, but there is
-no committed end-to-end regression proving that a DECIMAL column actually flows
-from DuckDB through ``observe`` into a ``MetricFrame`` whose ``to_pandas()`` and
-``contract().artifact_schema`` agree on float64. This fixture is dedicated to
-that path and deliberately avoids mutating the shared ``sales`` fixture.
-"""
+"""Exact Decimal publication and mixed numeric RuntimeMetric composition."""
 
 from decimal import Decimal
+from pathlib import Path
 
-import ibis
+import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session as session_attach
-from marivo.analysis.intents.observe import observe
-from marivo.semantic.catalog import SemanticKind
-from tests.ref_helpers import make_ref
+import marivo.semantic as ms
+
+pytestmark = pytest.mark.runtime
 
 
-@pytest.fixture(autouse=True)
-def _chdir(tmp_path, monkeypatch):
+@pytest.fixture
+def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("TZ", "UTC")
-    session_attach._reset_process_state()
-    yield
-
-
-def _bootstrap_decimal_project(tmp_path) -> None:
-    """Minimal semantic project with a single DECIMAL-backed sum metric."""
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    semantic_dir = tmp_path / "models" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / "models" / "datasources"
-    datasource_dir.mkdir(parents=True, exist_ok=True)
-    (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "decimal"\n')
+    datasource = tmp_path / "models" / "datasources"
+    semantic = tmp_path / "models" / "semantic" / "sales"
+    datasource.mkdir(parents=True)
+    semantic.mkdir(parents=True)
+    (datasource / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='warehouse.duckdb')\n"
     )
-    (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_domain.py").write_text(
+    (semantic / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
+    )
+    (semantic / "orders.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "ms.domain(name='sales', owner='Mina Zhang')\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
+        "source=md.table('orders', columns={'id': md.source_column('id', data_type='int64'), "
+        "'day': md.source_column('day', data_type='date'), "
+        "'amount': md.source_column('amount', data_type='decimal(12,2)'), "
+        "'fee': md.source_column('fee', data_type='float64')}), primary_key=['id'])\n"
+        "day = ms.time_dimension_column(name='day', entity=orders, column='day', granularity='day')\n"
+        "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity='additive')\n"
+        "fee_value = ms.measure_column(name='fee_value', entity=orders, column='fee', additivity='additive')\n"
+        "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
+        "fee = ms.aggregate(name='fee', measure=fee_value, agg='sum')\n"
     )
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "\n"
-        "warehouse = ms.ref.datasource('warehouse')\n"
-        "\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-        "\n"
-        "@ms.time_dimension(entity=orders, granularity='day')\n"
-        "def order_date(orders):\n"
-        "    return orders.created_at.cast('date')\n"
-        "\n"
-        "@ms.metric(entities=[orders], additivity='additive', name='gmv')\n"
-        "def gmv(orders):\n"
-        "    return orders.amount.sum()\n"
-        "\n"
-        "@ms.metric(entities=[orders], additivity='additive', name='fee')\n"
-        "def fee(orders):\n"
-        "    return orders.fee.cast('float64').sum()\n"
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
+        connection.execute(
+            "CREATE TABLE orders(id BIGINT, day DATE, amount DECIMAL(12,2), fee DOUBLE)"
+        )
+        connection.execute(
+            "INSERT INTO orders VALUES (1,'2026-07-01',15.75,2.0), (2,'2026-07-01',4.25,3.0)"
+        )
+    return mv.session.get_or_create("decimal", report_timezone="UTC")
+
+
+def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) -> None:
+    result = (
+        decimal_session.observe(
+            ms.ref.metric("sales.gmv"),
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-07-02"),
+        )
+        .with_time_axis(ms.ref.time_dimension("sales.orders.day"), grain=mv.grain("day"))
+        .aggregate()
+        .execute()
     )
+    rows = result.to_pandas()
+    assert isinstance(rows["gmv"].iloc[0], Decimal)
+    assert rows["gmv"].iloc[0] == Decimal("20.00")
+    assert result.schema.columns[-1].logical_type_id == "decimal"
+    assert Decimal("100.00") - rows["gmv"].iloc[0] == Decimal("80.00")
 
 
-def _seed_decimal_orders(con) -> None:
-    """Seed a table whose amount column is a real DECIMAL(12,2), not a DOUBLE."""
-    con.raw_sql(
-        "CREATE TABLE orders ("
-        "order_id INTEGER, created_at DATE, amount DECIMAL(12,2), fee DECIMAL(12,2)"
-        ")"
+def test_runtime_ratio_composes_float_metric_with_decimal_metric(
+    decimal_session: mv.Session,
+) -> None:
+    expression = mv.runtime_metric.ratio(
+        ms.ref.metric("sales.fee"), ms.ref.metric("sales.gmv"), label="fee_rate"
     )
-    con.raw_sql(
-        "INSERT INTO orders VALUES "
-        "(1, DATE '2026-07-01', 15.75, 2.00),"
-        "(2, DATE '2026-07-01', 4.25, 3.00)"
-    )
-
-
-def test_decimal_measure_exports_float64_end_to_end(tmp_path):
-    _bootstrap_decimal_project(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed_decimal_orders(con)
-    s = session_attach.get_or_create(name="decimal", backends={"warehouse": lambda: con})
-
-    frame = observe(
-        make_ref("sales.gmv", SemanticKind.METRIC),
-        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-02"),
-        grain=mv.grain("day"),
-        session=s,
-    )
-
-    # DuckDB materialized the DECIMAL(12,2) sum as a Python Decimal, proving the
-    # test actually exercises the Decimal path rather than a silently-float one.
-    assert isinstance(frame["gmv"].iloc[0], Decimal)
-
-    # to_pandas() coerces the Decimal column to float64.
-    exported = frame.to_pandas()
-    assert exported["gmv"].dtype == "float64"
-    assert exported["gmv"].iloc[0] == pytest.approx(20.0)
-
-    # The artifact contract declares the exported dtype, matching to_pandas().
-    schema = {column.name: column.dtype for column in frame.contract().artifact_schema.columns}
-    assert schema["gmv"] == "float64"
-
-    # Terminal float arithmetic over the formerly-Decimal value no longer raises
-    # TypeError (issue #86 regression).
-    assert 100.0 - exported["gmv"].iloc[0] == pytest.approx(80.0)
-
-
-def test_runtime_ratio_composes_float_metric_with_decimal_metric(tmp_path):
-    _bootstrap_decimal_project(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed_decimal_orders(con)
-    s = session_attach.get_or_create(
-        name="decimal-runtime-ratio",
-        backends={"warehouse": lambda: con},
-    )
-    gmv = make_ref("sales.gmv", SemanticKind.METRIC)
-    fee = make_ref("sales.fee", SemanticKind.METRIC)
-    expression = mv.runtime_metric.ratio(fee, gmv, label="fee_rate")
-
-    frame = s.observe(
-        expression,
-        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-02"),
-        grain=mv.grain("day"),
-    )
-
-    assert frame.to_pandas()["fee_rate"].iloc[0] == pytest.approx(0.25)
+    result = decimal_session.observe(expression).aggregate().execute()
+    assert result.to_pandas()["fee_rate"].tolist() == pytest.approx([0.25])
+    assert result.schema.columns[-1].logical_type_id == "float64"

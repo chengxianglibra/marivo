@@ -16,7 +16,6 @@ from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowS
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization import storage
 from marivo.analysis.materialization.contracts import (
-    EngineReceipt,
     LocalReceipt,
     ObjectReceipt,
     RetainedPart,
@@ -25,6 +24,7 @@ from marivo.analysis.materialization.contracts import (
 from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
 from marivo.analysis.materialization.storage import ReadPolicy, _integrity, _limited
 from marivo.analysis.materialization.targets import (
+    ObjectBinding,
     S3Access,
     access_payload,
     decode_access,
@@ -37,7 +37,7 @@ _WORKER_CODE = (
 )
 
 
-def _object_read_access(bindings: tuple[S3Access, ...], reference: str) -> S3Access:
+def _object_read_access(bindings: tuple[ObjectBinding, ...], reference: str) -> S3Access:
     """Classify unavailable reader authority without changing target selection errors."""
     try:
         return object_access(bindings, reference)
@@ -52,7 +52,7 @@ def _payload_batches(
     receipt: StorageReceipt,
     *,
     policy: ReadPolicy,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
@@ -87,55 +87,7 @@ def _payload_batches(
         if not seen and receipt.realized_row_count:
             _integrity("all selected payload rows", "missing payload stream")
 
-    if isinstance(receipt, EngineReceipt):
-        # This connection reads an engine Artifact. It never imports Parquet or origins.
-        import ibis
-
-        from marivo.analysis.materialization.engine import checked_engine_path, ordered_relation
-
-        path = checked_engine_path(project_root, receipt)
-        backend = ibis.duckdb.connect(str(path), read_only=True)
-        try:
-            backend.raw_sql("SET threads=1")
-            backend.raw_sql("SET memory_limit='256MiB'")
-            backend.raw_sql("SET max_temp_directory_size='0B'")
-            table = backend.table("rows")
-            if row is not None and rows is not None:
-                table = ordered_relation(table, row, rows)
-            if preview:
-                table = table.limit(policy.preview_rows)
-            # Prove a bounded fetch including variable-width values before allocation.
-            strings = [
-                table[name].length().fill_null(0) * 4
-                for name, kind in table.schema().items()
-                if kind.is_string()
-            ]
-            maximum: object = (
-                backend.execute(ibis.greatest(*strings).max().fill_null(0)) if strings else 0
-            )
-            if not isinstance(maximum, int):
-                _integrity("an exact engine fetch width", "unknown engine fetch width")
-            width = len(table.columns) * (int(maximum) + 64) * 2
-            if width > policy.max_batch_bytes:
-                _limited("engine value exceeds bounded fetch budget")
-            reader = backend.to_pyarrow_batches(
-                table, chunk_size=max(1, min(1024, policy.max_batch_bytes // max(1, width)))
-            )
-            try:
-
-                def batches() -> Iterator[pa.RecordBatch]:
-                    yield pa.RecordBatch.from_arrays(
-                        [pa.array([], type=f.type) for f in reader.schema], schema=reader.schema
-                    )
-                    yield from reader
-
-                yield from checked(batches())
-            finally:
-                reader.close()
-            checked_engine_path(project_root, receipt)
-        finally:
-            backend.disconnect()
-    elif isinstance(receipt, ObjectReceipt):
+    if isinstance(receipt, ObjectReceipt):
         from marivo.analysis.materialization.object_storage import (
             ObjectRangeFile,
             client,
@@ -186,7 +138,7 @@ def payload_batches(
     receipt: StorageReceipt,
     *,
     policy: ReadPolicy,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
@@ -213,7 +165,7 @@ def _guarded_payload_batches(
     receipt: StorageReceipt,
     *,
     policy: ReadPolicy,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
@@ -251,7 +203,7 @@ def part_schema(
     part: RetainedPart,
     *,
     policy: ReadPolicy = _DEFAULT_READ_POLICY,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
 ) -> pa.Schema:
     """Read selected storage schema and bind it to its immutable receipt.
 
@@ -284,7 +236,7 @@ def read_table(
     row_contract: DatasetRowContract,
     row_set_contract: DatasetRowSetContract,
     policy: ReadPolicy,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
     preview: bool = False,
 ) -> pa.Table:
     if isinstance(receipt, LocalReceipt):
@@ -330,7 +282,7 @@ def read_preview(
     row_contract: DatasetRowContract,
     row_set_contract: DatasetRowSetContract,
     policy: ReadPolicy,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
 ) -> pa.Table:
     return read_table(
         project_root=project_root,
@@ -350,7 +302,7 @@ def read_primary(
     row_contract: DatasetRowContract,
     row_set_contract: DatasetRowSetContract,
     policy: ReadPolicy,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
 ) -> pd.DataFrame:
     if isinstance(receipt, LocalReceipt):
         return storage.read_primary(
@@ -362,11 +314,7 @@ def read_primary(
         )
     if receipt.realized_row_count > policy.max_rows:
         _limited("committed row count exceeds the collection limit")
-    selected = (
-        ()
-        if isinstance(receipt, EngineReceipt)
-        else (_object_read_access(bindings, receipt.object_store_ref),)
-    )
+    selected = (_object_read_access(bindings, receipt.object_store_ref),)
     request = codec.parse_json(
         storage._read_request(project_root, receipt, row_contract, row_set_contract, policy)
     )
@@ -433,7 +381,7 @@ def read_part_batches(
     *,
     expected_schema: pa.Schema,
     policy: ReadPolicy = _DEFAULT_READ_POLICY,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
 ) -> Iterator[pa.RecordBatch]:
     from marivo.analysis.materialization.retained import guard_part_transfer
 
@@ -449,7 +397,7 @@ def _read_part_batches(
     *,
     expected_schema: pa.Schema,
     policy: ReadPolicy,
-    bindings: tuple[S3Access, ...],
+    bindings: tuple[ObjectBinding, ...],
 ) -> Iterator[pa.RecordBatch]:
     receipt = part.storage_receipt
     if (
@@ -458,15 +406,7 @@ def _read_part_batches(
     ):
         _integrity("the exact registered part schema fingerprint", "required part schema differs")
     for batch in payload_batches(project_root, receipt, policy=policy, bindings=bindings):
-        # Engine physical fields do not retain Arrow's nullability annotation.
-        if not batch.schema.equals(expected_schema, check_metadata=False) and (
-            not isinstance(receipt, EngineReceipt)
-            or len(batch.schema) != len(expected_schema)
-            or any(
-                left.name != right.name or left.type != right.type
-                for left, right in zip(batch.schema, expected_schema, strict=True)
-            )
-        ):
+        if not batch.schema.equals(expected_schema, check_metadata=False):
             _integrity("the exact registered part schema", "required part schema differs")
         for field in expected_schema:
             if not field.nullable and batch.column(field.name).null_count:
@@ -477,7 +417,7 @@ def _read_part_batches(
 def validate_sampling_state(
     project_root: Path,
     state: storage.SamplingStateRead | None,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
 ) -> None:
     if state is None:
         return

@@ -6,10 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.errors import (
-    DatasourceFieldInvalidError,
-    DatasourceSecretInPlaintextError,
-)
 from marivo.datasource import store as datasource_store
 from marivo.datasource.authoring import (
     ClickHouseSpec,
@@ -19,6 +15,7 @@ from marivo.datasource.authoring import (
     PostgresSpec,
     TrinoSpec,
 )
+from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceSecretInPlaintextError
 
 
 @pytest.fixture(autouse=True)

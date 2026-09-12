@@ -93,7 +93,7 @@ def entity(
         datasource: Datasource ref returned by ``ms.ref.datasource(...)``.
         source: Structured physical source, usually ``md.table(...)``,
             ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
-        primary_key: Optional list of column names forming the primary key.
+        primary_key: Optional stable Entity identity columns; version coordinates belong only in versioning.
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.

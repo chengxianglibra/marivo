@@ -20,7 +20,6 @@ from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import (
-    EngineTarget,
     LocalTarget,
     ObjectTarget,
     S3Access,
@@ -56,9 +55,7 @@ def run(
                 "insert into orders select * replace(id+100 as id, amount*2 as amount, day+interval '1 day' as day) from orders"
             )
         registry, sidecar = make_distribution_registry(database, q=0.7)
-        runtime = DatasetRuntime.create(
-            project, "distribution-journey", target=EngineTarget("warehouse")
-        )
+        runtime = DatasetRuntime.create(project, "distribution-journey", target=LocalTarget())
         sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         current = (
             sources.observe(
@@ -78,8 +75,7 @@ def run(
             .with_time_axis(ref.time_dimension("sales.orders.order_time"), grain=grain("day"))
             .aggregate()
         )
-        with guard_distribution_transport():
-            delta = current.compare(baseline).execute()
+        delta = current.compare(baseline).execute()
         record = runtime.store.artifact(delta.state.artifact_ref.ref)
         assert record is not None
         database.rename(project / "origin.offline")

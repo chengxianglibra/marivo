@@ -15,7 +15,7 @@ from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetOwn
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.contracts import metric_definition
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.observation.sampling import engine_sample
@@ -153,7 +153,7 @@ def test_engine_candidate_membership_reads_checkpoint_after_selection_source_dro
     tmp_path: Path,
 ) -> None:
     runtime, sources, database = setup_entity_candidate(tmp_path)
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
     checkpoint = entity_metric(sources).discover.entity_outliers().execute()
     with duckdb.connect(str(database)) as connection:
         connection.execute("DROP TABLE orders")
@@ -196,9 +196,9 @@ def test_candidate_identity_cannot_import_into_incompatible_source_before_run(
 ) -> None:
     runtime, sources, _ = setup_entity_candidate(tmp_path)
     if kind == "foreign_engine":
-        runtime.target = EngineTarget("warehouse")
+        runtime.target = LocalTarget()
     checkpoint = entity_metric(sources).discover.entity_outliers().execute()
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
     if kind == "foreign_engine":
         foreign = tmp_path / "foreign.duckdb"
         seed_execution_database(foreign)
@@ -219,7 +219,7 @@ def test_sampled_candidate_preserves_realization_through_selection_and_membershi
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runtime, sources, _ = setup_entity_candidate(tmp_path)
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
     population = sources.population(ref.entity("sales.orders")).sample(
         engine_sample(target_rows=100, seed=19)
     )

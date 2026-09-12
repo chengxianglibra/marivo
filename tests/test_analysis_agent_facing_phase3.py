@@ -1,34 +1,34 @@
-"""Progressive analysis Help contract tests."""
+"""Progressive native Dataset Help uses bounded source and method discovery."""
 
-from __future__ import annotations
-
+from marivo.analysis._capabilities.dataset_model import NavigationInput
+from marivo.analysis._capabilities.registry import REGISTRY
 from tests.shared_fixtures import rendered_help
-
-CORE_OPERATORS = (
-    "observe",
-    "compare",
-    "attribute",
-    "discover",
-    "correlate",
-    "hypothesis_test",
-    "forecast",
-)
 
 
 def test_methods_hub_reaches_core_operators_without_root_inventory() -> None:
     root = rendered_help(owner="analysis")
-    text = "\n".join(
-        (
-            rendered_help("methods", owner="analysis"),
-            rendered_help("methods.change", owner="analysis"),
-            rendered_help("methods.relationship_testing", owner="analysis"),
-        )
-    )
+    reached: set[str] = set()
 
-    for operator in CORE_OPERATORS:
-        assert operator in text, operator
-        assert operator not in root
+    def visit(target: str) -> None:
+        if target in reached:
+            return
+        reached.add(target)
+        descriptor = REGISTRY.by_canonical_id(target)
+        rendered_help(target, owner="analysis")
+        if isinstance(descriptor, NavigationInput):
+            for member in descriptor.members:
+                visit(member)
 
-    assert 'marivo.help("analysis.methods")' in root
+    visit("methods")
+    assert {
+        "metric_dataset.compare",
+        "delta_dataset.attribute",
+        "metric_dataset.correlate",
+        "metric_dataset.forecast",
+        "discovery",
+    } <= reached
+    for name in ("compare", "attribute", "correlate", "forecast", "hypothesis_test"):
+        assert name not in root
+    assert "marivo.help('analysis.methods')" in root
     assert "recommend" not in root.lower()
-    assert "decompose" not in text
+    assert "hypothesis_test" not in reached

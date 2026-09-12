@@ -22,9 +22,10 @@ from marivo.analysis._capabilities.dataset_registry import (
     prepare,
 )
 from marivo.analysis._capabilities.dataset_render import render
-from marivo.analysis._capabilities.registry import REGISTRY as EAGER_REGISTRY
+from marivo.analysis._capabilities.registry import REGISTRY as LIVE_REGISTRY
 from marivo.analysis.datasets.base import Dataset, LogicalDataset
 from marivo.analysis.datasets.errors import DatasetRegistrationError
+from marivo.analysis.errors import HelpTargetError
 from marivo.analysis.materialization.store import SessionStore
 from tests.lazy_disclosure_fixtures import example_inputs
 
@@ -306,7 +307,7 @@ def test_exact_export_bindings_and_required_native_targets(
         "events.occurrence_bounds",
         "hypothesis_test",
     ):
-        with pytest.raises(DatasetRegistrationError):
+        with pytest.raises(HelpTargetError):
             disclosure.resolve(forbidden)
 
 
@@ -377,13 +378,7 @@ def test_every_target_renders_resolves_and_is_bounded(
     assert root.members == ("entry", "methods", "inputs", "artifacts", "evidence", "runtime")
 
 
-def test_preparation_and_help_never_create_state_or_activate_public_surface(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    exports = tuple(mv.__all__)
-    capabilities = EAGER_REGISTRY.capability_ids
-    help_targets = EAGER_REGISTRY.help_targets
-
+def test_native_help_never_creates_persistent_state(monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("static disclosure crossed the persistence boundary")
 
@@ -391,12 +386,9 @@ def test_preparation_and_help_never_create_state_or_activate_public_surface(
     registry = prepare()
     for descriptor in registry.descriptors:
         render(registry, descriptor.canonical_id)
-    assert tuple(mv.__all__) == exports and len(exports) == 82
-    assert EAGER_REGISTRY.capability_ids == capabilities and len(capabilities) == 128
-    assert EAGER_REGISTRY.help_targets == help_targets and len(help_targets) == 169
-    with pytest.raises(Exception) as error:
-        marivo.help("analysis.metric_dataset.rollup")
-    assert "metric_dataset" in str(error.value)
+    assert tuple(mv.__all__) == EXPECTED_EXPORTS
+    assert LIVE_REGISTRY.canonical_ids() == registry.canonical_ids()
+    assert marivo.help("analysis.metric_dataset.rollup") is None
 
 
 def test_incomplete_or_duplicate_owner_is_rejected(disclosure: DatasetDisclosureRegistry) -> None:
@@ -503,13 +495,11 @@ def test_registered_nested_values_and_module_resolve(disclosure: DatasetDisclosu
 
 
 def test_private_abandonment_selects_one_run_and_preserves_success(tmp_path, monkeypatch) -> None:
+    import marivo.analysis.session as namespace
     from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.session._disclosure_facade import PreparedSessionNamespace
-    from tests.lazy_lifecycle_fixtures import lifecycle_registry
     from tests.lazy_runtime_read_fixtures import input_value, publish
 
-    semantic, sidecar = lifecycle_registry(tmp_path / "unused.duckdb")
-    namespace = PreparedSessionNamespace(tmp_path, semantic, sidecar)
+    monkeypatch.chdir(tmp_path)
     runtime = DatasetRuntime.create(tmp_path, "selected")
     store = runtime.store
     publish(store, "success", "committed", session_ref=runtime.session_ref)
@@ -734,7 +724,7 @@ def test_retained_catalog_inputs_are_original_native_descriptors(
     inputs = disclosure.retained_catalog_inputs
     assert tuple(d.id for d in inputs) == expected
     for descriptor in inputs:
-        assert descriptor is EAGER_REGISTRY.by_canonical_id(descriptor.id)
+        assert descriptor is LIVE_REGISTRY.by_canonical_id(descriptor.id)
 
 
 def test_foreign_method_binding_with_identical_signature_is_rejected(
@@ -814,13 +804,13 @@ def test_lookup_miss_protocol_is_adapted_to_structured_resolve_error(
     with pytest.raises(KeyError):
         disclosure.by_callable(unregistered)
     for target in ("nonexistent", unregistered, object()):
-        with pytest.raises(DatasetRegistrationError) as caught:
+        with pytest.raises(HelpTargetError) as caught:
             disclosure.resolve(target)
-        assert caught.value.location == "dataset.disclosure.resolve"
+        assert caught.value.location == "marivo.help.target"
         assert caught.value.expected and caught.value.received
         assert caught.value.repair is not None
-        assert "entry" in caught.value.repair.action
-        assert "marivo.help" not in caught.value.repair.action
+        assert "entry" in caught.value.repair.candidates
+        assert "marivo.help" in caught.value.repair.action
 
 
 @pytest.mark.parametrize("fault", ("missing_default", "duplicate_default", "dangling_export"))

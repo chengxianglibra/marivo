@@ -5,7 +5,6 @@ from dataclasses import replace
 from marivo.analysis import time_scope
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     FileEntry,
@@ -17,6 +16,7 @@ from marivo.analysis.materialization.contracts import (
     required_retained_contracts,
     schema_fingerprint,
 )
+from marivo.analysis.materialization.quality import QualitySummary
 from marivo.analysis.observation.contracts import (
     PopulationPayload,
     _version_selection_payload,

@@ -55,7 +55,6 @@ marivo.help()
 marivo.help("authoring")
 marivo.help("analysis")
 ```
-
 After choosing semantic authoring, narrow the next question progressively:
 
 ```python
@@ -65,7 +64,6 @@ marivo.help("semantic.builders")   # nested values and typed handles
 marivo.help("semantic.checks")     # what each inspection or check proves
 marivo.help(entry_or_error)         # current identity or structured repair
 ```
-
 Follow the fully qualified routes from the selected secondary root instead of
 depending on short-name disambiguation. Registered public type, error, and
 member targets remain available to focused help when already known or obtained
@@ -157,20 +155,14 @@ order_date = ms.time_dimension_column(name="order_date", entity=orders, column="
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity="additive", unit="CNY")
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
-
 After current authority establishes the meaning and the project loads, routine
 analysis reads the metric and observes it:
 
 ```python
 revenue_entry = catalog.metrics.get("sales.revenue")
 revenue_entry.details().show()
-frame = session.observe(
-    revenue_entry,
-    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
-    grain=mv.grain("month"),
-)
+dataset = session.observe(revenue_entry, time_scope=mv.time_scope(start='2026-01-01', end='2026-04-01')).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
 ```
-
 If the metric was just authored or changed, finish the scoped authoring closeout
 described below before this routine analysis sequence.
 
@@ -204,7 +196,6 @@ week_scope = calendar.period("week", "FY2026-W01")
 assert week_scope.kind == "calendar_period"
 week_scope.contract().show()  # exact bounds and certified snapshot identity
 ```
-
 The reserved `day` level is derived from the certified coverage and is not
 persisted as one record per day. `calendar.periods(level, limit=..., cursor=...)`
 returns bounded exact scopes for declared levels; missing coverage, stale
@@ -239,13 +230,8 @@ catalog.preview(
 
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
-frame = session.observe(
-    revenue,
-    time_scope=launch,
-    grain=mv.grain("day"),
-)
+dataset = session.observe(revenue, time_scope=launch).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('day')).aggregate()
 ```
-
 `mv.grain("day")` is always bounded in the session report timezone. When the
 occurrence uses another boundary timezone, configure the session with the same
 `report_timezone` (or use a certified calendar day grain); Marivo never silently
@@ -254,9 +240,9 @@ reinterprets a bare built-in day grain from the occurrence timezone.
 `occurrence(key)` returns an exact, snapshot-bound `TimeScope`; catalog paging is
 bounded and filters half-open interval overlap without reading the datasource
 again. Temporal sets do not infer recurrence or match similarly named occurrences
-across years. Compare two exact occurrence-selected day-grain frames with
-`mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` when
-relative local-day progress is the intended business axis.
+across years. Each selected occurrence supplies an explicit source scope.
+Use the Metric Dataset contract and `marivo.help("analysis.metric_dataset.compare")`
+for the supported comparison and explicit window alignment.
 Use `marivo.help("analysis.temporal_set.occurrence")` for exact lookup and
 `marivo.help("analysis.temporal_set.occurrences")` for bounded filtered paging;
 snapshot errors route through `marivo.help(error)` to `semantic.preview`.
@@ -282,12 +268,9 @@ catalog.preview(
 )
 schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
 ```
-
-Pass that catalog entry to
-`mv.working_day_progress(schedule=schedule, unmatched="fail" | "drop")` to
-pair zero-based working-day ordinals across two day-grain time-series or panel
-frames. The exact schedule snapshot is retained in the comparison contract;
-missing, duplicate, sub-day, or uncovered dates fail closed.
+The catalog entry exposes the certified working-date snapshot and its
+provenance. Keep that business authority with the semantic catalog; Dataset
+comparison follows its explicit, registered window-alignment contract.
 
 ## Build the model
 
@@ -313,7 +296,6 @@ md.duckdb(
     ),
 )
 ```
-
 Every datasource helper declares one global lowercase snake_case identity and
 backend-specific connection facts. Use `marivo.help("datasource.authoring")` to
 choose the backend family, then its exact focused leaf for the live parameters,
@@ -381,7 +363,6 @@ md.trino(
     auth_env="TRINO_AUTH",
 )
 ```
-
 For a protected DuckDB HTTP JSON source, authentication stays on the datasource,
 not in `md.json(...)`. The project stores only the environment variable name and
 the narrow URL prefix allowed to receive the credential:
@@ -393,7 +374,6 @@ md.duckdb(
     http_bearer_token_env="HAWKEYE_TOKEN",
 )
 ```
-
 Custom-header authentication maps header names to secret environment variables.
 The map may contain one header or a machine-authentication pair:
 
@@ -407,7 +387,6 @@ md.duckdb(
     },
 )
 ```
-
 Bearer and custom-header modes are mutually exclusive. Marivo resolves each
 value when connecting and creates a temporary DuckDB HTTP secret restricted to
 `http_scope`; POST execution reuses those scoped headers from connection memory.
@@ -429,7 +408,6 @@ import marivo.semantic as ms
 
 ms.domain(name="sales", owner="Mina Zhang")
 ```
-
 #### Entity
 
 An entity is one physical source (a table or file) plus its primary key. It is the
@@ -450,7 +428,6 @@ orders = ms.entity(
     ai_context=ms.ai_context(business_definition="One row per order."),
 )
 ```
-
 ##### Source builders
 
 | Builder | Required | Optional | Use for |
@@ -478,7 +455,6 @@ events = ms.entity(
     primary_key=["event_time"],
 )
 ```
-
 The declared type is an assertion, not a cast, and the mapping is the complete
 projection allowlist. For a projected source, semantic `primary_key` and direct
 field `column=` values must name these stable aliases. Inspection can report a
@@ -510,7 +486,6 @@ region = ms.dimension_column(
     ai_context=ms.ai_context(business_definition="Sales reporting region."),
 )
 ```
-
 #### Time dimension
 
 A time dimension is a special dimension that carries grain and parsing metadata.
@@ -549,8 +524,9 @@ and timezone-aware timestamps do not receive a speculative timezone repair.
 `sample_interval` like `(5, "minute")` marks a
 periodically-sampled axis used by semi-additive folds.
 
-For time-series and panel frames, `bucket_start` is always a report-timezone
-bucket label emitted as a timezone-naive timestamp or date. For example, with
+For a Metric Dataset with a time axis, the time field named by its row
+contract contains a report-timezone bucket label emitted as a timezone-naive
+timestamp or date. For example, with
 `report_timezone="Asia/Shanghai"`, the first hourly bucket for a Shanghai
 business day is shown as `2026-06-20 00:00:00`, not the equivalent UTC instant.
 
@@ -574,7 +550,6 @@ event_ts = ms.time_dimension_column(
     parse=ms.timestamp(timezone="UTC"),
 )
 ```
-
 #### Measure
 
 A measure is a row-level quantitative fact you intend to aggregate (e.g. an
@@ -595,7 +570,6 @@ amount = ms.measure_column(
     unit="CNY",
 )
 ```
-
 ### 4. Define metrics
 
 
@@ -634,7 +608,6 @@ defaults, constraints, and repair routes.
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
 ```
-
 `agg="median"` and `agg=("percentile", q)` follow backend support. On Trino,
 both compile to `APPROX_PERCENTILE`, with median using `q=0.5`.
 
@@ -656,7 +629,6 @@ hand-written metric body.
 order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
 failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 ```
-
 `ms.where(**conditions)` builds AND-joined equality
 (`dimension=value`) or membership (`dimension=(value1, value2)`) filters. Keys are local
 semantic dimensions declared on the metric's target entity, not arbitrary
@@ -679,7 +651,6 @@ terminal_count = ms.count(
     filter=ms.where(type=(2, 4)),
 )
 ```
-
 #### Weighted means — `ms.weighted_mean`
 
 `ms.weighted_mean` accepts two measures from the same entity and owns both the
@@ -692,7 +663,6 @@ avg_latency = ms.weighted_mean(
     weight=request_count,
 )
 ```
-
 It computes `SUM(value * weight) / NULLIF(SUM(weight), 0)` over rows where both
 inputs are non-null. `weight` must be additive. The result inherits the value
 measure's unit and persists exact `numerator` / `weight` components for
@@ -715,12 +685,10 @@ Each also accepts `unit`, `domain`, and `ai_context`.
 net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
 aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
-
-At observe time, division evaluates under a fixed `zero_division="null"` policy:
-a bucket whose denominator (for `ms.ratio`) or paired weight sum (for `ms.weighted_mean`)
-is present but zero yields a null value — never `+/-inf` — and the affected row
-count is recorded on the observed frame as `meta.zero_denominator_rows` and
-`quality_summary.zero_denominator_rows`.
+At execution, a present but zero denominator for `ms.ratio`, or paired weight
+sum for `ms.weighted_mean`, yields a null value. Read committed values through
+the Materialized Metric Dataset; its row contract and Findings own available
+state and evidence.
 
 #### Cumulative metrics — `ms.cumulative`
 
@@ -741,7 +709,6 @@ cumulative_active_users = ms.cumulative(
     over=event_time,
 )
 ```
-
 For `count_distinct` base metrics, the cumulative value uses first-seen semantics: each
 distinct entity is counted at the earliest bucket in which it appears, so the running total
 is monotonically non-decreasing. Cumulative metrics may serve as ratio components — compose
@@ -767,7 +734,6 @@ mtd_revenue = ms.cumulative(
     anchor=ms.grain_to_date(grain=mv.grain("month")),
 )
 ```
-
 For a fiscal or other certified calendar, carry the calendar authority in the grain value
 instead of repeating its level as an independent analysis option:
 
@@ -785,13 +751,8 @@ fiscal_mtd = ms.cumulative(
 )
 
 fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
-frame = session.observe(
-    fiscal_mtd,
-    time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
-    grain=fiscal_week,
-)
+dataset = session.observe(fiscal_mtd, time_scope=mv.time_scope(start='2026-01-01', end='2026-03-01')).with_time_axis(event_time, grain=fiscal_week).aggregate()
 ```
-
 The calendar snapshot owns fiscal membership and its boundary timezone; changing the
 session report timezone changes presentation only.
 
@@ -813,7 +774,6 @@ rolling7_active = ms.cumulative(
     anchor=ms.trailing(count=7, unit="day"),
 )
 ```
-
 Two cross-anchor rules govern query-time grain choices:
 
 - **Grain-compatibility rule** (`grain_to_date`): every display bucket must lie entirely
@@ -822,15 +782,12 @@ Two cross-anchor rules govern query-time grain choices:
 - **Integer-multiple rule** (`trailing`): the window span must be an integer multiple of
   the query grain (`W_buckets = span / grain`). Trailing requires a time grain.
 
-Derived metrics may compose cumulative components. Compare is supported only when every
-outer component is cumulative and all components use the same anchor. This includes
-`all_history`, whose result is an observed level difference with exact evaluation cutoffs,
-not asserted interval flow; source revision is unverified. Mixed anchors and
-cumulative/non-cumulative mixes are rejected. After `compare`, `attribute` accepts the
-current cumulative delta: business dimensions explain endpoint level changes, while the
-exact cumulative `over` axis explains base flow for direct `sum`/`count` structures.
-Mixed time/business axes, cumulative `count_distinct`, and component time bridges fail
-closed. `decompose` and `forecast` remain unsupported on cumulative frames.
+Derived metrics may compose cumulative components. Native execution retains
+primitive component state and temporal coverage so supported folds preserve
+the authored cumulative meaning after source-offline recovery. Consult the
+Dataset contract and focused `compare`, `attribute` and `forecast` Help for
+admitted structures, required retained state and concrete repairs. A display
+value alone does not authorize another temporal or spatial reduction.
 
 ## Use and check the model
 
@@ -849,13 +806,8 @@ revenue_entry = catalog.metrics.get("sales.revenue")
 region_entry = catalog.dimensions.get("sales.orders.region")
 
 revenue_entry.details().show()
-current = session.observe(
-    revenue_entry,
-    grain=mv.grain("month"),
-    dimensions=[region_entry],
-)
+current = session.observe(revenue_entry).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).with_dimensions(*[region_entry]).aggregate()
 ~~~
-
 `details().show()` exposes the human-authored definition, guardrails, composition,
 effective entities, candidate dimensions/time dimensions, and measure lineage.
 For a derived metric, it also renders an `expression_tree` table that expands every
@@ -869,8 +821,8 @@ Candidate axes come from the metric's effective entities; `session.observe(...)`
 still validates cross-entity relationships and fanout. `.show()` prints the same
 bounded card that `.render()` returns. Use current live help, structured errors,
 and typed repairs for mechanical continuation. If the object is missing or disputed,
-return to semantic authoring. Otherwise the observation becomes the first artifact
-in the session's evidence-backed investigation. Newly authored or changed objects
+return to semantic authoring. Otherwise construct the logical Dataset, then call `.execute()` to publish
+the first Artifact in the Session's evidence-backed investigation. Newly authored or changed objects
 complete scoped readiness as part of their authoring closeout.
 
 ### Discover and hand off objects through live help
@@ -893,9 +845,8 @@ entry = collection.get("metric:sales.revenue")  # full path or displayed typed k
 entry.show()
 entry.details().show()
 marivo.help(entry)                             # current details and analysis handoff
-current = session.observe(entry, grain=mv.grain("month"))
+current = session.observe(entry).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
 ```
-
 Use `marivo.help("semantic.CatalogCollection")` for lookup grammar,
 `marivo.help("semantic.CatalogEntry")` for detail and continuation behavior,
 and `marivo.help("semantic.Ref")` for exact identity and membership rules.
@@ -919,7 +870,6 @@ orders = sales.entities.get("orders")
 revenue = orders.metrics.get("metric:sales.revenue")  # key copied from .show()
 region = orders.dimensions.get("region")  # one dimension object
 ```
-
 Each typed collection accepts a local name, an exact full path, a displayed
 same-kind typed key such as `metric:sales.revenue`, or a same-kind ref within
 that collection's current scope. Scoped collections never return an
@@ -957,7 +907,6 @@ report = catalog.readiness(refs=[revenue, region])
 if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
-
 These runtime calls accept the current entry or its exact ref and normalize to
 the ref immediately. Ordinary preview creates no authoring checkpoint and does
 not affect readiness.
@@ -988,7 +937,6 @@ catalog.source_health(
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
 ).show()
 ```
-
 Only checks declared through `ms.source_check` read user data, and each requires
 and discloses an exact bounded scope. Marivo does not infer data expectations
 from discovery samples.
@@ -1016,7 +964,6 @@ You work through two namespaces:
 import marivo.datasource as md   # connections and physical sources
 import marivo.semantic as ms     # meaning (ms.entity, ms.metric, ...)
 ```
-
 #### How names work
 
 Every object lives under a **domain** and is addressed by a qualified ref:
@@ -1101,18 +1048,17 @@ entry directly:
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-frame = session.observe(
+dataset = session.observe(
     revenue,
     time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
 )
 
 revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
-frame = session.observe(
+dataset = session.observe(
     revenue_entry,
     time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
 )
 ```
-
 `catalog.require(ref)` is the exact global lookup. Catalog collections provide
 browsing plus local-name, full-path, and displayed typed-key lookup. Frozen
 analysis consumers accept a current catalog entry or its exact ref; authoring
@@ -1139,7 +1085,6 @@ ai_context=ms.ai_context(
     guardrails=["Validate refund exclusions before using as net revenue."],
 )
 ```
-
 ### Versioning (optional)
 
 For entities whose rows change over time, declare how to read the current state:
@@ -1175,7 +1120,6 @@ fanout constraints, provenance input, and structured repairs.
 def revenue(table):
     return table.amount.sum()
 ```
-
 ### Correctness rules for analysis
 
 Additivity and time behavior determine whether a number remains meaningful when
@@ -1205,7 +1149,6 @@ on_hand_units = ms.measure_column(
     additivity=ms.semi_additive(over=snapshot_date, fold="last"),
 )
 ```
-
 ### Relationship
 
 Declares how two entities join, so metrics and dimensions can reach across them.
@@ -1222,7 +1165,6 @@ ms.relationship(
     keys=[ms.join_on(order_customer_id, customer_id)],
 )
 ```
-
 ### Inspect, choose optional evidence, then author
 
 For datasource-backed authoring, inspect authoritative metadata first. Acquire
@@ -1257,7 +1199,6 @@ profiles = {profile.name: profile for profile in snapshot.profiles}
 profiles["order_id"].sample_distinct_count
 snapshot.retained_values[0]["order_id"]
 ```
-
 `retained_values` is a tuple of rows keyed by the selected column names. It is
 available only when `persist_values=True`; otherwise the snapshot contract marks
 value evidence as unavailable and no follow-up query is issued.
@@ -1273,7 +1214,6 @@ scope = md.time_range(
     timeout_seconds=30,
 )
 ```
-
 The predicate is half-open (`[start, end)`). Bounds must use the same date or
 datetime kind and the same timezone awareness; aware datetimes are canonicalized
 to UTC. A projected source must expose the range column. Unlike equality
@@ -1339,7 +1279,6 @@ orders_csv = md.csv("data/orders/*.csv", schema={"order_id": "string"})
 
 md.inspect(warehouse, events).show()
 ```
-
 `records_path` supports a deliberately small JSONPath subset: `$` followed by
 object members, for example `$.data` or `$.result.items`. It does not support
 filters, wildcards, recursive descent, or array indexes. A present empty array
@@ -1396,7 +1335,6 @@ changes = md.json(
     records_path="$.data.change_infos",
 )
 ```
-
 `query_params` keeps fixed request parameters in the source descriptor. A query
 parameter value may be a single scalar or a list of scalars; a list URL-encodes
 as repeated keys, for example `specificsource=app-1&specificsource=app-2`.
@@ -1413,9 +1351,8 @@ with session.source_bindings({
         "end": "now",
     },
 }):
-    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+    dataset = session.observe(ms.ref.metric("monitoring.pending_containers"))
 ```
-
 The binding is nested, execution-local, and keyed by the owning Session runtime;
 another Session in the same task cannot consume it. Missing or extra parameters
 fail before the source is read, and the non-secret values participate in snapshot
@@ -1520,7 +1457,6 @@ order_id = ms.dimension_column(
 def order_created(order_rows):
     return ms.all_rows()
 ```
-
 For a filtered Event on a shared event-log Entity, return the restricted
 boolean expression instead, for example
 `ms.bind(event_type, event_rows) == "payment_succeeded"`. Do not use a
@@ -1589,7 +1525,6 @@ order_lifecycle = ms.state_model(
     ),
 )
 ```
-
 State names are local immutable authoring values. Exactly one state is initial;
 terminal states cannot have outgoing transitions. An Event trigger is inferred
 only when exactly one `cardinality="one"` participant ends at the StateModel
@@ -1603,3 +1538,23 @@ ready for replay from inception. Use `marivo.help("semantic.state_model")` for
 the current constructor contract. Use `catalog.require(...)` for exact current
 membership, scoped readiness for static preflight, and preview only for a
 concrete runtime risk.
+
+## Explicit quantile meaning
+
+A median or percentile Metric owns its quantile. Dataset observation uses exact
+interpolation by default. If the question calls for semantic approximation,
+select that method explicitly before observation:
+
+```python
+selected = ms.quantile_metric(
+    ms.ref.metric("sales.p95_amount"), method="duckdb_tdigest@v1"
+)
+result = session.observe(selected).aggregate().execute()
+result.show()
+```
+This example requires an existing `session` and the governed percentile Metric
+`sales.p95_amount`. `linear_interpolation@v1` selects the exact method explicitly.
+The current implementations use DuckDB sources and retain Parquet state.
+Cold projection and downstream analysis preserve the method; execution never
+changes it automatically or retries with another method. Discover the exact
+contract through `marivo.help("semantic.quantile_metric")`.

@@ -20,26 +20,6 @@ source_modules =
 forbidden_modules =
     marivo.analysis
 
-[importlinter:contract:analysis-evidence-isolation]
-name = analysis.evidence must not import analysis internals beyond evidence + frames + lineage + refs + errors + session.persistence
-type = forbidden
-source_modules =
-    marivo.analysis.evidence
-forbidden_modules =
-    marivo.analysis.intents
-    marivo.analysis.executor
-    marivo.analysis.calendar
-    marivo.analysis.windows
-    marivo.analysis.datasources
-    marivo.analysis.profiles
-    marivo.analysis.policies
-# Frame metadata is an allowed evidence dependency. These frames declare a
-# TimeScope field, so evidence reaches marivo.analysis.windows only through
-# frames. Evidence itself must still never import marivo.analysis.windows.
-ignore_imports =
-    marivo.analysis.frames.event -> marivo.analysis.windows.spec
-    marivo.analysis.frames.lifecycle -> marivo.analysis.windows.spec
-
 [importlinter:contract:live-is-neutral-leaf]
 name = introspection.live must not depend on datasource, semantic, or analysis
 type = forbidden
@@ -62,14 +42,11 @@ forbidden_modules =
     marivo.analysis
 
 [importlinter:contract:dataset-core-is-foundational]
-name = Dataset Core must not depend on eager or executing analysis implementations
+name = Dataset Core must not depend on executing analysis implementations
 type = forbidden
 source_modules =
     marivo.analysis.datasets
 forbidden_modules =
-    marivo.analysis.frames
-    marivo.analysis.intents
-    marivo.analysis.executor
     marivo.analysis.session
     marivo.analysis.observation
     marivo.analysis.compiler
@@ -96,26 +73,20 @@ ignore_imports =
     marivo.analysis.datasets.fields -> marivo.semantic.runtime_metric
 
 [importlinter:contract:observation-definition-isolation]
-name = Private observation definitions must not depend on eager or executing analysis
+name = Observation definitions must not depend on executing analysis
 type = forbidden
 source_modules =
     marivo.analysis.observation
 forbidden_modules =
-    marivo.analysis.frames
-    marivo.analysis.intents
-    marivo.analysis.executor
     marivo.analysis.session
     marivo.analysis.compiler
     marivo.analysis.materialization
 
 [importlinter:contract:dataset-compiler-isolation]
-name = Private Dataset compilation must not depend on runtime publication or eager execution
+name = Dataset compilation must not depend on runtime publication
 type = forbidden
 source_modules =
     marivo.analysis.compiler
 forbidden_modules =
     marivo.analysis.materialization
     marivo.analysis.session
-    marivo.analysis.frames
-    marivo.analysis.intents
-    marivo.analysis.executor

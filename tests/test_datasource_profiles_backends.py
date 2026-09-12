@@ -7,11 +7,6 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
-from marivo.analysis.errors import (
-    DatasourceBackendTypeUnsupportedError,
-    DatasourceEnvVarMissingError,
-    DatasourceFieldInvalidError,
-)
 from marivo.datasource import backends as datasource_backends
 from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource import store as datasource_store
@@ -22,6 +17,11 @@ from marivo.datasource.authoring import (
     MySQLSpec,
     PostgresSpec,
     TrinoSpec,
+)
+from marivo.datasource.errors import (
+    DatasourceBackendTypeUnsupportedError,
+    DatasourceEnvVarMissingError,
+    DatasourceFieldInvalidError,
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 

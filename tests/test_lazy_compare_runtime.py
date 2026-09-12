@@ -37,7 +37,7 @@ from marivo.analysis.materialization.local_worker import (
     StreamInput,
     supervise,
 )
-from marivo.analysis.materialization.targets import EngineTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.observation.sampling import engine_sample
@@ -99,12 +99,12 @@ def _setup(project: Path, *, engine: bool = False) -> tuple[DatasetRuntime, Lazy
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
     runtime = (
-        DatasetRuntime.create(project, "comparison", target=EngineTarget("sales.warehouse"))
+        DatasetRuntime.create(project, "comparison", target=LocalTarget())
         if engine
         else DatasetRuntime.create(project, "comparison")
     )
     if engine:
-        runtime.target = EngineTarget(next(iter(registry.datasources)))
+        runtime.target = LocalTarget()
     return runtime, runtime.sources(semantic_registry=registry, sidecar=sidecar), database
 
 

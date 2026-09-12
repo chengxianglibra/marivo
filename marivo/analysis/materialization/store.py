@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 from marivo._compat import UTC
@@ -110,7 +111,7 @@ CREATE TABLE findings (
 ) STRICT;
 CREATE TABLE action_resource_journal (
  run_ref TEXT NOT NULL REFERENCES analysis_action_runs(run_ref) ON DELETE RESTRICT,
- resource_kind TEXT NOT NULL CHECK(resource_kind IN ('planner_temporary_relation','backend_execution','private_parquet_staging','local_storage_staging','engine_storage_staging','object_storage_staging')),
+ resource_kind TEXT NOT NULL CHECK(resource_kind IN ('planner_temporary_relation','backend_execution','private_parquet_staging','local_storage_staging','object_storage_staging')),
  execution_domain_id TEXT NOT NULL CHECK(length(execution_domain_id)>0),
  ownership_nonce TEXT NOT NULL CHECK(length(ownership_nonce)>0),
  cleanup_capability_id TEXT NOT NULL CHECK(length(cleanup_capability_id)>0),
@@ -123,6 +124,15 @@ CREATE INDEX terminal_recency ON analysis_action_run_terminals(outcome,terminal_
 CREATE INDEX run_inputs_artifact ON analysis_action_run_inputs(artifact_ref,run_ref);
 CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,artifact_ref);
 """
+
+
+def _generation_error(version: object) -> IntegrityError:
+    return IntegrityError(
+        expected="an existing complete Session Store with user_version=3",
+        received=f"Session Store user_version={version}",
+        repair="Preserve the old Store unchanged and create a new named Session in a fresh project; old Stores cannot be resumed or migrated.",
+        stage="store_generation",
+    )
 
 
 def _now() -> str:
@@ -292,8 +302,8 @@ class SessionStore:
                 tables = read.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
-                if version not in (0, 3) or (version == 0 and (tables or existing_only)):
-                    raise invalid("unsupported Store generation")
+                if version != 3:
+                    raise _generation_error(version)
                 if version == 3:
                     expected = {
                         "sessions",
@@ -329,34 +339,35 @@ class SessionStore:
         if existing_only:
             raise invalid("selected v3 Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path, timeout=5, isolation_level=None)
-        try:
-            conn.execute("PRAGMA foreign_keys=ON")
-            conn.execute("PRAGMA busy_timeout=0")
-            _enable_wal(conn)
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.execute("PRAGMA synchronous=FULL")
-            conn.execute("BEGIN IMMEDIATE")
-            version = conn.execute("PRAGMA user_version").fetchone()[0]
-            if version == 0:
-                tables = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-                if tables:
-                    raise invalid("unversioned existing Store")
+        # Publish only a complete, closed v3 file. Competing creators never see
+        # an empty generation-zero database or perform a migration in place.
+        with TemporaryDirectory(prefix="store-init-", dir=self.db_path.parent) as directory:
+            staged = Path(directory) / "session_store.db"
+            conn = sqlite3.connect(staged, timeout=5, isolation_level=None)
+            try:
+                conn.execute("PRAGMA foreign_keys=ON")
+                _enable_wal(conn)
+                conn.execute("PRAGMA synchronous=FULL")
+                conn.execute("BEGIN IMMEDIATE")
                 for statement in _SCHEMA.split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 conn.execute("PRAGMA user_version=3")
-            elif version != 3:
-                raise invalid("unsupported Store generation")
-            conn.commit()
-        except BaseException:
-            if conn.in_transaction:
-                conn.rollback()
-            raise
-        finally:
-            conn.close()
+                conn.commit()
+            finally:
+                conn.close()
+            with staged.open("rb") as source:
+                os.fsync(source.fileno())
+            try:
+                os.link(staged, self.db_path)
+            except FileExistsError:
+                self._initialize(existing_only=True)
+            else:
+                directory_fd = os.open(self.db_path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
 
     @contextmanager
     def _read(self) -> Iterator[sqlite3.Connection]:

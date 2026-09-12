@@ -2,16 +2,21 @@ from datetime import date
 
 import pytest
 
-from marivo._temporal import _new_time_scope
+from marivo._temporal import TimeScope, _new_time_scope
 from marivo.analysis import time_scope
-from marivo.analysis.errors import WindowInvalidError
-from marivo.analysis.windows.spec import TimeScope, normalize_timescope_input
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.refs import ref
+from marivo.semantic.catalog import SemanticKind
+from tests.lazy_observation_fixtures import make_sources
+from tests.ref_helpers import make_ref
 
 
 def test_normalize_timescope_input_accepts_concrete_instances():
     scope = time_scope(start="2026-05-01", end="2026-05-24")
-    assert normalize_timescope_input(scope) is scope
+    result = make_sources().observe(
+        make_ref("sales.revenue", SemanticKind.METRIC), time_scope=scope
+    )
+    assert result is not None
 
 
 def test_timescope_strings_are_normalized_for_structural_identity():
@@ -60,15 +65,20 @@ def test_private_timescope_validation_still_supports_recovery_data():
 
 
 def test_normalize_timescope_input_rejects_strings():
-    with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_timescope_input("last 7 days")
-    assert exc_info.value._context["kind"] == "TimeScopeTypeInvalid"
+    with pytest.raises(DatasetConstructionError) as exc_info:
+        make_sources().observe(
+            make_ref("sales.revenue", SemanticKind.METRIC), time_scope="last 7 days"
+        )
+    assert "TimeScope" in str(exc_info.value)
 
 
 def test_normalize_timescope_input_rejects_start_end_dict():
-    with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_timescope_input({"start": "2026-05-01", "end": "2026-05-24"})
-    assert exc_info.value._context["kind"] == "TimeScopeTypeInvalid"
+    with pytest.raises(DatasetConstructionError) as exc_info:
+        make_sources().observe(
+            make_ref("sales.revenue", SemanticKind.METRIC),
+            time_scope={"start": "2026-05-01", "end": "2026-05-24"},
+        )
+    assert "TimeScope" in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -81,18 +91,20 @@ def test_normalize_timescope_input_rejects_start_end_dict():
     ],
 )
 def test_normalize_timescope_input_rejects_expr_and_non_scope_keys(raw):
-    with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_timescope_input(raw)
-    assert exc_info.value._context["kind"] == "TimeScopeTypeInvalid"
+    with pytest.raises(DatasetConstructionError) as exc_info:
+        make_sources().observe(make_ref("sales.revenue", SemanticKind.METRIC), time_scope=raw)
+    assert "TimeScope" in str(exc_info.value)
 
 
 def test_normalize_timescope_input_rejects_invalid_type():
-    with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_timescope_input(123)
-    assert exc_info.value._context["kind"] == "TimeScopeTypeInvalid"
+    with pytest.raises(DatasetConstructionError) as exc_info:
+        make_sources().observe(make_ref("sales.revenue", SemanticKind.METRIC), time_scope=123)
+    assert "TimeScope" in str(exc_info.value)
 
 
 def test_normalize_timescope_input_rejects_invalid_model():
-    with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_timescope_input({"start": "2026-05-01"})
-    assert exc_info.value._context["kind"] == "TimeScopeTypeInvalid"
+    with pytest.raises(DatasetConstructionError) as exc_info:
+        make_sources().observe(
+            make_ref("sales.revenue", SemanticKind.METRIC), time_scope={"start": "2026-05-01"}
+        )
+    assert "TimeScope" in str(exc_info.value)

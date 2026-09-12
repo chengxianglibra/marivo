@@ -25,7 +25,6 @@ from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import (
-    EngineTarget,
     LocalTarget,
     ObjectTarget,
     S3Access,
@@ -112,21 +111,20 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         seed_distinct_database(database, dense_time=True)
     registry, sidecar = make_distinct_registry(database)
     runtime = (
-        DatasetRuntime.create(project, "distinct-journey", target=EngineTarget("warehouse"))
+        DatasetRuntime.create(project, "distinct-journey", target=LocalTarget())
         if mode == "produce"
         else DatasetRuntime.open(project, refs["session"])
     )
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     before = snapshot(runtime)
     if mode == "produce":
-        with guard_membership_transport():
-            delta = metric(sources, current=True).compare(metric(sources, current=False)).execute()
-            barrier = (
-                metric(sources, current=True, all_axes=False)
-                .compare(metric(sources, current=False, all_axes=False))
-                .execute()
-            )
+        delta = metric(sources, current=True).compare(metric(sources, current=False)).execute()
+        barrier = (
+            metric(sources, current=True, all_axes=False)
+            .compare(metric(sources, current=False, all_axes=False))
+            .execute()
+        )
         refs = {
             "session": runtime.session_ref,
             "delta": delta.state.artifact_ref.ref,
@@ -151,13 +149,13 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
             "rows": rows(delta),
             "artifact": record_evidence(descriptor),
             "origin_removed": True,
-            "raw_membership_transfer": False,
+            "private_membership_parquet": True,
             "versions": versions(),
         }
         assert_no_raw_keys(evidence)
         return evidence
 
-    runtime.target = EngineTarget("warehouse") if kind == "engine" else LocalTarget()
+    runtime.target = LocalTarget()
     if kind == "object":
         access = S3Access(
             "fixture",
@@ -236,7 +234,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         "missing_axis_barrier_after": barrier_after,
         "statistics": statistics(runtime),
         "versions": versions(),
-        "raw_membership_transfer": False,
+        "private_membership_parquet": True,
     }
     assert_no_raw_keys(evidence)
     return evidence
@@ -245,7 +243,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("produce", "continue", "cold"))
-    parser.add_argument("kind", choices=("local", "engine", "object"))
+    parser.add_argument("kind", choices=("local", "object"))
     parser.add_argument("project", type=Path)
     parser.add_argument("--refs", default="{}")
     args = parser.parse_args()

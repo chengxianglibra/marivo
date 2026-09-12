@@ -27,12 +27,25 @@ def validate_distribution_relation(
     role: str,
     record: Callable[[str, str], None],
 ) -> None:
+    distribution_schema(row, role, table.schema().to_pyarrow())
+    checks = distribution_validations(row, primary, {role: table}, required=False)
+    for check in checks:
+        sql = backend.compile(check.expression)
+        record("engine_check." + check.name, sql)
+        if backend.raw_sql(sql).fetchone()[0] != 0:
+            _integrity(
+                "complete exact distribution and independent endpoint",
+                "distribution integrity failed",
+            )
+
+
+def distribution_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> tuple[str, ...]:
+    """Validate the exact independently owned value-frequency Parquet schema."""
     authority = next(
         (item for name, item in distribution_part_authorities(row) if name == role), None
     )
     if authority is None or authority.distribution is None:
         _integrity("one exact distribution authority", "unknown distribution role")
-    schema = table.schema().to_pyarrow()
     keys = tuple(field for field in row.schema.columns if field.field_id in row.key_field_ids)
     if tuple(schema.names) != (*(field.name for field in keys), VALUE, FREQUENCY):
         _integrity(
@@ -59,12 +72,4 @@ def validate_distribution_relation(
             )
         if not _matches_type(field.logical_type_id, actual):
             _integrity("exact distribution coordinates", "distribution coordinate type differs")
-    checks = distribution_validations(row, primary, {role: table}, required=False)
-    for check in checks:
-        sql = backend.compile(check.expression)
-        record("engine_check." + check.name, sql)
-        if backend.raw_sql(sql).fetchone()[0] != 0:
-            _integrity(
-                "complete exact distribution and independent endpoint",
-                "distribution integrity failed",
-            )
+    return tuple(field.name for field in keys)

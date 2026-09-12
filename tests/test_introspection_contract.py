@@ -13,7 +13,6 @@ regression tests that do not depend on the removed ``_surface`` function.
 from __future__ import annotations
 
 import inspect
-import re
 from pathlib import Path
 
 import pytest
@@ -21,7 +20,6 @@ import pytest
 import marivo
 import marivo.semantic as ms
 from marivo._help.model import MarivoHelpTargetError
-from marivo.analysis.constraints import CONSTRAINTS as ANALYSIS_CONSTRAINTS
 from marivo.semantic.constraints import CONSTRAINTS as SEMANTIC_CONSTRAINTS
 from tests.shared_fixtures import rendered_help
 
@@ -52,58 +50,6 @@ def test_constraint_paths_exist() -> None:
             assert (REPO_ROOT / _normalize_repo_ref(example)).exists(), (
                 f"semantic {constraint.id} example"
             )
-
-
-def test_analysis_constraint_help_targets_are_canonical() -> None:
-    """Every analysis constraint's non-null help_target must resolve as a known
-    canonical id or topic in the analysis help surface."""
-
-    from marivo.analysis._capabilities.registry import REGISTRY
-
-    known_targets: set[str] = set()
-    for constraint in ANALYSIS_CONSTRAINTS.values():
-        if constraint.help_target is not None:
-            known_targets.add(constraint.help_target)
-
-    # The known canonical targets that constraints may point to.
-    canonical_targets = {
-        "observe",
-        "compare",
-        "attribute",
-        "discover",
-        "discover.driver_axes",
-        "correlate",
-        "forecast",
-        "MetricFrame.metric",
-        "events.match",
-        "events.funnel",
-        "events.time_to_event",
-        "lifecycle.replay",
-        "select_subjects",
-        "transform",
-        "catalog.readiness",
-        "artifacts.reading",
-        "artifacts.quality_projection",
-        "session.artifact",
-        "runtime.sessions",
-        "boundary.to_pandas",
-        "alignment",
-        "runtime_metric",
-        "Session.source_bindings",
-    }
-
-    assert known_targets == canonical_targets
-
-    # Every canonical target must resolve in the registry.
-    for target in canonical_targets:
-        try:
-            REGISTRY.by_help_target(target)
-        except KeyError:
-            # Also try by id.
-            try:
-                REGISTRY.by_id(target)
-            except KeyError:
-                pytest.fail(f"canonical target {target!r} not in registry")
 
 
 def test_no_inherited_or_module_docstring_leaks() -> None:
@@ -188,75 +134,6 @@ def test_shared_catalog_hint_lookup_supports_semantic() -> None:
     assert semantic_hint("invalid_composition")
 
 
-def test_analysis_error_can_receive_catalog_default_hint() -> None:
-    from marivo.analysis.errors import FrameReadError
-
-    err = FrameReadError(message="bad read")
-
-    assert err.hint is not None
-    assert "show()" in err.hint.lower()
-
-
-def test_frame_meta_invalid_error_receives_catalog_default_hint() -> None:
-    """FrameMetaInvalidError.hint must come from CONSTRAINTS (issue #66).
-
-    The catalog lookup matches ``AnalysisError.kind`` (``"FrameMetaInvalid"``)
-    against ``constraint.error_kind``. Without a matching constraint the hint
-    falls back to None and ``str(e)`` omits the ``Hint:`` line.
-    """
-    from marivo.analysis.constraints import (
-        CONSTRAINTS,
-        ConstraintId,
-        default_hint_for_error_kind,
-    )
-    from marivo.analysis.errors import FrameMetaInvalidError
-
-    err = FrameMetaInvalidError(message="bad frame metadata")
-
-    assert err.hint is not None
-    assert "Hint:" in str(err)
-    assert default_hint_for_error_kind("FrameMetaInvalid") is not None
-    assert err.hint == default_hint_for_error_kind("FrameMetaInvalid")
-
-    # Pin the hint's observable content: it must point at the Location line and
-    # the on-disk meta.json, and must NOT regress to the previously-flawed
-    # "frame.meta" phrasing (issue #66 review P3-1/P3-2).
-    assert "Location" in err.hint
-    assert "meta.json" in err.hint
-    assert "frame.meta" not in err.hint
-
-    # Pin the conditional scope of the meta.json step: it must be gated on the
-    # Location naming a frame ref (7/26 construction sites carry no ref/artifact),
-    # while the recovery action stays unconditional for all sites. Split on
-    # sentence boundaries and assert each property on its own sentence -- this
-    # pins the scope, not the exact wording or capitalization (fourth-round
-    # review P3-1).
-    sentences = re.split(r"(?<=\.)\s+", err.hint)
-    recovery = next(s for s in sentences if "re-run" in s)
-    assert (
-        re.search(r"when\s+the\s+location\s+names\s+a\s+frame\s+ref", recovery, re.IGNORECASE)
-        is None
-    )
-    meta_step = next(s for s in sentences if "meta.json" in s)
-    assert (
-        re.search(r"when\s+the\s+location\s+names\s+a\s+frame\s+ref", meta_step, re.IGNORECASE)
-        is not None
-    )
-
-    # Pin applies_to as a closed set (not issubset) so drift or over-tightening
-    # on the frame families covered by this constraint fails loudly.
-    constraint = CONSTRAINTS[ConstraintId.FRAME_META_INVALID]
-    assert constraint.applies_to == (
-        "BaseFrame",
-        "MetricFrame",
-        "DeltaFrame",
-        "CandidateSet",
-        "EventFrame",
-        "LifecycleFrame",
-        "AttributionFrame",
-    )
-
-
 def test_datasource_error_requires_typed_repair() -> None:
     from marivo.datasource.errors import DatasourceSecretInPlaintextError, repair
 
@@ -270,18 +147,3 @@ def test_datasource_error_requires_typed_repair() -> None:
 
     assert err.repair is not None
     assert not hasattr(err, "hint")
-
-
-def test_analysis_constraints_do_not_reference_deleted_skill_attachments() -> None:
-    """No analysis constraint's example or docs_ref may point to the deleted
-    marivo-analysis references tree."""
-    deleted_prefix = "marivo/skills/marivo-analysis" + "/references"
-    for constraint in ANALYSIS_CONSTRAINTS.values():
-        if constraint.example is not None:
-            assert deleted_prefix not in constraint.example, (
-                f"constraint {constraint.id} example references deleted path"
-            )
-        if constraint.docs_ref is not None:
-            assert deleted_prefix not in constraint.docs_ref, (
-                f"constraint {constraint.id} docs_ref references deleted path"
-            )

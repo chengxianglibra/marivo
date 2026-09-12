@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from inspect import signature
 
+from marivo.analysis import session as session_namespace
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,
@@ -21,7 +22,7 @@ from marivo.analysis.errors import EvidenceIntegrityError
 from marivo.analysis.evidence import _dataset_types as e
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_read_model as r
-from marivo.analysis.session._disclosure_facade import PreparedSession, PreparedSessionNamespace
+from marivo.analysis.session.core import Session
 
 READ_TYPES: tuple[type[object], ...] = (
     e.ArtifactDigest,
@@ -122,102 +123,102 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     descriptors.append(
         value_type(
             "Session",
-            PreparedSession,
-            summary="One private Session binds logical construction and existing v3 Runtime reads.",
-            acquisition="Create or recover through the private prepared Session namespace.",
+            Session,
+            summary="One Session binds logical construction and committed v3 Runtime reads.",
+            acquisition="Create or recover through mv.session.get_or_create or mv.session.resume.",
             producers=("session.get_or_create", "session.resume", "session.current"),
             constraints=(
-                "Semantic loading and backend selection are supplied before private assembly; public activation remains Slice 8.",
+                "Source construction loads authored semantics on demand; retained reads do not require current sources.",
             ),
         )
     )
     exports.extend(
         (
-            ExportInput("Session", PreparedSession, "Session"),
-            ExportInput("session", PreparedSessionNamespace, "session.namespace"),
+            ExportInput("Session", Session, "Session"),
+            ExportInput("session", session_namespace, "session.namespace"),
         )
     )
 
-    operations: tuple[tuple[type[object], str, str, str, str], ...] = (
+    operations: tuple[tuple[object, str, str, str, str], ...] = (
         (
-            PreparedSessionNamespace,
+            session_namespace,
             "get_or_create",
             "Session",
             "result = namespace.get_or_create('help-example')",
             "Guarded create or recovery; sets current Session and updates an explicitly supplied question.",
         ),
         (
-            PreparedSessionNamespace,
+            session_namespace,
             "current",
             "Session | None",
             "result = namespace.current()",
             "Read existing current Session; do not create or reconcile.",
         ),
         (
-            PreparedSessionNamespace,
+            session_namespace,
             "resume",
             "Session",
             "result = namespace.resume(session.id, by='id')",
             "Guarded recovery and activation of an existing Session; never creates a missing identity.",
         ),
         (
-            PreparedSessionNamespace,
+            session_namespace,
             "recent",
             "SessionSummaryPage",
             "result = namespace.recent(limit=5)",
             "Read one bounded existing Session-history page; no activation.",
         ),
         (
-            PreparedSessionNamespace,
+            session_namespace,
             "inspect",
             "SessionInspection",
             "result = namespace.inspect(session.name)",
             "Read one existing Session snapshot; no recovery or activation.",
         ),
         (
-            PreparedSessionNamespace,
+            session_namespace,
             "abandon_run",
             "None",
             "result = namespace.abandon_run(session_id=session.id, run_id=pending_run)",
             "Reconcile only the selected Run under its Session writer guard; backend terminal/fencing proof is mandatory.",
         ),
         (
-            PreparedSession,
+            Session,
             "artifact",
             "Materialized Dataset",
             "result = session.artifact(artifact_ref)",
             "Recover the exact committed family and state; never replay origin sources.",
         ),
         (
-            PreparedSession,
+            Session,
             "runs",
             "RunPage",
             "result = session.runs(limit=5)",
             "Read a bounded newest-first page without reconciling work.",
         ),
         (
-            PreparedSession,
+            Session,
             "get_run",
             "IncompleteRun | FailedRun | SucceededRun",
             "result = session.get_run(run_id)",
             "Read one exact same-Session Run.",
         ),
         (
-            PreparedSession,
+            Session,
             "graph",
             "SessionGraph",
             "result = session.graph(artifact_ref=artifact_ref)",
             "Read bounded committed edges and exact consumed foreign boundaries.",
         ),
         (
-            PreparedSession,
+            Session,
             "revalidate",
             "ArtifactRevalidation",
             "result = session.revalidate(artifact_ref)",
             "Explicitly validate Artifact integrity, storage authority and Evidence integrity; not semantic freshness.",
         ),
         (
-            PreparedSession,
+            Session,
             "show",
             "None",
             "result = session.show()",
@@ -227,7 +228,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     operations = (
         *operations,
         (
-            PreparedSession,
+            Session,
             "render",
             "str",
             "result = session.render()",
@@ -237,8 +238,9 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     acquisition = {
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
+        "report_timezone": "Choose an IANA report timezone on first creation; existing Sessions retain their timezone.",
         "question": "Optional guiding question; omission preserves the existing question.",
-        "identity": "Use the exact Session name or id from recent()/inspect().",
+        "identity": "Use an exact existing v3 Session name or id from recent()/inspect(); missing identities provide real candidates and never create a Session.",
         "by": "Choose name or id explicitly when resolving an ambiguous identity.",
         "limit": "Choose a page size within the owning read's bounded interval.",
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
@@ -257,19 +259,18 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         descriptors.append(
             operation(
                 ("Session." if name in ("show", "render") else "session.") + name,
-                ("mv.session." if receiver is PreparedSessionNamespace else "session.") + name,
+                ("mv.session." if receiver is session_namespace else "session.") + name,
                 value,
-                bindings=(bind(value, receiver),),
+                bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
-                discovery_group="session.namespace"
-                if receiver is PreparedSessionNamespace
-                else None,
+                discovery_group="session.namespace" if receiver is session_namespace else None,
                 parameters=tuple(
                     P(n, acquisition[n]) for n in signature(value).parameters if n != "self"
                 ),
                 output=output,
                 constraints=(effect,),
                 effects=effect,
+                telemetry=name in ("get_or_create", "resume", "abandon_run"),
                 failures=(
                     "AnalysisError: inspect the structured identity, bound or recovery repair; no eager fallback.",
                 ),
@@ -379,4 +380,22 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 ),
             )
         )
+    from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
+    from marivo.analysis._capabilities.dataset_model import NavigationInput
+
+    descriptors.extend(CATALOG_INPUTS)
+    temporal = tuple(
+        d.canonical_id for d in CATALOG_INPUTS if d.receiver_family != "SemanticCatalog"
+    )
+    ordinary = tuple(
+        d.canonical_id for d in CATALOG_INPUTS if d.receiver_family == "SemanticCatalog"
+    )
+    descriptors.append(
+        NavigationInput("catalog.temporal", "Resolve certified temporal values.", temporal)
+    )
+    descriptors.append(
+        NavigationInput(
+            "catalog", "Browse current authored catalog inputs.", (*ordinary, "catalog.temporal")
+        )
+    )
     return DisclosureProvider("runtime", tuple(descriptors), tuple(exports))

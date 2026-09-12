@@ -17,7 +17,7 @@ from marivo.analysis.materialization.contracts import descriptor_payload
 from marivo.analysis.materialization.lifecycle_codec import evidence_payload
 from marivo.analysis.materialization.reads import payload_batches
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_event_runtime_worker import assert_identity_private
 from tests.lazy_lifecycle_fixtures import history, lifecycle_registry, setup_lifecycle
@@ -36,7 +36,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         runtime = DatasetRuntime.open(
             project,
             refs["session"],
-            target=EngineTarget("warehouse") if kind == "engine" else LocalTarget(),
+            target=LocalTarget(),
         )
         before = snapshot(runtime)
         result = runtime.artifact(refs["history"])

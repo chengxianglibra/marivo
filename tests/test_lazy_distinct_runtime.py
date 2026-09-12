@@ -1,4 +1,4 @@
-"""Real engine checkpoints keep private membership native through recovery and inspection."""
+"""Immutable Parquet checkpoints keep private membership native through recovery and inspection."""
 
 import os
 import time
@@ -16,10 +16,10 @@ from marivo._compat import Never
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization import admission, inspection
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import EngineReceipt
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget, ObjectTarget
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.contracts import source_owner_of
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
@@ -42,9 +42,7 @@ def _setup(
     )
     registry = replace(original, metrics=metrics)
     registry.freeze()
-    runtime = DatasetRuntime.create(
-        project, "distinct-runtime", target=EngineTarget("warehouse"), event=event
-    )
+    runtime = DatasetRuntime.create(project, "distinct-runtime", target=LocalTarget(), event=event)
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = (
         sources.observe(ref.metric("sales.order_count"))
@@ -54,17 +52,14 @@ def _setup(
     return runtime, metric, database
 
 
-@pytest.mark.parametrize("target", ["local", "object"])
-def test_membership_checkpoint_target_rejected_before_run_or_source_work(
-    tmp_path: Path, target: str
-) -> None:
+def test_membership_checkpoint_requires_explicit_available_object_binding(tmp_path: Path) -> None:
     runtime, metric, _ = _setup(tmp_path)
-    runtime.target = LocalTarget() if target == "local" else ObjectTarget("unavailable")
-    with pytest.raises(MaterializationError, match="compatible engine target"):
+    runtime.target = ObjectTarget("unavailable")
+    with pytest.raises(MaterializationError):
         metric.execute()
-    assert runtime.last_run_ref is None
     assert not runtime.statistics.statements
     assert runtime.graph().artifacts == ()
+    assert runtime.store.resources(runtime.session_ref) == ()
 
 
 def test_membership_checkpoint_has_independent_count_and_native_cold_inspection(
@@ -79,7 +74,7 @@ def test_membership_checkpoint_has_independent_count_and_native_cold_inspection(
         for part in record.descriptor.retained_parts
         if part.contract_id == "metric.distinct_membership"
     )
-    assert isinstance(member.storage_receipt, EngineReceipt)
+    assert isinstance(member.storage_receipt, LocalReceipt)
     assert (
         member.storage_receipt.realized_row_count
         > record.descriptor.storage_receipt.realized_row_count
@@ -101,9 +96,7 @@ def test_membership_checkpoint_has_independent_count_and_native_cold_inspection(
     assert cold.store.resources(cold.session_ref) == ()
 
 
-@pytest.mark.parametrize(
-    "point", ["engine_part_producer_reserved", "engine_payload_create", "before_commit"]
-)
+@pytest.mark.parametrize("point", ["output_reserved", "retained_part_write", "before_commit"])
 def test_membership_failure_releases_whole_checkpoint_and_scrubs_native_diagnostics(
     tmp_path: Path, point: str
 ) -> None:
@@ -113,8 +106,7 @@ def test_membership_failure_releases_whole_checkpoint_and_scrubs_native_diagnost
         nonlocal calls
         if selected == point:
             calls += 1
-            if point != "engine_payload_create" or calls == 3:
-                raise RuntimeError("private-member-canary")
+            raise RuntimeError("private-member-canary")
 
     runtime, metric, _ = _setup(tmp_path, event=fail)
     with pytest.raises(MaterializationError) as caught:
@@ -141,8 +133,8 @@ def test_damaged_delta_membership_keeps_primary_readable_but_blocks_consumption(
         for part in record.descriptor.retained_parts
         if part.role == "delta_membership.current"
     )
-    assert isinstance(receipt, EngineReceipt)
-    path = tmp_path / receipt.qualified_relation_ref
+    assert isinstance(receipt, LocalReceipt)
+    path = tmp_path / receipt.project_relative_path / "data.parquet"
     if fault == "missing":
         path.unlink()
     else:
@@ -232,19 +224,19 @@ def test_mixed_source_input_membership_is_rechecked_before_publication(tmp_path:
         for part in record.descriptor.retained_parts
         if part.contract_id == "metric.distinct_membership"
     )
-    assert isinstance(receipt, EngineReceipt)
+    assert isinstance(receipt, LocalReceipt)
     changed: list[str] = []
 
     def mutate(point: str) -> None:
         if point == "after_rename":
-            path = tmp_path / receipt.qualified_relation_ref
+            path = tmp_path / receipt.project_relative_path / "data.parquet"
             os.chmod(path, 0o600)
             with path.open("ab") as stream:
                 stream.write(b"private-member-mutation-canary")
             changed.append(point)
 
     runtime._hook = mutate
-    with pytest.raises(MaterializationError, match="mutated"):
+    with pytest.raises(MaterializationError, match="backing size changed"):
         current.compare(baseline).attribute(axes=(ref.dimension("sales.orders.channel"),)).execute()
     assert changed == ["after_rename"]
     assert runtime.last_run_ref is not None

@@ -12,7 +12,7 @@ from unittest.mock import patch
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.operators.forecast_contracts import drift, naive, periods, seasonal_naive
 from marivo.analysis.operators.forecast_dataset import MaterializedForecastDataset
@@ -31,7 +31,7 @@ def run(mode: str, model: str, kind: str, project: Path, refs: dict[str, str]) -
     )
     if mode == "produce":
         runtime, source, database = setup_forecast(project)
-        runtime.target = EngineTarget("warehouse") if kind == "engine" else LocalTarget()
+        runtime.target = LocalTarget()
         metric = history(source).execute()
         runtime.target = LocalTarget()
         result = metric.forecast(horizon=periods(4), model=method).execute()

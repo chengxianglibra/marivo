@@ -16,7 +16,6 @@ from marivo.analysis.materialization import admission, object_storage
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.targets import (
-    EngineTarget,
     LocalTarget,
     ObjectTarget,
     S3Access,
@@ -57,7 +56,7 @@ def _open(project: Path, session: str, kind: Kind) -> DatasetRuntime:
     return DatasetRuntime.open(
         project,
         session,
-        target=EngineTarget("warehouse")
+        target=LocalTarget()
         if kind == "engine"
         else ObjectTarget("fixture")
         if kind == "object"

@@ -81,7 +81,7 @@ def funnel_loss_rate(*, step: PatternStep) -> FunnelLossRate:
         step: Exact non-initial ``PatternStep`` retained by both compared funnels.
 
     Returns:
-        A frozen ``FunnelLossRate`` accepted by ``session.attribute(...)``.
+        A frozen ``FunnelLossRate`` accepted by ``delta.attribute(...)``.
 
     Guidance:
         The selected target is the loss from its immediately preceding PatternStep
@@ -93,7 +93,7 @@ def funnel_loss_rate(*, step: PatternStep) -> FunnelLossRate:
 
     Constraints:
         Only an exact ``PatternStep`` is accepted. Membership and the non-initial
-        rule are validated by ``session.attribute``.
+        rule are validated by ``delta.attribute``.
     """
     if type(step) is not PatternStep:
         raise PatternStepMismatchError(

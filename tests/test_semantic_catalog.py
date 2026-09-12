@@ -457,14 +457,14 @@ def test_catalog_object_equality_is_concrete_type_and_typed_id(
 
 
 def test_catalog_object_conforms_to_agent_result(semantic_project_factory):
-    from tests.test_agent_result_protocol import assert_conforms
+    from tests.result_protocol_helpers import assert_conforms
 
     catalog = _make_catalog(semantic_project_factory)
     assert_conforms(catalog.require(ms.ref.metric("sales.revenue")))
 
 
 def test_catalog_collection_conforms_to_agent_result(semantic_project_factory):
-    from tests.test_agent_result_protocol import assert_conforms
+    from tests.result_protocol_helpers import assert_conforms
 
     catalog = _make_catalog(semantic_project_factory)
     assert_conforms(catalog.metrics)

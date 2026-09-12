@@ -6,7 +6,7 @@ import pytest
 
 from marivo.analysis import time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.semantic._quantile import QuantileMethod, quantile_metric
@@ -28,9 +28,7 @@ def test_distribution_runtime_preserves_method_authority(
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
     registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(
-        tmp_path, "distribution", target=EngineTarget("warehouse") if retained else LocalTarget()
-    )
+    runtime = DatasetRuntime.create(tmp_path, "distribution", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(
@@ -105,7 +103,7 @@ def test_metric_operand_orders_and_no_raw_distribution_transfer(
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
     registry, sidecar = make_distribution_registry(database, q=0.7)
-    runtime = DatasetRuntime.create(tmp_path, "operands", target=EngineTarget("warehouse"))
+    runtime = DatasetRuntime.create(tmp_path, "operands", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(METRIC, time_scope=time_scope(start="2026-02-01", end="2026-02-05"))
@@ -117,12 +115,12 @@ def test_metric_operand_orders_and_no_raw_distribution_transfer(
         .with_dimensions(CHANNEL)
         .aggregate()
     )
+    left = current.execute() if topology[0] == "M" else current
+    right = baseline.execute() if topology[1] == "M" else baseline
+    runtime.target = LocalTarget()
+    if topology == "MM":
+        database.rename(tmp_path / "source.offline")
     with guard_distribution_transport():
-        left = current.execute() if topology[0] == "M" else current
-        right = baseline.execute() if topology[1] == "M" else baseline
-        runtime.target = LocalTarget()
-        if topology == "MM":
-            database.rename(tmp_path / "source.offline")
         result = left.compare(right).attribute(axes=(CHANNEL,)).execute()
     assert result.to_pandas().contribution.sum() == pytest.approx(-1.0)
 
@@ -131,15 +129,17 @@ def test_metric_operand_orders_and_no_raw_distribution_transfer(
 def test_retained_distribution_corruption_blocks_consumption_but_not_primary_reads(
     tmp_path: Path, damage: str
 ) -> None:
-    import duckdb
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
 
-    from marivo.analysis.materialization.contracts import EngineReceipt
+    from marivo.analysis.materialization.contracts import LocalReceipt
     from marivo.analysis.materialization.errors import MaterializationError
 
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
     registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "corruption", target=EngineTarget("warehouse"))
+    runtime = DatasetRuntime.create(tmp_path, "corruption", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = sources.observe(METRIC).with_dimensions(CHANNEL).aggregate()
     delta = metric.compare(metric).execute()
@@ -150,8 +150,8 @@ def test_retained_distribution_corruption_blocks_consumption_but_not_primary_rea
         for part in record.descriptor.retained_parts
         if part.role == "delta_distribution.baseline"
     )
-    assert isinstance(part.storage_receipt, EngineReceipt)
-    path = tmp_path / part.storage_receipt.qualified_relation_ref
+    assert isinstance(part.storage_receipt, LocalReceipt)
+    path = tmp_path / part.storage_receipt.project_relative_path / "data.parquet"
     database.rename(tmp_path / "source.offline")
     frame = delta.to_pandas()
     assert runtime.revalidate(delta.state.artifact_ref).artifact_integrity == "valid"
@@ -159,14 +159,12 @@ def test_retained_distribution_corruption_blocks_consumption_but_not_primary_rea
         path.unlink()
     else:
         path.chmod(0o600)
-        with duckdb.connect(str(path), config={"threads": 1}) as con:
-            names = con.execute("show tables").fetchall()
-            assert len(names) == 1
-            con.execute(
-                'update "'
-                + names[0][0]
-                + '" set __mv_distribution_frequency = __mv_distribution_frequency + 1'
-            )
+        table = pq.read_table(path)
+        name = "__mv_distribution_frequency"
+        changed = table.set_column(
+            table.schema.get_field_index(name), name, pc.add(table[name], pa.scalar(1))
+        )
+        pq.write_table(changed, path)
     assert delta.to_pandas().equals(frame)
     runtime.target = LocalTarget()
     with pytest.raises(MaterializationError):
@@ -326,7 +324,7 @@ def test_numeric_source_types_replay_the_declared_float64_percentile(
     )
     registry = replace(registry, entities=entities)
     registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path, "types", target=EngineTarget("warehouse"))
+    runtime = DatasetRuntime.create(tmp_path, "types", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(
@@ -374,7 +372,7 @@ def test_projection_preserves_method_and_preview_preserves_authored_order(
     )
     registry = replace(registry, metrics=metrics)
     registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path, "preview", target=EngineTarget("warehouse"))
+    runtime = DatasetRuntime.create(tmp_path, "preview", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = (
         sources.observe((METRIC, quantile_metric(second, method="duckdb_tdigest@v1")))

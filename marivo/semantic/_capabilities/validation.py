@@ -21,6 +21,7 @@ from marivo.semantic._capabilities.registry import (
 from marivo.semantic.constraints import CONSTRAINTS
 
 _RETURN_FAMILY_ALIASES = {
+    "str": "Text",
     "Ref[DomainKind]": "Ref[domain]",
     "Ref[DatasourceKind]": "Ref[datasource]",
     "Ref[EntityKind]": "Ref[entity]",

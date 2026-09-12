@@ -18,7 +18,7 @@ from marivo.analysis.domains.lifecycle_reducers import in_state
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.lifecycle_codec import evidence_payload
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.refs import ref
 from marivo.semantic.state_model import ModelStateHandle
@@ -52,7 +52,7 @@ def run(mode: str, project: Path, refs: dict[str, str], sink: str) -> dict[str, 
     runtime = DatasetRuntime.open(
         project,
         refs["session"],
-        target=EngineTarget("warehouse") if sink == "engine" else LocalTarget(),
+        target=LocalTarget(),
     )
     before = snapshot(runtime)
     h = runtime.artifact(refs["history"])
@@ -89,13 +89,7 @@ def run(mode: str, project: Path, refs: dict[str, str], sink: str) -> dict[str, 
             ("selection", h.select_subjects(in_state(ModelStateHandle(MODEL, "done"), at=END))),
         ):
             # Membership stays source-native even when terminal summaries use local storage.
-            runtime.target = (
-                EngineTarget("warehouse")
-                if name == "selection"
-                else EngineTarget("warehouse")
-                if sink == "engine"
-                else LocalTarget()
-            )
+            runtime.target = LocalTarget()
             result = logical.execute()
             if mode == "cold":
                 assert result.state.artifact_ref.ref == refs[name]

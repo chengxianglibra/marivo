@@ -16,7 +16,7 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget, S3Access
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.contracts import metric_definition, scope_payload
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import gt
@@ -197,7 +197,7 @@ def test_local_identity_never_implicitly_imports_into_source(
         runtime.target = ObjectTarget("fixture")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     checkpoint = sources.population(ref.entity("sales.customers")).execute()
-    runtime.target = EngineTarget(next(iter(registry.datasources)))
+    runtime.target = LocalTarget()
     observed = sources.observe(REVENUE, population=checkpoint)
     with pytest.raises(DatasetCompilationError, match="source-required"):
         observed.execute()

@@ -526,10 +526,10 @@ def test_source_proof_publication_streams_rows_without_regrouping(
         )
 
 
-def test_engine_unordered_contract_read_enforces_exact_hierarchy_key_order() -> None:
+def test_native_unordered_contract_read_enforces_exact_hierarchy_key_order() -> None:
     import ibis
 
-    from marivo.analysis.materialization.engine import ordered_relation
+    from marivo.analysis.compiler.ordering import ordered_relation
 
     value, rows = _value("hierarchy")
     assert value.row_set_contract.ordering.kind == "unordered"

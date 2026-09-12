@@ -6,7 +6,8 @@ description: Configure a Marivo project and share a semantic layer across reposi
 ## Keep the project contract in version control
 
 `marivo.toml` is optional. Without it, the project name is the project-root directory
-name, `semantic.layer_paths` is empty, and local telemetry is enabled. Missing tables or
+name, `semantic.layer_paths` is empty, local telemetry is enabled, and
+`execute()` results use project-local Parquet. Missing tables or
 fields use those defaults; an existing invalid TOML document or explicitly invalid field
 fails closed. There is no project `version` setting.
 
@@ -35,3 +36,28 @@ these configured roots.
 When configuration or declarations must travel with the project, commit `marivo.toml`
 and `models/`. Add `.marivo/` to `.gitignore`; it contains local sessions, evidence,
 telemetry, and cached metadata rather than shared declarations.
+
+## Choose a result location only when needed
+
+No analysis storage configuration is required for local Parquet. To write new
+Artifacts to an explicitly selected object store, add:
+
+```toml
+[analysis]
+storage = "object:archive"
+
+[analysis.object_stores.archive]
+endpoint_url = "https://objects.example.test"
+bucket = "analysis"
+access_key_id_env = "MARIVO_ARCHIVE_ACCESS_ID"
+secret_access_key_env = "MARIVO_ARCHIVE_SECRET"
+```
+
+Credentials remain environment references. The selected target is fixed for an
+execution; invalid configuration or a failed write raises a structured error.
+Marivo does not switch targets or retry through another executor. Named bindings
+can remain configured to read existing Artifacts after the write target changes;
+changing a setting does not relocate those Artifacts.
+
+See [Analysis Workflow](/docs/latest/concepts/analysis-workflow/) for the
+construction, explicit execution and recovery boundaries.

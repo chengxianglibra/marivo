@@ -44,7 +44,6 @@ def test_exact_private_family_and_capabilities(panel: bool) -> None:
     assert "nominal prediction" in result.contract().render()
     assert "no empirical coverage" in result.contract().render()
     for name in (
-        "ForecastDataset",
         "LogicalForecastDataset",
         "ForecastHorizon",
         "ForecastModel",
@@ -55,7 +54,8 @@ def test_exact_private_family_and_capabilities(panel: bool) -> None:
     ):
         exports = mv.__all__
         assert isinstance(exports, (list, tuple))
-        assert name not in exports and not hasattr(mv, name)
+        assert name in exports and hasattr(mv, name)
+    assert "ForecastDataset" not in exports and not hasattr(mv, "ForecastDataset")
     assert not hasattr(result, "compare") and not hasattr(result, "discover")
     selected = result.where(gt(result.fields.get("forecast_value"), 0))
     ranked = selected.rank(selected.fields.get("forecast_value")).limit(2)

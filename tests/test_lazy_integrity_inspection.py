@@ -12,7 +12,7 @@ import duckdb
 import pytest
 
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import EngineReceipt, LocalReceipt, ObjectReceipt
+from marivo.analysis.materialization.contracts import LocalReceipt, ObjectReceipt
 from marivo.analysis.materialization.errors import (
     CollectionLimitError,
     IntegrityError,
@@ -75,7 +75,7 @@ def test_missing_unused_part_does_not_block_preview_but_full_inspection_reports_
     receipt = record.descriptor.retained_parts[-1].storage_receipt
     if isinstance(receipt, LocalReceipt):
         (tmp_path / receipt.project_relative_path / "data.parquet").unlink()
-    elif isinstance(receipt, EngineReceipt):
+    elif isinstance(receipt, LocalReceipt):
         (tmp_path / receipt.qualified_relation_ref).unlink()
     else:
         assert isinstance(receipt, ObjectReceipt) and access is not None

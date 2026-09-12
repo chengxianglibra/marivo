@@ -41,24 +41,20 @@ Successful internal declarations are omitted when an existing analysis session
 reloads its semantic catalog; the enclosing semantic `load` operation and any
 failed declaration remain recorded.
 
-Session-bound events can include the persisted `session.question`. Analysis
-operations include `analysis_purpose` when supplied, and `md.raw_sql(...)`
-includes its required `reason`. Completed session acquisition events record
-whether the session was created and whether an explicit requested question was
-applied as the current value; omitting `question` preserves the persisted value.
+The native analysis surface instruments explicit Session creation/resume,
+abandonment and Dataset execution. Pure Dataset construction, predicates,
+`.contract()` and read-only methods do not write analysis operation events.
+Session-bound events can include the persisted `session.question`;
+`md.raw_sql(...)` includes its required `reason`. Session acquisition records
+whether the Session was created and whether an explicit question was applied;
+omitting `question` preserves the persisted value.
 
-Input summaries can include canonical metric, dimension, datasource, semantic,
-and artifact identifiers together with counts, types, options, limits, and
-fingerprints. String collections that are not defined identifier collections,
-including guardrails and datasource client tags, include only count and item
-types. Explicit artifact reads such as `show()`, `contract()`, and `to_pandas()`
-include the receiver artifact/ref and producing job so consumers can connect a
-result to its later use. Result summaries can include artifact and job
-identifiers, content hash, result kind and status, row and issue counts, cache
-state, truncation, and evidence status. Marivo never writes credentials,
-resolved secrets, datasource hosts, DSNs, SQL text, filesystem paths, slice
-values, frame row values, free-text collection items, arbitrary object
-representations, or exception messages to telemetry.
+Input and result summaries include only admitted identifiers, types, counts,
+options, limits and fingerprints available on that operation. The Runtime's
+exact Run and Artifact records own execution lineage and recovery state.
+Marivo never writes credentials, resolved secrets, datasource hosts, DSNs,
+SQL text, filesystem paths, slice values, Dataset rows, free-text collection
+items, arbitrary object representations or exception messages to telemetry.
 
 The legacy `events.jsonl` file can contain schema v1 lines after an upgrade.
 Marivo does not migrate that file. Consumers reading retained history should
@@ -67,7 +63,7 @@ separately. They should select records whose `marivo.event.schema_version`
 attribute is `2`.
 
 These events stay local. Marivo does not upload them. The raw session question,
-analysis purpose, and raw-SQL reason are stored in the local event file; review
+and raw-SQL reason are stored in the local event file; review
 that file before sharing project state outside your environment.
 
 Disable local telemetry for one process:

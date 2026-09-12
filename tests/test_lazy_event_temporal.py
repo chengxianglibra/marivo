@@ -16,7 +16,7 @@ from marivo.analysis.domains.contracts import EventJourneySemantics
 from marivo.analysis.event import every_start, first_per_subject, sequence, step
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import EngineTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.contracts import scope_payload
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
@@ -161,7 +161,7 @@ def test_retained_local_membership_cannot_cross_the_event_source_boundary(tmp_pa
     runtime, sources, _ = setup_event(tmp_path)
     population = sources.population(ref.entity("sales.customers")).execute()
     before = snapshot(runtime)
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
     with pytest.raises(DatasetCompilationError, match="source-required"):
         journey(sources, population=population).execute()
     after = snapshot(runtime)

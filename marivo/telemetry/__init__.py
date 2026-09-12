@@ -462,12 +462,12 @@ def _session_creation_attributes(
     name = arguments.get("name")
     if not isinstance(name, str):
         return attrs
-    db_path = root / STATE_DIR / "analysis" / "session_store.db"
+    db_path = root / STATE_DIR / "analysis" / "generations" / "v3" / "session_store.db"
     if not db_path.is_file():
         attrs["marivo.session.created"] = True
         return attrs
     try:
-        with sqlite3.connect(str(db_path)) as connection:
+        with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True) as connection:
             row = connection.execute(
                 "SELECT question FROM sessions WHERE name = ?", (name,)
             ).fetchone()
@@ -903,6 +903,12 @@ def tracked_capability(
                 cast("dict[str, object]", kwargs),
             )
             root = _project_root(arguments)
+            if surface == "analysis" and capability_id == "session.get_or_create":
+                try:
+                    load_project_config(root)
+                except (OSError, ValueError):
+                    # The owning preflight must fail before telemetry creates project state.
+                    return func(*args, **kwargs)
             attrs = _input_attributes(capability_id, arguments)
             attrs.update(_session_creation_attributes(root, capability_id, arguments))
             operation = _Operation(
@@ -957,6 +963,8 @@ def install_surface_instrumentation(
     """Install telemetry wrappers for registered public functions and methods."""
     installed: set[str] = set()
     for descriptor in descriptors:
+        if _safe_getattr(descriptor, "telemetry") is False:
+            continue
         capability_id = _safe_getattr(descriptor, "id") or _safe_getattr(descriptor, "canonical_id")
         path = _safe_getattr(descriptor, "callable_path")
         kind = _safe_getattr(descriptor, "kind")
@@ -964,6 +972,9 @@ def install_surface_instrumentation(
             continue
         owner, attribute_name = _resolve_owner(path)
         raw = inspect.getattr_static(owner, attribute_name)
+        if (surface, capability_id) in getattr(raw, "__marivo_telemetry_capabilities__", ()):
+            installed.add(capability_id)
+            continue
         if isinstance(raw, (property, type)):
             continue
         descriptor_kind = kind if isinstance(kind, str) else "callable"

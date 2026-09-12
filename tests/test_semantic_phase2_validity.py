@@ -4,7 +4,7 @@ Tests cover:
 - ValidityVersioningIR round-trip through reader/loader
 - Empty open_end rejection at load time
 - Invalid interval rejection at load time
-- valid_from not in primary_key rejection at load time
+- valid_from in primary_key rejection at load time
 - Unknown field ref rejection at load time
 """
 
@@ -22,35 +22,20 @@ from marivo.semantic.errors import SemanticLoadFailed
 
 _DOMAIN_FILE = "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
 
-# Dataset with actual @ms.dimension declarations so Ref[dimension] values exist in the
-# registry and the field-existence check in _validate_validity_versioning passes.
-# Dimensions are declared on the versioned dataset itself using a typed forward ref.
-_DATASET_WITH_VALIDITY = (
-    "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-    "\n"
-    "user_history_ref = ms.ref.entity('sales.user_history')\n"
-    "\n"
-    "@ms.dimension(entity=user_history_ref)\n"
-    "def valid_from(t):\n"
-    "    return t.valid_from\n"
-    "\n"
-    "@ms.dimension(entity=user_history_ref)\n"
-    "def valid_to(t):\n"
-    "    return t.valid_to\n"
-    "\n"
-    "user_history = ms.entity(\n"
-    "    name='user_history',\n"
-    "    datasource=ms.ref.datasource('warehouse'),\n"
-    "    source=md.table('user_history'),\n"
-    "    primary_key=['user_id', 'valid_from'],\n"
-    "    versioning=ms.validity(\n"
-    "        valid_from=valid_from,\n"
-    "        valid_to=valid_to,\n"
-    "        interval='closed_open',\n"
-    "        open_end=(None,),\n"
-    "    ),\n"
-    ")\n"
+# Typed temporal bounds are row coordinates, separate from stable Entity identity.
+_DATASET_WITH_VALIDITY = """
+import marivo.datasource as md
+import marivo.semantic as ms
+user_history_ref = ms.ref.entity('sales.user_history')
+valid_from = ms.time_dimension_column(name='valid_from', entity=user_history_ref, column='valid_from', granularity='day')
+valid_to = ms.time_dimension_column(name='valid_to', entity=user_history_ref, column='valid_to', granularity='day')
+user_history = ms.entity(
+    name='user_history', datasource=ms.ref.datasource('warehouse'),
+    source=md.table('user_history', columns={'user_id': md.source_column('user_id', data_type='int64'), 'valid_from': md.source_column('valid_from', data_type='date'), 'valid_to': md.source_column('valid_to', data_type='date')}),
+    primary_key=['user_id'],
+    versioning=ms.validity(valid_from=valid_from, valid_to=valid_to, interval='closed_open', open_end=(None,)),
 )
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -160,35 +145,17 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
 
 
 # ---------------------------------------------------------------------------
-# Test 4: valid_from not in primary_key is rejected
+# Test 4: valid_from in primary_key is rejected
 # ---------------------------------------------------------------------------
 
 
-def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factory):
-    """ms.validity() where valid_from is not in primary_key raises INVALID_ENTITY_VERSIONING."""
+def test_validity_valid_from_in_primary_key_rejected(semantic_project_factory):
+    """Validity row coordinates cannot become stable Entity identity."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_FILE,
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "user_history = ms.entity(\n"
-                "    name='user_history',\n"
-                "    datasource=ms.ref.datasource('warehouse'),\n"
-                "    source=md.table('user_history'),\n"
-                "    primary_key=['user_id'],\n"
-                "    versioning=ms.validity(\n"
-                "        valid_from=ms.ref.dimension('sales.user_history.valid_from'),\n"
-                "        valid_to=ms.ref.dimension('sales.user_history.valid_to'),\n"
-                "        interval='closed_open',\n"
-                "        open_end=(None,),\n"
-                "    ),\n"
-                ")\n"
-                "@ms.dimension(entity=user_history)\n"
-                "def valid_from(t):\n"
-                "    return t.valid_from\n"
-                "@ms.dimension(entity=user_history)\n"
-                "def valid_to(t):\n"
-                "    return t.valid_to\n"
+            "sales/datasets.py": _DATASET_WITH_VALIDITY.replace(
+                "primary_key=['user_id']", "primary_key=['user_id', 'valid_from']"
             ),
         },
         load=False,
@@ -201,8 +168,8 @@ def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factor
     errors = exc_info.value.errors
     assert len(errors) >= 1
     error = errors[0]
-    assert error.kind == "invalid_entity_versioning"
-    assert error.details.get("dimension") == "valid_from"
+    assert error.kind == "invalid_target_semantics"
+    assert error.expected == "distinct validity bounds separate from K"
 
 
 # ---------------------------------------------------------------------------
@@ -211,32 +178,13 @@ def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factor
 
 
 def test_validity_rejects_unknown_field_ref(semantic_project_factory):
-    """ms.validity() with a valid_to that does not exist raises INVALID_ENTITY_VERSIONING."""
+    """Unknown temporal bounds fail semantic validation without source I/O."""
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "\n"
-                "# Declare valid_from field on user_history (typed forward ref)\n"
-                "user_history_ref = ms.ref.entity('sales.user_history')\n"
-                "@ms.dimension(entity=user_history_ref)\n"
-                "def valid_from(t):\n"
-                "    return t.valid_from\n"
-                "\n"
-                "# valid_to is intentionally NOT declared\n"
-                "user_history = ms.entity(\n"
-                "    name='user_history',\n"
-                "    datasource=ms.ref.datasource('warehouse'),\n"
-                "    source=md.table('user_history'),\n"
-                "    primary_key=['user_id', 'valid_from'],\n"
-                "    versioning=ms.validity(\n"
-                "        valid_from=valid_from,\n"
-                "        valid_to=ms.ref.dimension('sales.user_history.does_not_exist'),\n"
-                "        interval='closed_open',\n"
-                "        open_end=(None,),\n"
-                "    ),\n"
-                ")\n"
+            "sales/_domain.py": _DOMAIN_FILE,
+            "sales/datasets.py": _DATASET_WITH_VALIDITY.replace(
+                "valid_to=valid_to,",
+                "valid_to=ms.ref.time_dimension('sales.user_history.does_not_exist'),",
             ),
         },
         load=False,
@@ -245,5 +193,5 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
     with pytest.raises(SemanticLoadFailed) as exc_info:
         SemanticCatalog(project).require(ms.ref.entity("sales.user_history"))
     error = exc_info.value.errors[0]
-    assert error.kind == "invalid_entity_versioning"
-    assert error.details["dimension"] == "valid_to"
+    assert error.kind == "invalid_target_semantics"
+    assert "does_not_exist" in str(error)

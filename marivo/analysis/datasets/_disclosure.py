@@ -251,6 +251,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             output=output,
             constraints=("The receiver must have the declared state and belong to this Session.",),
             effects=effects,
+            telemetry=method == "execute",
             failures=(
                 *CONSTRUCTION_FAILURES,
                 "MaterializationError: inspect the structured phase and repair; an incomplete execution is not a committed result.",

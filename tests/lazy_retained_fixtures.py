@@ -5,7 +5,6 @@ from typing import Literal
 
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import (
-    EngineTarget,
     LocalTarget,
     ObjectTarget,
     S3Access,
@@ -24,7 +23,7 @@ def setup_retained(
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
     target = (
-        EngineTarget(next(iter(registry.datasources)))
+        LocalTarget()
         if kind == "engine"
         else ObjectTarget("fixture")
         if kind == "object"

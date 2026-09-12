@@ -32,6 +32,7 @@ from marivo.analysis.observation.contracts import (
     EntityReducedMetricSemantics,
 )
 from marivo.analysis.observation.sampling import EntitySamplingPolicy, engine_sample
+from marivo.refs import SemanticKind
 
 METRIC = P(
     "metric",
@@ -139,6 +140,11 @@ def provider(
                 target,
                 "session." + name,
                 getattr(source_receiver, name),
+                semantic_kinds=(SemanticKind.ENTITY,)
+                if name == "population"
+                else (SemanticKind.METRIC, SemanticKind.TIME_DIMENSION)
+                if name == "observe"
+                else (),
                 summary=summary,
                 parameters=parameters,
                 output=output,
@@ -206,10 +212,16 @@ def provider(
         ),
         (
             "metric",
-            (METRIC,),
-            "result = metric.metric(revenue)",
-            ("metric", "revenue"),
-            "Select one existing Metric without reading unconsumed components.",
+            (
+                P(
+                    "metric",
+                    "Select an existing Metric input or its current DatasetFieldRef. After cold recovery, use fields.get(name).",
+                    ("datasets.fields",),
+                ),
+            ),
+            "result = metric.metric(metric.fields.get('revenue'))",
+            ("metric",),
+            "Select one retained Metric identity; field selectors require this Session and current binding.",
         ),
     )
     for name, parameters, code, requires, summary in methods:
@@ -222,6 +234,7 @@ def provider(
                     bind(getattr(t, name), t)
                     for t in (metric.logical_type, metric.materialized_type)
                 ),
+                semantic_kinds=(SemanticKind.DIMENSION,) if name == "with_dimensions" else (),
                 summary=summary,
                 parameters=parameters,
                 output="LogicalMetricDataset",

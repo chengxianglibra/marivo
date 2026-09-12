@@ -1,58 +1,34 @@
 ---
-title: 证据链
-description: 通过 Artifact 自有的 Finding 读取保持可审计，同时区分语义权威与数据源新鲜度。
+title: 证据
+description: 读取已提交的 Dataset Finding，分别检查完整性与语义权威事实。
 ---
 
-Marivo 的证据层记录确定性分析事实，但不替智能体组合 Finding、判断因果或业务有效性。
-
-## 读取当前 Artifact
+证据记录已提交 Dataset 的确定性事实。Agent 负责跨结果综合、业务判断和因果解释。
 
 ```python
-artifact = session.compare(current, baseline)
+artifact = current.compare(baseline).execute()
 artifact.show()
-print(artifact.evidence_status, artifact.finding_count)
-```
-
-`evidence_status` 为 `complete`、`partial` 或 `unavailable`。内嵌
-`evidence_digest` 是有界的即时摘要；遗漏项通过同一 Artifact 审计：
-
-```python
+print(artifact.evidence_digest.finding_count)
 page = artifact.findings(limit=20)
-finding = artifact.finding(page.items[0].finding_id)
+if page.items:
+    artifact.finding(page.items[0].finding_id).show()
 ```
 
-`FindingPage` 不可变，`has_more` 为真时把 `next_cursor` 传回同一方法。
-Finding 保留完整 derivation、来源 Artifact、字段、引用以及被摘要保留的 item 引用，
-因此不再提供独立 derivation trace API。
+示例要求同一 Session 中两个兼容的 Metric Dataset。Logical Dataset 在执行前没有持久化证据读取。v3 ArtifactDigest 保存确切的 Artifact、提取器身份、质量与问题摘要、Evidence 和 Finding 集合摘要及 Finding 数量；它不是生成的叙事。
 
-## 冷启动恢复
+FindingPage 包含不可变 items、limit、has_more 和不透明 next_cursor。通过所属 Artifact 继续翻页。缺失或损坏的状态会明确失败，空页不能掩盖不可用的 Store。
+
+## 冷恢复
 
 ```python
-runs = session.runs(limit=20)
-run = session.get_run(runs.items[0].run_id)
-artifact = session.artifact(run.output_artifact_ref)
-graph = session.graph(artifact_ref=artifact.ref, direction="ancestors")
+run = session.get_run(run_id)
+if isinstance(run, mv.SucceededRun):
+    artifact = session.artifact(run.output_artifact_ref)
+    artifact.show()
 ```
 
-Run 与 Graph 只投影持久化的运行事实。它们不检查当前语义权威，也不检查数据源新鲜度。
-需要核对 succeeded 或 failed Run 的实际 SQL 时读取 `run.queries`；默认 Run card
-只展示有界的查询摘要。
+Run 历史和图仅反映已提交事实。恢复不查询当前数据源，也不重放原始计算。`session.revalidate(artifact.state.artifact_ref)` 分别检查 Artifact、语义权威和 Evidence 完整性；它不能证明数据源新鲜度或业务适用性。
 
-## 当前权威
+Delta 与 Attribution 是代数结果，Association 是描述性结果，Forecast 是模型输出，Candidate 是经过评估的线索。最终解释需保留它们的范围、选择条件、质量和完整性限制。
 
-```python
-check = session.revalidate(artifact.ref)
-check.show()
-```
-
-revalidation 检查持久化身份、当前作用域语义权威和证据完整性，但仍不查询数据源健康状态，
-也不证明新鲜度。`admissible` 不能被解读为业务有效、推荐行动或数据源当前。
-
-## 失败边界
-
-- ledger 不可读会抛出 `EvidenceStoreUnavailableError`，不会伪装为空页面；
-- 不属于该 Artifact 的 id 会抛出 `FindingNotFoundError`；
-- 不兼容 Store、Run 或 Artifact schema 会在投影前失败，旧目录保持不变；
-- 不提供 Session Evidence namespace、digest page、Finding selection compatibility 或兼容别名。
-
-从 `marivo.help("analysis.evidence")` 获取当前唯一入口。
+从 `marivo.help("analysis.evidence")` 发现当前入口。终端自定义 DataFrame 或原始 SQL 结果不能重新进入受治理的 Dataset 分析。

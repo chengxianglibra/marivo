@@ -16,7 +16,7 @@ from marivo.analysis.domains.event import MaterializedEventDataset
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.event_codec import evidence_payload
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
@@ -43,7 +43,7 @@ def assert_identity_private(
 
 def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
     database = project / "warehouse.duckdb"
-    target = EngineTarget("warehouse") if kind == "engine" else LocalTarget()
+    target = LocalTarget()
     if mode == "produce":
         runtime, sources, database = setup_event(project, engine=True)
         metric = sources.observe(

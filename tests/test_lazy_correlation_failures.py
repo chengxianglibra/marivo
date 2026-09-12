@@ -8,7 +8,7 @@ import pytest
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local import LocalPolicy
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.refs import ref
 from tests.lazy_local_fixtures import setup_local
 from tests.lazy_materialization_crash_worker import snapshot
@@ -96,16 +96,16 @@ def test_raw_entity_checkpoint_rejected_before_admission(tmp_path: Path) -> None
 
 def test_selected_engine_receipt_mutation_rolls_back(tmp_path: Path) -> None:
     runtime, sources, _ = setup_local(tmp_path)
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
     metric = sources.observe(
         [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
     ).execute()
     record = runtime.store.artifact(metric.state.artifact_ref.ref)
     assert record is not None
-    from marivo.analysis.materialization.contracts import EngineReceipt
+    from marivo.analysis.materialization.contracts import LocalReceipt
 
     receipt = record.descriptor.storage_receipt
-    assert isinstance(receipt, EngineReceipt)
+    assert isinstance(receipt, LocalReceipt)
 
     def mutate(event: str) -> None:
         if event == "after_rename":

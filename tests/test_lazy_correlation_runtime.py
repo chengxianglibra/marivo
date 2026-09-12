@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.refs import ref
@@ -21,7 +21,7 @@ def test_real_association(tmp_path: Path, method: CorrelationMethod, retained: b
         [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
     )
     if retained:
-        runtime.target = EngineTarget("warehouse")
+        runtime.target = LocalTarget()
         assert isinstance(source, LogicalMetricDataset)
         source = source.execute()
         database.rename(tmp_path / "source.offline")

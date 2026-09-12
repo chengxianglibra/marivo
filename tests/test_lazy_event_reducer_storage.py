@@ -11,6 +11,7 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.compiler.ordering import ordered_relation
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.domains.completeness import EventCoverageResolution, resolve_event_coverage
@@ -32,7 +33,6 @@ from marivo.analysis.materialization.contracts import (
     parse_json,
     schema_fingerprint,
 )
-from marivo.analysis.materialization.engine import ordered_relation
 from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
 from marivo.analysis.materialization.event_publication import bind_event_summary
 from marivo.analysis.materialization.event_reducer_codec import (

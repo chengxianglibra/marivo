@@ -27,7 +27,7 @@ _GLOBAL_TOPICS = ("authoring",)
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringCapability
-    from marivo.analysis._capabilities.model import CapabilityDescriptor
+    from marivo.analysis._capabilities.dataset_model import Descriptor
     from marivo.ontology._capabilities.registry import OntologyDescriptor
     from marivo.semantic._capabilities.model import SemanticHelpDescriptor
 
@@ -257,6 +257,6 @@ def render_native_route(route: NativeHelpRoute) -> str:
     )
 
     return render_analysis_target(
-        cast("ResolvedLiveTarget[CapabilityDescriptor]", route.resolved),
+        cast("ResolvedLiveTarget[Descriptor]", route.resolved),
         original_target=route.original_target,
     )

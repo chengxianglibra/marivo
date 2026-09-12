@@ -101,24 +101,17 @@ def test_malformed_retained_history_is_typed_integrity_error(shape: str) -> None
     assert "private-canary" not in str(caught.value)
 
 
-def test_private_selector_does_not_replace_current_public_constructor() -> None:
+def test_public_selector_binds_the_accepted_at_contract() -> None:
     import inspect
 
     import marivo.analysis as mv
     from marivo.analysis.domains.lifecycle_reducers import InState
-    from marivo.analysis.lifecycle import InState as PublicInState
-    from marivo.analysis.lifecycle import in_state as public_in_state
 
-    exported = mv.__getattr__("in_state")
-    assert callable(exported)
-    assert tuple(inspect.signature(exported).parameters) == ("state", "as_of")
-    assert tuple(inspect.signature(public_in_state).parameters) == ("state", "as_of")
-    assert tuple(inspect.signature(in_state).parameters) == ("state", "at")
+    assert mv.in_state is in_state
+    assert mv.InState is InState
+    assert tuple(inspect.signature(mv.in_state).parameters) == ("state", "at")
     state = ModelStateHandle(MODEL, "open")
-    assert type(public_in_state(state, as_of=START.isoformat())) is PublicInState
-    assert type(in_state(state, at=START)) is InState
-    assert isinstance(mv.__all__, (list, tuple))
-    assert "LogicalLifecycleDataset" not in mv.__all__
+    assert type(mv.in_state(state, at=START)) is InState
 
 
 def test_fractional_duration_storage_is_owned_only_by_dwell() -> None:

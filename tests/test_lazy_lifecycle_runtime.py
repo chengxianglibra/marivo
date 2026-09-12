@@ -185,9 +185,9 @@ def test_history_uses_exact_admitted_membership(tmp_path: Path, mode: str) -> No
         )
         selected = metric.where(gt(metric.fields.metric(ref.metric("sales.revenue")), 50))
         if mode == "retained_metric":
-            from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+            from marivo.analysis.materialization.targets import LocalTarget
 
-            runtime.target = EngineTarget("warehouse")
+            runtime.target = LocalTarget()
             population = selected.execute()
             runtime.target = LocalTarget()
         else:

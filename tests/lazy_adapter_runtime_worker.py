@@ -20,7 +20,7 @@ from marivo._compat import Never
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization import admission, object_storage, reads
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget, S3Access
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import gt
@@ -105,7 +105,7 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
         before = snapshot(runtime)
         if kind == "engine":
             registry, sidecar = make_execution_registry(project / "warehouse.duckdb")
-            runtime.target = EngineTarget(next(iter(registry.datasources)))
+            runtime.target = LocalTarget()
             sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
             assert isinstance(retained, MaterializedPopulationDataset)
             logical = sources.observe(REVENUE, population=retained)

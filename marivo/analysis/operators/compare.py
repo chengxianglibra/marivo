@@ -125,7 +125,8 @@ def compare(
         baseline
     ) not in (LogicalMetricDataset, MaterializedMetricDataset):
         raise comparison_error(
-            "Logical or Materialized Metric operands", "unsupported operand family"
+            "Logical or Materialized Metric operands",
+            f"current={type(current).__name__}, baseline={type(baseline).__name__}",
         )
     _validate_input_ownership(current._owner, (current, baseline))
     if type(alignment) is not WindowBucketAlignment:

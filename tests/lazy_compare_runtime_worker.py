@@ -23,7 +23,7 @@ from marivo.analysis.datasets.descriptors import (
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget, S3Access
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.observation.sampling import engine_sample
@@ -108,7 +108,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
     else:
         runtime = DatasetRuntime.open(project, refs["session"])
     if kind == "engine":
-        runtime.target = EngineTarget(next(iter(registry.datasources)))
+        runtime.target = LocalTarget()
     elif kind == "object":
         assert access is not None
         runtime.target, runtime.object_bindings = ObjectTarget("fixture"), (access,)

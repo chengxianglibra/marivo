@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import inspect
 import json
-import sqlite3
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -214,16 +212,16 @@ def test_nested_operations_link_parent_and_suppress_same_capability_delegate(
 def test_restored_session_suppresses_successful_internal_load_declarations(
     telemetry_project: Path,
 ) -> None:
+    from marivo.analysis.materialization.store import SessionStore
     from marivo.telemetry import tracked_capability
 
-    store_path = telemetry_project / ".marivo" / "analysis" / "session_store.db"
-    store_path.parent.mkdir(parents=True)
-    with sqlite3.connect(store_path) as connection:
-        connection.execute("CREATE TABLE sessions (name TEXT, question TEXT)")
-        connection.execute(
-            "INSERT INTO sessions(name, question) VALUES (?, ?)",
-            ("demo", "persisted question"),
-        )
+    SessionStore(telemetry_project).create_session(
+        "demo",
+        session_ref="session_existing",
+        question="persisted question",
+        report_timezone_name="UTC",
+        report_timezone_resolution="iana",
+    )
 
     @tracked_capability(
         surface="semantic",
@@ -407,31 +405,21 @@ def test_session_question_update_and_explicit_resume_semantics(
     first = mv.session.get_or_create(
         name="demo",
         question="Original question",
-        backend_factory=lambda _name: None,
-        use_datasources=False,
     )
     updated = mv.session.get_or_create(
         name="demo",
         question="Replacement question",
-        backend_factory=lambda _name: None,
-        use_datasources=False,
     )
     omitted = mv.session.get_or_create(
         name="demo",
-        backend_factory=lambda _name: None,
-        use_datasources=False,
     )
     resumed_by_name = mv.session.resume(
         "demo",
         by="name",
-        backend_factory=lambda _name: None,
-        use_datasources=False,
     )
     resumed_by_id = mv.session.resume(
         first.id,
         by="id",
-        backend_factory=lambda _name: None,
-        use_datasources=False,
     )
 
     path = _event_path(telemetry_project)
@@ -476,10 +464,13 @@ def test_session_question_update_and_explicit_resume_semantics(
 def test_failed_session_resume_does_not_disclose_identity(
     telemetry_project: Path,
 ) -> None:
+    from marivo.analysis.materialization.store import SessionStore
+
+    SessionStore(telemetry_project)
     identity = "private-session-name"
 
     with pytest.raises(mv.errors.SessionNotFoundError):
-        mv.session.resume(identity, use_datasources=False)
+        mv.session.resume(identity)
 
     calls = [
         _attrs(record)
@@ -496,7 +487,7 @@ def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
     telemetry_project: Path,
 ) -> None:
     selector = "private-selector"
-    resume_call = {"by": selector, "use_datasources": False}
+    resume_call = {"by": selector}
 
     with pytest.raises(mv.errors.SessionStateError):
         mv.session.resume("known-session", **resume_call)
@@ -519,8 +510,6 @@ def test_failed_session_question_update_reports_not_applied(
         name="demo",
         question="Original question",
         report_timezone="UTC",
-        backend_factory=lambda _name: None,
-        use_datasources=False,
     )
 
     with pytest.raises(mv.errors.SessionTimezoneConflict):
@@ -528,8 +517,6 @@ def test_failed_session_question_update_reports_not_applied(
             name="demo",
             question="Replacement question",
             report_timezone="Asia/Shanghai",
-            backend_factory=lambda _name: None,
-            use_datasources=False,
         )
 
     path = _event_path(telemetry_project)
@@ -699,46 +686,28 @@ def test_method_consumption_records_receiver_artifact_identity(
     assert started["marivo.input.content_hash"] == "sha256:abc123"
 
 
-def test_base_frame_show_does_not_instrument_shared_semantic_show(
+def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
     telemetry_project: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
     from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
+    from tests.lazy_observation_fixtures import make_sources
 
     report = ReadinessReport(
-        status="ready",
         analysis_ready_inputs=(),
+        status="ready",
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(datasources=(), refs=(), tables=()),
         checked_at="2026-07-17T00:00:00+00:00",
     )
     report.show()
+    from marivo.refs import SemanticKind, _create_ref
 
-    frame = BaseFrame(
-        _df=pd.DataFrame({"value": [1.0]}),
-        meta=BaseFrameMeta(
-            kind="metric_frame",
-            ref="artifact_123",
-            session_id="sess_123",
-            project_root=str(telemetry_project),
-            produced_by_job="job_123",
-            created_at=datetime.now(UTC),
-            row_count=1,
-            byte_size=1,
-            artifact_id="artifact_123",
-            content_hash="sha256:abc123",
-        ),
-    )
-    frame.show()
+    dataset = make_sources().observe(_create_ref(SemanticKind.METRIC, "sales.revenue"))
+    dataset.contract().show()
     capsys.readouterr()
-
-    path = _event_path(telemetry_project)
-    show_records = [_attrs(record) for record in _capability_records(path, "BaseFrame.show")]
-    assert len(show_records) == 2
-    assert show_records[0]["marivo.input.artifact_id"] == "artifact_123"
-    assert show_records[0]["marivo.input.produced_by_job"] == "job_123"
+    assert not list((telemetry_project / ".marivo" / "telemetry").glob("events-*.jsonl"))
 
 
 def test_failed_default_stage_is_recorded_without_exception_message(
@@ -1053,6 +1022,8 @@ def _expected_instrumented(descriptors: tuple[object, ...]) -> set[str]:
 
     expected: set[str] = set()
     for descriptor in descriptors:
+        if getattr(descriptor, "telemetry", True) is False:
+            continue
         path = getattr(descriptor, "callable_path", None)
         if not isinstance(path, str):
             continue
@@ -1072,7 +1043,7 @@ def test_registry_callables_are_telemetry_covered() -> None:
     from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 
     assert set(mv.__marivo_telemetry_capabilities__) == _expected_instrumented(
-        ANALYSIS_REGISTRY._descriptors
+        tuple(d for d in ANALYSIS_REGISTRY.descriptors if hasattr(d, "telemetry"))
     )
     assert set(md.__marivo_telemetry_capabilities__) == _expected_instrumented(
         DATASOURCE_REGISTRY._descriptors
@@ -1080,7 +1051,8 @@ def test_registry_callables_are_telemetry_covered() -> None:
     assert set(ms.__marivo_telemetry_capabilities__) == _expected_instrumented(
         SEMANTIC_REGISTRY._descriptors
     )
-    assert inspect.signature(mv.Session.observe).parameters["analysis_purpose"].default is None
+    assert "analysis_purpose" not in inspect.signature(mv.Session.observe).parameters
+    assert not hasattr(mv.Session.observe, "__wrapped__")
 
 
 def test_datasource_authoring_error_preserves_code_and_stage() -> None:

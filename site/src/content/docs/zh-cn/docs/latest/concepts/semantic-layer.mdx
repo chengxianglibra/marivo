@@ -46,17 +46,15 @@ marivo.help()
 marivo.help("authoring")
 marivo.help("analysis")
 ```
-
 选择语义编写后，继续渐进收窄下一步问题：
 
 ```python
-marivo.help("semantic.authoring")  # 工作流决策中心
-marivo.help("semantic.objects")    # 对象含义与构造模式
-marivo.help("semantic.builders")   # 嵌套值与类型化句柄
-marivo.help("semantic.checks")     # 每项检查或校验证明什么
-marivo.help(entry_or_error)         # 当前身份或 structured repair
+marivo.help("semantic.authoring")  # workflow decision hub
+marivo.help("semantic.objects")    # object meaning and construction modes
+marivo.help("semantic.builders")   # nested values and typed handles
+marivo.help("semantic.checks")     # what each inspection or check proves
+marivo.help(entry_or_error)         # current identity or structured repair
 ```
-
 请沿所选次级根入口中的完整限定路径继续查询，不要依赖短名称自动消歧。已知或从
 live result 获得的 public type、error 和 member target 仍可查询 focused help；无需再
 提供单独的平铺清单。
@@ -134,19 +132,13 @@ order_date = ms.time_dimension_column(name="order_date", entity=orders, column="
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity="additive", unit="CNY")
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
-
 当前权威确定含义且模型加载后，日常分析先读取指标，再调用 `observe`：
 
 ```python
 revenue_entry = catalog.metrics.get("sales.revenue")
 revenue_entry.details().show()
-frame = session.observe(
-    revenue_entry,
-    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
-    grain=mv.grain("month"),
-)
+dataset = session.observe(revenue_entry, time_scope=mv.time_scope(start='2026-01-01', end='2026-04-01')).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
 ```
-
 如果指标刚刚新建或修改，先完成下文所述的限定范围的编写收尾，再进入这条日常分析流程。
 
 ## 认证业务周期日历
@@ -175,9 +167,8 @@ calendar = catalog.period_calendars.get("sales.fiscal")
 grain = calendar.grain("week")
 week_scope = calendar.period("week", "FY2026-W01")
 assert week_scope.kind == "calendar_period"
-week_scope.contract().show()  # 精确边界和认证快照身份
+week_scope.contract().show()  # exact bounds and certified snapshot identity
 ```
-
 保留的 `day` 层级由认证覆盖范围推导，不会持久化成每天一条记录。
 `calendar.periods(level, limit=..., cursor=...)` 返回有界的精确范围；覆盖缺失、定义过期或
 证据损坏都会以结构化语义错误失败即停止。
@@ -209,17 +200,16 @@ catalog.preview(
 
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
-frame = session.observe(revenue, time_scope=launch, grain=mv.grain("day"))
+dataset = session.observe(revenue, time_scope=launch).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('day')).aggregate()
 ```
-
 `mv.grain("day")` 始终使用会话的报告时区作为边界。发生项使用其他
 边界时区时，应将会话配置为相同的 `report_timezone`（或使用已认证的
 calendar day 粒度）；Marivo 不会静默地用发生项时区重解释裸 built-in day 粒度。
 
 `occurrence(key)` 返回绑定精确快照的 `TimeScope`；分页有界，区间筛选使用半开区间重叠规则，
 导航不会再次读取数据源。TemporalSet 不推断 recurrence，也不会按名称猜测跨年的发生项
-是否对应。两个精确发生项范围选出的 day-粒度 frame 可以使用
-`mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` 按本地日进度比较。
+是否对应。每个精确发生项提供一个明确的源范围。支持的比较与显式窗口对齐以
+Metric Dataset 契约和 `marivo.help("analysis.metric_dataset.compare")` 为准。
 精确查找使用 `marivo.help("analysis.temporal_set.occurrence")`，有界筛选分页使用
 `marivo.help("analysis.temporal_set.occurrences")`；快照错误通过
 `marivo.help(error)` 路由到 `semantic.preview`。
@@ -244,12 +234,8 @@ catalog.preview(
 )
 schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
 ```
-
-将目录条目传给
-`mv.working_day_progress(schedule=schedule, unmatched="fail" | "drop")`，即可在两个
-day-粒度时间-series 或面板 frame 之间按从选定范围起算的零基工作日 ordinal 配对。
-精确 schedule 快照会写入比较契约；缺日、重复日、sub-day 或覆盖率
-之外的日期都会失败即停止。
+目录条目提供经认证的工作日期快照及其来源。业务时间依据由语义目录持有，
+Dataset 比较遵循原生注册的显式窗口对齐契约。
 
 ## 建模步骤
 
@@ -274,7 +260,6 @@ md.duckdb(
     ),
 )
 ```
-
 每个数据源辅助函数声明一个全局 lowercase snake_case 身份和后端专属连接事实。
 先用 `marivo.help("datasource.authoring")` 选择后端家族，再进入其精确 focused leaf
 查询当前参数、默认值、凭据引用和副作用。语义代码只消费最终的
@@ -335,7 +320,6 @@ md.trino(
     auth_env="TRINO_AUTH",
 )
 ```
-
 受保护的 DuckDB HTTP JSON 来源，其认证应定义在数据源，而不是
 `md.json(...)`。项目只保存环境变量名，以及允许携带凭据的最窄 URL 前缀：
 
@@ -346,7 +330,6 @@ md.duckdb(
     http_bearer_token_env="HAWKEYE_TOKEN",
 )
 ```
-
 自定义请求头使用“请求头名称 → 密钥环境变量”的映射，可以声明单个
 请求头，也可以声明机器鉴权所需的一组请求头：
 
@@ -360,7 +343,6 @@ md.duckdb(
     },
 )
 ```
-
 它与 bearer 模式互斥。Marivo 在建立连接时解析每个环境变量，并创建仅对
 `http_scope` 生效的临时 DuckDB HTTP 密钥；POST 执行会复用连接内存中的
 这些限定范围的请求头。
@@ -380,7 +362,6 @@ import marivo.semantic as ms
 
 ms.domain(name="sales", owner="Mina Zhang")
 ```
-
 #### 实体
 
 实体表示一个物理源（一张表或一个文件）及其主键。维度、度量和指标
@@ -400,7 +381,6 @@ orders = ms.entity(
     ai_context=ms.ai_context(business_definition="One row per order."),
 )
 ```
-
 ##### 来源构建器
 
 | 构建器 | 必填 | 可选 | 用于 |
@@ -427,7 +407,6 @@ events = ms.entity(
     primary_key=["event_time"],
 )
 ```
-
 声明的类型是断言，不是类型转换；该映射也是完整的投影允许列表。对于投影来源，语义层的
 `primary_key` 以及直接字段的 `column=` 必须引用这些稳定别名。若目录元数据无法确认绑定，
 检查结果会给出仅声明警告。此时应选择显式有界样本，获取一次快照，执行限定范围的预览，
@@ -453,7 +432,6 @@ region = ms.dimension_column(
     ai_context=ms.ai_context(business_definition="Sales reporting region."),
 )
 ```
-
 #### 时间维度
 
 时间维度是携带粒度和解析元数据的特殊维度。**只有时间维度才能作为
@@ -488,9 +466,8 @@ preview 若观察到时区-naive timestamp，会返回 `time_parse_risk` warning
 `sample_interval` 标记一个被
 周期采样的时间轴，供半可加折叠使用。
 
-对于时间-series 和面板 frame，`bucket_start` 始终是报告时区下的桶
-标签，并以时区-naive 时间戳或日期输出。例如 `report_timezone="Asia/Shanghai"`
-时，上海业务日的第一个小时桶显示为 `2026-06-20 00:00:00`，而不是等价的 UTC instant。
+带时间轴的 Metric Dataset 使用行契约中声明的时间字段，值为报告时区下
+不带时区标记的桶标签。例如，上海业务日的首个小时显示为当地的零点。
 
 ```python
 # Day partition stored as the string "20260131"
@@ -512,7 +489,6 @@ event_ts = ms.time_dimension_column(
     parse=ms.timestamp(timezone="UTC"),
 )
 ```
-
 #### 度量
 
 度量是你打算聚合的行级数量事实（例如金额或数量）。直接实体输出列使用
@@ -530,7 +506,6 @@ amount = ms.measure_column(
     unit="CNY",
 )
 ```
-
 ### 4. 定义指标
 
 
@@ -564,7 +539,6 @@ linear、cumulative 和表达式构造之间选择。选定 aggregate 后，
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
 ```
-
 `agg="median"` 和 `agg=("percentile", q)` 会按后端能力执行。在 Trino 上，两者都会
 编译为 `APPROX_PERCENTILE`，其中 median 使用 `q=0.5`。
 
@@ -580,10 +554,9 @@ percentile。若度量不是半可加，传入 `fold=` 会被拒绝。
 计数（如失败数），无需手写指标请求体。
 
 ```python
-order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="订单总数。"))
+order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
 failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 ```
-
 `ms.where(**conditions)` 构建 AND 组合的等值或成员过滤。键必须是指标目标实体
 上已声明的本地语义维度名，而不是任意物理列。标量
 `str` / `int` / `float` / `bool` 表示等值；非空元组/list 会统一为成员过滤。
@@ -602,7 +575,6 @@ terminal_count = ms.count(
     filter=ms.where(type=(2, 4)),
 )
 ```
-
 #### 加权均值 —— `ms.weighted_mean`
 
 `ms.weighted_mean` 接受同一实体上的两个度量，由 Marivo 自动完成逐行乘权和聚合：
@@ -614,7 +586,6 @@ avg_latency = ms.weighted_mean(
     weight=request_count,
 )
 ```
-
 它只对值与权重都非 null 的行计算
 `SUM(value * weight) / NULLIF(SUM(weight), 0)`。权重必须是可加度量；
 结果继承值度量的单位，并持久化精确的 `numerator` / `weight` 组件，
@@ -635,11 +606,9 @@ avg_latency = ms.weighted_mean(
 net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
 aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
-
-观察（observe）时，除法按固定的 `zero_division="null"` 策略求值：某个桶的分母
-（`ms.ratio`）或成对权重和（`ms.weighted_mean`）存在但为零时，结果为 null——绝不会出现
-`+/-inf`——受影响的行数记录在观察结果的 `meta.zero_denominator_rows` 与
-`quality_summary.zero_denominator_rows` 中。
+执行时，`ms.ratio` 的分母或 `ms.weighted_mean` 的成对权重和存在但为零时，
+结果为 null。通过 Materialized Metric Dataset 读取已提交值；行契约和 Findings
+负责提供当前可用状态与证据。
 
 #### 累计指标 —— `ms.cumulative`
 
@@ -660,7 +629,6 @@ cumulative_active_users = ms.cumulative(
     over=event_time,
 )
 ```
-
 对于 `count_distinct` 基础指标，累计值使用首次出现语义：每个去重实体在最早出现的桶
 中计入，因此累计值单调非递减。累计指标可作为比率组成成分——用 `ms.ratio(...)` 组合累计
 分子和分母可得到累计比率。
@@ -683,7 +651,6 @@ mtd_revenue = ms.cumulative(
     anchor=ms.grain_to_date(grain=mv.grain("month")),
 )
 ```
-
 对于 fiscal 或其他已认证日历，将日历权威来源保存在粒度值中，不要在分析参数里重复传入
 可互相冲突的层级：
 
@@ -701,13 +668,8 @@ fiscal_mtd = ms.cumulative(
 )
 
 fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
-frame = session.observe(
-    fiscal_mtd,
-    time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
-    grain=fiscal_week,
-)
+dataset = session.observe(fiscal_mtd, time_scope=mv.time_scope(start='2026-01-01', end='2026-03-01')).with_time_axis(event_time, grain=fiscal_week).aggregate()
 ```
-
 日历快照负责 fiscal membership 及其边界时区；改变会话报告时区只会改变
 展示，不会改变周期归属。
 
@@ -727,7 +689,6 @@ rolling7_active = ms.cumulative(
     anchor=ms.trailing(count=7, unit="day"),
 )
 ```
-
 两条跨锚点规则约束查询时的粒度选择：
 
 - **粒度兼容规则**（`grain_to_date`）：每个展示桶必须完整落入一个重置周期内。在
@@ -736,13 +697,10 @@ rolling7_active = ms.cumulative(
 - **整数倍规则**（`trailing`）：窗口 span 必须是查询粒度的整数倍（`W_buckets = span / grain`）。
   尾随要求时间粒度。
 
-派生指标可以组合累计组件。只有所有外层组件都是累计，且共享
-完全相同的锚点时才支持比较，其中包括 `all_history`。它的结果是携带精确 evaluation cutoff
-的观测层级差，不声明等价于区间流程，且来源 revision 未验证。混合锚点以及累计与非累计
-组件混合都会被拒绝。完成 `compare` 后，`attribute` 可接受当前累计差值：业务维度解释
-端点层级变化；对于直接 `sum`/`count` 结构，精确的累计 `over` 轴解释基础流程。时间与
-业务轴混合、累计 `count_distinct` 以及组件时间 bridge 会失败即停止。`decompose` 和
-`forecast` 在累计 frame 上仍不支持。
+派生指标可以组合累计组件。原生执行保留基础组件状态和时间覆盖，使支持的
+折叠在源离线恢复后仍保持编写时的累计含义。可接纳结构、必需保留状态和具体
+修复以 Dataset 契约及 `compare`、`attribute`、`forecast` 的 focused Help 为准。
+展示值本身不会赋予新的时间或空间归约权限。
 
 ## 使用并检查模型
 
@@ -752,22 +710,17 @@ rolling7_active = ms.cumulative(
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-会话 = mv.会话.get_or_create(
-    名称="revenue-investigation",
-    问题="Why did Q4 revenue drop?",
+session = mv.session.get_or_create(
+    name="revenue-investigation",
+    question="Why did Q4 revenue drop?",
 )
-目录 = 会话.目录
-revenue_entry = 目录.指标.get("sales.revenue")
-region_entry = 目录.维度.get("sales.orders.region")
+catalog = session.catalog
+revenue_entry = catalog.metrics.get("sales.revenue")
+region_entry = catalog.dimensions.get("sales.orders.region")
 
-revenue_entry.详情().show()
-当前 = 会话.observe(
-    revenue_entry,
-    粒度=mv.粒度("month"),
-    维度=[region_entry],
-)
+revenue_entry.details().show()
+current = session.observe(revenue_entry).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).with_dimensions(*[region_entry]).aggregate()
 ~~~
-
 `details().show()` 展示人类编写的定义、约束、组合、有效实体、候选
 普通/时间维度与度量血缘。
 对于派生指标，同一次输出还会展示 `expression_tree` 表，沿中间指标引用把每个
@@ -778,8 +731,8 @@ revenue_entry.详情().show()
 候选轴来自指标的有效实体；跨实体关系
 与扩散仍由 `session.observe(...)` 验证。`.show()` 打印的内容与 `.render()` 返回的
 有界卡片相同；机械续接读取当前 live help、结构化错误和 typed repair。
-如果对象缺失或定义存在争议，先回到语义编写；否则该观测会成为会话
-中有证据支撑的调查的第一个产物。新建或修改的对象把限定范围的就绪检查作为
+如果对象缺失或定义存在争议，先回到语义编写；否则先构造逻辑 Dataset，
+再调用 `.execute()` 发布会话调查中的第一个 Artifact。新建或修改的对象把限定范围的就绪检查作为
 编写收尾的一部分。
 
 ### 通过 live help 发现并交接对象
@@ -796,14 +749,13 @@ marivo.help("analysis.catalog.metrics")
 catalog = session.catalog
 catalog.show()
 collection = catalog.metrics
-collection.show()                              # 不知道身份时先查看有界列表
-entry = collection.get("metric:sales.revenue")  # 完整路径或展示出的 typed key
+collection.show()                              # bounded list when identity is unknown
+entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
 entry.show()
 entry.details().show()
-marivo.help(entry)                             # 当前详情和分析 handoff
-current = session.observe(entry, grain=mv.grain("month"))
+marivo.help(entry)                             # current details and analysis handoff
+current = session.observe(entry).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
 ```
-
 使用 `marivo.help("semantic.CatalogCollection")` 查看查找语法，使用
 `marivo.help("semantic.CatalogEntry")` 查看详情和 continuation，使用
 `marivo.help("semantic.Ref")` 查看精确身份及目录成员关系边界。如果已经有精确
@@ -817,16 +769,15 @@ current = session.observe(entry, grain=mv.grain("month"))
 import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
-catalog.show()                            # 非空集合及一行空集合摘要
+catalog.show()                            # non-empty collections plus one empty summary
 catalog.domains.show()                    # top-level domains
 catalog.metrics.show()                    # just metrics across all domains
 
 sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
-revenue = orders.metrics.get("metric:sales.revenue")  # 从 .show() 复制的规范键
+revenue = orders.metrics.get("metric:sales.revenue")  # key copied from .show()
 region = orders.dimensions.get("region")  # one dimension object
 ```
-
 每个类型化集合都接受当前范围内的本地名称、精确完整路径、展示出的同类型规范键
 （如 `metric:sales.revenue`）或同类型引用。限定范围的集合不会通过其中任何一种形式
 返回范围外的对象。当身份来自配置、持久化状态或日志时，使用严格且只接受引用的
@@ -858,7 +809,6 @@ report = catalog.readiness(refs=[revenue, region])
 if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
-
 这些运行时调用接受当前条目或它的精确引用，并立即归一化为引用。普通 preview
 不创建 authoring checkpoint，也不会影响 readiness。
 
@@ -878,14 +828,13 @@ preview 的 `limit` 控制展示的结果行数。指标 preview 使用独立的
 Source 漂移有独立的显式报告，并且永远不会改变 readiness：
 
 ```python
-catalog.source_health([revenue]).show()  # 连接及 schema/capability identity
+catalog.source_health([revenue]).show()  # connection plus schema/capability identity
 catalog.source_health(
     [revenue],
     checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
 ).show()
 ```
-
 只有通过 `ms.source_check` 声明的 check 才会读取用户数据；每个 check 都必须提供并
 披露精确的有界 scope。Marivo 不会从 discovery sample 推断数据期望。
 
@@ -908,10 +857,9 @@ catalog.source_health(
 日常编写会用到两个命名空间：
 
 ```python
-import marivo.datasource as md   # connections 与 physical sources
+import marivo.datasource as md   # connections and physical sources
 import marivo.semantic as ms     # meaning (ms.entity, ms.metric, ...)
 ```
-
 #### 命名规则
 
 每个对象都归属于一个 **领域**，并通过限定引用引用：
@@ -988,18 +936,17 @@ Marivo 会先加载中央项目的 `models/`，再按配置顺序加载外部 `m
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-frame = session.observe(
+dataset = session.observe(
     revenue,
     time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
 )
 
 revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
-frame = session.observe(
+dataset = session.observe(
     revenue_entry,
     time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
 )
 ```
-
 `catalog.require(ref)` 是精确的全局查找；目录集合负责浏览，并支持本地名称、
 完整路径和展示出的类型化规范键查找。已冻结的分析 consumer 接受当前目录条目或其精确引用；
 编写、持久化和配置边界仍以引用为准。持久化负载使用带版本的
@@ -1022,7 +969,6 @@ ai_context=ms.ai_context(
     guardrails=["Validate refund exclusions before using as net revenue."],
 )
 ```
-
 ### 版本化（可选）
 
 对于行会随时间变化的实体，需要声明如何读取当前状态：
@@ -1056,7 +1002,6 @@ structured repair 的唯一来源。
 def revenue(table):
     return table.amount.sum()
 ```
-
 ### 分析正确性的约束
 
 可加性与时间行为决定智能体更改分析粒度或增加切分时，数值是否仍有意义。SQL 来源信息
@@ -1084,7 +1029,6 @@ on_hand_units = ms.measure_column(
     additivity=ms.semi_additive(over=snapshot_date, fold="last"),
 )
 ```
-
 ### 关系
 
 关系声明两个实体如何连接，使指标和维度能够跨越这两个实体。
@@ -1101,7 +1045,6 @@ ms.relationship(
     keys=[ms.join_on(order_customer_id, customer_id)],
 )
 ```
-
 ### 先 inspect，再按需选择证据并 author
 
 对数据源-backed 语义对象，先检查权威元数据。只有通用 profile 或保留行能回答当前问题时，
@@ -1119,10 +1062,10 @@ orders = md.table("orders")
 
 inspection = md.inspect(warehouse, orders)
 inspection.show()
-inspection.partitions(limit=1, order="asc").show()  # 物理值升序一侧
-inspection.partitions(limit=100, order="desc").show()  # 物理值降序一侧
+inspection.partitions(limit=1, order="asc").show()  # ascending edge
+inspection.partitions(limit=100, order="desc").show()  # descending edge
 scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
-scope.show()  # 范围类型、guards 和有界谓词预览
+scope.show()  # scope kind, guards, and a bounded predicate preview
 snapshot = inspection.sample(
     scope=scope,
     columns=("order_id", "region", "created_at", "amount"),
@@ -1134,7 +1077,6 @@ profiles = {profile.name: profile for profile in snapshot.profiles}
 profiles["order_id"].sample_distinct_count
 snapshot.retained_values[0]["order_id"]
 ```
-
 `retained_values` 是按选中列名组织的行字典元组。只有设置
 `persist_values=True` 时才会提供；否则快照契约会标记值证据不可用，也不会发起
 后续查询。
@@ -1150,7 +1092,6 @@ scope = md.time_range(
     timeout_seconds=30,
 )
 ```
-
 谓词采用半开区间 `[start, end)`。两个边界必须同为日期或同为时间戳，并保持
 时区感知方式一致；带时区的时间戳会统一规范化为 UTC。projected source 必须暴露该
 时间列。与等值分区范围不同，
@@ -1195,7 +1136,6 @@ orders_csv = md.csv("data/orders/*.csv", schema={"order_id": "string"})
 
 md.inspect(warehouse, events).show()
 ```
-
 `records_path` 刻意只支持一小部分 JSONPath：以 `$` 开头，后接对象成员，
 例如 `$.data` 或 `$.result.items`。它不支持过滤器、通配符、递归下降或数组下标。
 路径存在且值为空数组时会物化为 0 行。对于选出的每条记录，声明的字段会按
@@ -1245,7 +1185,6 @@ changes = md.json(
     records_path="$.data.change_infos",
 )
 ```
-
 `query_params` 把固定请求参数留在来源 descriptor 中。查询参数值可以是单个
 标量，也可以是标量列表；列表会 URL 编码为重复键，例如
 `specificsource=app-1&specificsource=app-2`。`md.source_param(name)` 声明一个
@@ -1261,9 +1200,8 @@ with session.source_bindings({
         "end": "now",
     },
 }):
-    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+    dataset = session.observe(ms.ref.metric("monitoring.pending_containers"))
 ```
-
 绑定可以嵌套，并通过执行上下文隔离；它还会绑定到所属会话运行时，
 同一任务里的另一个会话无法消费这些值。缺少或多余参数会在读取来源前失败；
 这些非密钥值会进入快照与分析身份。数据源编写证据
@@ -1368,7 +1306,6 @@ order_id = ms.dimension_column(
 def order_created(order_rows):
     return ms.all_rows()
 ```
-
 共享事件日志实体上的过滤事件则返回受限布尔表达式，例如
 `ms.bind(event_type, event_rows) == "payment_succeeded"`。不要使用无函数体
 构造器、裸 `True` 或另一套 filtered-事件 API。
@@ -1434,7 +1371,6 @@ order_lifecycle = ms.state_model(
     ),
 )
 ```
-
 状态名是 StateModel 内部的 immutable 编写值。必须恰好有一个 initial
 状态；terminal 状态不得再有 outgoing 转换。只有当某个事件恰好有一个
 `cardinality="one"` 参与者到达 StateModel 主体时，才会自动推导触发
@@ -1446,3 +1382,20 @@ order_lifecycle = ms.state_model(
 起始，但这种模型不能从起始开始重放。当前构造器契约以
 `marivo.help("semantic.state_model")` 为准；用 `catalog.require(...)` 确认精确当前成员，
 用限定范围的 readiness 做静态预检，只在具体运行风险需要时执行 preview。
+
+## 明确分位数语义
+
+中位数或分位数 Metric 的声明决定 q。Dataset 观察默认使用精确插值；问题明确需要语义近似时，在观察前显式选择方法：
+
+```python
+selected = ms.quantile_metric(
+    ms.ref.metric("sales.p95_amount"), method="duckdb_tdigest@v1"
+)
+result = session.observe(selected).aggregate().execute()
+result.show()
+```
+示例要求已有 `session` 和已治理的分位数 Metric `sales.p95_amount`。
+`linear_interpolation@v1` 用于显式选择精确算法。当前实现支持 DuckDB 数据源，
+并用 Parquet 保留状态。冷恢复后的投影与下游分析保持方法不变；执行不会自动选择
+其他方法，也不会失败后更换算法重试。通过 `marivo.help("semantic.quantile_metric")`
+发现完整输入契约。

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from marivo.analysis.datasets.base import Dataset
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.operators.candidate_contracts import (
     CandidateEvaluationSummary,
@@ -31,7 +31,7 @@ def test_real_candidate_authorities(
     incoming = candidate_input(source, objective, panel=True)
     value: Dataset = incoming
     if input_kind != "logical":
-        runtime.target = EngineTarget("warehouse") if input_kind == "engine" else LocalTarget()
+        runtime.target = LocalTarget()
         value = incoming.execute()
         database.rename(tmp_path / "origin.offline")
         runtime.target = LocalTarget()

@@ -7,7 +7,7 @@ import marivo.analysis as mv
 
 def _session(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create(name="surface_probe", use_datasources=False)
+    return mv.session.get_or_create(name="surface_probe")
 
 
 def test_session_removes_the_legacy_evidence_namespace(tmp_path, monkeypatch) -> None:
@@ -20,19 +20,15 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
     names = set(dir(session))
     for advertised in (
         "observe",
-        "compare",
-        "attribute",
-        "discover",
-        "correlate",
-        "forecast",
-        "hypothesis_test",
+        "population",
+        "events",
+        "lifecycle",
+        "source_bindings",
         "runs",
         "get_run",
         "artifact",
         "revalidate",
         "graph",
-        "close",
-        "is_read_only",
         "catalog",
     ):
         assert advertised in names, f"missing advertised member: {advertised}"
@@ -85,8 +81,8 @@ def test_internal_fields_not_publicly_accessible(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
 
     # Underscore-prefixed storage is reachable for internal code
-    assert session._layout is not None
-    assert callable(session._evidence_store)
+    assert session._runtime is not None
+    assert "_runtime" not in dir(session)
 
 
 def test_session_no_longer_exposes_transform_namespace(tmp_path, monkeypatch) -> None:
@@ -95,9 +91,10 @@ def test_session_no_longer_exposes_transform_namespace(tmp_path, monkeypatch) ->
     assert not hasattr(session, "transform")
 
 
-def test_session_namespaces_are_typed_helpers_only(tmp_path, monkeypatch):
-    session = _session(tmp_path, monkeypatch)
+def test_session_namespaces_are_typed_helpers_only(authoring_evidence_project, monkeypatch):
+    session = _session(authoring_evidence_project, monkeypatch)
 
-    assert not callable(session.discover)
-    assert callable(session.discover.point_anomalies)
-    assert callable(session.discover.driver_axes)
+    assert not callable(session.events)
+    assert callable(session.events.match)
+    assert not callable(session.lifecycle)
+    assert callable(session.lifecycle.replay)

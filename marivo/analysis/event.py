@@ -5,22 +5,18 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
-from datetime import datetime
 from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from marivo.analysis.errors import (
     AnalysisRepair,
-    InvalidCompletenessDeclarationError,
     InvalidEventMatchingPolicyError,
     InvalidEventPatternError,
     RepairKind,
 )
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import EventKind, Ref, RefPayloadV1, SemanticKind, StateModelKind
-from marivo.render import Card, RenderableResult
+from marivo.refs import EventKind, Ref, RefPayloadV1
 from marivo.semantic.event import ParticipantRoleHandle
 
 _STEP_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -141,160 +137,12 @@ EventMatchingPolicy = Annotated[
 ]
 
 
-class CompletenessDeclaration(BaseModel):
-    """Explicit caller assertion for exact Event inputs."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["declared_complete_through"] = "declared_complete_through"
-    inputs: tuple[Ref[EventKind], ...]
-    through: str
-    rationale: str
-
-    @model_validator(mode="after")
-    def _validate_declaration(self) -> CompletenessDeclaration:
-        if not self.inputs:
-            raise ValueError("completeness inputs must be non-empty")
-        if any(
-            type(value) is not Ref or value.kind is not SemanticKind.EVENT for value in self.inputs
-        ):
-            raise ValueError("completeness inputs must contain exact Ref[event] values")
-        if len(set(self.inputs)) != len(self.inputs):
-            raise ValueError("completeness inputs must be unique")
-        if not self.through.strip():
-            raise ValueError("completeness through must be non-empty")
-        if not self.rationale.strip():
-            raise ValueError("completeness rationale must be non-empty")
-        return self
-
-    @property
-    def fingerprint(self) -> str:
-        return _fingerprint(
-            {
-                "schema": "marivo.completeness_declaration/v1",
-                "inputs": [RefPayloadV1.from_ref(value).to_dict() for value in self.inputs],
-                "through": self.through,
-                "rationale": self.rationale,
-            }
-        )
-
-
-class EventWatermarkRequest(BaseModel):
-    """Exact request passed to a backend completeness provider."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    event_ref: Ref[EventKind]
-    event_fingerprint: str
-    source_entity_ref: str
-    occurred_at_ref: str
-    required_through: str
-
-
-class EventWatermarkReceipt(BaseModel):
-    """Provider-owned authoritative Event completeness receipt."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    complete_through: str
-    authority: str
-    observed_at: str
-    source_revision: str | None = None
-
-    @model_validator(mode="after")
-    def _validate_receipt(self) -> EventWatermarkReceipt:
-        if not self.complete_through.strip():
-            raise ValueError("complete_through must be non-empty")
-        if not self.authority.strip():
-            raise ValueError("authority must be non-empty")
-        if not self.observed_at.strip():
-            raise ValueError("observed_at must be non-empty")
-        return self
-
-
-@dataclass(frozen=True, repr=False)
-class EventOccurrenceBounds(RenderableResult):
-    """Observed occurrence-time bounds for one exact Event or StateModel.
-
-    ``event_refs`` records the exact Event inputs; ``earliest_occurrence_at``
-    and ``latest_occurrence_at`` are UTC-normalized observed bounds, and
-    ``observed_at`` records query time. The bounds are computed from the
-    target's exact Event predicates. A StateModel with no Event triggers has
-    empty ``event_refs`` and absent bounds. The result is a data-range
-    observation, not evidence that the source is complete through either
-    bound. Use ``session.events.watermark(...)`` for authoritative
-    completeness evidence.
-    """
-
-    target_ref: Ref[EventKind | StateModelKind]
-    event_refs: tuple[Ref[EventKind], ...]
-    earliest_occurrence_at: datetime | None
-    latest_occurrence_at: datetime | None
-    observed_at: datetime
-
-    def __post_init__(self) -> None:
-        if self.target_ref.kind not in (SemanticKind.EVENT, SemanticKind.STATE_MODEL):
-            raise ValueError("EventOccurrenceBounds target_ref must be an Event or StateModel ref")
-        if any(ref.kind is not SemanticKind.EVENT for ref in self.event_refs):
-            raise ValueError("EventOccurrenceBounds event_refs must contain exact Event refs")
-        if not self.event_refs and self.target_ref.kind is SemanticKind.EVENT:
-            raise ValueError(
-                "EventOccurrenceBounds Event target must contribute its exact Event ref"
-            )
-        if len(set(self.event_refs)) != len(self.event_refs):
-            raise ValueError("EventOccurrenceBounds event_refs must be unique")
-        if (self.earliest_occurrence_at is None) != (self.latest_occurrence_at is None):
-            raise ValueError("EventOccurrenceBounds bounds must both be present or both be absent")
-        if (
-            self.earliest_occurrence_at is not None
-            and self.latest_occurrence_at is not None
-            and self.earliest_occurrence_at > self.latest_occurrence_at
-        ):
-            raise ValueError("EventOccurrenceBounds earliest bound must not exceed latest bound")
-        timestamps = (
-            self.earliest_occurrence_at,
-            self.latest_occurrence_at,
-            self.observed_at,
-        )
-        if any(value is not None and value.tzinfo is None for value in timestamps):
-            raise ValueError("EventOccurrenceBounds timestamps must be timezone-aware")
-
-    def _repr_identity(self) -> str:
-        latest = (
-            self.latest_occurrence_at.isoformat()
-            if self.latest_occurrence_at is not None
-            else "empty"
-        )
-        return f"EventOccurrenceBounds target={self.target_ref.key} latest={latest}"
-
-    def _card(self) -> Card:
-        card = Card(
-            identity=(
-                f"EventOccurrenceBounds target={self.target_ref.key} events={len(self.event_refs)}"
-            ),
-            available=(
-                ".show()",
-                "session.events.watermark(event, through=...)",
-            ),
-        )
-        earliest = self.earliest_occurrence_at
-        latest = self.latest_occurrence_at
-        if not self.event_refs:
-            card.status("empty: StateModel declares no Event triggers")
-        elif earliest is None or latest is None:
-            card.status("empty: no matching Event occurrences")
-        else:
-            card.status(f"observed_bounds={earliest.isoformat()} .. {latest.isoformat()}")
-        card.field("observed_at", self.observed_at.isoformat())
-        return card.listing("events", (ref.key for ref in self.event_refs))
-
-
 def step(*, participant: ParticipantRoleHandle, key: str) -> PatternStep:
     """Build one typed Event Journey step.
 
     Args:
         participant: Immutable handle returned by ``ms.participant_role(...)``.
-        key: Unique lowercase snake-case key used in EventFrame rows.
+        key: Unique lowercase snake-case key used in Event Dataset rows.
 
     Returns:
         A frozen PatternStep accepted by :func:`sequence`.
@@ -421,71 +269,12 @@ def every_start(
         ) from exc
 
 
-def declared_complete_through(
-    *,
-    inputs: tuple[Ref[EventKind], ...],
-    through: str,
-    rationale: str,
-) -> CompletenessDeclaration:
-    """Declare exact Event inputs complete through one governed bound.
-
-    Args:
-        inputs: Non-empty tuple of exact Event refs from the active pattern.
-        through: Inclusive completeness bound.
-        rationale: Non-empty provenance statement for the declaration.
-
-    Returns:
-        A frozen CompletenessDeclaration retained in EventFrame metadata.
-
-    Guidance:
-        This is an explicit caller assumption, not an observed fact. It is
-        weaker than an authoritative backend watermark (obtain one with
-        ``session.events.watermark(...)``). It requires a rationale that
-        explains the governing reconciliation evidence.
-
-    Example:
-        >>> coverage = mv.declared_complete_through(
-        ...     inputs=(cart_created, payment_succeeded),
-        ...     through=followup_end,
-        ...     rationale="Warehouse reconciliation completed through followup_end.",
-        ... )
-
-    Constraints:
-        A pattern Event may be covered by at most one declaration. An
-        authoritative backend watermark takes precedence when available.
-    """
-    try:
-        if type(inputs) is not tuple:
-            raise TypeError("inputs must be an exact tuple of EventRefs")
-        return CompletenessDeclaration(
-            inputs=inputs,
-            through=through,
-            rationale=rationale,
-        )
-    except (TypeError, ValueError) as exc:
-        raise InvalidCompletenessDeclarationError(
-            message="invalid Event completeness declaration",
-            expected="non-empty unique EventRefs, through, and rationale",
-            received=repr((inputs, through, rationale)),
-            location="mv.declared_complete_through(inputs, through, rationale)",
-            repair=_event_repair(
-                kind="user_choice",
-                action="Name exact EventRefs from the pattern and provide a non-empty rationale.",
-            ),
-        ) from exc
-
-
 __all__ = [
-    "CompletenessDeclaration",
     "EventMatchingPolicy",
-    "EventOccurrenceBounds",
     "EventPattern",
-    "EventWatermarkReceipt",
-    "EventWatermarkRequest",
     "EveryStart",
     "FirstPerSubject",
     "PatternStep",
-    "declared_complete_through",
     "every_start",
     "first_per_subject",
     "sequence",

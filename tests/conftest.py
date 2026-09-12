@@ -50,15 +50,6 @@ def _disable_telemetry_outside_telemetry_tests(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("MARIVO_TELEMETRY", "off")
 
 
-@pytest.fixture(autouse=True)
-def _reset_analysis_session_process_state():
-    from marivo.analysis.session._runtime import reset_process_state
-
-    reset_process_state()
-    yield
-    reset_process_state()
-
-
 @pytest.fixture(scope="session")
 def installer_toolchain(
     pytestconfig: pytest.Config,
@@ -127,7 +118,16 @@ def authoring_evidence_project(tmp_path, monkeypatch):
         "orders = ms.entity(\n"
         "    name='orders',\n"
         "    datasource=ms.ref.datasource('warehouse'),\n"
-        "    source=md.table('orders'),\n"
+        "    source=md.table('orders', columns={\n"
+        "        'query_id': md.source_column('query_id', data_type='int32'),\n"
+        "        'self': md.source_column('self', data_type='string'),\n"
+        "        'region': md.source_column('region', data_type='string'),\n"
+        "        'log_date': md.source_column('log_date', data_type='string'),\n"
+        "        'log_hour': md.source_column('log_hour', data_type='int32'),\n"
+        "        'amount': md.source_column('amount', data_type='float64'),\n"
+        "        'uncommon_date': md.source_column('uncommon_date', data_type='string'),\n"
+        "        'epoch_like': md.source_column('epoch_like', data_type='int64'),\n"
+        "    }),\n"
         "    primary_key=['query_id'],\n"
         "    ai_context=ms.ai_context(\n"
         "        business_definition='One row per accepted order query.',\n"

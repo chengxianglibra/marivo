@@ -7,8 +7,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import Literal
 
+from marivo.analysis._capabilities.model import ReadCapability
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.datasets.registry import DatasetFamilyRegistration
+from marivo.refs import SemanticKind
 
 
 def invalid(expected: str, received: str) -> DatasetRegistrationError:
@@ -69,6 +71,8 @@ class CallableInput:
     registration_ids: tuple[str, ...] = ()
     discovery_group: Literal["filters", "session.namespace"] | None = None
     unbound_default: bool = False
+    telemetry: bool = False
+    semantic_kinds: tuple[SemanticKind, ...] = ()
     kind: Literal["callable"] = field(default="callable", init=False)
 
     @property
@@ -92,6 +96,8 @@ def operation(
     bindings: tuple[CallableBinding, ...] = (),
     discovery_group: Literal["filters", "session.namespace"] | None = None,
     unbound_default: bool = False,
+    telemetry: bool = False,
+    semantic_kinds: tuple[SemanticKind, ...] = (),
 ) -> CallableInput:
     return CallableInput(
         target,
@@ -107,6 +113,8 @@ def operation(
         registration_ids,
         discovery_group,
         unbound_default,
+        telemetry,
+        semantic_kinds,
     )
 
 
@@ -225,7 +233,7 @@ class NavigationInput:
     callable_path: None = field(default=None, init=False)
 
 
-Descriptor = CallableInput | TypeInput | FamilyInput | NavigationInput
+Descriptor = CallableInput | TypeInput | FamilyInput | NavigationInput | ReadCapability
 
 
 def with_sealed_variants(

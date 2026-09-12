@@ -5,8 +5,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.errors import SemanticKindMismatchError
-from marivo.analysis.semantic_inputs import normalize_dimension_input
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.semantic.catalog import (
     EntityDetails,
     MeasureDetails,
@@ -17,6 +16,7 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import SqlProvenance
+from tests.lazy_observation_fixtures import make_sources
 from tests.ref_helpers import make_ref
 
 _DOMAIN_PY = """\
@@ -222,9 +222,11 @@ def test_phase3_cumulative_constructor_is_describable() -> None:
 def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    with pytest.raises(SemanticKindMismatchError) as exc_info:
-        normalize_dimension_input(catalog, catalog.require(ms.ref.measure("sales.orders.amount")))
+    with pytest.raises(DatasetConstructionError) as exc_info:
+        make_sources().observe(ms.ref.metric("sales.revenue")).with_dimensions(
+            catalog.require(ms.ref.measure("sales.orders.amount"))
+        )
 
     message = str(exc_info.value)
-    assert "measure" in message
-    assert "exact Ref or current CatalogEntry" in message
+    assert "MeasureEntry" in message
+    assert "dimension" in message.lower()

@@ -6,7 +6,7 @@ import pytest
 
 from marivo.analysis.domains.lifecycle import ROLES, LogicalLifecycleDataset
 from marivo.analysis.domains.lifecycle_reducers import in_state
-from marivo.analysis.materialization.contracts import EngineReceipt
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.population import LogicalPopulationDataset
 from marivo.semantic.state_model import ModelStateHandle
@@ -36,7 +36,7 @@ def test_only_consumed_parts_are_opened(
     record = runtime.store.artifact(h.state.artifact_ref.ref)
     assert record is not None
     receipt = next(p.storage_receipt for p in record.descriptor.retained_parts if p.role == role)
-    assert isinstance(receipt, EngineReceipt)
+    assert isinstance(receipt, LocalReceipt)
     (tmp_path / receipt.qualified_relation_ref).unlink()
     database.unlink()
     logical: LogicalLifecycleDataset | LogicalPopulationDataset
@@ -68,7 +68,7 @@ def test_corrupt_required_part_is_not_reconstructed(tmp_path: Path, role: str) -
     record = runtime.store.artifact(h.state.artifact_ref.ref)
     assert record is not None
     receipt = next(p.storage_receipt for p in record.descriptor.retained_parts if p.role == role)
-    assert isinstance(receipt, EngineReceipt)
+    assert isinstance(receipt, LocalReceipt)
     (tmp_path / receipt.qualified_relation_ref).chmod(0o600)
     (tmp_path / receipt.qualified_relation_ref).write_bytes(b"corrupt-private-history-part")
     database.unlink()
