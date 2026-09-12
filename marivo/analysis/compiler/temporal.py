@@ -8,6 +8,7 @@ import ibis.expr.types as ir
 from marivo._temporal import Grain, PeriodCalendarSnapshotV1, builtin_grain
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.predicates import _boolean
+from marivo.analysis.compiler.source_time import localize, render, timestamp
 from marivo.semantic.metric_graph import CumulativeAnchorV1
 
 
@@ -49,6 +50,8 @@ def bucket(
     if not isinstance(value, (ir.DateValue, ir.TimestampValue)):
         raise compilation_error("governed date or timestamp bucket", "non-temporal coordinate")
     if grain.count == 1:
+        if isinstance(value, ir.DateValue) and grain.unit in ("second", "minute", "hour"):
+            return value.cast("timestamp").truncate(units[grain.unit])
         return value.truncate(units[grain.unit])
     timestamp = value.cast("timestamp")
     if not isinstance(timestamp, ir.TimestampValue):
@@ -114,12 +117,19 @@ def cumulative_start(
     snapshot: PeriodCalendarSnapshotV1 | None,
     *,
     bucket_start: ir.Value | None = None,
+    boundary_timezone: str | None = None,
 ) -> ir.Value | None:
     """Resolve the authored lower bound for a bucket or one exclusive endpoint."""
     if anchor == "all_history":
         return None
     if anchor[0] == "trailing":
-        return end - ibis.interval(**{anchor[2] + "s": anchor[1]})
+        interval = ibis.interval(
+            seconds=anchor[1]
+            * {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}[anchor[2]]
+        )
+        if boundary_timezone is not None:
+            return render(boundary_timezone, localize(boundary_timezone, timestamp(end)) - interval)
+        return end - interval
     reset = builtin_grain(anchor[1]) if isinstance(anchor[1], str) else anchor[1]
     if bucket_start is not None:
         return bucket(bucket_start, reset, snapshot)

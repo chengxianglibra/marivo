@@ -28,6 +28,7 @@ from marivo.analysis.observation.contracts import (
     source_owner_of,
 )
 from marivo.analysis.observation.errors import ObservationConstructionError
+from marivo.analysis.observation.temporal import civil_bound
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import DimensionEntry, TimeDimensionEntry
 from marivo.semantic.ir import DateParse, TargetDimensionContract
@@ -318,14 +319,6 @@ def _validate_grain(
             raise construction_error(
                 "grain no finer than the declared sample interval", grain.to_token()
             )
-    if (
-        snapshot is not None
-        and axis.timezone is not None
-        and axis.timezone != snapshot.boundary_timezone
-    ):
-        raise construction_error(
-            "one governed temporal boundary timezone", "calendar and time-axis timezone differ"
-        )
     return snapshot
 
 
@@ -516,9 +509,27 @@ def bind_aggregation(owner: ObservationOwner, definition: MetricDefinition) -> M
         coverage_start, coverage_end = (
             _calendar_bound(bound, timezone) for bound in selected_snapshot.coverage
         )
-        end = _calendar_bound(scope.end, timezone)
+        axis = definition.reference_axis or definition.time_axis
+        civil = axis is not None and axis.logical_type == "date"
+        end = _calendar_bound(
+            civil_bound(
+                scope.end,
+                report=definition.report_time.timezone,
+                boundary=timezone,
+                civil_date=civil,
+            ),
+            timezone,
+        )
         if definition.time_axis is not None:
-            start = _calendar_bound(scope.start, timezone)
+            start = _calendar_bound(
+                civil_bound(
+                    scope.start,
+                    report=definition.report_time.timezone,
+                    boundary=timezone,
+                    civil_date=civil,
+                ),
+                timezone,
+            )
             if start < coverage_start or end > coverage_end:
                 raise construction_error(
                     "the complete displayed scope within certified calendar coverage",

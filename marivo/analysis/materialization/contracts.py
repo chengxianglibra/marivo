@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from marivo.analysis.observation.temporal import TemporalExecution
+
 if TYPE_CHECKING:
     from marivo.analysis.materialization.event_comparison_codec import FunnelEvidenceSummary
     from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
@@ -743,6 +745,8 @@ class ArtifactDescriptor:
     funnel_evidence: FunnelEvidenceSummary | None = None
     lifecycle_evidence: LifecycleEvidenceSummary | ContinuationEvidence | None = None
 
+    temporal_execution: tuple[TemporalExecution, ...] = ()
+
     @property
     def row_contract_fingerprint(self) -> str:
         return d._row_contract_fingerprint(self.row_contract)
@@ -1390,6 +1394,7 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
             "version_selection": value.population_authority.version_selection,
             "validation_results": value.population_authority.validation_results,
         },
+        "temporal_execution": [item.model_dump(mode="json") for item in value.temporal_execution],
         "sampling_execution": sampling_payload(value.sampling_execution),
         "operator_implementation_versions": value.operator_implementation_versions,
         "dataset_materialization_contract": materialization_payload(
@@ -1460,7 +1465,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     ids = make_ids(())
     obj = _obj(
         parse_json(text),
-        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence lifecycle_evidence",
+        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence lifecycle_evidence temporal_execution",
     )
     if obj["schema"] != "marivo.dataset_artifact_descriptor/v1":
         raise invalid("unsupported Artifact descriptor or sampling contract")
@@ -1559,6 +1564,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         decode_selection_evidence(obj["subject_selection_evidence"]),
         decode_funnel_evidence(obj["funnel_evidence"]),
         decode_lifecycle_evidence(obj["lifecycle_evidence"]),
+        _decode_temporal(obj["temporal_execution"]),
     )
     if result.funnel_evidence is not None and result.row_contract.family_semantics.kind not in (
         "delta/funnel@v1",
@@ -2283,3 +2289,17 @@ class ArtifactRecord:
     committed_at: str
     producing_run_ref: str
     evidence: EvidenceRecord
+
+
+def _decode_temporal(value: object) -> tuple[TemporalExecution, ...]:
+    import json
+
+    try:
+        result = tuple(
+            TemporalExecution.model_validate_json(json.dumps(item)) for item in _array(value)
+        )
+    except (ValueError, TypeError) as exc:
+        raise invalid("invalid temporal execution authority") from exc
+    if len({item.model_dump_json() for item in result}) != len(result):
+        raise invalid("duplicate temporal execution authority")
+    return result

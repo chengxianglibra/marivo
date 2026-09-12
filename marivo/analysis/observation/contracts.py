@@ -58,6 +58,7 @@ from marivo.analysis.observation.fold_contracts import (
 )
 from marivo.analysis.observation.predicates import BoundPredicate, PredicateField
 from marivo.analysis.observation.sampling import EntitySamplingPolicy
+from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.datasource.ir import (
     CsvSourceIR,
     EntitySourceIR,
@@ -86,6 +87,10 @@ from marivo.semantic.catalog import (
     TimeDimensionEntry,
 )
 from marivo.semantic.ir import (
+    DateParse,
+    HourPrefixParse,
+    SemanticParse,
+    StrptimeParse,
     TargetDimensionContract,
     TargetEntityContract,
     TargetSnapshotSelection,
@@ -408,6 +413,7 @@ class ObservationRuntimeOwner(DatasetOwner):
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
 class ObservationOwner(ObservationRuntimeOwner):
+    report_time: ReportTimeAuthority = field(default_factory=ReportTimeAuthority, kw_only=True)
     semantic_registry: Registry = field(kw_only=True)
     sidecar: CompiledExpressionSidecar = field(kw_only=True)
     binding_scopes: SourceBindingScopes = field(kw_only=True)
@@ -616,6 +622,20 @@ def path_dependency_fingerprint(
     )
 
 
+def _parse_payload(parse: SemanticParse | None) -> CanonicalValue:
+    if parse is None:
+        return None
+    if isinstance(parse, DateParse):
+        return (parse.kind,)
+    interval = parse.sample_interval
+    sample = None if interval is None else (interval.count, interval.unit)
+    if isinstance(parse, StrptimeParse):
+        return (parse.kind, parse.format, parse.timezone, sample)
+    if isinstance(parse, HourPrefixParse):
+        return (parse.kind, parse.prefix, sample)
+    return (parse.kind, parse.timezone, sample)
+
+
 def dimension_payload(dimension: TargetDimensionContract) -> CanonicalValue:
     return (
         dimension.ref.kind.value,
@@ -626,6 +646,8 @@ def dimension_payload(dimension: TargetDimensionContract) -> CanonicalValue:
         dimension.nullable,
         dimension.granularity,
         dimension.timezone,
+        dimension.physical_type,
+        _parse_payload(dimension.parse),
     )
 
 
@@ -696,6 +718,7 @@ class MetricDefinition:
     temporal_snapshot: PeriodCalendarSnapshotV1 | None = None
     distinct_memberships: tuple[DistinctMembershipAuthorityV1, ...] = ()
     distributions: tuple[DistributionAuthorityV1, ...] = ()
+    report_time: ReportTimeAuthority = field(default_factory=ReportTimeAuthority)
 
     def identity_payload(self) -> CanonicalValue:
         return (
@@ -726,6 +749,7 @@ class MetricDefinition:
             self.contribution_paths,
             self.coordinate_dependencies,
             self.source_dependency_fingerprint,
+            self.report_time.model_dump_json(),
             tuple(path.identity_payload() for path in self.coordinate_paths),
             tuple(contract.identity_payload() for contract in self.aggregation_contracts),
             None if self.temporal_snapshot is None else self.temporal_snapshot.snapshot_digest,
@@ -745,6 +769,7 @@ class PopulationPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
     dependency_fingerprint: str = ""
     sampling: EntitySamplingPolicy | None = None
     target_population_definition_fingerprint: str | None = None
+    report_time: ReportTimeAuthority = field(default_factory=ReportTimeAuthority)
 
     @property
     def identity_payload(self) -> CanonicalValue:
@@ -758,6 +783,7 @@ class PopulationPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
             self.dependency_fingerprint,
             None if self.sampling is None else self.sampling.identity_payload,
             self.target_population_definition_fingerprint,
+            self.report_time.model_dump_json(),
         )
 
 
@@ -1111,6 +1137,7 @@ def metric_contracts(
                 dependency_fingerprint=_canonical_digest(
                     (
                         dependencies.get(definition.time_axis.ref.path, ""),
+                        definition.report_time.model_dump_json(),
                         None
                         if definition.temporal_snapshot is None
                         else definition.temporal_snapshot.snapshot_digest,

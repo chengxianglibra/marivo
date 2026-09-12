@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pandas as pd
@@ -22,9 +22,11 @@ from marivo.analysis.observation.fold_contracts import (
     FoldComponentV1,
     MetricFoldAuthorityV1,
     coverage_columns,
+    decode_fold_authority,
     fold_part_role,
     fold_state_names,
 )
+from marivo.analysis.observation.temporal import civil_bound, time_zone
 from marivo.analysis.operators.row import (
     PartFrame,
     RowCall,
@@ -334,9 +336,39 @@ def _coverage(
         target_start, target_end = bucket_bounds(
             coordinates[time_name], spec.grain, semantics.fold_temporal_snapshot
         )
+        temporal = decode_fold_authority(semantics.fold_authority)
+        if temporal.instant_coverage:
+            snapshot = semantics.fold_temporal_snapshot
+            zone = time_zone(
+                temporal.report_time.timezone if snapshot is None else snapshot.boundary_timezone
+            )
+            target_start, target_end = (
+                pd.Timestamp(
+                    value.to_pydatetime()
+                    .replace(tzinfo=zone, fold=0)
+                    .astimezone(timezone.utc)
+                    .replace(tzinfo=None)
+                )
+                for value in (target_start, target_end)
+            )
     elif semantics.fold_time_scope is not None:
-        target_start = pd.Timestamp(semantics.fold_time_scope.start)
-        target_end = pd.Timestamp(semantics.fold_time_scope.end)
+        temporal = decode_fold_authority(semantics.fold_authority)
+        target_start = pd.Timestamp(
+            civil_bound(
+                semantics.fold_time_scope.start,
+                report=temporal.report_time.timezone,
+                boundary="UTC",
+                civil_date=not temporal.instant_coverage,
+            )
+        )
+        target_end = pd.Timestamp(
+            civil_bound(
+                semantics.fold_time_scope.end,
+                report=temporal.report_time.timezone,
+                boundary="UTC",
+                civil_date=not temporal.instant_coverage,
+            )
+        )
     else:
         target_start, target_end = start, end
     complete = (

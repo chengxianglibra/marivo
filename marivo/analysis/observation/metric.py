@@ -625,6 +625,7 @@ def make_observation(
             (path_dependency_fingerprint(owner, entity.ref.path, paths), tuple(filter_dependencies))
         ),
         distributions=tuple(distributions),
+        report_time=owner.report_time,
         distinct_memberships=tuple(
             membership
             for metric in normalized

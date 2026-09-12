@@ -30,10 +30,13 @@ from marivo.analysis.observation.metric import (
 )
 from marivo.analysis.observation.population import LogicalPopulationDataset, make_population
 from marivo.analysis.observation.source_bindings import SourceBindingMap, SourceBindingScopes
+from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.refs import Ref, StateModelKind
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import SemanticCatalog, StateModelEntry
 from marivo.semantic.validator import Registry
+
+_DEFAULT_REPORT_TIME = ReportTimeAuthority()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -200,6 +203,7 @@ def make_lazy_sources(
     session_id: str,
     store_id: str,
     catalog: SemanticCatalog | None = None,
+    report_time: ReportTimeAuthority = _DEFAULT_REPORT_TIME,
     period_calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
 ) -> LazySources:
     """Assemble private source constructors from immutable, already loaded authority."""
@@ -225,6 +229,7 @@ def make_lazy_sources(
             "complete required Observation action/read port", "missing or incomplete runtime owner"
         )
     owner = ObservationOwner(
+        report_time=report_time,
         session_id=session_id,
         store_id=store_id,
         catalog_identity=catalog,

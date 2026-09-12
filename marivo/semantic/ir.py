@@ -470,6 +470,8 @@ class TargetDimensionContract:
     granularity: str | None
     is_default: bool
     timezone: str | None
+    physical_type: str = ""
+    parse: SemanticParse | None = None
 
 
 @dataclass(frozen=True, slots=True)
