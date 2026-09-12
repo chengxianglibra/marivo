@@ -1,5 +1,16 @@
 # Slice 8a isolated atomic cutover assembly
 
+## Current status after Slice 8b (2026-09-12)
+
+The source checkout has fast-forwarded to the accepted isolated commit
+`6c2c68f85cbf62644cd98045826321f3486df5d1`. Its complete content matched the
+1,182-file final candidate before fresh activation checks. The
+[Slice 8b activation record](2026-09-12-lazy-analysis-slice-8b-activation.md)
+records passing source-checkout acceptance and the cleanup of ignored bytecode
+from fully retired directories. Slice 8b is complete; Slices 8c and 9 remain
+pending. The isolation and application statements below describe the historical
+8a delivery, whose evidence remains unchanged.
+
 ## Delivery boundary
 
 The candidate is assembled in an isolated checkout. The working project remains
@@ -214,8 +225,10 @@ verification are required before marking Slice 8a complete.
 
 ## Final isolated assembly acceptance (2026-09-12)
 
-Status: **Slice 8a complete in the isolated candidate**. Slice 8b has not been
-applied to the source checkout. Slices 8c and 9 retain their own gates.
+Status at this historical checkpoint: **Slice 8a complete in the isolated
+candidate**. Slice 8b had not yet been applied to the source checkout. Subsequent
+activation is recorded in the current-status section above. Slices 8c and 9
+retain their own gates.
 
 The complete private 3a supplement is integrated while retaining both calendar
 snapshots and report-time authority. The prior 3b, 5b and native disclosure

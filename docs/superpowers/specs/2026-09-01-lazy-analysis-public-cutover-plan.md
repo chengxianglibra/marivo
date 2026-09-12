@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-12
 
-Status: Slices 0-7 complete; Slice 8a complete in an isolated candidate; 8b not applied
+Status: Slices 0-7 complete; Slice 8a complete; Slice 8b activated and accepted in the source checkout; Slices 8c and 9 pending
 
 Slice 5b implementation, supplied review follow-up and completed independent
 technical acceptance are recorded under its
@@ -3126,13 +3126,20 @@ semantic, persistence and installed-surface assembly remain separately gated.
 | Unit | Prerequisite | Bounded outcome and independent gate |
 | --- | --- | --- |
 | 8a: cutover assembly and disclosure preparation — complete in isolation | All units in 1-7 | Refresh the affected Slice 0 inventory against the current tree. Assemble exact public facade/export bindings, semantic activation, native Help, executable examples, current EN/ZH docs, skills, and deletion/test-replacement lists into one reviewable switch set. Identify any missing private implementation before activation. |
-| 8b: atomic public and persistence activation | 8a | Apply the public, semantic, Store, Help, documentation, and old-path removal changes together. No intermediate public eager/lazy combination or partial persistence switch is a deliverable. |
+| 8b: atomic public and persistence activation — complete in the source checkout | 8a | Apply the public, semantic, Store, Help, documentation, and old-path removal changes together. No intermediate public eager/lazy combination or partial persistence switch is a deliverable. |
 | 8c: installed-surface verification | 8b | Verify the built package's exports, signatures, Help resolution/budgets, state protocol, current examples, generation rejection, and forbidden-path absence. Repair the coherent switch set before handing its exact revision to Slice 9. |
 
 The [final isolated assembly record](../plans/2026-09-11-lazy-analysis-slice-8a-assembly.md)
 records the refreshed Slice 0 mapping, complete deletion/test replacement,
 accepted 3a/3b integration, passing gates and second-copy patch verification.
-Only the isolated candidate is complete; the source checkout remains private.
+The source checkout subsequently fast-forwarded to the exact accepted candidate
+`6c2c68f85cbf62644cd98045826321f3486df5d1`. The
+[Slice 8b activation record](../plans/2026-09-12-lazy-analysis-slice-8b-activation.md)
+closes source-checkout activation with fresh broad, affected Runtime and current
+EN/ZH disclosure gates. It records the removal of ignored bytecode from retired
+eager directories after the initial negative-path gate failed. No source or test
+change was needed. Installed-package verification (8c) and final acceptance (9)
+remain pending; this candidate is not release-ready.
 
 These units organize preparation and verification, not separate public releases.
 Slice 8 activates already working semantics and reads; it must not absorb a
