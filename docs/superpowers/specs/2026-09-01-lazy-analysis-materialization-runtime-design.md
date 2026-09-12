@@ -43,10 +43,13 @@ and the execution handoff in
 The Observation Model and compiler designs are accepted. This design consumes
 their filter, exact invocation, source-pushdown and bounded pandas continuation
 contracts. The 2026-09-07 amendment composes the maximal supported Ibis source
-prefix and executes the admitted terminal suffix in pandas. DuckDB remains an
-ordinary datasource, with no internal analysis executor. One configured storage
-target, executor-specific budgets and the prohibition on hidden durable stages
-remain unchanged.
+prefix and executes the admitted terminal suffix in pandas. The owner-approved
+2026-09-11 amendment also permits native Parquet queries in a transient DuckDB
+execution domain or a compatible bound source domain. This fully removes the
+former prohibition on importing retained local/object data into native analysis.
+It introduces no database Artifact storage, hidden durable stages, execution
+fallback or target retry. Native scan, memory, deadline and cancellation guards
+remain mandatory.
 
 The owner-approved 2026-09-08 delivery allocation in the
 [public-cutover plan](2026-09-01-lazy-analysis-public-cutover-plan.md) assigns the
@@ -209,9 +212,9 @@ The runtime consumes these compiler decisions:
 12. source support is decided before data work from tested method and adapter
     registrations, never from failed compilation, observed result sizes, cost
     search, or backend-failure fallback;
-13. local and object Parquet leaves use their authorized PyArrow readers into
-    pandas; immutable engine leaves can remain in their existing Ibis source
-    domain. No internal DuckDB connection or local-to-source upload is allowed;
+13. local and object Parquet leaves use authorized PyArrow readers or their
+    registered native scan. Native placement is fixed before execution and may
+    use a transient DuckDB domain or an eligible bound datasource domain;
 14. a multi-input pandas continuation may gather independently produced inputs
     only when its exact contract admits their identities, alignment and privacy
     projection. There is no generic federation or local substitute for source-only
@@ -1144,8 +1147,8 @@ Later pandas steps consume validated private DataFrames without re-collecting
 the source. Their output, key/alignment invariants and intermediate-size guards
 are checked before downstream admission. A small source result does not waive
 join-cardinality, pair-count, coalition-count or peak-memory guards. Local output
-feeds only registered local successors and the selected writer; it is never
-uploaded for another SQL stage or bound to an internal DuckDB relation.
+feeds the successors selected by the registered execution recipe and the selected
+writer. Native Parquet reads are permitted; a failed step never changes that recipe.
 
 Streaming engine/writer work may create private partial state before a late
 overflow is detected. It stops and discards that state without publishing rows.
@@ -1175,10 +1178,7 @@ process RSS; numerical allocation and cancellation
 require separate implementation evidence.
 
 Hard-deadline pandas and numerical work runs behind a terminable worker boundary
-with cleanup and terminal-state proof. Private worker imports defer public Frame,
-Help and telemetry initialization until a public analysis consumer requests them;
-public functions and session operations still initialize their instrumentation
-before invocation. Receipt decoding and Attribution execution load their owned
+with cleanup and terminal-state proof. Worker imports defer public Dataset Help initialization until a public analysis consumer requests it. Native providers explicitly mark Session activation/recovery and Dataset execute as telemetry operations. Pure constructors, logical transformations, state rendering and retained metadata probes do not create telemetry files; telemetry cannot weaken their no-I/O or non-mutating contracts. Public Session mutations install instrumentation before invocation, with invalid project configuration rejected before telemetry writes. Receipt decoding and Attribution execution load their owned
 metadata models only when consumed. This changes bootstrap cost, not process
 isolation, receipt validation or worker lifetime.
 
@@ -1190,10 +1190,10 @@ termination proof remain enforced.
 
 Checking the clock only after a blocking
 library call returns is insufficient. A configured DuckDB datasource obeys its
-normal datasource-engine controls; Runtime never creates a separate DuckDB
-analysis workspace. Required local/object Artifact payload exceeding the pandas
-input allowance fails before local invocation, even when it was valid to stream
-that Artifact to storage. Resource overflow never changes algorithm, inserts
+normal datasource-engine controls. A transient Parquet-native DuckDB domain
+uses explicit query, memory and termination controls and produces no persistent
+database Artifact. Payload exceeding a selected pandas input allowance fails
+before pandas invocation, even when it was valid to stream that Artifact to storage. Resource overflow never changes algorithm, inserts
 sampling or switches executors.
 
 ### Runtime staging and cleanup
@@ -1218,39 +1218,40 @@ without any alternative executor, repartitioning or retry path.
 
 ## Storage Selection
 
-### One Runtime-owned configured target
+### One project-configured target
 
-The Session's typed runtime policy resolves exactly one storage target before
-compilation. Project-local Parquet remains the default when no different target
-is configured. Local, engine and object remain supported receipt kinds, but
-there is no ranked candidate list or automatic size-based switch among them.
-`execute()` remains zero-argument. This amendment does not invent a second
-Dataset or operator API for configuring storage.
+`execute()` remains zero-argument. No configuration means project-local Parquet.
+Only a different destination needs an explicit `marivo.toml` setting:
 
-```text
-ConfiguredMaterializationTargetV1
-  storage_kind = local | engine | object
-  target_binding
-  receipt_protocol_id
-  write_policy_id
+```toml
+[analysis]
+storage = "object:archive"
+
+[analysis.object_stores.archive]
+endpoint_url = "https://objects.example.com"
+bucket = "analysis"
+access_key_id_env = "ANALYSIS_ACCESS_KEY_ID"
+secret_access_key_env = "ANALYSIS_SECRET_ACCESS_KEY"
 ```
 
-Runtime resolves configuration and authorization after incomplete Run admission,
-without putting credentials or raw locators in public state. Missing or ambiguous
-configuration is a `storage_selection` failure. The compiler receives the chosen
-target as an opaque private value, never alternatives or policy ranks.
+`storage = "local"` is also valid but unnecessary. The named object table may
+include `region` and `session_token_env`. Credentials are exact environment
+references, resolved only for the selected current operation; raw secrets never
+enter project state, receipts, public state or diagnostics. Current object
+bindings may remain configured while new outputs use local storage.
 
-An engine target must be writable from the exact domain already producing the
-output. Local/object writers may use their admitted bounded storage stream or
-exact export protocol; a writer cannot upload an input, relocate computation,
-or conceal a local reduction. A pandas output cannot be uploaded to a remote
-engine target by this contract. Unsupported targets fail before data work
-when known, and late write/size failures abort without trying another target.
+The only Artifact receipt kinds are local and object Parquet. Database result
+storage is removed. The selected target covers primary rows and every required
+retained part as one atomic Artifact and one combined storage budget. Exact
+membership and distribution parts may stream to either target without exposing
+raw private rows through the public Dataset boundary.
 
-The selected target handles root primary rows and all required retained parts
-as one Artifact. Writer validation accounts for every payload and their combined
-budget. A new target setting affects only a later binding miss; existing binding
-recovery returns the exact Artifact without a write or relocation.
+Configuration and authorization resolve after incomplete Run admission and before
+source work. Missing, malformed, unsupported or ambiguous selection fails that
+Run at `storage_selection`. No size-based switch, target ranking, automatic
+alternative or failed-write retry exists. The writer does not choose or replace
+the computation implementation. An existing execution binding returns its exact
+Artifact without rewriting or relocating it when the project setting changes.
 
 ### One writer-validation handoff
 
@@ -1354,11 +1355,12 @@ enter receipts. Supported format/decoder versions govern cold reads; writer
 library fingerprints and compression tuning are diagnostics, not compatibility
 or Artifact-reuse gates.
 
-Local/object receipts select authorized PyArrow Parquet decoding, with bounded
-preview or complete guarded pandas collection according to the consumer. They
-do not grant an Ibis/DuckDB scan domain. Engine receipts retain their exact
-immutable datasource scan and may participate in eligible same-domain source
-pushdown. Every reader accesses the selected backing only, never origin lineage.
+Local/object receipts support authorized PyArrow decoding and registered native
+Parquet scans. Preview and complete pandas collection retain their respective
+budgets. Native scans validate exact manifest/version, content hash, schema and
+row count, then use the preselected domain and its memory/deadline/cancellation
+controls. No receipt grants access to origin sources or changes its retained
+semantic authority. Every reader accesses selected backing only.
 
 ### Local receipt
 
@@ -1389,38 +1391,6 @@ directory. The Parquet contract fixes logical-type mapping, compression,
 dictionary normalization, row-group behavior, and reader compatibility; the
 manifest and content authority, not the mutable path name, bind the committed
 rows.
-
-### Engine receipt
-
-```text
-EngineDatasetReceiptV1
-  kind = engine
-  datasource_ref
-  execution_domain_id
-  qualified_relation_ref
-  immutable_relation_protocol
-  relation_version_or_snapshot_token
-  schema_fingerprint
-  realized_row_count
-  realized_byte_count: ExactBytesV1 | UnavailableBytesV1
-```
-
-`immutable_relation_protocol` is one registered strategy:
-
-```text
-version_addressed_relation
-write_once_marivo_relation
-snapshot_pinned_relation
-```
-
-The adapter must prove that later writes cannot change the rows addressed by
-the receipt. A mutable ordinary table, view over mutable sources,
-connection-local temporary table, or name protected only by convention is not
-an Artifact backing.
-
-The relation uses a generated opaque locator. Raw SQL and credentials are not
-persisted. Exact row count comes from the committed write receipt or an exact
-count against the immutable version before publication.
 
 ### Object receipt
 
@@ -2464,17 +2434,14 @@ continuations.
 
 ## Vertical Acceptance Journeys
 
-Journey fixtures must choose an explicit compatible execution/storage setup.
-A retained Population or identity selection later joined to current sources uses
-an engine target and reader in that same datasource domain. Local Artifact-only
-continuations use the authorized PyArrow reader and registered pandas methods.
-Eligible source operators compose before the local boundary, and admitted
-multi-input pandas methods can collect separate source outputs under combined
-guards. Include a conflicting-domain source-only identity negative fixture and
-a positive admitted pandas multi-input fixture. `.execute()` must not be
-advertised as a repair for a source-only domain requirement unless its configured
-writer and reader can establish that exact domain. No fixture relies on an
-internal DuckDB executor, failed compilation fallback or target switching.
+Journey fixtures must cover default local Parquet and explicitly configured
+object Parquet, including exact private membership/distribution state. Retained
+identity selections may join eligible current sources through the fixed native
+Parquet reader. Cold Artifact-only native execution must work with origin sources
+offline and without a persistent database output. Retain independent native and
+pandas algorithm conformance, same-Session ownership, combined-input budgets,
+source-domain conflicts and failure/no-retry assertions. Native eligibility must
+be established before execution; failed compilation never chooses another path.
 
 ### Execute and inspect one logical definition
 
@@ -2940,13 +2907,13 @@ Session-level locking and atomic publication decisions:
 24. The clean Store generation stays `user_version = 3`; eager state is neither
     decoded nor migrated. Public deletion waits for a recoverable metadata and
     external-storage deletion contract.
-25. Local/object Artifact readers use authorized PyArrow into bounded pandas;
-    immutable engine leaves may retain eligible source computation. A large
-    streamable Artifact does not gain an out-of-core local calculation path.
+25. Local/object Artifact readers use authorized PyArrow or a registered native
+    Parquet scan. Each selected execution domain enforces its own resource
+    limits; storage success does not waive computation admission.
 26. An admitted multi-input pandas method may collect separate source outputs
     under combined semantic, privacy and resource checks. There is no generic
-    federation, local-to-SQL upload or local substitute for source-only identity
-    and semantic work.
+    federation or unregistered substitute for identity and semantic work.
+    Native Parquet scans do not recover missing origin semantics.
 
 Changes require an explicit amendment before downstream modules rely on them.
 

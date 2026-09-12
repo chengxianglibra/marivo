@@ -76,9 +76,12 @@ class LogicalDeltaDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="delta")
     ) -> LogicalAttributionDataset:
         """Decompose this Delta into exact scoped contributions.
 
-        Args: axes: Ordered governed Dimensions. mode: Joint or authored prefixes.
+        Args:
+            axes: Ordered governed Dimensions.
+            mode: Joint or authored prefixes.
             top_k: Optional number of retained members per mapped parent.
             target: Required non-initial FunnelLossRate for Event Delta; omitted for Metric.
+
         Returns: Logical Attribution. Example: ``delta.attribute(axes=(region,))``.
         Constraints: Requires exact additive partitions and retained components.
         """
@@ -185,9 +188,12 @@ class MaterializedDeltaDataset(MaterializedDataset, _token=_CORE_TOKEN, family_i
     ) -> LogicalAttributionDataset:
         """Decompose this Delta into exact scoped contributions.
 
-        Args: axes: Ordered governed Dimensions. mode: Joint or authored prefixes.
+        Args:
+            axes: Ordered governed Dimensions.
+            mode: Joint or authored prefixes.
             top_k: Optional number of retained members per mapped parent.
             target: Required non-initial FunnelLossRate for Event Delta; omitted for Metric.
+
         Returns: Logical Attribution. Example: ``delta.attribute(axes=(region,))``.
         Constraints: Requires exact additive partitions and retained components.
         """

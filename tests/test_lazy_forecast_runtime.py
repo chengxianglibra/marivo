@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.operators.forecast_contracts import (
     ForecastModel,
     drift,
@@ -24,7 +24,7 @@ def test_real_forecast(tmp_path: Path, model: ForecastModel, input_kind: str) ->
     runtime, source, database = setup_forecast(tmp_path)
     value = history(source)
     if input_kind != "logical":
-        runtime.target = EngineTarget("warehouse") if input_kind == "engine" else LocalTarget()
+        runtime.target = LocalTarget()
         retained = value.execute()
         database.rename(tmp_path / "origin.offline")
         runtime.target = LocalTarget()

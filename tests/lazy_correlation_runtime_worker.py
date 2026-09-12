@@ -13,7 +13,6 @@ from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import (
-    EngineTarget,
     LocalTarget,
     ObjectTarget,
     S3Access,
@@ -37,9 +36,7 @@ def run(
     if mode == "produce":
         seed_execution_database(database)
         registry, sidecar = make_execution_registry(database)
-        runtime = DatasetRuntime.create(
-            project, "correlation-journey", target=EngineTarget("warehouse")
-        )
+        runtime = DatasetRuntime.create(project, "correlation-journey", target=LocalTarget())
         source = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         metric = source.observe(
             [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
@@ -54,7 +51,7 @@ def run(
     runtime = DatasetRuntime.open(
         project,
         refs["session"],
-        target=EngineTarget("warehouse") if kind == "engine" else LocalTarget(),
+        target=LocalTarget(),
     )
     if kind == "object":
         access = S3Access(

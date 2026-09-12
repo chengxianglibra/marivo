@@ -18,7 +18,7 @@ from marivo.analysis.domains.lifecycle_reducers import in_state
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq
 from marivo.refs import ref
 from marivo.semantic.ir import LifecycleStateIR, StateTransitionIR, StateTriggerIR
@@ -93,7 +93,7 @@ def test_local_engine_numerical_structural_and_order_parity(tmp_path: Path) -> N
         project = tmp_path / sink
         project.mkdir()
         runtime, h = rich_history(project)
-        runtime.target = EngineTarget("warehouse") if sink == "engine" else LocalTarget()
+        runtime.target = LocalTarget()
         results = {
             "distribution": h.distribution(
                 at=(END, START, START + timedelta(hours=1)),
@@ -251,9 +251,9 @@ def test_high_cardinality_identity_relations_stay_native_and_private(
     record = cold.store.artifact(recovered.state.artifact_ref.ref)
     assert record is not None
     receipt = record.descriptor.storage_receipt
-    from marivo.analysis.materialization.contracts import EngineReceipt
+    from marivo.analysis.materialization.contracts import LocalReceipt
 
-    assert isinstance(receipt, EngineReceipt)
+    assert isinstance(receipt, LocalReceipt)
     (tmp_path / receipt.qualified_relation_ref).unlink()
     with pytest.raises(MaterializationError) as caught:
         recovered.to_pandas()

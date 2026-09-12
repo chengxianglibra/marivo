@@ -106,7 +106,9 @@ def test_complete_aggregate_matrix_matches_source_and_retained_runtime(
     assert retained_total == pytest.approx(expected)
     assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
     assert fixture.runtime.statistics.events.get("credential_resolution", 0) == 0
-    assert (fixture.runtime.statistics.worker_pid is not None) is (kind == "local")
+    assert fixture.runtime.statistics.source_fences == 0
+    assert fixture.runtime.statistics.primary_queries == 1
+    assert fixture.runtime.statistics.worker_pid is None
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 

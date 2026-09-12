@@ -12,23 +12,20 @@ These tests verify:
 
 from __future__ import annotations
 
-import datetime
 import inspect
 import textwrap
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
-from marivo._compat import UTC
+import marivo.semantic as ms
 from marivo._help.render import render_help_text
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
-from marivo.analysis.lineage import Lineage
 from marivo.datasource.authoring import DuckDBSpec
 from marivo.introspection.live.model import SURFACE_LIMITS
+from tests.lazy_observation_fixtures import make_sources
 
 # ---------------------------------------------------------------------------
 # Minimal project files for tests that need a loaded SemanticProject
@@ -145,23 +142,13 @@ def test_marivo_help_rejects_removed_options() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_metric_frame_repr_is_one_line() -> None:
-    meta = BaseFrameMeta(
-        kind="metric_frame",
-        ref="frame_test01",
-        session_id="s1",
-        project_root="/tmp",
-        produced_by_job=None,
-        created_at=datetime.datetime(2026, 1, 1, tzinfo=UTC),
-        row_count=3,
-        byte_size=100,
-        lineage=Lineage(),
-    )
-    df = pd.DataFrame({"x": [1, 2, 3]})
-    frame = BaseFrame(_df=df, meta=meta)
-    r = repr(frame)
-    assert r.count("\n") == 0
-    assert "call .show() to inspect" in r
+def test_logical_metric_repr_is_bounded_and_has_identity() -> None:
+    result = make_sources().observe(ms.ref.metric("sales.revenue"))
+    rendered = repr(result)
+    assert "\n" not in rendered
+    assert len(rendered) <= 200
+    assert "logical" in rendered.lower()
+    assert "execute()" in rendered
 
 
 def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
@@ -176,40 +163,16 @@ def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_frame_render_no_stdout(capsys) -> None:
-    meta = BaseFrameMeta(
-        kind="metric_frame",
-        ref="fr01",
-        session_id="s1",
-        project_root="/tmp",
-        produced_by_job=None,
-        created_at=datetime.datetime(2026, 1, 1, tzinfo=UTC),
-        row_count=2,
-        byte_size=50,
-        lineage=Lineage(),
-    )
-    frame = BaseFrame(_df=pd.DataFrame({"x": [1, 2]}), meta=meta)
-    frame.render()
+def test_dataset_contract_render_is_silent(capsys) -> None:
+    result = make_sources().observe(ms.ref.metric("sales.revenue")).contract()
+    result.render()
     assert capsys.readouterr().out == ""
 
 
-def test_frame_show_prints_render_plus_newline(capsys) -> None:
-    meta = BaseFrameMeta(
-        kind="metric_frame",
-        ref="fr01",
-        session_id="s1",
-        project_root="/tmp",
-        produced_by_job=None,
-        created_at=datetime.datetime(2026, 1, 1, tzinfo=UTC),
-        row_count=2,
-        byte_size=50,
-        lineage=Lineage(),
-    )
-    frame = BaseFrame(_df=pd.DataFrame({"x": [1, 2]}), meta=meta)
-    result = frame.show()
-    captured = capsys.readouterr()
-    assert result is None
-    assert captured.out == frame.render() + "\n"
+def test_dataset_contract_show_prints_render_plus_newline(capsys) -> None:
+    result = make_sources().observe(ms.ref.metric("sales.revenue")).contract()
+    assert result.show() is None
+    assert capsys.readouterr().out == result.render() + "\n"
 
 
 def test_catalog_collection_render_contains_refs_affordance(semantic_project_factory) -> None:
@@ -264,15 +227,13 @@ def test_readiness_render_contains_available(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_analysis_help_teaches_two_artifact_exits() -> None:
-    rendered = render_help_text("analysis.MetricFrame")[0]
-    assert ".show()" in rendered
-    assert ".contract()" in rendered
-    assert ".to_pandas()" in rendered
-    assert ".summary()" not in rendered
-    assert ".schema()" not in rendered
-    assert ".preview(" not in rendered
-    assert ".next_intents()" not in rendered
+def test_analysis_help_teaches_state_specific_exits() -> None:
+    logical = render_help_text("analysis.datasets.logical")[0]
+    materialized = render_help_text("analysis.datasets.materialized")[0]
+    assert "execute" in logical
+    assert "contract" in logical
+    assert "to_pandas" in materialized
+    assert "show" in materialized
 
 
 def test_marivo_help_top_level_within_budget(capsys) -> None:
@@ -287,10 +248,10 @@ def test_marivo_help_topic_within_budget(capsys) -> None:
     assert len(captured.out.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
 
 
-def test_observe_help_teaches_zero_division_policy() -> None:
-    rendered = render_help_text("analysis.observe")[0]
-    assert 'zero_division="null"' in rendered
-    assert "zero_denominator_rows" in rendered
+def test_runtime_ratio_help_teaches_zero_division_policy() -> None:
+    rendered = render_help_text("analysis.runtime_metric.ratio")[0]
+    assert "zero_division" in rendered
+    assert "null" in rendered and "error" in rendered
 
 
 def test_semantic_help_topic_within_budget(capsys) -> None:
@@ -304,93 +265,111 @@ def test_semantic_help_topic_within_budget(capsys) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_analysis_public_exports_are_default_workflow_surface() -> None:
-    expected = {
-        "AnalysisScope",
-        "AnomalyCandidate",
-        "ArtifactDigest",
-        "ArtifactSummary",
-        "ArtifactIssue",
-        "ArtifactRevalidation",
-        "AssociationFact",
-        "CandidateOrigin",
-        "CandidateResolutionIssue",
-        "CandidateSelection",
-        "ChangeFact",
-        "ComparabilityIssue",
-        "CompletenessDeclaration",
-        "ContributionFact",
-        "CrossSectionalOutlierSelection",
-        "DataQualityIssue",
-        "DriverAxisSelection",
+def test_analysis_public_exports_are_ordered_default_workflow_surface() -> None:
+    expected = [
+        "Dataset",
+        "LogicalDataset",
+        "MaterializedDataset",
+        "DatasetShapeId",
+        "DatasetFieldId",
+        "DatasetFieldIdentity",
+        "DatasetPhysicalTypeState",
+        "DatasetField",
+        "DatasetRowBound",
+        "DatasetCardinality",
+        "DatasetOrderTerm",
+        "DatasetOrdering",
+        "DatasetByteCount",
+        "DatasetFamilyRowSemantics",
+        "DatasetRowContract",
+        "DatasetRowSetContract",
+        "DatasetSchema",
+        "LogicalDatasetState",
+        "MaterializedDatasetState",
+        "DatasetContract",
+        "DatasetFields",
+        "DatasetFieldRef",
+        "LogicalPopulationDataset",
+        "MaterializedPopulationDataset",
+        "LogicalMetricDataset",
+        "MaterializedMetricDataset",
+        "LogicalDeltaDataset",
+        "MaterializedDeltaDataset",
+        "LogicalAttributionDataset",
+        "MaterializedAttributionDataset",
+        "LogicalAssociationDataset",
+        "MaterializedAssociationDataset",
+        "LogicalForecastDataset",
+        "MaterializedForecastDataset",
+        "LogicalCandidateDataset",
+        "MaterializedCandidateDataset",
+        "LogicalEventDataset",
+        "MaterializedEventDataset",
+        "LogicalLifecycleDataset",
+        "MaterializedLifecycleDataset",
+        "AnalysisPredicate",
+        "EntitySamplingPolicy",
+        "ForecastHorizon",
+        "ForecastModel",
+        "WindowBucketAlignment",
+        "BoundedCompletenessDeclarationV1",
+        "SourceOriginCompletenessDeclarationV1",
         "DroppedBefore",
-        "EvidenceAvailabilityIssue",
-        "EvidenceIntegrityError",
-        "EvidenceRuleIssue",
-        "EventOccurrenceBounds",
-        "EventFrame",
         "EventPattern",
-        "EventWatermarkReceipt",
-        "EventWatermarkRequest",
         "EveryStart",
+        "FirstPerSubject",
+        "FromInception",
+        "FunnelLossRate",
+        "Grain",
+        "InState",
+        "PatternStep",
+        "TimeScope",
+        "ArtifactDigest",
+        "ArtifactRef",
+        "ArtifactRevalidation",
+        "ArtifactSummary",
+        "EvidenceIntegrityError",
+        "FailedRun",
         "Finding",
         "FindingPage",
         "IncompleteRun",
-        "FirstPerSubject",
-        "FromInception",
-        "ForecastOutput",
-        "FailedRun",
-        "Grain",
-        "FunnelLossRate",
-        "ObservationFact",
-        "PatternStep",
-        "PeriodShiftSelection",
-        "PointAnomalySelection",
-        "QualityCheckResult",
         "RunPage",
         "SessionGraph",
-        "SliceSelection",
         "SucceededRun",
-        "TestDecision",
-        "WindowSelection",
-        "session",
-        "runtime_metric",
-        "declared_complete_through",
-        "dropped_before",
-        "every_start",
-        "first_per_subject",
-        "funnel_loss_rate",
-        "from_inception",
+        "Session",
+        "eq",
+        "not_eq",
+        "lt",
+        "lte",
+        "gt",
+        "gte",
+        "is_in",
+        "is_null",
+        "is_not_null",
+        "all_of",
+        "any_of",
+        "not_",
+        "engine_sample",
         "grain",
         "time_scope",
-        "in_state",
-        "Session",
-        "OntologyMetricCandidate",
-        "SubjectSet",
-        "MetricFrame",
-        "DeltaFrame",
-        "AttributionFrame",
-        "CandidateSet",
-        "AssociationResult",
-        "HypothesisTestResult",
-        "InState",
-        "LifecycleFrame",
-        "ForecastFrame",
         "window_bucket",
-        "day_of_week",
-        "period_progress",
-        "period_correspondence",
-        "occurrence_progress",
-        "working_day_progress",
-        "AlignmentPolicy",
-        "ArtifactRef",
-        "TimeScope",
-        "AbsoluteWindow",
-        "sequence",
         "step",
-    }
-    assert set(mv.__all__) == expected
-    assert set(dir(mv)) == expected
+        "sequence",
+        "first_per_subject",
+        "every_start",
+        "dropped_before",
+        "in_state",
+        "funnel_loss_rate",
+        "from_inception",
+        "periods",
+        "naive",
+        "drift",
+        "seasonal_naive",
+        "runtime_metric",
+        "session",
+    ]
+    assert mv.__all__ == expected
+    assert set(dir(mv)) == set(expected)
 
 
 def test_analysis_dir_hides_advanced_and_internal_objects() -> None:
@@ -398,7 +377,6 @@ def test_analysis_dir_hides_advanced_and_internal_objects() -> None:
         "BaseFrame",
         "BaseFrameMeta",
         "JobSummary",
-        "SessionSummary",
         "Lineage",
         "LineageStep",
         "BlockingIssue",
@@ -420,18 +398,14 @@ def test_analysis_dir_hides_advanced_and_internal_objects() -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "marivo/analysis/semantic_inputs.py",
-        "marivo/analysis/intents/_observe_catalog.py",
-        "marivo/analysis/intents/_observe_planner_catalog.py",
-        "marivo/analysis/intents/_observe_planner_fields.py",
-        "marivo/analysis/intents/_observe_derived.py",
-        "marivo/analysis/intents/_metric_graph_plan.py",
-        "marivo/analysis/intents/_metric_graph_execute.py",
-        "marivo/analysis/intents/observe.py",
+        "marivo/analysis/observation/metric.py",
+        "marivo/analysis/observation/population.py",
+        "marivo/analysis/compiler/normalize.py",
+        "marivo/analysis/compiler/lowering.py",
+        "marivo/analysis/materialization/admission.py",
     ],
 )
 def test_analysis_runtime_does_not_query_public_catalog_collections(path: str) -> None:
     source = (Path(__file__).parents[1] / path).read_text()
-
     assert "catalog.list(" not in source
     assert "catalog._reg" not in source

@@ -699,7 +699,9 @@ to choose pandas. Adapters claim only scope established by integration tests.
 
 The adapter boundary contract covers exact source/Artifact binding, required
 single-evaluation resources, bounded readers/writers and cancellation. It does
-not import local data into source engines or provide fallback implementations.
+not provide fallback implementations. Its registered native Parquet adapter may
+read exact retained data in a transient DuckDB or eligible source domain, as
+authorized by the 2026-09-11 Runtime amendment.
 
 ## Execution Recipe
 
@@ -800,12 +802,14 @@ parts under the same local-input rules. They may project or prune only under
 the proven row contract; they do not hide an unbounded local join or aggregate.
 An Artifact whose required computational payload exceeds the pandas budget
 fails local consumption even if it was successfully written as a larger stream.
-No hidden DuckDB reader or larger-than-memory local executor is available.
+Native Parquet execution is a separately registered and preselected path; it
+cannot be selected as a response to a pandas budget failure.
 
 Ordinary source engines, including a configured DuckDB datasource, retain their
 adapter-owned query, memory/disk where applicable, cancellation and bounded
 result-reader budgets. Source-required fences remain source resources. Their
-existence does not introduce an analysis-owned DuckDB domain.
+controls also apply to the transient DuckDB domain used for native Parquet
+scans. That domain has no persistent database Artifact output.
 
 ### Storage streams are independent
 

@@ -658,9 +658,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_entity_versioning",
         "assembly",
         ("entity",),
-        "Snapshot versioning partition field must be part of primary_key.",
+        "Snapshot versioning coordinates must be separate from stable primary_key identity.",
         "The partition field determines which rows are used for latest snapshot joins.",
-        "Add the partition column to the entity's primary_key list.",
+        "Keep stable identity columns in primary_key and declare the partition coordinate in versioning.",
     ),
     ConstraintId.METRIC_EXISTS: _constraint(
         ConstraintId.METRIC_EXISTS,

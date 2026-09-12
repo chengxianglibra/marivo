@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import EngineReceipt
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local import LocalPolicy
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from tests.lazy_distribution_fixtures import (
     CHANNEL,
     METRIC,
@@ -57,7 +57,7 @@ def test_distribution_receipt_mutation_after_output_rename_rolls_back(tmp_path: 
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
     registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "mutation", target=EngineTarget("warehouse"))
+    runtime = DatasetRuntime.create(tmp_path, "mutation", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = sources.observe(METRIC).with_dimensions(CHANNEL).aggregate()
     baseline = metric.execute()
@@ -68,7 +68,7 @@ def test_distribution_receipt_mutation_after_output_rename_rolls_back(tmp_path: 
         for part in record.descriptor.retained_parts
         if part.contract_id == "metric.distribution"
     )
-    assert isinstance(receipt, EngineReceipt)
+    assert isinstance(receipt, LocalReceipt)
     changed: list[str] = []
 
     def mutate(point: str) -> None:

@@ -46,6 +46,8 @@ Aggregation & measure helpers
    linear
    ratio
    weighted_mean
+   quantile_metric
+   QuantileMetricInput
    semi_additive
    snapshot
    validity

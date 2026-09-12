@@ -21,7 +21,6 @@ from marivo.analysis.materialization import storage
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     ArtifactRecord,
-    EngineReceipt,
     RetainedPart,
 )
 from marivo.analysis.materialization.errors import (
@@ -38,7 +37,11 @@ from marivo.analysis.materialization.retained import (
     validate_source_private_relation,
 )
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.targets import S3Access, access_payload, decode_access
+from marivo.analysis.materialization.targets import (
+    ObjectBinding,
+    access_payload,
+    decode_access,
+)
 from marivo.analysis.refs import ArtifactRef
 
 if TYPE_CHECKING:
@@ -73,12 +76,12 @@ def _payload_check(
     root: Path,
     descriptor: ArtifactDescriptor,
     part: RetainedPart | None,
-    bindings: tuple[S3Access, ...],
+    bindings: tuple[ObjectBinding, ...],
     policy: ReadPolicy,
 ) -> None:
     receipt = descriptor.storage_receipt if part is None else part.storage_receipt
     if part is not None and source_private_part(part):
-        _source_private_check(root, descriptor, part)
+        _source_private_check(root, descriptor, part, bindings)
         return
     row, rows = descriptor.row_contract, descriptor.row_set_contract
     validator = (
@@ -154,27 +157,31 @@ def _payload_check(
         stream.close()
 
 
-def _source_private_check(root: Path, descriptor: ArtifactDescriptor, part: RetainedPart) -> None:
-    """Inspect private membership entirely inside the retained engine domain."""
+def _source_private_check(
+    root: Path,
+    descriptor: ArtifactDescriptor,
+    part: RetainedPart,
+    bindings: tuple[ObjectBinding, ...] = (),
+) -> None:
+    """Inspect exact private Parquet state with the fixed native query adapter."""
     import ibis
 
-    from marivo.analysis.materialization.engine import (
-        attach_engine_scan,
-        checked_engine_path,
-        validate_engine_relation,
+    from marivo.analysis.materialization.contracts import LocalReceipt
+    from marivo.analysis.materialization.parquet_scan import (
+        attach_parquet_scan,
+        checked_local_path,
+        validate_parquet_relation,
     )
 
     primary_receipt, receipt = descriptor.storage_receipt, part.storage_receipt
-    if not isinstance(primary_receipt, EngineReceipt) or not isinstance(receipt, EngineReceipt):
-        raise StorageAccessError("mutated")
     backend = ibis.duckdb.connect()
     try:
         backend.raw_sql("SET threads=1")
         backend.raw_sql("SET memory_limit='256MiB'")
         backend.raw_sql("SET max_temp_directory_size='0B'")
-        primary = attach_engine_scan(backend, root, primary_receipt)
-        table = attach_engine_scan(backend, root, receipt)
-        validate_engine_relation(
+        primary = attach_parquet_scan(backend, root, primary_receipt, bindings=bindings)
+        table = attach_parquet_scan(backend, root, receipt, bindings=bindings)
+        validate_parquet_relation(
             backend, primary, primary_receipt, descriptor.row_contract, lambda *_: None
         )
         schema = backend.to_pyarrow(table.limit(0)).schema
@@ -187,8 +194,9 @@ def _source_private_check(root: Path, descriptor: ArtifactDescriptor, part: Reta
         validate_source_private_relation(
             backend, table, primary, descriptor.row_contract, part.role, lambda *_: None
         )
-        checked_engine_path(root, receipt)
-        checked_engine_path(root, primary_receipt)
+        for checked in (receipt, primary_receipt):
+            if isinstance(checked, LocalReceipt):
+                checked_local_path(root, checked)
     finally:
         backend.disconnect()
 
@@ -233,7 +241,7 @@ def _worker() -> None:
 def _storage_checks(
     project_root: Path,
     descriptor: ArtifactDescriptor,
-    bindings: tuple[S3Access, ...],
+    bindings: tuple[ObjectBinding, ...],
     *,
     policy: ReadPolicy = _POLICY,
 ) -> tuple[_StorageCheck, ...]:
@@ -296,7 +304,7 @@ def revalidate(
     store: SessionStore,
     reference: str | ArtifactRef,
     *,
-    bindings: tuple[S3Access, ...] = (),
+    bindings: tuple[ObjectBinding, ...] = (),
     policy: ReadPolicy = _POLICY,
 ) -> ArtifactRevalidation:
     """Inspect one immutable authority without loading its origin or repairing state."""

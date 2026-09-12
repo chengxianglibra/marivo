@@ -12,7 +12,7 @@ from unittest.mock import patch
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.candidate_codec import evidence_payload
-from marivo.analysis.materialization.targets import EngineTarget, LocalTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.candidate_contracts import CandidateObjective
@@ -32,7 +32,7 @@ def run(
 ) -> dict[str, object]:
     if mode == "produce":
         runtime, source, database = setup_candidate(project)
-        runtime.target = EngineTarget("warehouse") if kind == "engine" else LocalTarget()
+        runtime.target = LocalTarget()
         source_rows = candidate_input(source, objective, panel=True).execute()
         runtime.target = LocalTarget()
         result = discover(source_rows, objective).execute()

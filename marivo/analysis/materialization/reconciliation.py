@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.contracts import RunFailure
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.resources import discharge_resources
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization.targets import ObjectBinding
 from marivo.introspection.live.model import LiveHelpTarget
-
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.targets import S3Access
 
 
 def reconcile_session(
@@ -21,7 +18,7 @@ def reconcile_session(
     session_ref: str,
     *,
     event: Callable[[str], None],
-    object_bindings: tuple[S3Access, ...] = (),
+    object_bindings: tuple[ObjectBinding, ...] = (),
     run_ref: str | None = None,
 ) -> None:
     """Resolve guarded Session obligations, optionally selecting one exact Run.

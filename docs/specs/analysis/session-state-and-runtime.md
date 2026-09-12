@@ -1,319 +1,92 @@
-# Session, State, and Runtime
+# Session State and Runtime
 
-Status: design. This document specifies how `marivo.analysis` holds state across
-the agent write-run-read loop: the `Session` object, the project-local on-disk
-layout, content-addressed artifact identity, cold-start rehydration, cross-session
-ownership, and failure recovery. It is the runtime companion to
-[`python-analysis-design.md`](python-analysis-design.md) (overview) and
-[`operators-and-frames.md`](operators-and-frames.md) (the operator algebra). The
-evidence ledger that shares this session directory is specified in
-[`evidence-access-surface.md`](evidence-access-surface.md).
+A Session owns one investigation and its immutable Run/Artifact history under the
+project's `.marivo/` directory. Use `mv.session.get_or_create(name, ...)`,
+`mv.session.current()` and `mv.session.resume(session_id)` through their native
+Help contracts. Identity resolution and report-timezone conflicts fail explicitly;
+opening a different Session never grants access to another Session's inputs.
 
-The analysis alias is `mv` (`import marivo.analysis as mv`).
+## Source boundary
 
-## The Session object
+Session owns `observe`, `population`, `events.match`, `lifecycle.replay` and
+`source_bindings`. Dataset methods own downstream operations. Constructors load
+needed semantic definitions and certified project snapshots without querying
+sources. They capture immutable source binding values, period authority and
+persisted report timezone. Credentials and live engine timezone are resolved only
+for admitted source execution.
 
-A `Session` is the one stateful handle in analysis. It owns the semantic catalog
-consumed by operators, the report timezone, and the persistence layout;
-every operator is a method on it. Sessions are created and resumed through the
-narrow `mv.session` module facade, never constructed directly.
+An Entity key is stable identity; version coordinates are separate. Membership
+selection and observation windows are independent. Definitions retain exact
+semantic dependencies, roles and field identities. RuntimeMetric expressions
+normalize into the same governed graph and retain each carried output's identity.
 
-Read-only identity properties are `session.id` (a `sess_<hex>` id) and
-`session.name`. Other read-only public properties include `session.question`
-(the current guiding question), `session.cwd`, `session.project_root`, `session.catalog`,
-`session.created_at`, `session.updated_at`, `session.tz` / `session.report_tz`
-(plus `report_tz_name` / `report_tz_resolution` / `report_tz_warning`),
-and `session.is_read_only`.
+## Fixed execution and storage
 
-`repr(session)` is a bounded one-line identity that points to `session.show()`.
-`session.show()` prints, and `session.render()` returns, the same bounded state
-card with the question, read/write status, report timezone, timestamps, and
-catalog/job/frame inspection entries.
+`execute()` admits a Run, fixes a registered implementation and writes one atomic
+result. Shared logical inputs can share realization under exact identity; existing
+materialized inputs remain immutable. No failed operation is retried on another
+executor or storage target.
 
-`session.is_read_only` is `True` when no datasource resolution path is configured:
-such a session can read persisted artifacts and evidence but cannot run analysis
-that touches a datasource. Operators that need a backend raise
-`NoBackendFactoryError` on a read-only session.
+No storage configuration is required: output uses project-local Parquet. Explicit
+object storage is selected in project configuration:
 
-### Lifecycle
+```toml
+[analysis]
+storage = "object:archive"
 
-The public session surface is intentionally small (`mv.session.__all__` is exactly
-`abandon_run`, `current`, `delete`, `get_or_create`, `inspect`, `recent`,
-`resume`; the removed names `archive`, `attach`, `create`, `switch`, `active`
-are gone):
+[analysis.object_stores.archive]
+endpoint_url = "https://objects.example.test"
+bucket = "analysis"
+access_key_id_env = "MARIVO_ARCHIVE_ACCESS_ID"
+secret_access_key_env = "MARIVO_ARCHIVE_SECRET"
+```
 
-- `mv.session.abandon_run(*, session_id, run_id) -> None` — after confirming
-  execution stopped, atomically fail one incomplete Run before Session
-  activation. It removes only unconsumed Session Store Artifact registrations;
-  physical files and Evidence markers remain unchanged. Repeating the same
-  abandonment is a no-op. It does not stop a running process and rejects
-  succeeded Runs, Runs failed for another reason, and outputs referenced by any
-  downstream Run.
-- `mv.session.get_or_create(name, question=None, *, report_timezone=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
-  — the default entry. The first call with a name creates the session; later calls
-  attach to the same immutable session id. An explicit string becomes the current
-  guiding question, while omitting `question` preserves the persisted value.
-  Either way the named session becomes current.
-- `mv.session.resume(identity, *, by=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
-  — explicitly resume one current-project session by its exact stable name or
-  immutable `sess_...` id. Unknown and ambiguous identities fail without
-  creating a session. It never changes the persisted name, question, or report
-  timezone. Omit `by` for normal resolution; after an ambiguous match, retry
-  with the closed selector `by="name"` or `by="id"` to choose the intended row.
-- `mv.session.current() -> Session | None` — a safe probe for the current session
-  (process-current, else the persisted `current_session_id`, else `None`). Both
-  process and persisted paths validate exact Store row schemas and reconcile
-  incomplete Runs without changing the question, timestamps, or current pointer;
-  cold rehydration additionally validates every registered Artifact sidecar.
-- `mv.session.recent(*, limit=20, cursor=None) -> SessionSummaryPage` — a bounded,
-  newest-updated-first keyset page for selective historical reference. This is
-  the discovery path for historical sessions; each summary supports bounded
-  `.show()`, and its exact `name` or immutable `id` can be passed to `resume`
-  to obtain a live `Session`.
-- `mv.session.inspect(name, *, frame_limit=10, job_limit=5) -> SessionInspection`
-  — a bounded metadata snapshot containing the exact session summary, recent
-  frame summaries, and recent jobs. It does not resume the session, move the
-  current pointer, touch timestamps, load semantic/datasource state, or expose
-  execution methods.
-- `mv.session.delete(name) -> None` — permanently remove a session and its
-  on-disk data; a no-op for unknown names.
+`storage = "local"` explicitly chooses the default. Additional named object
+bindings can remain configured for reading exact older Artifacts. Credentials
+are environment references; serialized project/Artifact state never contains the
+resolved secrets. An absent or invalid explicit binding fails without fallback.
+Changing the selected write target does not relocate retained results.
 
-`name` is the stable API lookup key and `session.id` remains the immutable
-persistence identity. Updating the current question never rewrites existing jobs,
-Artifacts, Evidence, lineage, or their `analysis_purpose`. `report_timezone` is
-persisted on first create; reopening with a conflicting value raises
-`SessionTimezoneConflict` (see
-[`timezone-and-calendar-design.md`](timezone-and-calendar-design.md)). `backends`
-and `backend_factory` are mutually exclusive; supplying both raises
-`SessionStateError`.
+Database result storage is absent. Registered native methods may scan immutable
+Parquet using transient DuckDB execution resources. Every primary and private
+part uses the exact selected storage authority, with independent schemas,
+cardinalities, hashes and integrity checks. Cleanup covers interrupted and failed
+publication without deleting another Run's resources.
+
+## Atomic Store v3
+
+A new Store publishes only a complete initialized generation3 database. Existing
+v0, v2 or other incompatible generations fail read-only preflight; their original
+bytes remain intact. No migration, dual reader or in-place generation upgrade is
+provided by this cutover.
+
+A successful publication commits the Run terminal, Artifact descriptor, storage
+receipts, Evidence and Findings together. A failed Run has no successful output;
+an interrupted Run is incomplete until its explicit lifecycle operation. Store
+writer ownership and caller-owned transactions govern all related records.
+
+## Recovery and bounded reads
+
+Use `session.runs(limit=..., cursor=...)`, `session.get_run(run_id)`,
+`session.artifact(reference)` and `session.graph(...)`. Runs have closed
+`incomplete`, `succeeded` and `failed` variants. Inspect the exact type before
+reading success-only or failure-only fields. Graphs report recorded input/output
+relationships; they do not infer or replay lineage.
 
 ```python
-import marivo.analysis as mv
-
-session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
-frame = session.observe(
-    metrics=session.catalog.require(ms.ref.metric("analytics.dau")).ref,
-    time_scope={"start": "2026-06-18", "end": "2026-06-25"},
-    grain="day",
-)
+run = session.get_run(run_id)
+if isinstance(run, mv.SucceededRun):
+    saved = session.artifact(run.output_artifact_ref)
+    saved.show()
 ```
 
-### Parameterized physical sources
+Recovery binds a concrete Materialized Dataset from retained facts. It does not
+open current sources. Retained filters, projection, aggregation and other admitted
+continuations use complete retained rows/private state. Their Runtime guards
+apply even when the final output is small. Source-offline cold recovery preserves
+stored report/read/calendar authority rather than resolving the new host's zone.
 
-`session.source_bindings({...})` supplies non-secret runtime values declared by
-`md.source_param(...)` on JSON Entity sources. It is a context manager rather
-than an `observe` keyword: one request scope can consistently cover planning,
-materialization, and any nested analysis calls without changing the stable
-semantic project.
-
-```python
-with session.source_bindings(
-    {
-        ms.ref.entity("monitoring.samples"): {
-            "start": "now-3600",
-            "end": "now",
-        },
-    }
-):
-    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
-```
-
-Bindings are validated against the current catalog before execution, nest with
-normal context-manager semantics, and are isolated with `ContextVar`. Each scope
-is keyed by its owning Session connection runtime, so another Session in the
-same task cannot consume its values. The exact non-secret values enter persisted
-observe params and scope identity. Credentials remain datasource-owned `*_env`
-references and are never accepted here.
-
-## Project-local persistence layout
-
-All analysis state lives project-locally under `<project_root>/.marivo/analysis/`.
-Nothing is written to user-global state (datasource secrets are the sole exception
-and live outside analysis). The layout, owned by `PersistenceLayout`:
-
-```text
-<project_root>/.marivo/analysis/
-  session_store.db                 # SQLite (WAL): the authoritative session index
-  sessions/<sess_id>/
-    meta.json                      # report timezone and known datasources
-    jobs/<job_id>.json             # full job records (intent, params, status, timing, output ref)
-    frames/<ref>/data.parquet      # frame data (snappy parquet via pyarrow)
-    frames/<ref>/meta.json         # BaseFrameMeta sidecar, content-hashed
-    scripts/                       # session-local script storage
-    judgment.db                    # evidence ledger (see evidence-access-surface.md)
-```
-
-Writes are atomic (temp file + `os.replace`) so an interrupted turn never leaves a
-partial `meta.json` or parquet. Evidence-backed Artifacts publish in one order:
-data/auxiliary files and `meta.json`, then the one-transaction evidence projection,
-then the Session Store index. A committed schema-v4 evidence Artifact row is the
-recovery marker for interruption before the final index write; exact recovery
-validates its session, canonical path, schemas, content hashes, evidence status,
-and digest before restoring the missing index row. Files without either an index
-row or that committed marker remain unreachable orphans. Paths recorded in the
-Session Store are **project-relative** (via `PersistenceLayout.relative_path`), so
-the `.marivo/` tree stays valid if the project directory is moved.
-
-If a non-lock projection transaction fails but `judgment.db` can still accept a
-fresh transaction, Marivo commits an `evidence_status="unavailable"` Artifact row
-and the exact `evidence_store_unavailable` issue without findings or a digest. That
-row is a truthful recovery marker, but it is not an immutable reuse hit when a
-later invocation requests evidence: the same deterministic Artifact ref retries
-the complete projection and atomically replaces the unavailable marker. If even
-the fallback transaction cannot be written for a first publication, the unavailable
-sidecar remains the only durable failure record. A failed retry of an existing
-unavailable marker instead restores its prior sidecar and Session Store registration
-before raising, preserving sidecar/ledger/index agreement.
-
-### The session store schema
-
-`session_store.db` is a single WAL-mode SQLite database — the ordinary authoritative
-index for sessions, the current-session pointer, artifacts, and jobs. Its Artifact
-row may be reconstructed only from the exact committed evidence marker described
-above; arbitrary frame directories never populate it:
-
-| Table | Columns | Role |
-| --- | --- | --- |
-| `sessions` | `id` PK, `name` UNIQUE, `question`, `cwd`, `created_at`, `updated_at` | Session index |
-| `runtime_state` | `key` PK, `value` | Small runtime pointers (e.g. `current_session_id`) |
-| `artifacts` | (`session_id`,`artifact_id`) PK, `kind`, `path`, `meta_path`, `content_hash`, `created_at`, `produced_by_job` | Frame index, FK→`sessions` `ON DELETE CASCADE` |
-| `jobs` | (`session_id`,`job_id`) PK, `intent`, `status`, `started_at`, `finished_at`, `output_artifact_id`, `record_path` | Job index, FK→`sessions` `ON DELETE CASCADE` |
-
-The store holds the index; the on-disk `frames/<ref>/` directory holds the data and
-the `BaseFrameMeta` sidecar. `frames/<ref>/meta.json` is the source of truth for a
-frame's kind, schema, semantic shape, lineage, quality, typed issues, evidence
-status, and bounded digest.
-
-## Content-addressed artifact identity
-
-Every persisted frame carries a `content_hash` computed from its `BaseFrameMeta`
-plus the parquet bytes (`compute_frame_content_hash`). After `observe()` /
-`compare()` return, `frame.ref` equals the deterministic artifact id, so a frame
-produced in one script can be reloaded in the next with
-`session.artifact(prev_frame.ref)`.
-
-`ref` is the single Artifact identity vocabulary: Artifacts expose
-`artifact.ref`, Run outputs expose `output_artifact_ref`, and typed
-`ArtifactRef` carries the same field. There is no `id` alias — one name end to end avoids agent
-selection and serialization burden.
-
-`frame.state` (an `ArtifactState`) carries only the baseline runtime facts:
-`materialization` (`materialized` | `recomputed` | `partial`) and `content_hash`.
-Cache, freshness, and superseded relationships are intentionally not baseline
-artifact fields — they are future extensions, and failure state belongs to
-job/recovery metadata, not the terminal artifact family. A content hash lets the
-runtime skip re-querying a backend for a deterministic computation that already
-materialized, but cache-hit correctness depends on the datasource snapshot and
-freshness, so identity is derived from resolved params + definition version +
-datasource freshness, never operator+params alone.
-
-## Cold-start rehydration
-
-Loop turn N+1 may lose every in-memory object. Recovery reads the current
-runtime schema without querying a datasource:
-
-- `mv.session.recent(...)` then `mv.session.inspect(name, run_limit=5)` provides
-  a bounded historical `RunPage` without resuming or mutating the Session;
-- `session.runs(...)` and `session.get_run(run_id)` expose the closed Run
-  lifecycle variants, exact Artifact inputs/output, and ordered captured query
-  executions on succeeded and failed Runs;
-- `session.artifact(ref)` reconstructs the exact committed Artifact;
-- `session.graph(...)` projects factual Run/Artifact adjacency, heads, failed
-  and incomplete Runs, with focused ancestor or descendant traversal;
-- `artifact.findings()` and `artifact.finding(id)` audit exact Findings;
-- `session.revalidate(ref)` checks persisted identity, current scoped semantic
-  authority, and evidence integrity.
-
-Session reads and the graph do not check semantic authority or datasource
-freshness. Revalidation does not query datasource health or prove freshness.
-No public API exposes frames, jobs, a Session Evidence namespace, digest pages,
-derivation traces, or Finding-selection compatibility.
-
-`Session.show()` reports exact Artifact and Run counts, bounded head and
-attention previews, Evidence status counts, and the canonical Run, Artifact,
-Graph, and revalidation continuations. Incompatible Store, Run, or Artifact
-schema fails before projection and does not modify the old directory.
-
-## Cross-session frame ownership
-
-Frame ownership across sessions is enforced, not advisory. Each `BaseFrameMeta`
-records its owning `session_id` and `project_root`; `session.artifact(ref)` raises
-`CrossSessionFrameError` when the ref belongs to a different session. A helper that
-consumes a frame therefore cannot silently mix artifacts from two sessions — the
-consuming session must own the frame it is handed.
-
-## Failure recovery
-
-Default operators fail loud: if `compare()` cannot produce a `DeltaFrame`, it
-raises a structured error rather than returning a widened `DeltaFrame | FailedStep`.
-When a multi-step script fails at step *k* with steps `1..k-1` already
-materialized, the session/job layer keeps the recoverable context so the next turn
-can reuse upstream work:
-
-- successfully materialized upstream artifact refs (in `artifacts` + on disk);
-- the failed step's operator, expected/received, and repair hints (structured
-  error);
-- every captured successful query before the failure and the final failed query
-  when compiled SQL was available;
-- the Run record with its lifecycle, retrievable via `runs()` / `get_run(run_id)`.
-
-SQLite `locked`/`busy` timeouts in either the Session Store or evidence ledger raise
-`SessionLockedByAnotherProcessError`. They are not silently retried, overwritten,
-or downgraded to `evidence_status="unavailable"`. A failed final index write leaves
-the already committed evidence marker recoverable on the next exact read or retry.
-Projection integrity failures are distinct from environment or permission failures:
-their typed repair directs a projection retry with the current Marivo build.
-
-An abrupt process termination may leave an incomplete Run. Activation first
-reconciles it when exactly one committed Evidence Artifact identifies the output.
-If several candidates remain, activation fails with a structured repair containing
-the exact immutable Session and Run ids. After confirming the executor stopped,
-call `mv.session.abandon_run(session_id=..., run_id=...)`, then resume by immutable
-id. The abandoned Run becomes a normal `FailedRun` with `error_type="RunAbandoned"`;
-there is no fourth lifecycle state and no public caller-authored failure payload.
-
-There is no non-raising batch API on the default surface; a future advanced
-`StepOutcome` / `try_*` path, if added, would not change the terminal artifact
-family.
-
-## The session DAG and factual navigation
-
-An analysis is a multi-Artifact DAG, not a single object — no one value "is the
-analysis." Cross-turn state is reconstructed from session-level facts that already
-exist, which is why there is no public `AnalysisSnapshot` artifact:
-
-- `session.runs()` — bounded typed execution history, exact Artifact refs, and
-  terminal query executions;
-- `session.graph()` — factual producer, consumer, reuse, head, and attention state;
-- per-artifact bounded reads — `show()`/`render()`, `contract()`, `state`,
-  `lineage`, `evidence_status`, and `evidence_digest`;
-- Artifact-owned bounded audit pages — `artifact.findings(...)`.
-
-The graph is a factual projection, not synthesis or a planner.
-Cross-artifact judgment and the decision to execute another operator belong to
-the agent. If the evidence store cannot be read, audit methods raise
-`EvidenceStoreUnavailableError`; an empty page means a healthy store matched no
-records.
-
-## Re-run and replay discipline
-
-Because operators are pure computations over content-addressed inputs, re-running an
-accumulated script is safe: identical resolved params + definitions + datasource
-freshness reproduce the same `content_hash`, so repeated execution does not create
-semantic drift, and unchanged upstream steps can be served from persisted frames
-instead of re-querying. The persisted Run/Artifact records let a script
-reconcile its intended step chain against what already materialized before deciding
-what to recompute.
-
-Terminal `SucceededRun` and `FailedRun` values expose `queries`. Each immutable
-query value carries the exact compiled SQL submitted to the backend, its
-literal-neutral shape digest, datasource/dialect, status, timing, and row count.
-The normalized SQL used to compute the digest is transient and parser-derived
-literal values are not persisted as driver bind parameters. `Run.show()` renders
-only query summaries; inspect `.queries` explicitly for SQL. Because SQL keeps
-its literal values, protect project-local `.marivo` state accordingly. An empty
-tuple means no captured query records, not proof that no datasource activity
-occurred. Artifact-reuse Runs intentionally publish an empty tuple, including
-post-execution content deduplication; inspect `output_mode` before interpreting
-query absence. Incomplete Runs do not expose queries, and process termination
-before a terminal transition may lose in-memory query capture.
+`session.revalidate(reference)` exposes separate Artifact, semantic-authority and
+Evidence integrity assessments. It is not a source-freshness verdict, permission
+to reuse stale values, or a business recommendation. Runtime cards and pages stay
+bounded and do not expose raw secrets or private implementation inventories.

@@ -796,6 +796,13 @@ def _canonical_catalog_type(type_name: str, *, backend_type: str) -> str:
     try:
         return str(ibis.dtype(type_name))
     except (TypeError, ValueError, RuntimeError):
+        if backend_type == "sqlite":
+            from ibis.backends.sql.datatypes import SQLiteType
+
+            try:
+                return str(SQLiteType.from_string(type_name).copy(nullable=True))
+            except (TypeError, ValueError, RuntimeError):
+                pass
         if backend_type == "clickhouse":
             try:
                 from ibis.backends.sql.datatypes import ClickHouseType

@@ -149,18 +149,16 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
                 "user_profile_daily = ms.entity(\n"
                 "    name='user_profile_daily',\n"
                 "    datasource=ms.ref.datasource('warehouse'),\n"
-                "    source=md.table('user_profile_daily'),\n"
-                "    primary_key=['user_id', 'dt'],\n"
+                "    source=md.table('user_profile_daily', columns={'user_id': md.source_column('user_id', data_type='int64'), 'dt': md.source_column('dt', data_type='string')}),\n"
+                "    primary_key=['user_id'],\n"
                 "    versioning=ms.snapshot(\n"
-                "        partition_field=ms.ref.dimension('sales.user_profile_daily.dt'),\n"
+                "        partition_field=ms.ref.time_dimension('sales.user_profile_daily.dt'),\n"
                 "        grain='day',\n"
                 "        timezone='Asia/Shanghai',\n"
                 "        format='%Y%m%d',\n"
                 "    ),\n"
                 ")\n"
-                "@ms.dimension(entity=user_profile_daily)\n"
-                "def dt(user_profile_daily):\n"
-                "    return user_profile_daily.dt\n"
+                "dt = ms.time_dimension_column(name='dt', entity=user_profile_daily, column='dt', granularity='day', parse=ms.strptime('%Y%m%d'))\n"
             ),
         }
     )

@@ -30,18 +30,18 @@ description: 向智能体说明业务问题，然后检查分析过程与证据�
 智能体先选择项目解释器，并运行一次 `<selected-python> -m marivo doctor` 验证实时环境。
 常规项目本地安装在 macOS、Linux 和 WSL 使用 `.venv/bin/python`，在 Windows 使用
 `.venv/Scripts/python.exe`。
-进入分析后，智能体优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的组合
-操作前读取 `.contract()`；只有当对象契约不足，或第一次使用不熟悉的能力时，才查询专项
+进入分析后，智能体优先使用手中已有的公开对象：用 Materialized Dataset 的 `.show()`
+读取已提交状态，在不熟悉的组合操作前读取 Dataset 的 `.contract()`；只有当对象契约不足，或第一次使用不熟悉的能力时，才查询专项
 `marivo.help(...)`（先 `import marivo`）。发生失败后，智能体按照结构化修复指引继续。
 专项帮助并不是每次 API 调用的前置步骤。
 
-类型化边界（`session.observe` 入、`frame.to_pandas()` / `md.raw_sql` 出）确保自定义分析
+类型化边界（`session.observe` 入、`materialized.to_pandas()` / `md.raw_sql` 出）确保自定义分析
 不会断开证据链。
 `RawSqlResult.shape` 和 `.row_count` 只表示有界返回行；该结果没有 `.contract()`，也不能
 回到类型化分析。Marivo 目前不提供类型化 regression；需要回归时仍使用显式的终端
 custom 分析。
 
-这些执行细节由实时帮助、frames 和结构化错误负责，不需要写进你的提示词。
+这些执行细节由实时 Help、Dataset 契约和结构化错误负责，不需要写进你的提示词。
 
 ## 继续之前需要检查什么
 

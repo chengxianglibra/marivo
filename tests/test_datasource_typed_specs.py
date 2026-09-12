@@ -26,8 +26,8 @@ from marivo.datasource.errors import (
     DatasourceSecretInPlaintextError,
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from tests.result_protocol_helpers import assert_conforms
 from tests.shared_fixtures import rendered_help
-from tests.test_agent_result_protocol import assert_conforms
 
 
 def _ir(

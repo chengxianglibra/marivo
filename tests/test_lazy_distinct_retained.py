@@ -7,11 +7,11 @@ from unittest.mock import patch
 import ibis
 import ibis.expr.types as ir
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from marivo.analysis.materialization import reads, storage
 from marivo.analysis.materialization.contracts import (
-    EngineReceipt,
     FileEntry,
     LocalReceipt,
     ObjectReceipt,
@@ -52,10 +52,11 @@ def _metric() -> LogicalMetricDataset:
 
 @pytest.mark.parametrize("reader", ["schema", "generic_part", "local_part", "payload"])
 def test_membership_rejected_before_generic_iterator_creation(tmp_path: Path, reader: str) -> None:
-    receipt = EngineReceipt(
-        "sales",
-        "c" * 64,
-        "parts/metric_membership.test/payload.duckdb",
+    entries = (FileEntry("data.parquet", 123, "a" * 64),)
+    receipt = LocalReceipt(
+        "parts/metric_membership.test",
+        entries,
+        manifest_digest(entries),
         "a" * 64,
         "b" * 64,
         3,
@@ -76,17 +77,13 @@ def test_membership_rejected_before_generic_iterator_creation(tmp_path: Path, re
             reads.payload_batches(tmp_path, receipt, policy=storage.ReadPolicy())
 
 
-@pytest.mark.parametrize("kind", ["engine", "local", "object"])
+@pytest.mark.parametrize("kind", ["local", "object"])
 def test_owned_membership_payload_layout_rejects_each_generic_adapter_before_iteration(
     tmp_path: Path, kind: str
 ) -> None:
     prefix = "artifacts/example/parts/delta_membership.current"
     receipt: StorageReceipt
-    if kind == "engine":
-        receipt = EngineReceipt(
-            "sales", "c" * 64, prefix + "/payload.duckdb", "a" * 64, "b" * 64, 3, 123
-        )
-    elif kind == "local":
+    if kind == "local":
         entries = (FileEntry("data.parquet", 123, "a" * 64),)
         receipt = LocalReceipt(
             prefix, entries, manifest_digest(entries), "a" * 64, "b" * 64, 3, 123
@@ -105,24 +102,25 @@ def test_owned_membership_payload_layout_rejects_each_generic_adapter_before_ite
 
 
 @pytest.mark.parametrize("parent", ["metric_membership.report", "parts/delta_membership.report"])
-def test_primary_engine_receipt_allows_membership_named_ancestor(
+def test_primary_parquet_receipt_allows_membership_named_ancestor(
     tmp_path: Path, parent: str
 ) -> None:
-    path = tmp_path / parent / "primary" / "payload.duckdb"
-    path.parent.mkdir(parents=True)
-    backend = ibis.duckdb.connect(str(path))
-    try:
-        backend.create_table("rows", pa.table({"value": [42]}))
-    finally:
-        backend.disconnect()
-    receipt = EngineReceipt(
-        "sales",
-        "c" * 64,
-        path.relative_to(tmp_path).as_posix(),
-        storage._hash_file(path),
+    directory = tmp_path / parent / "primary"
+    directory.mkdir(parents=True)
+    path = directory / "data.parquet"
+    pq.write_table(pa.table({"value": [42]}), path)
+    fingerprint = storage._hash_file(path)
+    entries = (FileEntry("data.parquet", path.stat().st_size, fingerprint),)
+    manifest = storage._manifest_bytes(entries)
+    (directory / "manifest.json").write_bytes(manifest)
+    receipt = LocalReceipt(
+        directory.relative_to(tmp_path).as_posix(),
+        entries,
+        manifest_digest(entries),
+        fingerprint,
         "b" * 64,
         1,
-        path.stat().st_size,
+        path.stat().st_size + len(manifest),
     )
     stream = reads.payload_batches(tmp_path, receipt, policy=storage.ReadPolicy())
     try:

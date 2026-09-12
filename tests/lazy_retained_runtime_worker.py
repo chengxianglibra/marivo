@@ -17,7 +17,7 @@ from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.local_worker import supervise
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import gt
@@ -77,7 +77,7 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
     if kind == "engine":
         assert isinstance(checkpoint, MaterializedPopulationDataset)
         registry, sidecar = make_execution_registry(project / "warehouse.duckdb")
-        runtime.target = EngineTarget(next(iter(registry.datasources)))
+        runtime.target = LocalTarget()
         sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         definitions = [
             sources.observe(metric, population=checkpoint).aggregate() for metric in (REVENUE, MEAN)

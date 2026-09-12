@@ -176,11 +176,11 @@ def test_namespace_and_definition_identity_are_pure_and_private() -> None:
     for name in (
         "LogicalCandidateDataset",
         "MaterializedCandidateDataset",
-        "CandidateDataset",
-        "MetricDiscovery",
-        "DeltaDiscovery",
     ):
-        assert name not in exports and not hasattr(mv, name)
+        assert name in exports and hasattr(mv, name)
+    assert "CandidateDataset" not in exports and not hasattr(mv, "CandidateDataset")
+    assert "MetricDiscovery" not in exports and not hasattr(mv, "MetricDiscovery")
+    assert "DeltaDiscovery" not in exports and not hasattr(mv, "DeltaDiscovery")
     assert "descriptive screening" in first.contract().render()
     for value in (first, first.where(gt(first.fields.get("score"), 0))):
         rendered = value.contract().render()

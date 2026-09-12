@@ -13,7 +13,6 @@ from marivo.analysis.domains.lifecycle import LifecyclePayload
 from marivo.analysis.domains.lifecycle_reducers import (
     LifecycleSelectionPayload,
 )
-from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     ComparisonInputAuthority,
@@ -26,6 +25,7 @@ from marivo.analysis.materialization.contracts import (
     required_retained_contracts,
 )
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.quality import QualitySummary
 from marivo.analysis.materialization.storage import DatasetWriteResult
 from marivo.analysis.observation.contracts import (
     MetricPayload,

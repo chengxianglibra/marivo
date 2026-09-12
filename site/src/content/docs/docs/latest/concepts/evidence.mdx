@@ -1,64 +1,46 @@
 ---
 title: Evidence
-description: Audit Findings through their owning Artifact while keeping authority and freshness distinct.
+description: Read committed Dataset Findings and inspect separate integrity and authority facts.
 ---
 
-Marivo records deterministic analysis evidence. It does not combine Findings,
-judge causality or business validity, or choose a next action.
-
-## Read the current Artifact
+Evidence records deterministic facts about a committed Dataset. The agent owns
+cross-result synthesis, business judgment and causal interpretation.
 
 ```python
-artifact = session.compare(current, baseline)
+artifact = current.compare(baseline).execute()
 artifact.show()
-print(artifact.evidence_status, artifact.finding_count)
-```
-
-`evidence_status` is `complete`, `partial`, or `unavailable`. The embedded
-`evidence_digest` is a bounded immediate recap. Audit omitted or exact evidence
-through the same Artifact:
-
-```python
+print(artifact.evidence_digest.finding_count)
 page = artifact.findings(limit=20)
-finding = artifact.finding(page.items[0].finding_id)
+if page.items:
+    artifact.finding(page.items[0].finding_id).show()
 ```
 
-`FindingPage` is immutable. Pass `next_cursor` back to the same method when
-`has_more` is true. Each Finding retains its complete derivation, source
-Artifact, source fields and refs, and retained digest-item refs, so there is no
-separate derivation-trace API.
+This continuation assumes two compatible Metric Datasets in one Session. A Logical
+Dataset has no retained Evidence reads before execution. ArtifactDigest versionv3
+retains exact Artifact/extractor identity and quality, issue, Evidence and
+Finding-set digests plus the Finding count. It is not a generated narrative.
 
-## Recover after a cold start
+FindingPage has immutable items, limit, has_more and an opaque next_cursor. Follow
+the cursor through the same owning Artifact. Missing/corrupt state fails explicitly;
+an empty page does not hide an unavailable Store.
+
+## Cold recovery
 
 ```python
-runs = session.runs(limit=20)
-run = session.get_run(runs.items[0].run_id)
-artifact = session.artifact(run.output_artifact_ref)
-graph = session.graph(artifact_ref=artifact.ref, direction="ancestors")
+run = session.get_run(run_id)
+if isinstance(run, mv.SucceededRun):
+    artifact = session.artifact(run.output_artifact_ref)
+    artifact.show()
 ```
 
-Run history and SessionGraph project persisted runtime facts only. They do not
-check current semantic authority or datasource freshness. For a succeeded or
-failed Run, inspect `run.queries` when exact executed SQL matters; the default
-Run card shows only bounded query summaries.
+Run history and graphs project committed facts. Recovery does not query current
+sources or replay an origin recipe. `session.revalidate(artifact.state.artifact_ref)`
+reports separate Artifact, semantic-authority and Evidence integrity assessments.
+It does not prove datasource freshness or business suitability.
 
-## Check current authority
+Delta and Attribution are algebraic; Association is descriptive; Forecast is a
+model result; Candidate rows are evaluated leads. Preserve their retained scope,
+selection, quality and completeness limitations in the final interpretation.
 
-```python
-check = session.revalidate(artifact.ref)
-check.show()
-```
-
-Revalidation checks persisted identity, current scoped semantic authority, and
-Evidence integrity. It still does not query datasource health or prove
-freshness. `admissible` does not mean business-valid, recommended, or current at
-the source.
-
-## Failure boundaries
-
-- An unreadable ledger raises `EvidenceStoreUnavailableError`; it is never an empty page.
-- An id not owned by the Artifact raises `FindingNotFoundError`.
-- Incompatible Store, Run, or Artifact schema fails before projection and leaves old bytes unchanged.
-- There is no Session Evidence namespace, digest page, Finding-selection compatibility, or alias.
-
-Start from `marivo.help("analysis.evidence")` for the current canonical routes.
+Start at `marivo.help("analysis.evidence")` for current focused routes. A terminal
+custom DataFrame or raw SQL result cannot re-enter governed Dataset analysis.

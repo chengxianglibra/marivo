@@ -28,6 +28,8 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
         "event_matching": [],
         "discovery": [],
         "session.namespace": [],
+        "runtime.sessions": ["session.namespace"],
+        "runtime.runs": [],
         "datasets": [],
     }
     nested = {
@@ -62,6 +64,10 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
                 groups["datasets"].append(target)
             elif isinstance(descriptor, TypeInput):
                 buckets["evidence" if provider.owner == "runtime" else "inputs"].append(target)
+            elif provider.owner == "runtime" and target in ("Session.show", "Session.render"):
+                groups["runtime.sessions"].append(target)
+            elif provider.owner == "runtime" and target in ("session.runs", "session.get_run"):
+                groups["runtime.runs"].append(target)
             elif provider.owner == "runtime":
                 buckets["runtime"].append(target)
             elif target.startswith("actions.") or target == "Session.source_bindings":
@@ -73,7 +79,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
                 buckets["inputs"].append(target)
             else:
                 buckets["methods"].append(target)
-    buckets["entry"].append("session.namespace")
+    buckets["runtime"].extend(("runtime.sessions", "runtime.runs"))
     buckets["artifacts"].append("datasets")
     buckets["inputs"].extend(("filters", "forecast_models", "event_matching"))
     buckets["methods"].append("discovery")

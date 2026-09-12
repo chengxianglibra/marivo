@@ -11,6 +11,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.semantic.catalog import SemanticCatalog
 
 
@@ -59,7 +60,12 @@ def test_sqlite_agent_native_authoring_journey(
                 orders = ms.entity(
                     name="orders",
                     datasource=ms.ref.datasource("warehouse"),
-                    source=md.table("orders"),
+                    source=md.table("orders", columns={
+                        "order_id": md.source_column("order_id", data_type="int64"),
+                        "amount": md.source_column("amount", data_type="float64"),
+                        "created_at": md.source_column("created_at", data_type="timestamp"),
+                    }),
+                    primary_key=["order_id"],
                     ai_context=ms.ai_context(
                         business_definition="Accepted sales orders.",
                         guardrails=["Use only accepted order rows."],
@@ -117,7 +123,9 @@ def test_sqlite_agent_native_authoring_journey(
 
     assert catalog.require(revenue).ref == revenue
     assert sql_result.rows == ({"order_count": 2},)
-    assert catalog.preview(revenue, scope=snapshot.scope).status == "passed"
+    preview = catalog.preview(revenue, scope=snapshot.scope)
+    assert preview.status == "passed"
+    assert preview.rows == ({"value": pytest.approx(30.0)},)
     readiness = catalog.readiness(refs=[revenue])
     assert revenue in readiness.analysis_ready_inputs
     source_health = catalog.source_health(
@@ -127,7 +135,7 @@ def test_sqlite_agent_native_authoring_journey(
     )
     readiness_after_health = catalog.readiness(refs=[revenue])
 
-    assert source_health.status == "current"
+    assert source_health.status == "current", source_health.to_dict()
     assert tuple(check.kind for check in source_health.checks) == (
         "connectivity",
         "schema",
@@ -151,6 +159,9 @@ def test_sqlite_agent_native_authoring_journey(
         revenue,
         time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
     )
-    result = frame.to_pandas()
-
-    assert result["revenue"].iloc[0] == pytest.approx(30.0)
+    logical = frame.aggregate()
+    assert isinstance(logical, mv.LogicalMetricDataset)
+    with pytest.raises(DatasetCompilationError, match="source-required method"):
+        logical.execute()
+    assert session.runs().items == ()
+    assert not session._runtime.statistics.statements

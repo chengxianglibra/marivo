@@ -34,7 +34,6 @@ catalog = ms.load()  # env, nearest ancestor manifest, or current directory
 catalog = ms.load(workspace_dir=".", domains=["sales"])  # exact workspace root + filter
 catalog.domains.show()
 ```
-
 Loader rules:
 
 - Each domain calls `ms.domain(name=..., owner=...)` once in
@@ -77,7 +76,6 @@ orders.dimensions.show()
 revenue = catalog.require(ms.ref.metric("sales.revenue"))
 revenue.details().show()
 ```
-
 `SemanticCatalog` exposes one global collection per object type:
 `catalog.domains`, `catalog.datasources`, `catalog.entities`,
 `catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`,
@@ -181,13 +179,8 @@ entry = collection.get("metric:sales.revenue")  # full path or displayed typed k
 entry.show()
 entry.details().show()
 marivo.help(entry)                             # current details and kind handoff
-frame = session.observe(
-    entry,
-    time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
-    grain=mv.grain("month"),
-)
+dataset = session.observe(entry, time_scope=mv.time_scope(start='2026-07-01', end='2026-10-01')).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
 ```
-
 `ms.load()` and `session.catalog` build separate immutable catalog snapshots
 over the same semantic project. They share the same browse contract and normally
 share a definition fingerprint when project state is unchanged, but a
@@ -335,7 +328,6 @@ catalog.preview(
 ).show()
 catalog.readiness(refs=[revenue]).show()
 ```
-
 These runtime methods accept an exact entry from the current compiled catalog or
 its exact ref and normalize immediately to the canonical ref. Ordered batches
 are normalized completely before preview begins. No `CatalogEntry`, catalog

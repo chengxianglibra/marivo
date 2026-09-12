@@ -43,6 +43,7 @@ from marivo.analysis.funnel import FunnelLossRate, funnel_loss_rate
 from marivo.analysis.lifecycle import FromInception, from_inception
 from marivo.analysis.session._lazy_sources import LazyEvents, LazyLifecycle
 from marivo.analysis.subject import DroppedBefore, dropped_before
+from marivo.refs import SemanticKind
 
 
 def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
@@ -147,6 +148,9 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 target,
                 entry,
                 value,
+                semantic_kinds=(SemanticKind.EVENT,)
+                if target == "events.match"
+                else (SemanticKind.STATE_MODEL,),
                 summary=constraint,
                 parameters=parameters,
                 output=output,

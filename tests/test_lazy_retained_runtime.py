@@ -9,7 +9,7 @@ import pytest
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.materialization.contracts import EngineReceipt, LocalReceipt
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.observation.sampling import engine_sample
@@ -82,9 +82,6 @@ def test_projection_does_not_read_unrelated_component_part(
         (
             tmp_path / unwanted.project_relative_path / unwanted.file_manifest[0].relative_path
         ).unlink()
-    else:
-        assert isinstance(unwanted, EngineReceipt)
-        (tmp_path / unwanted.qualified_relation_ref).unlink()
     fixture.database.rename(tmp_path / "offline.duckdb")
     assert checkpoint.metric(REVENUE).execute().to_pandas()["revenue"].fillna(-1).tolist() == [
         10,
@@ -128,8 +125,8 @@ def test_engine_metric_identity_projection_uses_exact_checkpoint(tmp_path: Path)
     assert retained is not None
     for part in retained.descriptor.retained_parts:
         receipt = part.storage_receipt
-        assert isinstance(receipt, EngineReceipt)
-        (tmp_path / receipt.qualified_relation_ref).unlink()
+        assert isinstance(receipt, LocalReceipt)
+        (tmp_path / receipt.project_relative_path / "data.parquet").unlink()
     with duckdb.connect(str(fixture.database)) as backend:
         backend.execute("DROP TABLE customers")
     output = fixture.sources.observe(MEAN, population=checkpoint).execute()

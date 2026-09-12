@@ -80,8 +80,8 @@ def result_repr(identity: str) -> str:
         ``"<{identity}; call .show() to inspect>"``.
 
     Example:
-        >>> result_repr("MetricFrame ref=frame_ab12 rows=7")
-        '<MetricFrame ref=frame_ab12 rows=7; call .show() to inspect>'
+        >>> result_repr("ArtifactDigest ref=artifact_ab12 findings=7")
+        '<ArtifactDigest ref=artifact_ab12 findings=7; call .show() to inspect>'
 
     Constraints:
         identity must not contain a newline.

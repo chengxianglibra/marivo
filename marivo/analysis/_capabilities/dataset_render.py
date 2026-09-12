@@ -13,11 +13,42 @@ from marivo.analysis._capabilities.dataset_registry import DatasetDisclosureRegi
 from marivo.analysis._capabilities.model import (
     ANALYSIS_HELP_RENDER_BUDGETS,
     AnalysisHelpRenderClass,
+    ReadCapability,
 )
 
 
 def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
     resolved = registry.resolve(target)
+    if resolved.kind in ("error_contract", "error_briefing"):
+        from marivo.analysis.errors import AnalysisError
+
+        lines = [resolved.error_name or "AnalysisError", "  Analysis error contract."]
+        original = resolved.original
+        if isinstance(original, AnalysisError) and original.repair is not None:
+            for name in ("message", "expected", "received", "location"):
+                value = getattr(original, name)
+                if value is not None:
+                    lines.append(f"  {name.title()}: {value}")
+            repair = original.repair
+            lines.extend(("  Repair:", "    Kind: " + repair.kind, "    Action: " + repair.action))
+            if repair.snippet:
+                lines.extend("    " + line for line in repair.snippet.splitlines())
+            if repair.candidates:
+                lines.append("    Candidates: " + ", ".join(repair.candidates))
+            help_target = repair.help_target
+            qualified = help_target.surface + (
+                "." + help_target.canonical_id if help_target.canonical_id else ""
+            )
+            lines.append('    Next help: marivo.help("' + qualified + '")')
+        else:
+            lines.append(
+                "  Concrete repair guidance is available only when an instance carries repair.help_target."
+            )
+        text = "\n".join(lines) + "\n"
+        budget = ANALYSIS_HELP_RENDER_BUDGETS["current_briefing"]
+        if len(text.splitlines()) > budget.max_lines or len(text) > budget.max_codepoints:
+            raise invalid("bounded analysis error Help", "error briefing exceeds the native budget")
+        return text
     canonical = resolved.canonical_id if resolved.canonical_id is not None else resolved.type_name
     if canonical is None:
         raise invalid("native static target", "no descriptor identity")
@@ -28,9 +59,36 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
     render_class: AnalysisHelpRenderClass
     examples = 0
     if isinstance(descriptor, NavigationInput):
+        if descriptor.render_class == "root":
+            from marivo.introspection.live.model import EnvironmentFingerprint
+            from marivo.introspection.live.render import render_fingerprint
+
+            lines.insert(0, render_fingerprint(EnvironmentFingerprint.current(), reveal=True))
         render_class = descriptor.render_class
         routes = descriptor.members
         lines.extend("  marivo.help('analysis." + t + "')" for t in routes)
+    elif isinstance(descriptor, ReadCapability):
+        render_class = "exact_callable"
+        lines.append("Call: " + descriptor.public_entrypoint)
+        lines.append("Result: " + (descriptor.output_type or descriptor.result_kind))
+        lines.append("Bound: " + descriptor.read_bound)
+        lines.append("Owner: " + descriptor.receiver_family)
+        import inspect
+
+        from marivo.introspection.live.reflect import import_registered_callable
+
+        if descriptor.callable_path is not None:
+            value = import_registered_callable(descriptor.callable_path)
+            if callable(value):
+                lines.append("Signature: " + str(inspect.signature(value)))
+        lines.extend(
+            (
+                "Requires: a loaded project catalog and certified temporal artifacts for temporal reads.",
+                "Example:",
+                descriptor.example,
+            )
+        )
+        examples = 1
     elif isinstance(descriptor, CallableInput):
         render_class = "exact_callable"
         signatures = tuple(dict.fromkeys(str(b.signature) for b in descriptor.bindings))

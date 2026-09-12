@@ -15,7 +15,7 @@ from marivo.analysis.materialization import contracts as c
 from marivo.analysis.materialization import reads
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import ReadPolicy, StoragePolicy
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.runtime
 
 
 def _part_schema(project: Path, receipt: c.StorageReceipt) -> pa.Schema:
-    if isinstance(receipt, c.EngineReceipt):
+    if isinstance(receipt, c.LocalReceipt):
         backend = ibis.duckdb.connect(str(project / receipt.qualified_relation_ref), read_only=True)
         try:
             return backend.to_pyarrow(backend.table("rows").limit(0)).schema
@@ -49,7 +49,7 @@ def test_only_selected_part_is_read_and_missing_required_part_fails(
     assert record is not None and len(record.descriptor.retained_parts) == 2
     selected, unrelated = record.descriptor.retained_parts
     schema = _part_schema(tmp_path, selected.storage_receipt)
-    if isinstance(unrelated.storage_receipt, c.EngineReceipt):
+    if isinstance(unrelated.storage_receipt, c.LocalReceipt):
         (tmp_path / unrelated.storage_receipt.qualified_relation_ref).unlink()
     assert len(result.to_pandas()) == 4
     batches = tuple(
@@ -143,11 +143,7 @@ def test_storage_can_exceed_collection_limit_without_admitting_local_reduction(
     kind: str,
 ) -> None:
     runtime, sources, database = setup_local(tmp_path)
-    runtime.target = (
-        EngineTarget(next(iter(sources._owner.semantic_registry.datasources)))
-        if kind == "engine"
-        else ObjectTarget("fixture")
-    )
+    runtime.target = LocalTarget() if kind == "engine" else ObjectTarget("fixture")
     runtime.object_bindings = ()
     with duckdb.connect(str(database)) as db:
         db.execute("INSERT INTO orders (id, amount) SELECT i + 1000, 1.0 FROM range(100001) t(i)")

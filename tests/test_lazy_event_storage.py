@@ -13,6 +13,7 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.compiler.ordering import ordered_relation
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.domains.completeness import (
@@ -36,7 +37,6 @@ from marivo.analysis.materialization.contracts import (
     parse_json,
     schema_fingerprint,
 )
-from marivo.analysis.materialization.engine import ordered_relation
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.event_codec import (
     EventEvidenceSummary,
@@ -225,7 +225,7 @@ def test_event_dense_stream_roundtrips_across_every_batch_boundary(tmp_path: Pat
     assert pd.isna(frame.elapsed_from_start.iloc[-1])
 
 
-def test_event_engine_order_uses_current_initial_step_rows_after_cold_decode() -> None:
+def test_event_native_order_uses_current_initial_step_rows_after_cold_decode() -> None:
     _, descriptor, table, _ = _value()
     restored = decode_descriptor(encode_descriptor(descriptor))
     backend = ibis.duckdb.connect()

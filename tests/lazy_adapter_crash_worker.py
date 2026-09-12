@@ -28,7 +28,7 @@ from marivo.analysis.materialization.contracts import (
 from marivo.analysis.materialization.errors import RecoveryPendingError
 from marivo.analysis.materialization.object_termination import OBJECT_REQUEST_CAPABILITY
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget, S3Access
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
@@ -199,11 +199,7 @@ def run(
     )
     before = describe(runtime)
     registry, sidecar = make_execution_registry(project / "warehouse.duckdb")
-    runtime.target = (
-        EngineTarget(next(iter(registry.datasources)))
-        if kind == "engine"
-        else ObjectTarget("fixture")
-    )
+    runtime.target = LocalTarget() if kind == "engine" else ObjectTarget("fixture")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     pending = False
     with (
@@ -226,9 +222,7 @@ def run(
     }
 
     if value.get("point") == "after_commit":
-        independent = DatasetRuntime.create(
-            project, "independent", target=EngineTarget(next(iter(registry.datasources)))
-        )
+        independent = DatasetRuntime.create(project, "independent", target=LocalTarget())
         independent_sources = independent.sources(semantic_registry=registry, sidecar=sidecar)
         assert (
             len(independent_sources.population(ref.entity("sales.customers")).execute().to_pandas())

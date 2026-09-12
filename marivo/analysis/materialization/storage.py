@@ -95,7 +95,7 @@ class PartWriteSpec:
 
 @dataclass(frozen=True, slots=True)
 class IndependentPartWrite:
-    """An independently counted canonical Lifecycle part in the primary transaction."""
+    """An independently counted owner-declared part in the primary transaction."""
 
     role: str
     batches: Iterable[pa.RecordBatch]
@@ -714,15 +714,13 @@ def write_local_dataset(
         for part in parts
     ):
         reject_source_private_transfer()
-    if independent_parts:
-        from marivo.analysis.domains.lifecycle import ROLES
+    from marivo.analysis.materialization.private_parquet import independent_contracts
 
-        if (
-            row_contract.shape_id.family_id != "lifecycle"
-            or tuple(part.role for part in independent_parts) != ROLES
-            or parts
-        ):
-            _fail("the three canonical Lifecycle roles", "invalid independent retained parts")
+    independent_specs = independent_contracts(row_contract)
+    if tuple(part.role for part in independent_parts) != tuple(independent_specs):
+        _fail("all exact owner-declared independent roles", "invalid independent retained parts")
+    if set(independent_specs) & {part.role for part in parts}:
+        _fail("one writer for each retained role", "duplicate independent role")
     staging = _checked_path(project_root, staging_path)
     final = _checked_path(project_root, final_path)
     if staging.exists() or final.exists() or staging == final:
@@ -824,11 +822,16 @@ def write_local_dataset(
             (part.role, part.contract_id, part.contract_version) for part in parts
         )
         for independent in independent_parts:
-            from marivo.analysis.materialization.lifecycle_publication import part_schema
-            from marivo.analysis.materialization.retained import checked_component_batches
+            from marivo.analysis.materialization.retained import (
+                checked_component_batches,
+                component_schema,
+            )
 
-            event("lifecycle_part_write")
-            event(f"lifecycle_part_write.{independent.role}")
+            event("retained_part_write")
+            event(f"retained_part_write.{independent.role}")
+            if row_contract.shape_id.family_id == "lifecycle":
+                event("lifecycle_part_write")
+                event(f"lifecycle_part_write.{independent.role}")
             directory = f"parts/{independent.role}"
             target = staging / directory
             _create_directory(target)
@@ -843,7 +846,7 @@ def write_local_dataset(
                     batch = _normalize_batch(incoming, policy.max_batch_bytes)
                     if part_schema_value is None:
                         part_schema_value = batch.schema
-                        part_schema(row_contract, independent.role, part_schema_value)
+                        component_schema(row_contract, independent.role, part_schema_value)
                         part_writer = pq.ParquetWriter(
                             part_sink,
                             part_schema_value,
@@ -852,7 +855,7 @@ def write_local_dataset(
                             write_page_checksum=True,
                         )
                     if not batch.schema.equals(part_schema_value, check_metadata=False):
-                        _fail("one canonical part schema", "changing Lifecycle part schema")
+                        _fail("one canonical part schema", "changing independent part schema")
                     assert part_writer is not None
                     part_writer.write_batch(batch, row_group_size=policy.row_group_rows)
                     part_count += batch.num_rows
@@ -861,11 +864,13 @@ def write_local_dataset(
                     part_writer.close()
                 part_sink.close()
             if part_schema_value is None:
-                _fail("an empty or populated schema-carrying part", "missing Lifecycle part stream")
+                _fail(
+                    "an empty or populated schema-carrying part", "missing independent part stream"
+                )
             schemas.append(part_schema_value)
             directories += (directory,)
             row_counts += (part_count,)
-            retained_specs += ((independent.role, independent.role, 1),)
+            retained_specs += ((independent.role, independent_specs[independent.role], 1),)
         if sampling:
             directory = "parts/population_sampling_state"
             target = staging / directory

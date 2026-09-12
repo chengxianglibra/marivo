@@ -1,515 +1,110 @@
-# Marivo's Agent-Friendly Public Surface
+# Marivo's Agent-Facing Public Surface
 
-Status: synthesis design note. This document explains the design thinking behind
-Marivo's public Python surface — why it is shaped the way it is, how it is
-layered, and how each core API progressively discloses itself to a coding agent.
-It is a conceptual overview, not an API reference. The generated API reference
-lives under [`docs/api/`](../api/README.md) and in the global
-`marivo.help(...)` output; the domain contracts live in
-[`specs/semantic/overview.md`](semantic/overview.md)
-and [`specs/analysis/python-analysis-design.md`](analysis/python-analysis-design.md).
+Marivo is consumed through a write-run-read loop. The agent chooses the business
+question, evaluates evidence and owns conclusions. The library owns deterministic
+meaning, typed computation, bounded disclosure, exact ownership and concrete repair.
 
-It synthesizes several committed design documents rather than introducing new
-behavior. Where a claim traces to a specific design, that design is linked
-inline. When code and this note disagree, the linked design and the code are the
-sources of truth.
+## One public coordinator
 
-## Who the reader is
+Import `marivo` for Help, `marivo.datasource as md`, `marivo.semantic as ms`, and
+`marivo.analysis as mv`. `marivo.help()` introduces the concepts and routes to
+`marivo.help("authoring")` or `marivo.help("analysis")`. Focused targets are
+progressively discovered beneath those roots. Optional ontology capabilities
+belong to their independent extension contract.
 
-Marivo's public surface is the Python library: one global help coordinator,
-three execution modules, and one optional knowledge extension:
+The analysis root has bounded entry, methods, inputs, artifacts, evidence and
+runtime hubs. Native descriptors own callable bindings, signatures, output
+families, examples, effects, errors and navigation. Public exports are pinned by
+independent snapshots, and every focused target resolves through the coordinator.
+There is no renderer-owned shadow inventory or compatibility execution alias.
 
-```python
-import marivo  # bounded global and focused help
-import marivo.datasource as md  # physical connections + datasource evidence
-import marivo.semantic as ms  # the business-object contract
-import marivo.analysis as mv  # typed, composable analysis operators
-import marivo.ontology as mo  # optional reviewed semantic relationships
-```
+## State distinguishes computation from inspection
 
-The primary consumer of this surface is not a human at a REPL. It is a coding
-agent — Claude Code, Codex, and their kin — operating a **write → run → read →
-decide** loop: the agent writes a short Python script, runs it, reads the
-output, and decides the next step. Every design choice below follows from taking
-that reader seriously.
-
-Three consequences drive the whole design:
-
-1. **Context is scarce and expensive.** An agent's working memory is its context
-   window. Unbounded or unexpected terminal output is not a cosmetic problem; it
-   is context pollution that can crowd out the task. The surface must never dump
-   data the caller did not ask for.
-2. **The agent cannot be trusted to remember a private DSL.** It reasons from
-   what it can read at the call site — signatures, `repr()`, error messages,
-   bounded result cards. So the surface must **teach itself from real state**,
-   over and over, rather than assuming prior knowledge.
-3. **The agent, not the library, owns business judgment.** Marivo is a
-   deterministic analysis kernel: it exposes typed computation, evidence,
-   lineage, contracts, and fail-closed errors. It never decides the user's next
-   business step or acts as a planner. That boundary is a feature — it keeps the
-   library's promises small and verifiable.
-
-The single organizing rule that falls out of this is a division of labor:
-
-> **The library owns the contract. The skill owns the boundaries. The agent owns
-> the judgment.**
-
-Everything else in this document is an elaboration of that sentence.
-
-## The core principles
-
-The public surface is governed by a small set of invariants (the "Agent-Facing
-Surface Principles" in [`AGENTS.md`](../../AGENTS.md), plus the result
-contract from the
-[agent-friendly public API design](../superpowers/specs/2026-06-09-agent-friendly-public-api-design.md)).
-They are review criteria and, increasingly, test-enforced contracts:
-
-- **Errors teach.** Every typed error states what was expected, what was
-  received, and the concrete next step — and its suggestions are built from real
-  state (catalog contents, nearby ids), never hardcoded. There is no silent
-  fallback: an operation that cannot prove its contract fails closed with a
-  structured error rather than guessing.
-- **One path per capability.** Each task has exactly one public entry point.
-  Nothing described as "internal — use X instead" may appear in a module's
-  `__all__`. When one unqualified string is both a canonical target on one
-  surface and another surface's public-entrypoint alias, the exact canonical
-  target wins; two exact canonical matches remain ambiguous rather than using
-  surface order.
-- **`__repr__` is the floor.** Every public result type has a bounded,
-  single-line `repr()` that carries kind and identity and points to `.show()`.
-  Default dataclass/pydantic reprs — which dump every field — are not acceptable
-  on a public result type.
-- **Terminal results share one protocol.** Every object an agent stops to read
-  implements the same bounded inspection surface, so the agent learns it once
-  and reuses it everywhere.
-- **Surface growth is gated.** Public `__all__` sets are pinned by snapshot
-  tests. Adding a public symbol is a deliberate, reviewed decision, not an
-  incidental export.
-- **Discovery is progressive and bounded.** `marivo.help()` is a short concept
-  page that routes only to the authoring or analysis tree; detail is reached by
-  drilling in, never by dumping a flat catalog.
-- **Precise types over optional-field mega-classes.** The surface prefers one
-  entry shape with closed, kind-dispatched variants (e.g. `MetricFrame[time_series]`)
-  over a single class riddled with optional fields. Precise types fail loudly at
-  the call site; optional-field unions fail silently downstream.
-
-## The no-side-effect result contract
-
-The most load-bearing principle deserves its own section, because it is what
-makes the write-run-read loop *safe*. It comes from the
-[agent-friendly public API result design](../superpowers/specs/2026-06-09-agent-friendly-public-api-design.md).
-
-**Result-producing APIs compute and return; they never print.** Help APIs are
-the sole, explicit exception: calling `marivo.help(...)` *is* the inspection
-action, so it prints bounded text and returns `None`.
+Source constructors and Dataset methods return Logical Datasets silently. Their
+repr identifies kind, shape and definition and points to `execute()`. Construction
+and `contract()` do not read source rows. Explicit execution returns the paired
+Materialized Dataset, whose repr points to `show()` for bounded retained inspection.
 
 ```python
-frame = session.observe(revenue, time_scope={"start": "2026-06-01", "end": "2026-06-08"})
-# stdout is unchanged — nothing printed
-frame
-# <MetricFrame ref=frame_ab12 metric=sales.revenue rows=7; call .show() to inspect>
-frame.show()
-# ...bounded result card printed here, on purpose...
+logical = session.observe(revenue, time_scope=mv.time_scope(
+    start="2026-06-01", end="2026-06-08"
+)).aggregate()
+result = logical.execute()
+result.show()
 ```
 
-Why this asymmetry is the right default:
-
-- If an agent *forgets* to inspect a result, the script stays quiet and
-  recoverable. The returned object still carries a one-line `repr()` that points
-  to `.show()`, so a silent result is never a dead end.
-- If an API printed *by default*, a single missed opt-out in a multi-step script
-  could flood the agent's context with intermediate results — exactly the
-  failure mode the surface exists to prevent.
-
-Runtime safety therefore does not depend on every generated script remembering a
-"quiet" flag. Quiet is the floor, not an option.
-
-### The three-method floor, and the bounded card
-
-Every terminal result — an object an agent stops to read — conforms to a shared
-structural protocol (`AgentResult` in `marivo/render.py`), enforced by a
-contract test rather than a base class
-([agent result surface design](../superpowers/specs/2026-06-13-agent-result-surface-design.md)):
-
-```python
-repr(result)  # one line: kind + identity + "call .show() to inspect"; no IO
-result.render()  # the same bounded plain-text card, returned as a string, no IO
-result.show()  # prints render() + newline, returns None
-```
-
-`show()`/`render()` emit a **bounded result card**, not a data dump. Analysis
-cards have a fixed decision-first order: identity and status; analysis purpose
-and family-specific interpretation context; issues, inference boundaries, and
-subject-labelled evidence; table columns and preview rows when tabular; exact
-omission/recovery detail; and the `available:` footer. The default read stops at
-the first of 50 rows or 8 KiB. Passing `max_output_bytes=None` preserves every
-row. Any omission reports `displayed`, `total`, and `omitted`, plus a copyable
-`session.artifact('<ref>').to_pandas()` recovery call; data is never silently
-omitted.
-
-Analysis cards use the real table header as the sole column display. Complete
-ordered `output_columns` and direct semantic inputs — including role/path and a
-copyable `session.catalog.<collection>.get("<path>")` acquisition call — live
-only in the mechanical `contract().show()` view. This guidance is derived from
-persisted artifact metadata and the catalog member registry; it does not infer
-semantic ownership from a physical column name.
-
-The `available:` footer is a **small inspection protocol bound to the type**,
-not a recommendation engine or capability inventory. State-dependent calls stay
-in the card body; the complete mechanical continuation set stays in
-`.contract()`. State-derived suggestions ("unknown metric → here are the
-available ids", "did you mean X") are a *separate*
-mechanism that appears on **error objects** and on **empty/ambiguous results**,
-always generated from a live query, never hardcoded.
-
-This split — a quiet, typed return; a one-line `repr()` for cold-start
-discovery; one bounded `show()` for deliberate inspection; state-derived help
-only when something is wrong — is what lets an agent run a ten-step script
-without drowning, and still recover the moment it inspects any object.
-
-## Three execution surfaces, one optional extension
-
-The executable core is deliberately three modules because they are the three
-stages of one pipeline. Semantic identity flows strictly forward:
-qualifying runtime calls may receive a current entry, but only its canonical ref
-continues into persistence and recovery. Nothing downstream depends on the file
-layout or internals of anything upstream. `marivo.ontology` is an optional fourth
-public module: it references semantic identities and supplies reviewed context to
-one bounded analysis-discovery bridge, but it cannot define or alter executable
-semantic meaning.
-
-| Surface | Alias | Answers | Produces |
-|---|---|---|---|
-| `marivo.datasource` | `md` | "What physical connections exist, and what do their tables actually look like?" | datasource refs, connections, and bounded **evidence** (`DatasourceResult`) |
-| `marivo.semantic` | `ms` | "Which stable business objects can downstream analysis reference?" | typed semantic refs + a loadable `SemanticCatalog` |
-| `marivo.analysis` | `mv` | "What did the metric do, and why?" | typed analysis frames/results over a `Session` |
-| `marivo.ontology` | `mo` | "Which reviewed relationships may suggest a hypothesis?" | typed, contextual `influences` / `related_to` edges and a bounded catalog |
-
-> **Catalog object navigation:** The semantic catalog exposes typed collections
-> (`catalog.domains`, `catalog.metrics`, etc.) and concrete catalog objects
-> (`Domain`, `Entity`, `Metric`, …). See
-> [`Catalog Object Navigation Design`](../superpowers/specs/2026-07-10-catalog-object-navigation-design.md).
-
-The hand-offs are typed and one-directional:
-
-```text
-md (physical)  ──evidence──▶  ms (business contract)  ──current entry or exact ref──▶  mv (typed analysis)
-                                  │                                      ▲
-                                  └──typed refs──▶ mo (optional context) ─┘
-```
-
-- `md` supplies the *physical facts* an agent needs to author semantics, but it
-  authors nothing and infers no business meaning.
-- `ms` turns those facts into an explicit, statically-readable business contract.
-  Python files are the source of truth; business meaning is never guessed from
-  column names, table names, or natural language.
-- `mv` accepts an exact current catalog entry or its exact ref at qualifying
-  catalog-bound runtime inputs, normalizes immediately to the ref, and otherwise
-  consumes closed runtime expressions. Persistence, lineage, evidence, replay,
-  and recovery remain ref-based. It never reaches into a user project's Python
-  file layout.
-- `mo` can propose only an unscored semantic hypothesis through
-  `mv.Session.discover.semantic_hypotheses`; explicit selection and observation
-  are required before statistical analysis, and no ontology edge is causal
-  evidence.
-
-Because the three execution surfaces and optional ontology extension are
-snapshot-gated and share one help coordinator, an agent can hold the public
-vocabulary in mind. Surface growth is
-a reviewed event: `tests/test_public_surface.py` pins each `__all__`, and
-`marivo.help()` folds supporting types (refs, detail shapes, IR) into families
-so the top-level index stays short even as the surface grows.
-
-## Guidance layering: contract vs. process vs. judgment
-
-Agent guidance lives in three places, and the boundaries between them are
-enforced, not aspirational
-([skill/library surface coordination](../superpowers/specs/2026-06-13-skill-library-surface-coordination-design.md)).
-
-- **The library owns the contract.** Anything derivable from real state at the
-  call site is the library's to emit: signatures, field lists, valid next
-  actions, constraints, runnable examples, and the meaning-plus-fix of an error.
-- **The skill owns the boundaries.** Hard boundaries, handoffs, evidence
-  continuity, and closeout obligations.
-- **The agent owns planning and judgment.** Which capability to reach for and
-  in what order, when to stop and read versus bundle a chain, session
-  discipline, and final-report synthesis.
-
-The test that keeps these separate is the **eviction test**: for any line in a
-skill file, ask *"could the library teach this from real state at the call
-site?"* If yes, it is contract — delete it from the skill and repoint to
-`marivo.help("<qualified-target>")` or the structured error. If no (it requires cross-object or
-cross-step judgment), it is process and it stays. Applied at review time — and
-backed by deterministic skill-shape, live-help, and API-drift tests — the test
-keeps field tables and error catalogs from re-accumulating as a second,
-drift-prone source of truth. The goal is not zero redundancy — orienting prose
-and decision trees are valuable — but zero *drift-prone* duplication of a
-contract the code already emits.
-
-This layering is instantiated once per domain:
-
-- **Authoring** ([authoring guidance layering](../superpowers/specs/2026-06-26-authoring-guidance-layering-design.md)):
-  `marivo.help("semantic.<target>")` owns the static authoring contract (constructor, required and
-  optional parameters, types, defaults, omit rules, parse shapes). `md.discover_*`
-  owns runtime datasource **evidence** only — profiles, detected formats,
-  issues — never parameter tables or semantic-selection judgments. Discovery
-  deliberately dropped names like `candidates` and `judgment_targets` precisely
-  because they implied a selection the library must not make.
-- **Analysis**: environment-verified live surfaces own capabilities and runtime
-  guidance. `python -m marivo help` verifies the environment; focused
-  `marivo.help("analysis.<target>")` owns the static analysis contract. Frames
-  and results own *dynamic* guidance:
-  `show()` describes the current state, `contract()` describes the mechanically
-  valid next actions, and structured errors own repair guidance. The
-  `marivo-analysis` skill owns hard boundaries, handoffs, evidence continuity,
-  and closeout obligations. The agent owns planning and judgment.
-
-## Progressive disclosure: how a core API reveals itself
-
-"Progressive disclosure" is the concrete mechanism behind "teach yourself from
-real state." No surface hands the agent everything at once; each layer reveals
-exactly enough to take the next step, and the next layer is always one obvious
-call away.
-
-There are three disclosure ladders, and they compose:
-
-1. **Static contract, on demand.** `marivo.help()` opens as a compact concept page
-   (~2–3 KB), not a 70 KB manual
-   ([help progressive disclosure](../superpowers/plans/2026-06-02-help-progressive-disclosure.md)).
-   The agent chooses the authoring or analysis secondary root, drills into a
-   symbol, and only then sees full parameters and constraints. The analysis root
-   is a bounded index whose entry route explicitly covers governed semantic
-   inputs without flattening catalog collections or an inline observation recipe.
-
-   ```python
-   import marivo
-
-   marivo.help()  # concepts plus the authoring and analysis routes
-   marivo.help("authoring")  # datasource, semantic, and optional ontology authoring
-   marivo.help("analysis")  # bounded six-hub index plus the terminal exit
-   marivo.help("analysis.events")  # registered namespace members
-   marivo.help("semantic.time_dimension_column")  # one constructor contract
-   marivo.help("analysis.observe")  # one analysis operator contract
-   ```
-
-   The analysis root does not duplicate the complete registry type algebra.
-   Focused help, artifact contracts, and the registry retain those typed
-   producer and consumer relationships.
-
-   `marivo.help()` prints bounded text and returns `None`. It has exactly one
-   output shape — it does not accept `format=` or emit JSON-as-a-payload;
-   structured data comes from result-producing APIs, never from help.
-
-2. **Dynamic state, from the object in hand.** A returned result discloses in
-   three steps of increasing commitment: `repr()` (free, one line) →
-   `show()` (bounded card) → typed escape hatch (`to_pandas()`, `.refs`)
-   when the agent genuinely needs the full data.
-
-3. **Repair, only on failure.** Errors escalate detail exactly when something
-   breaks: a structured exception carries the expected/received/next-step and
-   suggestions drawn from live state, so the agent never pays for a repair
-   catalog it did not need.
-
-These ladders show up as two end-to-end loops.
-
-### The authoring loop (semantic)
-
-```text
-load current catalogs → inspect → optional bounded sample and/or governed raw SQL →
-author one coherent slice → one ms.load() → catalog.require(...) → readiness
-```
-
-Each step discloses just enough for the next:
-
-```python
-# 1. help — learn the static contract for the object you're about to author
-import marivo
-
-marivo.help("semantic.time_dimension_column")
-
-# 2. inspect, then sample only if generic bounded rows or profiles are needed
-inspection = md.inspect(warehouse, md.table("orders"))
-snapshot = inspection.sample(
-    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
-    columns=("dt",),
-)
-
-# Governed md.raw_sql(...) is another normal bounded exploration option when
-# the question needs source-specific metadata, distributions, joins, or logic.
-
-# 3. author the smallest dependency-coherent slice in project Python
-dt = ms.time_dimension_column(
-    name="order_date",
-    entity=orders,
-    column="dt",
-    granularity="day",
-    parse=ms.strptime("%Y%m%d"),
-)
-
-# Author the entity, direct dimensions, measures, and mutually dependent metrics
-# in this same checkpoint when they belong to the slice.
-
-# 4. one project-level static validation event, then exact catalog navigation
-catalog = ms.load()
-dt_entry = catalog.require(ms.ref.time_dimension("sales.orders.order_date"))
-
-# 5. preview the current datasource only for a concrete runtime risk
-catalog.preview(
-    dt_entry,
-    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
-).show()
-
-# 6. readiness over the exact requested roots
-catalog.readiness(refs=[dt_entry]).show()
-```
-
-The disclosure discipline here is what makes authoring safe for an agent: the
-static contract (`help`) and physical evidence are different surfaces with
-different jobs. A snapshot retains generic rows, profiles, source evidence, and
-cache identity; it does not project semantic candidates. Before first typed
-analysis use, genuinely unresolved reusable meaning needs current authority,
-while user input, approved project definitions, and attributable
-non-conflicting documentation do not require redundant confirmation.
-
-### The analysis loop
-
-```text
-marivo.help() → acquire session catalog → observe → show → contract → compose → closeout
-```
-
-Analysis deliberately narrows the agent's mental model to **two exits per
-artifact** ([frame/result interface simplification](../superpowers/specs/2026-06-28-frame-result-interface-simplification-design.md)):
-
-```python
-session = mv.session.get_or_create(name="revenue_drop")
-catalog = session.catalog
-revenue = catalog.metrics.get("sales.revenue")
-created_at = catalog.time_dimensions.get("sales.orders.created_at")
-
-cur = session.observe(
-    revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month"
-)
-base = session.observe(
-    revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month"
-)
-
-cur.show()  # observe the current bounded result
-delta = session.compare(cur, base, alignment=mv.window_bucket())
-delta.contract().show()  # machine-readable compatibility before the next operator
-attribution = session.attribute(delta, axes=[created_at])
-attribution.show()
-```
-
-Short rule: **after each analysis step, read `show()`; before composing another
-operator, read `contract()`; use `to_pandas()` only for terminal custom work.**
-Everything else that used to be a near-peer exit — `summary()`, `schema()`,
-`preview()`, `next_intents()` — was removed from the public frame surface so the
-agent never has to choose a reading order before doing real work.
-
-`show()` does not repeat the full continuation matrix on every artifact. It
-adds only hints whose availability or route depends on the current artifact,
-using registry-owned public calls such as `session.compare(...)` and
-`session.attribute(...)`. `contract().show()` is the single complete readable
-continuation surface.
-
-Card footers follow the same rule: every `available:` footer lists `.show()`, lists
-`.contract()` when the object has one, and never advertises `.render()` — it backs
-`show()` and stays off the taught path.
-
-`RawSqlResult` exposes bounded `shape`, returned `row_count`, ordered columns,
-and isolated pandas export, but no `.contract()` or typed re-entry. Typed
-regression remains unsupported; when required, it is terminal custom analysis
-rather than a hidden typed capability.
-
-Crucially, `contract().affordances` are **neutral mechanical compatibility
-facts**, not ranked recommendations. The readable projection groups them by
-public receiver and leads with copyable public entry points; stable
-`capability_id` values remain available in the structured contract and
-`model_dump()`, not in readable continuation labels. They say "this operator
-*can* be wired to this frame," never "this is what you *should* do." The choice
-of which valid action matters for the user's question stays with the agent —
-the boundary from [the first section](#who-the-reader-is) holds all the way down
-to the last method call.
-
-## The result vocabulary
-
-Because every operator returns a typed artifact from a fixed family, the agent
-learns a small, stable vocabulary rather than a menu of ad-hoc shapes
-([python analysis design](analysis/python-analysis-design.md)):
-
-| Producer | Family |
-|---|---|
-| `observe` | `MetricFrame` |
-| `compare` | `DeltaFrame` |
-| `attribute` | `AttributionFrame` |
-| `discover` | `CandidateSet` |
-| `correlate` | `AssociationResult` |
-| `hypothesis_test` | `HypothesisTestResult` |
-| `forecast` | `ForecastFrame` |
-
-Two rules keep this vocabulary trustworthy:
-
-- **A public operator's output family is fixed.** Parameters may change the
-  algorithm, grain, scope, or policy — never the output family. A capability that
-  would return different families under different parameters is split into
-  several operators rather than hidden behind one ambiguous entry point.
-- **Within a family, shapes are closed, kind-dispatched variants** —
-  `MetricFrame[scalar]`, `MetricFrame[time_series]`, `MetricFrame[panel]`,
-  `CandidateSet[driver_axis]`, and so on. A closed enum of shapes fails loudly at
-  the boundary; an optional-field mega-class would fail silently three steps
-  later. On the semantic side the same idea appears as `CatalogCollection` /
-  `CatalogEntry` for discovery. A current entry may cross a qualifying runtime
-  boundary, but one sealed generic `Ref[kind]` value is what flows beyond
-  normalization and into persistence.
-
-## What this buys, and what keeps it true
-
-Taken together, the design delivers three properties an agent depends on:
-
-- **Context safety** — quiet-by-default results plus bounded cards mean a
-  multi-step script never floods the context window.
-- **A self-teaching surface** — `marivo.help()`, `repr()`, `show()`/`contract()`, and
-  structured errors mean the agent re-derives the contract from real state at
-  every call, instead of relying on stale memory.
-- **Low drift** — the library is the single source of every contract fact, and
-  skills route to it by pointer, so guidance and code cannot silently diverge.
-
-`SemanticCatalog`, `CatalogCollection`, `Session`, and the Event/Lifecycle
-session namespaces are stop points in this protocol rather than opaque
-implementation handles. Their cards and focused type help consume the same
-domain-owned member registries, so a method cannot appear in one discovery
-surface while disappearing from another.
-
-These are not left to good intentions. They are pinned by tests, in the same
-snapshot-with-allowlist spirit throughout:
-
-- `tests/test_public_surface.py` — each `__all__` is an explicit, reviewed
-  allowlist.
-- `tests/test_agent_result_protocol.py` — every terminal result conforms to the
-  bounded `repr`/`render`/`show` protocol, and every `available:` entry names a
-  real method.
-- `tests/test_introspection_help_folding.py` — the top-level `marivo.help()` family
-  partition is pinned, so new symbols are classified deliberately.
-- `tests/test_packaged_skill_shape.py` — packaged skills remain
-  bounded one-file routing kernels with no deleted attachment paths.
-- Focused live-help and API-drift tests — runnable help examples and mechanical
-  contracts stay aligned with the real surface.
-
-## Where to go next
-
-- Result and inspection contract:
-  [agent-friendly public API result design](../superpowers/specs/2026-06-09-agent-friendly-public-api-design.md)
-- Shared result protocol and surface gating:
-  [agent result surface design](../superpowers/specs/2026-06-13-agent-result-surface-design.md)
-- The two-exit frame model:
-  [frame/result interface simplification](../superpowers/specs/2026-06-28-frame-result-interface-simplification-design.md)
-- Historical authoring-layering rationale:
-  [authoring guidance layering](../superpowers/specs/2026-06-26-authoring-guidance-layering-design.md)
-- Skill vs. library division of labor:
-  [skill/library surface coordination](../superpowers/specs/2026-06-13-skill-library-surface-coordination-design.md)
-- Per-surface contracts:
-  [semantic and datasource overview](semantic/overview.md),
-  [python analysis design](analysis/python-analysis-design.md)
-- The committed invariants: the "Agent-Facing Surface Principles",
-  "Authoring Guidance Layering", and "Analysis Guidance Layering" sections of
-  [`AGENTS.md`](../../AGENTS.md).
+This example requires a Session and a governed Metric. It creates no implicit
+intermediate execution while constructing the definition. A Materialized Dataset
+provides guarded `show()` and complete `to_pandas()` reads, with separate row/byte
+limits. A preview limit is not a complete-input execution budget.
+
+Public terminal read values have a bounded single-line repr and bounded explicit
+inspection. Authoring and runtime value cards expose render/show according to
+their native type contract. Dataset states have deliberately different methods:
+a Logical Dataset is not a terminal table and a Materialized Dataset is not a
+mutable dataframe. Do not add a generic three-method adapter that erases this
+state distinction.
+
+## Keep each guidance fact with its owner
+
+| Owner | Facts |
+| --- | --- |
+| Live Help | Static API, examples, parameters and progressive navigation |
+| Dataset contract | Current schema, roles and mechanically valid continuations |
+| Retained result card | Bounded current state, quality and exact read continuations |
+| Structured error | Expected input, received facts and concrete repair |
+| Packaged skill | Workflow boundaries, analytical judgment and handoff |
+
+Errors subclass the owning structured hierarchy. Repair suggestions derive from
+actual current state, such as loaded catalog choices or owned fields. They do not
+invent names, select a different business meaning, silently widen a scope, or
+retry on another execution/storage target.
+
+Bounded pages retain immutable items, limits, has_more and opaque cursors. Empty
+results, unknown authority, unavailable records and corrupt stores remain distinct.
+A bounded card's omission does not authorize dropping rows from computation.
+No automatic truncation, sampling or approximate method substitutes for exact
+input admission.
+
+## Authoring workflow
+
+Discover the physical source through datasource-owned schema and health surfaces.
+Author a coherent semantic slice using typed declarations and restricted Ibis
+expressions. Validate the project and inspect exact catalog entries; perform
+runtime preview only for a concrete source/type/readiness question. Stable Entity
+identity is separate from historical row coordinates.
+
+Missing business meaning requires a decision from its owner. Missing reusable
+semantic definitions go to the semantic authoring workflow; analysis does not
+repair them by guessing from labels. Credentials use environment references and
+must not enter project-local persistent analysis state.
+
+## Analysis workflow
+
+Use one Session for the investigation. Construct explicit membership, observation
+windows and dimensions. Read a committed checkpoint when its facts can guide the
+next decision. Use exact artifact/field identities for later work; foreign Session
+inputs fail. Cold recovery reads committed authority and values without executing
+origin recipes or choosing a current datasource.
+
+Check mechanical legality through the object contract, then decide whether that
+legal operation answers the question. Algebraic contribution is not cause;
+association is not intervention evidence; Candidate scores are investigative
+leads; forecasts retain model assumptions. A typed digest never stores the agent's
+narrative conclusion as factual truth.
+
+Terminal custom work through `to_pandas()` or `md.raw_sql(...)` remains outside
+governed Dataset composition. The packaged semantic and analysis skills own this
+handoff and the questions that require renewed business meaning.
+
+## Change together and verify independently
+
+A changed export, signature, Help route, state method or repair is one disclosure
+contract change. Update the implementation, native registry, reachability/budget
+checks, executable examples, skills and current EN/ZH documentation together.
+Keep one canonical path per capability, concrete public types, immutable results,
+and no legacy migration or alias unless its owning contract explicitly requires it.
+
+See [analysis design](analysis/python-analysis-design.md),
+[semantic overview](semantic/overview.md), and the packaged workflow skills for
+their respective contracts.

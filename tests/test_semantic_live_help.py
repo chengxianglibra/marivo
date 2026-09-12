@@ -147,7 +147,7 @@ def test_metric_page_fits_shared_navigation_budget_with_all_structural_routes() 
     routes = _rendered_routes(text)
     budget = REGISTRY.render_budget("navigation")
 
-    assert len(routes) == len(REGISTRY.routes("objects.metric")) == 21
+    assert len(routes) == len(REGISTRY.routes("objects.metric")) == 22
     assert len(routes) <= budget.max_outgoing_routes == 24
     assert "default: Count Entity rows." in text
     assert "escape_hatch: Use one restricted Ibis expression body." in text
@@ -773,7 +773,7 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     assert 'marivo.help("semantic.preview")' in text
     assert 'marivo.help("semantic.source_health")' not in text
     assert "Analysis handoff (kind-level" in text
-    assert "session.observe(...) -> MetricFrame" in text
+    assert "session.observe(...) -> LogicalMetricDataset" in text
     assert 'marivo.help("analysis.observe")' in text
     assert "result.contract().show()" in text
     assert "Readiness is not inferred here" in text

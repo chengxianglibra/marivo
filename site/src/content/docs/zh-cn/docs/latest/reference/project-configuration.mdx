@@ -6,7 +6,7 @@ description: 配置 Marivo 项目，并在多个仓库之间复用语义层。
 ## 用版本控制管理项目契约
 
 `marivo.toml` 是可选文件。缺少时，项目名使用项目根目录名，`semantic.layer_paths` 为空，并启用
-本地遥测。缺少表或字段时也使用这些默认值；已有但 TOML 非法或显式字段非法的配置会严格失败。
+本地遥测；`execute()` 结果使用项目本地 Parquet。缺少表或字段时也使用这些默认值；已有但 TOML 非法或显式字段非法的配置会严格失败。
 项目配置中没有 `version` 字段。
 
 如需加载由其他仓库维护的语义层包，请在 `marivo.toml` 的
@@ -30,3 +30,25 @@ Marivo 始终先加载当前项目的 `models/` 目录，再按声明顺序加�
 
 需要让配置或声明随项目流转时，请将 `marivo.toml` 和 `models/` 纳入版本控制；将 `.marivo/`
 加入 `.gitignore`，其中保存的是本地会话、证据、遥测和缓存元数据，而不是可共享的声明。
+
+## 只有需要其他位置时才配置结果存储
+
+使用本地 Parquet 不需要任何分析存储配置。只有需要将新 Artifact 写入明确选定的
+对象存储时，才添加：
+
+```toml
+[analysis]
+storage = "object:archive"
+
+[analysis.object_stores.archive]
+endpoint_url = "https://objects.example.test"
+bucket = "analysis"
+access_key_id_env = "MARIVO_ARCHIVE_ACCESS_ID"
+secret_access_key_env = "MARIVO_ARCHIVE_SECRET"
+```
+
+凭据使用环境变量引用。单次执行的目标固定；配置非法或写入失败会抛出结构化错误，
+Marivo 不会切换目标，也不会换用其他执行器重试。改变写入目标后，可以保留命名绑定
+用于读取已有 Artifact；配置变化不会移动这些 Artifact。
+
+构造、显式执行和恢复边界见[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)。

@@ -1,24 +1,10 @@
-"""Phase 3: aggregate_then_join end-to-end through observe()."""
-
-from __future__ import annotations
+"""Ontology reverse index retains all governed computation entities."""
 
 from pathlib import Path
 
-import ibis
-import pytest
-
 import marivo.analysis as mv
-import marivo.analysis.session as session_attach
-from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
-
-
-@pytest.fixture(autouse=True)
-def _chdir(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    session_attach._reset_process_state()
-    yield
 
 
 def _bootstrap(tmp_path: Path) -> None:
@@ -71,128 +57,13 @@ def _bootstrap(tmp_path: Path) -> None:
     )
 
 
-def _seed(con):
-    con.raw_sql(
-        "CREATE TABLE orders (order_id INTEGER, created_at DATE, amount DOUBLE, user_id INTEGER, channel VARCHAR)"
-    )
-    con.raw_sql(
-        "INSERT INTO orders VALUES "
-        "(1, DATE '2026-07-01', 10.0, 100, 'web'),"
-        "(2, DATE '2026-07-02', 20.0, 100, 'app'),"
-        "(3, DATE '2026-07-03', 30.0, 200, 'web')"
-    )
-    con.raw_sql("CREATE TABLE order_items (item_id INTEGER, order_id INTEGER, category VARCHAR)")
-    con.raw_sql(
-        "INSERT INTO order_items VALUES "
-        "(1, 1, 'shirt'), (2, 1, 'pants'), (3, 2, 'shirt'), (4, 3, 'pants'), (5, 2, 'hat')"
-    )
-
-
-def _session(con):
-    return session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-
-
-def test_ontology_reverse_index_includes_every_effective_entity(tmp_path):
+def test_ontology_reverse_index_includes_every_effective_entity(tmp_path, monkeypatch):
     _bootstrap(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-    session = _session(con)
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("ontology")
 
     metric_refs = session.catalog._ontology_metrics_for_endpoint(
         make_ref("sales.order_items", SemanticKind.ENTITY)
     )
 
     assert metric_refs == (make_ref("sales.gmv_by_category", SemanticKind.METRIC),)
-
-
-def test_segmented_observe_aggregate_then_join(tmp_path):
-    _bootstrap(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-
-    frame = observe(
-        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
-        dimensions=[make_ref("sales.order_items.category", SemanticKind.DIMENSION)],
-        session=_session(con),
-    )
-    df = frame.to_pandas().set_index("category")
-    # order 1 (10): shirt + pants -> shirt=10, pants=10
-    # order 2 (20): shirt -> shirt += 20 -> shirt=30
-    # order 3 (30): pants -> pants += 30 -> pants=40
-    assert df.loc["shirt", "gmv_by_category"] == 30.0
-    assert df.loc["pants", "gmv_by_category"] == 40.0
-
-
-def test_where_in_slice_on_fanout_side_counts_root_once(tmp_path):
-    _bootstrap(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-
-    frame = observe(
-        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
-        slice_by={
-            make_ref("sales.order_items.category", SemanticKind.DIMENSION): ["shirt", "pants"]
-        },
-        session=_session(con),
-    )
-    df = frame.to_pandas()
-    # Order 1 (10.0) has one shirt item and one pants item; the IN slice must
-    # count the order once, not once per matching item. All three orders have
-    # at least one matching item: 10 + 20 + 30.
-    assert float(df["gmv_by_category"].iloc[0]) == 60.0
-
-
-def test_where_equality_slice_on_fanout_side_excludes_non_matching_roots(tmp_path):
-    _bootstrap(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-
-    frame = observe(
-        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
-        slice_by={make_ref("sales.order_items.category", SemanticKind.DIMENSION): "shirt"},
-        session=_session(con),
-    )
-    df = frame.to_pandas()
-    # Orders 1 (10.0) and 2 (20.0) have a shirt item; order 3 has none and
-    # must be excluded entirely.
-    assert float(df["gmv_by_category"].iloc[0]) == 30.0
-
-
-def test_where_slice_on_fanout_dimension_keeps_overlapping_buckets(tmp_path):
-    _bootstrap(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-
-    frame = observe(
-        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
-        dimensions=[make_ref("sales.order_items.category", SemanticKind.DIMENSION)],
-        slice_by={
-            make_ref("sales.order_items.category", SemanticKind.DIMENSION): ["shirt", "pants"]
-        },
-        session=_session(con),
-    )
-    df = frame.to_pandas().set_index("category")
-    # The slice drops the hat bucket, while order 1 (10.0) still contributes
-    # to both of its matching buckets (overlapping-bucket semantics).
-    assert set(df.index) == {"shirt", "pants"}
-    assert df.loc["shirt", "gmv_by_category"] == 30.0
-    assert df.loc["pants", "gmv_by_category"] == 40.0
-
-
-def test_panel_observe_aggregate_then_join(tmp_path):
-    _bootstrap(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-
-    frame = observe(
-        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
-        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-05"),
-        grain=mv.grain("day"),
-        dimensions=[make_ref("sales.order_items.category", SemanticKind.DIMENSION)],
-        session=_session(con),
-    )
-    df = frame.to_pandas()
-    assert frame.meta.semantic_kind == "panel"
-    # Spot-check: order 1 on 2026-07-01 contributes 10 to both shirt and pants.
-    row = df[(df["bucket_start"].astype(str) == "2026-07-01") & (df["category"] == "shirt")]
-    assert float(row["gmv_by_category"].iloc[0]) == 10.0

@@ -13,7 +13,7 @@ import pytest
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import sampling_payload
-from marivo.analysis.materialization.targets import EngineTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
 from marivo.analysis.operators.attribution_contracts import AttributionSemantics
@@ -40,7 +40,7 @@ def test_every_operand_order_keeps_membership_inside_engine(tmp_path: Path, stat
     database = tmp_path / "warehouse.duckdb"
     seed_distinct_database(database, dense_time=True)
     registry, sidecar = make_distinct_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "distinct-operands", target=EngineTarget("warehouse"))
+    runtime = DatasetRuntime.create(tmp_path, "distinct-operands", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     left, right = metric(sources, current=True), metric(sources, current=False)
     with guard_membership_transport():
@@ -109,7 +109,7 @@ def test_distinct_keeps_one_shared_sample_realization(tmp_path: Path) -> None:
     database = tmp_path / "warehouse.duckdb"
     seed_distinct_database(database)
     registry, sidecar = make_distinct_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "distinct-sampling", target=EngineTarget("warehouse"))
+    runtime = DatasetRuntime.create(tmp_path, "distinct-sampling", target=LocalTarget())
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     population = sources.population(ref.entity("sales.orders")).sample(
         engine_sample(target_rows=7, seed=11)

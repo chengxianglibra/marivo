@@ -2,9 +2,9 @@
 
 Date: 2026-09-01
 
-Revised: 2026-09-11
+Revised: 2026-09-12
 
-Status: Slices 0-4, 5a-5d, 6a-6e and 7a-7b complete
+Status: Slices 0-7 complete; Slice 8a complete in an isolated candidate; 8b not applied
 
 Slice 5b implementation, supplied review follow-up and completed independent
 technical acceptance are recorded under its
@@ -71,9 +71,11 @@ an exact registered pandas method starts a local continuation; all dependent
 successors remain local. Source-required semantic or identity work without a
 legal local method fails. Independent source branches may feed explicitly
 admitted local input roles. Compilation or execution errors never select or
-retry a different implementation. There is no internal DuckDB executor;
-DuckDB remains an ordinary datasource. Local/object Parquet uses authorized
-PyArrow readers under complete local-input guards. Arrow crosses source/storage
+retry a different implementation. The owner-approved 2026-09-11 amendment
+permits native Parquet scans, including transient DuckDB execution, and removes
+database result storage. Missing configuration means local Parquet; a different
+target is explicit in marivo.toml. Native and PyArrow readers retain their
+respective admission guards, with no target or execution fallback. Arrow crosses source/storage
 boundaries; private DataFrames pass directly between local steps. Slices 4-7 and
 the acceptance matrix below consume this contract without changing the public
 Dataset action, ownership, reuse or atomic-publication boundaries.
@@ -3123,9 +3125,14 @@ semantic, persistence and installed-surface assembly remain separately gated.
 
 | Unit | Prerequisite | Bounded outcome and independent gate |
 | --- | --- | --- |
-| 8a: cutover assembly and disclosure preparation | All units in 1-7 | Refresh the affected Slice 0 inventory against the current tree. Assemble exact public facade/export bindings, semantic activation, native Help, executable examples, current EN/ZH docs, skills, and deletion/test-replacement lists into one reviewable switch set. Identify any missing private implementation before activation. |
+| 8a: cutover assembly and disclosure preparation — complete in isolation | All units in 1-7 | Refresh the affected Slice 0 inventory against the current tree. Assemble exact public facade/export bindings, semantic activation, native Help, executable examples, current EN/ZH docs, skills, and deletion/test-replacement lists into one reviewable switch set. Identify any missing private implementation before activation. |
 | 8b: atomic public and persistence activation | 8a | Apply the public, semantic, Store, Help, documentation, and old-path removal changes together. No intermediate public eager/lazy combination or partial persistence switch is a deliverable. |
 | 8c: installed-surface verification | 8b | Verify the built package's exports, signatures, Help resolution/budgets, state protocol, current examples, generation rejection, and forbidden-path absence. Repair the coherent switch set before handing its exact revision to Slice 9. |
+
+The [final isolated assembly record](../plans/2026-09-11-lazy-analysis-slice-8a-assembly.md)
+records the refreshed Slice 0 mapping, complete deletion/test replacement,
+accepted 3a/3b integration, passing gates and second-copy patch verification.
+Only the isolated candidate is complete; the source checkout remains private.
 
 These units organize preparation and verification, not separate public releases.
 Slice 8 activates already working semantics and reads; it must not absorb a

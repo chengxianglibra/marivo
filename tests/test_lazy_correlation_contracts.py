@@ -10,6 +10,7 @@ from marivo.analysis.compiler.placement import PandasStep, SourceStep, place
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.operators import registry
+from marivo.analysis.operators.association import LogicalAssociationDataset
 from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.analysis.operators.correlate import validate_association
 from marivo.analysis.operators.errors import CorrelationError
@@ -30,7 +31,7 @@ def test_contracts_are_complete_and_private(
     assert "entity_identity" not in names
     assert ("lag_offset" in names) == ("time" in shape)
     assert "p_value" not in names
-    assert not hasattr(mv, "LogicalAssociationDataset")
+    assert mv.LogicalAssociationDataset is LogicalAssociationDataset
     assert not hasattr(mv, "AssociationDataset")
 
 

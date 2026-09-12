@@ -15,7 +15,6 @@ from marivo.analysis.evidence import _dataset_reads as evidence_reads
 from marivo.analysis.materialization import inspection
 from marivo.analysis.materialization.contracts import (
     ArtifactRecord,
-    EngineReceipt,
     LocalReceipt,
     encode_descriptor,
 )
@@ -93,7 +92,7 @@ def test_missing_backing_discards_native_exception_and_locator(
     if isinstance(receipt, LocalReceipt):
         path = tmp_path / receipt.project_relative_path / "data.parquet"
     else:
-        assert isinstance(receipt, EngineReceipt)
+        assert isinstance(receipt, LocalReceipt)
         path = tmp_path / receipt.qualified_relation_ref
     path.unlink()
     before = snapshot(fixture.runtime)

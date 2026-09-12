@@ -5,40 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime
 
-import pandas as pd
 import pytest
 
 import marivo.analysis as ma
-import marivo.analysis.frames as analysis_frames
 from marivo._compat import UTC
 from marivo._temporal import TimeScopeContractV1
-from marivo.analysis._capabilities.surface import TYPE_REGISTRY
-from marivo.analysis.evidence.artifact_reads import Finding as CandidateFinding
-from marivo.analysis.evidence.artifact_reads import FindingPage as CandidateFindingPage
-from marivo.analysis.evidence.types import (
-    ArtifactDigest,
-    DerivationRule,
-    DigestReadContract,
-    MetricValueFindingValue,
-    OmissionSummary,
-    OperatorSemantics,
-    RawFallback,
-)
-from marivo.analysis.frames.base import ArtifactContract, BaseFrame
-from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-from marivo.analysis.session._read_model import (
-    ArtifactEvidenceSummary,
-    ArtifactIssueCounts,
-    ArtifactSummary,
-    FailedRun,
-    IncompleteRun,
-    RunFailure,
-    RunPage,
-    SessionGraph,
-    SessionRuntimeRecap,
-    SucceededRun,
-)
-from marivo.analysis.session._store import SessionSummary
+from marivo.analysis.evidence._dataset_types import ArtifactDigest
+from marivo.analysis.session._lazy_read_model import SessionSummary
 from marivo.datasource.errors import repair as datasource_repair
 from marivo.datasource.manage import (
     DatasourceDescription,
@@ -57,7 +30,6 @@ from marivo.semantic.dtos import (
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 from marivo.semantic.richness import RichnessReport
-from tests.shared_fixtures import make_test_analysis_scope, make_test_subject
 
 datasource_ref = ref_factory.datasource
 
@@ -67,8 +39,10 @@ RENDER_MAX_CHARS = _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def test_result_repr_wraps_identity_single_line() -> None:
-    out = result_repr("MetricFrame ref=frame_ab12 rows=7")
-    assert out == "<MetricFrame ref=frame_ab12 rows=7; call .show() to inspect>"
+    out = result_repr("MaterializedMetricDataset artifact=artifact_ab12 rows=7")
+    assert (
+        out == "<MaterializedMetricDataset artifact=artifact_ab12 rows=7; call .show() to inspect>"
+    )
     assert "\n" not in out
 
 
@@ -181,10 +155,10 @@ def _session_summary() -> SessionSummary:
         id="sess_1",
         name="q2",
         question=None,
-        created_at="2026-06-13T00:00:00Z",
-        updated_at="2026-06-13T00:00:00Z",
-        job_count=1,
-        frame_count=2,
+        created_at=datetime(2026, 6, 13, tzinfo=UTC),
+        updated_at=datetime(2026, 6, 13, tzinfo=UTC),
+        run_count=1,
+        artifact_count=2,
     )
 
 
@@ -249,125 +223,20 @@ def test_terminal_type_byte_contract(builder: Callable[[], object]) -> None:
         obj.render(max_output_bytes=1)  # type: ignore[attr-defined]
 
 
-def test_private_slice2_candidate_results_satisfy_terminal_protocol() -> None:
-    started = datetime(2026, 8, 30, tzinfo=UTC)
-    common = {
-        "capability_id": "observe",
-        "analysis_purpose": None,
-        "input_artifact_refs": (),
-        "arguments": (),
-        "omitted_argument_names": (),
-        "started_at": started,
-    }
-    incomplete = IncompleteRun(run_id="run_incomplete", **common)
-    succeeded = SucceededRun(
-        run_id="run_succeeded",
-        **common,
-        output_artifact_ref="artifact_1",
-        output_mode="produced",
-        finished_at=started,
-        queries=(),
-    )
-    failed = FailedRun(
-        run_id="run_failed",
-        **common,
-        failed_at=started,
-        failure=RunFailure(
-            error_type="AnalysisError",
-            message="safe",
-            expected=None,
-            received=None,
-            location=None,
-            repair=None,
-        ),
-        queries=(),
-    )
-    artifact = ArtifactSummary(
-        ref="artifact_1",
-        family="MetricFrame",
-        semantic_shape="scalar",
-        created_at=started,
-        produced_by_run="run_succeeded",
-        analysis_purpose=None,
-        row_count=1,
-        content_hash="sha256:test",
-        materialization="materialized",
-        evidence=ArtifactEvidenceSummary(
-            status="complete",
-            digest_present=True,
-            digest_item_count=1,
-            omitted_item_count=0,
-            finding_count=1,
-        ),
-        quality=None,
-        issue_counts=ArtifactIssueCounts(warning=0, blocking=0),
-    )
-    finding = CandidateFinding(
-        finding_id="finding_1",
-        artifact_ref="artifact_1",
-        session_id="session_1",
-        finding_type="metric_value",
-        epistemic_kind="observed",
-        subject=make_test_subject(metric_id="sales.revenue", analysis_axis="scalar"),
-        canonical_item_key="value",
-        value=MetricValueFindingValue(value=1.0, unit="USD"),
-        derivation=DerivationRule(
-            rule_id="extract.metric_value",
-            rule_version="v1",
-            operator="observe",
-            source_fields=("value",),
-            source_finding_refs=(),
-        ),
-        source_artifact_ref="artifact_1",
-        source_fields=("value",),
-        source_refs=("sales.revenue",),
-        retained_digest_item_refs=("item_1",),
-        committed_at=started,
-    )
-    graph = SessionGraph(
-        session_id="session_1",
-        artifacts=(artifact,),
-        runs=(succeeded,),
-        edges=(),
-        root_run_ids=("run_succeeded",),
-        head_artifact_refs=("artifact_1",),
-        failed_run_ids=(),
-        incomplete_run_ids=(),
-        boundary_artifact_refs=(),
-        boundary_run_ids=(),
-        truncated=False,
-    )
-    recap = SessionRuntimeRecap(
-        session_id="session_1",
-        artifact_count=1,
-        head_artifact_count=1,
-        head_artifact_refs=("artifact_1",),
-        succeeded_run_count=1,
-        failed_run_count=1,
-        incomplete_run_count=1,
-        evidence_complete_count=1,
-        evidence_partial_count=0,
-        evidence_unavailable_count=0,
-        attention_run_ids=("run_failed", "run_incomplete"),
-        overall_graph_available=True,
-    )
-    candidates = (
-        incomplete,
-        succeeded,
-        failed,
-        RunPage(
-            items=(incomplete, succeeded, failed),
-            limit=3,
-            has_more=False,
-            next_cursor=None,
-        ),
-        artifact,
-        finding,
-        CandidateFindingPage(items=(finding,), limit=1, has_more=False, next_cursor=None),
-        graph,
-        recap,
-    )
+def test_committed_runtime_projections_satisfy_terminal_protocol(tmp_path) -> None:
+    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.materialization.store import SessionStore
+    from tests.lazy_runtime_read_fixtures import failure, input_value, publish
 
+    store = SessionStore(tmp_path)
+    store.create_session("protocol", session_ref="session")
+    publish(store, "succeeded", "artifact")
+    store.admit("session", "failed-key", input_value(), run_ref="failed")
+    store.fail("failed", failure())
+    store.admit("session", "pending-key", input_value(), run_ref="pending")
+    runtime = DatasetRuntime(store, "session")
+    page = runtime.runs()
+    candidates = (*page.items, page, runtime.graph(), _artifact_digest())
     for candidate in candidates:
         assert_conforms(candidate)
         assert candidate.render() == candidate.render()
@@ -518,90 +387,6 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
     )
 
 
-def _walk_concrete_analysis_frame_classes() -> list[type[BaseFrame]]:
-    pending = list(BaseFrame.__subclasses__())
-    seen: set[type[BaseFrame]] = set()
-    found: list[type[BaseFrame]] = []
-    while pending:
-        cls = pending.pop()
-        if cls in seen:
-            continue
-        seen.add(cls)
-        pending.extend(cls.__subclasses__())
-        if cls.__module__.startswith("marivo.analysis.frames"):
-            found.append(cls)
-    return sorted(found, key=lambda cls: f"{cls.__module__}.{cls.__name__}")
-
-
-def test_concrete_analysis_frames_are_public_and_descriptive() -> None:
-    assert analysis_frames.__all__
-    # Build the set of registered frame type names from the capability kernel.
-    analysis_frame_symbols = set(TYPE_REGISTRY.values())
-    # ComponentFrame and CoverageFrame are advanced frame types that remain
-    # resolvable via explicit help (kept in the type registry) but are pruned
-    # from the default __all__ surface.
-    advanced_frames = {"ComponentFrame", "CoverageFrame"}
-    for cls in _walk_concrete_analysis_frame_classes():
-        assert cls._repr_identity is not BaseFrame._repr_identity, cls.__name__
-        if cls.__name__ in advanced_frames:
-            assert cls.__name__ not in ma.__all__, cls.__name__
-            assert cls.__name__ in analysis_frame_symbols, cls.__name__
-            continue
-        assert cls.__name__ in ma.__all__, cls.__name__
-        assert cls.__name__ in analysis_frame_symbols, cls.__name__
-
-
-def _metric_frame() -> MetricFrame:
-    from datetime import datetime
-
-    from marivo.analysis.lineage import Lineage
-    from tests.shared_fixtures import make_test_metric_meta_contract
-
-    meta = MetricFrameMeta(
-        **make_test_metric_meta_contract("sales.revenue"),
-        kind="metric_frame",
-        ref="frame_protocol_test",
-        session_id="sess_test",
-        project_root="/tmp",
-        produced_by_job=None,
-        created_at=datetime(2026, 6, 28, tzinfo=UTC),
-        row_count=1,
-        byte_size=0,
-        lineage=Lineage(),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "revenue"},
-        window=None,
-        where={},
-        semantic_kind="time_series",
-        semantic_model="sales",
-    )
-    return MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
-
-
-def _artifact_contract() -> ArtifactContract:
-    return _metric_frame().contract()
-
-
-def test_plain_metric_frame_card_does_not_invent_fold_or_coverage() -> None:
-    rendered = _metric_frame().render()
-
-    assert "observation_scope: all available rows" in rendered
-    assert "value_semantics:" in rendered
-    assert "time_fold:" not in rendered
-    assert "expected_sample_coverage:" not in rendered
-
-
-def _digest_read_contract() -> DigestReadContract:
-    return DigestReadContract(
-        exact_reads=(
-            "session.artifact('frame_protocol_test')",
-            "artifact.findings(limit=20)",
-            "artifact.finding('<finding_id>')",
-        )
-    )
-
-
 def _time_scope_contract() -> TimeScopeContractV1:
     return TimeScopeContractV1(
         kind="absolute",
@@ -611,8 +396,6 @@ def _time_scope_contract() -> TimeScopeContractV1:
 
 
 CONTRACT_BUILDERS: list = [
-    pytest.param(_artifact_contract, id="ArtifactContract"),
-    pytest.param(_digest_read_contract, id="DigestReadContract"),
     pytest.param(_time_scope_contract, id="TimeScopeContractV1"),
 ]
 
@@ -642,46 +425,6 @@ def test_contract_result_protocol_is_structural_and_side_effect_free(
     assert capsys.readouterr().out == rendered + "\n"
 
 
-def test_metric_frame_contract_warns_for_cumulative_values() -> None:
-    frame = _metric_frame()
-    frame.meta = frame.meta.model_copy(
-        update={
-            "cumulative": {
-                "kind": "cumulative",
-                "base": "sales.gmv",
-                "over": "sales.orders.event_time",
-                "anchor": "all_history",
-                "components": None,
-            }
-        }
-    )
-
-    contract = frame.contract()
-
-    warnings = [
-        pre
-        for aff in contract.affordances
-        for pre in aff.preconditions
-        if pre.check == "running_total_caveat"
-    ]
-    assert warnings
-    assert "shared monotonic trend" in (warnings[0].reason or "")
-    # Failed preconditions on cumulative all_history must carry a repair.
-    assert warnings[0].repair is not None
-    assert warnings[0].repair.action.strip()
-
-
-def test_public_analysis_frames_expose_two_agent_exits() -> None:
-    frame = _metric_frame()
-    assert hasattr(frame, "show")
-    assert hasattr(frame, "contract")
-    assert hasattr(frame, "to_pandas")
-    assert not hasattr(frame, "summary")
-    assert not hasattr(frame, "schema")
-    assert not hasattr(frame, "preview")
-    assert not hasattr(frame, "next_intents")
-
-
 def test_time_scope_render_honors_output_budget(capsys: pytest.CaptureFixture[str]) -> None:
     scope = ma.time_scope(start="2026-07-01", end="2026-08-01")
 
@@ -705,30 +448,20 @@ def test_contract_str_renders_same_card(builder: Callable[[], object]) -> None:
 
 def _artifact_digest() -> ArtifactDigest:
     return ArtifactDigest(
-        artifact_ref="frame_abc",
-        operator=OperatorSemantics(
-            operator="observe",
-            operator_version="v1",
-            artifact_family="metric_frame",
-            semantic_shape="scalar",
-        ),
-        subject=make_test_subject(metric_id="sales.revenue", analysis_axis="scalar"),
-        scope=make_test_analysis_scope("sales.revenue"),
-        omissions=OmissionSummary(retained_items=0, omitted_items=0, bounded=True),
-        fallback=RawFallback(
-            artifact_ref="frame_abc",
-            findings_available=True,
-            rows_available=True,
-        ),
-        fingerprint="sha256:test",
+        artifact_ref=ma.ArtifactRef(ref="artifact_abc"),
+        quality_summary_digest="a" * 64,
+        typed_issue_digest="b" * 64,
+        evidence_digest="c" * 64,
+        finding_count=0,
+        finding_set_digest="d" * 64,
+        extractor_contract_versions=("zero_findings@v1",),
     )
 
 
 def test_artifact_digest_repr_uses_shared_result_repr() -> None:
     digest = _artifact_digest()
-    r = repr(digest)
-    assert "\n" not in r
-    assert r == result_repr("ArtifactDigest ref=frame_abc operator=observe items=0 omitted=0")
+    assert repr(digest) == result_repr("ArtifactDigest ref=artifact_abc")
+    assert_conforms(digest)
 
 
 def _footer_entries(obj: object) -> tuple[str, ...]:

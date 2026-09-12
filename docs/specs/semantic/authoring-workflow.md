@@ -80,7 +80,7 @@ has positive row and timeout guards; a returned-row limit is not a scan bound.
 
 Raw SQL is a normal governed exploration option. It remains read-only, bounded,
 effect-disclosed, and terminal. A `RawSqlResult` cannot enter
-`session.observe(...)`, become a `MetricFrame`, or be persisted as canonical
+`session.observe(...)`, become a governed Dataset, or be persisted as canonical
 analysis. Its observed facts and disclosed assumptions may inform semantic
 Python.
 

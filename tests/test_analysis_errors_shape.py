@@ -1,41 +1,47 @@
-"""Smoke tests for new shape-coverage error classes."""
+"""The Dataset error family keeps exact typed, bounded actionable failures."""
 
 import pytest
 
-from marivo.analysis.errors import (
-    AlignmentFailedError,
-    AlignmentPolicyNotApplicableError,
-    AmbiguousDimensionError,
-    AxisNotInPanelDimensionsError,
-    DimensionAcrossDatasetsError,
-    DimensionFieldNotFoundError,
-    PanelGrainMismatchError,
-    SegmentDimensionMismatchError,
-    SemanticKindMismatchError,
+from marivo.analysis.datasets.errors import (
+    DatasetConstructionError,
+    DatasetDefinitionError,
+    DatasetFieldSelectionError,
+    DatasetOwnershipError,
+    DatasetRegistrationError,
+)
+from marivo.analysis.errors import AnalysisError, AnalysisRepair
+from marivo.analysis.observation.errors import (
+    ObservationBindingError,
+    ObservationConstructionError,
+    ObservationPredicateError,
 )
 
 
 @pytest.mark.parametrize(
-    "cls, parent",
+    "cls",
     [
-        (DimensionFieldNotFoundError, SemanticKindMismatchError),
-        (AmbiguousDimensionError, SemanticKindMismatchError),
-        (DimensionAcrossDatasetsError, SemanticKindMismatchError),
-        (AxisNotInPanelDimensionsError, SemanticKindMismatchError),
-        (PanelGrainMismatchError, AlignmentFailedError),
-        (SegmentDimensionMismatchError, AlignmentFailedError),
-        (AlignmentPolicyNotApplicableError, AlignmentFailedError),
+        DatasetConstructionError,
+        DatasetRegistrationError,
+        DatasetFieldSelectionError,
+        DatasetOwnershipError,
+        DatasetDefinitionError,
+        ObservationConstructionError,
+        ObservationBindingError,
+        ObservationPredicateError,
     ],
 )
-def test_new_error_is_subclass(cls, parent):
-    assert issubclass(cls, parent)
-
-
-def test_dimension_not_found_renders_hint():
-    err = DimensionFieldNotFoundError(
-        message="dimension 'foo' not found",
-        context={"dimension_id": "foo", "searched_datasets": ["orders"]},
+def test_dataset_error_hierarchy_and_bounded_repair(cls: type[DatasetConstructionError]) -> None:
+    error = cls(
+        expected="e" * 400,
+        received="r" * 400,
+        repair="Construct one same-Session Dataset.",
+        location="dataset.compare",
     )
-    rendered = str(err)
-    assert "DimensionFieldNotFoundError" in rendered
-    assert "foo" in rendered
+    assert isinstance(error, AnalysisError)
+    assert isinstance(error.repair, AnalysisRepair)
+    assert error.expected == "e" * 320
+    assert error.received == "r" * 320
+    assert error.location == "dataset.compare"
+    assert error.repair.action == "Construct one same-Session Dataset."
+    assert "Help: marivo.help('analysis')" in str(error)
+    assert type(error).__name__ in str(error)

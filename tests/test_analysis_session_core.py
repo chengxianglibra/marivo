@@ -1,555 +1,38 @@
-"""Session class: store-backed Run and Artifact reads."""
+"""Public Session ownership and external semantic layer wiring."""
 
-import json
 import textwrap
-from datetime import datetime
 
 import duckdb
 import pytest
 
+import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._compat import UTC
-from marivo.analysis import FailedRun, SucceededRun
-from marivo.analysis.errors import (
-    ArtifactNotFoundError,
-    FrameMetaInvalidError,
-    RunNotFoundError,
-    SourceBindingError,
-)
-from marivo.analysis.session._layout import PersistenceLayout
-from marivo.analysis.session._load import load_frame
-from marivo.analysis.session._read_model import SessionRuntimeRecap
-from marivo.analysis.session._runtime import _build_connection_runtime, persist_job_record
-from marivo.analysis.session._runtime_reads import SessionRuntimeReads
-from marivo.analysis.session._store import SessionStore
-from marivo.analysis.session.core import Session
-from marivo.refs import RefPayloadV1
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.metric_graph import (
-    SemanticDependencyDigestV1,
-    SemanticDependencyEntryV1,
-)
-from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
-from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import make_metric_frame
 
 
-def _now():
-    return datetime(2026, 5, 24, 10, 0, 0, tzinfo=UTC)
-
-
-def _session(tmp_path, *, read_only: bool = False) -> Session:
-    layout = PersistenceLayout(project_root=tmp_path, session_id="sess_t01")
-    store = SessionStore(project_root=tmp_path)
-    # Insert a session row with the known ID so foreign key constraints pass.
-    with store._connect() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO sessions (id, name, question, cwd, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                "sess_t01",
-                "demo",
-                "q",
-                str(tmp_path),
-                "2026-05-24T10:00:00+00:00",
-                "2026-05-24T10:00:00+00:00",
-            ),
-        )
-    semantic_project = SemanticProject(workspace_dir=tmp_path)
-    semantic_project.load()
-    return Session(
-        id="sess_t01",
-        name="demo",
-        question="q",
-        cwd=tmp_path,
-        project_root=tmp_path,
-        created_at=_now(),
-        updated_at=_now(),
-        connection_runtime=_build_connection_runtime(
-            tmp_path,
-            None if read_only else {"fake": lambda: object()},
-            None,
-            use_datasources=False,
-        ),
-        layout=layout,
-        semantic_catalog=SemanticCatalog(semantic_project),
-        store=store,
-    )
-
-
-def _write_parameterized_source_project(tmp_path) -> None:
-    datasource_dir = tmp_path / "models" / "datasources"
-    datasource_dir.mkdir(parents=True, exist_ok=True)
-    (datasource_dir / "fake.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='fake', path=':memory:')\n"
-    )
-    semantic_dir = tmp_path / "models" / "semantic" / "monitoring"
-    semantic_dir.mkdir(parents=True, exist_ok=True)
-    (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='monitoring', owner='Data Team')\n"
-    )
-    (semantic_dir / "samples.py").write_text(
-        "import marivo.datasource as md\n"
-        "import marivo.semantic as ms\n"
-        "samples = ms.entity(\n"
-        "    name='samples',\n"
-        "    datasource=ms.ref.datasource('fake'),\n"
-        "    source=md.json(\n"
-        "        'https://api.example/query',\n"
-        "        schema={'value': 'float64'},\n"
-        "        method='POST',\n"
-        "        body={\n"
-        "            'start': md.source_param('start'),\n"
-        "            'window': {'end': md.source_param('end')},\n"
-        "        },\n"
-        "    ),\n"
-        ")\n"
-        "local = ms.entity(\n"
-        "    name='local',\n"
-        "    datasource=ms.ref.datasource('fake'),\n"
-        "    source=md.table('local'),\n"
-        ")\n"
-    )
-
-
-def _job_semantics(session: Session) -> dict[str, object]:
-    metric_ref = RefPayloadV1.from_ref(ms.ref.metric("sales.revenue"))
-    entries = (SemanticDependencyEntryV1(ref=metric_ref, body_digest="sha256:test"),)
-    return {
-        "catalog_definition_fingerprint": session.catalog.definition_fingerprint,
-        "subject": {"kind": "catalog_metric", "metric_ref": metric_ref.to_dict()},
-        "dimension_refs": [],
-        "time_dimension_ref": None,
-        "slice_predicates": [],
-        "semantic_dependency_digest": canonical_value(
-            SemanticDependencyDigestV1(
-                schema="marivo.semantic_dependency_digest/v1",
-                entries=entries,
-                digest=f"sha256:{fingerprint(entries)}",
-            )
-        ),
-    }
-
-
-def _job_record(session: Session, semantics: dict[str, object]) -> dict[str, object]:
-    return {
-        "id": "job_invalid_semantics",
-        "session_id": session.id,
-        "intent": "observe",
-        "params": {},
-        "input_frame_refs": [],
-        "output_frame_ref": "frame_invalid",
-        "started_at": "2026-05-24T10:00:00+00:00",
-        "finished_at": "2026-05-24T10:00:01+00:00",
-        "duration_ms": 1000,
-        "status": "succeeded",
-        "error": None,
-        **semantics,
-    }
-
-
-@pytest.mark.parametrize(
-    "mutate",
-    [
-        lambda semantics: semantics["subject"].update(  # type: ignore[union-attr]
-            metric_ref=RefPayloadV1.from_ref(ms.ref.entity("sales.orders")).to_dict()
-        ),
-        lambda semantics: semantics.update(subjects=[semantics["subject"]]),
-        lambda semantics: semantics.update(subject="sales.revenue"),
-        lambda semantics: semantics.update(
-            dimension_refs=[RefPayloadV1.from_ref(ms.ref.metric("sales.revenue")).to_dict()]
-        ),
-        lambda semantics: semantics.update(
-            semantic_dependency_digest={
-                "schema": "semantic-dependency/v1",
-                "entries": [],
-                "fingerprint": "old",
-            }
-        ),
-    ],
-)
-def test_persist_job_rejects_non_structured_or_wrong_kind_semantic_roles(
-    tmp_path,
-    mutate,
-) -> None:
-    session = _session(tmp_path)
-    semantics = _job_semantics(session)
-    mutate(semantics)
-
-    with pytest.raises(ValueError):
-        persist_job_record(session, _job_record(session, semantics))
-
-
-def test_session_is_read_only_when_no_factory(tmp_path):
-    assert _session(tmp_path, read_only=True).is_read_only is True
-
-
-def test_session_is_not_read_only_with_factory(tmp_path):
-    assert _session(tmp_path, read_only=False).is_read_only is False
-
-
-def test_session_source_bindings_are_validated_nested_and_scope_local(tmp_path) -> None:
-    from marivo.analysis.intents.observe import _source_binding_params
-
-    _write_parameterized_source_project(tmp_path)
-    session = _session(tmp_path)
-    samples = ms.ref.entity("monitoring.samples")
-
-    assert session._connection_runtime.source_bindings() == {}
-    with session.source_bindings({samples: {"end": "now", "start": "now-3600"}}):
-        assert _source_binding_params(session) == {
-            "monitoring.samples": {"end": "now", "start": "now-3600"}
-        }
-        with session.source_bindings({samples: {"start": 10, "end": 20}}):
-            assert session._connection_runtime.source_bindings() == {
-                "monitoring.samples": {"start": 10, "end": 20}
-            }
-        assert session._connection_runtime.source_bindings()["monitoring.samples"]["start"] == (
-            "now-3600"
-        )
-    assert session._connection_runtime.source_bindings() == {}
-
-
-def test_session_source_bindings_are_owned_by_the_originating_session_runtime(tmp_path) -> None:
-    first_root = tmp_path / "first"
-    second_root = tmp_path / "second"
-    first_root.mkdir()
-    second_root.mkdir()
-    _write_parameterized_source_project(first_root)
-    _write_parameterized_source_project(second_root)
-    first = _session(first_root)
-    second = _session(second_root)
-    samples = ms.ref.entity("monitoring.samples")
-
-    with first.source_bindings({samples: {"start": 11, "end": 22}}):
-        assert first._connection_runtime.source_bindings() == {
-            "monitoring.samples": {"start": 11, "end": 22}
-        }
-        assert second._connection_runtime.source_bindings() == {}
-        with second.source_bindings({samples: {"start": 33, "end": 44}}):
-            assert first._connection_runtime.source_bindings()["monitoring.samples"] == {
-                "start": 11,
-                "end": 22,
-            }
-            assert second._connection_runtime.source_bindings()["monitoring.samples"] == {
-                "start": 33,
-                "end": 44,
-            }
-
-
-def test_session_source_bindings_require_exact_declared_nonsecret_values(tmp_path) -> None:
-    _write_parameterized_source_project(tmp_path)
-    session = _session(tmp_path)
-    samples = ms.ref.entity("monitoring.samples")
-
-    with (
-        pytest.raises(SourceBindingError, match=r"missing=\('end',\)"),
-        session.source_bindings({samples: {"start": 1}}),
-    ):
-        pass
-    with (
-        pytest.raises(SourceBindingError, match=r"extra=\('step',\)"),
-        session.source_bindings({samples: {"start": 1, "end": 2, "step": "60s"}}),
-    ):
-        pass
-    with (
-        pytest.raises(SourceBindingError, match=r"does not use md\.json"),
-        session.source_bindings({ms.ref.entity("monitoring.local"): {}}),
-    ):
-        pass
-    with (
-        pytest.raises(SourceBindingError, match="finite float"),
-        session.source_bindings({samples: {"start": float("inf"), "end": 2}}),
-    ):
-        pass
-
-
-def test_session_source_bindings_accept_array_values(tmp_path) -> None:
-    _write_parameterized_source_project(tmp_path)
-    session = _session(tmp_path)
-    samples = ms.ref.entity("monitoring.samples")
-
-    with session.source_bindings({samples: {"start": ["a", "b"], "end": 1}}):
-        assert session._connection_runtime.source_bindings()["monitoring.samples"] == {
-            "start": ["a", "b"],
-            "end": 1,
-        }
-
-
-def test_session_source_bindings_reject_non_scalar_list_elements(tmp_path) -> None:
-    _write_parameterized_source_project(tmp_path)
-    session = _session(tmp_path)
-    samples = ms.ref.entity("monitoring.samples")
-
-    with (
-        pytest.raises(SourceBindingError, match="has unsupported type"),
-        session.source_bindings({samples: {"start": [1, {"nested": True}], "end": 2}}),
-    ):
-        pass
-
-
-def test_session_source_bindings_reject_nested_and_empty_lists(tmp_path) -> None:
-    _write_parameterized_source_project(tmp_path)
-    session = _session(tmp_path)
-    samples = ms.ref.entity("monitoring.samples")
-
-    with (
-        pytest.raises(SourceBindingError, match="must be flat"),
-        session.source_bindings({samples: {"start": [["a", "b"]], "end": 2}}),
-    ):
-        pass
-    with (
-        pytest.raises(SourceBindingError, match="empty list"),
-        session.source_bindings({samples: {"start": [], "end": 2}}),
-    ):
-        pass
-
-
-def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, capsys):
-    from marivo.analysis._capabilities.registry import REGISTRY
-
-    session = _session(tmp_path)
-
-    assert repr(session) == ("<Session id=sess_t01 name=demo; call .show() to inspect>")
-    rendered = session.render()
-    assert "Session id=sess_t01 name=demo" in rendered
-    assert "status: writable" in rendered
-    assert "question: q" in rendered
-    assert "report_timezone:" in rendered
-    assert ".catalog" in rendered
-    assert ".runs(" in rendered
-    assert ".graph(" in rendered
-    for call in REGISTRY.public_member_calls("Session"):
-        if call == ".render()":
-            continue  # render() backs show() and is never advertised in footers
-        if call.startswith(".graph("):
-            assert ".graph()" in rendered
-            continue  # Session owns state-dependent graph continuations
-        assert call in rendered
-    for receiver, namespace in (
-        ("SessionEvents", session.events),
-        ("SessionLifecycle", session.lifecycle),
-    ):
-        namespace_rendered = namespace.render()
-        for call in REGISTRY.public_member_calls(receiver):
-            if call == ".render()":
-                continue  # render() backs show() and is never advertised in footers
-            assert call in namespace_rendered
-        assert ".close()" not in namespace_rendered
-    assert session.show() is None
-    assert capsys.readouterr().out.rstrip() == rendered
-
-
-def test_session_card_does_not_advertise_an_unavailable_overall_graph(
-    tmp_path, monkeypatch
-) -> None:
-    session = _session(tmp_path)
-    recap = SessionRuntimeRecap(
-        session_id=session.id,
-        artifact_count=51,
-        head_artifact_count=1,
-        head_artifact_refs=("artifact_head",),
-        succeeded_run_count=51,
-        failed_run_count=0,
-        incomplete_run_count=0,
-        evidence_complete_count=51,
-        evidence_partial_count=0,
-        evidence_unavailable_count=0,
-        attention_run_ids=(),
-        overall_graph_available=False,
-    )
-    monkeypatch.setattr(SessionRuntimeReads, "recap", lambda _reads: recap)
-
-    rendered = session.render()
-
-    assert ".graph(artifact_ref=None" not in rendered
-    assert "overall graph: too large" in rendered
-    assert ".graph(artifact_ref='<ref>', direction='ancestors')" in rendered
-    assert ".graph(artifact_ref='<ref>', direction='descendants')" in rendered
-
-
-def test_session_runs_lists_records_newest_first(tmp_path):
-    s = _session(tmp_path)
-    for artifact_id, producer in (("f2", "job_two"), ("f1", "job_one")):
-        s._store.record_artifact(
-            session_id=s.id,
-            artifact_id=artifact_id,
-            kind="metric_frame",
-            path=f"frames/{artifact_id}/data.parquet",
-            meta_path=f"frames/{artifact_id}/meta.json",
-            content_hash=None,
-            produced_by_job=producer,
-        )
-    persist_job_record(
-        s,
-        {
-            "id": "job_two",
-            "session_id": "sess_t01",
-            "intent": "observe",
-            "params": {},
-            "input_frame_refs": [],
-            "output_frame_ref": "f2",
-            "started_at": "2026-05-24T10:05:00+00:00",
-            "finished_at": "2026-05-24T10:05:01+00:00",
-            "duration_ms": 1000,
-            "status": "succeeded",
-            "error": None,
-            "semantic_project_root": "/p",
-            **_job_semantics(s),
-        },
-    )
-    persist_job_record(
-        s,
-        {
-            "id": "job_one",
-            "session_id": "sess_t01",
-            "intent": "observe",
-            "params": {},
-            "input_frame_refs": [],
-            "output_frame_ref": "f1",
-            "started_at": "2026-05-24T10:00:00+00:00",
-            "finished_at": "2026-05-24T10:00:01+00:00",
-            "duration_ms": 1000,
-            "status": "succeeded",
-            "error": None,
-            "semantic_project_root": "/p",
-            **_job_semantics(s),
-        },
-    )
-    summaries = s.runs(limit=100).items
-    assert [run.run_id for run in summaries] == ["job_two", "job_one"]
-    assert isinstance(summaries[0], SucceededRun)
-
-
-def test_session_get_run_raises_run_not_found_from_store_absence(tmp_path):
-    s = _session(tmp_path)
-    with pytest.raises(RunNotFoundError) as exc_info:
-        s.get_run("nonexistent_job")
-    assert "nonexistent_job" in exc_info.value.message
-
-
-def test_session_get_run_returns_closed_failed_variant(tmp_path) -> None:
-    session = _session(tmp_path)
-    session._store.begin_run(
-        session_id=session.id,
-        run_id="run_failed",
-        capability_id="observe",
-        analysis_purpose=None,
-        arguments=[],
-        omitted_argument_names=(),
-        input_artifact_refs=(),
-        started_at="2026-05-24T10:00:00+00:00",
-    )
-    session._store.fail_run(
-        session_id=session.id,
-        run_id="run_failed",
-        failure={
-            "error_type": "InternalExecutionError",
-            "message": "execution failed",
-            "expected": None,
-            "received": None,
-            "location": None,
-            "repair": None,
-        },
-        failed_at="2026-05-24T10:00:01+00:00",
-    )
-    run = session.get_run("run_failed")
-    assert isinstance(run, FailedRun)
-    assert run.run_id == "run_failed"
-    assert run.lifecycle == "failed"
-    assert run.failure.error_type == "InternalExecutionError"
-    assert list(session._layout.jobs_dir.glob("*.json")) == []
-
-
-def test_session_artifact_reads_registered_artifact_by_ref(tmp_path):
-    s = _session(tmp_path)
-    import pandas as pd
-
-    # make_metric_frame uses persist_frame which registers in the store.
-    frame = make_metric_frame(
-        pd.DataFrame({"value": [1.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="scalar",
-        semantic_model="sales",
-        session=s,
-    )
-
-    loaded = s.artifact(frame.ref)
-    assert loaded.ref == frame.ref
-    assert loaded.kind == "metric_frame"
-    assert loaded.meta.metric_id == "sales.revenue"
-
-    # Write a frame directory without registering in the store — it should be invisible.
-    orphan_dir = s._layout.frames_dir / "orphan_001"
-    orphan_dir.mkdir(parents=True)
-    (orphan_dir / "meta.json").write_text(
-        '{"ref": "orphan_001", "kind": "metric_frame", "metric_id": "orphan.metric"}'
-    )
-    with pytest.raises(ArtifactNotFoundError):
-        s.artifact("orphan_001")
-
-
-def test_load_rejects_removed_pre_cutover_evidence_meta(tmp_path):
-    import pandas as pd
-
-    session = _session(tmp_path)
-    frame = make_metric_frame(
-        pd.DataFrame({"value": [1.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="scalar",
-        semantic_model="sales",
-        session=session,
-    )
-    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
-    meta = json.loads(meta_path.read_text())
-    meta.pop("analysis_scope", None)
-    meta.pop("evidence_digest", None)
-    meta["confidence_scope"] = {"metric_ids": ["sales.revenue"]}
-    meta["evidence_summary"] = {"headline": "legacy display prose"}
-    meta["blocking_issues"] = []
-    meta_path.write_text(json.dumps(meta))
-
-    with pytest.raises(
-        FrameMetaInvalidError, match="carries field\\(s\\) no longer in"
-    ) as exc_info:
-        load_frame(frame.ref, session=session)
-    # A removed field is a version mismatch, not data corruption: the repair
-    # must be visible to the agent.
-    assert exc_info.value.repair is not None
-    assert "Re-run observe()" in exc_info.value.repair.action
-
-
-def test_session_close_closes_runtime_connections(tmp_path):
-    s = _session(tmp_path)
-    s._connection_runtime.session_backend("fake")
-    assert s._connection_runtime.service._session_backends
-    s.close()
-    assert s._connection_runtime.service._session_backends == {}
-
-
-def test_session_public_fields_are_read_only(tmp_path):
-    s = _session(tmp_path)
-    with pytest.raises(AttributeError):
-        s.id = "other"
-    with pytest.raises(AttributeError):
-        s.name = "other"
-    with pytest.raises(AttributeError):
-        s.created_at = _now()
+def test_session_public_fields_are_read_only(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("immutable")
+    for name in ("id", "name", "created_at"):
+        with pytest.raises(AttributeError):
+            setattr(session, name, "other")
 
 
 def test_session_exposes_catalog_property(tmp_path, monkeypatch):
-    import marivo.analysis as mv
-    from marivo.semantic.catalog import SemanticCatalog
-
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create(name="catalog_session", use_datasources=False)
-
+    session = mv.session.get_or_create("catalog")
     assert isinstance(session.catalog, SemanticCatalog)
     assert session.catalog.workspace_dir == tmp_path
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"backends": {}}, {"use_datasources": False}, {"backend_factory": None}]
+)
+def test_session_constructor_rejects_old_runtime_keywords(tmp_path, monkeypatch, kwargs):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(TypeError):
+        mv.Session(**kwargs)
+    assert not (tmp_path / ".marivo").exists()
 
 
 def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
@@ -595,7 +78,7 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
                 import marivo.semantic as ms
 
                 source = ms.ref.datasource("{datasource}")
-                rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
+                rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}, columns={{"id": md.source_column("id", data_type="int64"), "amount": md.source_column("amount", data_type="float64")}}), primary_key=["id"])
 
                 @ms.metric(entities=[rows], additivity="additive")
                 def {metric}(table):
@@ -615,16 +98,16 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
     )
 
 
+@pytest.mark.runtime
 def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     import marivo.analysis as mv
-    import marivo.analysis.session as session_attach
 
     project_root = tmp_path / "project"
     external_models = tmp_path / "external" / "models"
     db_path = tmp_path / "warehouse.duckdb"
     con = duckdb.connect(str(db_path))
-    con.execute("CREATE TABLE refunds (amount DOUBLE)")
-    con.execute("INSERT INTO refunds VALUES (100.0), (50.0)")
+    con.execute("CREATE TABLE refunds (id BIGINT, amount DOUBLE)")
+    con.execute("INSERT INTO refunds VALUES (1, 100.0), (2, 50.0)")
     con.close()
     project_root.mkdir()
     (project_root / "marivo.toml").write_text(
@@ -658,132 +141,18 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
             import marivo.semantic as ms
 
             source = ms.ref.datasource("warehouse")
-            rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds"))
+            rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds", columns={"id": md.source_column("id", data_type="int64"), "amount": md.source_column("amount", data_type="float64")}), primary_key=["id"])
 
-            @ms.metric(entities=[rows], additivity="additive")
-            def refunds_total(table):
-                return table.amount.sum()
+            amount = ms.measure_column(name="amount", entity=rows, column="amount", additivity="additive")
+            refunds_total = ms.aggregate(name="refunds_total", measure=amount, agg="sum")
             """
         ),
         encoding="utf-8",
     )
     monkeypatch.chdir(project_root)
-    session_attach._reset_process_state()
 
     session = mv.session.get_or_create(name="external_layer_observe")
     metric = session.catalog.require(ms.ref.metric("finance.refunds_total")).ref
-    frame = session.observe(metric)
+    frame = session.observe(metric).aggregate().execute()
 
-    assert frame.meta.metric_id == "finance.refunds_total"
     assert frame.to_pandas()["refunds_total"].tolist() == [150.0]
-
-
-def test_session_close_closes_connection_runtime(tmp_path):
-    from datetime import datetime
-
-    from marivo.analysis.session._connections import AnalysisConnectionRuntime
-    from marivo.analysis.session._layout import PersistenceLayout
-    from marivo.analysis.session._store import SessionStore
-    from marivo.datasource.runtime import DatasourceConnectionService
-    from marivo.semantic.catalog import SemanticCatalog
-    from marivo.semantic.reader import SemanticProject
-
-    class Runtime(AnalysisConnectionRuntime):
-        def __init__(self):
-            super().__init__(
-                DatasourceConnectionService(project_root=tmp_path, use_datasources=False)
-            )
-            self.closed = False
-
-        def close_all(self):
-            self.closed = True
-
-    runtime = Runtime()
-    project = SemanticProject(workspace_dir=tmp_path)
-    project.load()
-    session = Session(
-        id="s1",
-        name="n",
-        question=None,
-        cwd=tmp_path,
-        project_root=tmp_path,
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-        connection_runtime=runtime,
-        layout=PersistenceLayout(project_root=tmp_path, session_id="s1"),
-        semantic_catalog=SemanticCatalog(project),
-        store=SessionStore(project_root=tmp_path),
-    )
-
-    session.close()
-
-    assert runtime.closed
-
-
-def test_session_constructor_rejects_old_runtime_keywords(tmp_path):
-    from marivo.analysis.session._connections import AnalysisConnectionRuntime
-    from marivo.analysis.session._layout import PersistenceLayout
-    from marivo.analysis.session._store import SessionStore
-    from marivo.datasource.runtime import DatasourceConnectionService
-    from marivo.semantic.catalog import SemanticCatalog
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject(workspace_dir=tmp_path)
-    project.load()
-    kwargs = {
-        "id": "s1",
-        "name": "n",
-        "question": None,
-        "cwd": tmp_path,
-        "project_root": tmp_path,
-        "created_at": _now(),
-        "updated_at": _now(),
-        "connection_runtime": AnalysisConnectionRuntime(
-            DatasourceConnectionService(project_root=tmp_path, use_datasources=False)
-        ),
-        "layout": PersistenceLayout(project_root=tmp_path, session_id="s1"),
-        "semantic_catalog": SemanticCatalog(project),
-        "store": SessionStore(project_root=tmp_path),
-    }
-
-    with pytest.raises(TypeError):
-        Session(**kwargs, backend_factory=lambda name: object())
-
-    with pytest.raises(TypeError):
-        Session(**kwargs, semantic_project=SemanticProject(workspace_dir=tmp_path))
-
-
-def test_persisted_frame_records_content_hash_in_meta_store_and_state(tmp_path):
-    s = _session(tmp_path)
-    import json
-
-    import pandas as pd
-
-    frame = make_metric_frame(
-        pd.DataFrame({"bucket_start": ["2026-06-18"], "value": [1.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="time_series",
-        semantic_model="sales",
-        session=s,
-    )
-
-    assert frame.state.content_hash is not None
-    assert frame.state.content_hash.startswith("sha256:")
-
-    row = s._store.get_artifact(s.id, frame.ref)
-    assert row is not None
-    assert row["content_hash"] == frame.state.content_hash
-
-    meta_path = s.project_root / row["meta_path"]
-    meta_payload = json.loads(meta_path.read_text())
-    assert meta_payload["content_hash"] == frame.state.content_hash
-
-    loaded = s.artifact(frame.ref)
-    assert loaded.state.content_hash == frame.state.content_hash
-
-    assert s.artifact(frame.ref).state.content_hash == frame.state.content_hash
-
-
-# ---------------------------------------------------------------------------

@@ -23,10 +23,14 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_navigation import navigation
 from marivo.analysis._capabilities.model import ReadCapability
 from marivo.analysis.datasets.base import Dataset
-from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.errors import AnalysisError
 from marivo.introspection.live.resolve import LiveSurface, ResolvedLiveTarget, resolve_live_target
+
+
+def _unwrapped(value: object) -> object:
+    """Compare native ownership beneath transparent telemetry wrappers."""
+    return inspect.unwrap(value) if callable(value) else value
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,13 +47,9 @@ class DatasetDisclosureRegistry:
         neither copied into Dataset providers nor reconstructed from prose.
         Their public activation and semantic handoff remain with Slice 8.
         """
-        from marivo.analysis._capabilities.registry import REGISTRY
+        from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
 
-        return tuple(
-            d
-            for d in REGISTRY.descriptors
-            if isinstance(d, ReadCapability) and d.id.startswith("catalog.")
-        )
+        return CATALOG_INPUTS
 
     @property
     def surface(self) -> Literal["analysis"]:
@@ -65,7 +65,9 @@ class DatasetDisclosureRegistry:
         # KeyError is the neutral LiveSurface resolver's lookup-miss protocol.
         # resolve() adapts a final miss to the owning structured error below.
         for descriptor in self.descriptors:
-            if descriptor.canonical_id == canonical_id:
+            if descriptor.canonical_id == canonical_id or (
+                isinstance(descriptor, ReadCapability) and descriptor.help_target == canonical_id
+            ):
                 return descriptor
         raise KeyError(canonical_id)
 
@@ -77,7 +79,7 @@ class DatasetDisclosureRegistry:
             for d in self.descriptors
             if isinstance(d, CallableInput)
             and any(
-                b.implementation is function
+                _unwrapped(b.implementation) is _unwrapped(function)
                 and (receiver is None or b.receiver is None or isinstance(receiver, b.receiver))
                 for b in d.bindings
             )
@@ -105,6 +107,12 @@ class DatasetDisclosureRegistry:
                 )
             ]
         if not matches:
+            from marivo.introspection.live.reflect import callable_identity
+
+            path = callable_identity(value)
+            for descriptor in self.retained_catalog_inputs:
+                if descriptor.callable_path == path:
+                    return descriptor
             raise KeyError("unregistered callable")
         if len(matches) > 1:
             defaults = [d for d in matches if d.unbound_default]
@@ -113,14 +121,8 @@ class DatasetDisclosureRegistry:
             raise invalid("one exact callable owner", "ambiguous callable identity")
         return matches[0]
 
-    def resolve(self, target: object) -> ResolvedLiveTarget[Descriptor]:
-        if isinstance(target, str) and target == "":
-            return ResolvedLiveTarget(
-                kind="descriptor",
-                surface="analysis",
-                canonical_id="",
-                descriptor=self.by_canonical_id(""),
-            )
+    def live_surface(self) -> LiveSurface[Descriptor]:
+        """Bind this exact owner registry to the neutral public resolver."""
         types = {
             b.implementation: d.canonical_id
             for d in self.descriptors
@@ -138,6 +140,17 @@ class DatasetDisclosureRegistry:
         )
 
         def enrich(value: object) -> ResolvedLiveTarget[Descriptor] | None:
+            if isinstance(value, AnalysisError):
+                if value.repair is None:
+                    return ResolvedLiveTarget(
+                        kind="error_contract", surface="analysis", error_name=type(value).__name__
+                    )
+                return ResolvedLiveTarget(
+                    kind="error_briefing",
+                    surface="analysis",
+                    error_name=type(value).__name__,
+                    original=value,
+                )
             if isinstance(value, type) and value in types:
                 return ResolvedLiveTarget(
                     kind="type_contract", surface="analysis", type_name=types[value]
@@ -161,27 +174,33 @@ class DatasetDisclosureRegistry:
                     types[variant.implementation] = descriptor.canonical_id
 
         def help_target_error(value: object, suggestions: tuple[str, ...]) -> NoReturn:
-            raise DatasetRegistrationError(
-                expected="a registered private Dataset Help string, callable, type or instance",
-                received=value if isinstance(value, str) else type(value).__name__,
-                repair="Resolve a private discovery target: " + ", ".join(suggestions) + ".",
-                location="dataset.disclosure.resolve",
-            )
+            from marivo.analysis.errors import HelpTargetError
+
+            raise HelpTargetError(target=value, suggestions=suggestions)
 
         root = self.by_canonical_id("")
         assert isinstance(root, NavigationInput)
-        surface = LiveSurface(
+        return LiveSurface(
             self,
             MappingProxyType(types),
-            MappingProxyType({}),
+            MappingProxyType({"AnalysisError": AnalysisError}),
             AnalysisError,
             enrich=enrich,
             default_suggestions=root.members,
             help_target_error=help_target_error,
         )
+
+    def resolve(self, target: object) -> ResolvedLiveTarget[Descriptor]:
+        if isinstance(target, str) and target == "":
+            return ResolvedLiveTarget(
+                kind="descriptor",
+                surface="analysis",
+                canonical_id="",
+                descriptor=self.by_canonical_id(""),
+            )
         if isinstance(target, str) and target.startswith("analysis."):
             target = target[len("analysis.") :]
-        return resolve_live_target(target, surface)
+        return resolve_live_target(target, self.live_surface())
 
     def validate(self) -> None:
         if tuple(sorted(p.owner for p in self.providers)) != (
@@ -250,7 +269,7 @@ class DatasetDisclosureRegistry:
                     if binding.receiver is not None:
                         name = getattr(binding.implementation, "__name__", "")
                         actual: object = inspect.getattr_static(binding.receiver, name, None)
-                        if actual is not binding.implementation:
+                        if _unwrapped(actual) is not _unwrapped(binding.implementation):
                             raise invalid(
                                 "the exact receiver-owned method", descriptor.canonical_id
                             )
@@ -297,7 +316,7 @@ class DatasetDisclosureRegistry:
                                 "complete current sealed value fields", descriptor.canonical_id
                             )
                     targets = descriptor.producers + descriptor.consumers
-            else:
+            elif isinstance(descriptor, NavigationInput):
                 targets = descriptor.members
                 memberships.update(targets)
             for target in targets:
@@ -358,14 +377,14 @@ def prepare() -> DatasetDisclosureRegistry:
     from marivo.analysis.observation.contracts import make_family_registry, make_ids
     from marivo.analysis.operators import _disclosure as operators
     from marivo.analysis.session import _disclosure as runtime
-    from marivo.analysis.session._lazy_sources import LazySources
+    from marivo.analysis.session.core import Session
 
     families = make_family_registry(make_ids(()))
     return assemble(
         families,
         (
             core.provider(families),
-            observation.provider(families, source_receiver=LazySources),
+            observation.provider(families, source_receiver=Session),
             operators.provider(families),
             domains.provider(families),
             runtime.provider(families),

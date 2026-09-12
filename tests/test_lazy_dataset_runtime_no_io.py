@@ -14,14 +14,12 @@ import sys
 from contextlib import ExitStack
 from unittest.mock import patch
 
-import marivo.analysis.session._runtime as runtime
-import marivo.analysis.evidence.store as evidence_store
+from marivo.analysis.materialization.admission import DatasetRuntime
 import marivo.datasource.backends as backends
 import marivo.analysis.datasets.fields
 import marivo.analysis.datasets.contract
 from marivo.analysis.session.core import Session
-from marivo.analysis.session._store import SessionStore
-from marivo.analysis.session._connections import AnalysisConnectionRuntime
+from marivo.analysis.materialization.store import SessionStore
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from tests.lazy_dataset_fixtures import (
@@ -57,28 +55,18 @@ guards = (
     (DatasourceConnectionService, '__init__', 'connection'),
     (DatasourceConnectionService, 'session_backend', 'connection'),
     (DatasourceConnectionService, 'use_backend', 'connection'),
-    (AnalysisConnectionRuntime, 'get_or_create', 'connection'),
-    (AnalysisConnectionRuntime, 'record_query', 'query'),
-    (AnalysisConnectionRuntime, 'remember_metric_artifact', 'binding'),
     (Session, '__init__', 'store'),
     (Session, 'observe', 'datasource'),
     (Session, 'source_bindings', 'binding'),
     (Session, 'artifact', 'artifact'),
     (SessionStore, '__init__', 'store'),
-    (SessionStore, '_connect', 'store'),
-    (SessionStore, 'begin_run', 'run'),
-    (SessionStore, 'complete_run', 'run'),
-    (SessionStore, 'fail_run', 'run'),
-    (SessionStore, 'record_artifact', 'artifact'),
-    (SessionStore, 'record_recovered_artifact', 'artifact'),
-    (SessionStore, 'get_artifact', 'artifact'),
-    (runtime, 'persist_frame', 'artifact'),
-    (runtime, 'register_frame_artifact', 'artifact'),
-    (runtime, 'persist_job_record', 'run'),
-    (runtime, 'persist_reused_artifact_job', 'binding'),
-    (evidence_store, 'open_evidence_store', 'evidence'),
-    (evidence_store.EvidenceStore, '__init__', 'evidence'),
-    (evidence_store.EvidenceStore, 'transaction', 'evidence'),
+    (SessionStore, '_connection', 'store'),
+    (SessionStore, 'admit', 'run'),
+    (SessionStore, 'publish', 'artifact'),
+    (SessionStore, 'lookup', 'binding'),
+    (DatasetRuntime, 'execute_metric', 'run'),
+    (DatasetRuntime, 'execute_population', 'run'),
+    (DatasetRuntime, '_record_statement', 'query'),
 )
 with ExitStack() as stack:
     for owner, name, kind in guards:
@@ -146,7 +134,7 @@ def test_deep_private_dataset_dag_is_pure() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     evidence = json.loads(result.stdout)
     assert evidence["logical_nodes"] == 2001
-    assert evidence["guarded_entrypoints"] == 27
+    assert evidence["guarded_entrypoints"] == 17
     assert evidence["lineage_count"] == 16
     assert evidence["lineage_omitted"] == 1985
     assert evidence["guarded_negative_failures"] == 3

@@ -1,23 +1,7 @@
-"""Issue #50: semantic cumulative fiscal reset — evidence, fail-closed, rollup.
-
-These tests lock the three acceptance surfaces that were still open after the
-core fiscal reset landed:
-
-1. fiscal ``grain_to_date`` compare produces complete typed cumulative alignment
-   evidence (no bare ``ValueError`` on the identity/evidence path);
-2. period-calendar boundary integrity is fail-closed (gap / overlap / coverage /
-   undeclared level are rejected by ``PeriodCalendarSnapshotV1`` itself before any
-   backend scan);
-3. fiscal rollup determinism is covered in ``test_analysis_cumulative_observe.py``
-   (the ``transform.rollup`` period-end fold); re-running the fold is asserted
-   here for determinism against the certified fiscal binding.
-"""
-
-from __future__ import annotations
+"""Certified calendar tiling rejects invalid boundaries before any source scan."""
 
 from datetime import date
 
-import pandas as pd
 import pytest
 
 from marivo._temporal import (
@@ -25,99 +9,8 @@ from marivo._temporal import (
     PeriodRecord,
     _require_contiguous_periods,
     _snapshot_digest,
-    semantic_grain,
 )
-from marivo.analysis._cumulative import (
-    AuthoredSemanticGrainToDateAnchorV1,
-    CumulativeAlignmentV1,
-    CumulativePairSummaryV1,
-    SemanticGrainToDateAnchorSemanticsV1,
-    authored_comparable_period_anchor,
-    canonical_comparable_period_anchor,
-    cumulative_alignment_evidence,
-)
-from marivo.analysis.executor.bucketing import (
-    SEMANTIC_PERIOD_COLUMNS,
-    materialize_semantic_period_columns,
-)
-from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.refs import ref as ref_factory
-
-
-def _fiscal_grain(calendar: str = "sales.fiscal", level: str = "fiscal_month"):
-    return semantic_grain(calendar=ref_factory.period_calendar(calendar), level=level)
-
-
-def _anchor(calendar: str = "sales.fiscal", level: str = "fiscal_month"):
-    return ("grain_to_date", _fiscal_grain(calendar=calendar, level=level))
-
-
-def _pairs() -> CumulativePairSummaryV1:
-    return CumulativePairSummaryV1(
-        schema="cumulative-pair-summary/v1",
-        matched_rows=2,
-        matched_null_rows=0,
-        current_unpaired_rows=0,
-        baseline_unpaired_rows=0,
-        fallback_rows=0,
-        unpaired_action="dropped",
-    )
-
-
-# ---------------------------------------------------------------------------
-# 1. Fiscal grain_to_date compare evidence is typed and complete.
-# ---------------------------------------------------------------------------
-
-
-def test_authored_anchor_accepts_semantic_grain_to_date() -> None:
-    authored = authored_comparable_period_anchor(_anchor())
-    assert isinstance(authored, AuthoredSemanticGrainToDateAnchorV1)
-    assert authored.calendar_ref == "sales.fiscal"
-    assert authored.level == "fiscal_month"
-
-
-def test_canonical_anchor_accepts_semantic_grain_to_date() -> None:
-    canonical = canonical_comparable_period_anchor(_anchor())
-    assert isinstance(canonical, SemanticGrainToDateAnchorSemanticsV1)
-    assert canonical.calendar_ref == "sales.fiscal"
-    assert canonical.level == "fiscal_month"
-
-
-def test_semantic_anchor_alignment_evidence_is_complete() -> None:
-    evidence = cumulative_alignment_evidence(
-        current_anchor=_anchor(),
-        baseline_anchor=_anchor(),
-        pairs=_pairs(),
-    )
-    assert isinstance(evidence, CumulativeAlignmentV1)
-    assert isinstance(evidence.current_authored_anchor, AuthoredSemanticGrainToDateAnchorV1)
-    assert isinstance(evidence.baseline_authored_anchor, AuthoredSemanticGrainToDateAnchorV1)
-    assert isinstance(evidence.canonical_anchor, SemanticGrainToDateAnchorSemanticsV1)
-    assert evidence.canonical_anchor.calendar_ref == "sales.fiscal"
-    assert evidence.canonical_anchor.level == "fiscal_month"
-
-
-def test_semantic_anchor_alignment_rejects_cross_calendar_mismatch() -> None:
-    with pytest.raises(ValueError, match="not canonically equivalent"):
-        cumulative_alignment_evidence(
-            current_anchor=_anchor(calendar="sales.fiscal"),
-            baseline_anchor=_anchor(calendar="sales.retail"),
-            pairs=_pairs(),
-        )
-
-
-def test_semantic_anchor_alignment_rejects_level_mismatch() -> None:
-    with pytest.raises(ValueError, match="not canonically equivalent"):
-        cumulative_alignment_evidence(
-            current_anchor=_anchor(level="fiscal_month"),
-            baseline_anchor=_anchor(level="fiscal_week"),
-            pairs=_pairs(),
-        )
-
-
-# ---------------------------------------------------------------------------
-# 2. Period-calendar boundary integrity is fail-closed.
-# ---------------------------------------------------------------------------
 
 
 def _period(level: str, key: str, start: date, end: date, ordinal: int) -> PeriodRecord:
@@ -217,81 +110,3 @@ def test_snapshot_construction_rejects_gap_even_with_valid_digest() -> None:
             correspondences=(),
             snapshot_digest=digest,
         )
-
-
-# ---------------------------------------------------------------------------
-# 3. The certified period-column constant tracks the materializer output.
-# ---------------------------------------------------------------------------
-
-
-def _fiscal_week_snapshot() -> PeriodCalendarSnapshotV1:
-    calendar_ref = ref_factory.period_calendar("sales.fiscal")
-    coverage = (date(2026, 1, 1), date(2026, 1, 15))
-    levels = ("day", "fiscal_week")
-    periods = (
-        _period("fiscal_week", "W1", date(2026, 1, 1), date(2026, 1, 8), 0),
-        _period("fiscal_week", "W2", date(2026, 1, 8), date(2026, 1, 15), 1),
-    )
-    digest = _snapshot_digest(
-        calendar_ref=calendar_ref,
-        boundary_timezone="UTC",
-        coverage=coverage,
-        levels=levels,
-        periods=periods,
-        containments=(),
-        correspondences=(),
-    )
-    return PeriodCalendarSnapshotV1(
-        calendar_ref=calendar_ref,
-        boundary_timezone="UTC",
-        coverage=coverage,
-        levels=levels,
-        periods=periods,
-        containments=(),
-        correspondences=(),
-        snapshot_digest=digest,
-    )
-
-
-def test_semantic_period_columns_constant_matches_materializer_output() -> None:
-    """``SEMANTIC_PERIOD_COLUMNS`` is duplicated by hand next to the
-    materializer; this pin makes drift fail at test time.
-
-    The materializer emits ``period_key``/``period_start``/``period_end``/
-    ``period_ordinal`` always, appends ``observed_start``/``observed_end``/
-    ``is_complete`` only when a window bounds the observation, and appends
-    ``data_extent_end``/``has_full_data`` only when ``data_end`` is supplied.
-    The constant's canonical order must match the emitted column order exactly.
-    """
-    snapshot = _fiscal_week_snapshot()
-    grain = _fiscal_grain(level="fiscal_week")
-    frame = pd.DataFrame({"bucket_start": [0, 1], "value": [1.0, 2.0]})
-
-    without_window = materialize_semantic_period_columns(
-        frame, snapshot=snapshot, grain=grain, window=None
-    )
-    emitted = [
-        column for column in without_window.columns if column not in ("bucket_start", "value")
-    ]
-    assert emitted == list(SEMANTIC_PERIOD_COLUMNS[:4])
-
-    with_window = materialize_semantic_period_columns(
-        frame,
-        snapshot=snapshot,
-        grain=grain,
-        window=AbsoluteWindow(start="2026-01-01", end="2026-01-15"),
-    )
-    emitted = [column for column in with_window.columns if column not in ("bucket_start", "value")]
-    assert emitted == list(SEMANTIC_PERIOD_COLUMNS[:7])
-
-    with_data_end = materialize_semantic_period_columns(
-        frame,
-        snapshot=snapshot,
-        grain=grain,
-        window=AbsoluteWindow(start="2026-01-01", end="2026-01-15"),
-        data_end="2026-01-10",
-    )
-    emitted = [
-        column for column in with_data_end.columns if column not in ("bucket_start", "value")
-    ]
-    assert emitted == list(SEMANTIC_PERIOD_COLUMNS)

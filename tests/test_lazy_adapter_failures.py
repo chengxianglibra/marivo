@@ -16,7 +16,7 @@ from marivo.analysis.materialization.errors import (
     MaterializationError,
 )
 from marivo.analysis.materialization.storage import StoragePolicy
-from marivo.analysis.materialization.targets import EngineTarget, ObjectTarget
+from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 
@@ -69,7 +69,7 @@ def test_engine_exact_version_rejects_mutation(tmp_path: Path, mutation: str) ->
     fixture = setup_adapter(tmp_path, "engine")
     materialized = fixture.sources.population(ref.entity("sales.customers")).execute()
     record = fixture.runtime.store.artifact(materialized.state.artifact_ref.ref)
-    assert record is not None and isinstance(record.descriptor.storage_receipt, c.EngineReceipt)
+    assert record is not None and isinstance(record.descriptor.storage_receipt, c.LocalReceipt)
     path = tmp_path / record.descriptor.storage_receipt.qualified_relation_ref
     if mutation == "write_attempt":
         with (
@@ -91,7 +91,7 @@ def test_engine_exact_version_rejects_mutation(tmp_path: Path, mutation: str) ->
 @pytest.mark.parametrize("kind", ["engine", "object"])
 def test_storage_configuration_failure_precedes_source_work(tmp_path: Path, kind: str) -> None:
     fixture = setup_adapter(tmp_path, "engine")
-    fixture.runtime.target = EngineTarget("foreign") if kind == "engine" else ObjectTarget("absent")
+    fixture.runtime.target = LocalTarget() if kind == "engine" else ObjectTarget("absent")
     with pytest.raises(MaterializationError, match="storage_selection"):
         fixture.sources.population(ref.entity("sales.customers")).execute()
     _assert_failed(fixture.runtime)
@@ -101,7 +101,7 @@ def test_storage_configuration_failure_precedes_source_work(tmp_path: Path, kind
 
 def test_engine_storage_budget_aborts_without_another_target(tmp_path: Path) -> None:
     fixture = setup_adapter(tmp_path, "engine")
-    assert isinstance(fixture.runtime.target, EngineTarget)
+    assert isinstance(fixture.runtime.target, LocalTarget)
     fixture.runtime.target = replace(
         fixture.runtime.target, policy=StoragePolicy(max_stored_bytes=1)
     )
@@ -150,7 +150,7 @@ def test_one_validated_target_is_fixed_for_the_action(tmp_path: Path) -> None:
     fixture = setup_adapter(tmp_path, "engine", event=event)
     result = fixture.sources.population(ref.entity("sales.customers")).execute()
     record = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and isinstance(record.descriptor.storage_receipt, c.EngineReceipt)
+    assert record is not None and isinstance(record.descriptor.storage_receipt, c.LocalReceipt)
 
 
 @pytest.mark.parametrize("kind", ["foreign_engine", "local"])
@@ -186,7 +186,7 @@ def test_pandas_result_cannot_be_uploaded_to_engine(tmp_path: Path) -> None:
 
     runtime, sources, _ = setup_local(tmp_path)
     result = sources.observe(REVENUE).execute()
-    runtime.target = EngineTarget(next(iter(sources._owner.semantic_registry.datasources)))
+    runtime.target = LocalTarget()
     with pytest.raises(MaterializationError, match="storage_selection"):
         result.where(gt(REVENUE, 15)).execute()
     _assert_failed(runtime)

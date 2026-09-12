@@ -144,10 +144,12 @@ def test_entity_definition_is_temporal_neutral_and_pure(name: str) -> None:
     for name in (
         "LogicalCandidateDataset",
         "MaterializedCandidateDataset",
-        "EntityCandidateEvaluationSummary",
-        "MetricDiscovery",
     ):
-        assert name not in exports and not hasattr(mv, name)
+        assert name in exports and hasattr(mv, name)
+    assert "EntityCandidateEvaluationSummary" not in exports and not hasattr(
+        mv, "EntityCandidateEvaluationSummary"
+    )
+    assert "MetricDiscovery" not in exports and not hasattr(mv, "MetricDiscovery")
 
 
 def test_entity_discovery_rejects_other_shapes_and_metric_arity() -> None:

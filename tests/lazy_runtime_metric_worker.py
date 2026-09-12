@@ -80,6 +80,7 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
         "projected_linear": projected.to_pandas()["linear"].tolist(),
         "projected_delta": delta.to_pandas()["delta"].tolist(),
         "queries": runtime.statistics.primary_queries,
+        "source_fences": runtime.statistics.source_fences,
     }
 
 

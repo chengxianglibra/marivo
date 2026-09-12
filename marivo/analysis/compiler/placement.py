@@ -65,7 +65,7 @@ class SourceBinding:
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class EngineBinding:
+class ParquetBinding:
     """Runtime-admitted immutable scan domain without semantic origin authority."""
 
     owner: object
@@ -76,7 +76,7 @@ class EngineBinding:
 
     def same_domain(self, other: ExecutionBinding) -> bool:
         return (
-            isinstance(other, EngineBinding)
+            isinstance(other, ParquetBinding)
             and self.owner is other.owner
             and self.datasource_id == other.datasource_id
             and self.domain_digest == other.domain_digest
@@ -84,7 +84,7 @@ class EngineBinding:
         )
 
 
-ExecutionBinding: TypeAlias = SourceBinding | EngineBinding
+ExecutionBinding: TypeAlias = SourceBinding | ParquetBinding
 
 
 @dataclass(frozen=True, slots=True, repr=False)

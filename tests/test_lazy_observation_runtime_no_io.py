@@ -16,10 +16,10 @@ from unittest.mock import patch
 
 os.environ['MARIVO_TELEMETRY'] = 'off'
 import marivo.analysis as mv
-import marivo.analysis.session._runtime as runtime
-import marivo.analysis.evidence.store as evidence_store
+from marivo.analysis.materialization.admission import DatasetRuntime
 import marivo.datasource.backends as backends
 import marivo.analysis.observation.ordering
+import marivo.semantic.runtime_metric_lowering
 import marivo.analysis.operators.compare
 import marivo.analysis.domains.event_comparison
 import marivo.analysis.domains.event_attribution
@@ -33,8 +33,7 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.session.core import Session
 from marivo.analysis.session._lazy_sources import make_lazy_sources
-from marivo.analysis.session._store import SessionStore
-from marivo.analysis.session._connections import AnalysisConnectionRuntime
+from marivo.analysis.materialization.store import SessionStore
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import ref
 from tests.lazy_observation_fixtures import make_semantic_registry, NoIoActionPort
@@ -94,28 +93,18 @@ guards = (
     (DatasourceConnectionService, '__init__', 'connection'),
     (DatasourceConnectionService, 'session_backend', 'connection'),
     (DatasourceConnectionService, 'use_backend', 'connection'),
-    (AnalysisConnectionRuntime, 'get_or_create', 'connection'),
-    (AnalysisConnectionRuntime, 'record_query', 'query'),
-    (AnalysisConnectionRuntime, 'remember_metric_artifact', 'binding'),
     (Session, '__init__', 'store'),
     (Session, 'observe', 'datasource'),
     (Session, 'source_bindings', 'binding'),
     (Session, 'artifact', 'artifact'),
     (SessionStore, '__init__', 'store'),
-    (SessionStore, '_connect', 'store'),
-    (SessionStore, 'begin_run', 'run'),
-    (SessionStore, 'complete_run', 'run'),
-    (SessionStore, 'fail_run', 'run'),
-    (SessionStore, 'record_artifact', 'artifact'),
-    (SessionStore, 'record_recovered_artifact', 'artifact'),
-    (SessionStore, 'get_artifact', 'artifact'),
-    (runtime, 'persist_frame', 'artifact'),
-    (runtime, 'register_frame_artifact', 'artifact'),
-    (runtime, 'persist_job_record', 'run'),
-    (runtime, 'persist_reused_artifact_job', 'binding'),
-    (evidence_store, 'open_evidence_store', 'evidence'),
-    (evidence_store.EvidenceStore, '__init__', 'evidence'),
-    (evidence_store.EvidenceStore, 'transaction', 'evidence'),
+    (SessionStore, '_connection', 'store'),
+    (SessionStore, 'admit', 'run'),
+    (SessionStore, 'publish', 'artifact'),
+    (SessionStore, 'lookup', 'binding'),
+    (DatasetRuntime, 'execute_metric', 'run'),
+    (DatasetRuntime, 'execute_population', 'run'),
+    (DatasetRuntime, '_record_statement', 'query'),
     (NoIoActionPort, 'execute_forecast', 'run'),
     (NoIoActionPort, 'execute_candidate', 'run'),
     (NoIoActionPort, 'execute_delta', 'run'),
@@ -247,7 +236,7 @@ def test_actual_private_observation_chain_is_pure() -> None:
     assert evidence["deep_filter_nodes"] == 80
     assert evidence["checked_definitions"] == 27
     assert evidence["guarded_negative_failures"] == 5
-    assert evidence["guarded_entrypoints"] == 31
+    assert evidence["guarded_entrypoints"] == 21
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "datasource",

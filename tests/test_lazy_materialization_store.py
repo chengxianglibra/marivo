@@ -3,7 +3,7 @@
 import sqlite3
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from multiprocessing import get_context
 from multiprocessing.synchronize import Barrier
@@ -74,7 +74,7 @@ def test_v3_schema_is_strict_normalized_and_durable(tmp_path: Path) -> None:
     assert store.incomplete("session")[0].lifecycle == "incomplete"
 
 
-@pytest.mark.parametrize("version", [1, 2, 4])
+@pytest.mark.parametrize("version", [0, 1, 2, 4])
 def test_existing_wrong_generation_is_not_mutated(tmp_path: Path, version: int) -> None:
     path = tmp_path / ".marivo/analysis/generations/v3/session_store.db"
     path.parent.mkdir(parents=True)
@@ -384,20 +384,21 @@ def test_processes_create_one_complete_generation_without_thread_lock(tmp_path: 
             process.join(timeout=5)
 
 
-def test_initialization_waits_for_wal_transition_lock(tmp_path: Path) -> None:
+def test_existing_empty_generation_is_rejected_even_with_an_active_reader(tmp_path: Path) -> None:
     path = tmp_path / ".marivo/analysis/generations/v3/session_store.db"
     path.parent.mkdir(parents=True)
     blocker = sqlite3.connect(path)
     blocker.execute("BEGIN")
     blocker.execute("SELECT name FROM sqlite_master").fetchall()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(SessionStore, tmp_path)
-        try:
-            with pytest.raises(TimeoutError):
-                future.result(timeout=0.1)
-        finally:
-            blocker.close()
-        assert future.result(timeout=10).db_path == path
+    before = path.read_bytes()
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(SessionStore, tmp_path)
+            with pytest.raises(IntegrityError, match="user_version=0"):
+                future.result(timeout=10)
+    finally:
+        blocker.close()
+    assert path.read_bytes() == before
 
 
 def test_existing_generation_opens_readonly_while_writer_is_active(

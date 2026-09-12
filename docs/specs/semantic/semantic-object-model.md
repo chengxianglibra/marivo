@@ -356,8 +356,17 @@ revenue = ms.aggregate(name="revenue", measure=paid_amount, agg="sum")
 
 `ms.aggregate(measure=..., agg=...)` supports `sum | min | max | mean | median |
 percentile | count | count_distinct` (`ms.count(...)` is the counting shortcut).
-`agg="median"` and `agg=("percentile", q)` follow backend support — Trino lowers
-both to approximate percentile (`APPROX_PERCENTILE`), using `q=0.5` for median.
+The Metric declaration owns q (`0.5` for median). Dataset observation uses exact
+`linear_interpolation@v1` by default. Select semantic approximation explicitly
+with `ms.quantile_metric(metric, method="duckdb_tdigest@v1")` before observation;
+`method="linear_interpolation@v1"` selects exact interpolation explicitly. The
+immutable input also accepts a governed RuntimeMetric expression. It does not
+change q or register a new reusable Metric. Observation checks the governed
+root, and retained projection, comparison and attribution preserve the exact
+method identity. No backend-dependent method selection or failure fallback is
+allowed. Both current Dataset implementations are registered for DuckDB; a
+semantic preview on another backend does not establish Dataset eligibility.
+`marivo.help("semantic.quantile_metric")` owns the focused input contract.
 Both `ms.aggregate` and `ms.count` accept an
 optional `filter=ms.where(dimension=value, ...)` to restrict the aggregation to a
 subset of rows (e.g. a failure or error subset) without a hand-written body.
@@ -755,19 +764,19 @@ Provenance is single-dialect (use fixture-based parity tests for multi-dialect
 needs). Derived metrics must omit provenance — they cannot be parity-checked
 directly; their effective status propagates from components (all `verified` →
 `verified`; any `drifted` → `drifted`; otherwise any `unverified` →
-`unverified`). Parity status is a visible attribute on metrics, frames, and
-details output. Adding a metric without provenance is allowed but is not a
+`unverified`). Parity status is visible on metric details; persisted analysis evidence
+retains the semantic authority used for execution. Adding a metric without provenance is allowed but is not a
 "done" state — confirm the business source, and CI can forbid `unverified`
 metrics via `--strict-provenance` (see
 [loading-validation-introspection.md](loading-validation-introspection.md)).
 
-### Private lazy percentile method contract
+### Explicit percentile method contract
 
-Slice 5d adds a private explicit quantile-method input for governed root
-median/percentile Metrics. The original declaration owns q; method selection
+`ms.quantile_metric(...)` selects an explicit quantile method for governed
+root median/percentile Metrics. The original declaration owns q; method selection
 is either exact linear interpolation or DuckDB T-Digest, never inferred from
-cost. The private authority binds method, q and its registered replay recipe.
+cost. The Dataset authority binds method, q and its registered replay recipe.
 T-Digest discloses semantic approximation and unknown error bounds. Its input
 vector is source-sorted and evaluated with the pinned backend method.
-The existing public declaration and its backend behavior remain unchanged
-until the atomic Slice 8 semantic authoring/disclosure switch.
+Use `marivo.help("semantic.quantile_metric")` for the public constructor and
+pass the selected input to `session.observe(...)`.

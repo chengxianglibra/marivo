@@ -6,293 +6,297 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-At qualifying catalog-bound runtime parameters, analysis accepts an exact
-current ``marivo.semantic.CatalogEntry`` or its exact
-``marivo.semantic.Ref``. The boundary validates ownership, kind, and current
-membership, then normalizes immediately to the ref. Bare semantic strings,
-stale or cross-catalog entries, arbitrary entry subclasses, and duck-typed
-``.ref`` objects are rejected. Runtime metric constructors and nested Event
-handles retain their existing exact input contracts.
+Construct analysis through ``session.observe``, ``session.population``,
+``session.events`` or ``session.lifecycle``. Logical Datasets describe work
+without source I/O. ``execute()`` commits a Run and returns an immutable
+Materialized Dataset. Its owned fields and methods describe valid continuations.
+Use ``show()`` for bounded current state and ``contract()`` for mechanical input
+requirements. ``to_pandas()`` is the terminal boundary for custom analysis.
 
-Typed regression is not part of the current analysis operator surface. Work
-that requires it remains explicit terminal custom analysis through
-``frame.to_pandas()`` or ``md.raw_sql(...)``; neither terminal result can
-re-enter typed Marivo analysis.
+Execution retains results as local Parquet by default. An explicit project
+configuration may select object storage. Database result storage and automatic
+storage or executor fallback are unavailable. Session recovery reads Store v3;
+older Store generations are rejected without rewriting their files.
 
-Help and agent surface
-----------------------
+Start discovery with ``marivo.help("analysis")``. Focused Help owns signatures,
+examples and constraints; errors own concrete repair. Exact current semantic
+refs or catalog entries select governed inputs, while Dataset field refs carry
+exact Dataset ownership. Cross-Session Dataset operands are rejected.
 
-At analysis entry, use the project interpreter to run
-``python -m marivo help`` once and verify the environment fingerprint.
-After entry, use the public object already in hand: ``show()`` reports current
-state, while ``contract()`` describes mechanically valid next actions. Open
-focused ``marivo.help("analysis.<target>")`` only when that object contract is
-insufficient or before first use of an unfamiliar capability. After a failure,
-follow the structured repair. Focused help is not required before every API
-call.
+Public exports
+--------------
 
-Live help owns callable signatures, accepted input families, constraints, and
-recovery guidance. Focused operator help also reports its closed Artifact
-authority policy. ``semantic_current`` consumers reject confirmed scoped drift
-with ``errors.ArtifactStaleError`` and unknown authority with
-``errors.ArtifactAuthorityUnknownError`` before execution. ``materialized_only``
-consumers retain committed-value and integrity checks without consulting the
-current catalog. ``contract()`` remains mechanical and does not perform
-currentness validation.
+The following entries follow the pinned public export order. Case-colliding
+constructors are documented inline to support case-insensitive filesystems.
 
-Frames
-------
+.. autoclass:: Dataset
+   :members:
 
-Public artifacts expose ``ref``, ``kind``, ``shape``, ``row_count``,
-``columns``, ``show()``, ``contract()``,
-``quality_summary``, ``evidence_status``, ``evidence_digest``, ``lineage``,
-``state``, and ``to_pandas()``. ``row_count == shape[0]``.
-``contract().issues`` contains typed issues; role-preserving affordances
-describe mechanical compatibility only. A multi-metric contract exposes one
-exact full-id ``frame.metric(...)`` projection repair per carried metric when a
-consumer requires arity 1; it never selects one.
+.. autoclass:: LogicalDataset
+   :members:
 
-Every public value returned by ``.contract()`` has bounded ``repr``,
-``render()``, and ``show()`` while retaining its structured fields. This is
-structural conformance, not a shared public contract base class.
+.. autoclass:: MaterializedDataset
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: DatasetShapeId
+   :members:
 
-   BaseFrame
-   BaseFrameMeta
-   MetricFrame
-   EventFrame
-   LifecycleFrame
-   SubjectSet
-   ComponentFrame
-   DeltaFrame
-   CoverageFrame
-   AttributionFrame
-   ForecastFrame
-   ArtifactAffordance
-   ArtifactInputRequirement
-   ArtifactColumn
-   ArtifactContract
-   ArtifactPrecondition
-   ArtifactSchema
-   ArtifactState
+.. autoclass:: DatasetFieldId
+   :members:
 
-Analysis results and selections
--------------------------------
+.. autoclass:: DatasetFieldIdentity
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: DatasetPhysicalTypeState
+   :members:
 
-   AssociationResult
-   HypothesisTestResult
-   CandidateSet
-   PointAnomalySelection
-   PeriodShiftSelection
-   DriverAxisSelection
-   SliceSelection
-   WindowSelection
-   CrossSectionalOutlierSelection
-   OntologyMetricCandidate
-   CandidateOrigin
+.. autoclass:: DatasetField
+   :members:
 
-Evidence
---------
+.. autoclass:: DatasetRowBound
+   :members:
 
-``Finding`` is the typed audit record. ``ArtifactDigest`` is the bounded
-operator-local read model; it never performs cross-artifact judgment. A
-``Finding`` renders as one bounded evidence statement with
-``finding.render()`` (English by default) or ``finding.render(language="zh")``.
-``FindingPage.render()`` uses the same statements and retains each canonical
-``finding_id`` for exact follow-up reads.
+.. autoclass:: DatasetCardinality
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: DatasetOrderTerm
+   :members:
 
-   Finding
-   ArtifactDigest
-   ArtifactRevalidation
-   EvidenceRuleIssue
-   AnalysisScope
-   ObservationFact
-   ChangeFact
-   ContributionFact
-   AssociationFact
-   TestDecision
-   ForecastOutput
-   AnomalyCandidate
-   QualityCheckResult
-   DataQualityIssue
-   ComparabilityIssue
-   EvidenceAvailabilityIssue
-   CandidateResolutionIssue
+.. autoclass:: DatasetOrdering
+   :members:
 
-Bounded pages
--------------
+.. autoclass:: DatasetByteCount
+   :members:
 
-Pages expose immutable ``items``, ``limit``, ``has_more``, and opaque
-``next_cursor``. They use ordinary newest-first keyset semantics, not snapshot
-isolation.
+.. autoclass:: DatasetFamilyRowSemantics
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: DatasetRowContract
+   :members:
 
-   FindingPage
-   RunPage
+.. autoclass:: DatasetRowSetContract
+   :members:
 
-Scopes and windows
-------------------
+.. autoclass:: DatasetSchema
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: LogicalDatasetState
+   :members:
 
-   TimeScope
-   AbsoluteWindow
-   Grain
+.. autoclass:: MaterializedDatasetState
+   :members:
+
+.. autoclass:: DatasetContract
+   :members:
+
+.. autoclass:: DatasetFields
+   :members:
+
+.. autoclass:: DatasetFieldRef
+   :members:
+
+.. autoclass:: LogicalPopulationDataset
+   :members:
+
+.. autoclass:: MaterializedPopulationDataset
+   :members:
+
+.. autoclass:: LogicalMetricDataset
+   :members:
+
+.. autoclass:: MaterializedMetricDataset
+   :members:
+
+.. autoclass:: LogicalDeltaDataset
+   :members:
+
+.. autoclass:: MaterializedDeltaDataset
+   :members:
+
+.. autoclass:: LogicalAttributionDataset
+   :members:
+
+.. autoclass:: MaterializedAttributionDataset
+   :members:
+
+.. autoclass:: LogicalAssociationDataset
+   :members:
+
+.. autoclass:: MaterializedAssociationDataset
+   :members:
+
+.. autoclass:: LogicalForecastDataset
+   :members:
+
+.. autoclass:: MaterializedForecastDataset
+   :members:
+
+.. autoclass:: LogicalCandidateDataset
+   :members:
+
+.. autoclass:: MaterializedCandidateDataset
+   :members:
+
+.. autoclass:: LogicalEventDataset
+   :members:
+
+.. autoclass:: MaterializedEventDataset
+   :members:
+
+.. autoclass:: LogicalLifecycleDataset
+   :members:
+
+.. autoclass:: MaterializedLifecycleDataset
+   :members:
+
+.. autoclass:: AnalysisPredicate
+   :members:
+
+.. autoclass:: EntitySamplingPolicy
+   :members:
+
+.. autoclass:: ForecastHorizon
+   :members:
+
+.. autoclass:: ForecastModel
+   :members:
+
+.. autoclass:: WindowBucketAlignment
+   :members:
+
+.. autoclass:: BoundedCompletenessDeclarationV1
+   :members:
+
+.. autoclass:: SourceOriginCompletenessDeclarationV1
+   :members:
+
+.. autoclass:: DroppedBefore
+   :members:
+
+.. autoclass:: EventPattern
+   :members:
+
+.. autoclass:: EveryStart
+   :members:
+
+.. autoclass:: FirstPerSubject
+   :members:
+
+.. autoclass:: FromInception
+   :members:
+
+.. autoclass:: FunnelLossRate
+   :members:
+
+.. autoclass:: Grain
+   :members:
+
+.. autoclass:: InState
+   :members:
+
+.. autoclass:: PatternStep
+   :members:
+
+.. autoclass:: TimeScope
+   :members:
+
+.. autoclass:: ArtifactDigest
+   :members:
+
+.. autoclass:: ArtifactRef
+   :members:
+
+.. autoclass:: ArtifactRevalidation
+   :members:
+
+.. autoclass:: ArtifactSummary
+   :members:
+
+.. autoclass:: EvidenceIntegrityError
+   :members:
+
+.. autoclass:: FailedRun
+   :members:
+
+.. autoclass:: Finding
+   :members:
+
+.. autoclass:: FindingPage
+   :members:
+
+.. autoclass:: IncompleteRun
+   :members:
+
+.. autoclass:: RunPage
+   :members:
+
+.. autoclass:: SessionGraph
+   :members:
+
+.. autoclass:: SucceededRun
+   :members:
+
+.. autoclass:: Session
+   :members:
+
+.. autofunction:: eq
+
+.. autofunction:: not_eq
+
+.. autofunction:: lt
+
+.. autofunction:: lte
+
+.. autofunction:: gt
+
+.. autofunction:: gte
+
+.. autofunction:: is_in
+
+.. autofunction:: is_null
+
+.. autofunction:: is_not_null
+
+.. autofunction:: all_of
+
+.. autofunction:: any_of
+
+.. autofunction:: not_
+
+.. autofunction:: engine_sample
 
 .. autofunction:: grain
 
-Event Journey, Lifecycle replay, and typed cohorts
----------------------------------------------------
+.. autofunction:: time_scope
 
-``session.events.match(...)`` consumes typed participant roles and a closed
-``EventPattern``. The first step uses the half-open ``TimeScope`` cohort
-window; ``completion_through`` is an inclusive follow-up bound.
-``session.events.funnel(...)`` and ``session.events.time_to_event(...)`` reduce
-the persisted journey assignment without rematching Events.
-``session.select_subjects(...)`` materializes the closed
-``dropped_before(...)`` selection as a persisted ``SubjectSet``. A ready
-SubjectSet may scope ``observe(..., cohort=...)`` and
-``events.match(..., cohort=...)``.
+.. autofunction:: window_bucket
 
-``session.lifecycle.replay(...)`` consumes one exact current StateModel
-entry/ref, an explicit timezone-aware half-open window, and the explicit
-``from_inception()`` seed. It returns ``LifecycleFrame[history]``. Lifecycle
-reducers consume that persisted history without querying Event sources or
-replaying the StateModel again. ``in_state(...)`` is the closed Lifecycle
-selection used by ``session.select_subjects(...)``; a resulting ready
-``SubjectSet`` may scope later metric, Event, or Lifecycle materialization.
-Use focused ``marivo.help("analysis.lifecycle.replay")`` and the returned
-artifact ``contract()`` for the current mechanical contract and continuations.
-Before selecting a window, ``session.events.occurrence_bounds(...)`` returns
-the observed earliest/latest occurrences of one exact Event or StateModel as
-``EventOccurrenceBounds``; it does not establish completeness.
+.. autofunction:: step
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: sequence
 
-   PatternStep
-   EventPattern
-   FirstPerSubject
-   EveryStart
-   CompletenessDeclaration
-   EventOccurrenceBounds
-   DroppedBefore
-   FromInception
-   InState
-   FunnelLossRate
-   funnel_loss_rate
-   EventWatermarkRequest
-   EventWatermarkReceipt
-   step
-   sequence
-   first_per_subject
-   every_start
-   declared_complete_through
-   dropped_before
-   from_inception
-   in_state
+.. autofunction:: first_per_subject
 
-Policies
---------
+.. autofunction:: every_start
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: dropped_before
 
-   AlignmentPolicy
-   AlignmentKind
-   SamplingPolicy
+.. autofunction:: in_state
 
-Refs and lineage
-----------------
+.. autofunction:: funnel_loss_rate
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: from_inception
 
-   ArtifactRef
-   Lineage
-   LineageStep
+.. autofunction:: periods
 
-Session runtime
----------------
+.. autofunction:: naive
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: drift
 
-   Session
-   SessionSummary
-   SessionGraph
-   ArtifactSummary
-   IncompleteRun
-   SucceededRun
-   FailedRun
+.. autofunction:: seasonal_naive
 
-Alignment and window helpers
-----------------------------
+.. automodule:: marivo.analysis.runtime_metric
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   window_bucket
-   day_of_week
-   period_progress
-   period_correspondence
-   occurrence_progress
-   working_day_progress
-
-Slices
-------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   SlicePredicate
-   SlicePredicateOp
-
-Submodules
-----------
-
-.. list-table::
-   :widths: 30 70
-   :header-rows: 0
-
-   * - ``marivo.analysis.errors``
-     - Typed analysis errors and local repair contracts.
-   * - ``marivo.analysis.evidence``
-     - Typed findings, bounded digests, issues, pages, and derivation traces.
-   * - ``marivo.analysis.frames``
-     - Frame classes and metadata companions.
-   * - ``marivo.analysis.session``
-     - Session lifecycle helpers (``get_or_create``, ``current``, ``list``, ``delete``).
-
-Type aliases
-------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   SliceScalar
-   SliceValue
-   TimeScopeInput
+.. automodule:: marivo.analysis.session
+   :members:

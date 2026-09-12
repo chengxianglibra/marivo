@@ -12,13 +12,13 @@ from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis._capabilities.validation import validate_capability_inputs
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
 from marivo.datasource.backends import build_backend
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.datasource.errors import DatasourceError, DatasourceRawSqlError
+from tests.lazy_observation_fixtures import make_sources
 
 
 def _register_raw_sql_fixture(project_root: Path) -> None:
@@ -106,8 +106,11 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    with pytest.raises(AnalysisError, match="received RawSqlResult"):
-        validate_capability_inputs("compare", current=result, baseline=result)
+    metric = make_sources().observe(ms.ref.metric("sales.revenue"))
+    with pytest.raises(AnalysisError, match="RawSqlResult"):
+        metric.compare(result)
+    assert not hasattr(result, "contract")
+    assert not hasattr(result, "execute")
 
 
 def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -> None:

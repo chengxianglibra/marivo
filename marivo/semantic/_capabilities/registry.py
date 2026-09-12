@@ -68,6 +68,7 @@ INPUT_FAMILIES = frozenset(
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "Ref | RuntimeMetricExpression",
+        "QuantileMethod",
         "CatalogEntry",
         "CatalogEntry | Ref",
         "CatalogEntry | Ref | RuntimeMetricExpression",
@@ -150,6 +151,7 @@ INPUT_FAMILIES = frozenset(
 
 OUTPUT_FAMILIES = frozenset(
     {
+        "QuantileMetricInput",
         "SemanticCatalog",
         "CatalogEntry",
         "CatalogCollection",
@@ -319,6 +321,7 @@ def _capability(
     see_also: tuple[LiveHelpTarget, ...] = (),
     public_entrypoint: str | None = None,
     invocation_shape: Literal["direct", "decorator"] = "direct",
+    telemetry: bool = True,
 ) -> AuthoringCapability:
     return AuthoringCapability(
         canonical_id=canonical_id,
@@ -337,6 +340,7 @@ def _capability(
         see_also=see_also,
         repair_kinds=repair_kinds,
         invocation_shape=invocation_shape,
+        telemetry=telemetry,
     )
 
 
@@ -887,7 +891,15 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "may_reference", "objects.metric", "Derived Metrics compose other Metrics."
                 ),
             ),
-            supporting=("where", "from_sql", "grain_to_date", "trailing", "ai_context", "bind"),
+            supporting=(
+                "where",
+                "from_sql",
+                "grain_to_date",
+                "trailing",
+                "ai_context",
+                "bind",
+                "quantile_metric",
+            ),
             checks=("load", "readiness", "preview", "parity_check"),
         ),
         _object_contract(
@@ -1265,7 +1277,15 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
             "builders.field_metric_support",
             "Field and Metric support",
             "Build Field and Metric parameters, provenance, anchors, and expressions.",
-            ("where", "semi_additive", "bind", "from_sql", "grain_to_date", "trailing"),
+            (
+                "where",
+                "semi_additive",
+                "bind",
+                "from_sql",
+                "grain_to_date",
+                "trailing",
+                "quantile_metric",
+            ),
         ),
         (
             "builders.relationship_event",
@@ -2186,6 +2206,7 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
         "measure": (("name",), ("entity",), ("additivity",)),
         "measure_column": (("name",), ("entity",), ("column",), ("additivity",)),
         "aggregate": (("name",), ("measure",), ("agg",), ("fold",), ("filter",)),
+        "quantile_metric": (("metric",), ("method",)),
         "count": (("name",), ("entity",), ("filter",)),
         "where": ((),),
         "cumulative": (("name",), ("base",), ("anchor",)),
@@ -2535,10 +2556,46 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_fold_valid",
                 "time_fold_requires_semi_additive",
             ),
+            see_also=(_target("quantile_metric"),),
             example=(
                 "us_revenue = ms.aggregate(name='us_revenue', measure=amount, agg='sum', "
                 "filter=ms.where(region='US'))"
             ),
+        ),
+        _capability(
+            "quantile_metric",
+            "marivo.semantic._quantile.quantile_metric",
+            "Select an explicit implementation for a governed median/percentile Metric.",
+            output="QuantileMetricInput",
+            inputs=_inputs(
+                ("subject", "Ref | RuntimeMetricExpression"), ("dependency", "QuantileMethod")
+            ),
+            effects=_NONE,
+            telemetry=False,
+            example="selected = ms.quantile_metric(ms.ref.metric('sales.p95_amount'), method='duckdb_tdigest@v1')",
+            preconditions=(
+                "The root Metric owns q; exact interpolation is the default unless explicitly selected otherwise. T-Digest is a semantic approximation; execution never changes the selected method.",
+            ),
+            see_also=(
+                _target("aggregate"),
+                _target("QuantileMetricInput.render"),
+                _target("QuantileMetricInput.show"),
+            ),
+        ),
+        *tuple(
+            _capability(
+                f"QuantileMetricInput.{member}",
+                f"marivo.semantic._quantile.QuantileMetricInput.{member}",
+                f"{purpose} the selected quantile method and its observation continuation.",
+                kind="method",
+                output=output,
+                effects=_NONE,
+                telemetry=False,
+                example=f"selected = ms.quantile_metric(ms.ref.metric('sales.p95_amount'), method='duckdb_tdigest@v1')\nselected.{member}()",
+                public_entrypoint=f"selected.{member}",
+                see_also=(_target("quantile_metric"),),
+            )
+            for member, purpose, output in (("render", "Render", "Text"), ("show", "Print", "None"))
         ),
         _capability(
             "count",
@@ -3308,6 +3365,15 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             (target.canonical_id or "").rsplit(".", 1)[-1] for target in descriptor.see_also
         )
 
+    from marivo.semantic._quantile import QuantileMetricInput
+
+    add(
+        QuantileMetricInput,
+        "QuantileMetricInput",
+        ("quantile_metric",),
+        properties=("metric", "method"),
+        methods=show_render,
+    )
     add(
         GrainToDate,
         "GrainToDate",

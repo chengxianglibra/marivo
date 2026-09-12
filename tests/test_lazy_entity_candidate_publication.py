@@ -20,7 +20,7 @@ from marivo.analysis.materialization.candidate_codec import (
 )
 from marivo.analysis.materialization.contracts import canonical_json, descriptor_payload, parse_json
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import EngineTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.operators.candidate_contracts import (
     CandidatePayload,
@@ -158,7 +158,7 @@ def test_entity_failure_rolls_back_complete_publication(
 @pytest.mark.parametrize("point", ["source_statement", "insert_findings"])
 def test_entity_cancellation_keeps_no_partial_authority(tmp_path: Path, point: str) -> None:
     runtime, sources, _ = setup_entity_candidate(tmp_path)
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
 
     def cancel(event: str) -> None:
         if event == point:
@@ -175,7 +175,7 @@ def test_entity_cancellation_keeps_no_partial_authority(tmp_path: Path, point: s
 @pytest.mark.parametrize("damage", ["evaluation", "native_proof", "identity_signature"])
 def test_cold_entity_candidate_rejects_corrupt_authority(tmp_path: Path, damage: str) -> None:
     runtime, sources, database = setup_entity_candidate(tmp_path)
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
     result = entity_metric(sources).discover.entity_outliers().execute()
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None
@@ -228,7 +228,7 @@ def test_engine_metric_checkpoint_scores_without_origin_and_cold_reuses(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime, sources, database = setup_entity_candidate(tmp_path)
-    runtime.target = EngineTarget("warehouse")
+    runtime.target = LocalTarget()
     checkpoint = entity_metric(sources).execute()
     database.rename(tmp_path / "origin.offline")
 

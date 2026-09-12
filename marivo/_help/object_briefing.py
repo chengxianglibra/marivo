@@ -29,32 +29,20 @@ def semantic_object_path(target: object) -> str:
 
 
 def _analysis_handoff_lines(kind: str) -> tuple[str, ...]:
-    from marivo.analysis._capabilities.model import OperatorCapability, SameAsInputFamily
-    from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
+    from marivo.analysis._capabilities.dataset_model import CallableInput
+    from marivo.analysis._capabilities.registry import REGISTRY
+    from marivo.refs import SemanticKind
 
-    handoff = ANALYSIS_REGISTRY.semantic_handoff(kind)
-    if handoff is None:
+    try:
+        semantic_kind = SemanticKind(kind)
+    except ValueError:
         return ()
-
-    lines: list[str] = []
-    for target in handoff.handoff_targets:
-        if target.canonical_id is None:
-            continue
-        help_call = f'marivo.help("{target.surface}.{target.canonical_id}")'
-        if target.surface != "analysis":
-            lines.append(help_call)
-            continue
-        output = ""
-        analysis_descriptor = ANALYSIS_REGISTRY.by_id(target.canonical_id)
-        entrypoint = analysis_descriptor.public_entrypoint
-        if isinstance(analysis_descriptor, OperatorCapability):
-            family = analysis_descriptor.output_contract.family
-            if not isinstance(family, SameAsInputFamily):
-                output = f" -> {family}"
-        if "(" not in entrypoint:
-            entrypoint = f"{entrypoint}(...)"
-        lines.append(f"{entrypoint}{output}; help: {help_call}")
-    return tuple(lines)
+    return tuple(
+        f"{descriptor.public_entrypoint}(...) -> {descriptor.output}; "
+        f'help: marivo.help("analysis.{descriptor.canonical_id}")'
+        for descriptor in REGISTRY.descriptors
+        if isinstance(descriptor, CallableInput) and semantic_kind in descriptor.semantic_kinds
+    )
 
 
 def render_semantic_object(target: object) -> str:

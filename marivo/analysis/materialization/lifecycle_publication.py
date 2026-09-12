@@ -15,7 +15,7 @@ from marivo.analysis.compiler.nodes import CompiledDataset, RetainedRelationSpec
 from marivo.analysis.domains.lifecycle import PART_COLUMNS, PART_KEYS, ROLES, LifecycleSemantics
 from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary, invalid
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.targets import S3Access
+from marivo.analysis.materialization.targets import ObjectBinding
 
 if TYPE_CHECKING:
     from ibis.backends.duckdb import Backend
@@ -222,7 +222,10 @@ def native_summary(
 
 
 def inspect_history(
-    root: Path, descriptor: ArtifactDescriptor, bindings: tuple[S3Access, ...], policy: ReadPolicy
+    root: Path,
+    descriptor: ArtifactDescriptor,
+    bindings: tuple[ObjectBinding, ...],
+    policy: ReadPolicy,
 ) -> None:
     """Inspect all immutable replay rows inside the bounded inspection worker."""
     from itertools import chain

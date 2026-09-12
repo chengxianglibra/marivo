@@ -14,7 +14,7 @@ from marivo.analysis.domains.contracts import EventJourneySemantics
 from marivo.analysis.domains.event import MaterializedEventDataset
 from marivo.analysis.funnel import funnel_loss_rate
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import ref
 from tests.lazy_event_fixtures import make_event_registry
@@ -37,7 +37,7 @@ def run(project: Path, phase: str) -> None:
             isinstance(k, str) and isinstance(v, str) for k, v in raw.items()
         )
         facts = {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
-        runtime = DatasetRuntime.open(project, facts["session"], target=EngineTarget("warehouse"))
+        runtime = DatasetRuntime.open(project, facts["session"], target=LocalTarget())
         registry, sidecar = make_event_registry(project / "warehouse.duckdb")
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
         recovered = runtime.artifact(ArtifactRef(ref=facts["journey"]))

@@ -320,6 +320,30 @@ def test_aggregate_contract_is_derived_from_canonical_graph(agg: AggKind) -> Non
         assert normalized.required_state == ("value.sum", "value.non_null_count", "value.row_count")
 
 
+@pytest.mark.parametrize("agg", ["sum", "min", "max"])
+@pytest.mark.parametrize("physical", ["decimal(12, 2)", "decimal(30, 8)"])
+def test_declared_decimal_width_is_physical_not_a_logical_family(
+    agg: AggKind, physical: str
+) -> None:
+    registry = _registry()
+    entity = registry.entities["sales.orders"]
+    assert isinstance(entity.source, JsonSourceIR)
+    source = replace(
+        entity.source,
+        schema=tuple(
+            (name, physical if name == "amount" else kind) for name, kind in entity.source.schema
+        ),
+    )
+    registry.entities[entity.semantic_id] = replace(entity, source=source)
+    registry.metrics["sales.value"] = _metric("value", agg=agg)
+    normalized = normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
+    assert normalized.logical_type == "decimal"
+    assert dict(normalize_target_entity(registry, entity.semantic_id).columns)["amount"] == physical
+    assert normalized.computation_roots == (
+        normalize_target_entity(registry, entity.semantic_id).ref,
+    )
+
+
 def test_weighted_mean_and_different_root_ratio_retain_intrinsic_component_state() -> None:
     registry = _registry()
     registry.metrics["sales.weighted"] = replace(

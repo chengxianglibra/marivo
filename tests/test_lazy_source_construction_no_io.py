@@ -23,6 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from ibis.backends.duckdb import Backend
 import marivo.analysis as mv
+import marivo.semantic.runtime_metric_lowering
 import marivo.analysis.compiler as compiler
 import marivo.analysis.compiler.lowering as lowering
 import marivo.analysis.materialization.admission as admission
@@ -46,9 +47,7 @@ from marivo.analysis.observation.predicates import (
     all_of, any_of, eq, gt, gte, is_in, is_not_null, is_null, lt, lte, not_, not_eq,
 )
 from marivo.analysis.observation.sampling import engine_sample
-from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.analysis.session._lazy_sources import make_lazy_sources
-from marivo.analysis.session._store import SessionStore as EagerSessionStore
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import CsvSourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
@@ -174,9 +173,6 @@ guards = (
     (SessionStore, 'reserve', 'run'),
     (SessionStore, 'publish', 'artifact'),
     (Session, '__init__', 'session'),
-    (EagerSessionStore, '_connect', 'store'),
-    (AnalysisConnectionRuntime, 'get_or_create', 'backend'),
-    (AnalysisConnectionRuntime, 'record_query', 'query'),
     (DatasourceConnectionService, '__init__', 'backend'),
     (DatasourceConnectionService, 'session_backend', 'backend'),
     (DatasourceConnectionService, 'use_backend', 'backend'),
@@ -378,7 +374,7 @@ def test_complete_source_construction_has_no_io() -> None:
     assert evidence["aggregates"] == 8
     assert evidence["ties"] == 4
     assert evidence["guarded_negative_failures"] == 19
-    assert evidence["guarded_entrypoints"] == 63
+    assert evidence["guarded_entrypoints"] == 60
     assert evidence["checked_definitions"] == 57
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {

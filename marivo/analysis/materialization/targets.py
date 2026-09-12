@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeAlias
+from pathlib import Path
+from typing import NoReturn, TypeAlias
 
-from marivo.analysis.compiler.placement import EngineBinding, ExecutionBinding
+from marivo.analysis.compiler.placement import ExecutionBinding, ParquetBinding
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import StoragePolicy
@@ -20,18 +21,12 @@ class LocalTarget:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class EngineTarget:
-    datasource_ref: str
-    policy: StoragePolicy = _EXTERNAL_POLICY
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class ObjectTarget:
     object_store_ref: str
     policy: StoragePolicy = _EXTERNAL_POLICY
 
 
-MaterializationTarget: TypeAlias = LocalTarget | EngineTarget | ObjectTarget
+MaterializationTarget: TypeAlias = LocalTarget | ObjectTarget
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -61,7 +56,24 @@ class S3Access:
             selection_error("one complete explicit object access binding", "missing access fields")
 
 
-def selection_error(expected: str, received: str) -> None:
+@dataclass(frozen=True, slots=True, repr=False)
+class ProjectTarget:
+    """Defer target configuration until the new Run owns a failure record."""
+
+    project_root: Path
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ProjectObjectBindings:
+    """Resolve a named receipt's current credentials only when it is consumed."""
+
+    project_root: Path
+
+
+ObjectBinding: TypeAlias = S3Access | ProjectObjectBindings
+
+
+def selection_error(expected: str, received: str) -> NoReturn:
     raise MaterializationError(
         expected=expected,
         received=received,
@@ -70,8 +82,18 @@ def selection_error(expected: str, received: str) -> None:
     )
 
 
-def object_access(bindings: tuple[S3Access, ...], reference: str) -> S3Access:
-    matches = tuple(value for value in bindings if value.object_store_ref == reference)
+def object_access(bindings: tuple[ObjectBinding, ...], reference: str) -> S3Access:
+    from marivo.analysis.materialization.project_storage import configured_access
+
+    resolved = tuple(
+        configured_access(value.project_root, reference)
+        if isinstance(value, ProjectObjectBindings)
+        else value
+        if value.object_store_ref == reference
+        else None
+        for value in bindings
+    )
+    matches = tuple(value for value in resolved if value is not None)
     if len(matches) != 1:
         selection_error("one exact current object binding", "missing or ambiguous object binding")
     return matches[0]
@@ -79,7 +101,7 @@ def object_access(bindings: tuple[S3Access, ...], reference: str) -> S3Access:
 
 def engine_domain(binding: ExecutionBinding) -> str:
     """Persist a declaration digest, never credentials or a Python owning object."""
-    if isinstance(binding, EngineBinding):
+    if isinstance(binding, ParquetBinding):
         return binding.domain_digest
     source = binding.owner.semantic_registry.datasources[binding.datasource_id]
     return codec.digest(
@@ -87,8 +109,10 @@ def engine_domain(binding: ExecutionBinding) -> str:
     )
 
 
-def access_payload(value: S3Access) -> dict[str, object]:
+def access_payload(value: ObjectBinding) -> dict[str, object]:
     """Private worker IPC only; this value must never enter Store or diagnostics."""
+    if isinstance(value, ProjectObjectBindings):
+        return {"project_root": str(value.project_root)}
     return {
         "object_store_ref": value.object_store_ref,
         "endpoint_url": value.endpoint_url,
@@ -100,7 +124,9 @@ def access_payload(value: S3Access) -> dict[str, object]:
     }
 
 
-def decode_access(value: object) -> S3Access:
+def decode_access(value: object) -> ObjectBinding:
+    if isinstance(value, dict) and set(value) == {"project_root"}:
+        return ProjectObjectBindings(Path(codec._text(value["project_root"])))
     obj = codec._obj(
         value,
         "object_store_ref endpoint_url bucket access_key_id secret_access_key region session_token",

@@ -6,12 +6,12 @@ from ``attach``, ``active``, or ``persistence``.
 
 from __future__ import annotations
 
-import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
 from inspect import signature
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, get_type_hints
 
 import pytest
@@ -23,11 +23,10 @@ import marivo.analysis as mv
 # ---------------------------------------------------------------------------
 
 
-def test_session_all_exports_exactly_seven_names() -> None:
+def test_session_all_exports_exactly_six_names() -> None:
     assert mv.session.__all__ == [
         "abandon_run",
         "current",
-        "delete",
         "get_or_create",
         "inspect",
         "recent",
@@ -51,9 +50,6 @@ def test_session_acquisition_has_concrete_return_annotations() -> None:
     assert tuple(signature(mv.session.resume).parameters) == (
         "identity",
         "by",
-        "backends",
-        "backend_factory",
-        "use_datasources",
     )
 
 
@@ -80,7 +76,7 @@ def test_get_or_create_creates_and_marks_current(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    s = mv.session.get_or_create(name="s", use_datasources=False)
+    s = mv.session.get_or_create(name="s")
     assert s.name == "s"
     current = mv.session.current()
     assert current is not None
@@ -92,8 +88,8 @@ def test_get_or_create_resumes_same_id_and_marks_current(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    s1 = mv.session.get_or_create(name="s", use_datasources=False)
-    s2 = mv.session.get_or_create(name="s", use_datasources=False)
+    s1 = mv.session.get_or_create(name="s")
+    s2 = mv.session.get_or_create(name="s")
     assert s1.id == s2.id
     assert mv.session.current() is not None
     assert mv.session.current().id == s1.id
@@ -104,15 +100,16 @@ def test_explicit_question_updates_existing_session(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    original = mv.session.get_or_create(name="s", question="why?", use_datasources=False)
+    original = mv.session.get_or_create(name="s", question="why?")
     before = mv.session.inspect("s").summary
-    meta_path = tmp_path / ".marivo" / "analysis" / "sessions" / original.id / "meta.json"
+    store = original._runtime.store
 
-    updated = mv.session.get_or_create(name="s", question="different?", use_datasources=False)
+    updated = mv.session.get_or_create(name="s", question="different?")
 
     current = mv.session.current()
     inspection = mv.session.inspect("s").summary
-    meta = json.loads(meta_path.read_text())
+    record = store.session(updated.id)
+    assert record is not None
     assert updated.id == original.id
     assert updated.created_at == original.created_at
     assert updated.question == "different?"
@@ -121,7 +118,7 @@ def test_explicit_question_updates_existing_session(
     assert current.question == "different?"
     assert inspection.question == "different?"
     assert inspection.updated_at > before.updated_at
-    assert meta["question"] == "different?"
+    assert record.question == "different?"
 
 
 def test_get_or_create_same_or_omitted_question_preserves_current_value(
@@ -129,10 +126,10 @@ def test_get_or_create_same_or_omitted_question_preserves_current_value(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    mv.session.get_or_create(name="s", question="why?", use_datasources=False)
+    mv.session.get_or_create(name="s", question="why?")
 
-    matching = mv.session.get_or_create(name="s", question="why?", use_datasources=False)
-    omitted = mv.session.get_or_create(name="s", use_datasources=False)
+    matching = mv.session.get_or_create(name="s", question="why?")
+    omitted = mv.session.get_or_create(name="s")
 
     assert matching.id == omitted.id
     assert matching.question == "why?"
@@ -145,9 +142,9 @@ def test_get_or_create_binds_question_to_existing_unbound_session(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    existing = mv.session.get_or_create(name="s", use_datasources=False)
+    existing = mv.session.get_or_create(name="s")
 
-    updated = mv.session.get_or_create(name="s", question="new question", use_datasources=False)
+    updated = mv.session.get_or_create(name="s", question="new question")
 
     assert updated.id == existing.id
     assert updated.question == "new question"
@@ -159,24 +156,21 @@ def test_question_update_activates_historical_session_and_syncs_metadata(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    historical = mv.session.get_or_create(
-        name="historical", question="original", use_datasources=False
-    )
-    meta_path = tmp_path / ".marivo" / "analysis" / "sessions" / historical.id / "meta.json"
-    mv.session.get_or_create(name="active", use_datasources=False)
+    historical = mv.session.get_or_create(name="historical", question="original")
+    store = historical._runtime.store
+    mv.session.get_or_create(name="active")
 
-    updated = mv.session.get_or_create(
-        name="historical", question="replacement", use_datasources=False
-    )
+    updated = mv.session.get_or_create(name="historical", question="replacement")
 
     current = mv.session.current()
-    meta = json.loads(meta_path.read_text())
+    record = store.session(updated.id)
+    assert record is not None
     assert current is not None
     assert updated.id == historical.id
     assert current.id == historical.id
     assert current.question == "replacement"
     assert mv.session.inspect("historical").summary.question == "replacement"
-    assert meta["question"] == "replacement"
+    assert record.question == "replacement"
 
 
 def test_get_or_create_explicit_empty_question_clears_current_value(
@@ -184,76 +178,70 @@ def test_get_or_create_explicit_empty_question_clears_current_value(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    original = mv.session.get_or_create(name="s", question="why?", use_datasources=False)
+    original = mv.session.get_or_create(name="s", question="why?")
 
-    updated = mv.session.get_or_create(name="s", question="", use_datasources=False)
+    updated = mv.session.get_or_create(name="s", question="")
 
-    meta_path = tmp_path / ".marivo" / "analysis" / "sessions" / original.id / "meta.json"
+    store = original._runtime.store
     assert updated.id == original.id
     assert updated.question == ""
     assert mv.session.inspect("s").summary.question == ""
-    assert json.loads(meta_path.read_text())["question"] == ""
+    assert store.session(original.id).question == ""
 
 
-def test_question_update_rolls_back_when_meta_publication_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_question_and_current_activation_roll_back_together_on_store_failure(
+    tmp_path, monkeypatch
 ) -> None:
+    import sqlite3
+
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    original = mv.session.get_or_create(name="s", question="original", use_datasources=False)
-    meta_path = tmp_path / ".marivo" / "analysis" / "sessions" / original.id / "meta.json"
-    original_meta = meta_path.read_text()
-
-    def fail_publication(_path: Path, _data: str) -> None:
-        raise OSError("publication failed")
-
-    layout_module = import_module("marivo.analysis.session._layout")
-    monkeypatch.setattr(layout_module, "_atomic_write_text", fail_publication)
-    with pytest.raises(OSError, match="publication failed"):
-        mv.session.get_or_create(name="s", question="replacement", use_datasources=False)
-
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == original.id
-    assert current.question == "original"
-    assert mv.session.inspect("s").summary.question == "original"
-    assert meta_path.read_text() == original_meta
+    original = mv.session.get_or_create("historical", question="original")
+    active = mv.session.get_or_create("active")
+    store = original._runtime.store
+    before = store.session(original.id)
+    with store._write() as connection:
+        connection.execute(
+            "CREATE TRIGGER fail_question BEFORE UPDATE OF question ON sessions BEGIN SELECT RAISE(ABORT, 'activation failed'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="activation failed"):
+        mv.session.get_or_create("historical", question="replacement")
+    assert store.session(original.id) == before
+    assert mv.session.current().id == active.id
+    assert mv.session.inspect("historical").summary.question == "original"
 
 
-def test_concurrent_question_updates_publish_one_consistent_final_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_concurrent_question_update_rejects_busy_writer_without_partial_activation(
+    tmp_path, monkeypatch
 ) -> None:
+    from marivo.analysis.materialization.errors import SessionBusyError
+    from marivo.analysis.materialization.store import SessionStore
+
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    original = mv.session.get_or_create(name="s", question="original", use_datasources=False)
-    barrier = threading.Barrier(2)
-    published: list[str] = []
-    layout_module = import_module("marivo.analysis.session._layout")
-    atomic_write = layout_module._atomic_write_text
+    original = mv.session.get_or_create("s", question="original")
+    entered = threading.Event()
+    release = threading.Event()
+    activate = SessionStore.activate
 
-    def record_publication(path: Path, data: str) -> None:
-        atomic_write(path, data)
-        published.append(json.loads(data)["question"])
+    def paused(store, session_ref, *, question=None):
+        if question == "question-a":
+            entered.set()
+            assert release.wait(10)
+        return activate(store, session_ref, question=question)
 
-    monkeypatch.setattr(layout_module, "_atomic_write_text", record_publication)
-
-    def update(question: str) -> str:
-        barrier.wait()
-        session = mv.session.get_or_create(name="s", question=question, use_datasources=False)
-        assert session.question == question
-        return session.id
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        ids = tuple(executor.map(update, ("question-a", "question-b")))
-
-    expected = published[-1]
-    current = mv.session.current()
-    meta_path = tmp_path / ".marivo" / "analysis" / "sessions" / original.id / "meta.json"
-    assert ids == (original.id, original.id)
-    assert mv.session.inspect("s").summary.question == expected
-    assert json.loads(meta_path.read_text())["question"] == expected
-    assert current is not None
-    assert current.question == expected
+    monkeypatch.setattr(SessionStore, "activate", paused)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        winner = executor.submit(mv.session.get_or_create, "s", "question-a")
+        try:
+            assert entered.wait(10)
+            with pytest.raises(SessionBusyError):
+                mv.session.get_or_create("s", question="question-b")
+            assert original.question == "original"
+        finally:
+            release.set()
+        assert winner.result().id == original.id
+    assert mv.session.inspect("s").summary.question == "question-a"
+    assert mv.session.current().question == "question-a"
+    assert mv.session.get_or_create("s", question="question-b").question == "question-b"
 
 
 def test_resume_by_id_restores_session_and_marks_current(
@@ -261,10 +249,10 @@ def test_resume_by_id_restores_session_and_marks_current(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    historical = mv.session.get_or_create(name="historical", question="why?", use_datasources=False)
-    mv.session.get_or_create(name="active", use_datasources=False)
+    historical = mv.session.get_or_create(name="historical", question="why?")
+    mv.session.get_or_create(name="active")
 
-    resumed = mv.session.resume(historical.id, use_datasources=False)
+    resumed = mv.session.resume(historical.id)
 
     assert resumed.id == historical.id
     assert resumed.name == "historical"
@@ -283,11 +271,10 @@ def test_resume_by_name_restores_without_creating_or_changing_persisted_fields(
         name="historical",
         question="why?",
         report_timezone="UTC",
-        use_datasources=False,
     )
-    mv.session.get_or_create(name="active", use_datasources=False)
+    mv.session.get_or_create(name="active")
 
-    resumed = mv.session.resume("historical", use_datasources=False)
+    resumed = mv.session.resume("historical")
 
     assert resumed.id == historical.id
     assert resumed.name == "historical"
@@ -307,10 +294,10 @@ def test_resume_missing_identity_raises_typed_error_with_real_name_candidates(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    known = mv.session.get_or_create(name="known", use_datasources=False)
+    known = mv.session.get_or_create(name="known")
 
     with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
-        mv.session.resume("sess_missing", use_datasources=False)
+        mv.session.resume("sess_missing")
 
     error = exc_info.value
     assert error.expected == "an existing project session name or id from mv.session.recent().items"
@@ -330,15 +317,19 @@ def test_resume_rejects_identity_that_matches_different_id_and_name_rows(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    store_module = import_module("marivo.analysis.session._store")
-    shared_identity = "sess_" + "a" * 24
-    generated_ids = iter((shared_identity, "sess_" + "b" * 24))
-    monkeypatch.setattr(store_module, "_gen_session_id", lambda: next(generated_ids))
-    id_match = mv.session.get_or_create(name="id-owner", use_datasources=False)
-    name_match = mv.session.get_or_create(name=shared_identity, use_datasources=False)
+    store_module = import_module("marivo.analysis.materialization.admission")
+    shared_identity = "session_" + "a" * 24
+    generated_ids = iter((shared_identity, "session_" + "b" * 24))
+    monkeypatch.setattr(
+        store_module,
+        "uuid4",
+        lambda: SimpleNamespace(hex=next(generated_ids).removeprefix("session_")),
+    )
+    id_match = mv.session.get_or_create(name="id-owner")
+    name_match = mv.session.get_or_create(name=shared_identity)
 
     with pytest.raises(mv.errors.SessionIdentityAmbiguousError) as exc_info:
-        mv.session.resume(shared_identity, use_datasources=False)
+        mv.session.resume(shared_identity)
 
     error = exc_info.value
     assert error.expected == "one session matched by exact name or id"
@@ -352,8 +343,8 @@ def test_resume_rejects_identity_that_matches_different_id_and_name_rows(
         f'by="name" -> id={name_match.id!r}',
     )
 
-    resumed_by_id = mv.session.resume(shared_identity, by="id", use_datasources=False)
-    resumed_by_name = mv.session.resume(shared_identity, by="name", use_datasources=False)
+    resumed_by_id = mv.session.resume(shared_identity, by="id")
+    resumed_by_name = mv.session.resume(shared_identity, by="name")
 
     assert resumed_by_id.id == id_match.id
     assert resumed_by_name.id == name_match.id
@@ -367,22 +358,26 @@ def test_resume_explicit_selector_breaks_two_identity_collision_cycle(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    store_module = import_module("marivo.analysis.session._store")
-    left_identity = "sess_" + "a" * 24
-    right_identity = "sess_" + "b" * 24
+    store_module = import_module("marivo.analysis.materialization.admission")
+    left_identity = "session_" + "a" * 24
+    right_identity = "session_" + "b" * 24
     generated_ids = iter((left_identity, right_identity))
-    monkeypatch.setattr(store_module, "_gen_session_id", lambda: next(generated_ids))
-    left = mv.session.get_or_create(name=right_identity, use_datasources=False)
-    right = mv.session.get_or_create(name=left_identity, use_datasources=False)
+    monkeypatch.setattr(
+        store_module,
+        "uuid4",
+        lambda: SimpleNamespace(hex=next(generated_ids).removeprefix("session_")),
+    )
+    left = mv.session.get_or_create(name=right_identity)
+    right = mv.session.get_or_create(name=left_identity)
 
     for identity in (left_identity, right_identity):
         with pytest.raises(mv.errors.SessionIdentityAmbiguousError):
-            mv.session.resume(identity, use_datasources=False)
+            mv.session.resume(identity)
 
-    assert mv.session.resume(left_identity, by="id", use_datasources=False).id == left.id
-    assert mv.session.resume(left_identity, by="name", use_datasources=False).id == right.id
-    assert mv.session.resume(right_identity, by="id", use_datasources=False).id == right.id
-    assert mv.session.resume(right_identity, by="name", use_datasources=False).id == left.id
+    assert mv.session.resume(left_identity, by="id").id == left.id
+    assert mv.session.resume(left_identity, by="name").id == right.id
+    assert mv.session.resume(right_identity, by="id").id == right.id
+    assert mv.session.resume(right_identity, by="name").id == left.id
 
 
 def test_resume_accepts_identity_matching_same_row_by_id_and_name(
@@ -390,13 +385,13 @@ def test_resume_accepts_identity_matching_same_row_by_id_and_name(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    store_module = import_module("marivo.analysis.session._store")
-    monkeypatch.setattr(store_module, "_gen_session_id", lambda: "sess_same")
-    session = mv.session.get_or_create(name="sess_same", use_datasources=False)
+    store_module = import_module("marivo.analysis.materialization.admission")
+    monkeypatch.setattr(store_module, "uuid4", lambda: SimpleNamespace(hex="same"))
+    session = mv.session.get_or_create(name="session_same")
 
-    resumed = mv.session.resume("sess_same", use_datasources=False)
+    resumed = mv.session.resume("session_same")
 
-    assert resumed.id == session.id == "sess_same"
+    assert resumed.id == session.id == "session_same"
 
 
 @pytest.mark.parametrize(
@@ -415,8 +410,8 @@ def test_resume_explicit_selector_missing_identity_uses_matching_candidates(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    known = mv.session.get_or_create(name="known", use_datasources=False)
-    resume_call = {"by": by, "use_datasources": False}
+    known = mv.session.get_or_create(name="known")
+    resume_call = {"by": by}
 
     with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
         mv.session.resume("missing", **resume_call)
@@ -432,7 +427,7 @@ def test_resume_rejects_unknown_identity_selector(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    invalid_selector_call = {"by": "prefix", "use_datasources": False}
+    invalid_selector_call = {"by": "prefix"}
 
     with pytest.raises(mv.errors.SessionStateError) as exc_info:
         mv.session.resume("s", **invalid_selector_call)
@@ -450,9 +445,9 @@ def test_resume_rejects_removed_session_id_keyword(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    session = mv.session.get_or_create(name="s", use_datasources=False)
+    session = mv.session.get_or_create(name="s")
 
-    removed_keyword_call = {"session_id": session.id, "use_datasources": False}
+    removed_keyword_call = {"session_id": session.id}
     with pytest.raises(TypeError):
         mv.session.resume(**removed_keyword_call)
 
@@ -462,14 +457,13 @@ def test_resume_rejects_backends_and_backend_factory_together(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    session = mv.session.get_or_create(name="s", use_datasources=False)
+    session = mv.session.get_or_create(name="s")
 
-    with pytest.raises(mv.errors.SessionStateError):
+    with pytest.raises(TypeError):
         mv.session.resume(
             session.id,
             backends={"w": lambda: None},
             backend_factory=lambda _name: None,
-            use_datasources=False,
         )
 
 
@@ -478,10 +472,10 @@ def test_session_has_no_default_calendar_surface(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    session = mv.session.get_or_create(name="s", use_datasources=False)
+    session = mv.session.get_or_create(name="s")
     assert not hasattr(session, "default_calendar")
     with pytest.raises(TypeError):
-        mv.session.get_or_create(name="s", default_calendar="fiscal", use_datasources=False)
+        mv.session.get_or_create(name="s", default_calendar="fiscal")
 
 
 def test_backends_and_backend_factory_both_raises_session_state_error(
@@ -489,12 +483,11 @@ def test_backends_and_backend_factory_both_raises_session_state_error(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    with pytest.raises(mv.errors.SessionStateError):
+    with pytest.raises(TypeError):
         mv.session.get_or_create(
             name="s",
             backends={"w": lambda: None},
             backend_factory=lambda name: None,
-            use_datasources=False,
         )
 
 
@@ -506,8 +499,8 @@ def test_backends_and_backend_factory_both_raises_session_state_error(
 def test_recent_is_bounded_newest_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    first = mv.session.get_or_create(name="first", use_datasources=False)
-    second = mv.session.get_or_create(name="second", use_datasources=False)
+    first = mv.session.get_or_create(name="first")
+    second = mv.session.get_or_create(name="second")
 
     page = mv.session.recent(limit=1)
     assert [item.name for item in page.items] == ["second"]
@@ -518,46 +511,24 @@ def test_recent_is_bounded_newest_first(tmp_path: Path, monkeypatch: pytest.Monk
     assert {item.id for item in (*page.items, *next_page.items)} == {first.id, second.id}
 
 
-def test_inspect_returns_bounded_snapshot_without_touching_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import importlib
+def test_inspect_returns_bounded_snapshot_without_touching_session(tmp_path, monkeypatch) -> None:
+    import marivo.semantic.catalog as catalog_module
+    from tests.lazy_runtime_read_fixtures import input_value
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    historical = mv.session.get_or_create(
-        name="historical", question="Why did revenue drop?", use_datasources=False
-    )
-    historical._store.begin_run(
-        session_id=historical.id,
-        run_id="job_1",
-        capability_id="observe",
-        analysis_purpose=None,
-        arguments=[],
-        omitted_argument_names=(),
-        input_artifact_refs=(),
-        started_at="2026-01-01T00:00:00+00:00",
-    )
-    active = mv.session.get_or_create(name="active", use_datasources=False)
-    before = next(item for item in mv.session.recent(limit=100).items if item.name == "historical")
-    session_meta_path = historical._layout.session_dir / "meta.json"
-    meta_before = session_meta_path.read_text()
-
-    runtime = importlib.import_module("marivo.analysis.session._runtime")
+    historical = mv.session.get_or_create("historical", question="Why did revenue drop?")
+    store = historical._runtime.store
+    store.admit(historical.id, "pending-key", input_value(), run_ref="run_1")
+    active = mv.session.get_or_create("active")
+    before = store.session(historical.id)
     monkeypatch.setattr(
-        runtime,
-        "_build_semantic_catalog",
-        lambda project_root: pytest.fail("inspect must not load the semantic catalog"),
+        catalog_module, "load", lambda **kwargs: pytest.fail("inspect loaded semantics")
     )
     snapshot = mv.session.inspect("historical", run_limit=1)
-
-    after = next(item for item in mv.session.recent(limit=100).items if item.name == "historical")
-    assert mv.session.current() is not None
+    assert store.session(historical.id) == before
     assert mv.session.current().id == active.id
-    assert after.updated_at == before.updated_at
-    assert session_meta_path.read_text() == meta_before
     assert snapshot.summary.question == "Why did revenue drop?"
-    assert snapshot.runs.items[0].run_id == "job_1"
+    assert snapshot.runs.items[0].run_id == "run_1"
 
 
 def test_inspect_missing_session_raises_typed_error_with_real_candidates(
@@ -565,7 +536,7 @@ def test_inspect_missing_session_raises_typed_error_with_real_candidates(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    mv.session.get_or_create(name="known", use_datasources=False)
+    mv.session.get_or_create(name="known")
 
     with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
         mv.session.inspect("missing")
@@ -580,9 +551,9 @@ def test_inspect_missing_session_raises_typed_error_with_real_candidates(
 @pytest.mark.parametrize(
     ("call", "message"),
     [
-        (lambda: mv.session.recent(limit=0), "session.recent limit"),
-        (lambda: mv.session.inspect("x", run_limit=0), "run_limit"),
-        (lambda: mv.session.inspect("x", run_limit=101), "run_limit"),
+        (lambda: mv.session.recent(limit=0), "session.recent.limit"),
+        (lambda: mv.session.inspect("x", run_limit=0), "session.inspect.run_limit"),
+        (lambda: mv.session.inspect("x", run_limit=101), "session.inspect.run_limit"),
     ],
 )
 def test_history_limits_fail_before_lookup(
@@ -593,86 +564,10 @@ def test_history_limits_fail_before_lookup(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(mv.errors.SessionStateError, match=message):
         call()
 
 
 # ---------------------------------------------------------------------------
 # delete()
 # ---------------------------------------------------------------------------
-
-
-def test_delete_missing_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    # Should not raise
-    mv.session.delete("nonexistent")
-
-
-def test_delete_clears_current_and_allows_new_get_or_create(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    s1 = mv.session.get_or_create(name="s", use_datasources=False)
-    old_id = s1.id
-    mv.session.delete("s")
-    # Current should be None after delete
-    assert mv.session.current() is None
-    # get_or_create should create a new session with a different id
-    s2 = mv.session.get_or_create(name="s", use_datasources=False)
-    assert s2.id != old_id
-
-
-def test_delete_interrupted_after_store_cleared(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """When shutil.rmtree raises, store rows are gone but session dir remains.
-
-    Calling get_or_create afterwards should create a new session id since
-    the store no longer has a row for the old name.
-    """
-    import shutil
-
-    from marivo.analysis.session._store import SessionStore
-
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    s1 = mv.session.get_or_create(name="s", use_datasources=False)
-    old_id = s1.id
-
-    # Create the session directory so we can observe that rmtree fails.
-    old_session_dir = s1._layout.session_dir
-    old_session_dir.mkdir(parents=True, exist_ok=True)
-
-    # Make shutil.rmtree raise to simulate an interrupted delete.
-    # When ignore_errors=True (which delete() uses), rmtree should
-    # silently swallow the error.
-    original_rmtree = shutil.rmtree
-
-    def failing_rmtree(*args, **kwargs):
-        if kwargs.get("ignore_errors"):
-            # Simulate: ignore_errors=True means the error is swallowed
-            # but the directory is NOT deleted.
-            return
-        raise OSError("simulated failure")
-
-    monkeypatch.setattr("shutil.rmtree", failing_rmtree)
-
-    # delete() should not raise; store rows are cleared first.
-    mv.session.delete("s")
-
-    # Store rows should be gone.
-    store = SessionStore(project_root=tmp_path)
-    assert store.get_session_by_name("s") is None
-
-    # Session directory should still exist (rmtree was mocked to do nothing).
-    assert old_session_dir.is_dir()
-
-    # Restore rmtree so get_or_create can work.
-    monkeypatch.setattr("shutil.rmtree", original_rmtree)
-
-    # get_or_create should create a new session with a different id
-    # since the store no longer has the old name.
-    s2 = mv.session.get_or_create(name="s", use_datasources=False)
-    assert s2.id != old_id

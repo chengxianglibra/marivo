@@ -16,7 +16,7 @@ from marivo.analysis.domains.completeness import (
 from marivo.analysis.domains.event import LogicalEventDataset
 from marivo.analysis.event import EveryStart, FirstPerSubject, first_per_subject, sequence, step
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import EngineTarget
+from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import PopulationInput
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.refs import ref
@@ -56,7 +56,7 @@ def setup_event(
         project, "event-runtime", event=event, event_coverage_provider=provider
     )
     if engine:
-        runtime.target = EngineTarget("warehouse")
+        runtime.target = LocalTarget()
     registry, sidecar = make_event_registry(database)
     return runtime, runtime.sources(semantic_registry=registry, sidecar=sidecar), database
 

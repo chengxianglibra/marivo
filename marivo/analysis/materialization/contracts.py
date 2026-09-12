@@ -31,7 +31,6 @@ from marivo.render import Card, RenderableResult
 from marivo.semantic._quantile import approximation_class, decode_approximation
 
 if TYPE_CHECKING:
-    from marivo.analysis.evidence.types import QualitySummary
     from marivo.analysis.materialization.association_codec import AssociationEvidenceSummary
     from marivo.analysis.materialization.candidate_codec import CandidateEvidenceSummary
     from marivo.analysis.materialization.event_codec import EventEvidenceSummary
@@ -40,6 +39,7 @@ if TYPE_CHECKING:
         EventSelectionEvidenceSummary,
     )
     from marivo.analysis.materialization.forecast_codec import ForecastEvidenceSummary
+    from marivo.analysis.materialization.quality import QualitySummary
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_PAYLOAD_BYTES = 1_048_576
@@ -216,40 +216,6 @@ class LocalReceipt:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class EngineReceipt:
-    datasource_ref: str
-    execution_domain_id: str
-    qualified_relation_ref: str
-    relation_version_or_snapshot_token: str
-    schema_fingerprint: str
-    realized_row_count: int
-    realized_byte_count: int | None
-    immutable_relation_protocol: str = "version_addressed_relation"
-
-    def __post_init__(self) -> None:
-        _text(self.datasource_ref)
-        _hash(self.execution_domain_id)
-        _relative(self.qualified_relation_ref)
-        if not self.qualified_relation_ref.endswith(".duckdb"):
-            raise invalid("unsupported immutable relation locator")
-        for value in (self.relation_version_or_snapshot_token, self.schema_fingerprint):
-            _hash(value)
-        _int(self.realized_row_count)
-        if self.realized_byte_count is not None:
-            _int(self.realized_byte_count)
-        if self.immutable_relation_protocol != "version_addressed_relation":
-            raise invalid("unsupported immutable relation protocol")
-
-    @property
-    def kind(self) -> Literal["engine"]:
-        return "engine"
-
-    @property
-    def identity_digest(self) -> str:
-        return digest(receipt_payload(self))
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class ObjectReceipt:
     object_store_ref: str
     immutable_prefix_or_manifest_ref: str
@@ -287,7 +253,7 @@ class ObjectReceipt:
         return digest(receipt_payload(self))
 
 
-StorageReceipt: TypeAlias = LocalReceipt | EngineReceipt | ObjectReceipt
+StorageReceipt: TypeAlias = LocalReceipt | ObjectReceipt
 
 
 def receipt_payload(value: StorageReceipt) -> dict[str, object]:
@@ -296,18 +262,6 @@ def receipt_payload(value: StorageReceipt) -> dict[str, object]:
         if value.realized_byte_count is None
         else {"kind": "exact", "byte_count": value.realized_byte_count}
     )
-    if isinstance(value, EngineReceipt):
-        return {
-            "kind": "engine",
-            "datasource_ref": value.datasource_ref,
-            "execution_domain_id": value.execution_domain_id,
-            "qualified_relation_ref": value.qualified_relation_ref,
-            "immutable_relation_protocol": value.immutable_relation_protocol,
-            "relation_version_or_snapshot_token": value.relation_version_or_snapshot_token,
-            "schema_fingerprint": value.schema_fingerprint,
-            "realized_row_count": value.realized_row_count,
-            "realized_byte_count": byte_count,
-        }
     if isinstance(value, ObjectReceipt):
         return {
             "kind": "object",
@@ -337,28 +291,6 @@ def receipt_payload(value: StorageReceipt) -> dict[str, object]:
 
 
 def decode_receipt(value: object) -> StorageReceipt:
-    if isinstance(value, dict) and value.get("kind") == "engine":
-        obj = _obj(
-            value,
-            "kind datasource_ref execution_domain_id qualified_relation_ref immutable_relation_protocol relation_version_or_snapshot_token schema_fingerprint realized_row_count realized_byte_count",
-        )
-        size = obj["realized_byte_count"]
-        count = None
-        if size != {"kind": "unavailable"}:
-            size_obj = _obj(size, "kind byte_count")
-            if size_obj["kind"] != "exact":
-                raise invalid("unsupported engine byte count")
-            count = _int(size_obj["byte_count"])
-        return EngineReceipt(
-            _text(obj["datasource_ref"]),
-            _text(obj["execution_domain_id"]),
-            _text(obj["qualified_relation_ref"]),
-            _text(obj["relation_version_or_snapshot_token"]),
-            _text(obj["schema_fingerprint"]),
-            _int(obj["realized_row_count"]),
-            count,
-            _text(obj["immutable_relation_protocol"]),
-        )
     if isinstance(value, dict) and value.get("kind") == "object":
         obj = _obj(
             value,
@@ -1432,7 +1364,6 @@ def encode_descriptor(value: ArtifactDescriptor) -> str:
 
 
 def decode_descriptor(text: str) -> ArtifactDescriptor:
-    from marivo.analysis.evidence.types import QualitySummary
     from marivo.analysis.materialization.association_codec import (
         decode_evidence as decode_association_evidence,
     )
@@ -1456,6 +1387,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     from marivo.analysis.materialization.lifecycle_codec import (
         decode_evidence as decode_lifecycle_evidence,
     )
+    from marivo.analysis.materialization.quality import QualitySummary
     from marivo.analysis.observation.contracts import (
         make_family_registry,
         make_ids,
@@ -1844,34 +1776,26 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     )
     if {item.role for item in distribution_parts} != distribution_roles:
         raise invalid("retained distribution roles mismatch")
-    if distribution_parts:
-        receipt = result.storage_receipt
-        if not isinstance(receipt, EngineReceipt) or any(
-            item.contract_id != f"{row.shape_id.family_id}.distribution"
-            or item.contract_version != 1
-            or not isinstance(item.storage_receipt, EngineReceipt)
-            or item.storage_receipt.datasource_ref != receipt.datasource_ref
-            or item.storage_receipt.execution_domain_id != receipt.execution_domain_id
-            for item in distribution_parts
-        ):
-            raise invalid("private distribution requires the exact primary engine sink")
+    if any(
+        item.contract_id != f"{row.shape_id.family_id}.distribution"
+        or item.contract_version != 1
+        or not _same_storage_target(result.storage_receipt, item.storage_receipt)
+        for item in distribution_parts
+    ):
+        raise invalid("private distribution requires the exact primary storage target")
     membership_roles = {role for role, _ in membership_part_authorities(row)}
     membership_parts = tuple(
         item for item in parts if item.contract_id in DISTINCT_MEMBERSHIP_CONTRACT_IDS
     )
     if {item.role for item in membership_parts} != membership_roles:
         raise invalid("retained distinct membership roles mismatch")
-    if membership_parts:
-        primary_receipt = result.storage_receipt
-        if not isinstance(primary_receipt, EngineReceipt) or any(
-            item.contract_id != f"{row.shape_id.family_id}.distinct_membership"
-            or item.contract_version != 1
-            or not isinstance(item.storage_receipt, EngineReceipt)
-            or item.storage_receipt.datasource_ref != primary_receipt.datasource_ref
-            or item.storage_receipt.execution_domain_id != primary_receipt.execution_domain_id
-            for item in membership_parts
-        ):
-            raise invalid("private membership requires the exact primary engine sink")
+    if any(
+        item.contract_id != f"{row.shape_id.family_id}.distinct_membership"
+        or item.contract_version != 1
+        or not _same_storage_target(result.storage_receipt, item.storage_receipt)
+        for item in membership_parts
+    ):
+        raise invalid("private membership requires the exact primary storage target")
     if (
         isinstance(row_set.cardinality, d._SingletonCardinality)
         and result.storage_receipt.realized_row_count != 1
@@ -2289,6 +2213,15 @@ class ArtifactRecord:
     committed_at: str
     producing_run_ref: str
     evidence: EvidenceRecord
+
+
+def _same_storage_target(primary: StorageReceipt, part: StorageReceipt) -> bool:
+    """Every private role uses the exact sink kind and authority of its primary."""
+    if isinstance(primary, LocalReceipt):
+        return isinstance(part, LocalReceipt)
+    if isinstance(primary, ObjectReceipt):
+        return isinstance(part, ObjectReceipt) and primary.object_store_ref == part.object_store_ref
+    return False
 
 
 def _decode_temporal(value: object) -> tuple[TemporalExecution, ...]:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from marivo.analysis.materialization.contracts import ResourceRecord
@@ -16,15 +15,13 @@ from marivo.analysis.materialization.object_termination import (
     prove_object_termination,
 )
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization.targets import ObjectBinding
 from marivo.analysis.materialization.worker_lifetime import (
     WORKER_CAPABILITY,
     WORKSPACE_CAPABILITY,
     worker_is_terminal,
     worker_resource_path,
 )
-
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.targets import S3Access
 
 _TERMINATED: set[ResourceRecord] = set()
 _LOCAL_CAPABILITY = "local_owned_path@v1"
@@ -122,7 +119,6 @@ def reserve_output(
     session_ref: str,
     artifact_ref: str,
     nonce: str,
-    storage_kind: str = "local",
 ) -> tuple[Path, Path, tuple[ResourceRecord, ...]]:
     layout = store.layout
     staging = layout.run_dir(session_ref, run_ref) / f"output-{nonce}"
@@ -130,12 +126,8 @@ def reserve_output(
     records = tuple(
         ResourceRecord(
             run_ref=run_ref,
-            resource_kind="engine_storage_staging"
-            if storage_kind == "engine"
-            else "local_storage_staging",
-            execution_domain_id="duckdb_artifact@v1"
-            if storage_kind == "engine"
-            else "local_parquet@v1",
+            resource_kind="local_storage_staging",
+            execution_domain_id="local_parquet@v1",
             ownership_nonce=nonce,
             cleanup_capability_id=_LOCAL_CAPABILITY,
             safe_locator=path.relative_to(layout.project_root).as_posix(),
@@ -159,7 +151,7 @@ def reserve_output(
 def discharge_resources(
     store: SessionStore,
     resources: tuple[ResourceRecord, ...],
-    object_bindings: tuple[S3Access, ...] = (),
+    object_bindings: tuple[ObjectBinding, ...] = (),
 ) -> tuple[ResourceRecord, ...]:
     """Clean exact unpublished paths only after every execution is proven terminal."""
     for resource in resources:
