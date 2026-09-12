@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-12
 
-Status: Slices 0-7 complete; Slice 8a complete; Slice 8b activated and accepted in the source checkout; Slices 8c and 9 pending
+Status: Slices 0-8 complete, including installed-package verification in 8c; Slice 9 pending
 
 Slice 5b implementation, supplied review follow-up and completed independent
 technical acceptance are recorded under its
@@ -3127,7 +3127,7 @@ semantic, persistence and installed-surface assembly remain separately gated.
 | --- | --- | --- |
 | 8a: cutover assembly and disclosure preparation — complete in isolation | All units in 1-7 | Refresh the affected Slice 0 inventory against the current tree. Assemble exact public facade/export bindings, semantic activation, native Help, executable examples, current EN/ZH docs, skills, and deletion/test-replacement lists into one reviewable switch set. Identify any missing private implementation before activation. |
 | 8b: atomic public and persistence activation — complete in the source checkout | 8a | Apply the public, semantic, Store, Help, documentation, and old-path removal changes together. No intermediate public eager/lazy combination or partial persistence switch is a deliverable. |
-| 8c: installed-surface verification | 8b | Verify the built package's exports, signatures, Help resolution/budgets, state protocol, current examples, generation rejection, and forbidden-path absence. Repair the coherent switch set before handing its exact revision to Slice 9. |
+| 8c: installed-surface verification — complete | 8b | Verify the built package's exports, signatures, Help resolution/budgets, state protocol, current examples, generation rejection, and forbidden-path absence. Repair the coherent switch set before handing its exact revision to Slice 9. |
 
 The [final isolated assembly record](../plans/2026-09-11-lazy-analysis-slice-8a-assembly.md)
 records the refreshed Slice 0 mapping, complete deletion/test replacement,
@@ -3138,8 +3138,15 @@ The source checkout subsequently fast-forwarded to the exact accepted candidate
 closes source-checkout activation with fresh broad, affected Runtime and current
 EN/ZH disclosure gates. It records the removal of ignored bytecode from retired
 eager directories after the initial negative-path gate failed. No source or test
-change was needed. Installed-package verification (8c) and final acceptance (9)
-remain pending; this candidate is not release-ready.
+change was needed in 8b. The
+[Slice 8c installed-package record](../plans/2026-09-12-lazy-analysis-slice-8c-installed.md)
+closes parent Slice 8 with 361 installed contract tests, five installed Runtime
+example tests, three independent public production/continuation/recovery
+processes, all 29 release tests, and the 4,824-test broad gate. It replaces the
+remaining eager wheel smoke and resolves the Help test's packaged skill from the
+installed package; no library implementation changed. The exact candidate,
+distribution bytes, origins, negative audit and final status patch are linked in
+that record. Slice 9 remains pending; this candidate is not release-ready.
 
 These units organize preparation and verification, not separate public releases.
 Slice 8 activates already working semantics and reads; it must not absorb a
@@ -3307,8 +3314,8 @@ Run the repository entrypoints, never bare tools:
 
 ```bash
 make check-agent
-make test TESTS='tests/test_analysis_help_examples_execute.py'
-make test TESTS='tests/test_lazy_analysis_current_docs_examples.py'
+make test TESTS='tests/test_lazy_disclosure_examples.py tests/test_cutover_documentation_examples.py'
+make runtime-test TESTS='tests/test_lazy_disclosure_examples.py tests/test_cutover_documentation_examples.py'
 make docs-api
 cd site && npm run verify:content && npm run build
 make pypi-build pypi-check
