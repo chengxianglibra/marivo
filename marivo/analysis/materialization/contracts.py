@@ -68,12 +68,13 @@ def invalid(received: str) -> IntegrityError:
 
 
 def canonical_json(value: object) -> str:
-    try:
+    text: str | None = None
+    with suppress(TypeError, ValueError, RecursionError):
         text = json.dumps(
             value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
         )
-    except (TypeError, ValueError) as exc:
-        raise invalid("non-canonical metadata") from exc
+    if text is None:
+        raise invalid("non-canonical metadata")
     if len(text.encode("utf-8")) > _MAX_PAYLOAD_BYTES:
         raise invalid("metadata byte bound exceeded")
     return text
@@ -100,8 +101,9 @@ def parse_json(text: str) -> object:
         if canonical_json(value) != text:
             raise invalid("non-canonical JSON encoding")
         return value
-    except (TypeError, ValueError, RecursionError) as exc:
-        raise invalid("invalid JSON metadata") from exc
+    except (TypeError, ValueError, RecursionError):
+        pass
+    raise invalid("invalid JSON metadata")
 
 
 def _obj(value: object, names: str) -> dict[str, object]:

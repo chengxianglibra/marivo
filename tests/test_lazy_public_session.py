@@ -9,8 +9,28 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
+
+
+def test_new_public_session_preserves_eager_store_and_rejects_old_identities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    old = tmp_path / ".marivo" / "analysis" / "session_store.db"
+    old.parent.mkdir(parents=True)
+    payload = b"private-old-store-canary: never decode as Dataset authority"
+    old.write_bytes(payload)
+    session = mv.session.get_or_create("fresh-generation", report_timezone="UTC")
+    assert session.runs().items == ()
+    assert session._runtime.store.db_path == MaterializationLayout(tmp_path).store_db
+    with pytest.raises(ArtifactNotFoundError):
+        session.artifact("old-artifact")
+    with pytest.raises(SessionNotFoundError):
+        mv.session.resume("old-session", by="id")
+    assert old.read_bytes() == payload
+    assert session.runs().items == ()
 
 
 def test_public_construction_has_no_datasource_io_and_rejects_cross_session(

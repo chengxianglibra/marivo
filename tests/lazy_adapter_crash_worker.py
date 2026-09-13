@@ -16,7 +16,7 @@ from unittest.mock import patch
 import duckdb
 
 from marivo._compat import Never
-from marivo.analysis.materialization import admission, object_storage
+from marivo.analysis.materialization import admission, object_storage, storage
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import (
     ResourceRecord,
@@ -169,6 +169,12 @@ def run(
             original_discharge(store, resource)
 
         runtime._hook = interrupt
+        original_file_init = storage._BudgetFile.__init__
+
+        def file_init(sink: storage._BudgetFile, path: Path, budget: storage._DiskBudget) -> None:
+            original_file_init(sink, path, budget)
+            interrupt("parquet_payload_create")
+
         if point in ("proxy_wait", "proxy_timeout"):
             # The parent forwards a real PUT and kills this process only after its
             # withheld remote response has been observed by the test server.
@@ -180,7 +186,10 @@ def run(
             if sampled
             else fixture.sources.observe(ref.metric("sales.mean_amount"))
         )
-        with patch.object(SessionStore, "discharge", discharge):
+        with (
+            patch.object(SessionStore, "discharge", discharge),
+            patch.object(storage._BudgetFile, "__init__", file_init),
+        ):
             try:
                 logical.execute()
             except RecoveryPendingError:

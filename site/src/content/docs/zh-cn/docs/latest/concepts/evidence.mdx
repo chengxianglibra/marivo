@@ -1,6 +1,6 @@
 ---
 title: 证据
-description: 读取已提交的 Dataset Finding，分别检查完整性与语义权威事实。
+description: 读取已提交的 Dataset Finding，分别检查 Artifact、存储权威与 Evidence 完整性。
 ---
 
 证据记录已提交 Dataset 的确定性事实。Agent 负责跨结果综合、业务判断和因果解释。
@@ -27,7 +27,7 @@ if isinstance(run, mv.SucceededRun):
     artifact.show()
 ```
 
-Run 历史和图仅反映已提交事实。恢复不查询当前数据源，也不重放原始计算。`session.revalidate(artifact.state.artifact_ref)` 分别检查 Artifact、语义权威和 Evidence 完整性；它不能证明数据源新鲜度或业务适用性。
+Run 历史和图仅反映已提交事实。恢复不查询当前数据源，也不重放原始计算。`session.revalidate(artifact.state.artifact_ref)` 分别检查 Artifact、存储权威和 Evidence 完整性；它不能证明数据源新鲜度或业务适用性。
 
 Delta 与 Attribution 是代数结果，Association 是描述性结果，Forecast 是模型输出，Candidate 是经过评估的线索。最终解释需保留它们的范围、选择条件、质量和完整性限制。
 

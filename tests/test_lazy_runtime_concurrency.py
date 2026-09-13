@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from ibis.backends.duckdb import Backend
@@ -198,9 +199,24 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
         if winner and session_ref == winner[0]:
             winner_released.set()
 
-    def create(store: SessionStore, name: str, *, session_ref: str | None = None) -> SessionRecord:
+    def create(
+        store: SessionStore,
+        name: str,
+        *,
+        session_ref: str | None = None,
+        question: str | None = None,
+        report_timezone_name: str = "UTC",
+        report_timezone_resolution: Literal["iana", "fixed_offset"] = "iana",
+    ) -> SessionRecord:
         barrier.wait(timeout=10)
-        record = original_create(store, name, session_ref=session_ref)
+        record = original_create(
+            store,
+            name,
+            session_ref=session_ref,
+            question=question,
+            report_timezone_name=report_timezone_name,
+            report_timezone_resolution=report_timezone_resolution,
+        )
         if record.session_ref == session_ref:
             winner.append(record.session_ref)
         else:

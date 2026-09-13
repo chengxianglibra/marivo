@@ -19,6 +19,37 @@ from marivo.analysis.refs import ArtifactRef
 from marivo.refs import RefPayloadV1, SemanticKind
 
 
+@pytest.mark.parametrize("damage", ["json", "decimal", "date", "datetime"])
+def test_corrupt_finding_body_discards_native_exception_context(damage: str) -> None:
+    original = replace(
+        _finding(_delta()),
+        coordinates=(
+            t.FindingCoordinateV1(
+                field_id=d._make_field_id("dimension.region"),
+                identity=d._catalog_identity("dimension:sales.orders.region"),
+                value=date(2026, 9, 8),
+            ),
+        ),
+    )
+    body = parse_json(encode_finding_body(original))
+    assert isinstance(body, dict)
+    canary = "private-finding-value-canary"
+    coordinates = body["coordinates"]
+    assert isinstance(coordinates, list) and isinstance(coordinates[0], dict)
+    coordinates[0]["value"] = {"scalar_kind": damage, "value": canary}
+    payload = canary if damage == "json" else canonical_json(body)
+    with pytest.raises(IntegrityError) as caught:
+        decode_finding_body(
+            payload,
+            finding_id=original.finding_id,
+            artifact_ref="artifact",
+            session_id="session",
+            committed_at=original.committed_at,
+        )
+    assert canary not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+
+
 def _finding(value: t.FindingValueV1) -> t.Finding:
     subject: t.FindingSubjectV1 = t.MetricFindingSubjectV1(
         metric=d._catalog_identity("metric:sales.revenue")

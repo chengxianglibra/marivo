@@ -89,9 +89,9 @@ def _evidence(
 @pytest.mark.parametrize(
     ("kind", "point", "occurrence", "sampled"),
     [
-        ("engine", "engine_producer_reserved", 1, False),
-        ("engine", "engine_payload_create", 1, False),
-        ("engine", "engine_payload_create", 2, False),
+        ("engine", "output_reserved", 1, False),
+        ("engine", "parquet_payload_create", 1, False),
+        ("engine", "parquet_payload_create", 2, False),
         ("engine", "before_rename", 1, False),
         ("engine", "after_rename", 1, False),
         ("engine", "sampling_validated", 1, True),

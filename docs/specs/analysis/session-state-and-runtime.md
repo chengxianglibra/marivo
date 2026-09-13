@@ -86,7 +86,7 @@ continuations use complete retained rows/private state. Their Runtime guards
 apply even when the final output is small. Source-offline cold recovery preserves
 stored report/read/calendar authority rather than resolving the new host's zone.
 
-`session.revalidate(reference)` exposes separate Artifact, semantic-authority and
+`session.revalidate(reference)` exposes separate Artifact, storage-authority and
 Evidence integrity assessments. It is not a source-freshness verdict, permission
 to reuse stale values, or a business recommendation. Runtime cards and pages stay
 bounded and do not expose raw secrets or private implementation inventories.

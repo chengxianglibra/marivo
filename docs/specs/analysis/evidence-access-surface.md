@@ -38,7 +38,7 @@ Recover through `session.artifact(reference)` or a SucceededRun's
 `output_artifact_ref`. Session Run/graph reads report committed runtime history;
 Artifact lookup does not execute an origin recipe or resolve a current source.
 
-`session.revalidate(reference)` checks separate Artifact, semantic authority and
+`session.revalidate(reference)` checks separate Artifact, storage authority and
 Evidence integrity axes. Confirmed integrity does not prove freshness, causal
 validity or suitability for the agent's question. Typed unavailable/unknown states
 must not be collapsed into a successful reuse verdict.

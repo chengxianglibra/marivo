@@ -37,6 +37,17 @@ Local/engine crash checks continue to exercise actual process loss and publicati
 recovery. Historical Slice acceptance records describe their original candidates;
 they are not the current recurring test matrix.
 
+Slice 9c adapter crashes target the local output reservation and actual Parquet
+primary/private-part file creation before atomic rename and Store commit. The
+test-only file-constructor hook observes real writer calls; it is not a product
+event or an engine-result-storage path. Mutation checks cover replacement,
+absence and same-length in-place changes to immutable Parquet payloads.
+Registered Parquet membership scans are accepted across native source files.
+Pandas lifetime/orphan and composed-read journeys explicitly preselect the
+registered pandas method before execution, so native Parquet support cannot
+bypass the worker boundary being tested. Public scoped-read acceptance separately
+uses the default native route and real nonempty Findings in three processes.
+
 ## Commands
 
 - `make test`: daily contracts and SDK-boundary regressions; no external object service.

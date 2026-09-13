@@ -25,6 +25,7 @@ from marivo.analysis.observation.predicates import gt
 from marivo.analysis.session._lazy_read_model import FailedRun, SessionGraph, SucceededRun
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import forbidden
+from tests.lazy_local_fixtures import pandas_methods
 from tests.lazy_materialization_crash_worker import snapshot, statistics, versions
 from tests.lazy_retained_fixtures import setup_retained
 
@@ -304,4 +305,5 @@ if __name__ == "__main__":
     parser.add_argument("kind", choices=("local", "engine", "object"))
     parser.add_argument("project", type=Path)
     args = parser.parse_args()
-    print(json.dumps(run(args.mode, args.kind, args.project), sort_keys=True, allow_nan=False))
+    with pandas_methods("metric.where"):
+        print(json.dumps(run(args.mode, args.kind, args.project), sort_keys=True, allow_nan=False))
