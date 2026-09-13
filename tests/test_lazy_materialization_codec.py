@@ -12,10 +12,25 @@ from marivo.analysis.materialization.contracts import (
     decode_receipt,
     descriptor_payload,
     encode_descriptor,
+    parse_json,
     receipt_payload,
 )
 from marivo.analysis.materialization.errors import IntegrityError
 from tests.lazy_materialization_fixtures import descriptor
+
+
+@pytest.mark.parametrize("payload", ['{"private-value-canary":', "[" * 2000, "NaN"])
+def test_invalid_json_discards_native_parser_context(payload: str) -> None:
+    with pytest.raises(IntegrityError) as caught:
+        parse_json(payload)
+    assert "private-value-canary" not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+
+
+def test_invalid_json_encoding_discards_native_context() -> None:
+    with pytest.raises(IntegrityError) as caught:
+        canonical_json(float("nan"))
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
 
 
 def test_descriptor_round_trip_retains_exact_core_contracts_without_sources(

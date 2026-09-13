@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Revised: 2026-09-12
 
-Status: Slices 0-8 and 9a complete; Slices 9b-9d and release readiness pending
+Status: Slices 0-8 and 9a-9c complete; Slice 9d and release readiness pending
 
 Slice 5b implementation, supplied review follow-up and completed independent
 technical acceptance are recorded under its
@@ -3146,7 +3146,7 @@ processes, all 29 release tests, and the 4,824-test broad gate. It replaces the
 remaining eager wheel smoke and resolves the Help test's packaged skill from the
 installed package; no library implementation changed. The exact candidate,
 distribution bytes, origins, negative audit and final status patch are linked in
-that record. Slice 9a and 9b completion is recorded below; Slices 9c-9d remain pending
+that record. Slice 9a-9c completion is recorded below; Slice 9d remains pending
 and this candidate is not release-ready.
 
 These units organize preparation and verification, not separate public releases.
@@ -3301,7 +3301,7 @@ real-Agent journeys.
 | --- | --- | --- |
 | 9a: deterministic and installed-package gates — complete | 8c | Full repository, public contract, numerical, Help/example, bilingual docs/site, and distribution checks below. |
 | 9b: backend and execution-economics matrix — complete | 9a | Terminal evidence for every claimed method/adapter/reader/writer path, source/local parity, query/transfer counts, and exact resource limits. Reuse unit harnesses against the candidate; do not infer support from compilation. |
-| 9c: adversarial runtime and read acceptance | 9a | Admission ordering, contention, precommit failure, committed-success recovery, unknown outcomes, required parts, cross-Session boundaries, scoped reads, and forbidden disclosure on the candidate. |
+| 9c: adversarial runtime and read acceptance — complete | 9a | Admission ordering, contention, precommit failure, committed-success recovery, unknown outcomes, required parts, cross-Session boundaries, scoped reads, and forbidden disclosure on the candidate. |
 | 9d: real-Agent integration journeys | 9a | Execute every journey below with fresh terminal Run/Artifact/Evidence or exact pre-admission rejection proof. Close only after 9b and 9c also pass for the same candidate. |
 
 9b-9d may collect independent evidence concurrently. Each report identifies the
@@ -3324,8 +3324,8 @@ journey. The record binds the exact source manifests, final installed package
 hashes, command logs and terminal identities. No implementation or test repair
 was needed; all 785 earlier evidence files were preserved. Only status text
 followed the gates. This closes 9a for the approved environment, not the backend,
-adversarial or real-Agent units. Subsequent 9b acceptance is recorded below;
-9c, 9d and release readiness remain pending.
+adversarial or real-Agent units. Subsequent 9b and 9c acceptance is recorded below;
+9d and release readiness remain pending.
 
 ### Slice 9b completion
 
@@ -3344,8 +3344,32 @@ Funnel Delta authored ordering, temporal private-part physical casts and pandas
 Funnel Delta row validation. The record binds final source manifests, method and
 reader/writer nodes, measurements, terminal identities, readback, package bytes,
 failed attempts and cleanup. All 867 historical evidence files were preserved.
-Only completion status text followed the gates. This does not close 9c, 9d or
-release readiness and does not authorize publication.
+Only completion status text followed the gates. That acceptance did not close
+9c, 9d or release readiness and did not authorize publication. Subsequent 9c
+acceptance is recorded below.
+
+### Slice 9c completion
+
+The [Slice 9c execution record](../plans/2026-09-13-lazy-analysis-slice-9c-adversarial-runtime.md)
+closes adversarial Runtime and read acceptance on macOS arm64/Python 3.12, with
+two Runtime workers. Candidate
+`d0ac157fe6ccf872890ba8b2ccb44d6d278aeb0b2bafb25532782c169dc931da`
+passed 892 Runtime cases, a separate captured-binding/cold-recovery case, the
+full 4,848-test `check-agent` gate, all 29 release tests and the bilingual site
+checks. Nested installed acceptance passed 376 contract tests, five Runtime
+examples and three-process production/offline-continuation/recovery.
+
+The new public journey proves original Finding ownership across Sessions,
+source-offline continuation and cold recovery, scoped reads under a writer
+guard, and independent Artifact/storage/Evidence integrity. It exposed and
+repaired native exception contexts retained by malformed Finding metadata.
+Stale engine-storage and implicit-worker test assumptions were migrated to the
+current Parquet and explicit pandas contracts without dropping their distinct
+assertions. A fresh process read back the preserved project after the full gate.
+The record binds exact manifests, requirement-to-node mappings, terminal
+identities, distribution bytes, failed attempts, cleanup and preservation of all
+16,303 historical evidence files. Only completion text followed the final gates.
+Slice 9d and release readiness remain pending; no publication is authorized.
 
 ### Static and deterministic gates
 
@@ -3915,8 +3939,8 @@ row or replacing its evidence with another family's requires review here.
 | Retained parts, aggregate/fold/rollup, checkpoint membership | 3b complete | `test_lazy_retained_fold_matrix.py`, `test_lazy_local_fold.py`, `test_lazy_retained_compiler.py`, `test_lazy_retained_membership.py`, `test_lazy_retained_failures.py`; exact variants and fresh-process evidence in the [3b record](../plans/2026-09-08-lazy-analysis-slice-3b-execution.md) | Private 3b gate passed; B, D, I, M remain public Slice 9 gates |
 | Source-prefix/local-suffix execution | 4a and parent 4 complete; multi-input extension complete in 5a | `test_lazy_local_guards.py`, `test_lazy_local_runtime_acceptance.py`, `test_lazy_slice4_boundaries.py`, `test_lazy_compare_runtime.py`, `test_lazy_local_graph_lifetime.py`; complete unary/retained and combined input guards, intermediate/output/deadline limits, fixed dispatch, real independent-source comparison, immutable direct DataFrame handoff and no retry | Private parent 4 gate passed under the approved allocation; the [5a gate](../plans/2026-09-08-lazy-analysis-slice-5a-execution.md) closes the allocated multi-input proof. F and 9b remain public gates |
 | Local/engine/object storage | 2b, 4b | immutable receipts, reservations, required parts, mutation and overflow | F-G, I; 9b-9c |
-| Run admission, publication, concurrency, reconciliation | 2b, 4c complete | `test_lazy_runtime_concurrency.py`, `test_lazy_worker_recovery.py`, `test_lazy_adapter_crash_acceptance.py`, `test_lazy_reconciliation_snapshot.py`; exact variants and evidence in the [4c record](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md) | Private 4c gate passed; G and 9c remain public Slice 9 acceptance |
-| Session/Run/Artifact/Finding reads, graph, integrity | 4d and parent 4 complete | `test_lazy_runtime_reads.py`, `test_lazy_session_history.py`, `test_lazy_session_graph.py`, `test_lazy_finding_types.py`, `test_lazy_finding_reads.py`, `test_lazy_integrity_inspection.py`, `test_lazy_inspection_boundaries.py`, `test_lazy_runtime_read_acceptance.py`, `test_lazy_read_integrity_regressions.py`, `test_lazy_object_access_boundaries.py`; [exact evidence](../plans/2026-09-08-lazy-analysis-slice-4d-execution.md) | Private 4d and parent 4 gates passed; G2, N and 9c remain public gates |
+| Run admission, publication, concurrency, reconciliation | 2b, 4c complete | `test_lazy_runtime_concurrency.py`, `test_lazy_worker_recovery.py`, `test_lazy_adapter_crash_acceptance.py`, `test_lazy_reconciliation_snapshot.py`; exact variants and evidence in the [4c record](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md) | Private 4c and public 9c gates passed; real-Agent G remains in 9d |
+| Session/Run/Artifact/Finding reads, graph, integrity | 4d and parent 4 complete | `test_lazy_runtime_reads.py`, `test_lazy_session_history.py`, `test_lazy_session_graph.py`, `test_lazy_finding_types.py`, `test_lazy_finding_reads.py`, `test_lazy_integrity_inspection.py`, `test_lazy_inspection_boundaries.py`, `test_lazy_runtime_read_acceptance.py`, `test_lazy_read_integrity_regressions.py`, `test_lazy_object_access_boundaries.py`; [exact evidence](../plans/2026-09-08-lazy-analysis-slice-4d-execution.md) | Private 4d, parent 4 and public 9c gates passed; real-Agent G2 and N remain in 9d |
 | Metric comparison | 5a complete | `test_lazy_compare_contracts.py`, `test_lazy_compare_numeric.py`, `test_lazy_compare_compiler.py`, `test_lazy_compare_runtime.py`, `test_lazy_compare_time_runtime.py`, `test_lazy_compare_runtime_acceptance.py`, `test_lazy_delta_publication.py`; five shapes, all state topologies, exact promotion and Decimal Finding order, sampling sharing, complete combined guards, repeated time-series coordinates, atomic Findings and three-storage cold recovery | Private [5a technical gate](../plans/2026-09-08-lazy-analysis-slice-5a-execution.md) passed after review follow-up; C and F remain integrated public acceptance |
 | Additive/component-mix attribution | 5b | endpoint reproduction, disjoint partitions, masks/Findings, barrier failures | C |
 | Distinct-membership attribution | 5c | exact membership allocation, source-private identity, reconciliation | C; 9b |

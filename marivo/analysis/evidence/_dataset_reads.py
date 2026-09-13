@@ -256,10 +256,11 @@ def _row(
     identity_digest: object = row["finding_identity_digest"]
     if type(identity) is not str or type(payload) is not str or identity_digest != identity:
         raise invalid("invalid selected Finding Store envelope")
-    try:
+    committed_at: datetime | None = None
+    with suppress(ValueError):
         committed_at = datetime.fromisoformat(record.committed_at)
-    except ValueError as exc:
-        raise invalid("invalid Finding commit timestamp") from exc
+    if committed_at is None:
+        raise invalid("invalid Finding commit timestamp")
     finding = decode_finding_body(
         payload,
         finding_id=identity,

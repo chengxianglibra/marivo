@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import suppress
 from dataclasses import fields
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -118,10 +119,11 @@ def _decode(value: object, annotation: object) -> object:
         obj = _obj(value, "scalar_kind value")
         text = _text(obj["value"])
         if annotation is Decimal:
-            try:
+            number: Decimal | None = None
+            with suppress(InvalidOperation):
                 number = Decimal(text)
-            except InvalidOperation as exc:
-                raise invalid("invalid Finding decimal") from exc
+            if number is None:
+                raise invalid("invalid Finding decimal")
             if not number.is_finite() or obj["scalar_kind"] != "decimal" or str(number) != text:
                 raise invalid("non-canonical Finding decimal")
             return number
@@ -135,8 +137,9 @@ def _decode(value: object, annotation: object) -> object:
             if obj["scalar_kind"] != "date" or day.isoformat() != text:
                 raise invalid("non-canonical Finding date")
             return day
-        except ValueError as exc:
-            raise invalid("invalid Finding time scalar") from exc
+        except ValueError:
+            pass
+        raise invalid("invalid Finding time scalar")
     if annotation is ArtifactRef:
         text = _text(_obj(value, "ref")["ref"])
         ref = ArtifactRef(ref=text)

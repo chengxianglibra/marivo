@@ -35,6 +35,16 @@ _NOW = datetime(2026, 9, 8, tzinfo=timezone.utc)
 _SUBJECT = t.MetricFindingSubjectV1(metric=d._catalog_identity("metric:sales.revenue"))
 
 
+def test_invalid_finding_commit_time_discards_native_exception_context(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    record, registration, items = _seed(store)
+    damaged = replace(record, committed_at="private-finding-time-canary")
+    with store._read() as connection, pytest.raises(IntegrityError) as caught:
+        reads.finding(connection, damaged, items[0].finding_id, registration=registration)
+    assert "private-finding-time-canary" not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+
+
 def _item(artifact_ref: str, ordinal: int) -> t.Finding:
     result = t.Finding(
         finding_id="pending",

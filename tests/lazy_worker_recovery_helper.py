@@ -22,7 +22,7 @@ from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from tests.lazy_execution_fixtures import make_execution_registry
-from tests.lazy_local_fixtures import REVENUE, setup_local
+from tests.lazy_local_fixtures import REVENUE, pandas_methods, setup_local
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
 
 CRASH_EXIT = 73
@@ -151,4 +151,5 @@ if __name__ == "__main__":
     parser.add_argument("--point", default="")
     parser.add_argument("--socket", default="")
     args = parser.parse_args()
-    run(args.mode, args.project, args.session, args.artifact, args.point, args.socket)
+    with pandas_methods("metric.where"):
+        run(args.mode, args.project, args.session, args.artifact, args.point, args.socket)
