@@ -27,6 +27,8 @@ class ReadCapability:
     produced_input_family: Literal["TimeScopeInput"] | None = None
     output_type: str = ""
     example: str = ""
+    acquisition: str = ""
+    related: tuple[str, ...] = ()
 
     @property
     def canonical_id(self) -> str:

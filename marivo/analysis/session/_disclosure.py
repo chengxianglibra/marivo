@@ -87,7 +87,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         "RunPage": (
             "Call session.runs(); use next_cursor for the identical selection.",
             ("session.runs",),
-            ("session.runs",),
+            ("session.runs", "session.get_run", "SucceededRun", "FailedRun", "IncompleteRun"),
         ),
         "SessionGraph": (
             "Call session.graph() with an explicit scope and node bound.",
@@ -144,42 +144,42 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             session_namespace,
             "get_or_create",
             "Session",
-            "result = namespace.get_or_create('help-example')",
+            "import marivo.analysis as mv\nresult = mv.session.get_or_create('help-example')",
             "Guarded create or recovery; sets current Session and updates an explicitly supplied question.",
         ),
         (
             session_namespace,
             "current",
             "Session | None",
-            "result = namespace.current()",
+            "import marivo.analysis as mv\nresult = mv.session.current()",
             "Read existing current Session; do not create or reconcile.",
         ),
         (
             session_namespace,
             "resume",
             "Session",
-            "result = namespace.resume(session.id, by='id')",
+            "import marivo.analysis as mv\nresult = mv.session.resume(saved_session_id, by='id')",
             "Guarded recovery and activation of an existing Session; never creates a missing identity.",
         ),
         (
             session_namespace,
             "recent",
             "SessionSummaryPage",
-            "result = namespace.recent(limit=5)",
+            "import marivo.analysis as mv\nresult = mv.session.recent(limit=5)",
             "Read one bounded existing Session-history page; no activation.",
         ),
         (
             session_namespace,
             "inspect",
             "SessionInspection",
-            "result = namespace.inspect(session.name)",
+            "import marivo.analysis as mv\nresult = mv.session.inspect(saved_session_name)",
             "Read one existing Session snapshot; no recovery or activation.",
         ),
         (
             session_namespace,
             "abandon_run",
             "None",
-            "result = namespace.abandon_run(session_id=session.id, run_id=pending_run)",
+            "import marivo.analysis as mv\nresult = mv.session.abandon_run(session_id=session.id, run_id=pending_run)",
             "Reconcile only the selected Run under its Session writer guard; backend terminal/fencing proof is mandatory.",
         ),
         (
@@ -263,7 +263,16 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 value,
                 bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
-                discovery_group="session.namespace" if receiver is session_namespace else None,
+                discovery_group="session.namespace"
+                if receiver is session_namespace
+                else "runtime.sessions"
+                if name in ("show", "render")
+                else "runtime.runs"
+                if name in ("runs", "get_run")
+                else "evidence"
+                if name == "revalidate"
+                else "runtime",
+                related=("session.resume",) if name in ("runs", "get_run", "artifact") else (),
                 parameters=tuple(
                     P(n, acquisition[n]) for n in signature(value).parameters if n != "self"
                 ),
@@ -276,7 +285,19 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 ),
                 example=ExampleInput(
                     code,
-                    ("namespace", "session", "artifact_ref", "run_id", "pending_run"),
+                    ()
+                    if name in ("get_or_create", "current", "recent")
+                    else ("saved_session_id",)
+                    if name == "resume"
+                    else ("saved_session_name",)
+                    if name == "inspect"
+                    else ("session", "pending_run")
+                    if name == "abandon_run"
+                    else ("session", "artifact_ref")
+                    if name in ("artifact", "graph", "revalidate")
+                    else ("session", "run_id")
+                    if name == "get_run"
+                    else ("session",),
                     "result",
                     output,
                     True,
@@ -311,6 +332,11 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 bindings[0].implementation,
                 bindings=bindings,
                 summary="Read selected committed Finding evidence.",
+                discovery_group="evidence",
+                related=(
+                    "datasets.materialized",
+                    "FindingPage" if name == "findings" else "Finding",
+                ),
                 parameters=parameters,
                 output=output,
                 constraints=(
@@ -320,23 +346,57 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 failures=(
                     "EvidenceIntegrityError: inspect the exact selected corrupt Evidence; do not replay the source.",
                 ),
-                example=ExampleInput(code, ("materialized", "finding_id"), "result", output, True),
+                example=ExampleInput(
+                    code,
+                    ("materialized",) if name == "findings" else ("materialized", "finding_id"),
+                    "result",
+                    output,
+                    True,
+                ),
             )
         )
     # These are retained nested return values, not additional public exports.
-    for value in (
-        r.SessionSummaryPage,
-        r.SessionInspection,
-        r.SessionSummary,
-        r.SessionGraphEdge,
-        e.ArtifactEvidenceSummary,
-    ):
+    nested_reads = (
+        (
+            r.SessionSummaryPage,
+            "Call mv.session.recent(); select an exact item from items.",
+            ("session.recent",),
+            ("runtime.SessionSummary", "session.resume", "session.inspect"),
+        ),
+        (
+            r.SessionInspection,
+            "Call mv.session.inspect(identity) without activating a Session.",
+            ("session.inspect",),
+            ("runtime.SessionSummary", "RunPage"),
+        ),
+        (
+            r.SessionSummary,
+            "Read a selected recent().items entry or inspect(identity).summary; retain its id/name.",
+            ("runtime.SessionSummaryPage", "runtime.SessionInspection"),
+            ("session.resume",),
+        ),
+        (
+            r.SessionGraphEdge,
+            "Read an edge from session.graph(...).edges.",
+            ("session.graph",),
+            ("runtime.values.show",),
+        ),
+        (
+            e.ArtifactEvidenceSummary,
+            "Read the committed Evidence summary attached to an ArtifactSummary.",
+            ("ArtifactSummary",),
+            ("artifact.findings",),
+        ),
+    )
+    for value, acquisition_text, producers, consumers in nested_reads:
         descriptors.append(
             value_type(
                 "runtime." + value.__name__,
                 value,
                 summary=f"Nested immutable {value.__name__} read contract.",
-                acquisition="Read the corresponding Session result field.",
+                acquisition=acquisition_text,
+                producers=producers,
+                consumers=consumers,
             )
         )
     for method_name, output in (("render", "str"), ("show", "None")):
@@ -359,6 +419,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 bindings[0].implementation,
                 bindings=bindings,
                 summary="Render one immutable retained Runtime value within its byte budget.",
+                discovery_group="runtime.values",
                 parameters=(
                     P(
                         "max_output_bytes",
@@ -395,7 +456,19 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     )
     descriptors.append(
         NavigationInput(
-            "catalog", "Browse current authored catalog inputs.", (*ordinary, "catalog.temporal")
+            "catalog",
+            "Resolve exact governed inputs and check readiness for the required closure.",
+            (
+                "catalog.require",
+                "catalog.readiness",
+                *(t for t in ordinary if t not in ("catalog.require", "catalog.readiness")),
+                "catalog.temporal",
+            ),
+            guidance=(
+                "Acquire catalog = session.catalog. With exact refs, use require/readiness; browse a typed collection only when identity is unknown.",
+                "Collection.show() reveals bounded choices; collection.get(full_path) selects an entry. Inspect entry.show(), then marivo.help(entry) for its public contract.",
+            ),
+            discovery_group="inputs",
         )
     )
     return DisclosureProvider("runtime", tuple(descriptors), tuple(exports))

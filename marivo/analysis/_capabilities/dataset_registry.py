@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import inspect
+import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, NoReturn
 
@@ -25,7 +26,13 @@ from marivo.analysis._capabilities.model import ReadCapability
 from marivo.analysis.datasets.base import Dataset
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.errors import AnalysisError
-from marivo.introspection.live.resolve import LiveSurface, ResolvedLiveTarget, resolve_live_target
+from marivo.introspection.live.resolve import (
+    LiveSuggestionIndex,
+    LiveSurface,
+    ResolvedLiveTarget,
+    build_suggestion_index,
+    resolve_live_target,
+)
 
 
 def _unwrapped(value: object) -> object:
@@ -38,6 +45,10 @@ class DatasetDisclosureRegistry:
     providers: tuple[DisclosureProvider, ...]
     families: DatasetFamilyRegistry
     descriptors: tuple[Descriptor, ...]
+    _suggestions: LiveSuggestionIndex = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_suggestions", build_suggestion_index(self))
 
     @property
     def retained_catalog_inputs(self) -> tuple[ReadCapability, ...]:
@@ -59,7 +70,87 @@ class DatasetDisclosureRegistry:
         return tuple(d.canonical_id for d in self.descriptors)
 
     def discovery_ids(self) -> tuple[str, ...]:
-        return self.canonical_ids()
+        """Return intentional discovery members, not every resolvable leaf."""
+        members = {m for d in self.descriptors if isinstance(d, NavigationInput) for m in d.members}
+        return tuple(d.canonical_id for d in self.descriptors if d.canonical_id in members)
+
+    def consumer_descriptor(self, consumer_id: str) -> CallableInput | None:
+        """Join a current consumer to its sole native public disclosure owner."""
+        return next(
+            (
+                d
+                for d in self.descriptors
+                if isinstance(d, CallableInput) and consumer_id in d.registration_ids
+            ),
+            None,
+        )
+
+    def continuation_descriptor(self, dataset: Dataset, consumer_id: str) -> CallableInput | None:
+        """Select the same exact receiver specialization as public callable Help."""
+        descriptor = self.consumer_descriptor(consumer_id)
+        if descriptor is None:
+            return None
+        value: object = dataset
+        for member in descriptor.public_entrypoint.removeprefix("dataset.").split("."):
+            value = getattr(value, member)
+        resolved = self.by_callable(value)
+        if not isinstance(resolved, CallableInput):
+            raise invalid("a callable continuation owner", consumer_id)
+        return resolved
+
+    def continuation_help(
+        self, dataset: Dataset, consumer_id: str
+    ) -> tuple[str, str, tuple[str, ...]] | None:
+        """Project native call/target identity across Core's dependency boundary."""
+        descriptor = self.continuation_descriptor(dataset, consumer_id)
+        if descriptor is None:
+            return None
+        return descriptor.public_entrypoint, descriptor.canonical_id, descriptor.registration_ids
+
+    def family_routes(self, descriptor: FamilyInput) -> tuple[str, ...]:
+        """Narrow static discovery using the family's actual registered consumers."""
+        groups = tuple(
+            dict.fromkeys(
+                d.discovery_group
+                for consumer in descriptor.registration.consumers
+                if (d := self.consumer_descriptor(consumer.id)) is not None
+                and d.discovery_group is not None
+            )
+        )
+        return (*groups, "datasets")
+
+    def callable_routes(self, descriptor: CallableInput) -> tuple[str, ...]:
+        """Link prerequisites and exact exported return types from native facts."""
+        names = set(re.findall(r"\b[A-Z][A-Za-z0-9_]+\b", descriptor.output))
+        outputs = tuple(
+            dict.fromkeys(e.target for p in self.providers for e in p.exports if e.name in names)
+        )
+        outputs = tuple(
+            dict.fromkeys(
+                (
+                    *outputs,
+                    *(
+                        d.canonical_id
+                        for d in self.descriptors
+                        if isinstance(d, TypeInput)
+                        and any(b.implementation.__name__ in names for b in d.bindings)
+                    ),
+                )
+            )
+        )
+        if "Materialized Dataset" in descriptor.output:
+            outputs = (*outputs, "datasets.materialized")
+        elif "Logical Dataset" in descriptor.output:
+            outputs = (*outputs, "datasets.logical")
+        return tuple(
+            dict.fromkeys(
+                (
+                    *descriptor.related,
+                    *(t for p in descriptor.parameters for t in p.targets),
+                    *outputs,
+                )
+            )
+        )
 
     def by_canonical_id(self, canonical_id: str) -> Descriptor:
         # KeyError is the neutral LiveSurface resolver's lookup-miss protocol.
@@ -141,10 +232,6 @@ class DatasetDisclosureRegistry:
 
         def enrich(value: object) -> ResolvedLiveTarget[Descriptor] | None:
             if isinstance(value, AnalysisError):
-                if value.repair is None:
-                    return ResolvedLiveTarget(
-                        kind="error_contract", surface="analysis", error_name=type(value).__name__
-                    )
                 return ResolvedLiveTarget(
                     kind="error_briefing",
                     surface="analysis",
@@ -186,6 +273,7 @@ class DatasetDisclosureRegistry:
             MappingProxyType({"AnalysisError": AnalysisError}),
             AnalysisError,
             enrich=enrich,
+            suggestion_index=self._suggestions,
             default_suggestions=root.members,
             help_target_error=help_target_error,
         )
@@ -286,7 +374,7 @@ class DatasetDisclosureRegistry:
                 for registration_id in descriptor.registration_ids:
                     producer_contract(registration_id)
                 links.update(descriptor.registration_ids)
-                targets = tuple(t for p in descriptor.parameters for t in p.targets)
+                targets = self.callable_routes(descriptor)
             elif isinstance(descriptor, (TypeInput, FamilyInput)):
                 for type_binding in descriptor.bindings:
                     if type_binding.fields != public_fields(
@@ -317,8 +405,10 @@ class DatasetDisclosureRegistry:
                             )
                     targets = descriptor.producers + descriptor.consumers
             elif isinstance(descriptor, NavigationInput):
-                targets = descriptor.members
-                memberships.update(targets)
+                targets = descriptor.members + descriptor.related
+                memberships.update(descriptor.members)
+            elif isinstance(descriptor, ReadCapability):
+                targets = descriptor.related
             for target in targets:
                 if target not in ids:
                     raise invalid("independently resolvable linked target", target)
@@ -335,10 +425,10 @@ class DatasetDisclosureRegistry:
             if isinstance(descriptor, CallableInput):
                 for binding in descriptor.bindings:
                     self.by_callable(binding.implementation)
-        if any(memberships[target] != 1 for target in ids if target):
+        if any(count != 1 for count in memberships.values()):
             raise invalid(
                 "one discovery group per target",
-                repr([t for t in ids if t and memberships[t] != 1]),
+                repr([t for t, count in memberships.items() if count != 1]),
             )
         reached: set[str] = set()
 
@@ -352,8 +442,18 @@ class DatasetDisclosureRegistry:
                     visit(child)
 
         visit("")
-        if reached != set(ids):
-            raise invalid("root-reachable native topology", repr(sorted(set(ids) - reached)))
+        expected_discovery = {"", *self.discovery_ids()}
+        if reached != expected_discovery:
+            raise invalid(
+                "root-reachable discovery topology", repr(sorted(expected_discovery - reached))
+            )
+        for descriptor in self.descriptors:
+            if (
+                isinstance(descriptor, CallableInput)
+                and descriptor.registration_ids
+                and descriptor.canonical_id not in reached
+            ):
+                raise invalid("discoverable analytical capability", descriptor.canonical_id)
 
 
 def assemble(

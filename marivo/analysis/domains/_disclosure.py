@@ -74,7 +74,12 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 f,
                 summary=summary,
                 variants=variants,
-                acquisition="Construct via session.events.match or session.lifecycle.replay; reducers remain in the same family.",
+                acquisition=(
+                    "Construct via session.events.match(...)."
+                    if fid == "event"
+                    else "Construct via session.lifecycle.replay(...)."
+                )
+                + " Reducers remain in the same family.",
                 constraints=(
                     "Raw Entity identities remain private until explicit authorized terminal row reads.",
                     "Right censoring and coverage censoring differ; membership selection requires exact complete identities.",
@@ -152,6 +157,8 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 if target == "events.match"
                 else (SemanticKind.STATE_MODEL,),
                 summary=constraint,
+                discovery_group="entry",
+                related=("session.get_or_create", "catalog.require", "catalog.readiness"),
                 parameters=parameters,
                 output=output,
                 constraints=(constraint,),
@@ -243,7 +250,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             ),
             "LogicalAttributionDataset",
             "result = funnel_delta.attribute(axes=(region,), target=funnel_loss_rate(step=finish_step))",
-            ("funnel_delta", "region", "funnel_loss_rate", "start_step", "finish_step"),
+            ("funnel_delta", "region", "funnel_loss_rate", "finish_step"),
             "Reconcile scoped funnel loss rates; Metric attribution parameters do not authorize funnel inputs.",
         ),
         (
@@ -324,6 +331,11 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 bindings[0].implementation,
                 bindings=bindings,
                 summary=constraint,
+                discovery_group="methods.compare"
+                if name in ("compare", "attribute")
+                else "methods.events"
+                if fid == "event"
+                else "methods.lifecycle",
                 parameters=parameters,
                 output=output,
                 constraints=(constraint,),
@@ -422,7 +434,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         "steps": "Pass the exact ordered PatternStep values created by step(...).",
         "completion_assignment": "Choose exclusive for earliest-open-attempt assignment, or shared only when one completion may complete multiple attempts.",
         "step": "Use the exact non-initial PatternStep retained by the source pattern.",
-        "state": "Acquire the exact StateModel state handle; strings and another model's handles are rejected.",
+        "state": "Use ms.model_state(model=model_ref, name=state_name) after inspecting the exact catalog StateModel; strings and foreign model handles are rejected.",
         "at": "Choose a timezone-aware checkpoint inside the source Lifecycle replay window.",
         "inputs": "List the exact distinct Event refs covered by this declaration.",
         "complete_from": "Choose the aware inclusive start of declared bounded source coverage.",
@@ -437,6 +449,12 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 "mv." + name,
                 value,
                 summary=guidance,
+                discovery_group="event_matching"
+                if name in ("first_per_subject", "every_start")
+                else "inputs.lifecycle"
+                if name in ("in_state", "from_inception", "SourceOriginCompletenessDeclarationV1")
+                else "inputs.events",
+                related=("catalog.require",),
                 parameters=tuple(
                     P(n, constructor_inputs[n]) for n in bind(value).signature.parameters
                 ),
@@ -448,17 +466,19 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 ),
                 example=ExampleInput(
                     "result = " + code,
-                    (
-                        name,
-                        "start_role",
-                        "start_step",
-                        "finish_step",
-                        "done_state",
-                        "start",
-                        "end",
-                        "event_refs",
-                        "source_origin",
-                    ),
+                    (name, "start_role")
+                    if name == "step"
+                    else (name, "start_step", "finish_step")
+                    if name == "sequence"
+                    else (name, "finish_step")
+                    if name in ("dropped_before", "funnel_loss_rate")
+                    else (name, "done_state", "end")
+                    if name == "in_state"
+                    else (name, "event_refs", "start", "end")
+                    if name == "BoundedCompletenessDeclarationV1"
+                    else (name, "event_refs", "source_origin", "end")
+                    if name == "SourceOriginCompletenessDeclarationV1"
+                    else (name,),
                     "result",
                     output,
                 ),

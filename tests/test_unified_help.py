@@ -658,7 +658,7 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
     assert "No datasource connectivity or inspection evidence was queried" in text
 
 
-def test_error_instance_uses_qualified_repair_and_repair_free_instance_is_generic() -> None:
+def test_error_instance_uses_qualified_repair_and_preserves_repair_free_facts() -> None:
     repaired = AnalysisError(
         message="inspect the datasource",
         repair=AnalysisRepair(
@@ -668,7 +668,7 @@ def test_error_instance_uses_qualified_repair_and_repair_free_instance_is_generi
         ),
     )
     assert 'marivo.help("datasource.inspect")' in _text(repaired)
-    assert _text(AnalysisError(message="no repair")) == _text(AnalysisError)
+    assert "Message: no repair" in _text(AnalysisError(message="no repair"))
 
 
 def test_root_and_all_focused_registry_help_stay_inside_shared_budgets() -> None:

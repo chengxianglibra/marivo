@@ -71,13 +71,13 @@ def _native_target_error(owner: HelpSurface) -> type[Exception]:
 
 
 def _suggestions(errors: Iterable[Exception]) -> tuple[str, ...]:
-    values: set[str] = set()
+    values: dict[str, None] = {}
     for error in errors:
         repair = getattr(error, "repair", None)
         for candidate in getattr(repair, "candidates", ()):
             if isinstance(candidate, str):
-                values.add(candidate)
-    return tuple(sorted(values))[: SURFACE_LIMITS.help_suggestion_limit]
+                values.setdefault(candidate, None)
+    return tuple(values)[: SURFACE_LIMITS.help_suggestion_limit]
 
 
 def _resolve_one(target: object, owner: HelpSurface) -> NativeHelpRoute | None:
@@ -195,13 +195,23 @@ def route_help_target(target: object | None) -> HelpRoute:
             outcome="ambiguous",
             candidates=candidates,
         )
-    errors: list[Exception] = []
+    qualified_candidates: dict[str, None] = {}
     for owner in _SURFACES:
         try:
             resolve_live_target(target, _native_surface(owner))
         except _native_target_error(owner) as error:
-            errors.append(error)
-    raise MarivoHelpTargetError(target=target, outcome="unknown", candidates=_suggestions(errors))
+            for candidate in _suggestions((error,)):
+                route = _resolve_one(candidate, owner)
+                if route is not None:
+                    resolved = route.resolved
+                    canonical = resolved.canonical_id or resolved.type_name or resolved.error_name
+                    if canonical is not None:
+                        qualified_candidates.setdefault(f"{owner}.{canonical}", None)
+    raise MarivoHelpTargetError(
+        target=target,
+        outcome="unknown",
+        candidates=tuple(qualified_candidates)[: SURFACE_LIMITS.help_suggestion_limit],
+    )
 
 
 def render_surface_root(route: SurfaceRootHelpRoute) -> str:

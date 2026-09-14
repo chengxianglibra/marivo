@@ -24,11 +24,12 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
 
         lines = [resolved.error_name or "AnalysisError", "  Analysis error contract."]
         original = resolved.original
-        if isinstance(original, AnalysisError) and original.repair is not None:
+        if isinstance(original, AnalysisError):
             for name in ("message", "expected", "received", "location"):
                 value = getattr(original, name)
                 if value is not None:
                     lines.append(f"  {name.title()}: {value}")
+        if isinstance(original, AnalysisError) and original.repair is not None:
             repair = original.repair
             lines.extend(("  Repair:", "    Kind: " + repair.kind, "    Action: " + repair.action))
             if repair.snippet:
@@ -42,7 +43,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             lines.append('    Next help: marivo.help("' + qualified + '")')
         else:
             lines.append(
-                "  Concrete repair guidance is available only when an instance carries repair.help_target."
+                "  Fields: message, expected, received, location and optional repair. Inspect the instance facts before choosing a repair."
             )
         text = "\n".join(lines) + "\n"
         budget = ANALYSIS_HELP_RENDER_BUDGETS["current_briefing"]
@@ -65,8 +66,12 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
 
             lines.insert(0, render_fingerprint(EnvironmentFingerprint.current(), reveal=True))
         render_class = descriptor.render_class
-        routes = descriptor.members
-        lines.extend("  marivo.help('analysis." + t + "')" for t in routes)
+        routes = descriptor.members + descriptor.related
+        lines.extend(descriptor.guidance)
+        for t in routes:
+            lines.append(
+                "  marivo.help('analysis." + t + "') — " + registry.by_canonical_id(t).summary
+            )
     elif isinstance(descriptor, ReadCapability):
         render_class = "exact_callable"
         lines.append("Call: " + descriptor.public_entrypoint)
@@ -83,11 +88,13 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                 lines.append("Signature: " + str(inspect.signature(value)))
         lines.extend(
             (
-                "Requires: a loaded project catalog and certified temporal artifacts for temporal reads.",
+                "Requires: " + descriptor.acquisition,
                 "Example:",
                 descriptor.example,
             )
         )
+        routes = descriptor.related
+        lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
         examples = 1
     elif isinstance(descriptor, CallableInput):
         render_class = "exact_callable"
@@ -99,7 +106,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         lines.extend("Constraint: " + text for text in descriptor.constraints)
         lines.extend("Failure/repair: " + text for text in descriptor.failures)
         lines.extend("Input " + p.name + ": " + p.acquisition for p in descriptor.parameters)
-        routes = tuple(dict.fromkeys(t for p in descriptor.parameters for t in p.targets))
+        routes = registry.callable_routes(descriptor)
         for f in registry.families.registrations:
             for consumer in f.consumers:
                 if consumer.id in descriptor.registration_ids:
@@ -117,9 +124,25 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                     if consumer.requirements:
                         lines.append("Requirements: " + ", ".join(consumer.requirements))
         lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
-        lines.append("Example inputs: " + ", ".join(descriptor.example.requires))
+        exports = {e.name: e for p in registry.providers for e in p.exports if e.name != "session"}
+        bindings = tuple(name for name in descriptor.example.requires if name in exports)
+        required = tuple(name for name in descriptor.example.requires if name not in exports)
+        lines.append("Example inputs: " + (", ".join(required) or "none"))
+        prelude = (
+            (
+                "import marivo.analysis as mv\n"
+                + "\n".join(name + " = mv." + name for name in bindings)
+                + "\n"
+            )
+            if bindings
+            else ""
+        )
         lines.extend(
-            ("Example:", descriptor.example.code, "Expected: " + descriptor.example.outcome)
+            (
+                "Example:",
+                prelude + descriptor.example.code,
+                "Expected: " + descriptor.example.outcome,
+            )
         )
         examples = 1
     else:
@@ -146,9 +169,9 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                     f"Row semantics variant {index}: "
                     + "; ".join(f.name + ": " + f.annotation for f in variant.fields)
                 )
-            routes = ("methods",)
-            lines.append("Static methods: marivo.help('analysis.methods')")
-            lines.append("Current legal calls: dataset.contract()")
+            routes = registry.family_routes(descriptor)
+            lines.extend("Methods: marivo.help('analysis." + t + "')" for t in routes)
+            lines.append("Current legal calls and exact Help targets: dataset.contract().show()")
         elif isinstance(descriptor, TypeInput):
             for index, variant in enumerate(descriptor.variants, 1):
                 lines.append(
@@ -158,6 +181,11 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             routes = tuple(dict.fromkeys(descriptor.producers + descriptor.consumers))
             lines.extend("Producer: " + t for t in descriptor.producers)
             lines.extend("Consumer: " + t for t in descriptor.consumers)
+            lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
+            if any(b.methods for b in descriptor.bindings):
+                lines.append(
+                    "Exact member contract: pass the bound public method to marivo.help(value.method)."
+                )
     text = "\n".join(lines) + "\n"
     # Translate only explicitly registered public type bindings. Reflection
     # remains attached to the real implementation, never to a signature stub.

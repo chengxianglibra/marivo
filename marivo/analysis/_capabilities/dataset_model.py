@@ -69,10 +69,11 @@ class CallableInput:
     failures: tuple[str, ...]
     example: ExampleInput
     registration_ids: tuple[str, ...] = ()
-    discovery_group: Literal["filters", "session.namespace"] | None = None
+    discovery_group: str | None = None
     unbound_default: bool = False
     telemetry: bool = False
     semantic_kinds: tuple[SemanticKind, ...] = ()
+    related: tuple[str, ...] = ()
     kind: Literal["callable"] = field(default="callable", init=False)
 
     @property
@@ -94,10 +95,11 @@ def operation(
     example: ExampleInput,
     registration_ids: tuple[str, ...] = (),
     bindings: tuple[CallableBinding, ...] = (),
-    discovery_group: Literal["filters", "session.namespace"] | None = None,
+    discovery_group: str | None = None,
     unbound_default: bool = False,
     telemetry: bool = False,
     semantic_kinds: tuple[SemanticKind, ...] = (),
+    related: tuple[str, ...] = (),
 ) -> CallableInput:
     return CallableInput(
         target,
@@ -115,6 +117,7 @@ def operation(
         unbound_default,
         telemetry,
         semantic_kinds,
+        related,
     )
 
 
@@ -228,6 +231,9 @@ class NavigationInput:
     summary: str
     members: tuple[str, ...]
     render_class: Literal["root", "decision_hub", "navigation"] = "navigation"
+    guidance: tuple[str, ...] = ()
+    related: tuple[str, ...] = ()
+    discovery_group: str | None = None
     kind: Literal["navigation"] = field(default="navigation", init=False)
     public_entrypoint: None = field(default=None, init=False)
     callable_path: None = field(default=None, init=False)
@@ -308,6 +314,6 @@ CONSTRUCTION_EFFECT = (
     "Construct an immutable Logical Dataset or value; no query, Run, or Artifact publication."
 )
 CONSTRUCTION_FAILURES = (
-    "DatasetConstructionError: expected an admitted shape and concrete inputs; inspect dataset.contract() and repair the reported parameter.",
+    "DatasetConstructionError: expected an admitted shape and concrete inputs; follow the reported parameter repair and inspect input Dataset contracts when available.",
     "DatasetOwnershipError: expected inputs and selectors from the same Session; reconstruct them in the receiving Session.",
 )

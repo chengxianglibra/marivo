@@ -52,7 +52,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         ),
         (
             "attribution",
-            "Governed additive, component-mix or funnel-loss-rate contribution rows.",
+            "Governed additive, component-mix, distinct-membership, distribution-Shapley or funnel-loss-rate contributions.",
             (AttributionSemantics, FunnelAttributionSemantics),
         ),
         (
@@ -145,6 +145,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 bindings[0].implementation,
                 bindings=bindings,
                 summary=summary,
+                discovery_group="methods.rows",
                 parameters=parameters,
                 output="Logical Dataset of the receiver family",
                 constraints=(summary,),
@@ -189,7 +190,10 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                     "Select ordered governed Dimensions; missing axes require logical source operands.",
                 ),
                 P("mode", "Choose joint or hierarchy."),
-                P("top_k", "Optional positive contribution row bound with governed remainder."),
+                P(
+                    "top_k",
+                    "Optional positive retained-member count per mapped parent; None retains all members. Excluded members form governed Other, not discarded rows.",
+                ),
                 P(
                     "target",
                     "Leave None for Metric attribution; funnel loss uses its separate focused leaf.",
@@ -199,7 +203,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalAttributionDataset",
             "result = delta.attribute(axes=(region,))",
             ("delta", "region"),
-            "Only admitted additive or component-mix comparison; retained inputs require complete sufficient statistics.",
+            "Admits additive, component-mix, exact distinct-membership and distribution-Shapley comparisons under method-specific authority; retained inputs require complete sufficient statistics. Distribution-Shapley admits at most eight mapped players per comparison scope and resolution, including Other, and preserves the selected exact or approximate quantile method.",
         ),
         (
             "metric",
@@ -248,6 +252,11 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 bindings[0].implementation,
                 bindings=bindings,
                 summary=constraint,
+                discovery_group="methods.forecast"
+                if method == "forecast"
+                else "methods.association"
+                if method == "correlate"
+                else "methods.compare",
                 parameters=parameters,
                 output=output,
                 constraints=(constraint,),
@@ -312,6 +321,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 getattr(namespace, name),
                 bindings=(bind(getattr(namespace, name), namespace),),
                 summary=constraint,
+                discovery_group="discovery",
                 parameters=parameters,
                 output="LogicalCandidateDataset",
                 constraints=(constraint,),
@@ -319,7 +329,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 failures=CONSTRUCTION_FAILURES,
                 example=ExampleInput(
                     f"result = {receiver}.discover.{name}({arguments})",
-                    (receiver, "region"),
+                    (receiver, "region") if name == "driver_axes" else (receiver,),
                     "result",
                     "LogicalCandidateDataset",
                 ),
@@ -386,6 +396,11 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 "mv." + name,
                 value,
                 summary=constraint,
+                discovery_group="inputs.time"
+                if name == "window_bucket"
+                else "inputs.forecast"
+                if name == "periods"
+                else "forecast_models",
                 parameters=parameters,
                 output=output,
                 constraints=(constraint,),

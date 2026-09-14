@@ -52,3 +52,16 @@ change.show()
 `analysis.artifacts`、`marivo.help("analysis.evidence")` 和
 `marivo.help("analysis.runtime")`；终端出口由
 `marivo.help("analysis.actions.to_pandas")` 说明。
+
+
+## 按当前任务逐步发现能力
+
+`analysis.entry` 连接 Session 创建或恢复，以及 Metric、Event、Lifecycle 的分析起点。
+`analysis.inputs` 负责缺失输入：沿 catalog 精确取得已确认的语义对象，只检查所需闭包的 readiness；人群、时间、完整性声明和模型假设各有具名分组。
+`analysis.methods` 按汇总、比较归因、关联、预测、筛查及事件和生命周期等任务分组，不需要遍历全部页面。
+
+已有 Dataset 时，读取 `dataset.contract().show()`，沿当前允许动作提供的准确 Help target 继续。类型与成员仍可按需精确查询；也可以把已取得的公共方法传给 `marivo.help(...)`。
+聚焦叶子列出这次调用所需的前提和返回值路径。读取这些信息足以执行下一步时，就保存并运行最小分析脚本。
+
+同一 Session 中相同执行定义命中的是已提交快照。若问题要求当前源数据，应使用新的命名 Session，或改变明确影响行的定义输入；重复执行不能证明数据已刷新。
+恢复后的完整性检查分别检查 Artifact、存储权限和 Evidence，不证明当前语义有效或源数据新鲜。

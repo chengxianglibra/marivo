@@ -426,6 +426,28 @@ def suggestions_for(query: str, index: LiveSuggestionIndex) -> tuple[str, ...]:
         for target in index._all_targets
         if (score := _score_target(target, query_tokens, normalized_query, index)) > 0.0
     ]
+    # A typo within an exact namespace should lead to that namespace's closest
+    # leaf before a shorter family/root name that shares more generic tokens.
+    parent, separator, leaf = query.rpartition(".")
+    if separator:
+        scored = [
+            (
+                score
+                + (
+                    200.0 * ratio
+                    if parent == target.rpartition(".")[0]
+                    and (
+                        ratio := difflib.SequenceMatcher(
+                            None, leaf, target.rpartition(".")[2]
+                        ).ratio()
+                    )
+                    >= 0.7
+                    else 0.0
+                ),
+                target,
+            )
+            for score, target in scored
+        ]
     scored.sort(key=lambda pair: (-pair[0], pair[1]))
     return tuple(target for _, target in scored[: SURFACE_LIMITS.help_suggestion_limit])
 
