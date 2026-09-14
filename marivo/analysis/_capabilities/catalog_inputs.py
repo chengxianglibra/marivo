@@ -136,7 +136,7 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
         "catalog.temporal_sets.occurrence": 'scope = temporal_set.occurrence("launch")',
         "catalog.temporal_sets.occurrences": "result = temporal_set.occurrences(limit=5)",
     }
-    prefix = "import marivo.analysis as mv\nimport marivo.semantic as ms\nsession = mv.session.get_or_create('catalog-inspection')\ncatalog = session.catalog\n"
+    prefix = "import marivo.semantic as ms\ncatalog = session.catalog\n"
     result = []
     for descriptor in descriptors:
         preparation = ""
@@ -145,7 +145,14 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
         elif descriptor.receiver_family == "TemporalSetEntry":
             preparation = 'temporal_set = catalog.require(ms.ref.temporal_set("sales.campaigns"))\n'
         example = examples.get(descriptor.id, "result = " + descriptor.public_entrypoint)
-        result.append(replace(descriptor, example=prefix + preparation + example))
+        result.append(
+            replace(
+                descriptor,
+                example=prefix + preparation + example,
+                acquisition="Use the existing question-scoped Session; catalog = session.catalog. Temporal reads require certified authored inputs.",
+                related=("session.get_or_create",),
+            )
+        )
     return tuple(result)
 
 

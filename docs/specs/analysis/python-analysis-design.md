@@ -83,9 +83,14 @@ all state needed for valid downstream computation and cold recovery.
 Start at `marivo.help("analysis")`. Its bounded hubs route to source entry,
 methods, inputs, artifacts, evidence and runtime. Native Help owns exact callable
 signatures, constraints and executable examples. Dataset `contract()` owns
-mechanical continuations; structured errors own concrete repair. Packaged skills
+mechanical continuations, including the public call and exact Help target;
+structured errors preserve concrete diagnostics and own repair. Packaged skills
 own workflow decisions without duplicating signatures or private implementation
-inventories.
+inventories. Entry links to Session bootstrap/recovery and Metric, Event and
+Lifecycle sources. Inputs link to the scoped catalog and named input groups;
+methods group analytical intents. An agent follows only the selected branch and
+its prerequisite/result links, then writes and executes the minimum useful chain.
+Type/member leaves remain independently queryable without flooding task discovery.
 
 Algebraic attribution does not establish cause. Association is descriptive;
 Candidate scores do not confirm an anomaly or prescribe action. Forecasts are

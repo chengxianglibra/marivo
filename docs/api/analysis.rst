@@ -19,7 +19,11 @@ storage or executor fallback are unavailable. Session recovery reads Store v3;
 older Store generations are rejected without rewriting their files.
 
 Start discovery with ``marivo.help("analysis")``. Focused Help owns signatures,
-examples and constraints; errors own concrete repair. Exact current semantic
+examples and constraints; errors preserve concrete diagnostics and own repair.
+Entry provides Session bootstrap/recovery and source selection. Named method and
+input groups narrow discovery by task. ``dataset.contract().show()`` links current
+admitted calls to their canonical Help leaves; return types and prerequisites
+provide focused continuations without enumerating the entire API. Exact current semantic
 refs or catalog entries select governed inputs, while Dataset field refs carry
 exact Dataset ownership. Cross-Session Dataset operands are rejected.
 

@@ -3870,6 +3870,14 @@ Every root/group member must:
 - remain inside the root/group budget;
 - contain no eager alias or dead link.
 
+Discovery membership does not mean every exact type/member must appear in the
+root tree. Each intentional discovery member has one primary parent; contextual
+prerequisite/result links reuse the same canonical target. Named task groups
+replace positional pages. Entry includes Session bootstrap/recovery and source
+selection; Evidence distinguishes integrity checks from semantic authority and
+freshness. Dataset continuations join current admission to the native callable's
+public call and exact Help target, without a second method inventory.
+
 ### Focused Help
 
 Every focused callable leaf owns its reflected signature, exact inputs, output

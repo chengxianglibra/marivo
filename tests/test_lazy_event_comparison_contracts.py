@@ -79,7 +79,9 @@ def test_shared_families_expose_only_event_continuations() -> None:
     assert isinstance(meaning, EventJourneySemantics)
     delta = j.funnel().compare(j.funnel())
     assert isinstance(delta.row_contract.family_semantics, FunnelDeltaSemantics)
-    assert "delta.attribute" in delta.contract().render()
+    # The kernel admits the shared consumer; public Help specializes its call
+    # to the Funnel leaf rather than exposing the generic Metric contract.
+    assert any(c.id == "delta.attribute" for c in delta._registry.consumers_for(delta))
     assert "delta.rank" not in delta.contract().render()
     with pytest.raises(DatasetConstructionError):
         delta.rank(delta.fields.get("loss_rate_delta"))

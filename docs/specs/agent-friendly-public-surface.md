@@ -18,6 +18,28 @@ families, examples, effects, errors and navigation. Public exports are pinned by
 independent snapshots, and every focused target resolves through the coordinator.
 There is no renderer-owned shadow inventory or compatibility execution alias.
 
+Discovery membership is distinct from exact resolvability. Each discovery member
+has one primary group; contextual prerequisite/result links may reference that
+same canonical leaf without creating aliases or duplicate membership. Task groups
+have stable descriptive names, not pages partitioned by descriptor position.
+Types and receiver members remain focused contracts; the explicit Dataset model
+topics provide its required type navigation without mixing all types into inputs
+or evidence discovery. Roots explain responsibilities, states and route choice.
+
+Exact examples declare only their actual external inputs and bind public helpers
+through standard imports. Session bootstrap needs no prior Session or Artifact.
+Catalog examples reuse the question's existing Session. Callable output types and
+input prerequisites link to their native owning contracts; a returned value's
+methods can be passed directly to the public Help coordinator.
+
+Dataset contracts join admitted consumer identities to their native callable
+descriptors and disclose the public call plus canonical Help target. Shape and
+retained-state admission remain Dataset-owned; Help does not create another
+continuation registry. Omitted continuations disclose family-level navigation.
+Unknown-target suggestions preserve relevance and qualification. Error instances
+retain concrete facts even when an optional repair is absent.
+
+
 ## State distinguishes computation from inspection
 
 Source constructors and Dataset methods return Logical Datasets silently. Their

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, SupportsIndex, final
 
 from marivo._compat import Never, Self
@@ -34,6 +35,19 @@ _MAX_FIELDS = 12
 _MAX_FACTS = 12
 _MAX_CONSUMERS = 12
 _MAX_CONSUMER_BYTES = 1024
+
+# The composition root installs a read-only projection of native descriptors.
+# Core must not import Help assembly or executing analysis implementations.
+_continuation_reader: Callable[[Dataset, str], tuple[str, str, tuple[str, ...]] | None] | None = (
+    None
+)
+
+
+def _install_continuation_reader(
+    reader: Callable[[Dataset, str], tuple[str, str, tuple[str, ...]] | None],
+) -> None:
+    global _continuation_reader
+    _continuation_reader = reader
 
 
 @final
@@ -265,16 +279,28 @@ def make_contract(dataset: Dataset) -> DatasetContract:
     visible_consumers: list[str] = []
     omitted_consumers = max(0, len(consumers) - _MAX_CONSUMERS)
     for consumer in consumers[:_MAX_CONSUMERS]:
+        disclosure = (
+            None if _continuation_reader is None else _continuation_reader(dataset, consumer.id)
+        )
+        if disclosure is not None and consumer.id not in disclosure[2]:
+            continue
         entry = (
             f"{consumer.id}: input_roles=({', '.join(consumer.input_roles)}) "
             f"-> {consumer.output_family}; requirements=({', '.join(consumer.requirements)})"
         )
+        if disclosure is not None:
+            public_call, target, _ = disclosure
+            entry += f"; call={public_call}; marivo.help('analysis.{target}')"
         if len(entry.encode("utf-8")) > _MAX_CONSUMER_BYTES:
             omitted_consumers += 1
         else:
             visible_consumers.append(entry)
     if omitted_consumers:
-        visible_consumers.append(f"({omitted_consumers} additional operators omitted)")
+        visible_consumers.append(
+            f"({omitted_consumers} additional operators omitted; use marivo.help(type(dataset)) for family navigation)"
+        )
+    action = "show" if isinstance(state, MaterializedDatasetState) else "execute"
+    visible_consumers.append(f"dataset.{action}(); marivo.help('analysis.actions.{action}')")
     contract = object.__new__(DatasetContract)
     object.__setattr__(contract, "_identity", identity)
     object.__setattr__(contract, "_facts", tuple(facts))

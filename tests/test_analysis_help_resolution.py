@@ -25,11 +25,17 @@ def test_invalid_objects_have_bounded_resolvable_repairs(target: object) -> None
     assert repeated.value.candidates == error.candidates
 
 
-def test_error_class_and_repair_free_instance_share_the_contract() -> None:
-    assert (
-        render_help_text(AnalysisError)[0]
-        == render_help_text(AnalysisError(message="private message"))[0]
+def test_error_class_and_repair_free_instance_preserve_distinct_contracts() -> None:
+    error = AnalysisError(
+        message="Selected result is unavailable",
+        expected="committed Artifact",
+        received="missing reference",
+        location="session.artifact",
     )
+    text = render_help_text(error)[0]
+    for fact in (error.message, error.expected, error.received, error.location):
+        assert fact in text
+    assert text != render_help_text(AnalysisError)[0]
     assert render_help_text("analysis.AnalysisError")[0] == render_help_text(AnalysisError)[0]
 
 
@@ -55,3 +61,18 @@ def test_error_instance_carries_exact_owner_repair_without_guessing() -> None:
         ),
     )
     assert 'marivo.help("datasource.inspect")' in render_help_text(cross_surface)[0]
+
+
+@pytest.mark.parametrize(
+    "target,expected",
+    (
+        ("analysis.metric_dataset.metrc", "analysis.metric_dataset.metric"),
+        ("analysis.session.resum", "analysis.session.resume"),
+    ),
+)
+def test_analysis_typo_repair_preserves_closest_registered_leaf(target: str, expected: str) -> None:
+    with pytest.raises(MarivoHelpTargetError) as captured:
+        marivo.help(target)
+    assert captured.value.candidates[0] == expected
+    for candidate in captured.value.candidates:
+        render_help_text(candidate)

@@ -9,6 +9,7 @@ import pytest
 from marivo._temporal import Grain, TimeScope
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.dataset_registry import prepare
+from marivo.analysis._capabilities.dataset_render import render
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.contract import DatasetContract
 from marivo.analysis.datasets.fields import DatasetFieldRef
@@ -158,8 +159,9 @@ def test_native_pure_example(
 ) -> None:
     descriptor = prepare().by_canonical_id(target)
     assert isinstance(descriptor, CallableInput)
-    namespace = dict(inputs)
-    exec(descriptor.example.code, namespace)
+    namespace = {name: inputs[name] for name in descriptor.example.requires}
+    example = render(prepare(), target).split("Example:\n", 1)[1].rsplit("\nExpected:", 1)[0]
+    exec(example, namespace)
     value = namespace[descriptor.example.result]
     if expected in (
         "population",
@@ -222,6 +224,8 @@ def test_all_runtime_examples_use_committed_v3_state(
     assert record is not None
     environment.update(
         session=session,
+        saved_session_id=session.id,
+        saved_session_name=session.name,
         namespace=mv.session,
         materialized=materialized,
         artifact_ref=materialized.state.artifact_ref,
@@ -239,9 +243,10 @@ def test_all_runtime_examples_use_committed_v3_state(
                 session.id, "help-pending", input_value(record.descriptor), run_ref="help-pending"
             )
             environment["pending_run"] = pending.run_ref
-        scope = dict(environment)
+        scope = {name: environment[name] for name in descriptor.example.requires}
         before = runtime.statistics.events.get("source_statement", 0)
-        exec(descriptor.example.code, scope)
+        example = render(disclosure, target).split("Example:\n", 1)[1].rsplit("\nExpected:", 1)[0]
+        exec(example, scope)
         result = scope[descriptor.example.result]
         executed.add(target)
         if target == "actions.execute":

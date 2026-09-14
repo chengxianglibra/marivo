@@ -11,6 +11,7 @@ from marivo.analysis._capabilities.dataset_model import (
     DisclosureProvider,
     ExampleInput,
     ExportInput,
+    NavigationInput,
     bind,
     operation,
     value_type,
@@ -247,6 +248,8 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             bindings[0].implementation,
             bindings=bindings,
             summary=summary,
+            discovery_group="entry" if method == "execute" else None,
+            related=("session.get_or_create",) if method == "execute" else (),
             parameters=parameters,
             output=output,
             constraints=("The receiver must have the declared state and belong to this Session.",),
@@ -270,7 +273,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="Paired Materialized Dataset",
                 code="result = metric.execute()",
                 requires=("metric",),
-                effects="May query sources and publish one atomic Artifact; an execution-key hit recovers the existing snapshot, not fresh source rows.",
+                effects="May query sources and publish one atomic Artifact; an execution-key hit recovers the existing snapshot, not fresh source rows. For current source rows, use a new named Session or change an explicit row-affecting input.",
                 runtime=True,
             ),
             common(
@@ -353,7 +356,11 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 ),
                 example=ExampleInput(
                     code,
-                    ("metric", "revenue", "dimensioned", "region"),
+                    ("metric", "revenue")
+                    if name == "metric"
+                    else ("dimensioned", "region")
+                    if name == "dimension"
+                    else ("metric",),
                     "result",
                     "DatasetFieldRef",
                 ),
@@ -380,6 +387,66 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 ),
             )
         )
+    descriptors.extend(
+        (
+            NavigationInput(
+                "datasets",
+                "Inspect Dataset states, owned fields and exact row contracts.",
+                (
+                    "datasets.dataset",
+                    "datasets.logical",
+                    "datasets.materialized",
+                    "datasets.contract",
+                    "datasets.fields",
+                    "datasets.field_model",
+                    "datasets.row_model",
+                    "datasets.state_model",
+                ),
+                guidance=(
+                    "Logical values expose contract() and execute(); only Materialized values expose show() and to_pandas().",
+                ),
+                related=("actions.show", "actions.to_pandas"),
+                discovery_group="artifacts",
+            ),
+            NavigationInput(
+                "datasets.field_model",
+                "Inspect exact schema fields and selector ownership.",
+                tuple(
+                    "datasets." + name
+                    for name in (
+                        "schema",
+                        "field",
+                        "field_id",
+                        "field_identity",
+                        "physical_type_state",
+                        "field_ref",
+                    )
+                ),
+            ),
+            NavigationInput(
+                "datasets.row_model",
+                "Inspect row meaning, cardinality and ordering.",
+                tuple(
+                    "datasets." + name
+                    for name in (
+                        "shape_id",
+                        "row_contract",
+                        "row_set_contract",
+                        "family_row_semantics",
+                        "row_bound",
+                        "cardinality",
+                        "ordering",
+                        "order_term",
+                    )
+                ),
+            ),
+            NavigationInput(
+                "datasets.state_model",
+                "Inspect logical definition or committed Artifact state.",
+                ("datasets.logical_state", "datasets.materialized_state", "datasets.byte_count"),
+            ),
+        )
+    )
     sealed_variants = {
         "datasets.field_identity": (
             d._EntityFieldIdentity,

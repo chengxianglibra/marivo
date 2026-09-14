@@ -84,7 +84,12 @@ def provider(
                 registration,
                 summary=summary,
                 variants=variants,
-                acquisition="Construct with session.population(...) or session.observe(...); execute() produces the paired Materialized state.",
+                acquisition=(
+                    "Construct with session.population(...)."
+                    if fid == "population"
+                    else "Construct with session.observe(...)."
+                )
+                + " execute() produces the paired Materialized state.",
                 constraints=(
                     "Logical and Materialized inputs share family admission; downstream operators return Logical state.",
                     "Membership selection and observation windows are distinct. Materialized folds require retained coordinates and sufficient statistics.",
@@ -146,6 +151,8 @@ def provider(
                 if name == "observe"
                 else (),
                 summary=summary,
+                discovery_group="inputs" if name == "source_bindings" else "entry",
+                related=("session.get_or_create", "catalog.require", "catalog.readiness"),
                 parameters=parameters,
                 output=output,
                 constraints=(
@@ -236,6 +243,7 @@ def provider(
                 ),
                 semantic_kinds=(SemanticKind.DIMENSION,) if name == "with_dimensions" else (),
                 summary=summary,
+                discovery_group="methods.metric",
                 parameters=parameters,
                 output="LogicalMetricDataset",
                 constraints=(summary,),
@@ -256,6 +264,7 @@ def provider(
                 for t in (pop.logical_type, pop.materialized_type)
             ),
             summary="Apply a governed Entity sampling policy.",
+            discovery_group="inputs.population",
             parameters=(P("policy", "Construct an engine sampling policy.", ("engine_sample",)),),
             output="LogicalPopulationDataset",
             constraints=(
@@ -338,7 +347,13 @@ def provider(
                 failures=CONSTRUCTION_FAILURES,
                 example=ExampleInput(
                     "result = " + call,
-                    (name, "eq", "gt", "region", "revenue"),
+                    (name, "eq", "gt", "region", "revenue")
+                    if name in ("all_of", "any_of")
+                    else ("not_", "eq", "region")
+                    if name == "not_"
+                    else (name, "region")
+                    if name == "is_in"
+                    else (name, "revenue"),
                     "result",
                     "AnalysisPredicate",
                 ),
@@ -377,14 +392,13 @@ def provider(
                 "mv." + target,
                 value,
                 summary=guidance,
+                discovery_group="inputs.population" if target == "engine_sample" else "inputs.time",
                 parameters=parameters,
                 output=output,
                 constraints=(guidance,),
                 effects=CONSTRUCTION_EFFECT,
                 failures=CONSTRUCTION_FAILURES,
-                example=ExampleInput(
-                    "result = " + call, (target, "revenue", "count_metric"), "result", output
-                ),
+                example=ExampleInput("result = " + call, (target,), "result", output),
             )
         )
         exports.append(ExportInput(target, value, target))
@@ -450,14 +464,15 @@ def provider(
                 failures=("ValueError: repair the exact constructor input before observing.",),
                 example=ExampleInput(
                     "result = " + code,
-                    (
-                        "runtime_metric",
-                        "amount_measure",
-                        "weight_measure",
-                        "revenue",
-                        "count_metric",
-                        "region",
-                    ),
+                    ("runtime_metric", "amount_measure")
+                    if name == "aggregate"
+                    else ("runtime_metric", "amount_measure", "weight_measure")
+                    if name == "weighted_mean"
+                    else ("runtime_metric", "revenue", "region")
+                    if name == "slice"
+                    else ("runtime_metric", "revenue", "count_metric")
+                    if name == "ratio"
+                    else ("runtime_metric", "revenue"),
                     "result",
                     "RuntimeMetricExpr",
                 ),
@@ -465,7 +480,11 @@ def provider(
         )
     descriptors.append(
         NavigationInput(
-            "runtime_metric", "Closed governed Runtime Metric constructors.", tuple(members)
+            "runtime_metric",
+            "Closed governed Runtime Metric constructors.",
+            tuple(members),
+            discovery_group="inputs",
+            related=("catalog.require",),
         )
     )
     exports.append(ExportInput("runtime_metric", runtime_metric, "runtime_metric"))

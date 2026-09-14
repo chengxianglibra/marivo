@@ -105,12 +105,14 @@ Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。
 import marivo
 
 marivo.help()
-marivo.help("targets")
+marivo.help("authoring")
+marivo.help("analysis")
 marivo.help("semantic.metric")
 marivo.help("analysis.observe")
 ```
 
-`marivo.help("targets")` 会列出当前安装版本的 canonical discovery index。
+`marivo.help()` 介绍核心概念，并引导到 `authoring` 或 `analysis`。
+`marivo.help("analysis")` 通过六个有界主题逐步披露当前安装版本的能力。
 请统一使用其中的完整限定名，不要依赖短名称自动消歧。已知或从 live result 获得的
 public type、error 和 member target 仍可直接查询 focused help。
 

@@ -809,7 +809,9 @@ def test_lookup_miss_protocol_is_adapted_to_structured_resolve_error(
         assert caught.value.location == "marivo.help.target"
         assert caught.value.expected and caught.value.received
         assert caught.value.repair is not None
-        assert "entry" in caught.value.repair.candidates
+        assert caught.value.repair.candidates
+        for candidate in caught.value.repair.candidates:
+            disclosure.resolve(candidate)
         assert "marivo.help" in caught.value.repair.action
 
 

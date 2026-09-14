@@ -54,18 +54,21 @@ and inspect readiness only for the required closure. Reuse a current semantic
 handoff for the same project and scope instead of repeating it.
 
 If the required capability is unknown, start with `marivo.help("analysis")`.
-Route through `marivo.help("analysis.inputs")` for input construction or
-`marivo.help("analysis.entry")` for the first typed Artifact, then consult the
-focused Help for the selected capability. Avoid broad catalog browsing when an
+Use `marivo.help("analysis.entry")` to start or resume the investigation.
+Follow `marivo.help("analysis.inputs")` only for missing governed inputs or
+scope choices, then read the selected capability's focused Help and its required
+input links. Once those facts support the next useful step, write and run it;
+do not enumerate unrelated Help pages. Avoid broad catalog browsing when an
 exact typed ref or full semantic identity is already available.
 
 ### 3. Build the minimum typed Evidence chain
 
 Build the smallest logical Dataset chain that can satisfy the Evidence
 obligation. Logical construction describes work; it is not evidence that rows
-were read or results exist. Inspect `.contract()` when state or the valid next
-action is uncertain. Execute when a result is needed for interpretation or an
-intentional recovery boundary, then inspect the Materialized Dataset with `.show()`. Route method discovery through
+were read or results exist. Inspect `.contract().show()` when state or the valid next
+action is uncertain, and follow its exact Help target for the chosen continuation.
+Execute when a result is needed for interpretation or an intentional recovery
+boundary, then inspect the Materialized Dataset with `.show()`. Route method discovery through
 `marivo.help("analysis.methods")`, but choose subsequent methods from the
 question and the Artifact in hand rather than from a fixed recipe.
 
@@ -141,14 +144,18 @@ decision rounds. Do not depend on process memory, an implicit latest result,
 imported prior scripts, chat summaries, or repeated successful observations as
 substitutes for persisted identity. A logical Dataset belongs to its originating
 Session; carry an exact committed Artifact identity when moving between Sessions.
-Never replay origin queries to conceal missing retained state.
+Never replay origin queries to conceal missing retained state. Reusing the
+same Session and exact execution definition recovers its committed snapshot.
+If the question requires current source rows, follow the live execution contract
+for an explicit fresh observation boundary rather than treating a cache hit as
+refresh evidence.
 
 When resuming work, start with `marivo.help("analysis.runtime")` and use only its
 public runtime reads to recover the relevant branch. Consult
 `marivo.help("analysis.evidence")` before treating recovered Evidence as current.
-Use the installed revalidation and repair guidance when authority-sensitive
-reuse requires it; mechanical compatibility alone is not current semantic
-authority.
+Distinguish committed integrity from current semantic authority and source
+freshness. Follow the installed inspection and repair guidance for the specific
+question; passing an integrity check cannot establish the other two.
 
 Runtime history, graph projections, and persisted Evidence reads aid recovery
 and audit. They do not by themselves establish current semantic authority,
