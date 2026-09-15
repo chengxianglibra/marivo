@@ -31,7 +31,7 @@ from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.analysis.observation.temporal import civil_bound
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import DimensionEntry, TimeDimensionEntry
-from marivo.semantic.ir import DateParse, TargetDimensionContract
+from marivo.semantic.ir import DateParse, RelationshipIR, TargetDimensionContract
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CumulativeAnchorV1,
@@ -39,6 +39,27 @@ from marivo.semantic.metric_graph import (
     component_node,
 )
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
+
+
+def relationship_columns(
+    registry: Registry, relationship: RelationshipIR
+) -> tuple[tuple[str, str], ...]:
+    """Resolve authored Dimension refs to their exact endpoint source columns."""
+    columns = []
+    for key in relationship.keys:
+        left = normalize_target_dimension(registry, key.from_key)
+        right = normalize_target_dimension(registry, key.to_key)
+        if (
+            left.entity_ref.path != relationship.from_entity
+            or right.entity_ref.path != relationship.to_entity
+        ):
+            raise construction_error(
+                "relationship key Dimensions owned by their declared endpoints",
+                f"{relationship.semantic_id}: join keys reference another Entity",
+                repair="Bind each join key to a direct-column Dimension on its relationship endpoint.",
+            )
+        columns.append((left.source_column, right.source_column))
+    return tuple(columns)
 
 
 def functional_path(
@@ -57,9 +78,10 @@ def functional_path(
     for relation in registry.relationships.values():
         left = registry.entities[relation.from_entity]
         right = registry.entities[relation.to_entity]
-        if right.primary_key and tuple(key.to_key for key in relation.keys) == right.primary_key:
+        columns = relationship_columns(registry, relation)
+        if right.primary_key and tuple(right_key for _, right_key in columns) == right.primary_key:
             edges.setdefault(left.semantic_id, []).append((right.semantic_id, relation.semantic_id))
-        if left.primary_key and tuple(key.from_key for key in relation.keys) == left.primary_key:
+        if left.primary_key and tuple(left_key for left_key, _ in columns) == left.primary_key:
             edges.setdefault(right.semantic_id, []).append((left.semantic_id, relation.semantic_id))
     found: list[tuple[str, ...]] = []
 
@@ -89,10 +111,10 @@ def functional_path(
         right_contract = normalize_target_entity(registry, relation.to_entity)
         left_types, right_types = dict(left_contract.columns), dict(right_contract.columns)
         if any(
-            key.from_key not in left_types
-            or key.to_key not in right_types
-            or left_types[key.from_key] != right_types[key.to_key]
-            for key in relation.keys
+            left_key not in left_types
+            or right_key not in right_types
+            or left_types[left_key] != right_types[right_key]
+            for left_key, right_key in relationship_columns(registry, relation)
         ):
             raise construction_error(
                 "exact compatible declared relationship key types",
@@ -125,15 +147,15 @@ def governed_path(registry: Registry, source: str, target: str) -> tuple[str, ..
         left = normalize_target_entity(registry, relation.from_entity)
         right = normalize_target_entity(registry, relation.to_entity)
         left_types, right_types = dict(left.columns), dict(right.columns)
+        columns = relationship_columns(registry, relation)
         if any(
-            left_types.get(key.from_key) != right_types.get(key.to_key)
-            or key.from_key not in left_types
-            for key in relation.keys
+            left_types.get(left_key) != right_types.get(right_key) or left_key not in left_types
+            for left_key, right_key in columns
         ):
             continue
         if not (
-            tuple(key.from_key for key in relation.keys) == left.primary_key
-            or tuple(key.to_key for key in relation.keys) == right.primary_key
+            tuple(left_key for left_key, _ in columns) == left.primary_key
+            or tuple(right_key for _, right_key in columns) == right.primary_key
         ):
             continue
         edges.setdefault(relation.from_entity, []).append(
@@ -170,7 +192,10 @@ def path_is_functional(registry: Registry, source: str, path: tuple[str, ...]) -
         relation = registry.relationships[name]
         forward = current == relation.from_entity
         current = relation.to_entity if forward else relation.from_entity
-        keys = tuple(key.to_key if forward else key.from_key for key in relation.keys)
+        keys = tuple(
+            right_key if forward else left_key
+            for left_key, right_key in relationship_columns(registry, relation)
+        )
         if keys != registry.entities[current].primary_key:
             return False
     return True

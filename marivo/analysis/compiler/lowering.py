@@ -81,7 +81,11 @@ from marivo.analysis.observation.contracts import (
     metric_contracts,
     source_owner_of,
 )
-from marivo.analysis.observation.coordinates import functional_path, governed_path
+from marivo.analysis.observation.coordinates import (
+    functional_path,
+    governed_path,
+    relationship_columns,
+)
 from marivo.analysis.observation.distinct_contracts import (
     DISTINCT_KEY_COLUMN as DISTINCT_KEY,
 )
@@ -913,10 +917,10 @@ class _Compiler:
             right = right_source.select(**{new: right_source[old] for old, new in renamed.items()})
             conditions = [
                 _boolean(
-                    table[mapping[key.from_key if forward else key.to_key]]
-                    == right[renamed[key.to_key if forward else key.from_key]]
+                    table[mapping[left_key if forward else right_key]]
+                    == right[renamed[right_key if forward else left_key]]
                 )
-                for key in relation.keys
+                for left_key, right_key in relationship_columns(self.registry, relation)
             ]
             table = table.join(right, conditions, how="left")
             mapping = renamed
@@ -1161,13 +1165,14 @@ class _Compiler:
                 )
                 conditions = [
                     _boolean(
-                        table[mapping[key.from_key if forward else key.to_key]]
-                        == right[renamed[key.to_key if forward else key.from_key]]
+                        table[mapping[left_key if forward else right_key]]
+                        == right[renamed[right_key if forward else left_key]]
                     )
-                    for key in relationship.keys
+                    for left_key, right_key in relationship_columns(self.registry, relationship)
                 ]
                 destination_keys = tuple(
-                    key.to_key if forward else key.from_key for key in relationship.keys
+                    right_key if forward else left_key
+                    for left_key, right_key in relationship_columns(self.registry, relationship)
                 )
                 target = next(item for item in self.entities if item.ref.path == destination)
                 fanout = set(destination_keys) != set(target.primary_key)

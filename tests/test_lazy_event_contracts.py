@@ -196,6 +196,7 @@ def test_composite_subject_identity_preserves_key_order() -> None:
     sources = make_event_sources()
     original = sources._owner.semantic_registry
     entities = dict(original.entities)
+    dimensions = dict(original.dimensions)
     relationships = dict(original.relationships)
     for name in ("started", "finished"):
         source_entity = entities[f"sales.{name}_rows"]
@@ -210,13 +211,24 @@ def test_composite_subject_identity_preserves_key_order() -> None:
                 ),
             ),
         )
+        tenant_path = f"sales.{name}_rows.tenant"
+        dimensions[tenant_path] = replace(
+            original.dimensions["sales.composite.tenant"],
+            semantic_id=tenant_path,
+            entity=f"sales.{name}_rows",
+        )
         relationship = relationships[f"sales.{name}_customer"]
         relationships[relationship.semantic_id] = replace(
             relationship,
             to_entity="sales.composite",
-            keys=(JoinKey("tenant", "tenant"), JoinKey("customer_id", "id")),
+            keys=(
+                JoinKey(f"sales.{name}_rows.tenant", "sales.composite.tenant"),
+                JoinKey(f"sales.{name}_rows.customer_id", "sales.composite.id"),
+            ),
         )
-    registry = replace(original, entities=entities, relationships=relationships)
+    registry = replace(
+        original, entities=entities, dimensions=dimensions, relationships=relationships
+    )
     registry.freeze()
     dataset = match(with_owner(replace(sources._owner, semantic_registry=registry)))
     assert payload(dataset).definition.entity.identity_signature == (
@@ -355,7 +367,14 @@ def test_default_versioned_subject_requires_explicit_membership() -> None:
         **original.relationships,
         **{
             f"sales.{name}_customer": replace(
-                original.relationships[f"sales.{name}_customer"], to_entity="sales.snapshots"
+                original.relationships[f"sales.{name}_customer"],
+                keys=(
+                    replace(
+                        original.relationships[f"sales.{name}_customer"].keys[0],
+                        to_key="sales.snapshots.id",
+                    ),
+                ),
+                to_entity="sales.snapshots",
             )
             for name in ("started", "finished")
         },
@@ -688,10 +707,10 @@ def test_retained_authority_size_is_checked_without_source_work(parameter: str, 
         assert len(retained.encode("utf-8")) == size
 
 
-def test_event_semantic_digest_preserves_pre_lifecycle_authority() -> None:
+def test_event_semantic_digest_pins_authored_relationship_authority() -> None:
     from marivo.analysis.observation.contracts import semantic_dependency_digest
 
-    # Captured from the Slice 7c baseline for this fixed source-free definition.
+    # Pins the source-free definition with endpoint-owned Dimension join refs.
     assert semantic_dependency_digest(match(make_event_sources())) == (
-        "d5472d03d796375c029fe7b8956f928057ec220081a2ad484dad4947e28f168e"
+        "526e483769db0c6859fc75929abfdfb40560d8c2cfbb6182ddf55f7657efdce0"
     )

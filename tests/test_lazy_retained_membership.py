@@ -46,6 +46,7 @@ def test_resolved_engine_versioned_population_continues_after_membership_table_d
         semantic_id="sales.order_member",
         name="order_member",
         to_entity=f"sales.{version}",
+        keys=(replace(relation.keys[0], to_key=f"sales.{version}.id"),),
     )
     registry.freeze()
     sources = fixture.runtime.sources(
@@ -117,7 +118,11 @@ def test_january_checkpoint_does_not_become_the_new_observation_scope(tmp_path: 
     relation = original.relationships["sales.order_customer"]
     registry = replace(original, relationships=dict(original.relationships))
     registry.relationships["sales.order_member"] = replace(
-        relation, semantic_id="sales.order_member", name="order_member", to_entity="sales.snapshots"
+        relation,
+        semantic_id="sales.order_member",
+        name="order_member",
+        to_entity="sales.snapshots",
+        keys=(replace(relation.keys[0], to_key="sales.snapshots.id"),),
     )
     registry.freeze()
     sources = fixture.runtime.sources(

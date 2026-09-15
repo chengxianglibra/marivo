@@ -174,7 +174,14 @@ def test_versioned_subject_requires_its_own_explicit_population_scope() -> None:
         **original.relationships,
         **{
             f"sales.{name}_customer": replace(
-                original.relationships[f"sales.{name}_customer"], to_entity="sales.snapshots"
+                original.relationships[f"sales.{name}_customer"],
+                keys=(
+                    replace(
+                        original.relationships[f"sales.{name}_customer"].keys[0],
+                        to_key="sales.snapshots.id",
+                    ),
+                ),
+                to_entity="sales.snapshots",
             )
             for name in ("started", "finished")
         },
@@ -218,6 +225,7 @@ def test_composite_subject_key_order_is_preserved() -> None:
     sources = sources_without_io()
     original = sources._owner.semantic_registry
     entities = dict(original.entities)
+    dimensions = dict(original.dimensions)
     relationships = dict(original.relationships)
     for name in ("started", "finished"):
         entity = entities[f"sales.{name}_rows"]
@@ -232,15 +240,28 @@ def test_composite_subject_key_order_is_preserved() -> None:
                 ),
             ),
         )
+        tenant_path = f"sales.{name}_rows.tenant"
+        dimensions[tenant_path] = replace(
+            original.dimensions["sales.composite.tenant"],
+            semantic_id=tenant_path,
+            entity=f"sales.{name}_rows",
+        )
         relationship = relationships[f"sales.{name}_customer"]
         relationships[relationship.semantic_id] = replace(
             relationship,
             to_entity="sales.composite",
-            keys=(JoinKey("tenant", "tenant"), JoinKey("customer_id", "id")),
+            keys=(
+                JoinKey(f"sales.{name}_rows.tenant", "sales.composite.tenant"),
+                JoinKey(f"sales.{name}_rows.customer_id", "sales.composite.id"),
+            ),
         )
     model = replace(original.state_models[MODEL.path], subject="sales.composite")
     registry = replace(
-        original, entities=entities, relationships=relationships, state_models={MODEL.path: model}
+        original,
+        entities=entities,
+        dimensions=dimensions,
+        relationships=relationships,
+        state_models={MODEL.path: model},
     )
     registry.freeze()
     other = make_lazy_sources(

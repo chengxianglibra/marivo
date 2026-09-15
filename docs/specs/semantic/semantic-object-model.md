@@ -700,6 +700,11 @@ ms.relationship(
 )
 ```
 
+Analysis resolves each join Dimension ref to its declared source column on the
+exact relationship endpoint before checking identity coverage or compiling a
+join. Semantic names may differ from physical column names; a ref string is
+never itself a physical column name.
+
 Relationship owns the mapping between its endpoints, not a Metric's counting or
 allocation rule. Key coverage and version resolution derive single-valuedness;
 declared identity is a constraint to validate, not runtime evidence that a source

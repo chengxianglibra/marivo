@@ -13,6 +13,7 @@ from marivo.analysis.compiler.event_sources import _boolean, _version_at
 from marivo.analysis.compiler.nodes import CompiledValidation
 from marivo.analysis.domains.contracts import EventAxisBinding
 from marivo.analysis.observation.contracts import ObservationOwner
+from marivo.analysis.observation.coordinates import relationship_columns
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.validator import normalize_target_entity
 
@@ -84,10 +85,12 @@ def lower_event_axes(
             right = source.select(**{new: source[old] for old, new in renamed.items()})
             conditions = tuple(
                 _boolean(
-                    joined[names[key.from_key if forward else key.to_key]]
-                    == right[renamed[key.to_key if forward else key.from_key]]
+                    joined[names[left_key if forward else right_key]]
+                    == right[renamed[right_key if forward else left_key]]
                 )
-                for key in relationship.keys
+                for left_key, right_key in relationship_columns(
+                    owner.semantic_registry, relationship
+                )
             )
             joined = joined.left_join(
                 right,

@@ -39,15 +39,19 @@ def test_batch_keeps_named_results_and_first_failure(
     if not checks:
         assert batches == ()
         return
-    assert len(batches) == 1 and isinstance(batches[0], ValidationBatch)
+    assert len(batches) == len(checks)
+    assert all(isinstance(batch, ValidationBatch) for batch in batches)
     failed = [index for index, count in enumerate(counts) if count != 0]
-    if failed:
-        with pytest.raises(MaterializationError, match=rf"check\.{failed[0]}"):
-            execute_batch(backend, batches[0], run_ref="run-test")
-    else:
-        assert execute_batch(backend, batches[0], run_ref="run-test") == tuple(
-            (check.name, 0) for check in checks
-        )
+    completed: list[tuple[str, int]] = []
+    for index, batch in enumerate(batches):
+        assert isinstance(batch, ValidationBatch)
+        if failed and index == failed[0]:
+            with pytest.raises(MaterializationError, match=rf"check\.{failed[0]}"):
+                execute_batch(backend, batch, run_ref="run-test")
+            break
+        completed.extend(execute_batch(backend, batch, run_ref="run-test"))
+    expected = checks[: failed[0]] if failed else checks
+    assert completed == [(check.name, 0) for check in expected]
 
 
 @pytest.mark.parametrize("count", [False, 0.0])
@@ -60,6 +64,32 @@ def test_batch_rejects_noninteger_counts_before_union_coercion(
     )
     with pytest.raises(MaterializationError, match="invalid validation relation: invalid"):
         compile_preparations(backend, checks, run_ref="run-test")
+
+
+@pytest.mark.parametrize("failed_index", [None, 8, 16])
+def test_large_check_sequence_keeps_order_and_owning_failure_across_batches(
+    backend: Backend, failed_index: int | None
+) -> None:
+    checks = tuple(
+        CompiledValidation(
+            f"check.{index}",
+            ibis.literal(int(index == failed_index)).name("violations").as_table(),
+        )
+        for index in range(17)
+    )
+    steps = compile_preparations(backend, checks, run_ref="run-test")
+    batches = tuple(step for step in steps if isinstance(step, ValidationBatch))
+    assert len(batches) == 17
+    assert tuple(check for batch in batches for check in batch.checks) == checks
+    completed: list[tuple[str, int]] = []
+    for batch in batches:
+        if any(check.name == f"check.{failed_index}" for check in batch.checks):
+            with pytest.raises(MaterializationError, match=rf"check\.{failed_index}"):
+                execute_batch(backend, batch, run_ref="run-test")
+            break
+        completed.extend(execute_batch(backend, batch, run_ref="run-test"))
+    expected_count = 17 if failed_index is None else failed_index
+    assert completed == [(f"check.{index}", 0) for index in range(expected_count)]
 
 
 @pytest.mark.parametrize("rows", [0, 2])

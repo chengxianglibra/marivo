@@ -467,12 +467,15 @@ def test_versioned_intermediate_and_incompatible_join_keys_fail_locally() -> Non
     registry, sidecar = _editable_authority()
     relationship = registry.relationships["sales.order_customer"]
     registry.relationships["sales.order_customer"] = replace(
-        relationship, to_entity="sales.snapshots"
+        relationship,
+        to_entity="sales.snapshots",
+        keys=(JoinKey("sales.orders.customer_id", "sales.snapshots.id"),),
     )
     registry.relationships["sales.snapshot_customer"] = replace(
         relationship,
         semantic_id="sales.snapshot_customer",
         from_entity="sales.snapshots",
+        keys=(JoinKey("sales.snapshots.customer_id", "sales.customers.id"),),
     )
     sources = _sources_from(registry, sidecar)
     with pytest.raises(DatasetConstructionError, match="versioned"):
@@ -483,7 +486,8 @@ def test_versioned_intermediate_and_incompatible_join_keys_fail_locally() -> Non
         )
     registry, sidecar = _editable_authority()
     registry.relationships["sales.order_customer"] = replace(
-        registry.relationships["sales.order_customer"], keys=(JoinKey("region", "id"),)
+        registry.relationships["sales.order_customer"],
+        keys=(JoinKey("sales.orders.region", "sales.customers.id"),),
     )
     sources = _sources_from(registry, sidecar)
     with pytest.raises(DatasetConstructionError, match="join keys"):
@@ -498,7 +502,7 @@ def test_retained_population_never_recaptures_its_parameterized_origin() -> None
         registry.relationships["sales.order_customer"],
         semantic_id="sales.order_api",
         to_entity="sales.api",
-        keys=(JoinKey("customer_id", "id"),),
+        keys=(JoinKey("sales.orders.customer_id", "sales.api.id"),),
     )
     sources = _sources_from(registry, sidecar)
     with sources.source_bindings({ref.entity("sales.api"): {"tenant": "PRIVATE_OLD_ORIGIN"}}):
@@ -553,7 +557,8 @@ def test_coordinate_and_membership_fingerprints_bind_sources_and_join_keys() -> 
             )
         else:
             registry.relationships["sales.order_customer"] = replace(
-                registry.relationships["sales.order_customer"], keys=(JoinKey("id", "id"),)
+                registry.relationships["sales.order_customer"],
+                keys=(JoinKey("sales.orders.id", "sales.customers.id"),),
             )
         changed = _sources_from(registry, sidecar)
         assert (

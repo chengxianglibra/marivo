@@ -354,3 +354,38 @@ def test_invalid_run_cursor_is_bounded_safe_and_does_not_open_store(
     _assert_safe_read_argument(caught.value, location="session.runs.cursor", canary=canary)
     if cursor:
         assert cursor not in str(caught.value)
+
+
+@pytest.mark.parametrize("lifecycle", ["incomplete", "failed", "succeeded"])
+def test_repeated_input_roles_survive_runtime_reads(
+    tmp_path: Path, lifecycle: RunLifecycle
+) -> None:
+    from marivo.analysis.refs import ArtifactRef
+    from marivo.analysis.session._lazy_graph import graph
+    from marivo.analysis.session._lazy_history import inspect
+
+    store = SessionStore(tmp_path)
+    store.create_session("test", session_ref="session")
+    publish(store, "origin", "input")
+    if lifecycle == "succeeded":
+        publish(store, "consumer", "output", inputs=("input", "input"))
+    else:
+        store.admit(
+            "session",
+            "consumer-key",
+            input_value(),
+            run_ref="consumer",
+            input_artifact_refs=("input", "input"),
+        )
+        if lifecycle == "failed":
+            store.fail("consumer", failure())
+    cold = SessionStore.open_existing(tmp_path)
+    expected = (ArtifactRef(ref="input"),) * 2
+    assert get_run(cold, "session", "consumer").input_artifact_refs == expected
+    assert runs(cold, "session", status=lifecycle).items[0].input_artifact_refs == expected
+    assert inspect(cold, "test").runs.items[0].input_artifact_refs == expected
+    result = graph(cold, "session")
+    edges = [edge for edge in result.edges if edge.kind == "consumes" and edge.run_id == "consumer"]
+    assert [edge.artifact_ref for edge in edges] == list(expected)
+    assert len(result.artifacts) == (2 if lifecycle == "succeeded" else 1)
+    assert not result.truncated

@@ -64,6 +64,9 @@ def compile_preparations(
             result.append(preparation)
         else:
             pending.append(preparation)
+            # Even small unions retain too much aggregate state for complex checks.
+            # Plan separate queries up front under the unchanged native memory cap.
+            flush()
     flush()
     return tuple(result)
 

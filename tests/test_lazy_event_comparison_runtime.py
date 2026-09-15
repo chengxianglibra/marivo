@@ -16,6 +16,7 @@ from marivo.analysis.domains.contracts import EventJourneySemantics
 from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
 from marivo.analysis.funnel import funnel_loss_rate
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.operators import registry
@@ -90,6 +91,12 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
     rebound = cold.artifact(attributed.state.artifact_ref)
     pd.testing.assert_frame_equal(rebound.to_pandas(), contributions)
+    inspected = cold.revalidate(attributed.state.artifact_ref)
+    assert (
+        inspected.artifact_integrity,
+        inspected.storage_authority,
+        inspected.evidence_integrity,
+    ) == ("valid", "readable", "valid")
     if not local:
         assert runtime.statistics.transferred_rows == len(contributions)
         assert runtime.statistics.worker_pid is None
@@ -380,3 +387,52 @@ def test_filtered_funnel_checkpoint_cannot_hide_censoring(tmp_path: Path, engine
     assert before["dataset_artifacts"] == after["dataset_artifacts"]
     assert before["dataset_evidence"] == after["dataset_evidence"]
     assert cold.store.resources(cold.session_ref) == ()
+
+
+@pytest.mark.parametrize("fault", ["missing", "mutated"])
+def test_funnel_component_inspection_is_independent_of_primary_preview(
+    tmp_path: Path, fault: str
+) -> None:
+    runtime, sources, database = setup_event(tmp_path, engine=True)
+    logical = journey(sources)
+    meaning = logical.row_contract.family_semantics
+    assert isinstance(meaning, EventJourneySemantics)
+    attributed = (
+        logical.funnel()
+        .compare(logical.funnel())
+        .attribute(
+            target=funnel_loss_rate(step=meaning.pattern.steps[1]),
+            axes=[ref.dimension("sales.customers.region")],
+            top_k=1,
+        )
+        .execute()
+    )
+    record = runtime.store.artifact(attributed.state.artifact_ref.ref)
+    assert record is not None
+    part = next(
+        value
+        for value in record.descriptor.retained_parts
+        if value.contract_id == "event_funnel.additive_components"
+    )
+    receipt = part.storage_receipt
+    assert isinstance(receipt, LocalReceipt)
+    backing = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+    if fault == "missing":
+        backing.rename(backing.with_suffix(".unavailable"))
+    else:
+        with backing.open("r+b") as stream:
+            stream.write(b"FAIL")
+    database.rename(database.with_suffix(".offline"))
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    before = snapshot(cold)
+    reopened = cold.artifact(attributed.state.artifact_ref)
+    assert not reopened.to_pandas().empty
+    assert reopened.findings().items
+    inspected = cold.revalidate(attributed.state.artifact_ref)
+    assert (
+        inspected.artifact_integrity,
+        inspected.storage_authority,
+        inspected.evidence_integrity,
+    ) == ("valid", fault, "valid")
+    assert any(part.role in issue.safe_message for issue in inspected.issues)
+    assert snapshot(cold) == before

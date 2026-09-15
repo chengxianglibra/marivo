@@ -290,7 +290,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="None",
                 code="result = materialized.show()",
                 requires=("materialized",),
-                effects="Bounded retained read; no origin replay or new Run.",
+                effects="Bounded retained read; no origin replay or new Run. Duration columns disclose their microsecond unit.",
                 runtime=True,
             ),
             common(

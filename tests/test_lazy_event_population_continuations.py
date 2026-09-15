@@ -197,14 +197,14 @@ def test_event_axes_admit_temporal_intermediates_without_widening_shared_default
                 semantic_id="sales.customer_snapshot",
                 from_entity="sales.customers",
                 to_entity="sales.snapshots",
-                keys=(JoinKey("id", "id"),),
+                keys=(JoinKey("sales.customers.id", "sales.snapshots.id"),),
             ),
             "sales.snapshot_order": replace(
                 relationship,
                 semantic_id="sales.snapshot_order",
                 from_entity="sales.snapshots",
                 to_entity="sales.orders",
-                keys=(JoinKey("order_id", "id"),),
+                keys=(JoinKey("sales.snapshots.order_id", "sales.orders.id"),),
             ),
         },
     )

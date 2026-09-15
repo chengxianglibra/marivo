@@ -898,7 +898,8 @@ def write_local_dataset(
             target = staging / directory
             file = target / "data.parquet"
             with pq.ParquetFile(file) as parquet:
-                if parquet.metadata.num_rows != row_count or not parquet.schema_arrow.equals(
+                persisted_schema = parquet.schema_arrow
+                if parquet.metadata.num_rows != row_count or not persisted_schema.equals(
                     schema, check_metadata=False
                 ):
                     _fail(
@@ -921,7 +922,7 @@ def write_local_dataset(
                     bytes_hash=entry.sha256,
                     schema_fingerprint=schema_fingerprint(realized)
                     if index == 0
-                    else hashlib.sha256(schema.serialize().to_pybytes()).hexdigest(),
+                    else hashlib.sha256(persisted_schema.serialize().to_pybytes()).hexdigest(),
                     realized_row_count=row_count,
                     realized_byte_count=entry.size_bytes + len(manifest),
                 )

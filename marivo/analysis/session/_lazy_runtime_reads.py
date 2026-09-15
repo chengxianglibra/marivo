@@ -192,8 +192,6 @@ def run_in_snapshot(
         raise invalid("selected Run identity mismatch")
     admitted_at = aware_datetime(value.admitted_at)
     inputs = tuple(ArtifactRef(ref=ref) for ref in value.input_artifact_refs)
-    if len(set(inputs)) != len(inputs):
-        raise invalid("duplicate selected Run input identity")
     for ref in inputs:
         if (
             _one(

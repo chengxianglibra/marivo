@@ -152,7 +152,9 @@ def compatible(current: EventFunnelSemantics, baseline: EventFunnelSemantics) ->
         or current.axis_dependency_fingerprints != baseline.axis_dependency_fingerprints
     ):
         raise comparison_error(
-            "compatible exact Event funnel definitions and axes", "different Event authority"
+            "compatible exact Event funnel definitions and axes",
+            "different Event authority",
+            repair="Rebuild both funnels from complete journeys with matching Event pattern, matching policy, subject, population and axes.",
         )
     starts = tuple(datetime.fromisoformat(v.cohort_start) for v in (a, b))
     ends = tuple(datetime.fromisoformat(v.cohort_end) for v in (a, b))
@@ -165,6 +167,7 @@ def compatible(current: EventFunnelSemantics, baseline: EventFunnelSemantics) ->
         raise comparison_error(
             "equal cohort duration, temporal domain and follow-up offset",
             "incompatible Event windows",
+            repair="Rebuild both Event funnels with equal cohort duration, temporal domain and follow-up offset, using complete logical journeys or recovered journey checkpoints.",
         )
 
 

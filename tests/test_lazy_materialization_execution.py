@@ -333,7 +333,7 @@ def test_raw_statement_diagnostics_keep_bindings_out_of_persisted_state_and_erro
         assert statement_kinds.count("source_fence") == 1
         assert statement_kinds.count("primary") == runtime.statistics.primary_queries == 1
         assert statement_kinds.count("transfer_guard") == 1
-        assert statement_kinds.count("validation_batch") == 1
+        assert statement_kinds.count("validation_batch") == 3
         record = runtime.store.artifact(materialized.state.artifact_ref.ref)
         assert record is not None
         assert {

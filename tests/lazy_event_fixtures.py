@@ -72,7 +72,11 @@ def make_event_registry(database: Path) -> tuple[Registry, CompiledExpressionSid
             location,
         )
         references.add(entity_ref)
-        for column, temporal in (("occurrence_id", False), ("occurred_at", True)):
+        for column, temporal in (
+            ("occurrence_id", False),
+            ("customer_id", False),
+            ("occurred_at", True),
+        ):
             dimension_path = f"{path}.{column}"
             dimension_ref = (
                 ref.time_dimension(dimension_path) if temporal else ref.dimension(dimension_path)
@@ -104,7 +108,7 @@ def make_event_registry(database: Path) -> tuple[Registry, CompiledExpressionSid
             f"{name}_customer",
             path,
             "sales.customers",
-            (JoinKey("customer_id", "id"),),
+            (JoinKey(f"{path}.customer_id", "sales.customers.id"),),
             AiContextIR(),
             location,
         )

@@ -50,8 +50,13 @@ def test_incompatible_event_authority_is_rejected(field: str, value: str) -> Non
         sampling_authority=value if field == "sampling_authority" else base.sampling_authority,
     )
     other = replace(original, _token=d._CORE_TOKEN, journey_json=encode_journey_semantics(changed))
-    with pytest.raises(DatasetConstructionError):
+    with pytest.raises(DatasetConstructionError) as error:
         compatible(original, other)
+    assert error.value.repair is not None
+    assert "Event" in error.value.repair.action
+    assert "Metric" not in error.value.repair.action
+    if field in ("cohort_end", "completion_through", "cohort_start"):
+        assert "follow-up offset" in error.value.repair.action
 
 
 def test_equal_shifted_cohorts_are_compatible() -> None:
@@ -166,3 +171,17 @@ def test_checkpoint_scope_rule_versions_comparison_identity() -> None:
 
     versions = producer_contract("event.compare").versions
     assert ("event_funnel_checkpoint_scope", "v1") in versions
+
+
+def test_funnel_checkpoint_repair_names_the_public_journey_recovery_path() -> None:
+    j = journey(make_event_sources())
+    meaning = j.row_contract.family_semantics
+    assert isinstance(meaning, EventJourneySemantics)
+    axes = (ref.dimension("sales.customers.region"),)
+    grouped = j.funnel(axes=axes).compare(j.funnel(axes=axes))
+    with pytest.raises(DatasetConstructionError) as error:
+        grouped.attribute(target=funnel_loss_rate(step=meaning.pattern.steps[-1]), axes=axes)
+    assert error.value.repair is not None
+    assert "journey checkpoints" in error.value.repair.action
+    assert "session.artifact(ref)" in error.value.repair.action
+    assert "before materializing aggregate rows" in error.value.repair.action
