@@ -5,12 +5,14 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from ibis.backends.duckdb import Backend
-from sqlglot import expressions as sge
-
 from marivo.analysis.compiler.nodes import CompiledSampleFence
 from marivo.analysis.materialization.contracts import SamplingRealization
+from marivo.analysis.materialization.duckdb_statements import (
+    reservoir_statement,
+    reservoir_validation,
+)
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.execution import ExecutionAdapter, Statement
 from marivo.analysis.observation.sampling import EntitySamplingPolicy
 
 
@@ -32,7 +34,7 @@ def admit_sampling(policy: EntitySamplingPolicy) -> None:
         )
 
 
-def sample_statement(backend: Backend, fence: CompiledSampleFence) -> str:
+def sample_statement(backend: ExecutionAdapter, fence: CompiledSampleFence) -> str:
     admit_sampling(fence.policy)
     if (
         re.fullmatch(r"__mv_sample_[0-9]+", fence.relation_name) is None
@@ -41,48 +43,35 @@ def sample_statement(backend: Backend, fence: CompiledSampleFence) -> str:
         raise _invalid("an exact declared sampling fence", "invalid compiler sampling handoff")
     if not set(fence.identity_columns).issubset(fence.expression.columns):
         raise _invalid("the complete Entity primary key", "sampling input omits identity fields")
-    name = sge.to_identifier(fence.relation_name, quoted=True).sql(dialect="duckdb")
-    sql = (
-        f"CREATE TEMPORARY TABLE {name} AS SELECT * FROM ({backend.compile(fence.expression)}) "
-        f"AS __mv_eligible USING SAMPLE reservoir({fence.policy.target_rows} ROWS)"
+    return reservoir_statement(
+        backend.compile(fence.expression),
+        fence.relation_name,
+        fence.policy.target_rows,
+        fence.policy.seed,
     )
-    if fence.policy.seed is not None:
-        sql += f" REPEATABLE({fence.policy.seed})"
-    return sql
 
 
 def execute_sample(
-    backend: Backend,
+    backend: ExecutionAdapter,
     fence: CompiledSampleFence,
     *,
+    statement: Statement,
     ordinal: int,
     record: Callable[[str, str], None],
     event: Callable[[str], None],
 ) -> SamplingRealization:
     """Create the already reserved relation once; return scalar identity-validation facts."""
-    sql = sample_statement(backend, fence)
+    sql = statement.sql
     record("sampling_fence", sql)
     event("sampling_fence")
     event("source_statement")
-    backend.raw_sql(sql)
-    names = tuple(
-        sge.to_identifier(name, quoted=True).sql(dialect="duckdb")
-        for name in fence.identity_columns
-    )
-    relation = sge.to_identifier(fence.relation_name, quoted=True).sql(dialect="duckdb")
-    identity = "struct_pack(" + ", ".join(f"{name} := {name}" for name in names) + ")"
-    nulls = " OR ".join(f"{name} IS NULL" for name in names)
-    order = ", ".join(names)
-    validation_sql = (
-        f"SELECT count(*) AS realized_entity_count, "
-        f"count(*) - count(DISTINCT {identity}) AS duplicate_keys, "
-        f"count(*) FILTER (WHERE {nulls}) AS null_keys, "
-        f"sha256(coalesce(string_agg(sha256(to_json({identity})), '' ORDER BY {order}), '')) "
-        f"AS membership_digest FROM {relation}"
-    )
+    backend.submit(statement)
+    validation_sql = reservoir_validation(fence.relation_name, fence.identity_columns)
     record("sampling_validation", validation_sql)
     event("source_statement")
-    row: object = backend.raw_sql(validation_sql).fetchone()
+    row: object = backend.submit(
+        backend.statement(validation_sql, role="sampling_validation")
+    ).fetchone()
     if not isinstance(row, tuple) or len(row) != 4:
         raise _invalid(
             "one scalar sampling validation receipt", "invalid sampling validation output"

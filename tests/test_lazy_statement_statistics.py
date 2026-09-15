@@ -3,8 +3,8 @@
 from pathlib import Path
 
 import pytest
+import sqlglot
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 
 
@@ -20,7 +20,7 @@ def test_recording_preserves_raw_sql_without_parsing(
     def forbidden(*args: object, **kwargs: object) -> None:
         pytest.fail("Recording a diagnostic statement must not parse SQL")
 
-    monkeypatch.setattr(admission.sqlglot, "parse_one", forbidden)
+    monkeypatch.setattr(sqlglot, "parse_one", forbidden)
     runtime._record_statement(kind, sql)
 
     assert runtime.statistics.statements == [(kind, sql)]

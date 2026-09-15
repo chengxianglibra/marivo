@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from marivo.analysis.materialization.contracts import ResourceRecord
 from marivo.analysis.materialization.errors import IntegrityError, RecoveryPendingError
+from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.object_termination import (
     OBJECT_REQUEST_CAPABILITY,
     object_request_is_terminal,
@@ -246,3 +247,9 @@ def _invalid_resource(resource: ResourceRecord) -> IntegrityError:
         stage="reconciliation",
         run_ref=resource.run_ref,
     )
+
+
+def finish_execution(adapter: ExecutionAdapter, resource: ResourceRecord) -> None:
+    """Discharge native execution only after its adapter closes successfully."""
+    adapter.finish()
+    prove_local_termination(resource)

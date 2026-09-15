@@ -27,10 +27,9 @@ from marivo.analysis.materialization.lifecycle_reducer_codec import (
 )
 
 if TYPE_CHECKING:
-    from ibis.backends.duckdb import Backend
-
     from marivo.analysis.compiler.nodes import CompiledDataset
     from marivo.analysis.datasets.descriptors import DatasetRowContract
+    from marivo.analysis.materialization.execution import ExecutionAdapter
 
 
 def output_proof(
@@ -123,7 +122,7 @@ def output_proof(
 
 
 def native_summary(
-    backend: Backend,
+    backend: ExecutionAdapter,
     recipe: CompiledDataset,
     row: DatasetRowContract,
     record: Callable[[str, str], None],
@@ -138,7 +137,7 @@ def native_summary(
         if proof is None or recipe.selection_input_definition is None:
             raise invalid("missing complete Lifecycle selection proof")
         record("lifecycle.selection_summary", backend.compile(proof))
-        checked = backend.to_pyarrow(proof)
+        checked = backend.read_table(backend.prepare(proof, role="lifecycle.selection_summary"))
         if checked.num_rows != 1:
             raise invalid("invalid Lifecycle selection scalar proof")
         counts = checked.to_pylist()[0]
@@ -161,7 +160,12 @@ def native_summary(
         raise invalid("missing exact Lifecycle reducer meaning")
     proof = output_proof(recipe.expression, semantics, filtered=filtered)
     record("lifecycle.reducer_output", backend.compile(proof))
-    if backend.to_pyarrow(proof)["violations"][0].as_py() != 0:
+    if (
+        backend.read_table(backend.prepare(proof, role="lifecycle.reducer_output"))["violations"][
+            0
+        ].as_py()
+        != 0
+    ):
         raise invalid("invalid Lifecycle reducer row equations")
     table = recipe.expression
     summary = table.aggregate(
@@ -169,7 +173,9 @@ def native_summary(
         **{name: table[name].sum().fill_null(0) for name in TOTALS[semantics.kind]},
     )
     record("lifecycle.reducer_summary", backend.compile(summary))
-    checked = backend.to_pyarrow(summary).to_pylist()[0]
+    checked = backend.read_table(
+        backend.prepare(summary, role="lifecycle.reducer_summary")
+    ).to_pylist()[0]
     return LifecycleReducerEvidence(
         "lifecycle_reducer",
         coverage,

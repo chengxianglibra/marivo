@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
@@ -16,11 +15,6 @@ import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
-import sqlglot
-from duckdb import DuckDBPyConnection, TransactionException
-from duckdb import __version__ as _duckdb_version
-from ibis.backends.duckdb import Backend
-from sqlglot import expressions as sge
 
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.compiler import captured_parameters, compile_dataset, required_entities
@@ -48,7 +42,6 @@ from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logica
 from marivo.analysis.domains.completeness import (
     EventCoverageProvider,
     EventCoverageResolution,
-    resolve_event_coverage,
 )
 from marivo.analysis.domains.contracts import (
     EventFunnelPayload,
@@ -88,6 +81,14 @@ from marivo.analysis.materialization.contracts import (
     StorageReceipt,
     run_failure_phase,
 )
+from marivo.analysis.materialization.duckdb_execution import (
+    bind_duckdb,
+    describe_statement,
+    json_statement,
+    native_versions,
+    open_native_backend,
+)
+from marivo.analysis.materialization.duckdb_statements import attribution_summary_sql
 from marivo.analysis.materialization.errors import (
     IntegrityError,
     MaterializationError,
@@ -98,6 +99,7 @@ from marivo.analysis.materialization.event_reducer_codec import (
     EventReducerEvidenceSummary,
     EventSelectionEvidenceSummary,
 )
+from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.execution_key import execution_key
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
@@ -129,6 +131,7 @@ from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.resources import (
     backend_reservation,
     discharge_resources,
+    finish_execution,
     prove_local_termination,
     reserve_output,
 )
@@ -234,7 +237,6 @@ from marivo.datasource.backends import _build_backend_from_effective, _effective
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList, TableSourceIR
 from marivo.datasource.json_source import read_json_source
-from marivo.datasource.timezone import probe_engine_timezone
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.ir import TargetEntityContract
@@ -277,40 +279,23 @@ class _JsonFence:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class _ReservedJsonReader:
-    backend: Backend
+    backend: ExecutionAdapter
     name: str
     record: Callable[[str, str], None]
 
     def raw_sql(self, query: str) -> None:
         self.record("source_setting", query)
-        self.backend.raw_sql(query)
+        self.backend.submit(self.backend.statement(query, role="source_setting"))
 
     def read_json(self, path: str, *, columns: Mapping[str, str], format: str = "auto") -> ir.Table:
-        physical_columns = {
-            name: self.backend.compiler.type_mapper.to_string(dt.dtype(kind))
-            for name, kind in columns.items()
-        }
-        options = [
-            sge.to_identifier("format").eq(sge.convert(format)),
-            sge.to_identifier("maximum_object_size").eq(sge.convert(_MAX_BATCH_BYTES)),
-            sge.to_identifier("columns").eq(
-                sge.Struct.from_arg_list(
-                    [
-                        sge.PropertyEQ(this=sge.to_identifier(name), expression=sge.convert(kind))
-                        for name, kind in physical_columns.items()
-                    ]
-                )
-            ),
-        ]
-        reader = sge.Anonymous(this="read_json_auto", expressions=[sge.convert(path), *options])
         self.record(
             "source_fence_reader",
-            f'CREATE OR REPLACE TEMPORARY VIEW "{self.name}" AS {sge.select("*").from_(reader).sql(dialect="duckdb")}',
+            json_statement(self.name, path, columns, format, _MAX_BATCH_BYTES),
         )
         return self.backend.read_json(
             path,
             table_name=self.name,
-            columns=physical_columns,
+            columns=columns,
             format=format,
             maximum_object_size=_MAX_BATCH_BYTES,
         )
@@ -336,26 +321,9 @@ def _error(stage: str, run_ref: str | None = None) -> MaterializationError:
 
 
 @contextmanager
-def _engine_deadline(backend: Backend) -> Iterator[None]:
-    connection: object = backend.con
-    if not isinstance(connection, DuckDBPyConnection):
-        raise _error("execution_boundary")
-    expired = threading.Event()
-
-    def cancel() -> None:
-        expired.set()
-        connection.interrupt()
-
-    timer = threading.Timer(_SOURCE_EXECUTION_DEADLINE_SECONDS, cancel)
-    timer.daemon = True
-    timer.start()
-    try:
+def _engine_deadline(backend: ExecutionAdapter) -> Iterator[None]:
+    with backend.deadline(_SOURCE_EXECUTION_DEADLINE_SECONDS):
         yield
-        if expired.is_set():
-            raise _error("stage_execution")
-    finally:
-        timer.cancel()
-        timer.join()
 
 
 def _declared_table(
@@ -960,7 +928,7 @@ class DatasetRuntime:
                     self,
                     "parquet",
                     codec.digest(("parquet", 1)),
-                    adapter_versions=(_duckdb_version, ibis.__version__),
+                    adapter_versions=native_versions(),
                 )
 
             physical = place(dataset, artifact_binding=admitted_binding)
@@ -1019,7 +987,7 @@ class DatasetRuntime:
                 ),
             )
             self.last_run_ref = run.run_ref
-            backend: Backend | None = None
+            backend: ExecutionAdapter | None = None
             execution: ResourceRecord | None = None
             opening = False
             phase = "storage_selection"
@@ -1083,7 +1051,9 @@ class DatasetRuntime:
                         self.store.project_root, sampling_state_read(descriptor), object_bindings
                     )
                 with ExitStack() as source_contexts:
-                    prepared: dict[int, tuple[Backend, CompiledDataset, dict[str, ir.Table]]] = {}
+                    prepared: dict[
+                        int, tuple[ExecutionAdapter, CompiledDataset, dict[str, ir.Table]]
+                    ] = {}
                     for source_boundary in source_steps:
                         boundary_validations: list[tuple[str, int]] = []
                         prepared[source_boundary.output] = source_contexts.enter_context(
@@ -1144,7 +1114,11 @@ class DatasetRuntime:
                                     proof_backend.compile(proof_recipe.event_proof),
                                 )
                                 self._event("source_statement")
-                                checked_event = proof_backend.to_pyarrow(proof_recipe.event_proof)
+                                checked_event = proof_backend.read_table(
+                                    proof_backend.prepare(
+                                        proof_recipe.event_proof, role="event.journey_summary"
+                                    )
+                                )
                                 if checked_event.num_rows != 1:
                                     raise _error("output_validation", run.run_ref)
                                 event_summary = summary_from_proof(
@@ -1164,8 +1138,11 @@ class DatasetRuntime:
                                     proof_backend.compile(proof_recipe.event_reducer_proof),
                                 )
                                 self._event("source_statement")
-                                checked_reducer = proof_backend.to_pyarrow(
-                                    proof_recipe.event_reducer_proof
+                                checked_reducer = proof_backend.read_table(
+                                    proof_backend.prepare(
+                                        proof_recipe.event_reducer_proof,
+                                        role="event.reducer_summary",
+                                    )
                                 )
                                 if checked_reducer.num_rows != 1:
                                     raise _error("output_validation", run.run_ref)
@@ -1192,8 +1169,10 @@ class DatasetRuntime:
                                     proof_backend.compile(proof_recipe.selection_proof),
                                 )
                                 self._event("source_statement")
-                                checked_selection = proof_backend.to_pyarrow(
-                                    proof_recipe.selection_proof
+                                checked_selection = proof_backend.read_table(
+                                    proof_backend.prepare(
+                                        proof_recipe.selection_proof, role="event.selection_summary"
+                                    )
                                 )
                                 if checked_selection.num_rows != 1:
                                     raise _error("output_validation", run.run_ref)
@@ -1222,8 +1201,16 @@ class DatasetRuntime:
                                     proof_backend.compile(proof_recipe.candidate_proof),
                                 )
                                 self._event("source_statement")
-                                scalar_proof = proof_backend.to_pyarrow(
-                                    proof_recipe.candidate_proof
+                                scalar_proof = proof_backend.read_table(
+                                    proof_backend.prepare(
+                                        proof_recipe.candidate_proof,
+                                        role="candidate.driver_summary"
+                                        if isinstance(
+                                            proof_recipe.candidate_definition,
+                                            DriverCandidateDefinition,
+                                        )
+                                        else "candidate.entity_summary",
+                                    )
                                 )
                                 if scalar_proof.num_rows != 1:
                                     raise _error("output_validation", run.run_ref)
@@ -1252,8 +1239,11 @@ class DatasetRuntime:
                                 proof_sql = proof_backend.compile(proof_recipe.association_proof)
                                 self._record_statement("association.search_summary", proof_sql)
                                 self._event("source_statement")
-                                proof_table = proof_backend.to_pyarrow(
-                                    proof_recipe.association_proof
+                                proof_table = proof_backend.read_table(
+                                    proof_backend.prepare(
+                                        proof_recipe.association_proof,
+                                        role="association.search_summary",
+                                    )
                                 )
                                 if proof_table.num_rows > MAX_CANDIDATES:
                                     raise _error("output_validation", run.run_ref)
@@ -1315,7 +1305,11 @@ class DatasetRuntime:
                                     current_backend.compile(output_proof),
                                 )
                                 self._event("source_statement")
-                                checked = current_backend.to_pyarrow(output_proof)
+                                checked = current_backend.read_table(
+                                    current_backend.prepare(
+                                        output_proof, role="candidate.entity_output"
+                                    )
+                                )
                                 if (
                                     checked.column_names != ["violations"]
                                     or checked.num_rows != 1
@@ -1352,7 +1346,11 @@ class DatasetRuntime:
                                     "candidate.driver_output", current_backend.compile(driver_proof)
                                 )
                                 self._event("source_statement")
-                                checked_driver = current_backend.to_pyarrow(driver_proof)
+                                checked_driver = current_backend.read_table(
+                                    current_backend.prepare(
+                                        driver_proof, role="candidate.driver_output"
+                                    )
+                                )
                                 if (
                                     checked_driver.column_names != ["violations"]
                                     or checked_driver.num_rows != 1
@@ -1437,9 +1435,19 @@ class DatasetRuntime:
                                     )
                                     self._record_statement("correlation_cardinality", count_sql)
                                     with _engine_deadline(current_backend):
-                                        pair_count = current_backend.raw_sql(count_sql).fetchone()[
-                                            0
-                                        ]
+                                        pair_count = current_backend.read_scalar(
+                                            current_backend.statement(
+                                                count_sql,
+                                                role="correlation_cardinality",
+                                                inputs=(
+                                                    current_backend.prepare(
+                                                        recipe.expression.aggregate(
+                                                            __mv_rows=recipe.expression.count()
+                                                        )
+                                                    ),
+                                                ),
+                                            )
+                                        )
                                     if type(pair_count) is not int or pair_count > min(
                                         self.local_policy.max_input_rows,
                                         self.local_policy.max_method_rows,
@@ -1493,9 +1501,19 @@ class DatasetRuntime:
                                     )
                                     self._record_statement("distribution_cardinality", count_sql)
                                     with _engine_deadline(current_backend):
-                                        expected_count: object = current_backend.raw_sql(
-                                            count_sql
-                                        ).fetchone()[0]
+                                        expected_count: object = current_backend.read_scalar(
+                                            current_backend.statement(
+                                                count_sql,
+                                                role="distribution_cardinality",
+                                                inputs=(
+                                                    current_backend.prepare(
+                                                        recipe.expression.aggregate(
+                                                            __mv_rows=recipe.expression.count()
+                                                        )
+                                                    ),
+                                                ),
+                                            )
+                                        )
                                     if (
                                         not isinstance(expected_count, int)
                                         or isinstance(expected_count, bool)
@@ -1627,7 +1645,7 @@ class DatasetRuntime:
 
                         def cancel_sources() -> None:
                             for current_backend, _, _ in prepared.values():
-                                current_backend.con.interrupt()
+                                current_backend.interrupt()
 
                         local_result = self._run_local_graph(
                             physical,
@@ -1978,7 +1996,7 @@ class DatasetRuntime:
                 phase = "evidence"
                 self._event("evidence")
                 if backend is not None and execution is not None:
-                    backend.raw_sql("ROLLBACK")
+                    backend.rollback()
                     backend.disconnect()
                     backend = None
                     prove_local_termination(execution)
@@ -2065,7 +2083,7 @@ class DatasetRuntime:
         sampling: list[SamplingRealization],
         validations: list[tuple[str, int]],
         sampling_by_root: dict[int, SamplingRealization],
-    ) -> Iterator[tuple[Backend, CompiledDataset, dict[str, ir.Table]]]:
+    ) -> Iterator[tuple[ExecutionAdapter, CompiledDataset, dict[str, ir.Table]]]:
         source_dataset: Dataset = source_step.dataset
         if source_step.correlation_preparation:
             source_dataset = source_dataset._inputs[0]
@@ -2085,7 +2103,7 @@ class DatasetRuntime:
             if isinstance(source_dataset, LogicalDataset)
             else ()
         )
-        backend: Backend | None = None
+        backend: ExecutionAdapter | None = None
         execution: ResourceRecord | None = None
         opening = False
         phase = "authority_resolution"
@@ -2098,7 +2116,7 @@ class DatasetRuntime:
                 self.store.reserve(execution)
                 self._event("resource_create")
                 opening = True
-                candidate = ibis.duckdb.connect()
+                candidate = open_native_backend()
             else:
                 datasource = source_step.binding.owner.semantic_registry.datasources[domain]
                 self._event("profile_resolution")
@@ -2112,28 +2130,35 @@ class DatasetRuntime:
                 candidate = _build_backend_from_effective(
                     datasource, effective, read_only=True
                 ).backend
-            if not isinstance(candidate, Backend):
-                raise _error("execution_boundary", run_ref)
-            backend = candidate
+
+            def reserve_preparation(name: str) -> None:
+                if execution is None:
+                    raise _error("execution_boundary", run_ref)
+                self.store.reserve(
+                    ResourceRecord(
+                        run_ref=run_ref,
+                        resource_kind="planner_temporary_relation",
+                        execution_domain_id=domain,
+                        ownership_nonce=execution.ownership_nonce,
+                        cleanup_capability_id=execution.cleanup_capability_id,
+                        safe_locator=f"{execution.safe_locator}/{name}",
+                    )
+                )
+
+            backend = bind_duckdb(candidate, reserve=reserve_preparation)
             read_time = None
             if isinstance(source_step.binding, SourceBinding):
                 self._event("source_timezone")
                 profile = require_profile_for_backend_type("duckdb")
                 if profile.timezone_probe_sql is not None:
                     self._record_statement("source_timezone", profile.timezone_probe_sql)
-                read_time = probe_engine_timezone(backend)
-            backend.raw_sql("SET threads=1")
-            backend.raw_sql("SET TimeZone='UTC'")
-            backend.raw_sql("SET memory_limit='256MiB'")
-            backend.raw_sql("SET max_temp_directory_size='0B'")
-            backend.raw_sql("BEGIN TRANSACTION")
+                read_time = backend.timezone()
+            backend.begin()
             if isinstance(source_dataset, LogicalDataset) and any(
                 isinstance(root.payload, DriverCandidatePayload)
                 for root in logical_roots(source_dataset)
             ):
-                from marivo.analysis.compiler.driver_numeric import install_driver_numeric_functions
-
-                install_driver_numeric_functions(backend)
+                backend.install_numeric()
             tables: dict[str, ir.Table] = {}
             fences: list[_JsonFence] = []
             checked_schemas: set[str] = set()
@@ -2187,13 +2212,12 @@ class DatasetRuntime:
                         phase = "source_binding"
                         with _engine_deadline(backend):
                             event_coverages[event_root.definition_fingerprint] = (
-                                resolve_event_coverage(
+                                backend.resolve_coverage(
                                     event_root.payload.definition,
                                     require_source_origin=isinstance(
                                         event_root.payload, LifecyclePayload
                                     ),
                                     provider=self.event_coverage_provider,
-                                    backend=backend,
                                     source_binding_fingerprint=_canonical_digest(
                                         tuple(
                                             capture.identity_payload()
@@ -2318,9 +2342,22 @@ class DatasetRuntime:
             preparations = compile_preparations(
                 backend, recipe.preparations or recipe.validations, run_ref=run_ref
             )
-            for preparation in preparations:
-                if isinstance(preparation, CompiledSampleFence):
-                    sqlglot.parse_one(sample_statement(backend, preparation), read="duckdb")
+            relation_statements = {
+                preparation.relation_name: backend.table_statement(
+                    preparation.relation_name, preparation.expression
+                )
+                for preparation in preparations
+                if isinstance(preparation, CompiledRelationFence)
+            }
+            sample_statements = {
+                preparation.relation_name: backend.statement(
+                    sample_statement(backend, preparation),
+                    role="sampling_fence",
+                    inputs=(backend.prepare(preparation.expression),),
+                )
+                for preparation in preparations
+                if isinstance(preparation, CompiledSampleFence)
+            }
             phase = "source_binding"
             with _engine_deadline(backend):
                 from marivo.analysis.materialization.parquet_scan import validate_parquet_relation
@@ -2341,7 +2378,7 @@ class DatasetRuntime:
                                 resource_kind="planner_temporary_relation",
                                 execution_domain_id=domain,
                                 ownership_nonce=execution.ownership_nonce,
-                                cleanup_capability_id="duckdb_process_lifetime@v1",
+                                cleanup_capability_id=execution.cleanup_capability_id,
                                 safe_locator=f"{execution.safe_locator}/{name}",
                             )
                         )
@@ -2351,11 +2388,9 @@ class DatasetRuntime:
                         fence.source,
                         source_params=fence.parameters,
                     )
-                    self._record_statement(
-                        "source_fence",
-                        f'CREATE TEMPORARY TABLE "{fence.relation_name}" AS {backend.compile(source_table)}',
-                    )
-                    backend.create_table(fence.relation_name, source_table, temp=True)
+                    fence_statement = backend.table_statement(fence.relation_name, source_table)
+                    self._record_statement("source_fence", fence_statement.sql)
+                    backend.submit(fence_statement)
                     self.statistics.source_fences += 1
             phase = "stage_execution"
             with _engine_deadline(backend):
@@ -2367,18 +2402,14 @@ class DatasetRuntime:
                                 resource_kind="planner_temporary_relation",
                                 execution_domain_id=domain,
                                 ownership_nonce=execution.ownership_nonce,
-                                cleanup_capability_id="duckdb_process_lifetime@v1",
+                                cleanup_capability_id=execution.cleanup_capability_id,
                                 safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
                             )
                         )
                         self._event("source_statement")
-                        self._record_statement(
-                            "source_fence",
-                            f'CREATE TEMPORARY TABLE "{validation.relation_name}" AS {backend.compile(validation.expression)}',
-                        )
-                        backend.create_table(
-                            validation.relation_name, validation.expression, temp=True
-                        )
+                        fence_statement = relation_statements[validation.relation_name]
+                        self._record_statement("source_fence", fence_statement.sql)
+                        backend.submit(fence_statement)
                         self.statistics.source_fences += 1
                         continue
                     if isinstance(validation, CompiledSampleFence):
@@ -2388,7 +2419,7 @@ class DatasetRuntime:
                                 resource_kind="planner_temporary_relation",
                                 execution_domain_id=domain,
                                 ownership_nonce=execution.ownership_nonce,
-                                cleanup_capability_id="duckdb_process_lifetime@v1",
+                                cleanup_capability_id=execution.cleanup_capability_id,
                                 safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
                             )
                         )
@@ -2397,6 +2428,7 @@ class DatasetRuntime:
                             execute_sample(
                                 backend,
                                 validation,
+                                statement=sample_statements[validation.relation_name],
                                 ordinal=len(sampling),
                                 record=self._record_statement,
                                 event=self._event,
@@ -2409,7 +2441,7 @@ class DatasetRuntime:
                         continue
                     self._event("source_statement")
                     self.statistics.validation_queries += 1
-                    self._record_statement("validation_batch", validation.sql)
+                    self._record_statement("validation_batch", validation.statement.sql)
                     validations.extend(execute_batch(backend, validation, run_ref=run_ref))
             yielded = True
             yield backend, recipe, tables
@@ -2421,20 +2453,10 @@ class DatasetRuntime:
             raise _error(phase, run_ref) from None
         finally:
             if backend is not None:
-                try:
-                    backend.raw_sql("ROLLBACK")
-                except TransactionException as error:
-                    # Engine publication may have committed its fence already.
-                    # Disconnect below still proves the owned connection ended.
-                    if (
-                        str(error)
-                        != "TransactionContext Error: cannot rollback - no transaction is active"
-                    ):
-                        raise
-                finally:
-                    backend.disconnect()
-                    if execution is not None:
-                        prove_local_termination(execution)
+                if execution is not None:
+                    finish_execution(backend, execution)
+                else:
+                    backend.finish()
             elif execution is not None and not opening:
                 prove_local_termination(execution)
 
@@ -2531,7 +2553,7 @@ class DatasetRuntime:
         )
 
     def _attribution_source_summary(
-        self, backend: Backend, table: ir.Table, row: DatasetRowContract
+        self, backend: ExecutionAdapter, table: ir.Table, row: DatasetRowContract
     ) -> AttributionSourceSummary:
         """Reduce complete Attribution proof inside its engine; return only global facts."""
         from marivo.analysis.operators.attribution_contracts import AttributionSemantics
@@ -2541,30 +2563,16 @@ class DatasetRuntime:
             raise _error("output_validation")
         names = {field.field_id: field.name for field in row.schema.columns}
 
-        def quote(name: str) -> str:
-            return sge.to_identifier(name, quoted=True).sql(dialect="duckdb")
-
-        scope = tuple(quote(names[key]) for key in semantics.scope_field_ids)
-        keys = tuple(quote(names[key]) for key in row.key_field_ids)
-        resolution = (*scope, quote("active_axis_mask"))
-        identity = "struct_pack(" + ", ".join(f"{name} := {name}" for name in keys) + ")"
-        grouping = ", ".join(resolution)
-        scoped = (
-            "struct_pack(" + ", ".join(f"{name} := {name}" for name in scope) + ")"
-            if scope
-            else "1"
-        )
-        sql = (
-            f"WITH attributed AS ({backend.compile(table)}), reconciled AS ("
-            f"SELECT sum(contribution) AS total, max(overall_delta) AS delta FROM attributed GROUP BY {grouping}) "
-            f"SELECT count(DISTINCT {scoped}), (SELECT count(*) FROM reconciled), "
-            "count(*) FILTER (WHERE status = 'ok'), count(*) FILTER (WHERE status = 'zero_total_delta'), "
-            "CAST(coalesce((SELECT max(abs(total - delta)) FROM reconciled), 0) AS DOUBLE), "
-            f"sha256(coalesce(string_agg(sha256(to_json({identity})), '' ORDER BY {', '.join(keys)}), '')) FROM attributed"
+        sql = attribution_summary_sql(
+            backend.compile(table), names, semantics.scope_field_ids, row.key_field_ids
         )
         self._record_statement("attribution.source_summary", sql)
         self._event("source_statement")
-        result: object = backend.raw_sql(sql).fetchone()
+        result: object = backend.submit(
+            backend.statement(
+                sql, role="attribution.source_summary", inputs=(backend.prepare(table),)
+            )
+        ).fetchone()
         if not isinstance(result, tuple) or len(result) != 6:
             raise _error("output_validation")
         scopes, resolutions, ok, zero, error, digest = result
@@ -2580,7 +2588,7 @@ class DatasetRuntime:
 
     def _parquet_parts(
         self,
-        backend: Backend,
+        backend: ExecutionAdapter,
         descriptor: ArtifactDescriptor,
         dataset: Dataset,
         *,
@@ -2611,7 +2619,9 @@ class DatasetRuntime:
                 self._record_statement("engine_check.part_schema", backend.compile(table.limit(0)))
                 # Native scans erase Arrow nullability. The exact stored schema is
                 # checked before attachment; validate native types and data below.
-                schema = backend.to_pyarrow(table.limit(0)).schema
+                schema = backend.read_table(
+                    backend.prepare(table.limit(0), role="engine_check.part_schema")
+                ).schema
                 if source_private_part(part):
                     primary_receipt = descriptor.storage_receipt
                     primary = attach_parquet_scan(
@@ -2643,7 +2653,9 @@ class DatasetRuntime:
                             self._record_statement,
                         )
                 self._record_statement("engine_check.part_count", backend.compile(table.count()))
-                count: object = backend.execute(table.count())
+                count: object = backend.read_scalar(
+                    backend.prepare(table.count(), role="engine_check.part_count")
+                )
                 if count != receipt.realized_row_count:
                     _integrity("the exact committed part row count", "engine part count differs")
                 required = (
@@ -2663,7 +2675,9 @@ class DatasetRuntime:
                         invalid = invalid | predicate
                     check = table.filter(invalid).count()
                     self._record_statement("engine_check.part_support", backend.compile(check))
-                    failures: object = backend.execute(check)
+                    failures: object = backend.read_scalar(
+                        backend.prepare(check, role="engine_check.part_support")
+                    )
                     if failures != 0:
                         _integrity(
                             "non-null component support and coverage", "null required engine state"
@@ -2913,7 +2927,7 @@ class DatasetRuntime:
         return None
 
     def _validate_source_schema(
-        self, backend: Backend, entity: TargetEntityContract
+        self, backend: ExecutionAdapter, entity: TargetEntityContract
     ) -> ibis.Schema:
         source = entity.source
         if not isinstance(source, TableSourceIR):
@@ -2924,14 +2938,7 @@ class DatasetRuntime:
         self._event("source_statement")
         self.statistics.validation_queries += 1
         self._record_statement(
-            "source_schema",
-            sge.Describe(
-                this=sge.Table(
-                    this=sge.to_identifier(source.table, quoted=True),
-                    db=None if namespace is None else sge.to_identifier(namespace, quoted=True),
-                    catalog=None if catalog is None else sge.to_identifier(catalog, quoted=True),
-                )
-            ).sql(dialect="duckdb"),
+            "source_schema", describe_statement(source.table, namespace, catalog)
         )
         actual = backend.get_schema(source.table, database=namespace, catalog=catalog)
         for _, binding in source.columns:
@@ -2964,7 +2971,7 @@ class DatasetRuntime:
         return actual
 
     def _batch_rows(
-        self, backend: Backend, tables: Mapping[str, ir.Table], expression: ir.Table
+        self, backend: ExecutionAdapter, tables: Mapping[str, ir.Table], expression: ir.Table
     ) -> int:
         maximum_string = 0
         for table in tables.values():
@@ -2980,9 +2987,9 @@ class DatasetRuntime:
                 self._record_statement(
                     "transfer_guard", backend.compile(table.aggregate(maximum_bytes=width))
                 )
-                value: object = backend.to_pyarrow(table.aggregate(maximum_bytes=width))[
-                    "maximum_bytes"
-                ][0].as_py()
+                value: object = backend.read_table(
+                    backend.prepare(table.aggregate(maximum_bytes=width), role="transfer_guard")
+                )["maximum_bytes"][0].as_py()
                 if type(value) is not int:
                     raise _error("transfer_guard")
                 maximum_string = max(maximum_string, value)
@@ -2992,12 +2999,12 @@ class DatasetRuntime:
         return max(1, min(1024, _MAX_BATCH_BYTES // max(1, conservative_row * 2)))
 
     def _batches(
-        self, backend: Backend, expression: ir.Table, batch_rows: int
+        self, backend: ExecutionAdapter, expression: ir.Table, batch_rows: int
     ) -> Iterator[pa.RecordBatch]:
         self._event("source_statement")
         self.statistics.primary_queries += 1
         self._record_statement("primary", backend.compile(expression))
-        reader = backend.to_pyarrow_batches(expression, chunk_size=batch_rows)
+        reader = backend.batches(backend.prepare(expression, role="primary"), chunk_size=batch_rows)
         seen = False
         try:
             for batch in reader:

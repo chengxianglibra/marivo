@@ -175,21 +175,24 @@ def _source_private_check(
     )
 
     primary_receipt, receipt = descriptor.storage_receipt, part.storage_receipt
-    backend = ibis.duckdb.connect()
+    from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
+
+    backend = DuckDBExecutionAdapter(ibis.duckdb.connect())
     try:
-        backend.raw_sql("SET threads=1")
-        backend.raw_sql("SET memory_limit='256MiB'")
-        backend.raw_sql("SET max_temp_directory_size='0B'")
+        backend.configure()
         primary = attach_parquet_scan(backend, root, primary_receipt, bindings=bindings)
         table = attach_parquet_scan(backend, root, receipt, bindings=bindings)
         validate_parquet_relation(
             backend, primary, primary_receipt, descriptor.row_contract, lambda *_: None
         )
-        schema = backend.to_pyarrow(table.limit(0)).schema
+        schema = backend.read_table(
+            backend.prepare(table.limit(0), role="inspection.schema")
+        ).schema
         if (
             hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
             != receipt.schema_fingerprint
-            or backend.execute(table.count()) != receipt.realized_row_count
+            or backend.read_scalar(backend.prepare(table.count(), role="inspection.count"))
+            != receipt.realized_row_count
         ):
             raise StorageAccessError("mutated")
         validate_source_private_relation(

@@ -979,3 +979,15 @@ Marivo determines analytical meaning and exact inputs. The compiler pushes the
 eligible source prefixes and binds a bounded pandas suffix before data work.
 Runtime executes that recipe once and commits its complete result. Failure
 never changes the chosen computation or creates an intermediate public result.
+
+## 2026-09-15 amendment: selected DuckDB execution inputs
+
+The Slice 1 extraction preserves registry selection, same-domain authority and
+logical definition identity. Action-local compilation produces immutable inputs
+for the concrete DuckDB adapter. Declared relation/sample preparations remain in
+planner order, reserve their resources before effects, and submit the selected
+statement without a second lowering. Composed statements retain their input
+preparation dependencies. This is not a persisted physical plan, an additional
+implementation registry or remote-backend admission. Multiple backend dispatch
+and compatibility separation remain the next slice of the
+[multi-datasource plan](2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md).
