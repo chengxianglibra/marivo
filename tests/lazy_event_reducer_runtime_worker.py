@@ -88,7 +88,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
             "marivo.analysis.materialization.reads.payload_batches",
         ):
             stack.enter_context(patch(name, forbidden))
-        stack.enter_context(patch.object(admission, "supervise", forbidden))
+        stack.enter_context(patch.object(admission, "execute_local", forbidden))
         if mode == "cold":
             for name in ("place", "compile_dataset", "_build_backend_from_effective"):
                 stack.enter_context(patch.object(admission, name, forbidden))
@@ -143,7 +143,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
     if mode == "cold":
         assert runtime.statistics.transferred_rows == runtime.statistics.transferred_bytes == 0
     else:
-        assert runtime.statistics.worker_pid is None
+        assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.statistics.local_handoffs == ()
     assert runtime.store.resources(runtime.session_ref) == ()
     assert_identity_private(runtime)

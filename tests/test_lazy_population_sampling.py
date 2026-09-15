@@ -21,7 +21,7 @@ from marivo.analysis.datasets.handles import (
     LogicalRootHandle,
     _sharing_occurrences,
 )
-from marivo.analysis.materialization import admission, storage
+from marivo.analysis.materialization import admission
 from marivo.analysis.materialization import sampling as sampling_runtime
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import (
@@ -262,6 +262,7 @@ def test_same_session_reconstruction_recovers_sample_without_origin(
         raise AssertionError("sample recovery touched the origin")
 
     monkeypatch.setattr(admission, "_build_backend_from_effective", forbidden)
+    original_parquet_file = pq.ParquetFile
     monkeypatch.setattr(pq, "ParquetFile", forbidden)
     recovered = (
         source.population(ref.entity("sales.customers"))
@@ -272,6 +273,7 @@ def test_same_session_reconstruction_recovers_sample_without_origin(
     assert runtime.statistics.sampling_fences == 0
     assert runtime.statistics.primary_queries == 0
     assert not runtime.statistics.events.get("profile_resolution", 0)
+    monkeypatch.setattr(pq, "ParquetFile", original_parquet_file)
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref).artifact(result.state.artifact_ref)
     assert cold.to_pandas().equals(result.to_pandas())
 
@@ -358,7 +360,7 @@ def test_fence_failure_discharges_reserved_resource_without_publication(tmp_path
             raise RuntimeError("injected sampling failure")
 
     runtime, source, _ = _setup(tmp_path, event=fail)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(RuntimeError):
         source.population(ref.entity("sales.customers")).sample(
             engine_sample(target_rows=2)
         ).execute()
@@ -374,7 +376,15 @@ def test_sampled_failure_never_publishes_partial_rows_or_state(
 ) -> None:
     hits: list[str] = []
 
+    created_payloads = 0
+
     def event(name: str) -> None:
+        nonlocal created_payloads
+        if name == "parquet_payload_create":
+            created_payloads += 1
+            if point == "state_write" and created_payloads == 3:
+                hits.append(point)
+                raise OSError("sampling-failure-canary")
         if point == "publication" and name == "insert_artifact":
             hits.append(point)
             raise RuntimeError("sampling-failure-canary")
@@ -397,29 +407,21 @@ def test_sampled_failure_never_publishes_partial_rows_or_state(
             yield from original_batches(self, backend, expression, batch_rows)
 
         monkeypatch.setattr(DatasetRuntime, "_batches", primary_failure)
-    elif point == "state_write":
-        original_init = storage._BudgetFile.__init__
-
-        def state_failure(
-            self: storage._BudgetFile, path: Path, budget: storage._DiskBudget
-        ) -> None:
-            if path.parent.name == "population_sampling_state":
-                hits.append(point)
-                raise OSError("sampling-failure-canary")
-            original_init(self, path, budget)
-
-        monkeypatch.setattr(storage._BudgetFile, "__init__", state_failure)
 
     runtime, source, _ = _setup(tmp_path, event=event)
     sampled = source.population(ref.entity("sales.customers")).sample(
         engine_sample(target_rows=2, seed=42)
     )
-    with pytest.raises(MaterializationError) as failed:
+    with pytest.raises(
+        OSError
+        if point == "state_write"
+        else (RuntimeError if point == "publication" else duckdb.InvalidInputException)
+    ) as failed:
         source.observe(
             [ref.metric("sales.revenue"), ref.metric("sales.order_count")], population=sampled
         ).aggregate().execute()
     assert hits == [point]
-    assert "sampling-failure-canary" not in str(failed.value)
+    assert "sampling-failure-canary" in str(failed.value)
     assert runtime.last_run_ref is not None
     run = runtime.store.run(runtime.last_run_ref)
     assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None

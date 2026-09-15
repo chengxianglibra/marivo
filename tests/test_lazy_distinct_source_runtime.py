@@ -58,7 +58,7 @@ def test_every_operand_order_keeps_membership_inside_engine(tmp_path: Path, stat
         result = logical.execute()
     assert isinstance(result, MaterializedAttributionDataset)
     frame = assert_daily_reconciliation(result)
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     run = runtime.store.run(result.state.producing_run_ref)
     assert run is not None
     assert run.input_artifact_refs == tuple(
@@ -79,7 +79,7 @@ def test_every_operand_order_keeps_membership_inside_engine(tmp_path: Path, stat
         "input_artifact_refs": run.input_artifact_refs,
         "statistics": statistics(runtime),
         "raw_membership_transfer": False,
-        "worker_pid": runtime.statistics.worker_pid,
+        "local_executions": runtime.statistics.events.get("local_execution_started", 0),
     }
     assert_no_raw_keys(payload)
     directory = os.environ.get("MARIVO_SLICE5C_EVIDENCE_DIR")
@@ -123,7 +123,7 @@ def test_distinct_keeps_one_shared_sample_realization(tmp_path: Path) -> None:
         result = logical.execute()
     assert isinstance(result, MaterializedAttributionDataset)
     assert runtime.statistics.sampling_fences == 1
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     sampled_statistics = statistics(runtime)
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None and record.descriptor.sampling_execution is not None
@@ -152,7 +152,8 @@ def test_distinct_keeps_one_shared_sample_realization(tmp_path: Path) -> None:
     assert snapshot(runtime) == complete
     assert runtime.statistics.sampling_fences == runtime.statistics.primary_queries == 0
     assert (
-        runtime.statistics.worker_pid is None and runtime.store.resources(runtime.session_ref) == ()
+        runtime.statistics.events.get("local_execution_started", 0) == 0
+        and runtime.store.resources(runtime.session_ref) == ()
     )
     payload = {
         "artifact": result.state.artifact_ref.ref,

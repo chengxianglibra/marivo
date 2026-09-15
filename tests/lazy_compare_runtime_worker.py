@@ -155,7 +155,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
                     "place",
                     "compile_dataset",
                     "_build_backend_from_effective",
-                    "supervise",
+                    "execute_local",
                 ):
                     guards.enter_context(patch.object(admission, name, _forbidden))
             continued = continuation.execute()

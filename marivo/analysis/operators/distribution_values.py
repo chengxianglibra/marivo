@@ -117,12 +117,12 @@ def execute_distribution(frame: pd.DataFrame, spec: AttributeSpecV1) -> pd.DataF
         players, count = first[PLAYERS], first[PLAYER_COUNT]
         if (
             type(count) is not int
-            or not 1 <= count <= 8
+            or count < 1
             or not isinstance(players, list)
             or len(players) != count
         ):
             raise attribution_error(
-                "one to eight complete mapped players",
+                "one or more complete mapped players",
                 "invalid player inventory",
                 repair="Lower top_k or choose a coarser attribution axis.",
             )

@@ -52,7 +52,7 @@ owns the producing action and its committed outcome.
 | Access paths, join algorithms, CTE handling, database query optimization | Bound source engine |
 | Local algorithm, required preparation, input/output and retained-state semantics | Owning method contract |
 | Source eligibility, deterministic pushdown boundary and implementation dispatch | This module |
-| Credentials, connection lifecycle, Arrow readers, resource budgets and cancellation | Datasource adapters and Runtime |
+| Credentials, connection lifecycle, Arrow readers, owned-resource cleanup and cancellation | Datasource adapters and Runtime |
 | One configured storage target, writers, receipts, publication and recovery | Runtime |
 
 This module does not infer Population, select a statistical method, weaken
@@ -124,7 +124,7 @@ source engine.
 When a multi-input analysis operator cannot compose its inputs in one source
 domain, a registered pandas implementation may consume those exact roles after
 each source prefix has produced its contracted rows. Semantic alignment,
-identity/privacy rules and complete per-input/combined budgets must all hold.
+identity/privacy rules and complete per-input validation must all hold.
 This admits, for example, bounded aligned observation results for compare; it
 is not a generic cross-datasource join facility. Source-required Population,
 Metric evaluation, identity matching and private-state calculations retain their
@@ -187,9 +187,8 @@ An Artifact fixes its exact backing and reader:
 Projection and supported storage predicates may reduce physical reads only
 when proven equivalent to the exact requested rows and retained dependency
 closure. A reader does not become an aggregation or join executor. Local
-calculation validates the complete required input under its normal pandas
-budgets, including retained parts. A large Artifact may remain readable for a
-bounded preview while being too large for a requested local calculation.
+calculation validates complete required inputs, including retained parts. Display
+bounds do not restrict complete collection or computation.
 
 ### Pandas is the only internal local executor
 
@@ -202,9 +201,8 @@ operations or bounded peak process memory.
 Adjacent local steps pass DataFrames directly with the owning schema, key,
 ordering and output checks. They do not serialize to Arrow/Parquet at every
 operator, register SQL relations, or mutate a shared upstream input. Runtime
-may group dependent local calls in one worker while retaining checks between
-steps. Worker IPC and cancellation are Runtime concerns, not a second execution
-engine or a public dataframe surface.
+groups dependent local calls in the caller while retaining checks between
+steps. Private frames do not introduce a public dataframe execution surface.
 
 Only the root primary output and its required retained parts are published.
 Private DataFrames and necessary Run staging never acquire an Artifact ref,
@@ -244,7 +242,6 @@ ActionCompilationRequestV1
   input_binding_context
   exact_output_row_contract
   exact_output_row_set_contract
-  runtime_execution_budgets
   configured_materialization_target
 ```
 
@@ -632,8 +629,8 @@ objects, generic payload mappings, or optional-field mega-nodes.
 Dataset Core owns the definition fingerprint over normalized analytical inputs.
 Method parameters, ordered input authority, semantic dependency digests, exact
 source-binding digests, contract versions and Core's canonical sharing relation
-participate. Backend connections, SQL text, implementation objects, execution
-budgets, storage choice and timing
+participate. Backend connections, SQL text, implementation objects,
+storage choice and timing
 do not. Changing a numerical method's semantics requires its owning contract
 version to change; implementation-version diagnostics cannot hide such a change.
 
@@ -733,7 +730,6 @@ ExecutionStepV1 =
       input_handles[]
       exact_input_contracts[]
       output_contract
-      runtime_budget
   | ValidationStepV1
       owning_check_id
       input_handles[]
@@ -770,8 +766,8 @@ compose as Ibis; Artifact reads use the exact receipt-authorized reader.
 Adapters validate actual batches for field order, type, nullability, decimal
 precision/scale, timezone, dictionary normalization and nested-value rules. Any
 conversion must be lossless under the row contract; unsupported or overflowing
-values fail. Fetch size and individual variable-width allocations must be
-bounded before an unbounded allocation could occur.
+values fail. Fetch sizes tune incremental transport without imposing total-result
+or individual-value resource caps.
 
 The adapter evidence must retain integer `SUM` widening coverage: the reviewed
 Ibis 12.0.0 / DuckDB 1.5.3 datasource combination produced a declared `int64`
@@ -779,53 +775,31 @@ Arrow reader with actual `decimal128(38, 0)` batches. DuckDB is a configured
 source in this fixture, not an internal executor. This is no permission to cast
 lossy values or widen a public row contract after work.
 
-### Complete local input and bounded calculation
+### Complete local input and calculation
 
-Before invoking a local step, Runtime validates all its complete required
-inputs, whether Arrow reader outputs or prior DataFrames, under per-input and
-combined row/decoded-byte guards. Required retained parts count with primary
-rows; small displayed output does not imply small computational input. Input
-overflow prevents that step from starting, and failure discards any earlier
-private results. Source and local output schemas, keys and ordering remain
-checked at their actual boundaries.
+Before invoking a local step, Runtime validates every complete required input,
+including retained parts. Late schema/key/alignment failure prevents invocation.
+Source and local output schemas, keys and ordering remain checked at their actual
+boundaries; a small displayed output does not imply small computational input.
 
-Pandas reads Arrow-backed columns where supported. Numerical functions may
-convert to their required arrays within the bound method; no general zero-copy
-or Arrow-only execution guarantee is made. Guards also cover join cardinality,
-series/history length, Metric pairs, coalition counts, output size and other
-method-specific dimensions. Runtime separately enforces intermediate allocation,
-peak worker memory and deadlines; decoded bytes alone are not a process-RSS cap.
-Shared input DataFrames must not be mutated by downstream functions.
+Pandas reads Arrow-backed columns where supported and numerical kernels convert
+to their required arrays. All local methods run in the caller without workers or
+IPC; adjacent methods share validated private values without mutating inputs.
+No zero-copy, peak-memory or hard-interruption guarantee is made.
 
-Local functions may reread their admitted inputs. Neither Parquet staging nor
-spill widens local admission or creates an out-of-core pandas execution mode.
-Hard-deadline work uses a terminable worker with cleanup and terminal proof;
-a clock check after a blocking numerical call is insufficient.
+### Complete retained reads and storage streams
 
-### Artifact reads and source budgets
+Authorized readers consume all required local/object primary and part rows.
+Projection and pruning require exact row-contract equivalence. Native Parquet
+execution remains preselected by its registered implementation, never selected
+as a fallback after a local error. Source-private state retains its authority
+restrictions. Source engines and native scans receive no Marivo resource quotas
+or execution deadlines. Driver, database and environment limits are independent.
 
-Authorized PyArrow readers supply local/object Artifact rows and exact retained
-parts under the same local-input rules. They may project or prune only under
-the proven row contract; they do not hide an unbounded local join or aggregate.
-An Artifact whose required computational payload exceeds the pandas budget
-fails local consumption even if it was successfully written as a larger stream.
-Native Parquet execution is a separately registered and preselected path; it
-cannot be selected as a response to a pandas budget failure.
-
-Ordinary source engines, including a configured DuckDB datasource, retain their
-adapter-owned query, memory/disk where applicable, cancellation and bounded
-result-reader budgets. Source-required fences remain source resources. Their
-controls also apply to the transient DuckDB domain used for native Parquet
-scans. That domain has no persistent database Artifact output.
-
-### Storage streams are independent
-
-A selected writer may stream a large source result under batch-memory and
-stored-byte limits without assembling a complete Table or DataFrame. The same
-rule applies to required retained parts; all published payloads must fit the
-selected target's aggregate storage policy. Writer streaming does not grant
-pandas admission to that data or change a local result into a source relation.
-Late streaming failure discards private partial state and publishes nothing.
+Writers stream complete outputs and validate schema, keys and counts without
+resource admission. Local methods collect their complete operands. Late read,
+compute or write failures preserve the original exception and publish nothing;
+no sampling, truncation, second submission or fallback is introduced.
 
 ## Failure and Disclosure
 
@@ -853,8 +827,9 @@ source/sink, truncates data or publishes partial authority.
 Errors identify the exact public operator/input role, expected contract,
 received safe facts and a reachable repair. Source-domain reasons use safe
 Marivo labels, never connection strings, raw identities, SQL or storage paths.
-A local budget failure may suggest a valid narrower scope or upstream reduction;
-it cannot suggest an unimplemented relocation, sampling or replay path.
+Original execution exceptions preserve their causes and tracebacks; safe journal
+summaries do not persist raw exception text. No failure authorizes relocation,
+sampling or replay.
 
 `contract()` renders semantic/local-input requirements derivable without live
 work. It does not promise a particular source placement or successful backend
@@ -872,7 +847,7 @@ counts, transfers and timings; they are not persisted plans or publication gates
   folds and retained state; placement cannot weaken them.
 - Modules 5/6 supply exact methods, local admission and source-required work,
   reference semantics, identity/privacy rules and family validation.
-- Runtime supplies admitted bindings, budgets and one configured storage target.
+- Runtime supplies admitted bindings and one configured storage target.
   It validates Arrow/DataFrame inputs, invokes the determined steps, journals
   resources and commits receipts, quality, Evidence and Findings atomically.
 - Public Cutover validates source-first placement, pandas suffixes and exact
@@ -937,12 +912,10 @@ Required evidence includes:
    no intermediate SQL, per-step Arrow/Parquet serialization or Artifact occurs.
 10. Actual Arrow batches cover integer widening, decimal, timezone, nullability,
     variable-width guards and overflow; declaration-only checks cannot pass.
-11. Source/Artifact input beyond the local budget prevents its pandas consumer;
-    oversized retained state fails even when primary rows are small. Local join
-    expansion, output, peak-memory and deadline failures publish nothing.
-12. A large source output can stream to storage above the local collection cap;
-    a later pandas action requiring that payload fails its input guard. It never
-    obtains an implicit DuckDB reader or an out-of-core computation path.
+11. Complete local inputs and retained parts beyond former caps remain admissible;
+    schema, ownership and alignment failures still prevent the consumer.
+12. Large storage streams and complete retained collection preserve exact results.
+    Inject external failures without exhausting the host; partial work never publishes.
 13. Source-only successors of local data and missing local implementations fail
     before queries, with exact operator/input reasons and no new source reads.
 14. One configured target is validated without changing placement. Process loss
@@ -974,8 +947,8 @@ On 2026-09-07 the owner accepted this source-pushdown/pandas replacement:
 4. Determine support from tested registrations; never use failure as fallback.
 5. Keep DuckDB only as an ordinary datasource, not an internal local executor.
 6. Pass local DataFrames directly and use Arrow at source/storage boundaries.
-7. Bound complete local inputs, required parts, expansion, memory and deadlines;
-   large streaming storage is independent of local computation admission.
+7. Validate complete local inputs and required parts in the caller; keep resource
+   decisions with the execution environment and preserve original failures.
 8. Preserve semantic barriers, identity/privacy, single realization, one storage
    target, exact validation, cancellation and atomic publication.
 9. Retain no public compatibility path or alternate execution mode.

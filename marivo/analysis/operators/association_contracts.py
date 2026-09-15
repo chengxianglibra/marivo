@@ -18,7 +18,6 @@ from marivo.semantic._quantile import ApproximationClass, decode_approximation
 
 CorrelationMethod = Literal["pearson", "spearman", "kendall"]
 ASSOCIATION_SHAPES = ("entity", "dimension", "time-lag", "dimension-time-lag")
-MAX_CANDIDATES = 4096
 STATUSES = ("valid", "insufficient_pairs", "constant_a", "constant_b", "constant_both")
 SELECTION_RULE_ID = "association.max_abs_coefficient_min_abs_lag_min_signed_lag@v1"
 SELECTION_TERMS = (

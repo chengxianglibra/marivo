@@ -8,7 +8,6 @@ import pytest
 from marivo.analysis.domains.lifecycle import ROLES
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import ObjectReceipt
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.lifecycle_publication import inspect_history
 from marivo.analysis.materialization.reads import payload_batches
 from marivo.analysis.materialization.storage import ReadPolicy
@@ -78,7 +77,7 @@ def test_remote_required_part_failure_leaves_no_bundle(
     access = S3Access("fixture", "http://127.0.0.1:9", "bucket", "test-key", "test-secret")
     objects = stub_candidate_objects(monkeypatch, access)
     runtime.target, runtime.object_bindings = ObjectTarget("fixture"), (access,)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(KeyboardInterrupt):
         history(sources).execute()
     assert snapshot(runtime)["dataset_artifacts"] == 0
     assert runtime.store.resources(runtime.session_ref) == ()

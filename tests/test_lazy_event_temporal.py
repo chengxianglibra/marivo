@@ -173,7 +173,7 @@ def test_retained_parquet_membership_is_scanned_by_the_event_source(tmp_path: Pa
     assert after["dataset_evidence"] == before["dataset_evidence"] + 1
     run = runtime.store.run(result.state.producing_run_ref)
     assert run is not None and run.input_artifact_refs == (population.state.artifact_ref.ref,)
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.revalidate(result.state.artifact_ref).storage_authority == "readable"
     assert runtime.store.resources(runtime.session_ref) == ()
 

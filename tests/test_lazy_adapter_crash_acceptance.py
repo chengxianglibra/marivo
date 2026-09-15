@@ -148,7 +148,7 @@ def test_adapter_crash_reconciles_exact_uncommitted_outputs_or_preserves_commit(
     stats = recovered["statistics"]
     assert isinstance(stats, dict)
     assert stats["events"] == {"reconciliation": 1}
-    assert stats["primary_queries"] == 0 and stats["worker_pid"] is None
+    assert stats["primary_queries"] == 0 and stats["local_executions"] == 0
     _evidence(
         tmp_path,
         f"slice-4c-crash-{kind}-{point}-{occurrence}-{int(sampled)}",

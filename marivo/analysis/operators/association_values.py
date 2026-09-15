@@ -15,7 +15,6 @@ from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.observation.fold_contracts import decode_fold_authority
 from marivo.analysis.operators.association_contracts import (
     COUNT_NAMES,
-    MAX_CANDIDATES,
     PAIR_NAMES,
     AssociationSearchSummary,
     CorrelateSpecV1,
@@ -78,13 +77,9 @@ def prepare_local(frame: pd.DataFrame, spec: CorrelateSpecV1) -> pd.DataFrame:
     groups = (
         list(iter(frame.groupby(list(dims), sort=False, dropna=False))) if dims else [((), frame)]
     )
-    candidates = candidate_count(
-        len(spec.metric_names), len(spec.semantics.lag_offsets), len(groups)
-    )
-    if candidates > MAX_CANDIDATES or not groups:
-        raise correlation_error(
-            "1-4096 pair/lag/series candidates", "empty observations or candidate ceiling exceeded"
-        )
+    candidate_count(len(spec.metric_names), len(spec.semantics.lag_offsets), len(groups))
+    if not groups:
+        raise correlation_error("nonempty pair/lag/series candidates", "empty observations")
     rows: list[dict[str, object]] = []
     for key, group in groups:
         coordinate = key if isinstance(key, tuple) else (key,)
@@ -192,8 +187,8 @@ def execute_pairs(frame: pd.DataFrame, spec: CorrelateSpecV1) -> pd.DataFrame:
     keys = (*spec.dimensions, "metric_key_a", "metric_key_b", "lag_offset")
     groups = list(frame.groupby(list(keys), sort=False, dropna=False))
     expected_pairs = set(combinations(spec.semantics.metric_keys, 2))
-    if not groups or len(groups) > MAX_CANDIDATES:
-        raise correlation_error("1-4096 complete candidates", "empty or excessive pair candidates")
+    if not groups:
+        raise correlation_error("nonempty complete candidates", "empty pair candidates")
     rows: list[dict[str, object]] = []
     coverage: dict[tuple[object, ...], set[tuple[str, str, int]]] = {}
     for key, group in groups:

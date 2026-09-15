@@ -114,3 +114,15 @@ For current source rows, use a new named Session or change an explicit
 row-affecting definition input; repeated execution is not refresh evidence.
 Recovery integrity checks cover Artifact, storage authority and Evidence, not
 current semantic authority or datasource freshness.
+
+## Local execution and resource responsibility
+
+Local methods and `to_pandas()` run synchronously in the calling Python process,
+returning complete results or preserving the original exception cause and
+traceback. Marivo creates no execution/read workers and imposes no execution
+row, byte, memory, spill, method complexity, storage or deadline budgets. Database,
+driver, OS and external runner limits still apply.
+
+`show()` keeps its display bounds. Complete-input validation, ownership and atomic
+publication remain mandatory. Store generation 4 leaves older files untouched;
+old Sessions are not migrated or resumed.

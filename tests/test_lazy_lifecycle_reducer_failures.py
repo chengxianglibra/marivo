@@ -126,9 +126,9 @@ def test_failure_and_cancellation_publish_no_partial_result(
     )
     before = snapshot(runtime)
     armed = True
-    with pytest.raises(MaterializationError) as caught:
+    with pytest.raises(KeyboardInterrupt) as caught:
         logical.execute()
-    assert "private-canary" not in str(caught.value)
+    assert "private-canary" in str(caught.value)
     assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"]
     assert snapshot(runtime)["dataset_evidence"] == before["dataset_evidence"]
     assert runtime.store.resources(runtime.session_ref) == ()

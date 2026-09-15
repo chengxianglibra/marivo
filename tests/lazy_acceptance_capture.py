@@ -162,17 +162,11 @@ def capture_terminal_actions(
                 "registrations": registrations,
                 "selected_steps": stages,
                 "selected_query_stage_count": sum(s["kind"] == "SourceStep" for s in stages),
-                "selected_local_worker_stage_count": int(
-                    any(s["kind"] == "PandasStep" for s in stages)
-                ),
+                "selected_local_stage_count": int(any(s["kind"] == "PandasStep" for s in stages)),
                 "stage_scope": "Selected graph; zero steps on exact recovery or pre-placement rejection. Query completion is reported separately in statistics.",
                 "statistics": statistics(runtime),
                 "elapsed_seconds": elapsed,
                 "local_step_count": len(runtime.statistics.local_handoffs),
-                "worker_peak_rss_bytes": runtime.statistics.worker_peak_rss
-                if runtime.statistics.worker_pid is not None
-                else None,
-                "rss_scope": "local worker peak; source engine and unspawned worker unavailable",
                 "output_rows": None if receipt is None else receipt.realized_row_count,
                 "output_stored_bytes": None if receipt is None else receipt.realized_byte_count,
                 "writer_target": type(runtime.target).__name__,

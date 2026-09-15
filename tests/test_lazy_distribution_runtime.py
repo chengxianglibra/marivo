@@ -172,13 +172,11 @@ def test_retained_distribution_corruption_blocks_consumption_but_not_primary_rea
     assert len(runtime.graph().artifacts) == 1
 
 
-@pytest.mark.parametrize("top_k,success", [(None, False), (8, False), (7, True)])
-def test_player_limit_counts_real_other_after_mapping(
-    tmp_path: Path, top_k: int | None, success: bool
+@pytest.mark.parametrize("top_k", [None, 8, 7])
+def test_complete_players_and_other_survive_mapping_above_former_cap(
+    tmp_path: Path, top_k: int | None
 ) -> None:
     import duckdb
-
-    from marivo.analysis.materialization.errors import MaterializationError
 
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
@@ -206,36 +204,10 @@ def test_player_limit_counts_real_other_after_mapping(
         .aggregate()
     )
     logical = current.compare(baseline).attribute(axes=(CHANNEL,), top_k=top_k)
-    if success:
-        output = logical.execute().to_pandas()
-        assert len(output) == 8 and output.contribution.sum() == pytest.approx(1.0)
-        assert sum(tuple(mask) == (True,) for mask in output.other_mask) == 1
-    else:
-        with pytest.raises(MaterializationError):
-            logical.execute()
-        assert not runtime.graph().artifacts
-
-
-def test_coalition_combined_input_budget_prevents_worker_invocation(tmp_path: Path) -> None:
-    from dataclasses import replace
-    from unittest.mock import patch
-
-    from marivo.analysis.materialization import admission
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    database = tmp_path / "warehouse.duckdb"
-    seed_distribution_database(database)
-    registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "budgets", target=LocalTarget())
-    runtime.local_policy = replace(runtime.local_policy, max_input_rows=3)
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = sources.observe(METRIC).with_dimensions(CHANNEL).aggregate()
-    with (
-        patch.object(admission, "supervise", side_effect=AssertionError("worker invoked")),
-        pytest.raises(MaterializationError, match="coalition count"),
-    ):
-        metric.compare(metric).attribute(axes=(CHANNEL,)).execute()
-    assert not runtime.graph().artifacts
+    output = logical.execute().to_pandas()
+    assert len(output) == (9 if top_k is None else top_k + 1)
+    assert output.contribution.sum() == pytest.approx(1.0)
+    assert sum(tuple(mask) == (True,) for mask in output.other_mask) == (0 if top_k is None else 1)
 
 
 @pytest.mark.parametrize("method", ["linear_interpolation@v1", "duckdb_tdigest@v1"])

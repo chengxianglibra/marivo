@@ -163,7 +163,7 @@ def inspect_history(
     bindings: tuple[ObjectBinding, ...],
     policy: ReadPolicy,
 ) -> None:
-    """Inspect all immutable replay rows inside the bounded inspection worker."""
+    """Inspect all immutable replay rows in the calling process."""
     from itertools import chain
 
     import ibis

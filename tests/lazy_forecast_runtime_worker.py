@@ -59,7 +59,7 @@ def run(mode: str, model: str, kind: str, project: Path, refs: dict[str, str]) -
                     "place",
                     "compile_dataset",
                     "_build_backend_from_effective",
-                    "supervise",
+                    "execute_local",
                 ):
                     guards.enter_context(patch.object(admission, name, forbidden))
             rebound = metric.forecast(horizon=periods(4), model=method).execute()

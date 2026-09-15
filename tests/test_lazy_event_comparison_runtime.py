@@ -25,7 +25,6 @@ from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_event_fixtures import make_event_registry
 from tests.lazy_event_runtime_fixtures import journey, setup_event
-from tests.lazy_local_fixtures import pandas_methods
 
 pytestmark = pytest.mark.runtime
 
@@ -99,9 +98,9 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
     ) == ("valid", "readable", "valid")
     if not local:
         assert runtime.statistics.transferred_rows == len(contributions)
-        assert runtime.statistics.worker_pid is None
+        assert runtime.statistics.events.get("local_execution_started", 0) == 0
     else:
-        assert runtime.statistics.worker_pid is not None
+        assert runtime.statistics.events.get("local_execution_started", 0) > 0
     checkpoint = cold.artifact(result.state.artifact_ref)
     assert isinstance(checkpoint, MaterializedDeltaDataset)
     with pytest.raises(Exception, match=r"checkpoint|journey"):
@@ -189,31 +188,14 @@ def test_attribution_failure_or_cancellation_is_atomic(tmp_path: Path, point: st
     )
     before = snapshot(runtime)
     armed = True
-    with pytest.raises(MaterializationError) as caught:
+    with pytest.raises(KeyboardInterrupt) as caught:
         output.execute()
-    assert "canary" not in str(caught.value)
+    assert "canary" in str(caught.value)
     assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"]
     assert snapshot(runtime)["dataset_evidence"] == before["dataset_evidence"]
     assert runtime.store.resources(runtime.session_ref) == ()
     armed = False
     assert output.execute().to_pandas().contribution.sum() == 0
-
-
-def test_complete_local_inputs_obey_combined_budget(tmp_path: Path) -> None:
-    from marivo.analysis.materialization.local import LocalPolicy
-    from marivo.analysis.materialization.targets import LocalTarget
-
-    runtime, sources, _ = setup_event(tmp_path)
-    j = journey(sources)
-    receiver = j.funnel().execute()
-    output = receiver.compare(receiver)
-    runtime.target = LocalTarget()
-    runtime.local_policy = LocalPolicy(max_method_rows=3)
-    before = snapshot(runtime)
-    with pandas_methods("event.compare"), pytest.raises(MaterializationError):
-        output.execute()
-    assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"]
-    assert runtime.store.resources(runtime.session_ref) == ()
 
 
 def test_aggregate_funnel_checkpoint_has_no_journey_authority(tmp_path: Path) -> None:
@@ -279,7 +261,7 @@ def test_cold_attribution_authority_corruption_is_rejected(tmp_path: Path, corru
     before = snapshot(runtime)
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
     with (
-        patch("marivo.analysis.materialization.admission.supervise", forbidden),
+        patch("marivo.analysis.materialization.admission.execute_local", forbidden),
         pytest.raises(IntegrityError),
     ):
         cold.artifact(output.state.artifact_ref)

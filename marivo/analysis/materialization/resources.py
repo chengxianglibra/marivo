@@ -17,12 +17,6 @@ from marivo.analysis.materialization.object_termination import (
 )
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.targets import ObjectBinding
-from marivo.analysis.materialization.worker_lifetime import (
-    WORKER_CAPABILITY,
-    WORKSPACE_CAPABILITY,
-    worker_is_terminal,
-    worker_resource_path,
-)
 
 _TERMINATED: set[ResourceRecord] = set()
 _LOCAL_CAPABILITY = "local_owned_path@v1"
@@ -54,9 +48,7 @@ def forget_local_termination(resources: tuple[ResourceRecord, ...]) -> None:
     _TERMINATED.difference_update(resources)
 
 
-def confirm_execution_termination(
-    resource: ResourceRecord, store: SessionStore | None = None
-) -> bool:
+def confirm_execution_termination(resource: ResourceRecord) -> bool:
     """Validate exact termination and retain derived local proof until discharge.
 
     A planner relation inherits its owning connection's proof. Retaining that
@@ -65,8 +57,6 @@ def confirm_execution_termination(
     """
     if resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY:
         return object_request_is_terminal(resource)
-    if resource.cleanup_capability_id == WORKER_CAPABILITY:
-        return store is not None and worker_is_terminal(store, resource)
     if (
         resource.resource_kind not in ("backend_execution", "planner_temporary_relation")
         or resource.cleanup_capability_id != _DUCKDB_CAPABILITY
@@ -159,7 +149,7 @@ def discharge_resources(
         if resource.resource_kind in (
             "backend_execution",
             "planner_temporary_relation",
-        ) and not confirm_execution_termination(resource, store):
+        ) and not confirm_execution_termination(resource):
             raise RecoveryPendingError(
                 expected="authoritative process or connection termination proof",
                 received="execution termination remains unproved",
@@ -192,16 +182,6 @@ def discharge_resources(
                 raise
             except MaterializationError:
                 # Proven-terminal exact object garbage can be maintained later.
-                pass
-            continue
-        if resource.cleanup_capability_id == WORKSPACE_CAPABILITY:
-            path = worker_resource_path(store, resource)
-            try:
-                if path.exists():
-                    shutil.rmtree(path)
-                resolved.append(resource)
-            except OSError:
-                # The execution is terminal; its exact workspace is harmless garbage.
                 pass
             continue
         if resource.cleanup_capability_id != _LOCAL_CAPABILITY:

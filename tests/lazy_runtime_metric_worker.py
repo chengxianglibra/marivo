@@ -32,8 +32,9 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
             "after": snapshot(fixture.runtime),
         }
     runtime = DatasetRuntime.open(project, session)
-    dataset = runtime.artifact(artifact)
-    assert isinstance(dataset, MaterializedMetricDataset)
+    recovered = runtime.artifact(artifact)
+    assert isinstance(recovered, MaterializedMetricDataset)
+    dataset = recovered
     try:
         dataset.fields.metric(expressions()[0])
     except DatasetFieldSelectionError:
@@ -52,7 +53,7 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
             stack.enter_context(patch.object(admission, name, forbidden))
         if mode == "cold":
             runtime.target = ObjectTarget("unconfigured")
-            for name in ("place", "supervise"):
+            for name in ("place", "execute_local"):
                 stack.enter_context(patch.object(admission, name, forbidden))
         if mode == "cold":
             from tests.lazy_execution_fixtures import make_execution_registry

@@ -104,10 +104,10 @@ def test_fresh_adapter_journey_and_cold_binding(
     assert isinstance(stats, dict)
     if kind == "engine":
         # Native execution still transfers the four output rows to immutable Parquet.
-        assert stats["transferred_rows"] == 4 and stats["worker_pid"] is None
+        assert stats["transferred_rows"] == 4 and stats["local_executions"] == 0
         assert '"customers"' not in json.dumps(stats["statements"])
     else:
-        assert stats["primary_queries"] == 0 and stats["worker_pid"] is not None
+        assert stats["primary_queries"] == 0 and stats["local_executions"] > 0
         requests = continued["object_requests"]
         assert isinstance(requests, list) and requests
         assert all(isinstance(item, dict) and item["version_pinned"] is True for item in requests)

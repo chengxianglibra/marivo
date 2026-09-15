@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -15,8 +14,7 @@ from marivo.analysis.materialization.errors import (
     IntegrityError,
     MaterializationError,
 )
-from marivo.analysis.materialization.storage import StoragePolicy
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
+from marivo.analysis.materialization.targets import ObjectTarget
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 
@@ -53,7 +51,7 @@ def test_parquet_failures_publish_nothing_and_clean_exact_reservations(
     fixture = setup_adapter(tmp_path, "engine", event=event)
     unrelated = tmp_path / "unrelated.duckdb"
     unrelated.write_bytes(b"preserve")
-    with pytest.raises(MaterializationError):
+    with pytest.raises(RuntimeError):
         fixture.sources.population(ref.entity("sales.customers")).execute()
     _assert_failed(fixture.runtime)
     assert unrelated.read_bytes() == b"preserve"
@@ -91,25 +89,6 @@ def test_missing_object_configuration_precedes_source_work(tmp_path: Path) -> No
     _assert_failed(fixture.runtime)
     assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
     assert fixture.runtime.statistics.events.get("source_statement", 0) == 0
-
-
-def test_parquet_storage_budget_aborts_without_another_target(tmp_path: Path) -> None:
-    fixture = setup_adapter(tmp_path, "engine")
-    assert isinstance(fixture.runtime.target, LocalTarget)
-    fixture.runtime.target = replace(
-        fixture.runtime.target, policy=StoragePolicy(max_stored_bytes=1)
-    )
-    with pytest.raises(MaterializationError, match="disk budget") as caught:
-        fixture.sources.population(ref.entity("sales.customers")).execute()
-    assert caught.value.stage == "transfer_guard"
-    assert caught.value.received == "disk budget exceeded"
-    _assert_failed(fixture.runtime)
-    assert fixture.runtime.last_run_ref is not None
-    run = fixture.runtime.store.run(fixture.runtime.last_run_ref)
-    assert run is not None and run.failure is not None
-    assert run.failure.phase == "transfer_guard"
-    assert run.failure.received == "disk budget exceeded"
-    assert not tuple(tmp_path.rglob("*.parquet"))
 
 
 def test_binding_hit_ignores_new_invalid_target(tmp_path: Path) -> None:
@@ -171,7 +150,7 @@ def test_parquet_identity_checkpoint_uses_registered_native_scan(
     assert fixture.runtime.last_run_ref is not None
     run = fixture.runtime.get_run(fixture.runtime.last_run_ref)
     assert run.input_artifact_refs == (population.state.artifact_ref,)
-    assert fixture.runtime.statistics.worker_pid is None
+    assert fixture.runtime.statistics.events.get("local_execution_started", 0) == 0
 
 
 def test_pandas_result_publishes_parquet_without_source_upload(tmp_path: Path) -> None:
@@ -184,7 +163,7 @@ def test_pandas_result_publishes_parquet_without_source_upload(tmp_path: Path) -
     with pandas_methods("metric.where"):
         output = result.where(gt(REVENUE, 15)).execute()
     assert sorted(output.to_pandas()["revenue"].tolist()) == [30.0, 100.0]
-    assert runtime.statistics.worker_pid is not None
+    assert runtime.statistics.events.get("local_execution_started", 0) > 0
     assert runtime.statistics.primary_queries == 0
     record = runtime.store.artifact(output.state.artifact_ref.ref)
     assert record is not None and isinstance(record.descriptor.storage_receipt, c.LocalReceipt)

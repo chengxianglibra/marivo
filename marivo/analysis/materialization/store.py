@@ -1,4 +1,4 @@
-"""One normalized v3 SQLite authority with short atomic metadata transactions."""
+"""One normalized v4 SQLite authority with short atomic metadata transactions."""
 
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 
 def _generation_error(version: object) -> IntegrityError:
     return IntegrityError(
-        expected="an existing complete Session Store with user_version=3",
+        expected="an existing complete Session Store with user_version=4",
         received=f"Session Store user_version={version}",
         repair="Preserve the old Store unchanged and create a new named Session in a fresh project; old Stores cannot be resumed or migrated.",
         stage="store_generation",
@@ -186,7 +186,7 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.01)
         else:
             if mode != "wal":
-                raise invalid("v3 Store requires WAL durability")
+                raise invalid("v4 Store requires WAL durability")
             return
 
 
@@ -240,7 +240,7 @@ class SessionStore:
 
     @classmethod
     def open_existing(cls, project_root: str | Path) -> SessionStore:
-        """Open only an existing complete v3 authority without initializing state."""
+        """Open only an existing complete v4 authority without initializing state."""
         result = cls.__new__(cls)
         result.layout = MaterializationLayout(Path(project_root))
         unavailable = False
@@ -249,7 +249,7 @@ class SessionStore:
         except (sqlite3.Error, OSError):
             unavailable = True
         if unavailable:
-            raise invalid("selected v3 Store is unavailable")
+            raise invalid("selected v4 Store is unavailable")
         return result
 
     @property
@@ -286,7 +286,7 @@ class SessionStore:
         if not readonly:
             conn.execute("PRAGMA synchronous=FULL")
         version: object = conn.execute("PRAGMA user_version").fetchone()[0]
-        if version != 3:
+        if version != 4:
             conn.close()
             raise invalid("unsupported Store generation")
         return conn
@@ -302,9 +302,9 @@ class SessionStore:
                 tables = read.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
-                if version != 3:
+                if version != 4:
                     raise _generation_error(version)
-                if version == 3:
+                if version == 4:
                     expected = {
                         "sessions",
                         "runtime_state",
@@ -317,29 +317,29 @@ class SessionStore:
                         "action_resource_journal",
                     }
                     if {row[0] for row in tables} != expected:
-                        raise invalid("incomplete v3 schema")
+                        raise invalid("incomplete v4 schema")
                     strict = read.execute("PRAGMA table_list").fetchall()
                     if any(row[5] != 1 for row in strict if row[1] in expected):
-                        raise invalid("non-STRICT v3 relation")
+                        raise invalid("non-STRICT v4 relation")
                     if immutable:
                         # Immutable SQLite reports its local journal mode as delete.
                         # The durable header remains the authority for a clean WAL Store.
                         with self.db_path.open("rb") as source:
                             wal_header = source.read(20)[18:20]
                         if wal_header != b"\x02\x02":
-                            raise invalid("v3 Store requires WAL durability")
+                            raise invalid("v4 Store requires WAL durability")
                     else:
                         journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
                         if journal != "wal":
-                            raise invalid("v3 Store requires WAL durability")
+                            raise invalid("v4 Store requires WAL durability")
             finally:
                 read.close()
-            if version == 3:
+            if version == 4:
                 return
         if existing_only:
-            raise invalid("selected v3 Store is absent")
+            raise invalid("selected v4 Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        # Publish only a complete, closed v3 file. Competing creators never see
+        # Publish only a complete, closed v4 file. Competing creators never see
         # an empty generation-zero database or perform a migration in place.
         with TemporaryDirectory(prefix="store-init-", dir=self.db_path.parent) as directory:
             staged = Path(directory) / "session_store.db"
@@ -352,7 +352,7 @@ class SessionStore:
                 for statement in _SCHEMA.split(";"):
                     if statement.strip():
                         conn.execute(statement)
-                conn.execute("PRAGMA user_version=3")
+                conn.execute("PRAGMA user_version=4")
                 conn.commit()
             finally:
                 conn.close()

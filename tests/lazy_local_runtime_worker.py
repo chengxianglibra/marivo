@@ -8,7 +8,6 @@ import json
 import os
 import sys
 from contextlib import ExitStack, redirect_stdout
-from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,7 +17,6 @@ from ibis.backends.duckdb import Backend
 from marivo.analysis.compiler.placement import place
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.local_worker import supervise
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from tests.lazy_local_fixtures import COUNT, REVENUE, pandas_methods, setup_local
@@ -26,23 +24,6 @@ from tests.lazy_materialization_crash_worker import record_evidence, snapshot, s
 
 # Instrument the actual production worker entry, including its PyArrow reads.
 # Any forbidden attempt makes the producing journey fail; no alternate worker method exists.
-_GUARDED_WORKER = """
-import duckdb
-from unittest.mock import patch
-from contextlib import ExitStack
-from ibis.backends.duckdb import Backend
-import marivo.analysis.materialization.admission as admission
-from marivo.analysis.materialization.local_worker import worker_entry
-def forbidden(*args, **kwargs):
-    raise AssertionError('forbidden source access in local worker')
-with ExitStack() as stack:
-    stack.enter_context(patch.object(duckdb, "connect", forbidden))
-    for name in ('connect','raw_sql','table','to_pyarrow','to_pyarrow_batches','read_parquet'):
-        stack.enter_context(patch.object(Backend, name, forbidden))
-    stack.enter_context(patch.object(admission, '_build_backend_from_effective', forbidden))
-    stack.enter_context(patch.object(admission, '_effective_kwargs', forbidden))
-    worker_entry()
-"""
 
 
 def _rows(frame: pd.DataFrame) -> list[list[object]]:
@@ -104,11 +85,6 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
                 "read_parquet",
             ):
                 stack.enter_context(patch.object(Backend, name, forbidden))
-            stack.enter_context(
-                patch.object(
-                    admission, "supervise", partial(supervise, worker_code=_GUARDED_WORKER)
-                )
-            )
             retained = runtime.artifact(artifact)
             assert isinstance(retained, MaterializedMetricDataset)
             assert snapshot(runtime) == before
@@ -126,8 +102,7 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
             stats = {
                 **statistics(runtime),
                 "handoffs": runtime.statistics.local_handoffs,
-                "worker_pid": runtime.statistics.worker_pid,
-                "worker_peak_rss": runtime.statistics.worker_peak_rss,
+                "local_executions": runtime.statistics.events.get("local_execution_started", 0),
             }
             record = runtime.store.artifact(result.state.artifact_ref.ref)
             assert record is not None
@@ -140,7 +115,10 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
             after = snapshot(runtime)
             assert logical.execute().state.artifact_ref == result.state.artifact_ref
             assert snapshot(runtime) == after
-            assert runtime.statistics.primary_queries == 0 and runtime.statistics.worker_pid is None
+            assert (
+                runtime.statistics.primary_queries == 0
+                and runtime.statistics.events.get("local_execution_started", 0) == 0
+            )
         assert forbidden_attempts == []
         return {
             "pid": os.getpid(),

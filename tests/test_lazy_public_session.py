@@ -58,7 +58,7 @@ def test_public_construction_has_no_datasource_io_and_rejects_cross_session(
     assert not second._runtime.statistics.statements
 
 
-@pytest.mark.parametrize("version", [0, 2, 4])
+@pytest.mark.parametrize("version", [0, 2, 3])
 @pytest.mark.parametrize("entry", ["get_or_create", "resume", "current"])
 def test_public_session_rejects_existing_store_without_modifying_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: int, entry: str

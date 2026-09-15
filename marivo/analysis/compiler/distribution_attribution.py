@@ -180,14 +180,6 @@ def lower_distribution_attribute(
             )
         ).view()
         counts = _group(players, scopes, {PLAYER_COUNT: players.count()}).view()
-        assertion(
-            f"players_{resolution}",
-            counts.filter(counts[PLAYER_COUNT] > 8),
-            expected="at most eight mapped players in every comparison scope and resolution",
-            repair="Lower top_k or choose a coarser attribution axis; Other counts as a player.",
-        )
-        # The relation itself also prevents exponential work before preflight fails.
-        counts = counts.filter(counts[PLAYER_COUNT] <= 8).view()
         player_struct = ibis.struct(
             {
                 **{

@@ -2,7 +2,7 @@
 
 Date: 2026-09-15
 
-Status: staged implementation; Slices 0, 1 and 1a complete. Slices 1b/1c and
+Status: staged implementation; Slices 0, 1, 1a and 1b complete. Slice 1c and
 remote backend implementation remain pending. No new backend is enabled by this
 document. Each backend/method combination requires its own acceptance.
 
@@ -536,8 +536,10 @@ Runtime cases and the broad gate passing. The
 [DuckDB adapter evidence record](2026-09-15-multisource-slice-1-acceptance.md)
 records the exact scope and independent review. Non-DuckDB execution remains
 disabled. Slice 1a is also complete, with separate
-[acceptance evidence](2026-09-15-multisource-slice-1a-acceptance.md). Slices 1b and
-1c remain pending and precede exact multi-backend dispatch in Slice 2. Historical Slice 1 behavior preservation is not a requirement to
+[acceptance evidence](2026-09-15-multisource-slice-1a-acceptance.md). Slice 1b is complete with
+[caller-execution acceptance evidence](2026-09-15-multisource-slice-1b-acceptance.md).
+Slice 1c remains pending and precedes exact multi-backend dispatch in Slice 2.
+Historical Slice 1 behavior preservation is not a requirement to
 retain the mechanisms explicitly removed by these amendments.
 
 Slice 1a was implemented as a separately authorized task with the following
@@ -564,8 +566,9 @@ typing/lint and `make check-agent`. Do not activate another backend in Slice 1a.
 
 ### Slice 1b removal and refactoring tasks
 
-This is a planned implementation task; this documentation update does not
-implement the removal or authorize unrelated backend activation.
+Completed on 2026-09-15; see the [Slice 1b acceptance record](2026-09-15-multisource-slice-1b-acceptance.md).
+The scope and verification requirements below remain the owning contract.
+No unrelated backend activation is included.
 
 1. **Inventory enforcement and dependencies.** Trace source execution, native
    retained scans, local suffixes, multi-input methods, storage writers and

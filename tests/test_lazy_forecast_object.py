@@ -150,5 +150,5 @@ def test_forecast_object_roundtrip_and_local_continuation(
     assert selected_result.evidence_digest.finding_count == 2
     assert reopened.statistics.primary_queries == 1
     assert reopened.statistics.events.get("profile_resolution", 0) == 0
-    assert reopened.statistics.worker_pid is None
+    assert reopened.statistics.events.get("local_execution_started", 0) == 0
     assert reopened.statistics.transferred_rows == 2

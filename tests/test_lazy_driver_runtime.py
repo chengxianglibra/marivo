@@ -78,7 +78,10 @@ def test_scoped_days_survive_driver_and_local_row_continuations(
     output = result.to_pandas()
     assert output.comparison_ordinal.tolist() == [1]
     assert output.current_time.iloc[0].month == 2 and output.baseline_time.iloc[0].month == 1
-    assert cold.statistics.primary_queries == 1 and cold.statistics.worker_pid is None
+    assert (
+        cold.statistics.primary_queries == 1
+        and cold.statistics.events.get("local_execution_started", 0) == 0
+    )
     original = fixture.runtime.store.artifact(candidates.state.artifact_ref.ref)
     changed = cold.store.artifact(result.state.artifact_ref.ref)
     assert original is not None and changed is not None
@@ -151,7 +154,7 @@ def test_independent_sources_use_exact_local_driver_frontier(tmp_path: Path) -> 
         current = left.with_dimensions(CHANNEL).aggregate()
         baseline = right.with_dimensions(CHANNEL).aggregate()
         result = current.compare(baseline).discover.driver_axes(search_space=[CHANNEL]).execute()
-        assert runtime.statistics.worker_pid is not None and len(calls) == 2
+        assert runtime.statistics.events.get("local_execution_started", 0) > 0 and len(calls) == 2
         frame = result.to_pandas()
         assert frame.axis_cardinality.tolist() == [1]
         assert frame.concentration_share.tolist() == [1.0]
@@ -195,7 +198,7 @@ def test_independent_source_expansion_preserves_original_time_ordinals(
     assert frame.comparison_ordinal.tolist() == [1]
     assert frame.concentration_share.tolist() == pytest.approx([0.7])
     assert frame.current_time.iloc[0].month == 2 and frame.baseline_time.iloc[0].month == 1
-    assert fixture.runtime.statistics.worker_pid is not None
+    assert fixture.runtime.statistics.events.get("local_execution_started", 0) > 0
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 
@@ -211,4 +214,4 @@ def test_entity_driver_scope_privacy_and_retained_permission(tmp_path: Path, kin
     selected = result.where(gt(result.fields.get("score"), 0))
     continued = selected.execute()
     assert len(continued.to_pandas()) == 2
-    assert fixture.runtime.statistics.worker_pid is None
+    assert fixture.runtime.statistics.events.get("local_execution_started", 0) == 0

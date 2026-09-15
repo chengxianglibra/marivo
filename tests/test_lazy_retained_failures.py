@@ -1,16 +1,13 @@
 """Atomic publication and storage guards exercised by real retained fold consumers."""
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
-from tests.lazy_local_fixtures import pandas_methods
 from tests.lazy_retained_fixtures import setup_retained
 
 pytestmark = pytest.mark.runtime
@@ -38,7 +35,7 @@ def test_retained_fold_failure_preserves_input_and_publishes_no_partial_bundle(
             raise RuntimeError("retained-fold-publication-fault")
 
     fixture.runtime._hook = fail
-    with pytest.raises(MaterializationError):
+    with pytest.raises(RuntimeError):
         checkpoint.where(gt(REVENUE, 0)).aggregate().execute()
     assert attempts == [point]
     after = snapshot(fixture.runtime)
@@ -66,16 +63,3 @@ def test_retained_fold_lost_commit_acknowledgement_recovers_same_binding(tmp_pat
     assert snapshot(fixture.runtime) == after
     assert after["dataset_artifacts"] == after["dataset_evidence"] == 2
     assert after["action_resource_journal"] == 0
-
-
-def test_limit_cannot_hide_oversized_complete_retained_input(tmp_path: Path) -> None:
-    with pandas_methods("metric.rank"):
-        fixture = setup_retained(tmp_path)
-        checkpoint = fixture.sources.observe([REVENUE, MEAN]).execute()
-        fixture.runtime.local_policy = replace(fixture.runtime.local_policy, max_input_rows=5)
-        logical = checkpoint.rank(checkpoint.fields.metric(REVENUE)).limit(1).aggregate()
-        with pytest.raises(MaterializationError):
-            logical.execute()
-        after = snapshot(fixture.runtime)
-        assert after["dataset_artifacts"] == after["dataset_evidence"] == 1
-        assert after["action_resource_journal"] == 0

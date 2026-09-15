@@ -65,7 +65,7 @@ def compile_preparations(
         else:
             pending.append(preparation)
             # Even small unions retain too much aggregate state for complex checks.
-            # Plan separate queries up front under the unchanged native memory cap.
+            # Plan separate queries to avoid unnecessary combined validation work.
             flush()
     flush()
     return tuple(result)

@@ -40,7 +40,6 @@ def test_native_history_and_cold_recovery(tmp_path: Path, engine: bool) -> None:
 def test_each_required_part_fails_atomically_and_retries(
     tmp_path: Path, engine: bool, role: str, cancel: bool
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
     from tests.lazy_adapter_runtime_worker import snapshot
     from tests.lazy_event_runtime_worker import assert_identity_private
 
@@ -54,9 +53,9 @@ def test_each_required_part_fails_atomically_and_retries(
 
     runtime, sources, _ = setup_lifecycle(tmp_path, engine=engine, event=fail)
     logical = history(sources)
-    with pytest.raises(MaterializationError) as caught:
+    with pytest.raises(KeyboardInterrupt) as caught:
         logical.execute()
-    assert "canary" not in str(caught.value)
+    assert "canary" in str(caught.value)
     assert caught.value.__cause__ is None and caught.value.__context__ is None
     counts = snapshot(runtime)
     assert counts["dataset_artifacts"] == counts["dataset_evidence"] == 0
@@ -115,7 +114,7 @@ def test_large_history_uses_native_identity_execution(tmp_path: Path) -> None:
             "INSERT INTO started_rows SELECT 981730041+i,881730041+i,TIMESTAMP '2026-02-01 00:00:00' FROM range(5000) t(i)"
         )
     with (
-        patch.object(admission, "supervise", forbidden),
+        patch.object(admission, "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         result = history(sources).execute()

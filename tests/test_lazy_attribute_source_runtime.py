@@ -103,7 +103,7 @@ def test_entity_expansion_reduces_only_global_proof_in_source(tmp_path: Path) ->
     assert proof.scope_count == 6 and proof.resolution_count == 12
     assert proof.max_reconciliation_error == 0 and proof.complete
     assert proof.emitted_finding_count == 0 and result.findings().items == ()
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert any(name == "attribution.source_summary" for name, _ in runtime.statistics.statements)
     record_evidence(
         "source-entity-global-proof",
@@ -117,7 +117,7 @@ def test_entity_expansion_reduces_only_global_proof_in_source(tmp_path: Path) ->
             "max_reconciliation_error": proof.max_reconciliation_error,
             "mapped_membership_digest": proof.mapped_membership_digest,
             "entity_rows_collected": False,
-            "worker_pid": runtime.statistics.worker_pid,
+            "local_executions": runtime.statistics.events.get("local_execution_started", 0),
             "emitted_findings": 0,
         },
         kind="source",
@@ -236,7 +236,7 @@ def test_decimal_source_summary_preserves_exact_attribution_values(tmp_path: Pat
     assert record is not None and record.descriptor.attribution_evidence is not None
     proof = record.descriptor.attribution_evidence
     assert proof.complete and proof.max_reconciliation_error == 0.0
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
 
 
 def test_component_hierarchy_keeps_validation_memory_bounded(tmp_path: Path) -> None:

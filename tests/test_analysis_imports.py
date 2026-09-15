@@ -325,7 +325,7 @@ assert 'marivo.analysis._public' not in sys.modules
 assert 'marivo.analysis.frames' not in sys.modules
 assert 'marivo.analysis.evidence' not in sys.modules
 assert 'marivo.analysis.session' not in sys.modules
-from marivo.analysis.materialization import local_worker
+from marivo.analysis.materialization import local_execution
 assert 'marivo.analysis._capabilities.registry' not in sys.modules
 # A normal session facade access must still install wrappers before invocation.
 assert callable(mv.session.get_or_create)

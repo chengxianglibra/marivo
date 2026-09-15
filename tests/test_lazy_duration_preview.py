@@ -9,7 +9,6 @@ import pytest
 
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization import admission
-from marivo.analysis.materialization.errors import CollectionLimitError
 from tests.lazy_adapter_runtime_worker import forbidden
 from tests.lazy_event_runtime_fixtures import journey, setup_event
 from tests.lazy_lifecycle_fixtures import history, setup_lifecycle
@@ -40,9 +39,7 @@ def test_duration_preview_discloses_units_under_read_bounds(
     database.rename(tmp_path / "warehouse.offline")
     before = snapshot(runtime)
     monkeypatch.setattr(admission, "_build_backend_from_effective", forbidden)
-    monkeypatch.setattr(
-        admission, "_READ_POLICY", replace(admission._READ_POLICY, preview_rows=1, max_rows=1)
-    )
+    monkeypatch.setattr(admission, "_READ_POLICY", replace(admission._READ_POLICY, preview_rows=1))
     materialized.show()
     shown = capsys.readouterr().out
     assert "Durations (microseconds): " + ", ".join(duration_fields) in shown
@@ -51,6 +48,5 @@ def test_duration_preview_discloses_units_under_read_bounds(
         assert "10800000000.0" in shown
     materialized.show(max_output_bytes=80)
     assert len(capsys.readouterr().out.encode()) <= 80
-    with pytest.raises(CollectionLimitError):
-        materialized.to_pandas()
+    materialized.to_pandas()
     assert snapshot(runtime) == before

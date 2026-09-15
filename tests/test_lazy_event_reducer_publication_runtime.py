@@ -114,9 +114,9 @@ def test_reducer_cancel_after_staging_publishes_no_authority(tmp_path: Path, kin
             raise KeyboardInterrupt("private-reducer-cancellation-canary")
 
     runtime, sources, _ = setup_event(tmp_path, engine=True, event=cancel)
-    with pytest.raises(MaterializationError) as caught:
+    with pytest.raises(KeyboardInterrupt) as caught:
         _reducer(journey(sources), kind).execute()
-    assert "canary" not in str(caught.value)
+    assert "canary" in str(caught.value)
     assert caught.value.__cause__ is None and caught.value.__context__ is None
     counts = snapshot(runtime)
     assert counts["dataset_artifacts"] == counts["dataset_evidence"] == 0
@@ -152,7 +152,7 @@ def test_cold_reducer_metadata_corruption_fails_without_origin_or_partial_output
     before = snapshot(runtime)
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
     with (
-        patch("marivo.analysis.materialization.admission.supervise", forbidden),
+        patch("marivo.analysis.materialization.admission.execute_local", forbidden),
         pytest.raises(IntegrityError) as caught,
     ):
         cold.artifact(output.state.artifact_ref)

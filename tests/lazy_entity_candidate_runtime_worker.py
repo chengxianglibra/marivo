@@ -35,7 +35,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
         logical = entity_metric(sources).discover.entity_outliers()
         selected = logical.where(gte(logical.fields.get("score"), 4.0))
         with (
-            patch.object(admission, "supervise", forbidden),
+            patch.object(admission, "execute_local", forbidden),
             patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
         ):
             direct = sources.observe(ref.metric("sales.line_revenue"), population=selected)
@@ -61,7 +61,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
         selected = result.where(gte(result.fields.get("score"), 4.0))
         ranked = selected.rank(selected.fields.get("score")).limit(1)
         with ExitStack() as guards:
-            guards.enter_context(patch.object(admission, "supervise", forbidden))
+            guards.enter_context(patch.object(admission, "execute_local", forbidden))
             guards.enter_context(
                 patch("marivo.analysis.materialization.reads.payload_batches", forbidden)
             )
@@ -94,7 +94,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
     assert frame.reason_codes.tolist() == [("entity_mad_threshold_met",)]
     record = runtime.store.artifact(refs["candidate"])
     assert record is not None and result.findings().items == ()
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.statistics.transferred_rows == (0 if mode == "cold" else 1)
     if mode != "produce":
         assert all('"orders"' not in sql for _, sql in runtime.statistics.statements)

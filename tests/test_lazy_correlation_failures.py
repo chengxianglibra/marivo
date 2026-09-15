@@ -7,8 +7,8 @@ import pytest
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.local import LocalPolicy
 from marivo.analysis.materialization.targets import LocalTarget
+from marivo.analysis.operators.errors import CorrelationError
 from marivo.refs import ref
 from tests.lazy_local_fixtures import pandas_methods, setup_local
 from tests.lazy_materialization_crash_worker import snapshot
@@ -21,36 +21,6 @@ def unchanged_bundle(before: dict[str, object], after: dict[str, object]) -> Non
     assert isinstance(a, dict) and isinstance(b, dict)
     for name in ("dataset_artifacts", "dataset_evidence", "findings", "action_resource_journal"):
         assert a[name] == b[name]
-
-
-@pytest.mark.parametrize(
-    "policy",
-    [
-        replace(LocalPolicy(), max_input_rows=1),
-        replace(LocalPolicy(), max_method_rows=1),
-        replace(LocalPolicy(), max_input_bytes=1),
-        replace(LocalPolicy(), max_intermediate_bytes=1),
-        replace(LocalPolicy(), max_output_bytes=1),
-        replace(LocalPolicy(), deadline_seconds=0.001),
-    ],
-)
-def test_complete_local_guards_publish_nothing(tmp_path: Path, policy: LocalPolicy) -> None:
-    runtime, sources, _ = setup_local(tmp_path)
-    runtime.local_policy = policy
-    logical = sources.observe(
-        [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
-    ).correlate(method="kendall")
-    before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
-        logical.execute()
-    unchanged_bundle(before, snapshot(runtime))
-    assert runtime.last_run_ref is not None
-    terminal = runtime.store.run(runtime.last_run_ref)
-    assert (
-        terminal is not None
-        and terminal.lifecycle == "failed"
-        and terminal.output_artifact_ref is None
-    )
 
 
 @pytest.mark.parametrize(
@@ -75,11 +45,11 @@ def test_fault_never_publishes_partial_association(tmp_path: Path, point: str) -
         [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
     ).correlate()
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError) as error:
+    with pytest.raises(RuntimeError) as error:
         logical.execute()
-    assert "association-private-canary" not in str(error.value)
+    assert "association-private-canary" in str(error.value)
     unchanged_bundle(before, snapshot(runtime))
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
 
 
 def test_raw_entity_checkpoint_rejected_before_admission(tmp_path: Path) -> None:
@@ -133,7 +103,7 @@ def test_cancellation_does_not_publish_authority(tmp_path: Path, point: str) -> 
 
     runtime, sources, _ = setup_local(tmp_path, event=cancel)
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(KeyboardInterrupt):
         sources.observe([ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]).correlate(
             method="kendall"
         ).execute()
@@ -177,7 +147,7 @@ def test_corrupted_pair_boundary_fails_atomically(
     monkeypatch.setattr(DatasetRuntime, "_batches", corrupt)
     runtime, sources, _ = setup_local(tmp_path)
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError) as error:
+    with pytest.raises(MaterializationError if fault == "missing" else CorrelationError) as error:
         sources.observe([ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]).correlate(
             method="kendall"
         ).execute()

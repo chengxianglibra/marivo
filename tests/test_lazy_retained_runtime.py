@@ -50,7 +50,7 @@ def test_retained_components_select_current_rows_and_fold_without_origin(
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
     assert selected.aggregate().execute().state.artifact_ref == output.state.artifact_ref
     assert fixture.runtime.statistics.primary_queries == 0
-    assert fixture.runtime.statistics.worker_pid is None
+    assert fixture.runtime.statistics.events.get("local_execution_started", 0) == 0
 
 
 @pytest.mark.parametrize("kind", ["local", "engine"])
@@ -164,7 +164,7 @@ def test_source_prefix_transfers_all_parts_once_to_local_fold(
     result = daily.where(gt(REVENUE, 0)).rollup(drop_time=True).execute()
     assert result.to_pandas()["mean_amount"].tolist() == pytest.approx([140 / 3])
     assert fixture.runtime.statistics.primary_queries == 1
-    assert fixture.runtime.statistics.worker_pid is not None
+    assert fixture.runtime.statistics.events.get("local_execution_started", 0) > 0
     assert len(fixture.runtime.statistics.local_handoffs) == 2
     assert (
         fixture.runtime.statistics.local_handoffs[0][1]

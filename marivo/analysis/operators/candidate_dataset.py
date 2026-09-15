@@ -71,7 +71,7 @@ class LogicalCandidateDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="can
         """Commit candidate rows through the runtime; no parameters.
 
         Returns: Materialized Candidate. Example: ``candidate.execute()``.
-        Constraints: The search must have an evaluable series and remain within runtime budgets.
+        Constraints: The search must have an evaluable complete series.
         """
         return owner_of(self).action_port.execute_candidate(self)
 

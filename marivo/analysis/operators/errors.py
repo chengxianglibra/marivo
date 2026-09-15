@@ -80,7 +80,7 @@ def discovery_error(expected: str, received: str) -> CandidateError:
     return CandidateError(
         expected=expected,
         received=received,
-        repair="Use one time-bearing Metric or Delta with sufficient finite non-constant values and registered coordinates; repair gaps or narrow the input within the local budget.",
+        repair="Use one time-bearing Metric or Delta with sufficient finite non-constant values and registered coordinates; repair gaps in the complete input.",
         location="dataset.discover",
     )
 

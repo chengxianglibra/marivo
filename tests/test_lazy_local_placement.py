@@ -91,7 +91,7 @@ def test_required_parts_place_locally_without_worker_or_origin_work(
     assert len(placed.local_steps) == 1
     assert placed.local_steps[0].implementation.local_method == "metric.where"
     assert snapshot(runtime) == before
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.statistics.primary_queries == queries
 
 
@@ -112,7 +112,7 @@ def test_unregistered_source_version_fails_before_run_admission(
         target.execute()
     assert runtime.last_run_ref is None
     assert runtime.statistics.primary_queries == runtime.statistics.validation_queries == 0
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert snapshot(runtime) == before
 
 

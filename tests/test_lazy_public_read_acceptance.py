@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import MaterializationError
 from tests.lazy_materialization_crash_worker import snapshot
 from tests.lazy_public_read_worker import definition, seed_public_project
 
@@ -80,9 +79,9 @@ def test_public_failure_has_one_run_and_no_partial_findings(
             raise RuntimeError("private-public-failure-canary")
 
     monkeypatch.setattr(owner._runtime, "_hook", fault)
-    with pytest.raises(MaterializationError) as error:
+    with pytest.raises(RuntimeError) as error:
         logical.execute()
-    assert "private-public-failure-canary" not in str(error.value)
+    assert "private-public-failure-canary" in str(error.value)
     assert error.value.__cause__ is None and error.value.__context__ is None
     runs = owner.runs().items
     assert len(runs) == 1 and isinstance(runs[0], mv.FailedRun)

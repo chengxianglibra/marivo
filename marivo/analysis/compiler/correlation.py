@@ -13,11 +13,9 @@ from marivo.analysis.compiler.predicates import _boolean
 from marivo.analysis.observation.fold_contracts import decode_fold_authority
 from marivo.analysis.operators.association_contracts import (
     COUNT_NAMES,
-    MAX_CANDIDATES,
     PAIR_NAMES,
     SELECTION_TERMS,
     CorrelateSpecV1,
-    candidate_count,
 )
 
 
@@ -79,18 +77,6 @@ def prepare_pairs(
         _check("correlate.finite_input", table.filter(bad)),
         _check("correlate.nonempty_input", total.filter(total.__total == 0)),
     ]
-    per_series = candidate_count(len(spec.metric_names), len(spec.semantics.lag_offsets))
-    if dims:
-        series = table.select(*dims).distinct()
-        cardinality = series.aggregate(__candidates=series.count() * per_series)
-    else:
-        cardinality = table.aggregate(__candidates=ibis.literal(per_series, type="int64"))
-    checks.append(
-        _check(
-            "correlate.candidate_ceiling",
-            cardinality.filter(cardinality.__candidates > MAX_CANDIDATES),
-        )
-    )
     for a, b in combinations(range(len(spec.metric_names)), 2):
         for lag in spec.semantics.lag_offsets:
             columns = [*dims]

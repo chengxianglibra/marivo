@@ -53,12 +53,12 @@ part uses the exact selected storage authority, with independent schemas,
 cardinalities, hashes and integrity checks. Cleanup covers interrupted and failed
 publication without deleting another Run's resources.
 
-## Atomic Store v3
+## Atomic Store v4
 
-A new Store publishes only a complete initialized generation3 database. Existing
-v0, v2 or other incompatible generations fail read-only preflight; their original
+A new Store publishes only a complete initialized generation 4 database. Existing
+v0, v2, v3 or other incompatible generations fail read-only preflight; their original
 bytes remain intact. No migration, dual reader or in-place generation upgrade is
-provided by this cutover.
+provided. Older generation files and resource obligations remain untouched.
 
 A successful publication commits the Run terminal, Artifact descriptor, storage
 receipts, Evidence and Findings together. A failed Run has no successful output;

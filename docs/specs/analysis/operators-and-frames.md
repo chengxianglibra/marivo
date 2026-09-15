@@ -87,8 +87,10 @@ Every input belongs to the same Session. Definition identity differs from exact
 materialized Artifact identity. Materialized consumers validate selected receipts,
 complete required private state and applicable retained/current authority without
 replaying origin work. Source-required enrichment is a distinct admitted method.
-An unsupported method, invalid role, foreign input or exceeded budget produces a
-structured failure with the expected input and concrete repair.
+An unsupported method, invalid role or foreign input produces a structured failure
+with the expected input and concrete repair. Local execution and complete retained
+reads run in the caller without Marivo resource caps; original execution exceptions
+preserve their causes and tracebacks.
 
 Terminal custom analysis uses `materialized.to_pandas()` or datasource raw SQL.
 Its result cannot be injected as a governed Dataset. No compatibility constructor,

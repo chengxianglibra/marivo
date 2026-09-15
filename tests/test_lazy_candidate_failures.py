@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import replace
 from pathlib import Path
 
+import duckdb
 import pytest
 
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json, descriptor_payload
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.local import LocalPolicy
 from marivo.analysis.operators.candidate_contracts import (
     CandidateEvaluationSummary,
     CandidateObjective,
 )
+from marivo.analysis.operators.errors import CandidateError
 from tests.lazy_candidate_fixtures import candidate_input, discover, setup_candidate
 from tests.lazy_materialization_crash_worker import snapshot
 
@@ -27,33 +27,6 @@ def _unchanged(before: dict[str, object], after: dict[str, object]) -> None:
     assert isinstance(old, dict) and isinstance(new, dict)
     for table in ("dataset_artifacts", "dataset_evidence", "findings", "action_resource_journal"):
         assert old[table] == new[table]
-
-
-@pytest.mark.parametrize(
-    "policy",
-    [
-        replace(LocalPolicy(), max_input_rows=1),
-        replace(LocalPolicy(), max_method_rows=1),
-        replace(LocalPolicy(), max_input_bytes=1),
-        replace(LocalPolicy(), max_output_rows=1),
-        replace(LocalPolicy(), max_output_bytes=1),
-        replace(LocalPolicy(), max_intermediate_bytes=1),
-        replace(LocalPolicy(), max_worker_rss=1),
-        replace(LocalPolicy(), deadline_seconds=0.001),
-    ],
-)
-def test_candidate_guards_publish_nothing(tmp_path: Path, policy: LocalPolicy) -> None:
-    runtime, source, _ = setup_candidate(tmp_path)
-    runtime.local_policy = policy
-    before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
-        discover(
-            candidate_input(source, "point_anomalies"), "point_anomalies", threshold=0.1
-        ).execute()
-    _unchanged(before, snapshot(runtime))
-    assert runtime.last_run_ref is not None
-    run = runtime.store.run(runtime.last_run_ref)
-    assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
 
 
 @pytest.mark.parametrize(
@@ -83,9 +56,9 @@ def test_candidate_fault_rolls_back_complete_bundle(tmp_path: Path, point: str) 
 
     runtime._hook = fault
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError) as error:
+    with pytest.raises(RuntimeError) as error:
         discover(candidate_input(source, "point_anomalies"), "point_anomalies").execute()
-    assert "candidate-private-canary" not in str(error.value)
+    assert "candidate-private-canary" in str(error.value)
     assert observed == [point]
     _unchanged(before, snapshot(runtime))
 
@@ -100,7 +73,7 @@ def test_candidate_cancellation_rolls_back(tmp_path: Path, point: str) -> None:
 
     runtime._hook = cancel
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(KeyboardInterrupt):
         discover(candidate_input(source, "interesting_windows"), "interesting_windows").execute()
     _unchanged(before, snapshot(runtime))
 
@@ -112,7 +85,7 @@ def test_unevaluable_or_overflowed_discovery_never_publishes(
 ) -> None:
     runtime, source, _ = setup_candidate(tmp_path, values)
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(CandidateError):
         discover(candidate_input(source, objective), objective).execute()
     _unchanged(before, snapshot(runtime))
 
@@ -186,7 +159,7 @@ def test_discovery_source_failure_never_publishes_candidate_authority(tmp_path: 
     logical = discover(candidate_input(source, "point_anomalies"), "point_anomalies")
     database.rename(tmp_path / "origin.offline")
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(duckdb.IOException):
         logical.execute()
     old, new = before["tables"], snapshot(runtime)["tables"]
     assert isinstance(old, dict) and isinstance(new, dict)

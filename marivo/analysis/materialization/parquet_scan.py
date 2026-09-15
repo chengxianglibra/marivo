@@ -62,8 +62,7 @@ def attach_parquet_scan(
         _integrity("an immutable Parquet receipt", "unsupported native scan storage")
     from marivo.analysis.materialization.reads import _guarded_payload_batches
 
-    # The owning execution worker enforces the native memory, deadline and
-    # cancellation budgets. This stream never enters a pandas complete-input path.
+    # This native stream never enters a pandas complete-input path.
     stream = _guarded_payload_batches(
         root, receipt, policy=ReadPolicy(), bindings=bindings, audit=True
     )

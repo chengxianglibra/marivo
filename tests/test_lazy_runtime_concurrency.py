@@ -156,7 +156,7 @@ def test_busy_contender_preserves_real_producer(
     assert snapshot(runtime) == completed
     assert runtime.statistics.events == {"reconciliation": 1}
     assert runtime.statistics.primary_queries == runtime.statistics.transferred_rows == 0
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     evidence.update(
         {
             "session": runtime.session_ref,

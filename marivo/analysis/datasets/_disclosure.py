@@ -273,7 +273,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="Paired Materialized Dataset",
                 code="result = metric.execute()",
                 requires=("metric",),
-                effects="Source queries may observe different source states; required checks and atomic publication remain enforced. An execution-key hit recovers the existing snapshot, not fresh source rows. For current source rows, use a new named Session or change an explicit row-affecting input.",
+                effects="Local methods run in the caller without execution budgets; original exceptions propagate. Source queries may observe different source states; required checks and atomic publication remain enforced. An execution-key hit recovers the existing snapshot, not fresh source rows. For current source rows, use a new named Session or change an explicit row-affecting input.",
                 runtime=True,
             ),
             common(
@@ -302,7 +302,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="pandas.DataFrame; cannot re-enter typed analysis",
                 code="result = materialized.to_pandas()",
                 requires=("materialized",),
-                effects="Explicit terminal collection under Runtime row limits; no origin replay.",
+                effects="Complete terminal collection in the caller without resource caps; no origin replay.",
                 runtime=True,
             ),
             common(

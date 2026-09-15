@@ -146,8 +146,6 @@ def test_initialization_and_finish_do_not_submit_consistency_transactions(
     adapter.finish()
     assert submitted == [
         "SET threads=1",
-        "SET memory_limit='256MiB'",
-        "SET max_temp_directory_size='0B'",
         "SET TimeZone='UTC'",
         "SELECT current_setting('TimeZone')",
     ]
@@ -277,27 +275,6 @@ def test_stream_closes_driver_reader_when_unused_or_abandoned(
         assert next(iter(stream)).num_rows == 2
     stream.close()
     assert closed == ["driver"]
-
-
-def test_deadline_joins_interrupt_before_return(
-    native: Backend, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import threading
-
-    adapter = DuckDBExecutionAdapter(native)
-    interrupted = threading.Event()
-    joined: list[bool] = []
-    original_join = threading.Timer.join
-
-    def join(timer: threading.Timer, timeout: float | None = None) -> None:
-        original_join(timer, timeout)
-        joined.append(not timer.is_alive())
-
-    monkeypatch.setattr(adapter, "interrupt", interrupted.set)
-    monkeypatch.setattr(threading.Timer, "join", join)
-    with pytest.raises(MaterializationError), adapter.deadline(0.001):
-        assert interrupted.wait(1)
-    assert joined == [True]
 
 
 def test_nested_udfs_register_each_dependency_after_its_reservation(

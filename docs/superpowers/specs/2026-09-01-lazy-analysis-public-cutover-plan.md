@@ -2,6 +2,15 @@
 
 Date: 2026-09-01
 
+Current-contract amendment (2026-09-15): the later
+[Slice 1b plan](2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md#slice-1b-removal-and-refactoring-tasks)
+and [acceptance record](2026-09-15-multisource-slice-1b-acceptance.md)
+supersede this cutover's worker, execution-budget and Store generation 3
+requirements. The current Store is generation 4; complete local execution and
+retained reads run in the caller without Marivo resource caps. Historical
+checklists and receipts below describe their original revisions, not current
+worker or budget guarantees.
+
 Revised: 2026-09-12
 
 Status: Slices 0-8 and 9a-9c complete; Slice 9d and release readiness pending

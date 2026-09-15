@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
 import duckdb
-import ibis
 import pyarrow as pa
 import pytest
 
 from marivo.analysis.materialization import contracts as c
 from marivo.analysis.materialization import reads
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.storage import ReadPolicy, StoragePolicy
+from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
@@ -25,13 +23,10 @@ pytestmark = pytest.mark.runtime
 
 
 def _part_schema(project: Path, receipt: c.StorageReceipt) -> pa.Schema:
-    if isinstance(receipt, c.LocalReceipt):
-        backend = ibis.duckdb.connect(str(project / receipt.qualified_relation_ref), read_only=True)
-        try:
-            return backend.to_pyarrow(backend.table("rows").limit(0)).schema
-        finally:
-            backend.disconnect()
-    raise AssertionError("Expected an engine-backed retained part")
+    import pyarrow.parquet as pq
+
+    assert isinstance(receipt, c.LocalReceipt)
+    return pq.read_schema(project / receipt.project_relative_path / "data.parquet")
 
 
 @pytest.mark.parametrize("kind", ["engine"])
@@ -50,7 +45,7 @@ def test_only_selected_part_is_read_and_missing_required_part_fails(
     selected, unrelated = record.descriptor.retained_parts
     schema = _part_schema(tmp_path, selected.storage_receipt)
     if isinstance(unrelated.storage_receipt, c.LocalReceipt):
-        (tmp_path / unrelated.storage_receipt.qualified_relation_ref).unlink()
+        (tmp_path / unrelated.storage_receipt.project_relative_path / "data.parquet").unlink()
     assert len(result.to_pandas()) == 4
     batches = tuple(
         reads.read_part_batches(tmp_path, selected, expected_schema=schema, bindings=())
@@ -85,50 +80,6 @@ def test_sampling_state_round_trip_is_atomic_with_primary(
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 
-@pytest.mark.parametrize("kind", ["engine"])
-def test_combined_payload_budget_includes_parts_at_and_above_bound(
-    tmp_path: Path,
-    request: pytest.FixtureRequest,
-    kind: Literal["engine", "object"],
-) -> None:
-    fixture = setup_adapter(tmp_path, kind)
-
-    initial = fixture.sources.observe(ref.metric("sales.mean_amount")).execute()
-    record = fixture.runtime.store.artifact(initial.state.artifact_ref.ref)
-    assert record is not None
-    sizes = [
-        item.realized_byte_count
-        for item in (
-            record.descriptor.storage_receipt,
-            *(part.storage_receipt for part in record.descriptor.retained_parts),
-        )
-    ]
-    assert all(isinstance(size, int) for size in sizes)
-    limit = sum(size for size in sizes if size is not None)
-    for delta in (0, -1):
-        runtime = fixture.runtime.create(
-            tmp_path,
-            "budget-" + str(delta),
-            target=replace(
-                fixture.runtime.target, policy=StoragePolicy(max_stored_bytes=limit + delta)
-            ),
-            object_bindings=fixture.runtime.object_bindings,
-        )
-        sources = runtime.sources(
-            semantic_registry=fixture.sources._owner.semantic_registry,
-            sidecar=fixture.sources._owner.sidecar,
-        )
-        if delta == 0:
-            assert (
-                sources.observe(ref.metric("sales.mean_amount")).execute().state.kind
-                == "materialized"
-            )
-        else:
-            with pytest.raises(MaterializationError):
-                sources.observe(ref.metric("sales.mean_amount")).execute()
-            assert runtime.store.resources(runtime.session_ref) == ()
-
-
 def test_source_rank_with_parts_preserves_primary_order(tmp_path: Path) -> None:
     fixture = setup_adapter(tmp_path, "engine")
     logical = fixture.sources.observe(ref.metric("sales.revenue"))
@@ -137,7 +88,7 @@ def test_source_rank_with_parts_preserves_primary_order(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("kind", ["engine"])
-def test_storage_can_exceed_collection_limit_without_admitting_local_reduction(
+def test_complete_large_retained_collection_and_offline_continuation(
     tmp_path: Path,
     request: pytest.FixtureRequest,
     kind: str,
@@ -150,14 +101,13 @@ def test_storage_can_exceed_collection_limit_without_admitting_local_reduction(
     result = sources.observe(REVENUE).execute()
     assert result.state.realized_row_count > 100000
     database.rename(tmp_path / "warehouse.offline")
-    with pytest.raises(MaterializationError, match="row count"):
-        result.to_pandas()
+    assert len(result.to_pandas()) == result.state.realized_row_count
     narrowed = result.rank(result.fields.metric(REVENUE)).limit(1)
     if kind == "engine":
         output = narrowed.execute()
         assert len(output.to_pandas()) == 1
-        assert runtime.statistics.transferred_rows == 0
-        assert runtime.statistics.worker_pid is None
+        assert runtime.statistics.transferred_rows == 1
+        assert runtime.statistics.events.get("local_execution_started", 0) == 0
     else:
         with pytest.raises(MaterializationError):
             narrowed.execute()

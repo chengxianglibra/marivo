@@ -1,12 +1,10 @@
 """Minimal real-source fixtures for local Metric row continuations."""
 
-import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
-from uuid import uuid4
 
 import pandas as pd
 import pyarrow as pa
@@ -14,17 +12,9 @@ import pyarrow as pa
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import ResourceRecord
 from marivo.analysis.materialization.local import (
-    LocalBudget,
-    LocalPolicy,
     collect_primary,
     to_local_frame,
-)
-from marivo.analysis.materialization.worker_lifetime import (
-    WORKER_CAPABILITY,
-    WORKSPACE_CAPABILITY,
-    WorkerReservation,
 )
 from marivo.analysis.observation.contracts import MetricPayload, RetainedRowsPayload
 from marivo.analysis.observation.metric import LogicalMetricDataset
@@ -92,34 +82,5 @@ def primary_frame(source: LogicalMetricDataset, values: list[float | None]) -> p
             "revenue": pa.array(values, type=pa.float64()),
         }
     )
-    budget = LocalBudget(LocalPolicy(), time.monotonic() + 60)
-    complete = collect_primary(
-        table.to_batches(), source.row_contract, source.row_set_contract, budget
-    )
-    return to_local_frame(complete, source.row_contract, budget)
-
-
-def standalone_worker_reservation(project: Path) -> WorkerReservation:
-    """Supply an isolated lifetime to tests of supervision without Store admission."""
-    nonce = uuid4().hex
-    workspace = project / f"worker-{nonce}"
-    path = workspace / f"lifetime-{nonce}.lock"
-    return WorkerReservation(
-        ResourceRecord(
-            "run_test",
-            "backend_execution",
-            "pandas@v1",
-            nonce,
-            WORKER_CAPABILITY,
-            path.relative_to(project).as_posix(),
-        ),
-        ResourceRecord(
-            "run_test",
-            "local_storage_staging",
-            "pandas@v1",
-            nonce,
-            WORKSPACE_CAPABILITY,
-            workspace.relative_to(project).as_posix(),
-        ),
-        path,
-    )
+    complete = collect_primary(table.to_batches(), source.row_contract, source.row_set_contract)
+    return to_local_frame(complete, source.row_contract)

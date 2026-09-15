@@ -76,13 +76,13 @@ def test_independent_equal_argument_sources_keep_exact_registered_unary_branches
             output = checkpoint.where(gt(revenue, 10)).aggregate().execute()
             assert output.to_pandas()["revenue"].tolist() == [expected]
             assert runtime.statistics.primary_queries == 1
-            assert runtime.statistics.worker_pid is None
+            assert runtime.statistics.events.get("local_execution_started", 0) == 0
             branch_evidence.append(
                 {
                     "input": str(checkpoint.state.artifact_ref),
                     "output": str(output.state.artifact_ref),
                     "value": expected,
-                    "worker_pid": runtime.statistics.worker_pid,
+                    "local_executions": runtime.statistics.events.get("local_execution_started", 0),
                     "statistics": statistics(runtime),
                 }
             )

@@ -15,7 +15,6 @@ from marivo.analysis.materialization.contracts import (
     invalid,
 )
 from marivo.analysis.operators.association_contracts import (
-    MAX_CANDIDATES,
     SELECTION_RULE_ID,
     STATUSES,
     AssociationSemantics,
@@ -150,8 +149,6 @@ def decode_evidence(value: object) -> AssociationEvidenceSummary | None:
     if (
         tuple(k for k, _ in counts) != STATUSES
         or sum(n for _, n in counts) != result.row_count
-        or result.row_count > MAX_CANDIDATES
-        or result.original_candidate_count > MAX_CANDIDATES
         or result.row_count > result.original_candidate_count
         or result.original_candidate_count
         != result.searched_pair_count * result.searched_lag_count * result.searched_series_count

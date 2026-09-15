@@ -78,7 +78,7 @@ def test_writer_binding_failure_is_one_failed_run_before_source_work(
     assert failed.failure.repair is not None
     assert "Configure" in failed.failure.repair.action
     assert runtime.statistics.primary_queries == runtime.statistics.validation_queries == 0
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     counts = snapshot(runtime)["counts"]
     assert isinstance(counts, dict)
     assert counts["analysis_action_runs"] == counts["analysis_action_run_terminals"] == 1
@@ -147,7 +147,7 @@ def test_native_target_denial_records_configuration_repair_before_source_work(
     assert "private-sdk-canary" not in str(error)
     assert "private-sdk-canary" not in str(failed.failure)
     assert runtime.statistics.primary_queries == runtime.statistics.validation_queries == 0
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     counts = snapshot(runtime)["counts"]
     assert isinstance(counts, dict)
     assert counts["analysis_action_runs"] == counts["analysis_action_run_terminals"] == 1

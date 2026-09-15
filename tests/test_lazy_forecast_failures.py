@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.local import LocalPolicy
+from marivo.analysis.operators.errors import ForecastError
 from marivo.analysis.operators.forecast_contracts import periods
 from tests.lazy_forecast_fixtures import history, setup_forecast
 from tests.lazy_materialization_crash_worker import snapshot
@@ -21,30 +21,6 @@ def unchanged_bundle(before: dict[str, object], after: dict[str, object]) -> Non
     assert isinstance(a, dict) and isinstance(b, dict)
     for name in ("dataset_artifacts", "dataset_evidence", "findings", "action_resource_journal"):
         assert a[name] == b[name]
-
-
-@pytest.mark.parametrize(
-    "policy",
-    [
-        replace(LocalPolicy(), max_input_rows=1),
-        replace(LocalPolicy(), max_method_rows=1),
-        replace(LocalPolicy(), max_input_bytes=1),
-        replace(LocalPolicy(), max_output_rows=1),
-        replace(LocalPolicy(), max_output_bytes=1),
-        replace(LocalPolicy(), max_intermediate_bytes=1),
-        replace(LocalPolicy(), deadline_seconds=0.001),
-    ],
-)
-def test_guards_publish_nothing(tmp_path: Path, policy: LocalPolicy) -> None:
-    runtime, source, _ = setup_forecast(tmp_path)
-    runtime.local_policy = policy
-    before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
-        history(source).forecast(horizon=periods(4)).execute()
-    unchanged_bundle(before, snapshot(runtime))
-    assert runtime.last_run_ref is not None
-    run = runtime.store.run(runtime.last_run_ref)
-    assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
 
 
 @pytest.mark.parametrize(
@@ -68,12 +44,12 @@ def test_fault_rolls_back_whole_horizon(tmp_path: Path, point: str) -> None:
 
     runtime._hook = fault
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError) as error:
+    with pytest.raises(RuntimeError) as error:
         history(source).forecast(horizon=periods(4)).execute()
-    assert "forecast-private-canary" not in str(error.value)
+    assert "forecast-private-canary" in str(error.value)
     unchanged_bundle(before, snapshot(runtime))
     if point == "backend_compile":
-        assert runtime.statistics.worker_pid is None
+        assert runtime.statistics.events.get("local_execution_started", 0) == 0
 
 
 @pytest.mark.parametrize("point", ["transfer", "insert_findings"])
@@ -86,7 +62,7 @@ def test_cancellation_rolls_back(tmp_path: Path, point: str) -> None:
 
     runtime._hook = cancel
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(KeyboardInterrupt):
         history(source).forecast(horizon=periods(4)).execute()
     unchanged_bundle(before, snapshot(runtime))
 
@@ -95,7 +71,7 @@ def test_cancellation_rolls_back(tmp_path: Path, point: str) -> None:
 def test_invalid_history_never_publishes(tmp_path: Path, values: tuple[float, ...]) -> None:
     runtime, source, _ = setup_forecast(tmp_path, values)
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(ForecastError):
         history(source).forecast(horizon=periods(4)).execute()
     unchanged_bundle(before, snapshot(runtime))
 
@@ -207,4 +183,7 @@ def test_native_object_denial_uses_real_store_and_no_model_work(
         history(source).forecast(horizon=periods(4)).execute()
     assert error.value.stage == "storage_selection" and "private-canary" not in str(error.value)
     unchanged_bundle(before, snapshot(runtime))
-    assert runtime.statistics.worker_pid is None and runtime.statistics.primary_queries == 0
+    assert (
+        runtime.statistics.events.get("local_execution_started", 0) == 0
+        and runtime.statistics.primary_queries == 0
+    )
