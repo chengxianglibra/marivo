@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import suppress
 from dataclasses import replace
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import ibis
@@ -24,12 +23,13 @@ from marivo.analysis.materialization.execution import ExecutionContext, Paramete
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 
-def _invalid(stage: str) -> MaterializationError:
+def _invalid(stage: str, *, run_ref: str | None = None) -> MaterializationError:
     return MaterializationError(
         expected="an owned, open DuckDB execution context and its declared execution inputs",
         received="an unsupported preparation or invalid execution lifetime",
         repair="Use the registered Dataset implementation and reconcile the failed Run before retrying.",
         stage=stage,
+        run_ref=run_ref,
     )
 
 
@@ -64,7 +64,7 @@ class DuckDBExecutionAdapter:
     def __init__(self, backend: Backend, *, reserve: Callable[[str], None] | None = None) -> None:
         self._backend = backend
         self._reserve = reserve
-        self._context = ExecutionContext(uuid4().hex)
+        self._context = ExecutionContext()
         self._compiled: dict[ops.Node, Statement] = {}
         self._prepared: dict[str, ops.Node | type[ops.ScalarUDF]] = {}
         self._closed = False
@@ -306,9 +306,11 @@ class DuckDBExecutionAdapter:
         )
 
 
-def bind_duckdb(candidate: object, *, reserve: Callable[[str], None]) -> DuckDBExecutionAdapter:
+def bind_duckdb(
+    candidate: object, *, reserve: Callable[[str], None], run_ref: str
+) -> DuckDBExecutionAdapter:
     if not isinstance(candidate, Backend):
-        raise _invalid("execution_boundary")
+        raise _invalid("execution_boundary", run_ref=run_ref)
     return DuckDBExecutionAdapter(candidate, reserve=reserve)
 
 
@@ -341,9 +343,8 @@ def json_statement(name: str, path: str, columns: Mapping[str, str], format: str
     return f"CREATE OR REPLACE TEMPORARY VIEW {quote(name)} AS {sge.select('*').from_(reader).sql(dialect='duckdb')}"
 
 
-def open_native_backend() -> object:
-    candidate: object = ibis.duckdb.connect()
-    return candidate
+def open_native_backend() -> Backend:
+    return ibis.duckdb.connect()
 
 
 def native_versions() -> tuple[str, str]:

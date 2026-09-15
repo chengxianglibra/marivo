@@ -53,7 +53,7 @@ def test_each_required_part_fails_atomically_and_retries(
 
     runtime, sources, _ = setup_lifecycle(tmp_path, engine=engine, event=fail)
     logical = history(sources)
-    with pytest.raises(KeyboardInterrupt) as caught:
+    with pytest.raises(KeyboardInterrupt if cancel else OSError) as caught:
         logical.execute()
     assert "canary" in str(caught.value)
     assert caught.value.__cause__ is None and caught.value.__context__ is None

@@ -9,6 +9,7 @@ from sqlglot import expressions as sge
 
 from marivo.analysis.datasets.descriptors import DatasetFieldId
 from marivo.analysis.domains.lifecycle import ROLES, LifecycleSemantics
+from marivo.analysis.materialization.duckdb_execution import quote
 from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.lifecycle_codec import invalid
 
@@ -99,9 +100,6 @@ def attribution_summary_sql(
     scope_ids: tuple[DatasetFieldId, ...],
     key_ids: tuple[DatasetFieldId, ...],
 ) -> str:
-    def quote(name: str) -> str:
-        return sge.to_identifier(name, quoted=True).sql(dialect="duckdb")
-
     scope = tuple(quote(names[key]) for key in scope_ids)
     keys = tuple(quote(names[key]) for key in key_ids)
     resolution = (*scope, quote("active_axis_mask"))
@@ -130,10 +128,7 @@ def membership_integrity_sql(
 ) -> str:
     from marivo.analysis.observation.distinct_contracts import DISTINCT_KEY_COLUMN
 
-    def quoted(name: str) -> str:
-        return sge.to_identifier(name, quoted=True).sql(dialect="duckdb")
-
-    member = quoted(DISTINCT_KEY_COLUMN)
+    member = quote(DISTINCT_KEY_COLUMN)
     null_member = " OR ".join(
         [f"{member} IS NULL"]
         + [
@@ -141,9 +136,9 @@ def membership_integrity_sql(
             for name, _ in signature
         ]
     )
-    coordinates = ", ".join(quoted(name) for name in keys)
+    coordinates = ", ".join(quote(name) for name in keys)
     equality = (
-        " AND ".join(f"m.{quoted(name)} IS NOT DISTINCT FROM p.{quoted(name)}" for name in keys)
+        " AND ".join(f"m.{quote(name)} IS NOT DISTINCT FROM p.{quote(name)}" for name in keys)
         or "TRUE"
     )
     grouped = f"{coordinates}, " if coordinates else ""
@@ -157,7 +152,7 @@ def membership_integrity_sql(
         f"GROUP BY {grouped}{member} HAVING count(*) <> 1)) + "
         f"(SELECT count(*) FROM membership m WHERE NOT EXISTS (SELECT 1 FROM primary_rows p WHERE {equality})) + "
         f"(SELECT count(*) FROM primary_rows p LEFT JOIN counts m ON {equality} "
-        f"WHERE p.{quoted(endpoint)} IS NULL OR p.{quoted(endpoint)} <> coalesce(m.__mv_members, 0))"
+        f"WHERE p.{quote(endpoint)} IS NULL OR p.{quote(endpoint)} <> coalesce(m.__mv_members, 0))"
     )
     return sql
 

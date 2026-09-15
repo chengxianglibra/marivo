@@ -2064,7 +2064,7 @@ class DatasetRuntime:
                     )
                 )
 
-            backend = bind_duckdb(candidate, reserve=reserve_preparation)
+            backend = bind_duckdb(candidate, reserve=reserve_preparation, run_ref=run_ref)
             read_time = None
             if isinstance(source_step.binding, SourceBinding):
                 self._event("source_timezone")
@@ -2284,16 +2284,7 @@ class DatasetRuntime:
                     self._validate_source_schema(backend, entity)
             for fence in fences:
                 for name in (fence.reader_name, fence.relation_name):
-                    self.store.reserve(
-                        ResourceRecord(
-                            run_ref=run_ref,
-                            resource_kind="planner_temporary_relation",
-                            execution_domain_id=domain,
-                            ownership_nonce=execution.ownership_nonce,
-                            cleanup_capability_id=execution.cleanup_capability_id,
-                            safe_locator=f"{execution.safe_locator}/{name}",
-                        )
-                    )
+                    reserve_preparation(name)
                 self._event("source_statement")
                 source_table = read_json_source(
                     _ReservedJsonReader(backend, fence.reader_name, self._record_statement),
@@ -2306,16 +2297,7 @@ class DatasetRuntime:
                 self.statistics.source_fences += 1
             for validation in preparations:
                 if isinstance(validation, CompiledRelationFence):
-                    self.store.reserve(
-                        ResourceRecord(
-                            run_ref=run_ref,
-                            resource_kind="planner_temporary_relation",
-                            execution_domain_id=domain,
-                            ownership_nonce=execution.ownership_nonce,
-                            cleanup_capability_id=execution.cleanup_capability_id,
-                            safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
-                        )
-                    )
+                    reserve_preparation(validation.relation_name)
                     self._event("source_statement")
                     fence_statement = relation_statements[validation.relation_name]
                     self._record_statement("source_fence", fence_statement.sql)
@@ -2323,16 +2305,7 @@ class DatasetRuntime:
                     self.statistics.source_fences += 1
                     continue
                 if isinstance(validation, CompiledSampleFence):
-                    self.store.reserve(
-                        ResourceRecord(
-                            run_ref=run_ref,
-                            resource_kind="planner_temporary_relation",
-                            execution_domain_id=domain,
-                            ownership_nonce=execution.ownership_nonce,
-                            cleanup_capability_id=execution.cleanup_capability_id,
-                            safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
-                        )
-                    )
+                    reserve_preparation(validation.relation_name)
                     self._event("sampling_reserved")
                     sampling.append(
                         execute_sample(
