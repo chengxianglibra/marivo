@@ -82,7 +82,7 @@ def test_registered_local_method_does_not_require_a_failed_compile(
     def no_reduction(dataset: LogicalDataset) -> ImplementationRegistration:
         result = original(dataset)
         return (
-            replace(result, source_adapter=None)
+            replace(result, backends=tuple(replace(item, source=False) for item in result.backends))
             if result.operator_id == "metric.correlate"
             else result
         )
@@ -102,7 +102,7 @@ def test_registered_local_method_does_not_require_a_failed_compile(
     assert (
         len(graph.steps) == 2
         and isinstance(graph.steps[0], SourceStep)
-        and graph.steps[0].correlation_preparation
+        and graph.steps[0].operation == "correlation"
     )
     assert isinstance(graph.steps[1], PandasStep)
 

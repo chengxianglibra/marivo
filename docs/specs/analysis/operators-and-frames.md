@@ -1,5 +1,8 @@
 # Dataset Methods and States
 
+Execution follows the [unified operator and backend ownership contract](python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
+
+
 This document defines the analysis composition model. Exact signatures, public
 exports and runnable examples are registered natively and exposed through
 `marivo.help("analysis")`; the API reference documents the same bindings.
@@ -95,3 +98,7 @@ preserve their causes and tracebacks.
 Terminal custom analysis uses `materialized.to_pandas()` or datasource raw SQL.
 Its result cannot be injected as a governed Dataset. No compatibility constructor,
 cast, generic transform namespace or legacy public class is retained.
+
+Execution placement uses registered method support and exact binding ownership,
+without engine/driver/Ibis version certification. Diagnostic version differences
+do not merge distinct datasource or retained-input authorities.

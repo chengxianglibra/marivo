@@ -36,11 +36,7 @@ def pandas_methods(*operator_ids: str) -> Iterator[None]:
 
     def selected(dataset: LogicalDataset) -> ImplementationRegistration:
         value = original(dataset)
-        return (
-            replace(value, source_adapter=None, source_preparation_adapter=None)
-            if value.operator_id in operator_ids
-            else value
-        )
+        return replace(value, backends=()) if value.operator_id in operator_ids else value
 
     with patch.object(implementations, "implementation", selected):
         yield

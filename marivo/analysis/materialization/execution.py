@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -12,6 +12,8 @@ import ibis
 import ibis.expr.types as ir
 import pyarrow as pa
 
+from marivo.analysis.compiler.nodes import CompiledSampleFence
+from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
 from marivo.datasource.timezone import DatasourceEngineTimezone
@@ -57,9 +59,31 @@ class ExecutionAdapter(Protocol):
         inputs: tuple[Statement, ...] = (),
     ) -> Statement: ...
     def submit(self, statement: Statement) -> ScalarRows: ...
-    def read_table(self, statement: Statement) -> pa.Table: ...
-    def read_scalar(self, statement: Statement) -> object: ...
-    def batches(self, statement: Statement, *, chunk_size: int) -> BatchStream: ...
+    def read_table(
+        self,
+        value: Statement | ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Parameter] | None = None,
+        role: str = "query",
+        record: Callable[[str, str], None] | None = None,
+    ) -> pa.Table: ...
+    def read_scalar(
+        self,
+        value: Statement | ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Parameter] | None = None,
+        role: str = "query",
+        record: Callable[[str, str], None] | None = None,
+    ) -> object: ...
+    def batches(
+        self,
+        value: Statement | ir.Expr,
+        *,
+        chunk_size: int,
+        params: Mapping[ir.Scalar, Parameter] | None = None,
+        role: str = "query",
+        record: Callable[[str, str], None] | None = None,
+    ) -> BatchStream: ...
     def resolve_coverage(
         self,
         definition: EventDefinition,
@@ -70,7 +94,9 @@ class ExecutionAdapter(Protocol):
         require_source_origin: bool,
     ) -> EventCoverageResolution: ...
     def timezone(self) -> DatasourceEngineTimezone: ...
-    def install_numeric(self) -> None: ...
+    def prepare_dataset(self, dataset: LogicalDataset) -> None: ...
+    def sample_sql(self, fence: CompiledSampleFence) -> str: ...
+    def sample_validation_sql(self, fence: CompiledSampleFence) -> str: ...
     def interrupt(self) -> None: ...
     def initialize(self) -> None: ...
     def disconnect(self) -> None: ...
@@ -90,3 +116,34 @@ class ExecutionAdapter(Protocol):
         columns: Mapping[str, str],
         format: str,
     ) -> ir.Table: ...
+
+
+class AdapterFactory(Protocol):
+    def __call__(
+        self, candidate: object, *, reserve: Callable[[str], None], run_ref: str
+    ) -> ExecutionAdapter: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionBackend:
+    """Runtime factories implementing a backend declared in the method registry."""
+
+    bind: AdapterFactory
+    open_retained: Callable[[], object]
+    admit: Callable[[LogicalDataset], None]
+
+
+def resolve_execution(backend: str) -> ExecutionBackend | None:
+    """Bind a pure registration to concrete Runtime functions, without new capabilities."""
+    from marivo.analysis.materialization.duckdb_execution import (
+        admit_dataset,
+        bind_duckdb,
+        open_native_backend,
+    )
+    from marivo.analysis.operators.registry import backend_execution
+
+    registration = backend_execution(backend)
+    if registration is None:
+        return None
+    factories = {"duckdb": ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset)}
+    return factories.get(registration.backend)

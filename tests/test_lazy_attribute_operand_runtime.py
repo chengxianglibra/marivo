@@ -78,7 +78,7 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
     def selected(dataset: LogicalDataset) -> ImplementationRegistration:
         registered = original(dataset)
         return (
-            replace(registered, source_adapter=None)
+            replace(registered, backends=())
             if execution == "pandas" and registered.operator_id == "delta.attribute"
             else registered
         )

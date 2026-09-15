@@ -75,7 +75,7 @@ def descriptor(*, metric: bool = False, population: str = "customers") -> Artifa
     )
     file = FileEntry("data.parquet", 8, "a" * 64)
     primary = LocalReceipt(
-        ".marivo/analysis/generations/v4/sessions/session/artifacts/artifact/primary",
+        ".marivo/analysis/generations/v5/sessions/session/artifacts/artifact/primary",
         (file,),
         manifest_digest((file,)),
         "a" * 64,

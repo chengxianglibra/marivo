@@ -1,5 +1,10 @@
 # Multi-datasource Slice 0 qualification inventory
 
+Historical evidence: this record describes the named slice's implementation.
+Slice 1c supersedes remote termination certification, compile-count and version
+admission requirements and uses Store v5. These results are not 1c acceptance.
+
+
 Date: 2026-09-15. Baseline: `lazy-dataset`,
 `1f9b3d5d585fed7c339bbe7ef008262ce7333b92`.
 
@@ -312,3 +317,11 @@ calling-process behavior. Current 1b evidence is recorded separately in
 [the 1b acceptance record](2026-09-15-multisource-slice-1b-acceptance.md).
 Version certification, remote termination and new backend activation remain
 separate work; this update admits no additional backend.
+
+## Corrected Slice 1d boundary
+
+DuckDB internal preparations and datasource readers remain supported. Exact method
+registrations select concrete adapters; shared operator semantics do not require
+identical backend SQL. Remote read-only-account qualification remains outstanding
+for future activation, including connection hooks, sampling/shared evaluation,
+retained import and cleanup. This correction enables no additional backend.

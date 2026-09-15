@@ -87,7 +87,7 @@ def test_captured_bindings_survive_scope_exit_and_source_free_cold_process(
         assert stats["events"] == {"reconciliation": 1}
         assert stats["primary_queries"] == stats["validation_queries"] == 0
         assert stats["transferred_rows"] == stats["transferred_bytes"] == 0
-        assert stats["local_executions"] == 0 and stats["statements"] == []
+        assert stats["events"].get("local_execution_started", 0) == 0 and stats["statements"] == []
     assert all(identities[0][index] != identities[1][index] for index in range(3))
     assert [item["value"] for item in recovered] == [10.0, 25.0]
     assert not database.exists()

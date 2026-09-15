@@ -374,7 +374,7 @@ def test_ranked_prefix_publishes_v3_and_cold_recovers_without_any_source_work(
     run = runtime.store.run(record.producing_run_ref)
     assert run is not None and run.lifecycle == "succeeded"
     with sqlite3.connect(runtime.store.db_path.as_uri() + "?mode=ro", uri=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
     retained_limit = result.limit(1)
     assert isinstance(retained_limit._root, LogicalRootHandle)
     assert retained_limit._root.inputs[0].root is result._root

@@ -1,5 +1,20 @@
 # Python Analysis Design
 
+## Unified operator and execution ownership
+
+All backends use one operator contract and implementation-registration mechanism.
+The selected backend owns physical sampling eligibility, preparation, execution,
+retained import and resource lifetime. DuckDB's temporary objects, macros and
+registration hooks implement the same semantic requirements; they are not
+operator-level exceptions. Remote implementations must work with read-only
+accounts and prove equivalent single evaluation, numerical behavior and required
+assertions before registration. No implicit alternate route or new cross-engine
+private-state transfer is introduced. Only DuckDB analysis is currently enabled.
+
+The original Slice 1d blanket restriction is superseded. Existing DuckDB sampling,
+Event/Lifecycle, Candidate, JSON and retained-stream execution remain available.
+
+
 `marivo.analysis` is the governed Dataset analysis surface. Import it as `mv`,
 with `marivo.semantic as ms` for semantic identities and `marivo.datasource as md`
 for datasource authoring. Analysis consumes declared meaning; the agent owns
@@ -61,6 +76,13 @@ whether the requested transition is admitted before source work.
 ## Exact execution and persistence
 
 Runtime fixes the registered implementation and destination before executing.
+Source execution currently supports DuckDB only. The private method registry
+selects one exact backend registration for the typed invocation, with full
+source execution and preparation declared separately. Unsupported known inputs
+fail before Run admission; exact same-Session binding hits remain source-free.
+Retained Parquet can attach only to the existing DuckDB reader, never by an
+implicit upload to another datasource. Source and execution ownership are
+independent of diagnostic engine versions.
 Unconfigured projects retain results in local Parquet. An explicit `marivo.toml`
 object-store binding changes the write destination. There is no database result
 storage, automatic destination selection, or failure-triggered executor retry.
@@ -77,7 +99,7 @@ atomic publication does not certify a common source snapshot.
 One admitted execution creates a Run. Publication commits the primary result,
 required private parts, descriptor, Evidence and Findings atomically. Cache hits
 on the same exact realization do not invent another Run. Failed or interrupted
-Runs never masquerade as successful Artifacts. Store generation4 is required;
+Runs never masquerade as successful Artifacts. Store generation 5 is required;
 existing older generations are rejected without rewriting their files.
 
 Local kernels and complete retained reads run synchronously in the calling Python
@@ -89,6 +111,13 @@ also fails. Complete inputs, semantic validation and atomic publication remain
 mandatory. `show()` keeps its display bounds; `to_pandas()` returns a complete
 isolated copy. Exact distinct membership and quantile methods retain all state
 required for valid computation and cold recovery.
+
+Ibis expressions may compile during normal execution. Correct parameters,
+complete typed results, required validation order and method-owned single
+evaluation remain mandatory; repeated pure compilation is not a duplicate query.
+Engine, driver and Ibis versions do not gate execution or define source domains.
+Remote read termination uncertainty is disclosed without blocking safe local
+recovery; unresolved publication ownership and storage integrity still block.
 
 ## Disclosure and interpretation
 

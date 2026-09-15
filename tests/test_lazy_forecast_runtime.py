@@ -155,9 +155,9 @@ def test_certified_custom_period_forecast_uses_retained_snapshot(tmp_path: Path)
     frame = result.to_pandas()
     assert frame.order_time.tolist() == [date(2026, 2, d) for d in (7, 9, 11)]
     assert frame.forecast_value.tolist() == [7.0, 11.0, 7.0]
-    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.operators.errors import ForecastError
 
-    with pytest.raises(MaterializationError):
+    with pytest.raises(ForecastError):
         h.forecast(horizon=periods(4)).execute()
 
 

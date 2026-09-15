@@ -1,5 +1,8 @@
 # Lazy Analysis Source Pushdown and Pandas Execution Design
 
+Execution follows the [unified operator and backend ownership contract](../../specs/analysis/python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
+
+
 Date: 2026-09-01
 
 Revised: 2026-09-07
@@ -960,16 +963,38 @@ eligible source prefixes and binds a bounded pandas suffix before data work.
 Runtime executes that recipe once and commits its complete result. Failure
 never changes the chosen computation or creates an intermediate public result.
 
-## 2026-09-15 amendment: selected DuckDB execution inputs
+## 2026-09-15 amendment: normal execution and version-independent placement
 
-The Slice 1 extraction preserves registry selection, same-domain authority and
-logical definition identity. Action-local compilation produces immutable inputs
-for the concrete DuckDB adapter. Declared relation/sample preparations remain in
-planner order, reserve their resources before effects, and submit the selected
-statement without a second lowering. Composed statements retain their input
-preparation dependencies. This is not a persisted physical plan, an additional
-implementation registry or remote-backend admission. The
-[multi-datasource plan](2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md)
-requires Slices 1a, 1b and 1c, in that order, before exact multi-backend dispatch
-in Slice 2. Slice 1c owns removal of engine/driver/Ibis version certification and
-admission, including version-based domain equality.
+Slice 1c preserves registry selection, exact same-domain ownership and logical
+definition identity, while removing engine/driver/Ibis version admission.
+Source and native retained bindings do not contain diagnostic version strings.
+Method contract versions and distinct binding authorities remain significant.
+
+Ordinary Ibis execution may compile expressions, bind parameters, run preparation
+hooks and convert results. Explicit driver statements remain useful for owned
+fences and exact DuckDB operations; they are not a universal precompiled-input
+requirement. Preparation effects remain reserved and ordered, validation queries
+remain separate, and selected work is not retried on ambiguity. Capture actual
+submissions; diagnostic compilation is not execution evidence. Slice 1c enables
+no new backend. Historical Slice 1 compilation evidence is not 1c acceptance.
+
+## 2026-09-15 amendment: exact backend dispatch
+
+Slice 2 replaces the single backend name with a closed, immutable collection
+per typed method invocation; duplicate backend keys are rejected. Existing
+payload, method and shape validation constructs the registration. DuckDB is the
+only production entry. Its existing builders and validators remain the owners
+of calculation semantics; no generic remote builder protocol is implied.
+
+Each source stage carries its selected registration and one operation: full
+source execution, correlation preparation or distribution preparation. A
+preparation-only registration does not admit a full source result. Local method
+eligibility remains independent, and a selected execution failure never causes
+replanning or resubmission. Known unsupported source roots fail before a Run,
+while physical schema validation remains before source-row reads.
+
+Native retained Parquet may join only the admitted DuckDB source reader. Other
+backend bindings cannot inherit retained rows through the single-source shortcut.
+Same-domain checks retain Session/store/catalog/binding authority; execution
+contexts retain statement/resource lifetime ownership. Neither uses versions.
+The immutable execution-key hit precedes placement and source access.

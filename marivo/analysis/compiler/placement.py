@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
-from typing import TypeAlias
+from dataclasses import dataclass
+from typing import Literal, TypeAlias
 
-import duckdb
-import ibis
-
-from marivo.analysis.compiler.errors import compilation_error
+from marivo.analysis.compiler.errors import DatasetCompilationError, compilation_error
 from marivo.analysis.compiler.normalize import required_entities
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
@@ -38,7 +35,7 @@ from marivo.analysis.operators.candidate_contracts import CandidatePayload
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload
-from marivo.analysis.operators.registry import ImplementationRegistration
+from marivo.analysis.operators.registry import BackendRegistration, ImplementationRegistration
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -46,7 +43,6 @@ class SourceBinding:
     owner: ObservationOwner
     datasource_id: str
     adapter: str
-    adapter_versions: tuple[str, str]
 
     def same_domain(self, other: ExecutionBinding) -> bool:
         return (
@@ -60,7 +56,6 @@ class SourceBinding:
             and self.owner.action_port is other.owner.action_port
             and self.datasource_id == other.datasource_id
             and self.adapter == other.adapter
-            and self.adapter_versions == other.adapter_versions
         )
 
 
@@ -71,7 +66,6 @@ class ParquetBinding:
     owner: object
     datasource_id: str
     domain_digest: str
-    adapter_versions: tuple[str, str]
     adapter: str = "duckdb"
 
     def same_domain(self, other: ExecutionBinding) -> bool:
@@ -80,7 +74,6 @@ class ParquetBinding:
             and self.owner is other.owner
             and self.datasource_id == other.datasource_id
             and self.domain_digest == other.domain_digest
-            and self.adapter_versions == other.adapter_versions
         )
 
 
@@ -92,8 +85,19 @@ class SourceStep:
     output: int
     dataset: LogicalDataset
     binding: ExecutionBinding
-    distribution_preparation: bool = False
-    correlation_preparation: bool = False
+    implementation: BackendRegistration
+    operation: Literal["source", "correlation", "distribution"]
+
+    def __post_init__(self) -> None:
+        supports_operation = (
+            self.implementation.source
+            if self.operation == "source"
+            else self.implementation.preparation == self.operation
+        )
+        if self.implementation.backend != self.binding.adapter or not supports_operation:
+            raise compilation_error(
+                "the selected source operation and binding", "inconsistent source step"
+            )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -131,7 +135,6 @@ def source_binding(dataset: LogicalDataset) -> SourceBinding:
         owner,
         domain,
         owner.semantic_registry.datasources[domain].backend_type,
-        (duckdb.__version__, ibis.__version__),
     )
 
 
@@ -139,10 +142,13 @@ def source_eligible(
     registration: ImplementationRegistration,
     inputs: tuple[ExecutionBinding | None, ...],
     binding: ExecutionBinding,
+    *,
+    preparation: bool = False,
 ) -> bool:
+    selected = registration.for_backend(binding.adapter)
     return (
-        registration.source_adapter == binding.adapter
-        and registration.source_versions == binding.adapter_versions
+        selected is not None
+        and (selected.preparation is not None if preparation else selected.source)
         and all(item is not None and binding.same_domain(item) for item in inputs)
     )
 
@@ -156,6 +162,7 @@ def place(
     placements: dict[int, ExecutionBinding | None] = {}
     registrations: dict[int, ImplementationRegistration] = {}
     preparations: dict[int, ExecutionBinding] = {}
+    selected: dict[int, BackendRegistration] = {}
 
     def classify(value: Dataset) -> ExecutionBinding | None:
         if id(value) in placements:
@@ -170,6 +177,7 @@ def place(
         registration = registry.implementation(value)
         registrations[id(value)] = registration
         binding = None
+        candidate = None
         if all(item is not None for item in child_domains):
             # Pure retained/comparison operations inherit operand domains. New
             # semantic evaluation must also prove its own source owner matches.
@@ -203,33 +211,45 @@ def place(
                 )
                 else source_binding(value)
             )
-            if candidate is not None and source_eligible(registration, child_domains, candidate):
-                binding = candidate
-        if isinstance(value._root.payload, CorrelatePayload):
-            if binding is None:
-                prepared_domain = child_domains[0] if len(child_domains) == 1 else None
-                preparation = replace(
-                    registration, source_adapter=registration.source_preparation_adapter
+            if candidate is not None:
+                backend = registration.for_backend(candidate.adapter)
+                if backend is not None:
+                    if source_eligible(registration, child_domains, candidate):
+                        binding = candidate
+                        selected[id(value)] = backend
+                    elif source_eligible(registration, child_domains, candidate, preparation=True):
+                        preparations[id(value)] = candidate
+                        selected[id(value)] = backend
+        if binding is None and id(value) not in preparations:
+            try:
+                registry.admit_local(value, registration)
+            except DatasetCompilationError as error:
+                source_backends = ", ".join(
+                    item.backend for item in registration.backends if item.source
                 )
-                if prepared_domain is not None and source_eligible(
-                    preparation, child_domains, prepared_domain
-                ):
-                    preparations[id(value)] = prepared_domain
+                preparation_backends = ", ".join(
+                    f"{item.backend} {item.preparation}"
+                    for item in registration.backends
+                    if item.preparation is not None
+                )
+                if source_backends:
+                    repair = f"Use the declared {source_backends} source with matching input authority for this method."
+                elif preparation_backends:
+                    repair = (
+                        f"Keep the complete inputs in one matching domain for {preparation_backends} "
+                        "preparation before local evaluation."
+                    )
                 else:
-                    registry.admit_local(value, registration)
-        elif (
-            isinstance(value._root.payload, AttributePayload)
-            and value._root.payload.spec.method == "distribution_shapley@v1"
-        ):
-            if binding is None:
-                raise compilation_error(
-                    "one compatible source domain for distribution preparation",
-                    "source-required distribution state",
-                )
-            preparations[id(value)] = binding
-            binding = None
-        elif binding is None:
-            registry.admit_local(value, registration)
+                    repair = "Use retained inputs satisfying this method's local input contract."
+                raise DatasetCompilationError(
+                    expected=error.expected or "an exact registered implementation",
+                    received=(
+                        f"{value._root.operator_id}; backend={candidate.adapter if candidate else 'mixed/local'}; "
+                        f"shape={value.row_contract.shape_id}; {error.received}"
+                    ),
+                    repair=repair,
+                    location="dataset.compiler",
+                ) from error
         placements[id(value)] = binding
         return binding
 
@@ -247,23 +267,20 @@ def place(
         elif isinstance(value, LogicalDataset):
             if id(value) in preparations:
                 boundary = len(steps)
-                correlation = isinstance(value._root, LogicalRootHandle) and isinstance(
-                    value._root.payload, CorrelatePayload
-                )
-                steps.append(
-                    SourceStep(
-                        boundary,
-                        value,
-                        preparations[id(value)],
-                        distribution_preparation=not correlation,
-                        correlation_preparation=correlation,
+                backend = selected[id(value)]
+                operation = backend.preparation
+                if operation is None:
+                    raise compilation_error(
+                        "a selected preparation", "missing preparation operation"
                     )
+                steps.append(
+                    SourceStep(boundary, value, preparations[id(value)], backend, operation)
                 )
                 index = len(steps)
                 steps.append(PandasStep(index, (boundary,), value, registrations[id(value)]))
             elif binding is not None:
                 index = len(steps)
-                steps.append(SourceStep(index, value, binding))
+                steps.append(SourceStep(index, value, binding, selected[id(value)], "source"))
             else:
                 inputs = tuple(emit(child) for child in value._inputs)
                 index = len(steps)

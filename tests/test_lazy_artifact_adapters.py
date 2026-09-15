@@ -30,7 +30,7 @@ def test_engine_population_round_trip(tmp_path: Path) -> None:
     assert record is not None
     assert isinstance(record.descriptor.storage_receipt, LocalReceipt)
     assert result.to_pandas()["entity_identity"].tolist() == [(1,), (2,), (3,), (4,)]
-    assert runtime.statistics.transferred_rows == 0
+    assert runtime.statistics.transferred_rows == 4
     assert runtime.store.resources(runtime.session_ref) == ()
     assert logical.execute().state.artifact_ref == result.state.artifact_ref
     assert runtime.statistics.primary_queries == 0
@@ -61,7 +61,7 @@ def test_engine_rows_remain_native_after_source_is_removed(tmp_path: Path) -> No
     logical = filtered.rank(filtered.fields.metric(REVENUE)).limit(2)
     output = logical.execute()
     assert output.to_pandas()["revenue"].tolist() == [100, 30]
-    assert runtime.statistics.transferred_rows == 0
+    assert runtime.statistics.transferred_rows == 2
     assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.statistics.events.get("profile_resolution", 0) == 0
     assert runtime.statistics.events.get("credential_resolution", 0) == 0
@@ -81,7 +81,7 @@ def test_engine_metric_projection_selects_one_of_two_metrics_without_origin(tmp_
         assert frame[selected.path.split(".")[-1]].fillna(-1).tolist() == (
             [10, 30, 100, -1, 0, 7] if selected == REVENUE else [1, 1, 1, 0, 1, 1]
         )
-        assert runtime.statistics.transferred_rows == 0
+        assert runtime.statistics.transferred_rows == 6
         assert runtime.statistics.events.get("local_execution_started", 0) == 0
         assert runtime.statistics.events.get("profile_resolution", 0) == 0
 

@@ -11,7 +11,6 @@ import pyarrow as pa
 import pytest
 from botocore.stub import Stubber
 
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization import object_storage
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import ObjectReceipt
@@ -19,7 +18,6 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.reads import payload_batches
 from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
-from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.candidate_contracts import CandidateObjective
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
 from tests.lazy_candidate_fixtures import candidate_input, discover, setup_candidate
@@ -52,18 +50,6 @@ def test_candidate_object_roundtrip_and_local_continuation(
     if input_kind == "object":
         retained = input_value.execute()
         database.rename(tmp_path / "origin.offline")
-        if objective == "entity_outliers":
-            before = snapshot(runtime)
-            from marivo.analysis.materialization import admission
-
-            monkeypatch.setattr(admission, "_duckdb_version", "unsupported")
-            old_reads = tuple(reads)
-            with pytest.raises(DatasetCompilationError, match="source-required"):
-                discover(retained, objective).execute()
-            assert snapshot(runtime) == before
-            assert tuple(reads) == old_reads
-            assert runtime.store.resources(runtime.session_ref) == ()
-            return
         result = discover(retained, objective).execute()
     else:
         result = discover(input_value, objective).execute()
@@ -109,24 +95,6 @@ def test_candidate_object_roundtrip_and_local_continuation(
         rendered = capsys.readouterr().out
         assert "<identity>" in rendered and "entity_mad_threshold_met" in rendered
         assert "{'id':" not in rendered
-        from marivo.analysis.materialization import admission
-
-        monkeypatch.setattr(admission, "_duckdb_version", "unsupported")
-        old_reads = tuple(reads)
-        before = snapshot(reopened)
-        for continuation in (
-            recovered.where(gt(recovered.fields.get("score"), 1)),
-            recovered.rank(recovered.fields.get("score")),
-            recovered.limit(1),
-        ):
-            with pytest.raises(DatasetCompilationError, match="source-required"):
-                continuation.execute()
-            assert snapshot(reopened) == before
-        assert tuple(reads) == old_reads
-        assert reopened.statistics.primary_queries == 0
-        assert reopened.statistics.events.get("local_execution_started", 0) == 0
-        assert reopened.store.resources(reopened.session_ref) == ()
-        return
     selected_result = recovered.limit(1).execute()
     frame = selected_result.to_pandas()
     assert frame.item_id.tolist() == [first_id]

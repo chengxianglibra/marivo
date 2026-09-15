@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal, TypeAlias
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.datasets.base import Dataset, LogicalDataset
+from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.domains.contracts import (
     EventFunnelPayload,
@@ -43,16 +45,70 @@ from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
 from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload, ForecastSemantics
 
+BackendName: TypeAlias = Literal["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"]
+PreparationKind: TypeAlias = Literal["correlation", "distribution"]
+
+
+@dataclass(frozen=True, slots=True)
+class BackendExecution:
+    """Pure execution declaration shared by the registered backend's methods."""
+
+    backend: BackendName
+    retained_import: bool
+
+
+def backend_execution(backend: str) -> BackendExecution | None:
+    """Resolve implemented backend capabilities without importing Runtime."""
+    return {"duckdb": BackendExecution("duckdb", retained_import=True)}.get(backend)
+
+
+@dataclass(frozen=True, slots=True)
+class BackendRegistration:
+    """Exact source operations available for one already-validated method invocation."""
+
+    backend: BackendName
+    source: bool
+    preparation: PreparationKind | None = None
+
+    def __post_init__(self) -> None:
+        if not self.source and self.preparation is None:
+            raise DatasetRegistrationError(
+                expected="an implemented source operation or preparation",
+                received=f"{self.backend}: empty backend registration",
+                repair="Declare an implemented source operation or preparation, or omit this backend entry.",
+                location="dataset.implementation_registry",
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class ImplementationRegistration:
     operator_id: str
     input_roles: tuple[str, ...]
-    source_adapter: str | None
+    backends: tuple[BackendRegistration, ...]
     local_method: str | None
     version: int = 1
-    source_versions: tuple[str, str] = ("1.5.3", "12.0.0")
-    source_preparation_adapter: str | None = None
+
+    def __post_init__(self) -> None:
+        names = tuple(item.backend for item in self.backends)
+        if len(set(names)) != len(names):
+            raise DatasetRegistrationError(
+                expected="one registration per method/backend",
+                received=f"{self.operator_id}: duplicate backend registration in {names!r}",
+                repair="Merge each backend's source and preparation declarations into one entry for this method.",
+                location="dataset.implementation_registry",
+            )
+
+    def for_backend(self, backend: str) -> BackendRegistration | None:
+        return next((item for item in self.backends if item.backend == backend), None)
+
+
+def supports_retained_import(backend: str) -> bool:
+    """Read retained-import support from the concrete backend declaration."""
+    implementation = backend_execution(backend)
+    return implementation is not None and implementation.retained_import
+
+
+_DUCKDB = (BackendRegistration("duckdb", source=True),)
 
 
 _ROW_METHODS = frozenset(
@@ -103,7 +159,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
             EventSelectionPayload,
         ),
     ):
-        return ImplementationRegistration(root.operator_id, roles, "duckdb", None)
+        return ImplementationRegistration(root.operator_id, roles, _DUCKDB, None)
     if dataset._inputs and root.operator_id.startswith(
         (
             "event.",
@@ -121,25 +177,40 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
     if isinstance(root.payload, (FunnelComparePayload, FunnelAttributePayload)):
-        return ImplementationRegistration(root.operator_id, roles, "duckdb", root.operator_id)
+        return ImplementationRegistration(root.operator_id, roles, _DUCKDB, root.operator_id)
     if isinstance(root.payload, DriverCandidatePayload):
         identity = any(f.role_id == "entity_identity" for f in dataset.schema.columns)
         return ImplementationRegistration(
-            root.operator_id, roles, "duckdb", None if identity else root.operator_id
+            root.operator_id, roles, _DUCKDB, None if identity else root.operator_id
         )
     if isinstance(root.payload, CandidatePayload):
         if root.payload.spec.definition.objective == "entity_outliers":
-            return ImplementationRegistration(root.operator_id, roles, "duckdb", None)
-        return ImplementationRegistration(root.operator_id, roles, None, root.operator_id)
+            return ImplementationRegistration(root.operator_id, roles, _DUCKDB, None)
+        return ImplementationRegistration(root.operator_id, roles, (), root.operator_id)
     if isinstance(root.payload, ForecastPayload):
-        return ImplementationRegistration(root.operator_id, roles, None, "metric.forecast")
+        return ImplementationRegistration(root.operator_id, roles, (), "metric.forecast")
     if isinstance(root.payload, CorrelatePayload):
         return ImplementationRegistration(
             root.operator_id,
             roles,
-            None if root.payload.spec.semantics.method == "kendall" else "duckdb",
+            (
+                BackendRegistration(
+                    "duckdb",
+                    source=root.payload.spec.semantics.method != "kendall",
+                    preparation="correlation",
+                ),
+            ),
             "metric.correlate",
-            source_preparation_adapter="duckdb",
+        )
+    if (
+        isinstance(root.payload, AttributePayload)
+        and root.payload.spec.method == "distribution_shapley@v1"
+    ):
+        return ImplementationRegistration(
+            root.operator_id,
+            roles,
+            (BackendRegistration("duckdb", source=False, preparation="distribution"),),
+            root.operator_id,
         )
     entity_scoped_result = any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
@@ -152,7 +223,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     return ImplementationRegistration(
         root.operator_id,
         roles,
-        "duckdb",
+        _DUCKDB,
         root.operator_id
         if not entity_scoped_result
         and not source_private_state

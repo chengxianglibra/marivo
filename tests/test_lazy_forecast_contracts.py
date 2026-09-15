@@ -43,6 +43,8 @@ def test_exact_private_family_and_capabilities(panel: bool) -> None:
     assert contract.finding_extractor_id == "forecast_point_finding"
     assert "nominal prediction" in result.contract().render()
     assert "no empirical coverage" in result.contract().render()
+    exports = mv.__all__
+    assert isinstance(exports, (list, tuple))
     for name in (
         "LogicalForecastDataset",
         "ForecastHorizon",
@@ -52,8 +54,6 @@ def test_exact_private_family_and_capabilities(panel: bool) -> None:
         "drift",
         "seasonal_naive",
     ):
-        exports = mv.__all__
-        assert isinstance(exports, (list, tuple))
         assert name in exports and hasattr(mv, name)
     assert "ForecastDataset" not in exports and not hasattr(mv, "ForecastDataset")
     assert not hasattr(result, "compare") and not hasattr(result, "discover")
@@ -130,4 +130,4 @@ def test_registered_local_frontier_without_backend_access() -> None:
     assert len(graph.steps) == 5 and isinstance(graph.steps[0], SourceStep)
     assert all(isinstance(step, PandasStep) for step in graph.steps[1:])
     assert graph.local_steps[0].implementation.local_method == "metric.forecast"
-    assert graph.local_steps[0].implementation.source_adapter is None
+    assert graph.local_steps[0].implementation.backends == ()

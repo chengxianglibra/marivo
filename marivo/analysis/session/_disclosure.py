@@ -1,4 +1,4 @@
-"""Native Session and retained Runtime read inputs, bound only to v3 owners."""
+"""Native Session and retained Runtime read inputs, bound only to owners."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             value_type(
                 value.__name__,
                 value,
-                summary=f"Immutable v3 {value.__name__} contract.",
+                summary=f"Immutable {value.__name__} contract.",
                 acquisition=acquisitions[value.__name__][0],
                 producers=acquisitions[value.__name__][1],
                 consumers=acquisitions[value.__name__][2],
@@ -124,7 +124,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         value_type(
             "Session",
             Session,
-            summary="One Session binds logical construction and committed v3 Runtime reads.",
+            summary="One Session binds logical construction and committed Runtime reads.",
             acquisition="Create or recover through mv.session.get_or_create or mv.session.resume.",
             producers=("session.get_or_create", "session.resume", "session.current"),
             constraints=(
@@ -180,7 +180,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "abandon_run",
             "None",
             "import marivo.analysis as mv\nresult = mv.session.abandon_run(session_id=session.id, run_id=pending_run)",
-            "Reconcile only the selected Run under its Session writer guard; backend terminal/fencing proof is mandatory.",
+            "Reconcile one Run under its writer guard; local publication must be safe while remote read status may remain unknown.",
         ),
         (
             Session,
@@ -240,14 +240,14 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
         "report_timezone": "Choose an IANA report timezone on first creation; existing Sessions retain their timezone.",
         "question": "Optional guiding question; omission preserves the existing question.",
-        "identity": "Use an exact existing v3 Session name or id from recent()/inspect(); missing identities provide real candidates and never create a Session.",
+        "identity": "Use an exact existing Session name or id from recent()/inspect(); missing identities provide real candidates and never create a Session.",
         "by": "Choose name or id explicitly when resolving an ambiguous identity.",
         "limit": "Choose a page size within the owning read's bounded interval.",
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "run_limit": "Choose the bounded embedded Run-page size.",
         "run_cursor": "Use the preceding inspection's runs.next_cursor.",
         "session_id": "Use the exact existing Session id.",
-        "run_id": "Use an exact Run id from session.runs(); abandonment accepts only stopped incomplete work.",
+        "run_id": "Use an exact incomplete or failed Run id from session.runs(); committed success cannot be abandoned.",
         "reference": "Use an exact committed ArtifactRef or artifact reference string.",
         "artifact_ref": "Choose a committed Artifact ref to scope the graph, or None for the bounded Session graph.",
         "status": "Choose incomplete, failed, succeeded or None.",

@@ -53,6 +53,11 @@ complete journeys or journey checkpoints opened with `session.artifact(ref)`;
 materialized funnel summaries or a materialized funnel Delta cannot replace
 those journey inputs.
 
+Source execution currently supports DuckDB only; datasource authoring support
+does not enable Dataset execution on another backend. Unsupported methods report
+the backend and input shape. Retained results are never implicitly uploaded to
+another source, and a same-Session execution-key hit needs no source connection.
+
 ## Inspect evidence and recover
 
 `contract()` describes mechanical continuations; a Materialized Dataset's `show()`
@@ -124,5 +129,24 @@ row, byte, memory, spill, method complexity, storage or deadline budgets. Databa
 driver, OS and external runner limits still apply.
 
 `show()` keeps its display bounds. Complete-input validation, ownership and atomic
-publication remain mandatory. Store generation 4 leaves older files untouched;
+publication remain mandatory. Store generation 5 leaves older files untouched;
 old Sessions are not migrated or resumed.
+
+Supported execution does not require engine, driver or Ibis version certification.
+Normal expression compilation preserves parameters, complete results and required
+validation order. Recompilation alone does not submit another query.
+
+Cancellation or close can leave a remote read's status unknown. Marivo reports
+that uncertainty and permits later Session work once local publication is safe.
+Unresolved commit state, conflicting writers and unsafe object writes still block
+recovery. A failed Run has no successful local output; it does not prove a remote
+server query stopped. Never automatically resubmit an ambiguously submitted action.
+
+## Backend implementation boundaries
+
+Operators share one semantic contract and backend registration mechanism. DuckDB
+retains its existing sampling, Event/Lifecycle and Candidate implementations; its
+adapter owns temporary resources, macros and registration. Remote implementations
+must support read-only accounts and meet the same semantic requirements before
+activation. An unavailable implementation fails explicitly; it does not silently
+move source data to another engine. Only DuckDB analysis is currently enabled.
