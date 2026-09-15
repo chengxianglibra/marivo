@@ -108,6 +108,7 @@ def _payload_check(
                 validator.accept(batch)
             else:
                 if part is not None and part.contract_id in (
+                    "event_funnel.additive_components",
                     "metric.sufficient_components",
                     "delta.sufficient_components",
                     "lifecycle_legal_transition_trace",

@@ -752,6 +752,11 @@ class DatasetRuntime:
         identities = {
             field.name for field in dataset.schema.columns if field.role_id == "entity_identity"
         }
+        duration_fields = tuple(
+            field.name for field in dataset.schema.columns if field.logical_type_id == "duration"
+        )
+        if duration_fields:
+            lines.insert(1, "Durations (microseconds): " + ", ".join(duration_fields))
         for index in range(table.num_rows):
             cells = []
             for name in table.column_names:
@@ -2582,8 +2587,6 @@ class DatasetRuntime:
         input_dataset: MaterializedDataset | None = None,
     ) -> dict[str, ir.Table]:
         """Attach only consumed immutable states and verify native schema/support."""
-        import hashlib
-
         from marivo.analysis.materialization.parquet_scan import attach_parquet_scan
         from marivo.analysis.materialization.retained import (
             _part_state_columns,
@@ -2599,15 +2602,16 @@ class DatasetRuntime:
             for part in selected_parts(descriptor, dataset, input_dataset=input_dataset):
                 receipt = part.storage_receipt
                 table = attach_parquet_scan(
-                    backend, self.store.project_root, receipt, bindings=self.object_bindings
+                    backend,
+                    self.store.project_root,
+                    receipt,
+                    bindings=self.object_bindings,
+                    verify_schema=True,
                 )
                 self._record_statement("engine_check.part_schema", backend.compile(table.limit(0)))
+                # Native scans erase Arrow nullability. The exact stored schema is
+                # checked before attachment; validate native types and data below.
                 schema = backend.to_pyarrow(table.limit(0)).schema
-                if (
-                    hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
-                    != receipt.schema_fingerprint
-                ):
-                    _integrity("the exact immutable part schema", "engine part schema differs")
                 if source_private_part(part):
                     primary_receipt = descriptor.storage_receipt
                     primary = attach_parquet_scan(

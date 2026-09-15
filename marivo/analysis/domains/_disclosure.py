@@ -225,7 +225,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             (
                 P(
                     "baseline",
-                    "Use a complete-journey funnel with compatible matching, pattern, axes and scope.",
+                    "Use a complete-journey funnel with compatible matching, pattern and axes; cohort duration, temporal domain and follow-up offset must match.",
                 ),
             ),
             "LogicalDeltaDataset",
@@ -240,7 +240,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             ("delta.funnel_attribute",),
             (
                 P("axes", "Choose scoped stable Dimensions for complete journey partitions."),
-                P("mode", "Use the supported joint contribution mode."),
+                P("mode", "Use joint, or hierarchy with at least two ordered axes."),
                 P("top_k", "Optional positive contribution bound."),
                 P(
                     "target",
@@ -251,7 +251,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalAttributionDataset",
             "result = funnel_delta.attribute(axes=(region,), target=funnel_loss_rate(step=finish_step))",
             ("funnel_delta", "region", "funnel_loss_rate", "finish_step"),
-            "Reconcile scoped funnel loss rates; Metric attribution parameters do not authorize funnel inputs.",
+            "Reconcile scoped funnel loss rates from logical funnels over complete journeys or recovered journey checkpoints; materialized funnel summaries and Deltas cannot supply attribution inputs.",
         ),
         (
             "lifecycle",

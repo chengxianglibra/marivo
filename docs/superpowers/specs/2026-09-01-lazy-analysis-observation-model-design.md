@@ -6,7 +6,9 @@ Revised: 2026-09-07
 
 Status: accepted; amended 2026-09-07 for Entity identity, aggregation algebra,
 Ibis pushdown, and pandas execution. These are target design contracts; the
-current eager implementation changes only through the Public Cutover Plan.
+implementation status is owned by the Public Cutover Plan. Pre-cutover eager
+API statements and private-stage registration notes below are historical, not
+current public guidance.
 
 ## Outcome
 
@@ -3070,7 +3072,7 @@ standalone fingerprints do not coalesce them. Required volatile realizations
 still need an exact source fence; general compiler CSE and a global one-query
 guarantee are not prerequisites.
 
-### Private distribution registration (Slice 5d)
+### Historical private distribution registration (Slice 5d)
 
 In this private registration, every supported governed root median/percentile
 observation binds distribution authority and retains a separate
@@ -3091,11 +3093,12 @@ expansion and comparison preserve the exact distribution support. Projected
 percentiles never reconstruct distributions; missing materialized authority
 fails without origin replay.
 
-The private `LazySources.observe` facade owns this input extension. Public
-`Session.observe` continues to return eager `MetricFrame` results and does not
-accept the private quantile input. Construction binds metadata without source
+During private Slice 5d, the `LazySources.observe` facade owned this input
+extension. Public `Session.observe` still returned eager `MetricFrame` results
+and did not accept the private quantile input. The public cutover supersedes
+those temporary visibility restrictions. Construction binds metadata without source
 work; engine materialization owns frequency capture and endpoint validation.
 This registration has no optional distribution-retention flag. Its Artifact
 preview reports method, q, and semantic approximation in authored Metric order;
 projection preserves the selected method. Public authoring and Help disclosure
-remain reserved for Slice 8.
+were reserved for Slice 8 during that private stage.

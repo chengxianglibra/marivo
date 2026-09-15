@@ -259,6 +259,12 @@ def test_version_selected_population_filters_fact_contributions(
             fixture.registry.relationships["sales.order_customer"],
             semantic_id="sales.version_member",
             to_entity=f"sales.{population_name}",
+            keys=(
+                replace(
+                    fixture.registry.relationships["sales.order_customer"].keys[0],
+                    to_key=f"sales.{population_name}.id",
+                ),
+            ),
         )
         registry = replace(
             fixture.registry,

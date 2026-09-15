@@ -48,6 +48,12 @@ def _temporal_sources(project: Path, version: _Version) -> tuple[DatasetRuntime,
             **{
                 f"sales.{name}_customer": replace(
                     original.relationships[f"sales.{name}_customer"],
+                    keys=(
+                        replace(
+                            original.relationships[f"sales.{name}_customer"].keys[0],
+                            to_key=f"sales.{version}.id",
+                        ),
+                    ),
                     to_entity=f"sales.{version}",
                 )
                 for name in ("started", "finished")

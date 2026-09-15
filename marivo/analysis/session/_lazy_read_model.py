@@ -38,9 +38,13 @@ def _count(value: int) -> None:
         raise invalid("runtime count must be a non-negative integer")
 
 
-def _refs(values: tuple[ArtifactRef, ...]) -> None:
+def _ordered_refs(values: tuple[ArtifactRef, ...]) -> None:
     if type(values) is not tuple or any(type(value) is not ArtifactRef for value in values):
         raise invalid("runtime Artifact references must be an immutable typed tuple")
+
+
+def _refs(values: tuple[ArtifactRef, ...]) -> None:
+    _ordered_refs(values)
     if len(set(values)) != len(values):
         raise invalid("runtime Artifact references must be duplicate-free")
 
@@ -61,7 +65,7 @@ class _RunBase(RenderableResult):
         _aware(self.admitted_at)
         if type(self.dataset_input) is not RunDatasetInput:
             raise invalid("Run input must use the exact typed projection")
-        _refs(self.input_artifact_refs)
+        _ordered_refs(self.input_artifact_refs)
         if isinstance(self, SucceededRun):
             _aware(self.finished_at)
             if (

@@ -47,6 +47,11 @@ Comparison, attribution, correlation, forecast and discovery are Dataset methods
 Event matching starts at `session.events.match(...)`; Lifecycle replay starts at
 `session.lifecycle.replay(...)`. Their reducers belong to the returned Datasets
 and consume retained assignment/history. Cross-Session operands are rejected.
+Event funnel comparisons require equal cohort duration, temporal domain and
+follow-up offset. For funnel attribution, build both funnels logically from
+complete journeys or journey checkpoints opened with `session.artifact(ref)`;
+materialized funnel summaries or a materialized funnel Delta cannot replace
+those journey inputs.
 
 ## Inspect evidence and recover
 
@@ -54,6 +59,8 @@ and consume retained assignment/history. Cross-Session operands are rejected.
 provides bounded retained inspection. Read exact Findings or recover an Artifact
 through its owning Session. A small preview is not permission to omit rows from
 computation. See [Evidence](/docs/latest/concepts/evidence/) for the read contract.
+Duration columns in the preview are explicitly labeled in microseconds;
+`to_pandas()` returns those columns as timedeltas.
 
 No configuration is needed for local Parquet result storage. Configure an object
 store in `marivo.toml` only when a different location is explicitly required.

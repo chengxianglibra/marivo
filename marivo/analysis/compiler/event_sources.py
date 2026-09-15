@@ -13,6 +13,7 @@ from marivo.analysis.compiler.event_time import event_instant
 from marivo.analysis.compiler.nodes import CompiledValidation
 from marivo.analysis.domains.contracts import EventDefinition, EventStepBinding
 from marivo.analysis.observation.contracts import ObservationOwner
+from marivo.analysis.observation.coordinates import relationship_columns
 from marivo.refs import ref
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
@@ -89,8 +90,8 @@ def _participants(
             **{names[name]: right_source[name] for name in right_source.columns}
         )
         conditions = [
-            _boolean(table[columns[key.from_key]] == right[names[key.to_key]])
-            for key in relationship.keys
+            _boolean(table[columns[left_key]] == right[names[right_key]])
+            for left_key, right_key in relationship_columns(owner.semantic_registry, relationship)
         ]
         conditions.append(_version_at(right, names, destination.version, table["__event_instant"]))
         table = table.join(right, conditions, how="left")

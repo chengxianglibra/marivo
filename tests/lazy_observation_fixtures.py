@@ -207,6 +207,14 @@ def make_semantic_registry() -> tuple[Registry, CompiledExpressionSidecar]:
             dimensions = (("valid_from", "start", True, True), ("valid_to", "end", True, False))
         elif name == "api":
             dimensions = (("observed_at", "day", True, True), ("region", "region", False, False))
+        key_columns: tuple[str, ...] = ("id",)
+        if name == "orders":
+            key_columns += ("customer_id", "region")
+        elif name in ("lines", "snapshots"):
+            key_columns += ("order_id", "customer_id")
+        elif name == "composite":
+            key_columns += ("tenant",)
+        dimensions += tuple((column, column, False, False) for column in key_columns)
         for label, column, temporal, default in dimensions:
             field_path = f"{path}.{label}"
             body = ExpressionBody.for_column(column)
@@ -244,7 +252,7 @@ def make_semantic_registry() -> tuple[Registry, CompiledExpressionSidecar]:
             name,
             f"sales.{left}",
             f"sales.{right}",
-            (JoinKey(left_key, "id"),),
+            (JoinKey(f"sales.{left}.{left_key}", f"sales.{right}.id"),),
             AiContextIR(),
             _LOCATION,
         )

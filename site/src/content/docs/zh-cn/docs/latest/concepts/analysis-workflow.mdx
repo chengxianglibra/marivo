@@ -33,10 +33,12 @@ change.show()
 字段选择器属于取得它的那个 Dataset。使用类型化谓词、投影、排序和显式坐标聚合。对持久化结果调用方法时，计算从其保留行及必要的私有贡献状态开始，保持身份和合法聚合语义。均值不能作为可加值直接求和；筛选后的比率和 distinct 集合保留真实组成状态。
 
 比较、归因、相关性、预测和发现属于 Dataset 方法。Event 匹配从 `session.events.match(...)` 开始，Lifecycle 回放从 `session.lifecycle.replay(...)` 开始。它们的下游方法属于返回的 Dataset，并消费已保留的匹配或历史。不同 Session 的输入不能混用。
+Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一致。漏斗归因需要从完整旅程或通过 `session.artifact(ref)` 打开的旅程检查点逻辑构建两侧漏斗；已物化的漏斗汇总或漏斗 Delta 不能替代这些旅程输入。
 
 ## 检查证据与恢复
 
 `contract()` 描述机械上合法的继续操作；Materialized Dataset 的 `show()` 提供有界结果检查。通过所属 Session 读取确切 Finding 或恢复 Artifact。展示少量行不代表计算可以省略其他输入。参见[证据](/zh-cn/docs/latest/concepts/evidence/)。
+预览中的时长列会明确标注微秒单位；`to_pandas()` 会将这些列转换为 timedelta。
 
 本地 Parquet 结果存储不需要配置。只有明确需要其他位置时，才在 `marivo.toml` 配置对象存储。执行不使用数据库结果存储，也不在失败后切换目标或执行器。冷恢复保留确切存储和时间语义；旧 Store 代际被拒绝，原文件不会被改写。
 

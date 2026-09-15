@@ -23,7 +23,7 @@ from marivo.analysis.operators.attribute import _generated
 from marivo.analysis.operators.attribution import LogicalAttributionDataset
 from marivo.analysis.operators.errors import attribution_error
 
-REPAIR = "Rebuild both funnels logically from complete journeys or engine journey scans, then compare and attribute before materializing aggregate rows."
+REPAIR = "Use complete logical journeys or open journey checkpoints with session.artifact(ref), rebuild both funnels logically, then compare and attribute before materializing aggregate rows."
 METHOD = "funnel_ratio_mix@v1"
 COMPONENT_ROLE = "event_funnel_components"
 COMPONENT_CONTRACT = "event_funnel.additive_components"

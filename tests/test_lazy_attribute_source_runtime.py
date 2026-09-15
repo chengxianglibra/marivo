@@ -1,6 +1,7 @@
 """Actual source execution of logical expansion, proof continuations and Entity privacy."""
 
 from dataclasses import replace
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +9,7 @@ from unittest.mock import patch
 import duckdb
 import pytest
 
-from marivo.analysis import time_scope
+from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq
@@ -16,6 +17,7 @@ from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
+from marivo.semantic.ir import RatioComposition
 from tests.lazy_attribute_runtime_evidence import record as record_evidence
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_materialization_crash_worker import snapshot
@@ -33,6 +35,55 @@ def _setup(project: Path) -> tuple[DatasetRuntime, LazySources]:
     registry, sidecar = make_execution_registry(database)
     runtime = DatasetRuntime.create(project, "source-attribution", target=LocalTarget())
     return runtime, runtime.sources(semantic_registry=registry, sidecar=sidecar)
+
+
+def test_daily_hidden_axis_attribution_fits_native_validation_memory(tmp_path: Path) -> None:
+    runtime, sources = _setup(tmp_path)
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.executemany(
+            "INSERT INTO orders(id, customer_id, amount, weight, channel, day) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    40 * (month - 1) + 2 * (day - 1) + group,
+                    1,
+                    float(day * group + month + day % 3 * 2),
+                    float(day % 4 + 1),
+                    "web" if group == 1 else "store",
+                    date(2026, month, day),
+                )
+                for month in (1, 2)
+                for day in range(1, 21)
+                for group in (1, 2)
+            ],
+        )
+    axis = ref.time_dimension("sales.orders.order_time")
+    current = (
+        sources.observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-02-01", end="2026-02-21"),
+            time_dimension=axis,
+        )
+        .with_time_axis(axis, grain=grain("day"))
+        .aggregate()
+    )
+    baseline = (
+        sources.observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-01-01", end="2026-01-21"),
+            time_dimension=axis,
+        )
+        .with_time_axis(axis, grain=grain("day"))
+        .aggregate()
+    )
+    result = current.compare(baseline).attribute(axes=(CHANNEL,)).execute()
+    rows = result.to_pandas()
+    assert len(rows) == 40
+    assert rows.contribution.tolist() == [1.0] * 40
+    assert rows.overall_delta.tolist() == [2.0] * 40
+    assert rows.groupby("comparison_ordinal").contribution.sum().tolist() == [2.0] * 20
+    assert runtime.statistics.primary_queries == 1
 
 
 def test_entity_expansion_reduces_only_global_proof_in_source(tmp_path: Path) -> None:
@@ -186,3 +237,69 @@ def test_decimal_source_summary_preserves_exact_attribution_values(tmp_path: Pat
     proof = record.descriptor.attribution_evidence
     assert proof.complete and proof.max_reconciliation_error == 0.0
     assert runtime.statistics.worker_pid is None
+
+
+def test_component_hierarchy_keeps_validation_memory_bounded(tmp_path: Path) -> None:
+    runtime, sources = _setup(tmp_path)
+    registry, sidecar = make_execution_registry(tmp_path / "warehouse.duckdb")
+    weight = replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.weight_total",
+        name="weight_total",
+        measure="sales.orders.weight",
+        aggregation_target="sales.orders.weight",
+    )
+    ratio = replace(
+        registry.metrics["sales.conversion_rate"],
+        composition=RatioComposition("sales.revenue", "sales.weight_total"),
+    )
+    registry = replace(
+        registry, metrics={**registry.metrics, weight.semantic_id: weight, ratio.semantic_id: ratio}
+    )
+    registry.freeze()
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.executemany(
+            "INSERT INTO orders(id, customer_id, amount, weight, channel, day) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    40 * (month - 1) + 2 * (day - 1) + group,
+                    1 if day <= 10 else 2,
+                    float(day * group + month + day % 3 * 2),
+                    float(day % 4 + 1),
+                    "web" if group == 1 else "store",
+                    date(2026, month, day),
+                )
+                for month in (1, 2)
+                for day in range(1, 21)
+                for group in (1, 2)
+            ],
+        )
+    current = (
+        sources.observe(
+            ref.metric("sales.conversion_rate"),
+            time_scope=time_scope(start="2026-02-01", end="2026-02-21"),
+        )
+        .with_dimensions(CHANNEL, REGION)
+        .aggregate()
+    )
+    baseline = (
+        sources.observe(
+            ref.metric("sales.conversion_rate"),
+            time_scope=time_scope(start="2026-01-01", end="2026-01-21"),
+        )
+        .with_dimensions(CHANNEL, REGION)
+        .aggregate()
+    )
+    result = current.compare(baseline).attribute(axes=(CHANNEL, REGION), mode="hierarchy").execute()
+    rows = result.to_pandas()
+    assert len(rows) == 6
+    assert rows.overall_delta.tolist() == pytest.approx([0.4] * 6)
+    parents = [bool(mask[0]) and not bool(mask[1]) for mask in rows.active_axis_mask]
+    assert rows.loc[parents, "contribution"].tolist() == pytest.approx([0.2, 0.2])
+    assert rows.loc[[not parent for parent in parents], "contribution"].tolist() == pytest.approx(
+        [0.1] * 4
+    )
+    assert runtime.statistics.primary_queries == 1

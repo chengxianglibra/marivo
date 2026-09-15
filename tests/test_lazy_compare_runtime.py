@@ -206,6 +206,20 @@ def test_repeated_checkpoint_keeps_two_operand_occurrences_and_immutable_rows(
     assert run.input_artifact_refs == (checkpoint.state.artifact_ref.ref,) * 2
     assert runtime.statistics.primary_queries == 1
     assert runtime.statistics.worker_pid is None
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    selected = cold.get_run(result.state.producing_run_ref)
+    expected_inputs = (checkpoint.state.artifact_ref,) * 2
+    assert selected.input_artifact_refs == expected_inputs
+    assert cold.runs(limit=1).items[0] == selected
+    graph = cold.graph()
+    consumes = tuple(
+        edge.artifact_ref
+        for edge in graph.edges
+        if edge.kind == "consumes" and edge.run_id == selected.run_id
+    )
+    assert consumes == expected_inputs
+    assert len(graph.artifacts) == 2 and not graph.truncated
+    assert cold.statistics.primary_queries == 0
 
 
 @pytest.mark.parametrize("shape", ["entity", "dimension"])

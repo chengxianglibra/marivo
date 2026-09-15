@@ -3146,8 +3146,8 @@ processes, all 29 release tests, and the 4,824-test broad gate. It replaces the
 remaining eager wheel smoke and resolves the Help test's packaged skill from the
 installed package; no library implementation changed. The exact candidate,
 distribution bytes, origins, negative audit and final status patch are linked in
-that record. Slice 9a-9c completion is recorded below; Slice 9d remains pending
-and this candidate is not release-ready.
+that record. Slice 9a-9d completion is recorded below; publication and release
+readiness remain separate from these recorded acceptance units.
 
 These units organize preparation and verification, not separate public releases.
 Slice 8 activates already working semantics and reads; it must not absorb a
@@ -3302,7 +3302,7 @@ real-Agent journeys.
 | 9a: deterministic and installed-package gates — complete | 8c | Full repository, public contract, numerical, Help/example, bilingual docs/site, and distribution checks below. |
 | 9b: backend and execution-economics matrix — complete | 9a | Terminal evidence for every claimed method/adapter/reader/writer path, source/local parity, query/transfer counts, and exact resource limits. Reuse unit harnesses against the candidate; do not infer support from compilation. |
 | 9c: adversarial runtime and read acceptance — complete | 9a | Admission ordering, contention, precommit failure, committed-success recovery, unknown outcomes, required parts, cross-Session boundaries, scoped reads, and forbidden disclosure on the candidate. |
-| 9d: real-Agent integration journeys | 9a | Execute every journey below with fresh terminal Run/Artifact/Evidence or exact pre-admission rejection proof. Close only after 9b and 9c also pass for the same candidate. |
+| 9d: real-Agent integration journeys — complete | 9a | Execute every journey below with fresh terminal Run/Artifact/Evidence or exact pre-admission rejection proof. Close only after 9b and 9c also pass for the same candidate. |
 
 9b-9d may collect independent evidence concurrently. Each report identifies the
 candidate SHA and fixture/backend configuration. Changes during acceptance
@@ -3324,8 +3324,8 @@ journey. The record binds the exact source manifests, final installed package
 hashes, command logs and terminal identities. No implementation or test repair
 was needed; all 785 earlier evidence files were preserved. Only status text
 followed the gates. This closes 9a for the approved environment, not the backend,
-adversarial or real-Agent units. Subsequent 9b and 9c acceptance is recorded below;
-9d and release readiness remain pending.
+adversarial or real-Agent units. Subsequent 9b-9d acceptance is recorded below;
+release readiness remains separate.
 
 ### Slice 9b completion
 
@@ -3345,8 +3345,8 @@ Funnel Delta row validation. The record binds final source manifests, method and
 reader/writer nodes, measurements, terminal identities, readback, package bytes,
 failed attempts and cleanup. All 867 historical evidence files were preserved.
 Only completion status text followed the gates. That acceptance did not close
-9c, 9d or release readiness and did not authorize publication. Subsequent 9c
-acceptance is recorded below.
+9c, 9d or release readiness and did not authorize publication. Subsequent 9c and
+9d acceptance is recorded below.
 
 ### Slice 9c completion
 
@@ -3369,7 +3369,36 @@ assertions. A fresh process read back the preserved project after the full gate.
 The record binds exact manifests, requirement-to-node mappings, terminal
 identities, distribution bytes, failed attempts, cleanup and preservation of all
 16,303 historical evidence files. Only completion text followed the final gates.
-Slice 9d and release readiness remain pending; no publication is authorized.
+Slice 9d was pending at that checkpoint and is completed below; publication
+and release readiness remain separate.
+
+### Slice 9d completion
+
+The [Slice 9d execution record](../plans/2026-09-13-lazy-analysis-slice-9d-real-agent.md)
+closes all 15 independent native Claude CLI journeys and 81 numbered obligations
+on 2026-09-15. Final runtime candidate
+`c8fb1657a6a0821f069225cab63b44ed72c10f3129a5ef8510be7f5318e25d78`
+passed 4,869 default tests, 904 mapped Runtime cases, seven live object-storage
+cases, 29 release tests and the required API/example/bilingual-site gates.
+Installed acceptance verified 378 contract cases, five Runtime examples,
+three-process source-offline recovery and all 328 package files against source.
+The 12 economics outcomes and five unsupported native-backend rejections have
+current execution receipts; historical basic-adapter connectivity is separately
+bounded by unchanged datasource/dependency bytes.
+
+Every accepted native context has recorded model/skill identity, terminal
+success, sealed delivery and independent obligation evidence. Current-candidate
+source-forbidden reads requalified 175 Artifacts from the other 14 journeys.
+F adds exact pristine local/object three-process chains, complete physical
+inventories, guarded local continuations and actual selected-prefix failures
+without pandas retry. Native working-directory/debug-ledger residue and
+controller assertion repairs are explicitly qualified rather than counted as
+product success. All 42,025 prior evidence files remain unchanged.
+
+Only completion status documentation followed the frozen runtime gates; its
+manifest bridge is linked from the record. This closes the real-Agent unit,
+not a publication workflow. No commit, push, tag or release is authorized by
+this completion record.
 
 ### Static and deterministic gates
 
@@ -3641,8 +3670,9 @@ and terminal outcome in the capability-to-acceptance matrix.
 2. Pass the logical Candidate explicitly as Metric `population=` and verify
    the exact selected identity projection without a Python collection bridge
    or an intermediate public membership artifact.
-3. Materialize and cold-recover the Candidate in a compatible engine storage
-   domain; repeat the observation without replaying its Metric origin.
+3. Materialize and cold-recover the Candidate in immutable Parquet through the
+   registered native membership continuation; repeat the observation without
+   replaying its Metric origin.
 4. Verify observation scope remains independent of selection scope, identity
    stays within authorized storage/reads, and other Candidate shapes are
    rejected as population inputs.
@@ -3947,8 +3977,8 @@ row or replacing its evidence with another family's requires review here.
 | Retained parts, aggregate/fold/rollup, checkpoint membership | 3b complete | `test_lazy_retained_fold_matrix.py`, `test_lazy_local_fold.py`, `test_lazy_retained_compiler.py`, `test_lazy_retained_membership.py`, `test_lazy_retained_failures.py`; exact variants and fresh-process evidence in the [3b record](../plans/2026-09-08-lazy-analysis-slice-3b-execution.md) | Private 3b gate passed; B, D, I, M remain public Slice 9 gates |
 | Source-prefix/local-suffix execution | 4a and parent 4 complete; multi-input extension complete in 5a | `test_lazy_local_guards.py`, `test_lazy_local_runtime_acceptance.py`, `test_lazy_slice4_boundaries.py`, `test_lazy_compare_runtime.py`, `test_lazy_local_graph_lifetime.py`; complete unary/retained and combined input guards, intermediate/output/deadline limits, fixed dispatch, real independent-source comparison, immutable direct DataFrame handoff and no retry | Private parent 4 gate passed under the approved allocation; the [5a gate](../plans/2026-09-08-lazy-analysis-slice-5a-execution.md) closes the allocated multi-input proof. F and 9b remain public gates |
 | Local/engine/object storage | 2b, 4b | immutable receipts, reservations, required parts, mutation and overflow | F-G, I; 9b-9c |
-| Run admission, publication, concurrency, reconciliation | 2b, 4c complete | `test_lazy_runtime_concurrency.py`, `test_lazy_worker_recovery.py`, `test_lazy_adapter_crash_acceptance.py`, `test_lazy_reconciliation_snapshot.py`; exact variants and evidence in the [4c record](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md) | Private 4c and public 9c gates passed; real-Agent G remains in 9d |
-| Session/Run/Artifact/Finding reads, graph, integrity | 4d and parent 4 complete | `test_lazy_runtime_reads.py`, `test_lazy_session_history.py`, `test_lazy_session_graph.py`, `test_lazy_finding_types.py`, `test_lazy_finding_reads.py`, `test_lazy_integrity_inspection.py`, `test_lazy_inspection_boundaries.py`, `test_lazy_runtime_read_acceptance.py`, `test_lazy_read_integrity_regressions.py`, `test_lazy_object_access_boundaries.py`; [exact evidence](../plans/2026-09-08-lazy-analysis-slice-4d-execution.md) | Private 4d, parent 4 and public 9c gates passed; real-Agent G2 and N remain in 9d |
+| Run admission, publication, concurrency, reconciliation | 2b, 4c complete | `test_lazy_runtime_concurrency.py`, `test_lazy_worker_recovery.py`, `test_lazy_adapter_crash_acceptance.py`, `test_lazy_reconciliation_snapshot.py`; exact variants and evidence in the [4c record](../plans/2026-09-08-lazy-analysis-slice-4c-execution.md) | Private 4c, public 9c and real-Agent G gates passed; see the 9d record |
+| Session/Run/Artifact/Finding reads, graph, integrity | 4d and parent 4 complete | `test_lazy_runtime_reads.py`, `test_lazy_session_history.py`, `test_lazy_session_graph.py`, `test_lazy_finding_types.py`, `test_lazy_finding_reads.py`, `test_lazy_integrity_inspection.py`, `test_lazy_inspection_boundaries.py`, `test_lazy_runtime_read_acceptance.py`, `test_lazy_read_integrity_regressions.py`, `test_lazy_object_access_boundaries.py`; [exact evidence](../plans/2026-09-08-lazy-analysis-slice-4d-execution.md) | Private 4d, parent 4, public 9c and real-Agent G2/N gates passed; see the 9d record |
 | Metric comparison | 5a complete | `test_lazy_compare_contracts.py`, `test_lazy_compare_numeric.py`, `test_lazy_compare_compiler.py`, `test_lazy_compare_runtime.py`, `test_lazy_compare_time_runtime.py`, `test_lazy_compare_runtime_acceptance.py`, `test_lazy_delta_publication.py`; five shapes, all state topologies, exact promotion and Decimal Finding order, sampling sharing, complete combined guards, repeated time-series coordinates, atomic Findings and three-storage cold recovery | Private [5a technical gate](../plans/2026-09-08-lazy-analysis-slice-5a-execution.md) passed after review follow-up; C and F remain integrated public acceptance |
 | Additive/component-mix attribution | 5b | endpoint reproduction, disjoint partitions, masks/Findings, barrier failures | C |
 | Distinct-membership attribution | 5c | exact membership allocation, source-private identity, reconciliation | C; 9b |

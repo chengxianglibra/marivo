@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
@@ -24,7 +25,7 @@ from marivo.analysis.materialization.storage import (
 from marivo.analysis.materialization.targets import ObjectBinding
 
 
-def checked_local_path(root: Path, receipt: LocalReceipt) -> Path:
+def checked_local_path(root: Path, receipt: LocalReceipt, *, verify_schema: bool = False) -> Path:
     """Check manifest, size, schema, count and complete bytes before a native scan."""
     parquet, path = _open_payload(root, receipt)
     try:
@@ -33,6 +34,12 @@ def checked_local_path(root: Path, receipt: LocalReceipt) -> Path:
             or receipt.file_manifest[0].sha256 != receipt.bytes_hash
         ):
             raise StorageAccessError("mutated")
+        if (
+            verify_schema
+            and hashlib.sha256(parquet.schema_arrow.serialize().to_pybytes()).hexdigest()
+            != receipt.schema_fingerprint
+        ):
+            _integrity("the exact immutable part schema", "Parquet part schema differs")
     finally:
         parquet.close()
     return path
@@ -44,11 +51,12 @@ def attach_parquet_scan(
     receipt: StorageReceipt,
     *,
     bindings: tuple[ObjectBinding, ...] = (),
+    verify_schema: bool = False,
 ) -> ir.Table:
     """Use the preselected native adapter; object streams are frozen once in memory."""
     name = "mv_parquet_" + uuid4().hex
     if isinstance(receipt, LocalReceipt):
-        path = checked_local_path(root, receipt)
+        path = checked_local_path(root, receipt, verify_schema=verify_schema)
         return backend.read_parquet(str(path), table_name=name)
     if not isinstance(receipt, ObjectReceipt):
         _integrity("an immutable Parquet receipt", "unsupported native scan storage")
@@ -61,6 +69,12 @@ def attach_parquet_scan(
     )
     try:
         header = next(stream)
+        if (
+            verify_schema
+            and hashlib.sha256(header.schema.serialize().to_pybytes()).hexdigest()
+            != receipt.schema_fingerprint
+        ):
+            _integrity("the exact immutable part schema", "Parquet part schema differs")
         with pa.RecordBatchReader.from_batches(header.schema, stream) as reader:
             registered = name + "_input"
             backend.con.register(registered, reader)

@@ -871,21 +871,27 @@ Exceptions do not prove database rollback or backend termination. Uncertain
 commit acknowledgement follows Store readback; surviving external work follows
 reconciliation before another execution is admitted.
 
-Consecutive source validation relations compile and execute as one shared Ibis
-union, ordered by validation ordinal. Every check still produces its own named
+Source validation relations compile into separate queries, one check per query.
+Even small unions of complex checks can exceed the unchanged native memory cap
+by retaining their aggregate state together. All queries are planned before
+execution; a failed query is never split and retried. Every check produces its own named
 zero-violation receipt; missing, duplicate, non-integer or nonzero scalar results
 fail at the owning check. Successful results retain their original check order.
 Native SQL failures abort the action without retrying individual checks.
-Sampling fences split these batches: pre-sampling checks finish before the fence
+Sampling fences preserve query order: pre-sampling checks finish before the fence
 is reserved or created, and dependent checks execute only after its realization.
 Execution-local `validation_queries` counts physical batch queries, while the
 Artifact's validation results retain the individual logical checks. Statement
-statistics record the shared SQL once as `validation_batch`.
+statistics record each batch's shared SQL once as `validation_batch`.
 
 ### Materialized read lifecycle
 
 `MaterializedDataset.show()` validates selected metadata and accessed primary
 storage, schema, and deterministic ordering while reading a bounded preview.
+When the current schema includes duration columns, the preview names those
+columns and explicitly labels their numeric values as microseconds, including
+fractional microseconds in Lifecycle dwell statistics. This disclosure does not
+collect the complete result or change the stored values.
 It does not scan Findings, unused parts, or all data to recompute row counts or
 hashes. `to_pandas()` reads and validates complete primary data under collection
 guards, returning an isolated DataFrame or no partial value. Parts and Findings
@@ -2056,6 +2062,13 @@ same-Session binding without a new Run.
 
 ## Revalidation
 
+Event funnel attribution includes its mapped additive component part in full
+storage inspection, validating the owning component schema and non-null support
+fields for both joint and hierarchy outputs. Part receipts fingerprint the
+persisted Parquet Arrow schema after the verified write round trip, including
+physical nested-field names. Primary previews remain independent
+of that part, while missing or changed part bytes affect the storage axis.
+
 `session.revalidate(ref)` is explicit full integrity inspection. Its read-only
 result has exactly three independent axes:
 
@@ -2228,7 +2241,10 @@ by `execute()`.
 ### Run facts and optional diagnostics
 
 Run reads expose lifecycle, bounded definition/source/input identity, admission
-and terminal times, output ref, or structured failure. Storage kind and counts
+and terminal times, output ref, or structured failure. Input references preserve
+operand order and repeated roles, including when both comparison operands select
+the same Artifact. Graph nodes remain unique while consumption edges retain those
+ordered occurrences. Storage kind and counts
 come from the output Artifact. There is no mandatory compiler-audit payload,
 physical-plan fingerprint inventory, CSE count, or sink-feasibility certificate.
 
