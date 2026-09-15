@@ -146,15 +146,14 @@ def native_summary(
             inputs=tuple(backend.prepare(expr) for expr in statements),
         )
     ).fetchone()
-    if (
-        result is None
-        or len(result) != 8
-        or any(type(value) is not int or value < 0 for value in result)
-    ):
+    if result is None or len(result) != 8:
         raise invalid("invalid native Lifecycle scalar summary")
-    return LifecycleEvidenceSummary(
-        recipe.lifecycle_coverage, *(value for value in result if isinstance(value, int))
-    )
+    counts: list[int] = []
+    for value in result:
+        if not isinstance(value, int) or type(value) is not int or value < 0:
+            raise invalid("invalid native Lifecycle scalar summary")
+        counts.append(value)
+    return LifecycleEvidenceSummary(recipe.lifecycle_coverage, *counts)
 
 
 def inspect_history(

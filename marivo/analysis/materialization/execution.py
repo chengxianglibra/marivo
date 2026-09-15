@@ -19,9 +19,9 @@ from marivo.datasource.timezone import DatasourceEngineTimezone
 Parameter = str | int | float | bool | bytes | Decimal | date | datetime | None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class ExecutionContext:
-    identity: str
+    """Identity token for one owned execution lifetime."""
 
 
 @dataclass(frozen=True, slots=True)

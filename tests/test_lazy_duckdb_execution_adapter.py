@@ -11,7 +11,7 @@ import pytest
 from duckdb import DuckDBPyConnection
 from ibis.backends.duckdb import Backend
 
-from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
+from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter, bind_duckdb
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution import Parameter
 
@@ -458,3 +458,10 @@ def test_invalid_source_is_rejected_even_for_empty_output(
     assert run is not None and run.lifecycle == "failed"
     assert runtime.store.resources(runtime.session_ref) == ()
     assert not list(runtime.store.layout.session_dir(runtime.session_ref).rglob("*.parquet"))
+
+
+def test_binding_failure_preserves_run_reference() -> None:
+    with pytest.raises(MaterializationError) as raised:
+        bind_duckdb(object(), reserve=lambda _: None, run_ref="run_binding_failure")
+    assert raised.value.stage == "execution_boundary"
+    assert raised.value.run_ref == "run_binding_failure"

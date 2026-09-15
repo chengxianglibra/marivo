@@ -34,7 +34,7 @@ from marivo.analysis.materialization.contracts import (
 )
 from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
 from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
-from marivo.analysis.materialization.execution import ExecutionAdapter as Backend
+from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.storage import sampling_state_read, validate_sampling_state
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.observation.sampling import EntitySamplingPolicy, engine_sample
@@ -391,7 +391,7 @@ def test_sampled_failure_never_publishes_partial_rows_or_state(
 
     if point == "sample_query":
 
-        def sample_failure(backend: Backend, fence: CompiledSampleFence) -> str:
+        def sample_failure(backend: ExecutionAdapter, fence: CompiledSampleFence) -> str:
             hits.append(point)
             return f"CREATE TEMPORARY TABLE \"{fence.relation_name}\" AS SELECT error('sampling-failure-canary') AS invalid"
 
@@ -400,7 +400,7 @@ def test_sampled_failure_never_publishes_partial_rows_or_state(
         original_batches = DatasetRuntime._batches
 
         def primary_failure(
-            self: DatasetRuntime, backend: Backend, expression: ir.Table, batch_rows: int
+            self: DatasetRuntime, backend: ExecutionAdapter, expression: ir.Table, batch_rows: int
         ) -> Iterator[pa.RecordBatch]:
             hits.append(point)
             backend.submit(backend.statement("SELECT error('sampling-failure-canary')"))
