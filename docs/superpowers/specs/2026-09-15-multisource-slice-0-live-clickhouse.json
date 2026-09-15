@@ -1,0 +1,3692 @@
+{
+  "backend": "clickhouse",
+  "command": ".venv/bin/python -m tests.multisource_environment.qualify clickhouse --output /tmp/marivo-q0-clickhouse.json",
+  "dataset_acceptance": false,
+  "fixture": "q0_da3f6e4da0694626b981163577ef986b",
+  "pre_transfer_barrier_proven": false,
+  "recorded_at": "2026-09-15T07:23:50.016373+00:00",
+  "results": {
+    "concurrency": [
+      {
+        "acknowledged_writes_while_reader_active": 12,
+        "consistent": false,
+        "debug_snapshot_sleep_ms": 200,
+        "duplicate_writes": false,
+        "parts": [
+          [
+            9.0,
+            9,
+            9
+          ],
+          [
+            13,
+            13
+          ]
+        ],
+        "primary": {
+          "order_count": 13,
+          "revenue": 9.0
+        },
+        "query_id": "q0_overlap_76fb27fe448b43c89a7664f687bc84ee",
+        "shared_snapshot": 0,
+        "source_assertions": {
+          "0": 0,
+          "1": 0
+        }
+      },
+      {
+        "acknowledged_writes_while_reader_active": 12,
+        "consistent": true,
+        "debug_snapshot_sleep_ms": 200,
+        "duplicate_writes": false,
+        "parts": [
+          [
+            3.0,
+            3,
+            3
+          ],
+          [
+            3,
+            3
+          ]
+        ],
+        "primary": {
+          "order_count": 3,
+          "revenue": 3.0
+        },
+        "query_id": "q0_overlap_1235e625d6f249abb1d0ba980296e5d7",
+        "shared_snapshot": 1,
+        "source_assertions": {
+          "0": 0,
+          "1": 0
+        }
+      },
+      {
+        "acknowledged_writes_while_reader_active": 12,
+        "consistent": true,
+        "debug_snapshot_sleep_ms": 200,
+        "duplicate_writes": false,
+        "parts": [
+          [
+            3.0,
+            3,
+            3
+          ],
+          [
+            3,
+            3
+          ]
+        ],
+        "primary": {
+          "order_count": 3,
+          "revenue": 3.0
+        },
+        "query_id": "q0_overlap_f41aff1a468c422a999023be325f0b6f",
+        "shared_snapshot": 1,
+        "source_assertions": {
+          "0": 0,
+          "1": 0
+        }
+      },
+      {
+        "acknowledged_writes_while_reader_active": 12,
+        "consistent": true,
+        "debug_snapshot_sleep_ms": 200,
+        "duplicate_writes": false,
+        "parts": [
+          [
+            3.0,
+            3,
+            3
+          ],
+          [
+            3,
+            3
+          ]
+        ],
+        "primary": {
+          "order_count": 3,
+          "revenue": 3.0
+        },
+        "query_id": "q0_overlap_a0944b98cfcb4335b9875130cec793cb",
+        "shared_snapshot": 1,
+        "source_assertions": {
+          "0": 0,
+          "1": 0
+        }
+      },
+      {
+        "acknowledged_writes_while_reader_active": 12,
+        "consistent": true,
+        "debug_snapshot_sleep_ms": 200,
+        "duplicate_writes": true,
+        "parts": [
+          [
+            3.0,
+            3,
+            3
+          ],
+          [
+            3,
+            3
+          ]
+        ],
+        "primary": {
+          "order_count": 3,
+          "revenue": 3.0
+        },
+        "query_id": "q0_overlap_7ff1764d056e42438491598a81c551a0",
+        "shared_snapshot": 1,
+        "source_assertions": {
+          "0": 0,
+          "1": 2
+        }
+      }
+    ],
+    "envelope_cases": [
+      {
+        "case": "non_null_count",
+        "decoded_bytes": 269,
+        "records": [
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 0,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 1,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": 2,
+            "__mv_357811d7ad715974b25f_row_count": 3,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": 2,
+            "__mv_c9a00e7f02a9014461f3_row_count": 3,
+            "__mv_c9a00e7f02a9014461f3_sum": 30.0,
+            "__q_check": null,
+            "__q_kind": "primary",
+            "__q_violations": null,
+            "order_count": 2,
+            "revenue": 30.0
+          }
+        ],
+        "rejected": false,
+        "rows": 3
+      },
+      {
+        "case": "empty_source",
+        "decoded_bytes": 184,
+        "records": [
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 0,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 1,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          }
+        ],
+        "rejected": false,
+        "rows": 2
+      },
+      {
+        "case": "empty_source_scalar",
+        "decoded_bytes": 271,
+        "records": [
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 0,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 1,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": 0,
+            "__mv_357811d7ad715974b25f_row_count": 0,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": 0,
+            "__mv_c9a00e7f02a9014461f3_row_count": 0,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": null,
+            "__q_kind": "primary",
+            "__q_violations": null,
+            "order_count": 0,
+            "revenue": null
+          }
+        ],
+        "rejected": false,
+        "rows": 3
+      },
+      {
+        "case": "empty_primary",
+        "decoded_bytes": 184,
+        "records": [
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 0,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 1,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          }
+        ],
+        "rejected": false,
+        "rows": 2
+      },
+      {
+        "case": "filtered_duplicate",
+        "decoded_bytes": 271,
+        "records": [
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 0,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 1,
+            "__q_kind": "assertion",
+            "__q_violations": 1,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": 0,
+            "__mv_357811d7ad715974b25f_row_count": 0,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": 0,
+            "__mv_c9a00e7f02a9014461f3_row_count": 0,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": null,
+            "__q_kind": "primary",
+            "__q_violations": null,
+            "order_count": 0,
+            "revenue": null
+          }
+        ],
+        "rejected": true,
+        "rows": 3
+      },
+      {
+        "case": "filtered_null_identity",
+        "decoded_bytes": 271,
+        "records": [
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 0,
+            "__q_kind": "assertion",
+            "__q_violations": 1,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 1,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": 0,
+            "__mv_357811d7ad715974b25f_row_count": 0,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": 0,
+            "__mv_c9a00e7f02a9014461f3_row_count": 0,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": null,
+            "__q_kind": "primary",
+            "__q_violations": null,
+            "order_count": 0,
+            "revenue": null
+          }
+        ],
+        "rejected": true,
+        "rows": 3
+      },
+      {
+        "case": "empty_primary_duplicate",
+        "decoded_bytes": 184,
+        "records": [
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 0,
+            "__q_kind": "assertion",
+            "__q_violations": 0,
+            "order_count": null,
+            "revenue": null
+          },
+          {
+            "__mv_357811d7ad715974b25f_count": null,
+            "__mv_357811d7ad715974b25f_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_non_null_count": null,
+            "__mv_c9a00e7f02a9014461f3_row_count": null,
+            "__mv_c9a00e7f02a9014461f3_sum": null,
+            "__q_check": 1,
+            "__q_kind": "assertion",
+            "__q_violations": 1,
+            "order_count": null,
+            "revenue": null
+          }
+        ],
+        "rejected": true,
+        "rows": 2
+      }
+    ],
+    "physical_types": {
+      "schema": "amount: decimal128(38, 2) not null\nmoment: timestamp[ms, tz=UTC] not null\nnan_finite: uint8 not null\ninf_finite: uint8 not null\nordinary_finite: uint8 not null",
+      "unmatched_join": [
+        {
+          "value": null
+        }
+      ],
+      "values": {
+        "amount": "30.75",
+        "inf_finite": "0",
+        "moment": "2024-01-02 00:00:00.123000+00:00",
+        "nan_finite": "0",
+        "ordinary_finite": "1"
+      }
+    },
+    "settings": [
+      {
+        "name": "join_use_nulls",
+        "value": "1"
+      },
+      {
+        "name": "max_execution_time",
+        "value": "30"
+      },
+      {
+        "name": "max_memory_usage",
+        "value": "536870912"
+      },
+      {
+        "name": "use_query_cache",
+        "value": "0"
+      },
+      {
+        "name": "enable_shared_storage_snapshot_in_query",
+        "value": "1"
+      }
+    ],
+    "terminal": [
+      {
+        "exception_code": 0,
+        "query_id": "q0_overlap_a0944b98cfcb4335b9875130cec793cb",
+        "read_rows": 30,
+        "result_bytes": 147896,
+        "result_rows": 3,
+        "type": 2
+      },
+      {
+        "exception_code": 0,
+        "query_id": "q0_overlap_7ff1764d056e42438491598a81c551a0",
+        "read_rows": 50,
+        "result_bytes": 147896,
+        "result_rows": 3,
+        "type": 2
+      },
+      {
+        "exception_code": 0,
+        "query_id": "q0_overlap_76fb27fe448b43c89a7664f687bc84ee",
+        "read_rows": 100,
+        "result_bytes": 147896,
+        "result_rows": 3,
+        "type": 2
+      },
+      {
+        "exception_code": 0,
+        "query_id": "q0_overlap_1235e625d6f249abb1d0ba980296e5d7",
+        "read_rows": 30,
+        "result_bytes": 147896,
+        "result_rows": 3,
+        "type": 2
+      },
+      {
+        "exception_code": 0,
+        "query_id": "q0_overlap_f41aff1a468c422a999023be325f0b6f",
+        "read_rows": 30,
+        "result_bytes": 147896,
+        "result_rows": 3,
+        "type": 2
+      }
+    ],
+    "version": [
+      {
+        "version": "26.3.33.24"
+      }
+    ]
+  },
+  "scope": "Slice 0 live feasibility only; no Dataset backend activation",
+  "source_file": "tests/multisource_environment/qualify.py",
+  "source_sha256": "c618627a0fb9459adf17e15d99a25ed43f03ee9f95f2f56d144f83bbd4506960",
+  "sql_by_sha256": {
+    "066df34fd4fd54f1aa861219200adbab6e002a16d2908bccda607d2080b3f818": "SYSTEM FLUSH LOGS",
+    "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a": "SELECT count() AS n FROM system.processes WHERE query_id='q0_overlap_a0944b98cfcb4335b9875130cec793cb' FORMAT ArrowStream",
+    "261c91b7ec36ef54c36aebe703ec22708ed357bc9c27aebd00293f1ddbf0b6ca": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (5,1)",
+    "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89": "SELECT count() AS n FROM system.processes WHERE query_id='q0_overlap_7ff1764d056e42438491598a81c551a0' FORMAT ArrowStream",
+    "299b977123e322b006f114f53f56cc66f3ede65c6118b16128a8db4b1a8a038f": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (1,1)",
+    "2e26b5f92234019e6cdc09df6eb6c1b5322f294c6a9fbb1abda3027385768e58": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (12,1)",
+    "2eed9fc8fe47886f635922ba23ff79766c063100fe3747a930d35edeaaa841f2": "WITH \"t22\" AS (SELECT DISTINCT * FROM (SELECT \"t8\".\"amount\" AS \"amount\", \"t8\".\"channel\" AS \"channel\", \"t8\".\"customer_id\" AS \"customer_id\", \"t8\".\"day\" AS \"day\", \"t8\".\"end\" AS \"end\", \"t8\".\"id\" AS \"id\", \"t8\".\"order_id\" AS \"order_id\", \"t8\".\"region\" AS \"region\", \"t8\".\"start\" AS \"start\", \"t8\".\"tenant\" AS \"tenant\", \"t8\".\"weight\" AS \"weight\", \"t8\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t8\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t8\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t7\" ON \"t6\".\"entity_identity\" = \"t7\".\"entity_identity\") AS \"t13\") AS \"t14\") AS \"t18\" ON \"t8\".\"entity_identity\" = \"t18\".\"entity_identity\") AS \"t21\") SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(1 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t11\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM (SELECT \"t0\".\"id\" AS \"id\", COUNT(*) AS \"__mv_count\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\" GROUP BY \"t0\".\"id\") AS \"t1\" WHERE \"t1\".\"__mv_count\" > 1) AS \"t9\") AS \"t11\") AS \"t15\" UNION ALL SELECT * FROM (SELECT * FROM (SELECT CAST('primary' AS Nullable(String)) AS \"__q_kind\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_check\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(\"t32\".\"revenue\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(\"t32\".\"order_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(\"t32\".\"__mv_357811d7ad715974b25f_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(\"t32\".\"__mv_357811d7ad715974b25f_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT \"t31\".* EXCEPT (\"__mv_scalar\") FROM (SELECT \"t30\".\"__mv_scalar\" AS \"__mv_scalar\", \"t30\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", COALESCE(\"t30\".\"__mv_c9a00e7f02a9014461f3_non_null_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", COALESCE(\"t30\".\"__mv_c9a00e7f02a9014461f3_row_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_row_count\", COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_count\", 0) AS \"__mv_357811d7ad715974b25f_count\", COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_row_count\", 0) AS \"__mv_357811d7ad715974b25f_row_count\", CAST(\"t30\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS \"revenue\", CAST(COALESCE(COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_count\", 0), 0) AS Nullable(Int64)) AS \"order_count\" FROM (SELECT \"t20\".\"__mv_scalar\" AS \"__mv_scalar\", \"t28\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t28\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t28\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\", \"t29\".\"__mv_357811d7ad715974b25f_count\" AS \"__mv_357811d7ad715974b25f_count\", \"t29\".\"__mv_357811d7ad715974b25f_row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"__mv_scalar\" FROM (SELECT \"t14\".\"amount\" AS \"amount\", \"t14\".\"channel\" AS \"channel\", \"t14\".\"customer_id\" AS \"customer_id\", \"t14\".\"day\" AS \"day\", \"t14\".\"end\" AS \"end\", \"t14\".\"id\" AS \"id\", \"t14\".\"order_id\" AS \"order_id\", \"t14\".\"region\" AS \"region\", \"t14\".\"start\" AS \"start\", \"t14\".\"tenant\" AS \"tenant\", \"t14\".\"weight\" AS \"weight\", tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t7\" ON \"t6\".\"entity_identity\" = \"t7\".\"entity_identity\") AS \"t13\") AS \"t14\") AS \"t16\") AS \"t20\" CROSS JOIN (SELECT \"t24\".\"sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t24\".\"non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t24\".\"row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", SUM(\"t23\".\"amount\") AS \"sum\", COUNT(\"t23\".\"amount\") AS \"non_null_count\" FROM \"t22\" AS \"t23\") AS \"t24\") AS \"t28\" CROSS JOIN (SELECT \"t25\".\"count\" AS \"__mv_357811d7ad715974b25f_count\", \"t25\".\"row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", COUNT(\"t23\".\"amount\") AS \"count\" FROM \"t22\" AS \"t23\") AS \"t25\") AS \"t29\") AS \"t30\") AS \"t31\") AS \"t32\" WHERE FALSE) AS \"t33\" UNION ALL SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(0 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t10\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\" WHERE NOT (isNotNull(\"t0\".\"id\"))) AS \"t5\") AS \"t10\") AS \"t12\") AS \"t34\" FORMAT ArrowStream",
+    "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd": "SELECT count() AS n FROM system.processes WHERE query_id='q0_overlap_76fb27fe448b43c89a7664f687bc84ee' FORMAT ArrowStream",
+    "3d6ba5d4eac60d4496abecf0379dfc14ecdce63f8d9af83dc3c15bd839a5df9a": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (12,1),(12,1)",
+    "3e7c7c91d0ea40a6c1372af7a8099ac8cd9f2ccc59ee6ad47faff39e90a8b984": "WITH \"t17\" AS (SELECT DISTINCT tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t7\".\"amount\" AS \"amount\", \"t7\".\"channel\" AS \"channel\", \"t7\".\"customer_id\" AS \"customer_id\", \"t7\".\"day\" AS \"day\", \"t7\".\"end\" AS \"end\", \"t7\".\"id\" AS \"id\", \"t7\".\"order_id\" AS \"order_id\", \"t7\".\"region\" AS \"region\", \"t7\".\"start\" AS \"start\", \"t7\".\"tenant\" AS \"tenant\", \"t7\".\"weight\" AS \"weight\", \"t7\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t7\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t8\" ON \"t7\".\"entity_identity\" = \"t8\".\"entity_identity\") AS \"t13\") AS \"t14\"), \"t23\" AS (SELECT DISTINCT * FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN \"t17\" AS \"t20\" ON \"t6\".\"entity_identity\" = \"t20\".\"entity_identity\") AS \"t22\"), \"t32\" AS (SELECT \"t31\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t21\".\"entity_identity\" AS \"entity_identity\", \"t29\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t29\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t29\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\", \"t30\".\"__mv_357811d7ad715974b25f_count\" AS \"__mv_357811d7ad715974b25f_count\", \"t30\".\"__mv_357811d7ad715974b25f_row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM \"t17\" AS \"t21\" LEFT OUTER JOIN (SELECT \"t25\".\"entity_identity\" AS \"entity_identity\", \"t25\".\"sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t25\".\"non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t25\".\"row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\" FROM (SELECT \"t24\".\"entity_identity\" AS \"entity_identity\", COUNT(*) AS \"row_count\", SUM(\"t24\".\"amount\") AS \"sum\", COUNT(\"t24\".\"amount\") AS \"non_null_count\" FROM \"t23\" AS \"t24\" GROUP BY \"t24\".\"entity_identity\") AS \"t25\") AS \"t29\" ON \"t21\".\"entity_identity\" IS NOT DISTINCT FROM \"t29\".\"entity_identity\" LEFT OUTER JOIN (SELECT \"t26\".\"entity_identity\" AS \"entity_identity\", \"t26\".\"count\" AS \"__mv_357811d7ad715974b25f_count\", \"t26\".\"row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT \"t24\".\"entity_identity\" AS \"entity_identity\", COUNT(*) AS \"row_count\", COUNT(\"t24\".\"amount\") AS \"count\" FROM \"t23\" AS \"t24\" GROUP BY \"t24\".\"entity_identity\") AS \"t26\") AS \"t30\" ON \"t21\".\"entity_identity\" IS NOT DISTINCT FROM \"t30\".\"entity_identity\") AS \"t31\" WHERE CAST(\"t31\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) > 0.0) SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(1 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t11\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM (SELECT \"t0\".\"id\" AS \"id\", COUNT(*) AS \"__mv_count\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\" GROUP BY \"t0\".\"id\") AS \"t1\" WHERE \"t1\".\"__mv_count\" > 1) AS \"t9\") AS \"t11\") AS \"t15\" UNION ALL SELECT * FROM (SELECT * FROM (SELECT CAST('primary' AS Nullable(String)) AS \"__q_kind\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_check\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(\"t52\".\"revenue\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(\"t52\".\"order_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(\"t52\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(\"t52\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(\"t52\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(\"t52\".\"__mv_357811d7ad715974b25f_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(\"t52\".\"__mv_357811d7ad715974b25f_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT \"t51\".* EXCEPT (\"__mv_scalar\") FROM (SELECT \"t50\".\"__mv_scalar\" AS \"__mv_scalar\", \"t50\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", COALESCE(\"t50\".\"__mv_c9a00e7f02a9014461f3_non_null_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", COALESCE(\"t50\".\"__mv_c9a00e7f02a9014461f3_row_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_row_count\", COALESCE(\"t50\".\"__mv_357811d7ad715974b25f_count\", 0) AS \"__mv_357811d7ad715974b25f_count\", COALESCE(\"t50\".\"__mv_357811d7ad715974b25f_row_count\", 0) AS \"__mv_357811d7ad715974b25f_row_count\", CAST(\"t50\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS \"revenue\", CAST(COALESCE(COALESCE(\"t50\".\"__mv_357811d7ad715974b25f_count\", 0), 0) AS Nullable(Int64)) AS \"order_count\" FROM (SELECT \"t43\".\"__mv_scalar\" AS \"__mv_scalar\", \"t48\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t48\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t48\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\", \"t49\".\"__mv_357811d7ad715974b25f_count\" AS \"__mv_357811d7ad715974b25f_count\", \"t49\".\"__mv_357811d7ad715974b25f_row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"__mv_scalar\" FROM (SELECT \"t18\".\"amount\" AS \"amount\", \"t18\".\"channel\" AS \"channel\", \"t18\".\"customer_id\" AS \"customer_id\", \"t18\".\"day\" AS \"day\", \"t18\".\"end\" AS \"end\", \"t18\".\"id\" AS \"id\", \"t18\".\"order_id\" AS \"order_id\", \"t18\".\"region\" AS \"region\", \"t18\".\"start\" AS \"start\", \"t18\".\"tenant\" AS \"tenant\", \"t18\".\"weight\" AS \"weight\", \"t18\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t14\".\"amount\" AS \"amount\", \"t14\".\"channel\" AS \"channel\", \"t14\".\"customer_id\" AS \"customer_id\", \"t14\".\"day\" AS \"day\", \"t14\".\"end\" AS \"end\", \"t14\".\"id\" AS \"id\", \"t14\".\"order_id\" AS \"order_id\", \"t14\".\"region\" AS \"region\", \"t14\".\"start\" AS \"start\", \"t14\".\"tenant\" AS \"tenant\", \"t14\".\"weight\" AS \"weight\", tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t7\".\"amount\" AS \"amount\", \"t7\".\"channel\" AS \"channel\", \"t7\".\"customer_id\" AS \"customer_id\", \"t7\".\"day\" AS \"day\", \"t7\".\"end\" AS \"end\", \"t7\".\"id\" AS \"id\", \"t7\".\"order_id\" AS \"order_id\", \"t7\".\"region\" AS \"region\", \"t7\".\"start\" AS \"start\", \"t7\".\"tenant\" AS \"tenant\", \"t7\".\"weight\" AS \"weight\", \"t7\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t7\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t8\" ON \"t7\".\"entity_identity\" = \"t8\".\"entity_identity\") AS \"t13\") AS \"t14\") AS \"t18\" LEFT SEMI JOIN \"t32\" AS \"t34\" ON \"t18\".\"entity_identity\" IS NOT DISTINCT FROM \"t34\".\"entity_identity\") AS \"t37\") AS \"t43\" CROSS JOIN (SELECT \"t44\".\"sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t44\".\"non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t44\".\"row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", SUM(\"t41\".\"amount\") AS \"sum\", COUNT(\"t41\".\"amount\") AS \"non_null_count\" FROM (SELECT DISTINCT * FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN \"t17\" AS \"t20\" ON \"t6\".\"entity_identity\" = \"t20\".\"entity_identity\" LEFT SEMI JOIN \"t32\" AS \"t35\" ON \"t6\".\"entity_identity\" IS NOT DISTINCT FROM \"t35\".\"entity_identity\") AS \"t38\") AS \"t41\") AS \"t44\") AS \"t48\" CROSS JOIN (SELECT \"t45\".\"count\" AS \"__mv_357811d7ad715974b25f_count\", \"t45\".\"row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", COUNT(\"t42\".\"amount\") AS \"count\" FROM (SELECT DISTINCT * FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN \"t17\" AS \"t20\" ON \"t6\".\"entity_identity\" = \"t20\".\"entity_identity\" LEFT SEMI JOIN \"t32\" AS \"t36\" ON \"t6\".\"entity_identity\" IS NOT DISTINCT FROM \"t36\".\"entity_identity\") AS \"t39\") AS \"t42\") AS \"t45\") AS \"t49\") AS \"t50\") AS \"t51\") AS \"t52\" WHERE FALSE) AS \"t53\" UNION ALL SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(0 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t10\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\" WHERE NOT (isNotNull(\"t0\".\"id\"))) AS \"t5\") AS \"t10\") AS \"t12\") AS \"t54\" FORMAT ArrowStream",
+    "411bddc928fcfce810b8b724b8ad6f7e1518af3abb179cf9bbf50f5390819485": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (4,1),(4,1)",
+    "4e1a18c5ba5b271b2d28777f0b2edd793017be952b1ef6883ab2b40de3e34bf4": "SELECT r.value AS value FROM (SELECT 1 AS id) l LEFT JOIN (SELECT 2 AS id, 7 AS value) r ON l.id=r.id FORMAT ArrowStream",
+    "5fb1a274cdbfd3293d9afa10ec85ad0b1c622dcd6451827771111b3a5576734d": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (10,1)",
+    "5fc894e8bbe507628c662f738848cdb28fc4e97b9360b8cf245257e6104484c7": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (9,1)",
+    "5fcfb2f39774a13e4f4b250a5168999c3e4f62dec6e62d32c6d3ba43a26c908d": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (6,1),(6,1)",
+    "65b712c95f9679c8922b31e35ed996a2d3a659083aff6c79ab7281ccf559656e": "CREATE TABLE q0_da3f6e4da0694626b981163577ef986b.orders (`amount` Nullable(Float64), `channel` Nullable(String), `customer_id` Nullable(Int64), `day` Nullable(Date), `end` Nullable(Date), `id` Nullable(Int64), `order_id` Nullable(Int64), `region` Nullable(String), `start` Nullable(Date), `tenant` Nullable(String), `weight` Nullable(Float64)) ENGINE=MergeTree ORDER BY tuple()",
+    "677369d188ef171c2affa7486cff2c5f03d37230348204c53aa5c0681a4c6c7b": "CREATE DATABASE q0_da3f6e4da0694626b981163577ef986b",
+    "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0": "SELECT count() AS n FROM system.processes WHERE query_id='q0_overlap_1235e625d6f249abb1d0ba980296e5d7' FORMAT ArrowStream",
+    "6e5b0af37f09b71bca8593bb4d6eb8a3697b80679762051a8642f833dbdb7f08": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (1,10),(2,NULL),(3,20)",
+    "741b16c09cae5ae43a66cc1a1ccd8bf9f4a441e403cc732c5f8400095d209374": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (8,1)",
+    "75d2e237fd92d773c1c757bc95cb191fa2ae73e64434b0163c30f5d3281978dd": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (11,1)",
+    "77c91bd2637b51d0d2cbe9b02299240de3dc571713e160f29e614b7cbc915ff5": "SELECT query_id,type,exception_code,read_rows,result_rows,result_bytes FROM system.query_log WHERE query_id IN ('q0_overlap_76fb27fe448b43c89a7664f687bc84ee','q0_overlap_1235e625d6f249abb1d0ba980296e5d7','q0_overlap_f41aff1a468c422a999023be325f0b6f','q0_overlap_a0944b98cfcb4335b9875130cec793cb','q0_overlap_7ff1764d056e42438491598a81c551a0') AND type='QueryFinish' FORMAT ArrowStream",
+    "804568de7902346439141649e2a09781f318be1b32ecd6781b2f10885b3be88e": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (1,10)",
+    "824bac61b7a0331afd38c3924ec143d6081b73f74ef2a08523a7b4e40db23f34": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (NULL,-10)",
+    "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0": "TRUNCATE TABLE q0_da3f6e4da0694626b981163577ef986b.orders",
+    "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc": "SELECT count() AS n FROM system.processes WHERE query_id='q0_overlap_f41aff1a468c422a999023be325f0b6f' FORMAT ArrowStream",
+    "92b75e498ab7fd5db52054b847aa74512a37d07e9068d069f63cc8d451717c24": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (3,1),(3,1)",
+    "95cfebf92c473942fa5a9a150fe408e1aa786e08774dc790b0da9fbe3ba8334f": "WITH \"t17\" AS (SELECT DISTINCT tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t7\".\"amount\" AS \"amount\", \"t7\".\"channel\" AS \"channel\", \"t7\".\"customer_id\" AS \"customer_id\", \"t7\".\"day\" AS \"day\", \"t7\".\"end\" AS \"end\", \"t7\".\"id\" AS \"id\", \"t7\".\"order_id\" AS \"order_id\", \"t7\".\"region\" AS \"region\", \"t7\".\"start\" AS \"start\", \"t7\".\"tenant\" AS \"tenant\", \"t7\".\"weight\" AS \"weight\", \"t7\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t7\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t8\" ON \"t7\".\"entity_identity\" = \"t8\".\"entity_identity\") AS \"t13\") AS \"t14\"), \"t23\" AS (SELECT DISTINCT * FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN \"t17\" AS \"t20\" ON \"t6\".\"entity_identity\" = \"t20\".\"entity_identity\") AS \"t22\"), \"t32\" AS (SELECT \"t31\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t21\".\"entity_identity\" AS \"entity_identity\", \"t29\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t29\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t29\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\", \"t30\".\"__mv_357811d7ad715974b25f_count\" AS \"__mv_357811d7ad715974b25f_count\", \"t30\".\"__mv_357811d7ad715974b25f_row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM \"t17\" AS \"t21\" LEFT OUTER JOIN (SELECT \"t25\".\"entity_identity\" AS \"entity_identity\", \"t25\".\"sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t25\".\"non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t25\".\"row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\" FROM (SELECT \"t24\".\"entity_identity\" AS \"entity_identity\", COUNT(*) AS \"row_count\", SUM(\"t24\".\"amount\") AS \"sum\", COUNT(\"t24\".\"amount\") AS \"non_null_count\" FROM \"t23\" AS \"t24\" GROUP BY \"t24\".\"entity_identity\") AS \"t25\") AS \"t29\" ON \"t21\".\"entity_identity\" IS NOT DISTINCT FROM \"t29\".\"entity_identity\" LEFT OUTER JOIN (SELECT \"t26\".\"entity_identity\" AS \"entity_identity\", \"t26\".\"count\" AS \"__mv_357811d7ad715974b25f_count\", \"t26\".\"row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT \"t24\".\"entity_identity\" AS \"entity_identity\", COUNT(*) AS \"row_count\", COUNT(\"t24\".\"amount\") AS \"count\" FROM \"t23\" AS \"t24\" GROUP BY \"t24\".\"entity_identity\") AS \"t26\") AS \"t30\" ON \"t21\".\"entity_identity\" IS NOT DISTINCT FROM \"t30\".\"entity_identity\") AS \"t31\" WHERE CAST(\"t31\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) > 0.0) SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(1 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t11\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM (SELECT \"t0\".\"id\" AS \"id\", COUNT(*) AS \"__mv_count\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\" GROUP BY \"t0\".\"id\") AS \"t1\" WHERE \"t1\".\"__mv_count\" > 1) AS \"t9\") AS \"t11\") AS \"t15\" UNION ALL SELECT * FROM (SELECT * FROM (SELECT CAST('primary' AS Nullable(String)) AS \"__q_kind\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_check\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(\"t52\".\"revenue\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(\"t52\".\"order_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(\"t52\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(\"t52\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(\"t52\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(\"t52\".\"__mv_357811d7ad715974b25f_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(\"t52\".\"__mv_357811d7ad715974b25f_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT \"t51\".* EXCEPT (\"__mv_scalar\") FROM (SELECT \"t50\".\"__mv_scalar\" AS \"__mv_scalar\", \"t50\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", COALESCE(\"t50\".\"__mv_c9a00e7f02a9014461f3_non_null_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", COALESCE(\"t50\".\"__mv_c9a00e7f02a9014461f3_row_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_row_count\", COALESCE(\"t50\".\"__mv_357811d7ad715974b25f_count\", 0) AS \"__mv_357811d7ad715974b25f_count\", COALESCE(\"t50\".\"__mv_357811d7ad715974b25f_row_count\", 0) AS \"__mv_357811d7ad715974b25f_row_count\", CAST(\"t50\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS \"revenue\", CAST(COALESCE(COALESCE(\"t50\".\"__mv_357811d7ad715974b25f_count\", 0), 0) AS Nullable(Int64)) AS \"order_count\" FROM (SELECT \"t43\".\"__mv_scalar\" AS \"__mv_scalar\", \"t48\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t48\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t48\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\", \"t49\".\"__mv_357811d7ad715974b25f_count\" AS \"__mv_357811d7ad715974b25f_count\", \"t49\".\"__mv_357811d7ad715974b25f_row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"__mv_scalar\" FROM (SELECT \"t18\".\"amount\" AS \"amount\", \"t18\".\"channel\" AS \"channel\", \"t18\".\"customer_id\" AS \"customer_id\", \"t18\".\"day\" AS \"day\", \"t18\".\"end\" AS \"end\", \"t18\".\"id\" AS \"id\", \"t18\".\"order_id\" AS \"order_id\", \"t18\".\"region\" AS \"region\", \"t18\".\"start\" AS \"start\", \"t18\".\"tenant\" AS \"tenant\", \"t18\".\"weight\" AS \"weight\", \"t18\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t14\".\"amount\" AS \"amount\", \"t14\".\"channel\" AS \"channel\", \"t14\".\"customer_id\" AS \"customer_id\", \"t14\".\"day\" AS \"day\", \"t14\".\"end\" AS \"end\", \"t14\".\"id\" AS \"id\", \"t14\".\"order_id\" AS \"order_id\", \"t14\".\"region\" AS \"region\", \"t14\".\"start\" AS \"start\", \"t14\".\"tenant\" AS \"tenant\", \"t14\".\"weight\" AS \"weight\", tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t7\".\"amount\" AS \"amount\", \"t7\".\"channel\" AS \"channel\", \"t7\".\"customer_id\" AS \"customer_id\", \"t7\".\"day\" AS \"day\", \"t7\".\"end\" AS \"end\", \"t7\".\"id\" AS \"id\", \"t7\".\"order_id\" AS \"order_id\", \"t7\".\"region\" AS \"region\", \"t7\".\"start\" AS \"start\", \"t7\".\"tenant\" AS \"tenant\", \"t7\".\"weight\" AS \"weight\", \"t7\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t7\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t8\" ON \"t7\".\"entity_identity\" = \"t8\".\"entity_identity\") AS \"t13\") AS \"t14\") AS \"t18\" LEFT SEMI JOIN \"t32\" AS \"t34\" ON \"t18\".\"entity_identity\" IS NOT DISTINCT FROM \"t34\".\"entity_identity\") AS \"t37\") AS \"t43\" CROSS JOIN (SELECT \"t44\".\"sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t44\".\"non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t44\".\"row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", SUM(\"t41\".\"amount\") AS \"sum\", COUNT(\"t41\".\"amount\") AS \"non_null_count\" FROM (SELECT DISTINCT * FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN \"t17\" AS \"t20\" ON \"t6\".\"entity_identity\" = \"t20\".\"entity_identity\" LEFT SEMI JOIN \"t32\" AS \"t35\" ON \"t6\".\"entity_identity\" IS NOT DISTINCT FROM \"t35\".\"entity_identity\") AS \"t38\") AS \"t41\") AS \"t44\") AS \"t48\" CROSS JOIN (SELECT \"t45\".\"count\" AS \"__mv_357811d7ad715974b25f_count\", \"t45\".\"row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", COUNT(\"t42\".\"amount\") AS \"count\" FROM (SELECT DISTINCT * FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN \"t17\" AS \"t20\" ON \"t6\".\"entity_identity\" = \"t20\".\"entity_identity\" LEFT SEMI JOIN \"t32\" AS \"t36\" ON \"t6\".\"entity_identity\" IS NOT DISTINCT FROM \"t36\".\"entity_identity\") AS \"t39\") AS \"t42\") AS \"t45\") AS \"t49\") AS \"t50\") AS \"t51\") AS \"t52\") AS \"t53\" UNION ALL SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(0 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t10\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\" WHERE NOT (isNotNull(\"t0\".\"id\"))) AS \"t5\") AS \"t10\") AS \"t12\") AS \"t54\" FORMAT ArrowStream",
+    "9ca0844ce32cba77a9870c0ec5a0161f63d1807fd75d8478ef617ecf4f353e30": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (7,1)",
+    "ae29c3e850e6fc201d9277628eaf77299ef1f4dc08481d3016ed00bae5cb0e59": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (4,1)",
+    "b83b4d3e909ecc6c3b10bd2562e3d94d2c6ed202e0f2de79f3a14941e2ce4302": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (6,1)",
+    "bbfa05680faca8b2e014724ea9193059e15ca716c0cf43a4eb56c79de7bd518c": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (2,1)",
+    "cc69c98776ca57ef53b30ada78d8ec2e25c880487967ab2098a95486807f5dc6": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (3,1)",
+    "d26afe86b9740898411f31b09d042cb6a5de399c3796787bd7e68c318be97ae5": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (10,1),(10,1)",
+    "d580392eaca3f05ddb515f1802a0b8e5fea39b10116b447f68b475c3b0574635": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (5,1),(5,1)",
+    "d69a18c98b515ca5f036e2dcc48726bd5ba159238162ed8d599980fc778a5740": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (13,1)",
+    "d796ab7f39a75329a5fb20812f7fb8c02f8c61e52c654e5d2c1c5ab83b060482": "SELECT toDecimal128('30.75',2) AS amount, toTimeZone(toDateTime64('2024-01-02 08:00:00.123',3,'Asia/Shanghai'),'UTC') AS moment, isFinite(toFloat64('nan')) AS nan_finite, isFinite(toFloat64('inf')) AS inf_finite, isFinite(toFloat64('1.5')) AS ordinary_finite FORMAT ArrowStream",
+    "e0ca049479e0ad3c58693fb6224b0a9665b4ecc1070a3191799c048998e6d2b6": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (7,1),(7,1)",
+    "e16cfdfb4e66eaf2572e41d1ae10406ce75a053d78e3645be90e0e1282ad5ded": "SELECT version() AS version FORMAT ArrowStream",
+    "e2aa12eb53a72d8b5efadf932e5dc870a5dca512f04090b7b1738f1dfd98885b": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (13,1),(13,1)",
+    "e601f3a20c5645a7a58cc52dd1703166b52f356593875d815aba52239fab19ef": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (8,1),(8,1)",
+    "e65867f52a438583e78b2b89b5bd2d25bd3aeea597007191fe077d0ee023a879": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (11,1),(11,1)",
+    "e9363cd547a1263c9d61e9661d39ef7902ad8954485cf53b920bc6a0b477adfb": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (2,1),(2,1)",
+    "ef2fbd1b75b15685b109c0c7db8ed4061fa9f222657858543049e5717d7bf68b": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (9,1),(9,1)",
+    "f050fa2c544def6a819cd2c2c8ebfb59e69322dea951f861b4ebba88260f11dc": "INSERT INTO q0_da3f6e4da0694626b981163577ef986b.orders (id,amount) VALUES (1,-10),(1,-20)",
+    "f83e8aa80a54fc32297e130d93b71fc5c9c458b208f566b4b9f78dbe311ced5a": "SELECT name,value FROM system.settings WHERE name IN ('enable_shared_storage_snapshot_in_query','join_use_nulls','max_memory_usage','max_execution_time','use_query_cache') FORMAT ArrowStream",
+    "fef2175234948d958ec1057ce1d9d295e2a9547ae5132872e9bc33fc4e0b1d86": "DROP DATABASE q0_da3f6e4da0694626b981163577ef986b SYNC",
+    "ff739973d597087fbc0489aeef4ba0b87a3beeb09988ae6380ebf8f45ddcf63c": "WITH \"t22\" AS (SELECT DISTINCT * FROM (SELECT \"t8\".\"amount\" AS \"amount\", \"t8\".\"channel\" AS \"channel\", \"t8\".\"customer_id\" AS \"customer_id\", \"t8\".\"day\" AS \"day\", \"t8\".\"end\" AS \"end\", \"t8\".\"id\" AS \"id\", \"t8\".\"order_id\" AS \"order_id\", \"t8\".\"region\" AS \"region\", \"t8\".\"start\" AS \"start\", \"t8\".\"tenant\" AS \"tenant\", \"t8\".\"weight\" AS \"weight\", \"t8\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t8\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t8\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t7\" ON \"t6\".\"entity_identity\" = \"t7\".\"entity_identity\") AS \"t13\") AS \"t14\") AS \"t18\" ON \"t8\".\"entity_identity\" = \"t18\".\"entity_identity\") AS \"t21\") SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(1 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t11\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM (SELECT \"t0\".\"id\" AS \"id\", COUNT(*) AS \"__mv_count\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\" GROUP BY \"t0\".\"id\") AS \"t1\" WHERE \"t1\".\"__mv_count\" > 1) AS \"t9\") AS \"t11\") AS \"t15\" UNION ALL SELECT * FROM (SELECT * FROM (SELECT CAST('primary' AS Nullable(String)) AS \"__q_kind\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_check\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(\"t32\".\"revenue\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(\"t32\".\"order_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(\"t32\".\"__mv_357811d7ad715974b25f_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(\"t32\".\"__mv_357811d7ad715974b25f_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT \"t31\".* EXCEPT (\"__mv_scalar\") FROM (SELECT \"t30\".\"__mv_scalar\" AS \"__mv_scalar\", \"t30\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", COALESCE(\"t30\".\"__mv_c9a00e7f02a9014461f3_non_null_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", COALESCE(\"t30\".\"__mv_c9a00e7f02a9014461f3_row_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_row_count\", COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_count\", 0) AS \"__mv_357811d7ad715974b25f_count\", COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_row_count\", 0) AS \"__mv_357811d7ad715974b25f_row_count\", CAST(\"t30\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS \"revenue\", CAST(COALESCE(COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_count\", 0), 0) AS Nullable(Int64)) AS \"order_count\" FROM (SELECT \"t20\".\"__mv_scalar\" AS \"__mv_scalar\", \"t28\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t28\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t28\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\", \"t29\".\"__mv_357811d7ad715974b25f_count\" AS \"__mv_357811d7ad715974b25f_count\", \"t29\".\"__mv_357811d7ad715974b25f_row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"__mv_scalar\" FROM (SELECT \"t14\".\"amount\" AS \"amount\", \"t14\".\"channel\" AS \"channel\", \"t14\".\"customer_id\" AS \"customer_id\", \"t14\".\"day\" AS \"day\", \"t14\".\"end\" AS \"end\", \"t14\".\"id\" AS \"id\", \"t14\".\"order_id\" AS \"order_id\", \"t14\".\"region\" AS \"region\", \"t14\".\"start\" AS \"start\", \"t14\".\"tenant\" AS \"tenant\", \"t14\".\"weight\" AS \"weight\", tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\") AS \"t7\" ON \"t6\".\"entity_identity\" = \"t7\".\"entity_identity\") AS \"t13\") AS \"t14\") AS \"t16\") AS \"t20\" CROSS JOIN (SELECT \"t24\".\"sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t24\".\"non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t24\".\"row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", SUM(\"t23\".\"amount\") AS \"sum\", COUNT(\"t23\".\"amount\") AS \"non_null_count\" FROM \"t22\" AS \"t23\") AS \"t24\") AS \"t28\" CROSS JOIN (SELECT \"t25\".\"count\" AS \"__mv_357811d7ad715974b25f_count\", \"t25\".\"row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", COUNT(\"t23\".\"amount\") AS \"count\" FROM \"t22\" AS \"t23\") AS \"t25\") AS \"t29\") AS \"t30\") AS \"t31\") AS \"t32\") AS \"t33\" UNION ALL SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(0 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t10\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM \"q0_da3f6e4da0694626b981163577ef986b\".\"orders\" AS \"t0\" WHERE NOT (isNotNull(\"t0\".\"id\"))) AS \"t5\") AS \"t10\") AS \"t12\") AS \"t34\" FORMAT ArrowStream"
+  },
+  "statements": [
+    {
+      "elapsed_seconds": 0.020461916996282525,
+      "http_complete": true,
+      "query_id": "q0_623ade96b8074fd3bab7a34f7c59a4d7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "create_fixture",
+      "sql_sha256": "677369d188ef171c2affa7486cff2c5f03d37230348204c53aa5c0681a4c6c7b",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.014368375006597489,
+      "http_complete": true,
+      "query_id": "q0_ef9a4b1bb14344c985de23296282bd0c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "create_fixture",
+      "sql_sha256": "65b712c95f9679c8922b31e35ed996a2d3a659083aff6c79ab7281ccf559656e",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.007907874998636544,
+      "http_complete": true,
+      "query_id": "q0_f146b5959008493ca2d2b25d8b03f6be",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "effective_settings",
+      "sql_sha256": "f83e8aa80a54fc32297e130d93b71fc5c9c458b208f566b4b9f78dbe311ced5a",
+      "wire_bytes": 568
+    },
+    {
+      "elapsed_seconds": 0.0035697919956874102,
+      "http_complete": true,
+      "query_id": "q0_dde4ae11bd7241d2ad65335bb59367b3",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "server_version",
+      "sql_sha256": "e16cfdfb4e66eaf2572e41d1ae10406ce75a053d78e3645be90e0e1282ad5ded",
+      "wire_bytes": 312
+    },
+    {
+      "elapsed_seconds": 0.001988208998227492,
+      "http_complete": true,
+      "query_id": "q0_a276e130231c4077a8efbbaf04a7d3a3",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_fixture",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.06335979200957809,
+      "http_complete": true,
+      "query_id": "q0_37f7cf836c58492d9dab445bd57a660f",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_fixture",
+      "sql_sha256": "6e5b0af37f09b71bca8593bb4d6eb8a3697b80679762051a8642f833dbdb7f08",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.041981667003710754,
+      "http_complete": true,
+      "query_id": "q0_ac57af9d6a9743bd84356132bb2ed3d5",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "non_null_count",
+      "sql_sha256": "ff739973d597087fbc0489aeef4ba0b87a3beeb09988ae6380ebf8f45ddcf63c",
+      "wire_bytes": 2952
+    },
+    {
+      "elapsed_seconds": 0.002957417003926821,
+      "http_complete": true,
+      "query_id": "q0_f118c0bfd74c4923a6b216e804be4c24",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_fixture",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.027554166998015717,
+      "http_complete": true,
+      "query_id": "q0_30010bc82f61448293e1381983bfdcf3",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "empty_source",
+      "sql_sha256": "2eed9fc8fe47886f635922ba23ff79766c063100fe3747a930d35edeaaa841f2",
+      "wire_bytes": 2256
+    },
+    {
+      "elapsed_seconds": 0.002483749995008111,
+      "http_complete": true,
+      "query_id": "q0_4f0ee3ed46b84a12a66c767268b80aac",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_fixture",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.032272666998323984,
+      "http_complete": true,
+      "query_id": "q0_553db98052d14bd397dc87a9b2341cfd",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "empty_source_scalar",
+      "sql_sha256": "ff739973d597087fbc0489aeef4ba0b87a3beeb09988ae6380ebf8f45ddcf63c",
+      "wire_bytes": 2968
+    },
+    {
+      "elapsed_seconds": 0.0026677089917939156,
+      "http_complete": true,
+      "query_id": "q0_07f0f74ccd324f3bba95eb756ed53407",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_fixture",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.06439991600927897,
+      "http_complete": true,
+      "query_id": "q0_ddea389131ad4c158a266710f7f73cc3",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_fixture",
+      "sql_sha256": "804568de7902346439141649e2a09781f318be1b32ecd6781b2f10885b3be88e",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.019299833991681226,
+      "http_complete": true,
+      "query_id": "q0_e3ff8036672341cba4fd5ac0009f734e",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "empty_primary",
+      "sql_sha256": "2eed9fc8fe47886f635922ba23ff79766c063100fe3747a930d35edeaaa841f2",
+      "wire_bytes": 2256
+    },
+    {
+      "elapsed_seconds": 0.0025251250044675544,
+      "http_complete": true,
+      "query_id": "q0_a3e5661de7c048baaefc0793475dbe10",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_fixture",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.05311249999795109,
+      "http_complete": true,
+      "query_id": "q0_c570ba688e24433ca71690908c13d282",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_fixture",
+      "sql_sha256": "f050fa2c544def6a819cd2c2c8ebfb59e69322dea951f861b4ebba88260f11dc",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.14299058400501963,
+      "http_complete": true,
+      "query_id": "q0_1cef452311b64c98ace94adbd5be7d4c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "filtered_duplicate",
+      "sql_sha256": "95cfebf92c473942fa5a9a150fe408e1aa786e08774dc790b0da9fbe3ba8334f",
+      "wire_bytes": 2968
+    },
+    {
+      "elapsed_seconds": 0.0051552090008044615,
+      "http_complete": true,
+      "query_id": "q0_88d44981a050454abbfde8da01b1caff",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_fixture",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.055859333006083034,
+      "http_complete": true,
+      "query_id": "q0_adb37f28104d4b4ebe6f0be15eec2240",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_fixture",
+      "sql_sha256": "824bac61b7a0331afd38c3924ec143d6081b73f74ef2a08523a7b4e40db23f34",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.05575283299549483,
+      "http_complete": true,
+      "query_id": "q0_0201bde3a9ea4a4786cbc3b27dad84a2",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "filtered_null_identity",
+      "sql_sha256": "95cfebf92c473942fa5a9a150fe408e1aa786e08774dc790b0da9fbe3ba8334f",
+      "wire_bytes": 2968
+    },
+    {
+      "elapsed_seconds": 0.0025095419987337664,
+      "http_complete": true,
+      "query_id": "q0_390650d652074648950fb3bb8c0a2ef0",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_fixture",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.002745083998888731,
+      "http_complete": true,
+      "query_id": "q0_b583484577724bdb8c18b621e253e5d7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_fixture",
+      "sql_sha256": "f050fa2c544def6a819cd2c2c8ebfb59e69322dea951f861b4ebba88260f11dc",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.04646208400663454,
+      "http_complete": true,
+      "query_id": "q0_198e35bf857a416a8115b8747d8cc28e",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "empty_primary_duplicate",
+      "sql_sha256": "3e7c7c91d0ea40a6c1372af7a8099ac8cd9f2ccc59ee6ad47faff39e90a8b984",
+      "wire_bytes": 2256
+    },
+    {
+      "elapsed_seconds": 0.002546957999584265,
+      "http_complete": true,
+      "query_id": "q0_9d2313e004824217a55e136626d3a172",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "physical_types",
+      "sql_sha256": "d796ab7f39a75329a5fb20812f7fb8c02f8c61e52c654e5d2c1c5ab83b060482",
+      "wire_bytes": 760
+    },
+    {
+      "elapsed_seconds": 0.0030323749961098656,
+      "http_complete": true,
+      "query_id": "q0_a33e55f0fd844ce1a01a5b9de47a68c0",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "join_null_behavior",
+      "sql_sha256": "4e1a18c5ba5b271b2d28777f0b2edd793017be952b1ef6883ab2b40de3e34bf4",
+      "wire_bytes": 296
+    },
+    {
+      "elapsed_seconds": 0.0027129579975735396,
+      "http_complete": true,
+      "query_id": "q0_4ad0dff49c4843b58acb61dcb8846480",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_concurrency",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.06244829100614879,
+      "http_complete": true,
+      "query_id": "q0_d23658bcccfb40ce8d150b3045560c76",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_concurrency",
+      "sql_sha256": "299b977123e322b006f114f53f56cc66f3ede65c6118b16128a8db4b1a8a038f",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.003643000003648922,
+      "http_complete": true,
+      "query_id": "q0_f99eb69ecb42405eb3cf96080e1e8353",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.00356550001015421,
+      "http_complete": true,
+      "query_id": "q0_3db39131c16543cb840597dc2f54b077",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05804616700334009,
+      "http_complete": true,
+      "query_id": "q0_b3597b3a9fe144b6884a74f340a0a998",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "bbfa05680faca8b2e014724ea9193059e15ca716c0cf43a4eb56c79de7bd518c",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0038131659966893494,
+      "http_complete": true,
+      "query_id": "q0_72307e2aa80442b4b567d25b3a9a92b7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05515233299229294,
+      "http_complete": true,
+      "query_id": "q0_c4be6d7277c94090a6cd45d882889bf2",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "cc69c98776ca57ef53b30ada78d8ec2e25c880487967ab2098a95486807f5dc6",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004119749995879829,
+      "http_complete": true,
+      "query_id": "q0_46bb618a59db49948f6bee953bba3349",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06584479099547025,
+      "http_complete": true,
+      "query_id": "q0_189bf749e2a14f2c9117cf5a5c6c12ae",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "ae29c3e850e6fc201d9277628eaf77299ef1f4dc08481d3016ed00bae5cb0e59",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004922416002955288,
+      "http_complete": true,
+      "query_id": "q0_f0897e50a36f47ecbb1ace455edba96b",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06335787499847356,
+      "http_complete": true,
+      "query_id": "q0_965553b062b84a6fab889e1baccc3715",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "261c91b7ec36ef54c36aebe703ec22708ed357bc9c27aebd00293f1ddbf0b6ca",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0040967920067487285,
+      "http_complete": true,
+      "query_id": "q0_9843757c2bd9409ea36e954c18bb7ead",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05781041600857861,
+      "http_complete": true,
+      "query_id": "q0_98c6fc882106475093b5f95766638370",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "b83b4d3e909ecc6c3b10bd2562e3d94d2c6ed202e0f2de79f3a14941e2ce4302",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004010999997262843,
+      "http_complete": true,
+      "query_id": "q0_63fada1afd894df98e0688ac3d18b545",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05986174999270588,
+      "http_complete": true,
+      "query_id": "q0_5a980803aa0747f185675f50f3749988",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "9ca0844ce32cba77a9870c0ec5a0161f63d1807fd75d8478ef617ecf4f353e30",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004472875007195398,
+      "http_complete": true,
+      "query_id": "q0_acdefae3a72345319ecd899e414598f8",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.060132334008812904,
+      "http_complete": true,
+      "query_id": "q0_02276f05ab4147cb8726b4a6015a6c20",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "741b16c09cae5ae43a66cc1a1ccd8bf9f4a441e403cc732c5f8400095d209374",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.005190958007005975,
+      "http_complete": true,
+      "query_id": "q0_bd6d5a2d0067494fbcbe775b0dfdbe03",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.056370125006651506,
+      "http_complete": true,
+      "query_id": "q0_969f4afb9d6441fd9ba7dc12bb259702",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fc894e8bbe507628c662f738848cdb28fc4e97b9360b8cf245257e6104484c7",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.005538124998565763,
+      "http_complete": true,
+      "query_id": "q0_634fc93dcb934788865bd194a2a2c592",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05637995900178794,
+      "http_complete": true,
+      "query_id": "q0_63c914dd473445ccb85e4ee43ece8e01",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fb1a274cdbfd3293d9afa10ec85ad0b1c622dcd6451827771111b3a5576734d",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.006689542002277449,
+      "http_complete": true,
+      "query_id": "q0_e8d375f3f36d41dd8d3dd31c1caa2646",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05703733299742453,
+      "http_complete": true,
+      "query_id": "q0_f8fda23f9b794ca8919535a004171ab4",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "75d2e237fd92d773c1c757bc95cb191fa2ae73e64434b0163c30f5d3281978dd",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.006704125000396743,
+      "http_complete": true,
+      "query_id": "q0_ca75aa8839b74c9995ee7195ec42420d",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06831762500223704,
+      "http_complete": true,
+      "query_id": "q0_f3892673c42f4805a91251c68c789d20",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "2e26b5f92234019e6cdc09df6eb6c1b5322f294c6a9fbb1abda3027385768e58",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.006329124997137114,
+      "http_complete": true,
+      "query_id": "q0_ce5610521f914d31ad9f295433f1d3f1",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.061952708012540825,
+      "http_complete": true,
+      "query_id": "q0_9b0c3ec05b3649959c4f94d01f6b68e4",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "d69a18c98b515ca5f036e2dcc48726bd5ba159238162ed8d599980fc778a5740",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.007395958004053682,
+      "http_complete": true,
+      "query_id": "q0_a8626d25ed434dbda01a80a26ac80fd1",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "30f561e8219ba5426819ae3fe7a69e3a5e05972af93c1a7901ec191c4d74d0dd",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 2.0040268750017276,
+      "http_complete": true,
+      "query_id": "q0_overlap_76fb27fe448b43c89a7664f687bc84ee",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "0",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "merge_tree_storage_snapshot_sleep_ms": "200",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_envelope",
+      "sql_sha256": "ff739973d597087fbc0489aeef4ba0b87a3beeb09988ae6380ebf8f45ddcf63c",
+      "wire_bytes": 2952
+    },
+    {
+      "elapsed_seconds": 0.005639041992253624,
+      "http_complete": true,
+      "query_id": "q0_596e05c511924b16b9b3b1d821b392af",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_concurrency",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.05522108299192041,
+      "http_complete": true,
+      "query_id": "q0_c8dccd8f664448cf80945be33405e049",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_concurrency",
+      "sql_sha256": "299b977123e322b006f114f53f56cc66f3ede65c6118b16128a8db4b1a8a038f",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004279458997189067,
+      "http_complete": true,
+      "query_id": "q0_857f3af2a5c44763b250ada42b7fc223",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.0038027080008760095,
+      "http_complete": true,
+      "query_id": "q0_6d672b480ede43de82fb00f841e8cbea",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.061852082988480106,
+      "http_complete": true,
+      "query_id": "q0_0b4ed629f3ae41d587520b23bfe2c410",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "bbfa05680faca8b2e014724ea9193059e15ca716c0cf43a4eb56c79de7bd518c",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004098875011550263,
+      "http_complete": true,
+      "query_id": "q0_532103bbdbed4b87af9d9271390ba3cb",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05922208300034981,
+      "http_complete": true,
+      "query_id": "q0_9f4c763f6fdb440bb724a0f5dc53a6b4",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "cc69c98776ca57ef53b30ada78d8ec2e25c880487967ab2098a95486807f5dc6",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0048430000024382025,
+      "http_complete": true,
+      "query_id": "q0_66b5e8b6014540178b78855ac11dc5e6",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05866787499689963,
+      "http_complete": true,
+      "query_id": "q0_4f1635b7fa534e09b7579a4725f43ef3",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "ae29c3e850e6fc201d9277628eaf77299ef1f4dc08481d3016ed00bae5cb0e59",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.00555916600569617,
+      "http_complete": true,
+      "query_id": "q0_b5917de1aac3434897d89bccac682c23",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.11715087499760557,
+      "http_complete": true,
+      "query_id": "q0_0d66cd68c7fd4dd396123c5a82007af0",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "261c91b7ec36ef54c36aebe703ec22708ed357bc9c27aebd00293f1ddbf0b6ca",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.010126499997568317,
+      "http_complete": true,
+      "query_id": "q0_9f7e7ab1c1e149d98a5fa894f1dd4083",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.061423500010278076,
+      "http_complete": true,
+      "query_id": "q0_d8dcf3a29a974a8d820f217f2aa940a6",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "b83b4d3e909ecc6c3b10bd2562e3d94d2c6ed202e0f2de79f3a14941e2ce4302",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.006674042000668123,
+      "http_complete": true,
+      "query_id": "q0_cb072949047d4698a540f48114edb71c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05484541700570844,
+      "http_complete": true,
+      "query_id": "q0_60b0a1f549064dff9fca26009bfb3da9",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "9ca0844ce32cba77a9870c0ec5a0161f63d1807fd75d8478ef617ecf4f353e30",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.003254250012105331,
+      "http_complete": true,
+      "query_id": "q0_544bd6ed5c9847bd8c338a32dd76bb05",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05885495799884666,
+      "http_complete": true,
+      "query_id": "q0_74eefa8fb3ce425c8c61c97035c39f95",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "741b16c09cae5ae43a66cc1a1ccd8bf9f4a441e403cc732c5f8400095d209374",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0041987079894170165,
+      "http_complete": true,
+      "query_id": "q0_db218ef7ca00486cb626d8cd1990b31c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.055742291995557025,
+      "http_complete": true,
+      "query_id": "q0_1f487e67d3344ca282a83fd38cb4cc17",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fc894e8bbe507628c662f738848cdb28fc4e97b9360b8cf245257e6104484c7",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0050208750035380945,
+      "http_complete": true,
+      "query_id": "q0_4329cb098e354d5fb5d62a0a40d9b9d4",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.058947999990778044,
+      "http_complete": true,
+      "query_id": "q0_d50a07e0f60648888d1a69ecb5f889ef",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fb1a274cdbfd3293d9afa10ec85ad0b1c622dcd6451827771111b3a5576734d",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.003186500005540438,
+      "http_complete": true,
+      "query_id": "q0_52c0a31d970549989641c80b50d030fa",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05671354201331269,
+      "http_complete": true,
+      "query_id": "q0_dcd878c40c4e4a12a17734aa0613e483",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "75d2e237fd92d773c1c757bc95cb191fa2ae73e64434b0163c30f5d3281978dd",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004562541013001464,
+      "http_complete": true,
+      "query_id": "q0_879a40e158d04c24af62628a6f2fb4a5",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05604833300458267,
+      "http_complete": true,
+      "query_id": "q0_2e454ebc937943d8ac62972bd4f930ca",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "2e26b5f92234019e6cdc09df6eb6c1b5322f294c6a9fbb1abda3027385768e58",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.002838875007000752,
+      "http_complete": true,
+      "query_id": "q0_cd112838d9974aea826d17c687e7bf0e",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.057591667005908675,
+      "http_complete": true,
+      "query_id": "q0_65a2183376994a338d8f192da63fa07b",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "d69a18c98b515ca5f036e2dcc48726bd5ba159238162ed8d599980fc778a5740",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004170833999523893,
+      "http_complete": true,
+      "query_id": "q0_5ebcecffe69341af8244c913dd6af32a",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "678feac6d3f8f8be3f4228dc3a815a81b48a313eeecbe3141634693ac8f542c0",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 2.0060658329894068,
+      "http_complete": true,
+      "query_id": "q0_overlap_1235e625d6f249abb1d0ba980296e5d7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "merge_tree_storage_snapshot_sleep_ms": "200",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_envelope",
+      "sql_sha256": "ff739973d597087fbc0489aeef4ba0b87a3beeb09988ae6380ebf8f45ddcf63c",
+      "wire_bytes": 2952
+    },
+    {
+      "elapsed_seconds": 0.008165167004335672,
+      "http_complete": true,
+      "query_id": "q0_6f0e90fff9d64beebea735083d2b322d",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_concurrency",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.055015334000927396,
+      "http_complete": true,
+      "query_id": "q0_32c550542a1841fba7ebe70cd7d90d76",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_concurrency",
+      "sql_sha256": "299b977123e322b006f114f53f56cc66f3ede65c6118b16128a8db4b1a8a038f",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.005865625003934838,
+      "http_complete": true,
+      "query_id": "q0_330a89e524164e988f6d1c9eea06ff68",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.0037922500050626695,
+      "http_complete": true,
+      "query_id": "q0_c203948dfb674364beae5a77ed280b2c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06258991599315777,
+      "http_complete": true,
+      "query_id": "q0_1a52951745934a2cbf9c97a73d1606ae",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "bbfa05680faca8b2e014724ea9193059e15ca716c0cf43a4eb56c79de7bd518c",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.003243625003960915,
+      "http_complete": true,
+      "query_id": "q0_f5b37deb8bce4e7aad6f137ae6934997",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.057878083011019044,
+      "http_complete": true,
+      "query_id": "q0_8d1c08716a014f8c8c047dd44550ff69",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "cc69c98776ca57ef53b30ada78d8ec2e25c880487967ab2098a95486807f5dc6",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0029932920006103814,
+      "http_complete": true,
+      "query_id": "q0_0762f30882be4a63a5f9592cfb9c3e8f",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05614516699279193,
+      "http_complete": true,
+      "query_id": "q0_8c369af125894ae8bb06c3f9d1a5b160",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "ae29c3e850e6fc201d9277628eaf77299ef1f4dc08481d3016ed00bae5cb0e59",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.00395616699825041,
+      "http_complete": true,
+      "query_id": "q0_8763fb40e2804ec284acc0bbb43b1108",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05830183300713543,
+      "http_complete": true,
+      "query_id": "q0_c0fcf05d0a5a440aa219604d1da7a4da",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "261c91b7ec36ef54c36aebe703ec22708ed357bc9c27aebd00293f1ddbf0b6ca",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004378834011731669,
+      "http_complete": true,
+      "query_id": "q0_f23acd74ac684ef0bebc5a90be5e48a5",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.061147042011725716,
+      "http_complete": true,
+      "query_id": "q0_1f915e17525e432eb24dd27888c5c23b",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "b83b4d3e909ecc6c3b10bd2562e3d94d2c6ed202e0f2de79f3a14941e2ce4302",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004696874995715916,
+      "http_complete": true,
+      "query_id": "q0_9812768b3d0c4f1fb98e0c9b0bbdc5c2",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.0577968330035219,
+      "http_complete": true,
+      "query_id": "q0_13782cec3a1e46fea37ecc672967b683",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "9ca0844ce32cba77a9870c0ec5a0161f63d1807fd75d8478ef617ecf4f353e30",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0057245830103056505,
+      "http_complete": true,
+      "query_id": "q0_c25b4ecdddde44b78ea5492eba22576e",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05558754199591931,
+      "http_complete": true,
+      "query_id": "q0_727069e16a9c48db9e831bbb76d4800e",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "741b16c09cae5ae43a66cc1a1ccd8bf9f4a441e403cc732c5f8400095d209374",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004016958002466708,
+      "http_complete": true,
+      "query_id": "q0_fe0157c2df68418a88c24d3c2fa507a6",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05491533399617765,
+      "http_complete": true,
+      "query_id": "q0_709c13664a074689ba1c7ee3a0d07b8e",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fc894e8bbe507628c662f738848cdb28fc4e97b9360b8cf245257e6104484c7",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0028675409994320944,
+      "http_complete": true,
+      "query_id": "q0_8bc82d4e24e74f4cbc1be36fe2819eb9",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05418683298921678,
+      "http_complete": true,
+      "query_id": "q0_fdd852e4c6f0495391b6a2fa47d9e9ab",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fb1a274cdbfd3293d9afa10ec85ad0b1c622dcd6451827771111b3a5576734d",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0040788750047795475,
+      "http_complete": true,
+      "query_id": "q0_840192f926a543e5a88955f90e9d7605",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05605545800062828,
+      "http_complete": true,
+      "query_id": "q0_c59fc2a4fcc1423dbbf2d1193ed3120c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "75d2e237fd92d773c1c757bc95cb191fa2ae73e64434b0163c30f5d3281978dd",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.003931332990759984,
+      "http_complete": true,
+      "query_id": "q0_8df3f9c7305947fc8c6bbec4efcb04c8",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05770591700274963,
+      "http_complete": true,
+      "query_id": "q0_c0ab8e61bef74d0dbfd0343b6e3ca941",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "2e26b5f92234019e6cdc09df6eb6c1b5322f294c6a9fbb1abda3027385768e58",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004291959005058743,
+      "http_complete": true,
+      "query_id": "q0_d121ab613ded4465aede97f7d5cc84ac",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05886008399829734,
+      "http_complete": true,
+      "query_id": "q0_6e1d27cad7d845b383cb59e101d566c7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "d69a18c98b515ca5f036e2dcc48726bd5ba159238162ed8d599980fc778a5740",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004948791000060737,
+      "http_complete": true,
+      "query_id": "q0_7db1840ede1d492abc07a52359f15ef8",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "9204cba82184cb2bd0c6b371492d52bb02a22983b663d52ef512a0421ebb61cc",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 2.061637290986255,
+      "http_complete": true,
+      "query_id": "q0_overlap_f41aff1a468c422a999023be325f0b6f",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "merge_tree_storage_snapshot_sleep_ms": "200",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_envelope",
+      "sql_sha256": "ff739973d597087fbc0489aeef4ba0b87a3beeb09988ae6380ebf8f45ddcf63c",
+      "wire_bytes": 2952
+    },
+    {
+      "elapsed_seconds": 0.0069919170055072755,
+      "http_complete": true,
+      "query_id": "q0_397a15251dbd48eab81960613805369b",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_concurrency",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.05717254200135358,
+      "http_complete": true,
+      "query_id": "q0_b6fc80e64f604a1c9a1482552dae50fc",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_concurrency",
+      "sql_sha256": "299b977123e322b006f114f53f56cc66f3ede65c6118b16128a8db4b1a8a038f",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0034370840003248304,
+      "http_complete": true,
+      "query_id": "q0_f32b7149ca794352988248d2e30a6dc1",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.0036606669891625643,
+      "http_complete": true,
+      "query_id": "q0_9e7c5632ba2942a8beef21e207d4fd46",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05714533300488256,
+      "http_complete": true,
+      "query_id": "q0_3aa41c0b9903405297e8be09b59a7e98",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "bbfa05680faca8b2e014724ea9193059e15ca716c0cf43a4eb56c79de7bd518c",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0033928329939953983,
+      "http_complete": true,
+      "query_id": "q0_2b7b10deaaf34cf6812ab7d94e320cd6",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.060986500000581145,
+      "http_complete": true,
+      "query_id": "q0_8b50b8e60828478bac0fd77214ab78ae",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "cc69c98776ca57ef53b30ada78d8ec2e25c880487967ab2098a95486807f5dc6",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.003658250003354624,
+      "http_complete": true,
+      "query_id": "q0_6f735d306407493b9995c4ef5c45377e",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05921183299506083,
+      "http_complete": true,
+      "query_id": "q0_3b597adbc1a34dc0ab4ac07acb87676a",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "ae29c3e850e6fc201d9277628eaf77299ef1f4dc08481d3016ed00bae5cb0e59",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004187915998045355,
+      "http_complete": true,
+      "query_id": "q0_5df62e672ec24979b08f97689bff04b7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.056921541996416636,
+      "http_complete": true,
+      "query_id": "q0_42725196876e4dc48d2cddc837bfb96a",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "261c91b7ec36ef54c36aebe703ec22708ed357bc9c27aebd00293f1ddbf0b6ca",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.005265708998194896,
+      "http_complete": true,
+      "query_id": "q0_958ed565504e47a1ac72c64f3c738b2f",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.056026958001893945,
+      "http_complete": true,
+      "query_id": "q0_de804014ed654de4962ea5e8ff7a3833",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "b83b4d3e909ecc6c3b10bd2562e3d94d2c6ed202e0f2de79f3a14941e2ce4302",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.005844375002197921,
+      "http_complete": true,
+      "query_id": "q0_92c0338694564c81a52db034324f5eef",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05984912499843631,
+      "http_complete": true,
+      "query_id": "q0_90d5abef57cf468892217284097d01ee",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "9ca0844ce32cba77a9870c0ec5a0161f63d1807fd75d8478ef617ecf4f353e30",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0060055840003769845,
+      "http_complete": true,
+      "query_id": "q0_34d007503cef406094dcf52b57b5a63d",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05912662501214072,
+      "http_complete": true,
+      "query_id": "q0_72783cd1af6046d0a0e7ce3fb872ff62",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "741b16c09cae5ae43a66cc1a1ccd8bf9f4a441e403cc732c5f8400095d209374",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.007492000004276633,
+      "http_complete": true,
+      "query_id": "q0_e6c34a0ed24446a6a48309bdf8295ac7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.060700707996147685,
+      "http_complete": true,
+      "query_id": "q0_e28489831b4546b1bea5227ad936ac1c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fc894e8bbe507628c662f738848cdb28fc4e97b9360b8cf245257e6104484c7",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0034550830023363233,
+      "http_complete": true,
+      "query_id": "q0_29b3386148cf4ade872a9c60d0ad1f1b",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06172716700530145,
+      "http_complete": true,
+      "query_id": "q0_c86d5fab86ba48a49a39d5e6f8f7c74a",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fb1a274cdbfd3293d9afa10ec85ad0b1c622dcd6451827771111b3a5576734d",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0041632080101408064,
+      "http_complete": true,
+      "query_id": "q0_b95a066518ab4a05a0fc095c96909252",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05655000000842847,
+      "http_complete": true,
+      "query_id": "q0_aec5864830124040a6e14a8308905f4f",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "75d2e237fd92d773c1c757bc95cb191fa2ae73e64434b0163c30f5d3281978dd",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.00462720800715033,
+      "http_complete": true,
+      "query_id": "q0_a723c4d808d547e1937093586eb33e39",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05607337500259746,
+      "http_complete": true,
+      "query_id": "q0_920a1ea964e6463da6cb5ae61d0cfb9a",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "2e26b5f92234019e6cdc09df6eb6c1b5322f294c6a9fbb1abda3027385768e58",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0035869580024154857,
+      "http_complete": true,
+      "query_id": "q0_cc5172af8e9e448c90b419aebd5bb7eb",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06413420800527092,
+      "http_complete": true,
+      "query_id": "q0_75807ac25bc341e98d8a7c1c1d5d16bc",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "d69a18c98b515ca5f036e2dcc48726bd5ba159238162ed8d599980fc778a5740",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.002806707998388447,
+      "http_complete": true,
+      "query_id": "q0_e5b9e691102246c5979a7035e64765a0",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "17fdfebda9909ef804c1cd3630634e81ca65823bd829eca49bccd5c5bc37017a",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 2.0490959999879124,
+      "http_complete": true,
+      "query_id": "q0_overlap_a0944b98cfcb4335b9875130cec793cb",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "merge_tree_storage_snapshot_sleep_ms": "200",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_envelope",
+      "sql_sha256": "ff739973d597087fbc0489aeef4ba0b87a3beeb09988ae6380ebf8f45ddcf63c",
+      "wire_bytes": 2952
+    },
+    {
+      "elapsed_seconds": 0.005795208999188617,
+      "http_complete": true,
+      "query_id": "q0_118b3432f3de4c10b6be25cd88142b04",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "reset_concurrency",
+      "sql_sha256": "869d834a44e5bb90aa01e1816b3ef3152a8f3e6c65905aeba8ead436d0e783b0",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.05531325000629295,
+      "http_complete": true,
+      "query_id": "q0_2e45a43ce2454d6ba543dab7f630f2bd",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "seed_concurrency",
+      "sql_sha256": "299b977123e322b006f114f53f56cc66f3ede65c6118b16128a8db4b1a8a038f",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.007122166003682651,
+      "http_complete": true,
+      "query_id": "q0_0715e1a4b9674ed387e9764fbd0c14fb",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.005049540995969437,
+      "http_complete": true,
+      "query_id": "q0_94d6ca60a2344eb59d0cbdcc3a2aff8e",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_reader",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06133850000333041,
+      "http_complete": true,
+      "query_id": "q0_acd98d687cb64d969a14bd096fbc492c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "e9363cd547a1263c9d61e9661d39ef7902ad8954485cf53b920bc6a0b477adfb",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.00382362499658484,
+      "http_complete": true,
+      "query_id": "q0_a81fa874fba74300bec626b8a938cd3d",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05921312498685438,
+      "http_complete": true,
+      "query_id": "q0_921e9ef1f0ee49cc9b03c678ffee949c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "92b75e498ab7fd5db52054b847aa74512a37d07e9068d069f63cc8d451717c24",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.003503291998640634,
+      "http_complete": true,
+      "query_id": "q0_6d43ed1e8bf94adcb85cd3cf020fa1f4",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05551604100037366,
+      "http_complete": true,
+      "query_id": "q0_62738acc2b624f77babe4d219c929173",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "411bddc928fcfce810b8b724b8ad6f7e1518af3abb179cf9bbf50f5390819485",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.00261629099259153,
+      "http_complete": true,
+      "query_id": "q0_c4cdda5b3f0a4beaabcbbf4cb84388ac",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.0681760830048006,
+      "http_complete": true,
+      "query_id": "q0_91df869403154328a166e14b6b718fa1",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "d580392eaca3f05ddb515f1802a0b8e5fea39b10116b447f68b475c3b0574635",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004418958997121081,
+      "http_complete": true,
+      "query_id": "q0_07ec6c7cc0c64118bbcba2093866f1c0",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.056286749997525476,
+      "http_complete": true,
+      "query_id": "q0_7331a46c1587440aa648ab517674682a",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "5fcfb2f39774a13e4f4b250a5168999c3e4f62dec6e62d32c6d3ba43a26c908d",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.003292916007922031,
+      "http_complete": true,
+      "query_id": "q0_ce89bb518a3848459612561547f062c8",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.054442791995825246,
+      "http_complete": true,
+      "query_id": "q0_4d2ffc1b25454702bbb60854eebd4525",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "e0ca049479e0ad3c58693fb6224b0a9665b4ecc1070a3191799c048998e6d2b6",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0038197079993551597,
+      "http_complete": true,
+      "query_id": "q0_6ed89fd1f15f4c6cbdcda0d057f17bf7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.0656662499968661,
+      "http_complete": true,
+      "query_id": "q0_3358ccad937b4ef48a018518ba141ebc",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "e601f3a20c5645a7a58cc52dd1703166b52f356593875d815aba52239fab19ef",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.00509187500574626,
+      "http_complete": true,
+      "query_id": "q0_7e29fc3a38ec41319e3b16ef54da7745",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06590495900309179,
+      "http_complete": true,
+      "query_id": "q0_737ea85a1cb94847a1e836653d03380f",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "ef2fbd1b75b15685b109c0c7db8ed4061fa9f222657858543049e5717d7bf68b",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0056147080031223595,
+      "http_complete": true,
+      "query_id": "q0_976759e88bd74e8d85e7129768bb25ee",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.05846491700503975,
+      "http_complete": true,
+      "query_id": "q0_f8a5cc08e7dc4b57adf4dc64b0f99e29",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "d26afe86b9740898411f31b09d042cb6a5de399c3796787bd7e68c318be97ae5",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.0032197499967878684,
+      "http_complete": true,
+      "query_id": "q0_6d75efe72388459492bb645b6f9b8540",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.058542500002658926,
+      "http_complete": true,
+      "query_id": "q0_577e922f20dc47efbcf575065d3a80df",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "e65867f52a438583e78b2b89b5bd2d25bd3aeea597007191fe077d0ee023a879",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004503707998082973,
+      "http_complete": true,
+      "query_id": "q0_bc2c7e24f25a4840a8ab51ab33351c42",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.062306916996021755,
+      "http_complete": true,
+      "query_id": "q0_f1e6b03bfb1a43edb15d60c2e2d59f71",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "3d6ba5d4eac60d4496abecf0379dfc14ecdce63f8d9af83dc3c15bd839a5df9a",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004991124995285645,
+      "http_complete": true,
+      "query_id": "q0_bf063eac7afa46b097daed9b451d81d5",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 0.06041554200055543,
+      "http_complete": true,
+      "query_id": "q0_dc2843dfe31d493cbe909a40f5d5c14f",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_insert",
+      "sql_sha256": "e2aa12eb53a72d8b5efadf932e5dc870a5dca512f04090b7b1738f1dfd98885b",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004540166002698243,
+      "http_complete": true,
+      "query_id": "q0_d50703bac5cb484d9a0d583a64489ef8",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "observe_after_write",
+      "sql_sha256": "2678c77b751f52b7e726e19fdad1394bdd90178f0e2ac9e43d7de86aee4b0b89",
+      "wire_bytes": 280
+    },
+    {
+      "elapsed_seconds": 2.003560875004041,
+      "http_complete": true,
+      "query_id": "q0_overlap_7ff1764d056e42438491598a81c551a0",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "merge_tree_storage_snapshot_sleep_ms": "200",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "concurrent_envelope",
+      "sql_sha256": "ff739973d597087fbc0489aeef4ba0b87a3beeb09988ae6380ebf8f45ddcf63c",
+      "wire_bytes": 2952
+    },
+    {
+      "elapsed_seconds": 0.0834083749941783,
+      "http_complete": true,
+      "query_id": "q0_de1c9cf8c1fb4b80b7c18d9de0454bc7",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "flush_terminal_receipts",
+      "sql_sha256": "066df34fd4fd54f1aa861219200adbab6e002a16d2908bccda607d2080b3f818",
+      "wire_bytes": 0
+    },
+    {
+      "elapsed_seconds": 0.004903124994598329,
+      "http_complete": true,
+      "query_id": "q0_d767bef2a0404fd9aac47332a1095f7c",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "terminal_receipts",
+      "sql_sha256": "77c91bd2637b51d0d2cbe9b02299240de3dc571713e160f29e614b7cbc915ff5",
+      "wire_bytes": 2056
+    },
+    {
+      "elapsed_seconds": 0.013810834003379568,
+      "http_complete": true,
+      "query_id": "q0_c8e7199eaecb4f00aae2f9170137ddad",
+      "request_settings": {
+        "enable_http_compression": "0",
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "output_format_arrow_compression_method": "none",
+        "use_query_cache": "0",
+        "wait_end_of_query": "1"
+      },
+      "role": "cleanup_fixture",
+      "sql_sha256": "fef2175234948d958ec1057ce1d9d295e2a9547ae5132872e9bc33fc4e0b1d86",
+      "wire_bytes": 0
+    }
+  ],
+  "versions": {
+    "clickhouse-connect": "1.3.0",
+    "duckdb": "1.5.3",
+    "ibis-framework": "12.0.0",
+    "mysqlclient": "2.2.7",
+    "psycopg": "3.3.4",
+    "pyarrow": "25.0.1",
+    "pymysql": "1.1.2",
+    "python": "3.12.13",
+    "sqlglot": "30.8.0",
+    "sqlite": "3.53.1",
+    "trino": "0.337.0"
+  }
+}

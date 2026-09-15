@@ -1,0 +1,71 @@
+name: marivo-multisource
+services:
+  postgres:
+    image: postgres@sha256:dfc2780980fe6ca2d158bfe4342660db5e4c6431fb969088e543430d09f8d0f2
+    platform: linux/arm64
+    profiles: [trino]
+    mem_limit: 512m
+    environment:
+      POSTGRES_DB: iceberg
+      POSTGRES_USER: iceberg
+      POSTGRES_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
+    volumes:
+      - catalog:/var/lib/postgresql/data
+      - ./jdbc-init.sql:/docker-entrypoint-initdb.d/01-catalog.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U iceberg -d iceberg]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"
+  trino:
+    image: trinodb/trino@sha256:aa18e61b2e7776ab8641ba8baaa8687d0430894e88c639e61010cc46a994ab36
+    platform: linux/arm64
+    profiles: [trino]
+    mem_limit: 4g
+    cpus: 3
+    environment:
+      QUALIFICATION_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports: [127.0.0.1:18080:8080]
+    volumes:
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+      - ./trino/jvm.config:/etc/trino/jvm.config:ro
+      - ./trino/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
+      - warehouse:/warehouse
+    logging: *logging
+  clickhouse:
+    image: clickhouse/clickhouse-server@sha256:d283856e8da15163f250f683ee9a7ad8876111094ef4d4caf9bcc3d9843db5d7
+    platform: linux/arm64
+    profiles: [clickhouse]
+    mem_limit: 3g
+    cpus: 3
+    environment:
+      CLICKHOUSE_DB: qualification
+      CLICKHOUSE_USER: qualifier
+      CLICKHOUSE_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports: [127.0.0.1:18123:8123]
+    healthcheck:
+      test: [CMD-SHELL, 'clickhouse-client --host 127.0.0.1 --user "$${CLICKHOUSE_USER}" --password "$${CLICKHOUSE_PASSWORD}" --query "SELECT 1"']
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse:/var/lib/clickhouse
+      - ./clickhouse.xml:/etc/clickhouse-server/config.d/qualification.xml:ro
+    logging: *logging
+volumes:
+  catalog:
+  warehouse:
+  clickhouse:

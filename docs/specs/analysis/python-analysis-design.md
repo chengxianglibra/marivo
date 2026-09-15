@@ -107,3 +107,9 @@ not the agent's narrative conclusion. Custom work through `to_pandas()` or
 - [Temporal authoring](../temporal-semantics.md)
 - [Detailed observation contract](../../superpowers/specs/2026-09-01-lazy-analysis-observation-model-design.md)
 - [Detailed materialization contract](../../superpowers/specs/2026-09-01-lazy-analysis-materialization-runtime-design.md)
+
+## Proposed extensions
+
+- [Multi-datasource lazy execution design and implementation plan](../../superpowers/specs/2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md)
+  describes staged backend qualification. It does not enable additional source
+  execution backends or change the current contracts above.
