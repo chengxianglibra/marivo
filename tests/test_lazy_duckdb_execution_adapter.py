@@ -8,7 +8,7 @@ from pathlib import Path
 import ibis
 import ibis.expr.types as ir
 import pytest
-from duckdb import DuckDBPyConnection, TransactionException
+from duckdb import DuckDBPyConnection
 from ibis.backends.duckdb import Backend
 
 from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
@@ -111,49 +111,63 @@ def test_unreserved_hook_is_rejected_before_registration(native: Backend) -> Non
     assert native.list_tables() == []
 
 
-def test_realization_cannot_be_replaced_or_used_after_close(native: Backend) -> None:
+def test_context_cannot_be_replaced_or_used_after_close(native: Backend) -> None:
     adapter = DuckDBExecutionAdapter(native)
     other = DuckDBExecutionAdapter(native)
     statement = adapter.prepare(ibis.literal(1))
     with pytest.raises(MaterializationError):
         other.read_scalar(statement)
     with pytest.raises(MaterializationError):
-        adapter.read_scalar(replace(statement, realization=replace(statement.realization)))
+        adapter.read_scalar(replace(statement, context=replace(statement.context)))
+    with pytest.raises(MaterializationError):
+        other.statement("SELECT 1", inputs=(statement,))
     adapter.disconnect()
     with pytest.raises(MaterializationError):
         adapter.read_scalar(statement)
 
 
-@pytest.mark.parametrize("kind", ["unexpected_rollback", "disconnect"])
-def test_finish_failure_is_not_a_successful_termination(
-    native: Backend, monkeypatch: pytest.MonkeyPatch, kind: str
+def test_initialization_and_finish_do_not_submit_consistency_transactions(
+    native: Backend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.analysis.materialization.execution import Statement
+
     adapter = DuckDBExecutionAdapter(native)
-    adapter.begin()
-    closed: list[bool] = []
-    disconnect = native.disconnect
+    submitted: list[str] = []
+    submit = adapter.submit
 
-    def close() -> None:
-        if kind == "disconnect":
-            raise OSError("close failed")
-        disconnect()
-        closed.append(True)
+    def record(statement: Statement) -> DuckDBPyConnection:
+        submitted.append(statement.sql)
+        return submit(statement)
 
-    def rollback() -> None:
-        raise TransactionException("unexpected rollback error")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(native, "disconnect", close)
-        if kind == "unexpected_rollback":
-            patch.setattr(adapter, "rollback", rollback)
-        with pytest.raises((TransactionException, OSError)):
-            adapter.finish()
-    assert closed == ([True] if kind == "unexpected_rollback" else [])
-
-
-def test_finish_accepts_only_no_active_transaction(native: Backend) -> None:
-    adapter = DuckDBExecutionAdapter(native)
+    monkeypatch.setattr(adapter, "submit", record)
+    adapter.initialize()
+    assert adapter.read_scalar(adapter.statement("SELECT current_setting('TimeZone')")) == "UTC"
     adapter.finish()
+    adapter.finish()
+    assert submitted == [
+        "SET threads=1",
+        "SET memory_limit='256MiB'",
+        "SET max_temp_directory_size='0B'",
+        "SET TimeZone='UTC'",
+        "SELECT current_setting('TimeZone')",
+    ]
+
+
+def test_queries_observe_committed_update_without_shared_snapshot(tmp_path: Path) -> None:
+    database = tmp_path / "changing.duckdb"
+    writer = ibis.duckdb.connect(database)
+    reader = ibis.duckdb.connect(database)
+    adapter = DuckDBExecutionAdapter(reader)
+    try:
+        writer.raw_sql("CREATE TABLE input AS SELECT 1 AS value")
+        adapter.initialize()
+        statement = adapter.prepare(reader.table("input"))
+        assert adapter.read_table(statement).to_pylist() == [{"value": 1}]
+        writer.raw_sql("UPDATE input SET value = 2")
+        assert adapter.read_table(statement).to_pylist() == [{"value": 2}]
+    finally:
+        adapter.finish()
+        writer.disconnect()
 
 
 def test_scalar_rejects_missing_and_duplicate_rows(native: Backend) -> None:
@@ -224,7 +238,7 @@ def test_failed_disconnect_does_not_prove_resource_termination(
 
     resource = backend_reservation("adapter-test", "source")
     adapter = DuckDBExecutionAdapter(native)
-    adapter.begin()
+    adapter.initialize()
 
     def failed_close() -> None:
         raise OSError("no termination receipt")
@@ -370,3 +384,100 @@ def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
         "source_schema",
         "transfer_guard",
     }
+
+
+@pytest.mark.runtime
+def test_runtime_publishes_after_between_query_update_without_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.materialization import admission
+    from marivo.analysis.materialization.execution import Statement
+    from marivo.datasource.backends import (
+        BuiltDatasourceBackend,
+        EffectiveDatasourceKwargs,
+        _build_backend_from_effective,
+    )
+    from marivo.datasource.ir import DatasourceIR
+    from marivo.refs import ref
+    from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
+
+    database = tmp_path / "warehouse.duckdb"
+    seed_execution_database(database)
+    registry, sidecar = make_execution_registry(database)
+    runtime = admission.DatasetRuntime.create(tmp_path, "changing-source")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    logical = sources.observe(ref.metric("sales.revenue")).aggregate()
+    build = _build_backend_from_effective
+    original_submit = DuckDBExecutionAdapter.submit
+    roles: list[str] = []
+    opened: list[bool] = []
+    updates: list[bool] = []
+    writer = ibis.duckdb.connect(database)
+
+    def open_source(
+        datasource: DatasourceIR, effective: EffectiveDatasourceKwargs, *, read_only: bool = False
+    ) -> BuiltDatasourceBackend:
+        assert read_only
+        opened.append(True)
+        # DuckDB requires matching access modes for simultaneous file connections.
+        # Only this fixture enables the independent writer; Runtime requests read-only.
+        return build(datasource, effective, read_only=False)
+
+    def submit(adapter: DuckDBExecutionAdapter, statement: Statement) -> DuckDBPyConnection:
+        assert statement.sql not in ("BEGIN TRANSACTION", "ROLLBACK")
+        if statement.role == "primary" and not updates:
+            assert "validation_batch" in roles
+            writer.raw_sql("UPDATE orders SET amount = amount + 10 WHERE id = 1")
+            updates.append(True)
+        roles.append(statement.role)
+        return original_submit(adapter, statement)
+
+    try:
+        monkeypatch.setattr(admission, "_build_backend_from_effective", open_source)
+        monkeypatch.setattr(DuckDBExecutionAdapter, "submit", submit)
+        result = logical.execute()
+        rows = result.to_pandas()
+        assert rows["revenue"].tolist() == [157.0]
+        assert updates == opened == [True]
+        assert roles.count("primary") == runtime.statistics.primary_queries == 1
+        run = runtime.store.run(result.state.producing_run_ref)
+        assert run is not None and run.lifecycle == "succeeded"
+        assert runtime.store.resources(runtime.session_ref) == ()
+        assert logical.execute().state.artifact_ref == result.state.artifact_ref
+        assert roles.count("primary") == 1
+    finally:
+        writer.disconnect()
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("empty_output", [False, True])
+def test_invalid_source_is_rejected_even_for_empty_output(
+    tmp_path: Path, empty_output: bool
+) -> None:
+    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.observation.predicates import gt
+    from marivo.refs import ref
+    from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
+
+    database = tmp_path / "warehouse.duckdb"
+    seed_execution_database(database)
+    writer = ibis.duckdb.connect(database)
+    try:
+        writer.raw_sql("INSERT INTO orders SELECT * FROM orders WHERE id = 1")
+    finally:
+        writer.disconnect()
+    registry, sidecar = make_execution_registry(database)
+    runtime = DatasetRuntime.create(tmp_path, "invalid-source")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    logical = sources.observe(ref.metric("sales.revenue"))
+    if empty_output:
+        logical = logical.where(gt(ref.metric("sales.revenue"), 1000))
+    with pytest.raises(MaterializationError):
+        logical.execute()
+    assert runtime.statistics.validation_queries > 0
+    assert runtime.statistics.primary_queries == 0
+    assert runtime.last_run_ref is not None
+    run = runtime.store.run(runtime.last_run_ref)
+    assert run is not None and run.lifecycle == "failed"
+    assert runtime.store.resources(runtime.session_ref) == ()
+    assert not list(runtime.store.layout.session_dir(runtime.session_ref).rglob("*.parquet"))

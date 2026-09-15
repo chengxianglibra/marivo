@@ -486,23 +486,26 @@ def test_native_decimal_fraction_half_boundary_matches_local(
         backend.disconnect()
 
 
-def test_exact_native_sum_macros_follow_source_transaction_lifetime() -> None:
+def test_exact_native_sum_macros_follow_connection_lifetime(tmp_path: Path) -> None:
     from marivo.analysis.compiler.driver_numeric import exact_float_sum
 
-    backend = ibis.duckdb.connect()
+    database = tmp_path / "numeric.duckdb"
+    backend = ibis.duckdb.connect(database)
     try:
-        table = backend.create_table("transaction_values", {"value": [1e16, 1.0, -1e16]})
-        backend.raw_sql("BEGIN")
+        table = backend.create_table("connection_values", {"value": [1e16, 1.0, -1e16]})
         install_driver_numeric_functions(backend)
         assert backend.execute(exact_float_sum(table.value)) == 1.0
-        backend.raw_sql("ROLLBACK")
-        functions = backend.sql(
+    finally:
+        backend.disconnect()
+    fresh = ibis.duckdb.connect(database)
+    try:
+        functions = fresh.sql(
             "SELECT count(*) AS macro_count FROM duckdb_functions() "
             "WHERE function_name IN ('__marivo_driver_float_units', '__marivo_driver_float_from_units')"
         )
-        assert backend.execute(functions).iloc[0, 0] == 0
+        assert fresh.execute(functions).iloc[0, 0] == 0
     finally:
-        backend.disconnect()
+        fresh.disconnect()
 
 
 @pytest.mark.parametrize("coordinate", [float("nan"), float("inf"), float("-inf"), None])

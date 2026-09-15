@@ -178,7 +178,23 @@ statement roles so the inventory remains usable as line numbers move.
 | Termination/publication | `_source_backend` rollback and exact `TransactionException` matching; success rollback/disconnect before publication; `resources.py` process/nonce proof | Local PID death cannot prove remote query termination; journal submit/ack/unknown and terminal receipts without retry |
 | Cleanup/recovery | `resources.py:confirm_execution_termination`; worker and object-request proof families | New remote adapter needs its own exact capability; unknown work remains unresolved, not clean by connection close |
 
-### Realization qualification matrix
+### Slice 1a reconciliation
+
+The table above records the pre-extraction baseline, not current transaction
+requirements. Slice 1a removes the action-wide consistency BEGIN/ROLLBACK and
+rollback-error matching. One action-local execution context retains statement
+and resource ownership. Initialization still sets UTC and existing resource
+controls; removing budgets and changing termination admission remain 1b/1c.
+
+Sampling, source preparation and native retained-reader fences remain required
+for single evaluation. Their connection-owned temporary objects are cleaned by
+close, without a consistency transaction. Store publication transactions and
+semantic version-row selection retain their separate purposes. The inventory's
+snapshot/realization requirements below are historical qualification experiments;
+none is a source-consistency eligibility requirement. No remote variant is enabled.
+See the [Slice 1a evidence](2026-09-15-multisource-slice-1a-acceptance.md).
+
+### Historical realization qualification matrix
 
 | Variant | Actual required operations | Fences / consistency | Transport / termination |
 | --- | --- | --- | --- |

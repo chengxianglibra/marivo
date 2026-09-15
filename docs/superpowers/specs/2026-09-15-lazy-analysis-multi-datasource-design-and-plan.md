@@ -2,8 +2,9 @@
 
 Date: 2026-09-15
 
-Status: proposed; design and implementation plan only. No new backend is enabled
-by this document. Each backend/method combination requires its own acceptance.
+Status: staged implementation; Slices 0, 1 and 1a complete. Slices 1b/1c and
+remote backend implementation remain pending. No new backend is enabled by this
+document. Each backend/method combination requires its own acceptance.
 
 ## 1. Outcome and scope
 
@@ -16,14 +17,45 @@ from authored semantic sources; no public executor argument is introduced.
 The deliverable is a tested set of exact source implementations, not a blanket
 claim that every Ibis backend supports every Dataset method. Push the maximal
 eligible contiguous calculation into the declared source. Use an existing
-bounded local method only where its owner admits that exact input shape.
+in-process local method only where its owner admits that exact input shape.
 Reject unsupported source-required work before reading source rows.
+
+### Execution and resource responsibility
+
+The agent writes a Python script or executes Python commands against Marivo.
+Local analytical methods run synchronously in that calling Python process;
+Marivo does not create a local execution worker, subprocess pool or supervisor.
+Each call returns its complete result or raises an exception with its original
+cause and traceback preserved. This is a per-call contract, not a transaction
+over the agent's whole script. External process termination or an OS-level
+failure cannot guarantee a Python exception or immediate cleanup.
+
+Resource decisions belong to the agent and its execution environment. Marivo
+does not impose execution budgets: no resource-based row/byte/cell/page caps,
+memory/RSS/spill quotas, method-complexity ceilings, storage quotas or execution
+deadlines across source queries, transfer, local computation and retained reads.
+It does not reject supported work because such limits cannot be enforced.
+Database, driver, OS and external runner limits still apply independently;
+Marivo propagates their failures and does not override them to promise unlimited
+capacity. Explicit analytical parameters such as Top-N, semantic validity,
+ownership checks and bounded Help/show output remain separate contracts.
+
+This decision replaces the existing worker and execution-budget requirements
+for lazy analysis. Slice 1b removes their implementation and disclosure; this
+document does not claim that removal has already shipped.
+
+Slice 1c further removes remote termination certification, mandatory single
+compilation and engine/driver/Ibis version certification or version-based
+runtime admission. Prefer ordinary Ibis execution and driver cleanup. A failed
+read-only remote query with unknown termination does not by itself block the
+Session. Preserve local publication integrity and report uncertainty honestly.
+Version information is optional diagnostic evidence, never an eligibility gate.
 
 First delivery targets useful scalar Metric journeys on all five engines.
 Advanced methods follow in separately admitted slices. The minimum successful
 journey is a scoped observation, grouped aggregation, filtering, deterministic
 ranking and Top-N, followed by immutable publication and cold reads. Backend
-restrictions on table engines, connectors, types and consistency are part of
+restrictions on table engines, connectors and types are part of
 the support claim, not hidden implementation assumptions.
 
 ### Preserved contracts
@@ -57,8 +89,10 @@ The [current analysis design](../../specs/analysis/python-analysis-design.md)
 owns the public execution and persistence contract.
 
 Upon acceptance, amend those owners for the multi-backend registration,
-realization, single-statement validation ordering and remote termination rules
-below. Do not change the older
+execution ownership, the removal of cross-query source consistency guarantees,
+in-process local execution without Marivo execution budgets, ordinary Ibis
+execution, no version admission, and the simplified cleanup rules below.
+Do not change the older
 Slice 9 acceptance status or treat this proposal as its completion evidence.
 
 ## 2. Verified baseline and required changes
@@ -71,12 +105,14 @@ non-DuckDB rejections. Those rejection tests do not prove remote execution.
 | Existing owner | Current coupling | Required change |
 | --- | --- | --- |
 | `marivo/datasource/engines/` | Connection, metadata, timezone and authoring timeout profiles already exist for six engines | Reuse physical connection facts; keep lazy operator eligibility in Analysis |
-| `analysis/operators/registry.py` | `source_adapter` is one string; source versions default to DuckDB 1.5.3 / Ibis 12.0.0 | Register exact implementations per method and backend without an alternate registry |
-| `analysis/compiler/placement.py` | Every source binding includes local DuckDB/Ibis versions | Bind the selected adapter's compatibility facts; preserve same-domain checks |
+| `analysis/operators/registry.py` | `source_adapter` is one string; source versions default to DuckDB 1.5.3 / Ibis 12.0.0 | Register implementations per method/backend in the existing registry; delete engine/driver/Ibis version requirements |
+| `analysis/compiler/placement.py` | Every source binding includes local DuckDB/Ibis versions | Remove version fields from domain/eligibility decisions; preserve exact datasource and Session ownership |
 | `analysis/materialization/admission.py` | DuckDB `Backend` checks, `.con.interrupt()`, `SET`, transactions, schema lookup, temporary tables and batch readers | Route physical operations through typed execution adapters |
-| `analysis/materialization/validation.py` | Validation cursor must be `DuckDBPyConnection` | Decode bounded typed validation rows independently of a concrete cursor |
+| `analysis/materialization/validation.py` | Validation cursor must be `DuckDBPyConnection` | Decode typed validation rows independently of a concrete cursor |
 | Statement paths in `materialization/admission.py` and `sampling.py` | `sqlglot`/`sge` rendering with the DuckDB dialect, sampling SQL parsing, `DESCRIBE`, temporary relation SQL, raw scalar checks and `TransactionException` handling | Inventory actual statements and error paths; move dialect behavior into concrete adapters, including diagnostics |
-| `analysis/materialization/resources.py` | Execution cleanup is keyed to local DuckDB process lifetime | Add backend-owned remote query/session termination proof |
+| `analysis/materialization/resources.py` | Cleanup and Session recovery require execution terminal proof | Separate local publication safety from remote read-only query cleanup; unknown remote termination alone does not block a Session |
+| `analysis/materialization/local_worker.py`, `worker_lifetime.py`, `local.py`, `admission.py` | Supervised local execution, IPC, worker reservations and resource admission | Execute local kernels in the caller; remove worker-only protocols and budget enforcement in Slice 1b |
+| Materialization storage/read policies, execution adapters and method registrations | Execution deadlines, row/byte/memory/spill and problem-size caps | Remove resource-only policies, probes, checks and error guidance across source, local, writer and retained-read paths |
 | `analysis/compiler/lifecycle.py`, `driver_numeric.py`, `distribution.py` | DuckDB SQL, BIGNUM macros, list aggregation and method-specific quantiles | Isolate exact backend lowerings; do not admit these by generic compilation success |
 | `analysis/materialization/parquet_scan.py` and retained readers | Native retained scans are DuckDB-oriented | Preserve this domain; explicitly gate any retained-to-remote source binding |
 
@@ -90,10 +126,10 @@ and recovery, not just `backend.compile()`.
 Logical Dataset + captured semantic bindings
     -> existing method registry: exact backend eligibility
     -> deterministic placement: source stages / admitted local stages
-    -> Runtime: bind and verify execution context and realization
+    -> Runtime: bind and verify the owned execution context
     -> pure Ibis lowering + selected backend compilation
-    -> guarded source queries and typed Arrow batches
-    -> configured Parquet writer / existing bounded local worker
+    -> owned source queries and typed Arrow batches
+    -> configured Parquet writer / synchronous in-process local methods
     -> validation + atomic publication
 ```
 
@@ -106,12 +142,10 @@ This is direct dispatch, not a list of candidate plans.
 
 Each registration supplies concrete typed facts for:
 
-- adapter identity and tested Ibis/driver/server compatibility;
+- adapter identity and implemented method/backend support;
 - admitted Dataset shapes, value types and method parameters;
 - source builder and, where needed, a declared preparation builder;
-- required realization, validation, fence and retained-part capabilities;
-- method-owned consistency requirements over exact input roles and contributing
-  relations, including whether a common cross-relation snapshot is required;
+- required validation, single-evaluation fence and retained-part capabilities;
 - output and numerical conformance validators;
 - the existing exact local method, independently of source eligibility.
 
@@ -129,54 +163,51 @@ Datasource profiles must not import Analysis or learn Dataset methods.
 
 The following table assigns responsibilities, not eight mandatory methods on
 one universal protocol. Common connection/schema/compile/transport/lifetime
-operations are shared; realization-specific operations use closed variants:
+operations are shared; backend-specific operations stay with their concrete owners:
 
 | Operation | Required contract |
 | --- | --- |
-| Open and verify | Open the declared datasource; verify the selected compatibility scope and required server settings |
-| Bind realization | A transaction variant opens its read context; a version-pinned variant resolves exact versions; a single-statement variant binds its read scope into the compiled statement without a separate snapshot call |
+| Open | Open the declared datasource through its existing connection owner; no version certification or version-based admission |
+| Bind execution | Bind statements and resources to the owned action-local execution context; this establishes lifetime and authority, not a shared source snapshot |
 | Resolve table/schema | Use datasource-owned qualification and normalize physical types without losing precision |
-| Compile | Produce the immutable statement inputs consumed by execution, as specified below, without executing them |
-| Read assertions | Return bounded named integer/scalar checks; reject missing, duplicate or malformed results |
-| Stream rows | Yield typed bounded Arrow batches and close the actual underlying cursor/response |
+| Execute expressions | Prefer normal Ibis execution; use backend-specific SQL/driver operations only where the method requires them |
+| Read assertions | Return the required named integer/scalar checks; reject missing, duplicate or malformed results |
+| Stream rows | Yield typed Arrow batches and close the actual underlying cursor/response; batching is a transport strategy, not a hard allocation guarantee |
 | Own fences | A separately admitted fence implementation creates its owned resources after reservation; variants without that capability cannot accept fence-requiring methods |
-| Cancel and close | Stop work and return authoritative termination proof or an explicit unresolved state |
+| Cancel and close | Attempt cancellation and close the exact owned driver resources; report failures or unknown remote status without requiring termination certification |
 
-Use separate typed result variants for transaction realizations, version-pinned
-realizations and single-statement realizations. Do not create a collection of
-optional fields that permits an invalid combination. Public exports are unchanged.
-Runtime exhaustively dispatches on the selected variant. Transaction and
-version-pinned variants consume their respective bound read contexts and
-ordered statement bundles; the single-statement variant consumes one envelope
-statement and its decoder. Assertion decoding is shared, but its invocation
-comes from separate queries or envelope records according to the variant.
-There are no no-op snapshot methods, optional fence callbacks or sentinel
-transaction handles. Unsupported requirements fail at admission, not by calling
-an unimplemented operation after submission.
+Use one typed action-local execution context for statement ownership and resource
+lifetime. Do not introduce transaction, version-pinned or single-statement
+realization variants to enforce source consistency. Assertions may use separate
+queries; their decoding and required validation order remain explicit. Unsupported
+methods fail at admission; missing budget controls, version certification or
+remote termination lookup do not.
+No new public executor surface is introduced.
+
 Concrete engine code may use its driver's APIs; shared Runtime code must not
 depend on `.con`, a DuckDB cursor class or dialect-specific SQL.
 
-**Compilation is an execution input.** Each selected statement is compiled once
-into a private immutable value containing its exact SQL, typed parameter
-bindings, expected schema/decoder, statement role and bound realization handle.
-Execution submits that value through the adapter's guarded driver path; it must
-not pass the original expression back to an Ibis API that recompiles it. This
-applies to assertions, primary/part reads and preparation statements, especially
-the single-statement envelope. SQL remains internal and is never an executable
-semantic authoring body or a new public surface.
+**Use the normal execution path.** Recompiling an expression is not resubmitting
+a query. Permit Ibis to compile during execution and retain its parameter
+binding, preparation hooks and result conversion. Do not require every backend
+to rebuild these facilities merely to enforce a compile count or immutable
+statement wrapper. Use a direct driver path only for a concrete missing feature
+or correctness requirement; existing useful DuckDB code need not be rewritten
+solely to normalize its shape with other adapters.
 
-The installed DuckDB Ibis `to_pyarrow_batches()` currently runs pre-execute hooks
-and calls `compile()` again. Adapter extraction must account for those hooks,
-parameter handling, result conversion and default limits explicitly; bypassing
-recompilation must not omit their required behavior. Resource-producing hooks
-become declared reserved preparations, never hidden side effects of compiling.
-Record the statement actually submitted, with existing redaction. A diagnostic
-compile followed by expression-based execution is not sufficient. The compiled
-value is action-local, not persisted as a replayable plan or added to identity.
+Preserve complete results, correct parameters/types, required validation order,
+owned resource cleanup and method-required single evaluation. Capture actual
+submitted statements through the execution path with existing redaction; a
+diagnostic compile is not evidence of execution. Check for unintended duplicate
+queries rather than rejecting a second pure compilation. Single compilation is
+an optional optimization, not an admission or acceptance contract. SQL remains
+internal, not a semantic expression body or new public surface. Do not persist
+a replayable physical plan or put compilation artifacts into Dataset identity.
 
-Do not reuse `authoring_timeout` as a drop-in Analysis lifetime context. For
+Do not reuse `authoring_timeout` as a drop-in Analysis lifetime context or import
+its deadline into lazy execution. For
 example, the current MySQL authoring helper starts and rolls back a transaction;
-nesting it could destroy the Analysis realization. Extract shared low-level
+reusing it could interfere with Analysis cursor or resource lifetime. Extract shared low-level
 controls only where their owners and lifetimes are identical.
 
 ### 3.3 Placement and execution order
@@ -187,189 +218,139 @@ controls only where their owners and lifetimes are identical.
 3. Select the complete physical graph, including declared preparation boundaries.
    No source stage may acquire rows from an unregistered local upload path.
 4. Admit the Run and reserve execution resources before connecting or submitting.
-5. Verify live version, connector/table kind and required controls. A mismatch
-   fails the selected path; it does not select another implementation.
-6. Bind the selected realization variant per required source domain: establish
-   its transaction/version context, or bind the single-statement read scope.
-   Related branches share it where their contract requires a common observation.
-7. Compile the selected expressions into execution inputs before business-row
-   execution. Submit those exact statements in owner-defined order, including
-   the variant's separate assertions or single-statement envelope.
+5. Open the declared datasource and resolve schema or method-required source
+   facts. Do not run version certification or version-based admission. Connection,
+   compilation and execution failures propagate from the selected path.
+6. Bind the owned execution context per source domain. Do not acquire a shared
+   snapshot or pin source versions solely to align related reads.
+7. Execute the selected expressions through Ibis or the justified backend path,
+   in owner-defined order, including assertions, primary reads and part reads.
 8. Validate and publish through the existing writer and recovery protocol.
 
-Catalog/version/settings metadata may be read during step 5 or 6 under Runtime
-guards. It must verify a preselected supported scope, not trial analytical
-queries to discover a working plan.
+Read catalog/schema/settings only where needed for source resolution or a
+specific method's semantics. Do not add a generic compatibility preflight or
+trial analytical queries to discover a different plan. Optional diagnostic
+version collection must not fail execution when unavailable.
 
-### 3.4 Domain identity and compatibility
+### 3.4 Domain identity without version admission
 
-Keep three facts distinct instead of extending `adapter_versions` into an
-all-purpose identity tuple:
+Keep source and execution ownership; remove version-based compatibility authority:
 
 - **Source-domain authority:** the captured Session/store/catalog/semantic and
   datasource binding authority currently checked by `same_domain`. Separate
   bindings never become equal because server endpoints or versions match.
-- **Implementation compatibility:** the selected adapter implementation and
-  locally known Ibis/driver versions determine static eligibility. Live server
-  version, connector/table scope and semantic-affecting settings are verified
-  after connection against that selection. They are compatibility facts, not
-  permission to merge two domains or modify the selected physical graph.
-- **Bound realization authority:** contributing statements that require one
-  realization share the same owned context/handle. A separate connection to
-  the same datasource is insufficient without an admitted shared-read proof.
+- **Bound execution authority:** statements and resources belong to the exact
+  owned action-local context/handle. This prevents accidental cross-execution
+  submission; it does not establish a common observation of source data.
 
-`same_domain` remains a pure pre-I/O authority check; it must not acquire a live
-server version. Replace the existing version-tuple overload with explicit
-compatibility validation and post-bind realization checks. Two distinct servers
-or bindings remain distinct even at the same version. A version change behind
-one declared endpoint does not create a new logical domain, but must pass live
-compatibility on a new Run. Conflicting server facts or connection replacement
-within one realization fail; they cannot silently replace its handle. Neither
-case changes the existing immutable Artifact binding-hit rule.
+`same_domain` remains a pure pre-I/O ownership check. Remove `source_versions`
+and `adapter_versions` from implementation eligibility and domain equality;
+do not replace exact matching with version ranges, allowlists, certification
+records or version probes. Engine/driver/Ibis versions neither admit nor reject
+an execution and do not invalidate an immutable Artifact binding hit.
 
-## 4. Consistent source realization
+Method/backend registration still identifies implemented analytical behavior;
+type, shape and required semantic checks remain. Failures in the selected Ibis
+or driver path surface as errors, not as triggers for an alternate plan.
+Two distinct datasource bindings remain distinct regardless of versions.
+Resources and statements must still belong to their intended connection/action;
+version metadata cannot authorize connection substitution. Optional versions
+recorded in diagnostics or test evidence have no execution authority. Semantic
+business versions, method contract versions and storage format versions are
+different concepts and retain their existing owners.
 
-DuckDB currently evaluates validation, output and required parts inside an owned
-transaction, with explicit fences where single evaluation is required. A remote
-implementation must preserve the needed consistency even when it cannot use
-that mechanism.
+## 4. Source reads without cross-query consistency guarantees
 
-Separate SELECTs at ordinary statement isolation can validate data A and publish
-data B. A CTE name is not evidence of materialization or one evaluation. A repeated
-seed does not prove identical sampling. A partition filter does not prove that a
-partition is immutable.
+Marivo does not guarantee that source assertions, primary output and required
+part reads within one `dataset.execute()` observe the same data version. It also
+does not guarantee a common snapshot across contributing relations or Dataset
+inputs. Each statement observes the data provided by its backend at execution.
+Concurrent source updates can therefore cause checks and published results to
+reflect different source states, even when every SQL statement succeeds.
+Successful validation records the checks actually performed; it does not certify
+that later reads still satisfy those checks. An execution may publish such a
+result without detecting or rejecting the intervening update.
 
-Admit one of the following implementations for an exact method:
+Adapters are not required to open a shared read transaction, raise isolation,
+pin physical table versions, or fuse checks and outputs into one SQL statement
+for this purpose. Backend-native isolation may incidentally provide stronger
+behavior, but it is not a Marivo support guarantee or an admission requirement.
+No consistency option, mutation-detection retry or alternate execution route is
+introduced. Semantic business-time/version selection remains part of the query
+meaning and must not be removed with physical snapshot-pinning machinery.
 
-- **Transaction realization:** all contributing reads use the same verified
-  snapshot/transaction context. Keep it alive through primary and part reads.
-- **Version-pinned realization:** resolve immutable physical relation versions
-  once and bind every contributing scan to those versions. Expiration or schema
-  mismatch fails; never substitute the current version. A vector of table
-  snapshots is repeatable, but is not automatically a globally atomic snapshot.
-- **Single-statement realization:** lower the supported method, required source
-  assertions and permitted outputs into one verified statement/read scope.
-  This requires a backend-specific proof of shared source realization, not just
-  one SQL string. Statements with independent unpinned scans are ineligible.
+### 4.1 Preserved independent requirements
 
-For the third variant, validation must still be observed when output is empty
-or Top-N removes all offending rows. Use a private typed output envelope with
-separate assertion, primary and retained-part records, stripped before writing
-public rows. Fully consume and validate the envelope before publication. Stage
-bytes remain uncommitted until then. Missing assertion records fail closed.
-Each lowerer must demonstrate that envelope branches share the admitted read
-basis; neither `UNION ALL` nor CTE reuse alone establishes this guarantee.
+- Execute all required source and output validations in their owner-defined
+  order. Observed failed, missing or malformed assertions still prevent
+  publication, including when the primary result is empty.
+- Preserve method-owned single evaluation for shared sampling, volatile
+  Population selection and other preparations whose computed result must be
+  reused. These fences preserve that computation; they do not establish a
+  common snapshot for every source read in the execution.
+- Preserve atomic publication of primary rows, required parts, Evidence and
+  Findings, plus immutable Artifact identity and cold reads. Atomic publication
+  does not certify a common source observation.
+- Preserve resource ownership reservation, streaming, cancellation, cleanup and
+  recovery. Transactions needed by a driver, cursor or temporary resource may
+  remain for that concrete purpose, without a cross-query consistency claim.
+  Reservation records ownership for recovery; it does not allocate a budget.
 
-This variant changes when some assertions are consumed relative to output
-staging. The owning validation contract must explicitly admit that order. A
-check that must pass before row transfer still requires a proven server-side
-barrier; an eventual failed publication does not satisfy it. The first
-ClickHouse slice must identify these checks and prove their ordering before
-activation. Source-private state cannot enter the envelope's client row stream.
+The existing DuckDB single-evaluation fences remain admitted. Other engines
+must qualify any required fence's creation, shared consumption, cancellation
+and cleanup before accepting fence-requiring methods. Initial Trino and
+ClickHouse group-A registrations remain deterministic and fence-free; reject
+fence-requiring graphs until that independent capability is implemented.
 
-Single-statement lowering is a bounded backend-specific method implementation,
-not a generic query fusion engine. If it cannot preserve all checks and parts,
-that shape requires another admitted realization or remains unsupported.
+### 4.2 Current implementation and removal task
 
-### 4.1 Single-evaluation fences
-
-Repeatable source data does not make volatile expressions repeatable. Every
-variant must meet the method owner's single-evaluation requirement for shared
-sampling, volatile Population selection or other fenced preparations.
-
-The initial admitted fence implementation is the existing DuckDB owned
-connection-scoped resource. Transaction support alone does not grant a fence
-capability to PostgreSQL, MySQL or SQLite; each must qualify resource creation,
-read-only compatibility, shared consumption, cancellation and cleanup separately.
-Initial Trino version-pinned and ClickHouse single-statement registrations have
-no fence capability. Their group-A scope is deterministic and fence-free.
-Reject a fence-requiring graph before row execution on those registrations.
-
-A later slice may register an equivalent single-evaluation guarantee for either
-variant, with explicit method scope and lifetime proof. Immutable snapshot IDs,
-CTE reuse and a repeated seed are not that proof. No generic temporary-table
-operation is assumed, and no permanent transaction-only restriction is added to
-the semantic owner, which already permits an exact fence or equivalent guarantee.
-
-### 4.2 Multi-relation consistency admission
-
-The method owner declares the required consistency over its input roles. Physical
-implementations only prove those requirements; they cannot weaken them. For this
-proposal the initial rules are:
-
-| Invocation shape | Required read relationship |
-| --- | --- |
-| One physical relation, including repeated references | The same relation version/read basis for all validation, value and part reads |
-| One semantic evaluation spanning relations, including a two-table ratio, membership joins or temporal enrichment | A common snapshot across those relations unless the owning method explicitly establishes a weaker sufficient contract |
-| An admitted operation on independently realized Dataset inputs, such as aligned bounded compare | Preserve each input's own realization and the existing alignment contract; do not infer a shared current snapshot from a shared backend |
-
-Compose requirements through the graph without weakening a child's requirement.
-Group-A Trino starts with one physical table; group B is not enabled wholesale.
-For `numerator(A) / denominator(B)`, independently captured `A@t1` and `B@t2`
-are ineligible under the common-snapshot rule, even if both IDs remain readable.
-A version-pinned multi-table implementation needs authoritative common-snapshot
-evidence, or an explicit owner-approved method contract permitting independent
-input realizations. Matching timestamps or resolving IDs close together is not
-sufficient evidence. The backend cannot declare tolerance of arbitrary skew.
-No new user-facing consistency switch or implicit business-time policy is added.
+Slice 1a removes the DuckDB action-wide transaction and consistency-only
+rollback paths. The adapter now initializes the owned execution connection
+without opening a shared read transaction. Statement ownership, required checks,
+single-evaluation fences and atomic publication remain enforced. The
+[Slice 1a evidence record](2026-09-15-multisource-slice-1a-acceptance.md) records
+controlled source-update, stable-fixture, cleanup and broad verification.
 
 ## 5. Backend-specific delivery scope
 
 The following are proposed activation scopes, not current support claims.
-Exact server and driver versions must be frozen from real qualification runs.
+Backend/method acceptance proves behavior on the test environment; it is not a
+version certification program. Record available environment versions for
+reproducibility without using them to control runtime eligibility.
 
-| Backend | Initial realization and useful scope | Important restrictions |
+| Backend | Initial execution and useful scope | Important restrictions |
 | --- | --- | --- |
-| DuckDB | Existing source transaction, fences, native retained scans and registered methods | Preserve current results, resource limits and rejection behavior |
-| PostgreSQL | Read-only repeatable-read transaction; ordinary relational scalar Metric chains | Verify cursor lifetime within the transaction, exact decimal/time decoding and ordering; no inherited DuckDB macros |
-| MySQL | Read-only repeatable-read realization over verified InnoDB tables; scalar Metric chains | No nontransactional tables in that scope; window and join rewrites need exact parity; audit buffering and timeout coverage |
-| SQLite | One owned read transaction over one verified database; conservative scalar types and simple Metric chains | Do not advertise exact Decimal or timezone semantics that the declared physical representation cannot supply; interrupt during fetch as well as execute |
-| Trino | First qualify one Iceberg connector scope with explicitly pinned table snapshot IDs | Engine name alone is insufficient; do not imply every connector, catalog combination or SQL transaction provides the same guarantees |
-| ClickHouse | First qualify single-statement scalar chains on a precisely tested local MergeTree table scope | No assumption of multi-statement snapshot transactions; Distributed tables, dictionaries and independently changing joins require separate qualification |
+| DuckDB | Existing registered methods, single-evaluation fences and native retained scans | Remove consistency-only transactions in Slice 1a and workers/budgets in Slice 1b; preserve numerical results on stable fixtures and cleanup |
+| PostgreSQL | Ordinary relational scalar Metric chains | Verify cursor lifetime, exact decimal/time decoding and ordering; no repeatable-read requirement or inherited DuckDB macros |
+| MySQL | Scalar Metric chains on qualified table engines | Window and join rewrites need exact parity; document buffering and external timeout behavior; no shared-snapshot requirement |
+| SQLite | Conservative scalar types and simple Metric chains on a verified database | Do not advertise unsupported Decimal or timezone semantics; interrupt during fetch as well as execute |
+| Trino | First qualify scalar chains on one Iceberg connector scope using ordinary table scans | Test connector, types, streaming and driver cleanup; snapshot IDs and remote termination certification are not required |
+| ClickHouse | Scalar chains on a precisely tested local MergeTree table scope, with separate checks and output queries | Distributed tables, dictionaries and additional join shapes require their own semantic and transport qualification |
 
 ### Trino
 
-Use the existing datasource table qualification, including catalog/schema/table.
-The first implementation resolves the current physical snapshot once per source
-table and compiles all relevant scans against its exact ID. This is physical
-repeatability, not a replacement for the semantic time scope or a user-selected
-historical business snapshot. Section 4.2 governs multi-table admission; the
-initial one-table scope cannot be expanded using independently resolved IDs.
-
-Implement version-qualified table expressions through a bounded Ibis backend
-extension if the installed Ibis surface cannot express them. Do not regex-rewrite
-generated SQL. Failure to implement this seam is a Trino activation blocker.
-Other connectors can be added only with an equally explicit realization proof.
-Iceberg documents snapshot-ID time travel; actual adapter support still needs
-integration tests. [Trino Iceberg time travel](https://trino.io/docs/current/connector/iceberg.html#time-travel-queries)
+Use existing datasource qualification, including catalog/schema/table, and normal
+backend compilation. Physical snapshot resolution, snapshot-ID pinning and a
+version-qualified compiler extension are not activation requirements. Preserve
+explicit semantic temporal selection where a supported method requires it.
+Expand connector and multi-table support through ordinary method/type/transport
+qualification, without a common-snapshot admission test.
 
 ### ClickHouse
 
-Do not base ordinary support on experimental multi-statement transactions.
-Official transaction support has deployment and table-engine restrictions.
-[ClickHouse transaction scope](https://clickhouse.com/docs/concepts/features/operations/insert/transactions)
+Use source assertions and output queries in the required order. A
+single-statement assertion envelope and proof of read sharing under concurrent
+writes are not activation requirements. Verify empty-output validation, effective
+JOIN null behavior, finite-value handling, Decimal decoding and timezone
+conversion. Do not skip required checks or infer Dataset support from a raw
+aggregate. Ordinary support does not depend on multi-statement transactions.
 
-The first qualification spike must demonstrate the single-statement envelope
-for a simple sum/count Metric with all required identity and source assertions,
-including empty output. It must prove the exact read-sharing behavior under
-concurrent writes on the selected server version. Also verify effective JOIN
-null behavior, finite-value handling, Decimal decoding and timezone conversion.
+### Driver-owned transactions
 
-If that proof fails, this ClickHouse slice remains blocked. Do not substitute a
-quiet test table, skip validations or claim general support from a raw aggregate.
-A broader solution using explicitly provisioned source snapshots would need a
-separate design amendment; remote persistent scratch tables are outside this plan.
-
-### Transaction-based engines
-
-PostgreSQL repeatable read and MySQL InnoDB consistent reads provide relevant
-transaction mechanisms; their normal read-committed behavior is insufficient
-for a multi-query realization. SQLite read transactions also require explicit
-lifetime ownership. These documented mechanisms guide the implementation, but
-do not prove driver streaming or Marivo compatibility.
-[PostgreSQL isolation](https://www.postgresql.org/docs/current/transaction-iso.html),
-[MySQL consistent reads](https://dev.mysql.com/doc/refman/8.4/en/innodb-consistent-read.html),
-[SQLite isolation](https://www.sqlite.org/isolation.html)
+PostgreSQL, MySQL and SQLite adapters may use transactions where required for
+cursor operation or resource management. Qualify their lifetime, cancellation
+and cleanup for that purpose. Do not require repeatable-read isolation or reject
+a supported method solely because contributing queries may observe updates.
 
 ## 6. Method coverage and semantic portability
 
@@ -377,7 +358,7 @@ do not prove driver streaming or Marivo compatibility.
 | --- | --- | --- |
 | A: basic source analysis | Unversioned supported Entity/Metric shapes; sum/count/min/max; scoped filters, dimensions, aggregation, projection, rank and limit | Identity, null/empty rules, exact output types, deterministic tie ordering and source-side reduction |
 | B: relational and temporal analysis | Relationships, ratio/mean/weighted mean, time buckets, version resolution and supported comparison/attribution arithmetic | Fanout, temporal anchors, spatial-before-temporal folds and atomic sufficient-state parts |
-| C: admitted local suffixes | Forecast, Kendall, time-based discovery and existing non-Entity local methods after supported source preparation | Exact complete inputs, alignment, combined budgets and no raw semantic-source collection |
+| C: admitted local suffixes | Forecast, Kendall, time-based discovery and existing non-Entity local methods after supported source preparation | Exact complete inputs, alignment, synchronous in-process execution and no raw semantic-source collection |
 | D: advanced source methods | Exact distinct state, quantiles, Entity candidates, driver screening, Event and Lifecycle | Per-method private-state, numerical, single-evaluation and retained-continuation proofs |
 
 Groups are dependency scopes, not backend-wide capability flags. Every group-A
@@ -410,63 +391,75 @@ retention and native read contract can be met without a forbidden transfer.
 Do not export raw private state into local DuckDB merely to increase coverage.
 Any required change to that authority belongs in a separate owner amendment.
 
-## 7. Streaming, budgets and remote lifetime
+## 7. Streaming, in-process execution and remote lifetime
 
-### Bounded transport
+### Transport without execution-budget admission
 
-Keep server execution budgets separate from local transfer and worker budgets.
-DuckDB's memory and spill settings cannot simply be issued on another engine.
-Each adapter must specify which server controls it enforces and how the existing
-Runtime deadline bounds connection, metadata, execution, page fetch, decoding,
-output consumption and cancellation. Missing required enforcement rejects
-admission. Server resource metrics that cannot be measured remain unavailable.
+Prefer incremental driver reads and Parquet writes to avoid unnecessary full
+result copies. Normalize Arrow types exactly and preserve complete results.
+Batch sizes are implementation tuning values, not total-result limits or a
+promise to bound peak allocation. Document actual driver buffering, including
+full-result or large-cell decoding, without rejecting an otherwise supported
+type merely because a hard memory bound cannot be proven.
 
-`to_pyarrow_batches(chunk_size=...)` is not proof that the driver avoids buffering
-the full result or an oversized response page. Qualify the actual driver path;
-use an engine-native cursor/stream when needed, with strict Arrow normalization.
-Bound response/decode allocations, row and cell sizes, total transferred bytes,
-and local worker peak memory. Late detection after an unbounded allocation does
-not satisfy the guard. Test empty, multi-batch and oversized single-cell results.
+Remove sizing/admission policies and width/count probes whose sole purpose is
+enforcing execution budgets, including the budget-only `_batch_rows` width path.
+Keep queries required for semantic validation and explicit analytical meaning.
+Keep validation queries separate by default; removing budgets does not require
+combining them into expensive unions. Do not add preflight cost estimation,
+automatic sampling, truncation or fallback to compensate for removing limits.
+Available row/byte counters remain observations, not enforcement thresholds.
+Unavailable server metrics remain unavailable, not zero.
 
-Audit the current `_batch_rows` width probe before porting it: it can inspect
-source strings outside the final result. Probes must preserve the required source
-scope and have their own execution bounds. A width/count query is neither a free
-operation nor a substitute for bounded transport. Keep validation queries
-separate by default, preserving the existing protection against large unions.
+### Local execution without workers
 
-Use one shared sizing policy with typed adapter-supplied transport limits.
-Fixed-width Arrow types provide a conservative baseline; variable-width and
-nested values additionally require enforced cell/page/decode limits from the
-qualified transport or trustworthy physical bounds. Arrow schema, average row
-size and an unverified author declaration cannot bound arbitrary strings.
-Use a scoped width probe only when it is explicitly part of the selected
-adapter/method preparation and its cost, realization and allocation bounds are
-proven. If neither bounded transport nor such a qualified path exists, reject
-that type/scope. Do not copy an unrestricted source-table scan into each adapter.
+Invoke admitted pandas and numerical kernels directly in the calling process,
+using complete typed inputs and the existing result validation/publication path.
+Remove process spawning, IPC payload protocols, worker-only staging, RSS polling,
+watchdogs, worker reservations and worker-death receipts. Retain staging needed
+for Parquet publication and recovery of actual owned files or remote queries.
+Do not replace the worker with a thread executor, sidecar or hidden subprocess.
+
+Ordinary kernel/driver errors propagate with their cause and traceback; preserve
+the original failure if cleanup also fails. Handle user interruption and close
+owned resources where control returns to Python. Marivo does not promise a hard
+deadline or immediate interruption of a blocking native call. The agent or its
+runner decides whether to stop the whole calling process. No partial execution
+may be published as successful, including after a crash and subsequent recovery.
 
 ### Cancellation and recovery
 
-Local PID death proves local DuckDB termination; it does not prove a remote
-query stopped. Reserve an owned resource before submission. Bind a safe remote
-query/session identity and server authority to that reservation as soon as the
-protocol permits. Never persist credentials, token-bearing result URLs or raw
+Attempt cancellation and close the actual owned cursor, response and connection
+on errors or user interruption where Python retains control. Use the driver's
+normal cleanup facilities; retain a safely available query ID for diagnostics
+or exact cancellation. Never kill sessions by username, broad SQL matching or
+reused numeric IDs. Never persist credentials, token-bearing result URLs or raw
 connection strings in the journal or Evidence.
 
-The adapter must close the submit/acknowledgement crash window: use a provably
-correlated owned request identity and recovery lookup, or another tested server
-lifetime fence. Server-assigned IDs learned only after an acknowledgement are
-insufficient by themselves. If recovery cannot identify or prove termination,
-retain `RecoveryPendingError` for the affected Session and publish nothing.
+Do not build a durable remote request-correlation protocol, submit/acknowledgement
+crash-window closure or server termination lookup as a backend prerequisite.
+A lost acknowledgement, unavailable query ID or failed cancel may leave remote
+read-only execution status unknown. Report that uncertainty without claiming
+the server stopped; do not mask the original execution exception with cleanup
+failure. The agent and execution environment own any further resource decision.
 
-Cancel the exact owned operation; do not kill sessions by username, broad SQL
-matching or reused numeric IDs. Connection close, HTTP timeout, a cancel request
-acknowledgement and local worker death are not universally terminal proof.
-Use the server/driver's terminal protocol and verify it in crash tests.
-For example, Trino exposes paginated result and cancellation operations, whose
-full lifecycle must be handled. [Trino client protocol](https://trino.io/docs/current/develop/client-protocol.html)
+Keep remote query cleanup separate from local publication recovery. Before
+allowing a new Session writer, resolve Store commit state and establish that an
+old local publisher cannot continue writing, using the existing writer ownership
+mechanism. If no successful publication exists and no conflicting writer remains,
+record the failed/interrupted Run and allow subsequent work even when remote
+read-only termination is unknown. Such a query cannot publish an Artifact on
+its own. Clean only exact local resources that are safe to remove; retain useful
+cleanup diagnostics without making them a Session-wide admission lock.
+
+Reserve `RecoveryPendingError` for unresolved local commit/publication ownership
+or storage integrity that actually prevents safe continuation. Do not remove
+this protection by treating every crash as a known failed commit. Atomic
+publication and no partial cache hits remain mandatory; immediate cleanup after
+process death and proof of remote termination are not promised.
 
 The selected action is never resubmitted after ambiguous submission. Audit
-driver-level retries as well as Marivo retries. Any bounded transport retry must
+driver-level retries as well as Marivo retries. Any transport retry must
 be demonstrably part of the same owned query; otherwise disable it. Incomplete
 transfer, cancellation and schema drift leave no successful Artifact or cache hit.
 
@@ -478,12 +471,12 @@ capability check. New remote adapters initially have no retained-Parquet import
 capability. Do not upload a local result to make a remote source-only method work.
 
 Retained-only operations may continue through the existing DuckDB Parquet domain
-or admitted local worker. Mixed remote-source/Artifact operands use an existing
+or admitted in-process local method. Mixed remote-source/Artifact operands use an existing
 local multi-input method only when complete input and authority checks pass;
 otherwise they are rejected. Cross-Session and private-state restrictions remain.
 
 Keep `execution_key(definition_fingerprint)` unchanged. Backend versions and
-realization facts explain a newly executed Run; they do not invalidate an already
+execution facts explain a newly executed Run; they do not invalidate an already
 bound immutable Artifact or become a second physical-plan fingerprint. Store
 only the bounded provenance needed to explain the selected implementation and
 recover its resources, not an executable query graph. Any new persisted field
@@ -501,45 +494,187 @@ governed Dataset analysis.
 ## 9. Implementation slices
 
 Slices are ordered by dependency. Each ends with a reviewable change and its
-evidence. PostgreSQL establishes the transaction adapter pattern; Trino and
+evidence. PostgreSQL establishes the remote execution adapter pattern; Trino and
 ClickHouse feasibility is investigated early to avoid discovering a fundamental
 blocker after generic infrastructure has been built.
 
 | Slice | Work and owning files/modules | Exit criteria |
 | --- | --- | --- |
-| 0: freeze qualification scope | Existing registry, compiler/Runtime inventory and focused backend fixtures; no activation | Inventory every current method/shape; freeze exact versions; prove Trino version-qualified lowering and ClickHouse assertion envelope feasibility; record unresolved blockers |
+| 0: freeze method scope | Existing registry, compiler/Runtime inventory and focused backend fixtures; no activation | Inventory current methods/shapes; record the test environment; test Trino ordinary scans and ClickHouse separate validation/output queries; record unresolved behavioral blockers without version certification |
 | 1: extract DuckDB adapter | `materialization/admission.py`, `validation.py`, `resources.py`; new private execution adapter module | Existing DuckDB source, native Parquet, local-suffix, cancellation and publication behavior unchanged; shared code no longer requires DuckDB cursor operations |
-| 2: extend exact dispatch | `operators/registry.py`, `compiler/placement.py`, source binding and retained binding admission | Multiple closed backend registrations supported; only DuckDB enabled; unknown backend/type/version cases fail at the correct phase; binding hits remain source-free |
-| 3: PostgreSQL group A | New PostgreSQL execution adapter; focused datasource control reuse; shared scalar lowering | Real transactional group-A success, source mutation isolation, bounded streaming, cancellation/recovery and cold Artifact reads |
-| 4: MySQL and SQLite group A | Separate concrete adapters and per-engine tests | Same group-A contract under each declared physical-type/table scope; no inherited authoring transaction bugs or driver buffering |
-| 5: Trino group A | Trino execution adapter, bounded version-qualified Ibis lowering and journal recovery integration | Real Iceberg-backed source reduction with fixed snapshot IDs, multi-page transfer and remote termination; snapshot expiry fails closed |
-| 6: ClickHouse group A | ClickHouse adapter and exact single-statement method lowerer | All assertions and primary output share the qualified read basis; concurrent mutation, empty output and cancellation tests pass; no unproved transactional assumptions |
+| 1a: remove source-consistency enforcement | `materialization/admission.py`, `execution.py`, `duckdb_execution.py`, `resources.py`; consistency-specific tests and owning planner/Runtime/public docs | Remove action-wide `BEGIN`/`ROLLBACK` used solely to align source reads and transaction-realization typing/admission; preserve execution ownership, single-evaluation fences, driver/resource-required transactions and atomic publication; pass focused Runtime and broad gates |
+| 1b: remove local workers and execution budgets | `materialization/local_worker.py`, `worker_lifetime.py`, `local.py`, `admission.py`, `resources.py`, storage/read policies, adapters, method registrations and affected contracts/tests | Local kernels execute in the caller without spawning; no Marivo resource-budget admission or enforcement remains in lazy analysis; errors preserve tracebacks; publication, semantic checks and owned-resource recovery pass focused and broad gates |
+| 1c: simplify execution and recovery | `materialization/execution.py`, `duckdb_execution.py`, `resources.py`, `admission.py`, `operators/registry.py`, `compiler/placement.py`, Session recovery and owning contracts/tests | Ordinary Ibis execution permitted; no compile-count gate or version certification/admission; remote termination uncertainty alone does not block Session work; local publication integrity remains protected |
+| 2: extend exact dispatch | `operators/registry.py`, `compiler/placement.py`, source binding and retained binding admission | Multiple closed backend registrations supported; only DuckDB enabled; unsupported backend/type/method cases fail at the correct phase; no version gate; binding hits remain source-free |
+| 3: PostgreSQL group A | New PostgreSQL execution adapter; focused datasource control reuse; shared scalar lowering | Real group-A success with separate checks and output reads, streaming, cancellation/recovery and cold Artifact reads; no execution-budget prerequisite |
+| 4: MySQL and SQLite group A | Separate concrete adapters and per-engine tests | Same group-A contract under each declared physical-type/table scope; no inherited authoring transaction bugs; driver buffering documented |
+| 5: Trino group A | Trino execution adapter, ordinary Ibis execution and driver cleanup | Real Iceberg-backed source reduction, required assertions and multi-page transfer; failed cleanup reports uncertainty without blocking safe local recovery; no snapshot or remote-termination certification gate |
+| 6: ClickHouse group A | ClickHouse adapter and scalar method lowering with separate assertions | Required assertions, primary output, empty-output validation and cancellation tests pass; no common-read-basis gate |
 | 7: expand supported methods | Owning temporal, relationship, retained, correlation and other method modules | Group B/C entries enabled individually; group D enabled only after its additional semantic/private-state proofs; every remaining entry has an explicit unsupported reason |
 | 8: consolidated disclosure and packaged acceptance | Native Help/registry tests, affected specs, packaged skills, CLI examples and English/Chinese latest site docs | Installed-package journeys match advertised support; full broad gate green; backend matrix distinguishes live success from rejection-only evidence |
 
 Slice 0 must produce a bounded inventory of statement rendering/parsing,
 metadata and scalar queries, transaction exceptions, pre-execute hooks and
 compile-to-submit paths, including sampling and retained-part helpers. For each
-realization variant, record its actual operations, fence support, method-owned
-cross-relation requirement, compatibility verification and transport sizing
-strategy. Slice 1 must demonstrate that DuckDB dialect and exception handling
+backend execution path, record its actual operations, single-evaluation fence
+support, required semantic checks and actual transport behavior. Slice 1 must demonstrate that DuckDB dialect and exception handling
 remain only in concrete DuckDB paths; changing type annotations is insufficient.
-Slice 2 must test domain authority separately from version compatibility and
-realization identity. These are exit checks, not optional later cleanup.
+Slice 2 must test domain authority and execution ownership independently of
+optional version diagnostics. These are exit checks, not optional later cleanup.
 
 Slice 0 progress is recorded in the
 [qualification inventory](2026-09-15-multisource-slice-0-qualification.md).
-Slice 0 is complete for its frozen inventory and live feasibility scope, including
-visitor-generated Trino snapshot reads/expiry and the ClickHouse assertion envelope
-under concurrent writes. Remaining activation gates (including validation ordering,
-production transport and recovery) are assigned to their enabling slices in that
-inventory. Non-DuckDB execution remains disabled.
+The prior Slice 0 completion record includes Trino snapshot reads/expiry and a
+ClickHouse assertion envelope under concurrent writes. Those are historical
+experiments, not requirements of this amended plan. Reconcile the inventory in
+Slices 1a-1c; production transport, required validation and local publication
+recovery remain activation gates. Historical version and remote-termination
+proofs do not create new prerequisites. Non-DuckDB execution remains disabled.
 
 Slice 1 is complete for the private DuckDB adapter extraction, with 246 targeted
 Runtime cases and the broad gate passing. The
 [DuckDB adapter evidence record](2026-09-15-multisource-slice-1-acceptance.md)
 records the exact scope and independent review. Non-DuckDB execution remains
-disabled; exact multi-backend dispatch is Slice 2.
+disabled. Slice 1a is also complete, with separate
+[acceptance evidence](2026-09-15-multisource-slice-1a-acceptance.md). Slices 1b and
+1c remain pending and precede exact multi-backend dispatch in Slice 2. Historical Slice 1 behavior preservation is not a requirement to
+retain the mechanisms explicitly removed by these amendments.
+
+Slice 1a was implemented as a separately authorized task with the following
+scope and acceptance requirements. Inventory each existing transaction and fence
+by purpose before removal. Remove the action-wide consistency transaction wrapper,
+its consistency-only rollback/exception paths, realization variants and any
+snapshot-equality admission/tests introduced solely for that guarantee. Keep
+statement-to-execution ownership guards, read-only source access and cleanup.
+Existing timeouts are removed in Slice 1b; remote recovery is simplified in
+Slice 1c. Retain transactions only where a concrete driver or
+resource lifecycle needs them; document and test that purpose. Do not remove
+semantic version selection, sample/relation fences required for single evaluation,
+retained-result integrity checks, or Store publication transactions.
+
+Update the linked planner and Runtime owners, current public execution docs,
+affected Help/skills and bilingual site docs in that task. Reconcile the Slice 0
+inventory and Slice 1 evidence with the new contract without rewriting historical
+results as new acceptance. Verify stable-fixture output parity, required assertion
+failures including empty output, sampling reuse, primary/part publication,
+cancellation and cleanup. Add a controlled between-query update case showing
+that no shared snapshot is promised or required; changed observations alone must
+not trigger rejection or retry. Run the relevant focused tests, touched-module
+typing/lint and `make check-agent`. Do not activate another backend in Slice 1a.
+
+### Slice 1b removal and refactoring tasks
+
+This is a planned implementation task; this documentation update does not
+implement the removal or authorize unrelated backend activation.
+
+1. **Inventory enforcement and dependencies.** Trace source execution, native
+   retained scans, local suffixes, multi-input methods, storage writers and
+   retained collection including `to_pandas()`. Classify each limit as an
+   execution resource constraint, semantic requirement, display bound or
+   external system setting. Remove only the first category; do not weaken
+   authority, type/shape validity, complete-input alignment or exact results.
+2. **Move kernels into the caller.** Extract reusable numerical computation from
+   `local_worker.py` into its natural local-method owner and invoke it directly.
+   Delete worker spawning, IPC serialization, parent supervision, RSS probes,
+   watchdogs and worker-only workspace/lifetime capabilities. Remove obsolete
+   imports, telemetry fields and receipts; preserve meaningful result provenance.
+3. **Remove all lazy execution budgets.** Delete resource-only configuration,
+   defaults, policy objects, deadline wrappers, DuckDB memory/spill settings
+   injected for those policies, adapter budget capabilities and admission checks.
+   Cover input/output/combined rows and bytes, batch/cell/page rejection caps,
+   intermediate expansion, pair/coalition/series resource ceilings, stored bytes
+   and retained-read limits. Remove budget-only source probes and registry
+   requirements. Keep mathematical minima and constraints needed for a method
+   to be defined. Do not replace removed limits with larger constants or opt-outs.
+4. **Keep resource cleanup independent.** Rework `resources.py` and callers around
+   actual files, cursors, connections and remote queries rather than worker
+   terminal proof. Preserve atomic Store publication and crash recovery; apply
+   the simplified driver cleanup and local recovery contract in Slice 1c.
+   External timeouts remain possible
+   errors; no internal execution deadline or hidden replacement worker is added.
+   If persisted worker/budget fields change, follow the owning store-format
+   policy, explicitly reject unsupported old formats and never silently discard
+   outstanding resource obligations or add an unowned compatibility path.
+5. **Align the disclosure contract.** Update planner/Runtime owners, public
+   analysis docs, Help and its independent surface tests, structured errors and
+   repairs, packaged skills, CLI/examples and English/Chinese latest site docs.
+   Remove obsolete budget errors and worker guidance after checking their other
+   owners; preserve errors still used outside lazy execution. Reconcile the
+   qualification inventory and evidence records without relabeling historical
+   worker/budget acceptance as evidence for the new behavior. Unrelated authoring
+   controls and Help/show display bounds are outside this removal task.
+6. **Verify the replacement behavior.** Assert caller PID execution and no child
+   spawn for local methods. Replace worker/overflow tests with stable-fixture
+   numerical parity, original error/cause/traceback propagation, semantic
+   rejection, complete input/output and publication/cleanup cases. Use safe
+   fixtures or injected external failures to show former caps no longer cause
+   rejection; do not deliberately exhaust the host. Cover wide/nested values,
+   multiple inputs, retained reads, user interruption and cold recovery after
+   killing the calling process. Such recovery tests may launch a test process;
+   production Marivo must not launch an execution worker. Test that lack of
+   budget-control capabilities does not reject supported adapters. Run focused
+   unit/Runtime tests, touched-module typing/lint and `make check-agent`.
+
+Slice 1b is complete only after both execution paths and their advertised
+contracts are free of the removed guarantees. Resource measurements may remain
+as evidence; no execution cap may survive under a sizing or safety-policy name.
+
+### Slice 1c execution simplification tasks
+
+This is a planned refactoring task. This documentation update does not implement
+the changes or activate another backend.
+
+1. **Remove remote termination certification.** Inventory remote-query journal
+   fields, submission correlation, terminal receipts and Session-wide recovery
+   gates. Remove mechanisms used solely to prove that a read-only server query
+   stopped, including pre-acknowledgement identity requirements. Use normal
+   driver cancellation/close and optional safe query IDs. Retain diagnostic
+   uncertainty without making missing remote proof a prerequisite for new work.
+2. **Narrow blocking recovery to local publication safety.** Resolve the actual
+   Store commit and writer ownership before finalizing a lost Run. Preserve
+   successful commits, atomic primary/part publication, exact cleanup and
+   protection against a surviving publisher. Allow a new action when local
+   state is safe even if a remote read may continue. Update failed-Run semantics
+   so failure means no successful local publication, not certified remote death.
+   Preserve `RecoveryPendingError` for unresolved commit/ownership/integrity.
+   Follow the store-format owner for removed fields; do not silently discard
+   obligations that still protect local writes or delete guessed resources.
+3. **Remove the mandatory compile/submit framework.** Permit normal Ibis
+   expression execution, including its own compilation, parameter handling,
+   hooks and result conversion. Delete compile-count rejection and wrapper or
+   adapter requirements used only to forbid recompilation. Keep direct driver
+   paths where concretely needed and useful existing DuckDB implementation.
+   Capture actual submissions and test parameters, complete typed output,
+   validation ordering and no unintended duplicate queries. Do not replace the
+   removed framework with another mandatory execution-plan representation.
+4. **Delete version certification and admission.** Remove engine/driver/Ibis
+   version requirements from registrations, `source_eligible`, source/native
+   binding equality, execution preflight and dynamic guidance. Delete version
+   allowlists, comparisons, certification records, mismatch errors/repairs and
+   probes serving that purpose; do not substitute ranges or capability probes
+   that reproduce version certification. Optional diagnostic version collection
+   may fail without affecting execution. Keep normal package dependencies,
+   semantic method/type checks, business-time/version selection, method contract
+   versions and store-format validation; none is an engine-version admission
+   program. Unsupported behavior fails through the owning semantic check or
+   selected Ibis/driver operation with its cause preserved.
+5. **Synchronize contracts and evidence.** Amend planner/Runtime and public
+   execution docs, affected Help/error surfaces and independent tests, packaged
+   skills, examples/CLI and both latest site languages. Reconcile Slice 0/1
+   records as historical evidence; do not relabel them as acceptance of the
+   simplified design. Remove claims of certified environments, exactly-one
+   compilation or guaranteed remote termination from advertised support.
+6. **Verify the new boundaries.** Cover disconnect before a query ID, failed
+   cancellation and unknown remote status with successful later Session work
+   once local publication is safe. Separately prove unknown commit state or a
+   surviving writer still blocks conflicting work, and committed output is
+   never lost. Show that a second pure Ibis compilation is permitted without
+   introducing an extra query. Vary or omit diagnostic version strings and
+   confirm unchanged method selection, domain equality and execution; distinct
+   bindings remain distinct. Exercise real driver errors, correct output and
+   error chaining. Run focused unit/Runtime tests, touched-module typing/lint
+   and `make check-agent`; do not require server administrative termination
+   lookup permissions merely to pass backend acceptance.
 
 Do not combine backend activation with unrelated compiler cleanup. New optional
 dependency constraints must be justified by the tested adapter and recorded in
@@ -555,8 +690,8 @@ documentation task.
 Every enabled backend/method entry requires the following applicable checks:
 
 1. **No-I/O and placement:** construction makes no connection; known unsupported
-   roots fail before Run admission; compatible chains form maximal source stages;
-   unknown live compatibility fails without business-row queries or replanning.
+   roots fail before Run admission; supported chains form maximal source stages;
+   no version preflight runs. Selected-path errors propagate without replanning.
 2. **Independent semantics:** expected values come from small explicit fixtures
    or independent arithmetic, with DuckDB as an additional comparator. Cover
    null/empty data, duplicates, skew, fanout, temporal boundaries, ranking ties,
@@ -569,14 +704,19 @@ Every enabled backend/method entry requires the following applicable checks:
    source filtering and aggregation rather than local raw-row collection. Record
    server scan/partition metrics where available and all known extra probes.
    SQL containing a predicate is not proof of physical partition pruning.
-5. **Realization integrity:** mutate the source between validation and primary
-   reads, and between primary and part reads. Preserve one admitted realization
-   or fail with no publication. Test snapshot expiry and single-statement empty
-   output; a zero-row primary result must not bypass failed assertions.
+5. **Read and validation contract:** permit different source observations between
+   validation, primary and part reads. Do not require isolation, snapshot pinning
+   or failure on concurrent updates. Verify all required assertions still run;
+   observed failed assertions prevent publication even with zero primary rows.
+   Preserve single-evaluation tests for methods that reuse a computed selection.
 6. **Transport and lifetime:** exercise slow execution, blocked/slow fetch,
-   malformed or oversized pages, disconnect, user cancellation, process kill
+   malformed pages, valid large cells/pages, disconnect, user cancellation, process kill
    before/after submit acknowledgement and lost cancellation acknowledgements.
-   Observe terminal remote state or the correct recovery block.
+   Verify cancellation attempts and honest unknown-status diagnostics; safe local
+   recovery allows later Session work without remote terminal proof. Separately
+   verify blocking for unresolved publication or conflicting writers. Test harnesses
+   may use external timeouts; these are not Marivo execution budgets. Valid
+   large values must not be rejected solely for exceeding a former resource cap.
 7. **Publication and reuse:** interrupt at each writer boundary; verify atomic
    primary/parts metadata, cold-process readback, missing-source cache hits,
    immutable retained continuation, exact ownership and no private-state leakage.
@@ -584,20 +724,26 @@ Every enabled backend/method entry requires the following applicable checks:
    has bounded structured rejection. Replace each current blanket non-DuckDB
    rejection only when the corresponding positive entry is proven; retain all
    other negative cases.
-9. **Compile-to-submit identity:** intercept the actual adapter submission and
-   compare it with the compiled SQL and bound parameters; reject any second
-   lowering. Cover default-limit behavior, reserved pre-execute preparations,
-   assertions, parts and the single-statement envelope, not only primary rows.
-10. **New admission boundaries:** reject sampled/fenced work on variants without
-    that capability and reject a two-table ratio over independent snapshots.
-    Keep a separately admitted comparison of immutable inputs valid. Test equal
-    versions on distinct bindings, server-version mismatch after connection and
-    a replacement connection during one realization; none may merge authority
-    or replan. Exercise wide/nested results through the shared sizing policy.
+9. **Actual execution:** capture submitted SQL and parameters; verify intended
+   meaning, complete output and no unintended duplicate query. Allow repeated
+   pure compilation through normal Ibis execution. Cover default-limit behavior,
+   pre-execute preparations, assertions and parts, not only primary rows.
+10. **New admission boundaries:** reject sampled/fenced work on adapters without
+    that capability. Do not reject an otherwise supported multi-relation method
+    solely for lacking a common snapshot. Preserve immutable-input comparison
+    and alignment rules. Different or unavailable diagnostic versions must not
+    affect eligibility or domain equality. Distinct bindings and resources from
+    another execution must not merge authority. Exercise complete wide/nested
+    results without resource-budget admission.
+11. **Caller-owned execution:** local methods execute in the calling Python
+    process without worker startup or budget enforcement. Preserve ordinary
+    failure tracebacks and never publish partial success; test external failure
+    and subsequent recovery without promising a traceback after process death.
 
-Record exact server, connector/table engine, Ibis and driver versions; fixture
-identity; enabled method scope; statements by role; transferred rows/bytes;
-termination receipts; and commands/outcomes. Distinguish unavailable metrics
+Record fixture identity, connector/table scope, enabled methods, statements by
+role, transferred rows/bytes, cleanup outcomes or unknown remote status, and
+commands/outcomes. Available server/Ibis/driver versions are diagnostic evidence
+only, without certification or runtime admission. Distinguish unavailable metrics
 from zero. A compile-only test, datasource `test()`, raw SQL success or a synthetic
 adapter is not live lazy Dataset acceptance.
 
@@ -612,7 +758,7 @@ release workflow, not ordinary documentation or commit preparation.
 
 Initial multi-datasource delivery is complete only when each of the five new
 backends has a real successful group-A Dataset journey within its explicitly
-advertised scope, with streaming, consistency, termination, publication and
+advertised scope, with validation, streaming, driver cleanup, publication and
 installed-package evidence. A backend blocked at Slice 0 or later remains
 unavailable; the overall five-backend objective is then incomplete.
 
@@ -622,13 +768,14 @@ remain visible and must not be described as completed multi-engine parity.
 The implementation must settle these bounded questions before the affected
 activation, rather than add speculative abstractions now:
 
-- Exact server/driver versions available for reproducible qualification.
-- Whether the installed Ibis Trino backend can express version-pinned scans or
-  needs the proposed small compiler extension.
-- Whether the ClickHouse single-statement read-sharing and assertion envelope
-  can meet the current source validation contract on the selected table scope.
-- The concrete per-driver submit/acknowledgement recovery and bounded decode
-  mechanisms, including any required server permissions.
+- Available backend test environments and reproducible fixtures; no version
+  certification or version-based runtime admission is required.
+- Whether the installed Ibis Trino backend and driver support the qualified
+  scalar lowering and correct ordinary scan transport.
+- Whether ClickHouse separate assertions and output queries meet the required
+  validation order and complete typed transfer on the selected table scope.
+- The normal per-driver cancellation/close and exact decoding paths, plus
+  local publication recovery independent of unknown remote query termination.
 - Which advanced retained-state contracts can be met without changing their
   source-private authority. Unmet contracts keep those methods disabled.
 

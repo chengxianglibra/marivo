@@ -273,7 +273,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="Paired Materialized Dataset",
                 code="result = metric.execute()",
                 requires=("metric",),
-                effects="May query sources and publish one atomic Artifact; an execution-key hit recovers the existing snapshot, not fresh source rows. For current source rows, use a new named Session or change an explicit row-affecting input.",
+                effects="Source queries may observe different source states; required checks and atomic publication remain enforced. An execution-key hit recovers the existing snapshot, not fresh source rows. For current source rows, use a new named Session or change an explicit row-affecting input.",
                 runtime=True,
             ),
             common(

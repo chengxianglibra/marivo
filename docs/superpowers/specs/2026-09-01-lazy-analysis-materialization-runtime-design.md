@@ -3015,15 +3015,16 @@ the existing owners; no separate publication or recovery mechanism is added.
 
 ## 2026-09-15 amendment: private DuckDB execution inputs
 
-The first multi-datasource extraction retains the existing DuckDB transaction
-realization and publication order. Runtime and shared publication helpers use
+After Slice 1a, the private DuckDB adapter uses an action-local execution
+context without an action-wide source-consistency transaction. Publication
+order is preserved. Runtime and shared publication helpers use
 private immutable statement inputs carrying the selected SQL, typed parameters,
-result schema, statement role, owned realization and declared preparation
+result schema, statement role, owned execution context and declared preparation
 dependencies. The concrete adapter submits those inputs without expression-based
 recompilation. Wrapping an input in a fence or compound proof retains its
 preparations; resource-producing Ibis hooks require reservation before execution.
 
-Native cursor access, dialect statements, transaction exceptions and timer
+Native cursor access, dialect statements and timer
 interruption belong to the concrete DuckDB execution path. Every validation
 still runs separately in its existing order. Successful adapter close precedes
 termination proof and atomic publication. Native retained Parquet computation
@@ -3031,3 +3032,25 @@ and isolated cold inspection remain local domains. The existing Event coverage
 provider receives its owned native connection within the adapter's deadline.
 This amendment enables no remote backend or new public API; the Slice 1
 [evidence record](2026-09-15-multisource-slice-1-acceptance.md) owns verification status.
+
+
+## 2026-09-15 amendment: source execution without consistency transactions
+
+Slice 1a removes the action-wide DuckDB BEGIN/ROLLBACK wrapper and its
+consistency-only rollback exception handling. Initialization retains the existing
+UTC, thread and budget settings. Statements still require the exact open
+execution context, including composed preparation inputs. Close failures still
+leave termination unproved and resources unresolved; this is not Slice 1c's
+recovery simplification.
+
+Source validations, primary reads and required part reads may observe different
+source states. Successful checks describe the queries actually performed, not a
+certificate that later reads satisfy them. An intervening update alone neither
+rejects execution nor triggers a retry. Required failed or malformed assertions
+still prevent publication, including empty outputs. Sampling, JSON and retained
+reader fences preserve their required single evaluation; temporary macros and
+relations expire with their owned connection. Store publication transactions,
+semantic version selection and retained integrity checks remain unchanged.
+
+The [Slice 1a evidence record](2026-09-15-multisource-slice-1a-acceptance.md)
+tracks verification separately from historical Slice 1 results.

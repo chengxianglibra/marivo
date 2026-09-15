@@ -1,4 +1,4 @@
-"""Concrete DuckDB compilation, transport and owned transaction lifetime."""
+"""Concrete DuckDB compilation, transport and owned connection lifetime."""
 
 from __future__ import annotations
 
@@ -14,20 +14,20 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
-from duckdb import DuckDBPyConnection, InvalidInputException, TransactionException
+from duckdb import DuckDBPyConnection, InvalidInputException
 from ibis.backends.duckdb import Backend
 from sqlglot import expressions as sge
 
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.execution import Parameter, Statement, TransactionRealization
+from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 
 def _invalid(stage: str) -> MaterializationError:
     return MaterializationError(
-        expected="an owned, open DuckDB realization and its declared execution inputs",
+        expected="an owned, open DuckDB execution context and its declared execution inputs",
         received="an unsupported preparation or invalid execution lifetime",
         repair="Use the registered Dataset implementation and reconcile the failed Run before retrying.",
         stage=stage,
@@ -65,7 +65,7 @@ class DuckDBExecutionAdapter:
     def __init__(self, backend: Backend, *, reserve: Callable[[str], None] | None = None) -> None:
         self._backend = backend
         self._reserve = reserve
-        self._realization = TransactionRealization(uuid4().hex)
+        self._context = ExecutionContext(uuid4().hex)
         self._compiled: dict[ops.Node, Statement] = {}
         self._prepared: dict[str, ops.Node | type[ops.ScalarUDF]] = {}
         self._closed = False
@@ -85,7 +85,7 @@ class DuckDBExecutionAdapter:
             )
             sql = self._backend.compile(expression.as_table(), limit=None)
             statement = Statement(
-                sql, (), expression.as_table().schema().to_pyarrow(), role, self._realization, hooks
+                sql, (), expression.as_table().schema().to_pyarrow(), role, self._context, hooks
             )
             self._compiled[node] = statement
         return replace(self._compiled[node], role=role)
@@ -101,13 +101,13 @@ class DuckDBExecutionAdapter:
         parameters: tuple[Parameter, ...] = (),
         inputs: tuple[Statement, ...] = (),
     ) -> Statement:
-        if any(value.realization is not self._realization for value in inputs):
+        if any(value.context is not self._context for value in inputs):
             raise _invalid("execution_boundary")
         preparations = tuple(expression for value in inputs for expression in value.preparations)
-        return Statement(sql, parameters, pa.schema([]), role, self._realization, preparations)
+        return Statement(sql, parameters, pa.schema([]), role, self._context, preparations)
 
     def _check(self, statement: Statement) -> None:
-        if self._closed or statement.realization is not self._realization:
+        if self._closed or statement.context is not self._context:
             raise _invalid("execution_boundary")
         for expression in statement.preparations:
             node = expression.op()
@@ -204,13 +204,9 @@ class DuckDBExecutionAdapter:
         ):
             self.submit(self.statement(sql, role="source_setting"))
 
-    def begin(self) -> None:
+    def initialize(self) -> None:
         self.configure()
         self.submit(self.statement("SET TimeZone='UTC'", role="source_setting"))
-        self.submit(self.statement("BEGIN TRANSACTION", role="source_setting"))
-
-    def rollback(self) -> None:
-        self.submit(self.statement("ROLLBACK", role="source_setting"))
 
     def disconnect(self) -> None:
         if not self._closed:
@@ -219,13 +215,7 @@ class DuckDBExecutionAdapter:
             self._compiled.clear()
 
     def finish(self) -> None:
-        try:
-            self.rollback()
-        except TransactionException as error:
-            if str(error) != "TransactionContext Error: cannot rollback - no transaction is active":
-                raise
-        finally:
-            self.disconnect()
+        self.disconnect()
 
     def get_schema(
         self, name: str, *, database: str | None = None, catalog: str | None = None
