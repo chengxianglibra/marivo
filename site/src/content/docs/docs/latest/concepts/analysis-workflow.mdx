@@ -107,6 +107,8 @@ queries; an acquired public method can also be passed directly to
 `marivo.help(...)`. Each focused callable supplies its required inputs and return
 routes. Once those facts support the next step, save and run the minimum analysis.
 
+Source checks, primary rows and required parts may observe different source states within one execution. Successful checks do not certify later reads. Marivo preserves required checks, single evaluation and atomic publication, but does not reject or retry solely because source data changed between queries.
+
 The same execution definition in one Session recovers its committed snapshot.
 For current source rows, use a new named Session or change an explicit
 row-affecting definition input; repeated execution is not refresh evidence.

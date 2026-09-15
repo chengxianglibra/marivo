@@ -1996,7 +1996,6 @@ class DatasetRuntime:
                 phase = "evidence"
                 self._event("evidence")
                 if backend is not None and execution is not None:
-                    backend.rollback()
                     backend.disconnect()
                     backend = None
                     prove_local_termination(execution)
@@ -2153,7 +2152,7 @@ class DatasetRuntime:
                 if profile.timezone_probe_sql is not None:
                     self._record_statement("source_timezone", profile.timezone_probe_sql)
                 read_time = backend.timezone()
-            backend.begin()
+            backend.initialize()
             if isinstance(source_dataset, LogicalDataset) and any(
                 isinstance(root.payload, DriverCandidatePayload)
                 for root in logical_roots(source_dataset)

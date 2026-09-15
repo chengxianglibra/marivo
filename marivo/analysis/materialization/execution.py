@@ -1,4 +1,4 @@
-"""Private immutable execution inputs and the currently admitted transaction adapter."""
+"""Private immutable execution inputs and action-local execution ownership."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ Parameter = str | int | float | bool | bytes | Decimal | date | datetime | None
 
 
 @dataclass(frozen=True, slots=True)
-class TransactionRealization:
+class ExecutionContext:
     identity: str
 
 
@@ -31,7 +31,7 @@ class Statement:
     parameters: tuple[Parameter, ...]
     schema: pa.Schema
     role: str
-    realization: TransactionRealization
+    context: ExecutionContext
     preparations: tuple[ir.Expr, ...] = ()
 
 
@@ -74,8 +74,7 @@ class ExecutionAdapter(Protocol):
     def install_numeric(self) -> None: ...
     def interrupt(self) -> None: ...
     def deadline(self, seconds: float) -> AbstractContextManager[None]: ...
-    def begin(self) -> None: ...
-    def rollback(self) -> None: ...
+    def initialize(self) -> None: ...
     def disconnect(self) -> None: ...
     def finish(self) -> None: ...
     def get_schema(

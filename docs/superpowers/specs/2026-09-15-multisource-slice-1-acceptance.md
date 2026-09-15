@@ -9,7 +9,18 @@ changes remain Slice 2.
 Verified environment: Python 3.12.13, DuckDB 1.5.3, Ibis 12.0.0, Arrow 25.0.1,
 SQLGlot 30.8.0. Dependencies are unchanged.
 
-## Implementation boundary
+## Subsequent Slice 1a change
+
+This record preserves Slice 1's original implementation and test results.
+Slice 1a replaces transaction realization with action-local execution ownership,
+removes consistency-only BEGIN/ROLLBACK and closes the owned connection directly.
+Temporary fences, validation order and atomic publication remain required.
+Its [separate evidence record](2026-09-15-multisource-slice-1a-acceptance.md)
+owns current verification; the historical counts below are not 1a acceptance.
+Budgets, immutable submissions and termination proof retain their existing owners
+until the separately scoped 1b/1c work.
+
+## Implementation boundary (historical Slice 1)
 
 - `materialization/execution.py` owns the private transaction realization,
   immutable statement (SQL, typed parameters, Arrow schema, role and declared

@@ -272,6 +272,13 @@ operator order and realization; they do not by themselves require a pandas
 boundary or materializing every node. One SQL statement is not a global
 acceptance requirement, and shared Ibis objects do not prove one scan.
 
+The action-local execution context establishes statement and resource ownership,
+not a shared source snapshot. Assertions, primary rows and parts may observe
+different source states. Do not require a consistency transaction or reject or
+retry solely because observations changed between queries. Required semantic
+checks and single-evaluation fences remain mandatory; Store publication remains
+atomic. Semantic version-row selection is independent of this execution policy.
+
 One `attribute(...).execute()` may issue multiple observation/preparation queries,
 then run local compare and contribution functions over their bounded results.
 If compare and contribution are themselves eligible in one source prefix, they
@@ -988,6 +995,8 @@ for the concrete DuckDB adapter. Declared relation/sample preparations remain in
 planner order, reserve their resources before effects, and submit the selected
 statement without a second lowering. Composed statements retain their input
 preparation dependencies. This is not a persisted physical plan, an additional
-implementation registry or remote-backend admission. Multiple backend dispatch
-and compatibility separation remain the next slice of the
-[multi-datasource plan](2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md).
+implementation registry or remote-backend admission. The
+[multi-datasource plan](2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md)
+requires Slices 1a, 1b and 1c, in that order, before exact multi-backend dispatch
+in Slice 2. Slice 1c owns removal of engine/driver/Ibis version certification and
+admission, including version-based domain equality.

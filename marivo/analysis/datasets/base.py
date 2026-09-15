@@ -334,7 +334,8 @@ class LogicalDataset(Dataset, _token=_CORE_TOKEN):
 
         Returns: The same family's Materialized Dataset.
         Example: ``materialized = logical.execute()``.
-        Constraints: No parameters; the materialization owner implements admission.
+        Constraints: No parameters; source queries need not share a snapshot.
+        The materialization owner enforces admission and atomic publication.
         """
 
 

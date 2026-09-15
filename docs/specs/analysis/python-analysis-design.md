@@ -67,6 +67,13 @@ storage, automatic destination selection, or failure-triggered executor retry.
 Native DuckDB analysis of immutable retained Parquet is admitted by the owning
 registered method; temporary execution relations are not persisted Artifacts.
 
+Source assertions, primary output and required part reads need not observe the
+same source state. Each query uses its backend's current observation; successful
+checks do not certify later reads. Marivo neither opens a shared consistency
+transaction nor rejects or retries solely because intervening updates occurred.
+Required validations and method-owned single-evaluation fences still apply;
+atomic publication does not certify a common source snapshot.
+
 One admitted execution creates a Run. Publication commits the primary result,
 required private parts, descriptor, Evidence and Findings atomically. Cache hits
 on the same exact realization do not invent another Run. Failed or interrupted

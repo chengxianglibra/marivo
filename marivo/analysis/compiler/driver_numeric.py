@@ -20,7 +20,7 @@ DRIVER_NUMERIC_SETUP_SQL = (
 
 
 def install_driver_numeric_functions(backend: Backend) -> None:
-    """Install fixed native macros inside the owning source transaction."""
+    """Install fixed native macros inside the owning source connection."""
     for statement in DRIVER_NUMERIC_SETUP_SQL:
         backend.raw_sql(statement)
 
