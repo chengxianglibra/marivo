@@ -18,7 +18,7 @@ import ibis
 
 from marivo._compat import Never
 from marivo.analysis.datasets.base import MaterializedDataset
-from marivo.analysis.materialization import admission, object_storage, reads
+from marivo.analysis.materialization import admission, object_storage
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.metric import MaterializedMetricDataset
@@ -117,11 +117,6 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
             ibis.duckdb.connect = forbidden
             duckdb.connect = forbidden
             # The terminal read subprocess must obey the same no-engine boundary.
-            reads._WORKER_CODE = (
-                "import duckdb, ibis\n"
-                "def forbidden(*args, **kwargs): raise AssertionError('unexpected DuckDB connection')\n"
-                "duckdb.connect = forbidden\nibis.duckdb.connect = forbidden\n" + reads._WORKER_CODE
-            )
         if mode == "cold":
             runtime.target, runtime.object_bindings = ObjectTarget("missing"), ()
         with contextlib.ExitStack() as guards:
@@ -162,7 +157,7 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
         "statistics": {
             "primary_queries": stats.primary_queries,
             "transferred_rows": stats.transferred_rows,
-            "worker_pid": stats.worker_pid,
+            "local_executions": stats.events.get("local_execution_started", 0),
             "handoffs": stats.local_handoffs,
             "events": stats.events,
             "statements": stats.statements,

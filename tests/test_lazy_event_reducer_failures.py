@@ -98,14 +98,14 @@ def test_retained_reducer_failure_cancellation_has_no_partial_authority(
     first, last = meaning.pattern.steps
     before = snapshot(runtime)
     armed = True
-    with pytest.raises(MaterializationError) as caught:
+    with pytest.raises(KeyboardInterrupt) as caught:
         if shape == "funnel":
             receiver.funnel().execute()
         elif shape == "duration":
             receiver.time_to_event(from_step=first, to_step=last).execute()
         else:
             receiver.select_subjects(dropped_before(step=last)).execute()
-    assert "canary" not in str(caught.value)
+    assert "canary" in str(caught.value)
     assert caught.value.__cause__ is None and caught.value.__context__ is None
     after = snapshot(runtime)
     assert after["dataset_artifacts"] == before["dataset_artifacts"]
@@ -177,7 +177,7 @@ def test_high_cardinality_reducers_keep_all_identity_relations_native(tmp_path: 
             "INSERT INTO started_rows SELECT 981730041 + i, 881730041 + i, TIMESTAMP '2026-02-01 12:00:00' FROM range(5000) AS t(i)"
         )
     with (
-        patch.object(admission, "supervise", forbidden),
+        patch.object(admission, "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         receiver = journey(sources).execute()
@@ -205,7 +205,10 @@ def test_high_cardinality_reducers_keep_all_identity_relations_native(tmp_path: 
     assert selection_summary.row_count == selection_summary.selected_subject_count == 5000
     assert runtime.statistics.transferred_rows == 5000
     assert runtime.statistics.transferred_bytes > 0
-    assert runtime.statistics.worker_pid is None and runtime.statistics.local_handoffs == ()
+    assert (
+        runtime.statistics.events.get("local_execution_started", 0) == 0
+        and runtime.statistics.local_handoffs == ()
+    )
     assert runtime.store.resources(runtime.session_ref) == ()
     assert_identity_private(runtime, ("881730041", "981730041"))
 

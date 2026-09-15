@@ -124,5 +124,8 @@ def test_entity_driver_object_rejects_unregistered_native_reader(
             successor.execute()
         assert snapshot(reopened) == before
         assert tuple(objects.reads) == reads
-    assert reopened.statistics.primary_queries == 0 and reopened.statistics.worker_pid is None
+    assert (
+        reopened.statistics.primary_queries == 0
+        and reopened.statistics.events.get("local_execution_started", 0) == 0
+    )
     assert reopened.store.resources(reopened.session_ref) == ()

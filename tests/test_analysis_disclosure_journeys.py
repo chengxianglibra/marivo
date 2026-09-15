@@ -133,7 +133,8 @@ def test_attribution_discloses_all_registered_authority_variants_and_top_k_meani
         assert method in text
     assert "per mapped parent" in text
     assert "None retains all members" in text
-    assert "eight mapped players per comparison scope and resolution, including Other" in text
+    assert "complete mapped players and coalitions" in text
+    assert "eight mapped players" not in text
     assert "contribution row bound" not in text
 
 

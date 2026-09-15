@@ -70,7 +70,12 @@ def run(
     logical = metric.correlate(method=method)
     with ExitStack() as guards:
         if mode == "cold":
-            for name in ("place", "compile_dataset", "_build_backend_from_effective", "supervise"):
+            for name in (
+                "place",
+                "compile_dataset",
+                "_build_backend_from_effective",
+                "execute_local",
+            ):
                 guards.enter_context(patch.object(admission, name, forbidden))
         result = logical.execute()
         selected = result.rank(result.fields.get("coefficient")).limit(1).execute()

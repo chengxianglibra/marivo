@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
-import time
-from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
-from marivo.analysis.evidence import _dataset_reads as evidence_reads
 from marivo.analysis.materialization import inspection
 from marivo.analysis.materialization.contracts import (
-    ArtifactRecord,
     LocalReceipt,
     encode_descriptor,
 )
@@ -103,46 +97,3 @@ def test_missing_backing_discards_native_exception_and_locator(
     assert error.__context__ is None and error.__cause__ is None
     assert str(path) not in str(error) and str(path) not in repr(error)
     assert snapshot(fixture.runtime) == before
-
-
-def test_evidence_deadline_consumes_the_shared_budget_before_storage_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fixture = setup_retained(tmp_path)
-    runtime = fixture.runtime
-    result = fixture.sources.population(ref.entity("sales.customers")).execute()
-    before = snapshot(runtime)
-    now = 100.0
-    entered = False
-    original = evidence_reads.audit_findings
-
-    def expire_during_audit(
-        conn: sqlite3.Connection,
-        record: ArtifactRecord,
-        *,
-        registration: evidence_reads.FindingRegistration | None = None,
-        check: Callable[[], None] | None = None,
-    ) -> None:
-        nonlocal now, entered
-        assert check is not None
-        entered = True
-        now += 1.01
-        original(conn, record, registration=registration, check=check)
-        pytest.fail("The full Finding audit ignored the expired shared deadline")
-
-    monkeypatch.setattr(time, "monotonic", lambda: now)
-    monkeypatch.setattr(evidence_reads, "audit_findings", expire_during_audit)
-    monkeypatch.setattr(inspection, "_storage_checks", forbidden)
-    checked = inspection.revalidate(
-        runtime.store,
-        result.state.artifact_ref,
-        policy=replace(ReadPolicy(), deadline_seconds=1.0),
-    )
-    assert entered
-    assert (
-        checked.artifact_integrity,
-        checked.storage_authority,
-        checked.evidence_integrity,
-    ) == ("valid", "unknown", "unverifiable")
-    assert {issue.kind for issue in checked.issues} >= {"storage_unknown", "evidence_unverifiable"}
-    assert snapshot(runtime) == before

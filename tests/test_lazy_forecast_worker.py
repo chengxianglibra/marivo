@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import time
-from multiprocessing import Pipe
-
 import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.materialization import local_worker
-from marivo.analysis.materialization.local import LocalBudget, LocalPolicy
-from marivo.analysis.materialization.local_worker import (
+from marivo.analysis.materialization import local_execution
+from marivo.analysis.materialization.local_execution import (
     LocalBoundary,
     LocalGraphRequest,
+    LocalInputStreams,
     LocalStage,
     StreamInput,
 )
@@ -50,27 +47,16 @@ def test_model_invoked_once_only_after_every_series_validates(
         return original(prepared, received)
 
     monkeypatch.setattr(forecast_values, "execute_forecast", execute)
-    policy = LocalPolicy()
     request = LocalGraphRequest(
         (LocalBoundary(0, StreamInput(spec.input_row, spec.input_rows)),),
         (LocalStage(1, (0,), spec),),
         1,
-        policy,
-        time.monotonic() + 30,
     )
-    parent, child = Pipe()
-    try:
-        child.send(table.to_batches()[0])
-        child.send(None)
-        if invalid:
-            with pytest.raises(ForecastError):
-                local_worker._execute_graph(parent, request, LocalBudget(policy, request.deadline))
-            assert calls == 0
-        else:
-            output = local_worker._execute_graph(
-                parent, request, LocalBudget(policy, request.deadline)
-            )
-            assert calls == 1 and len(output.frames.frame) == 8
-    finally:
-        parent.close()
-        child.close()
+    parent = (LocalInputStreams(table.to_batches()),)
+    if invalid:
+        with pytest.raises(ForecastError):
+            local_execution._execute_graph(parent, request)
+        assert calls == 0
+    else:
+        output = local_execution._execute_graph(parent, request)
+        assert calls == 1 and len(output.frames.frame) == 8

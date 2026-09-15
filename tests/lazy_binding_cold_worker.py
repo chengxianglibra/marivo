@@ -90,7 +90,12 @@ def run(mode: str, kind: str, project: Path, url: str, session: str) -> dict[str
             patch.object(sources._owner.binding_scopes, "_active", ForbiddenAmbient())
         )
         if mode == "cold":
-            for name in ("place", "compile_dataset", "_build_backend_from_effective", "supervise"):
+            for name in (
+                "place",
+                "compile_dataset",
+                "_build_backend_from_effective",
+                "execute_local",
+            ):
                 checks.enter_context(patch.object(admission, name, forbidden))
         for logical in logicals:
             materialized = logical.execute()

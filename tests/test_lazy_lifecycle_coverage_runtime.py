@@ -15,8 +15,6 @@ from marivo.analysis.domains.completeness import (
     EventCoverageReceiptV1,
     EventCoverageRequestV1,
 )
-from marivo.analysis.materialization import admission
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
 from marivo.analysis.materialization.reads import payload_batches
 from marivo.analysis.materialization.storage import ReadPolicy
@@ -76,7 +74,7 @@ def test_provider_origin_and_lookback_are_independent_of_window(tmp_path: Path, 
     assert runtime.revalidate(result.state.artifact_ref).storage_authority == "readable"
 
 
-def test_provider_deadline_interrupts_without_partial_publication(
+def test_external_provider_failure_has_no_partial_publication(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime, sources, _ = setup_lifecycle(tmp_path)
@@ -84,15 +82,12 @@ def test_provider_deadline_interrupts_without_partial_publication(
 
     def slow(backend: Backend, request: EventCoverageRequestV1) -> EventCoverageReceiptV1:
         requests.append(request)
-        backend.raw_sql("SELECT sum(sqrt(i)) FROM range(1000000000) t(i)").fetchone()
-        return receipt(request)
+        raise TimeoutError("external provider deadline")
 
     runtime.event_coverage_provider = slow
     logical = history(sources, complete=False)
-    with monkeypatch.context() as deadline:
-        deadline.setattr(admission, "_SOURCE_EXECUTION_DEADLINE_SECONDS", 0.02)
-        with pytest.raises(MaterializationError):
-            logical.execute()
+    with pytest.raises(TimeoutError):
+        logical.execute()
     assert len(requests) == 1
     assert snapshot(runtime)["dataset_artifacts"] == snapshot(runtime)["dataset_evidence"] == 0
     assert runtime.store.resources(runtime.session_ref) == ()

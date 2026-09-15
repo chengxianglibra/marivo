@@ -151,13 +151,12 @@ def test_substantial_local_metric_checkpoint_folds_with_source_offline(
         assert fixture.runtime.statistics.primary_queries == 0
         assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
         assert fixture.runtime.statistics.events.get("credential_resolution", 0) == 0
-        assert fixture.runtime.statistics.worker_pid is not None
+        assert fixture.runtime.statistics.events.get("local_execution_started", 0) > 0
         assert len(fixture.runtime.statistics.local_handoffs) == 2
         assert (
             fixture.runtime.statistics.local_handoffs[0][1]
             == fixture.runtime.statistics.local_handoffs[1][0]
         )
-        assert fixture.runtime.local_policy.max_input_rows == 100_000
         output = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
         assert output is not None and isinstance(output.descriptor.storage_receipt, LocalReceipt)
         assert all(
@@ -169,7 +168,7 @@ def test_substantial_local_metric_checkpoint_folds_with_source_offline(
         before = snapshot(fixture.runtime)
         assert logical.execute().state.artifact_ref == result.state.artifact_ref
         assert snapshot(fixture.runtime) == before
-        assert fixture.runtime.statistics.worker_pid is None
+        assert fixture.runtime.statistics.events.get("local_execution_started", 0) == 0
         assert fixture.runtime.statistics.events == {"reconciliation": 1}
         reopened = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref)
         recovered = reopened.artifact(result.state.artifact_ref)

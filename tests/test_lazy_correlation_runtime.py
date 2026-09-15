@@ -116,7 +116,7 @@ def test_nonidentity_checkpoint_uses_local_exact_method(
     with pandas_methods("metric.correlate"):
         result = metric.correlate(method=method).execute()
     assert abs(result.to_pandas().coefficient.iloc[0]) == pytest.approx(1.0)
-    assert runtime.statistics.worker_pid is not None
+    assert runtime.statistics.events.get("local_execution_started", 0) > 0
     assert runtime.statistics.primary_queries == 0
 
 

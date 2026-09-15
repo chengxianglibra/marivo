@@ -1,6 +1,5 @@
 """Independent row-method oracles, without serializing local intermediate frames."""
 
-import time
 from pathlib import Path
 from typing import Literal
 
@@ -8,8 +7,6 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.materialization.local import (
-    LocalBudget,
-    LocalPolicy,
     execute_suffix,
 )
 from marivo.analysis.observation.predicates import all_of, any_of, eq, gt, is_in, is_null, not_
@@ -76,9 +73,8 @@ def test_direct_handoffs_and_consecutive_limit_prefixes(tmp_path: Path) -> None:
     first = source.rank(source.fields.metric(REVENUE))
     second = first.limit(3)
     third = second.limit(2)
-    budget = LocalBudget(LocalPolicy(), time.monotonic() + 60, live_bytes=1024)
     result, handoffs = execute_suffix(
-        frame, tuple(row_call(value) for value in (first, second, third)), budget
+        frame, tuple(row_call(value) for value in (first, second, third))
     )
     assert result["revenue"].tolist() == [30, 20]
     assert (
@@ -162,8 +158,7 @@ def test_metric_rejects_duplicate_sampling_only_parts(tmp_path: Path) -> None:
         (),
         pd.DataFrame(),
     )
-    budget = LocalBudget(LocalPolicy(), time.monotonic() + 60)
     with pytest.raises(DatasetCompilationError, match="duplicate retained role"):
         execute_retained_suffix(
-            frame, (part, part), (row_call(metric.rank(metric.fields.metric(REVENUE))),), budget
+            frame, (part, part), (row_call(metric.rank(metric.fields.metric(REVENUE))),)
         )

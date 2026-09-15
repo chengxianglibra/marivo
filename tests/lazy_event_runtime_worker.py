@@ -80,7 +80,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         assert snapshot(runtime) == before
     else:
         with (
-            patch.object(admission, "supervise", forbidden),
+            patch.object(admission, "execute_local", forbidden),
             patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
         ):
             result = logical.execute()

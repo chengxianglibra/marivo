@@ -69,7 +69,3 @@ class SessionBusyError(MaterializationError):
             repair="Wait for the current Session action to finish, then retry the same definition.",
             stage="writer_guard",
         )
-
-
-class CollectionLimitError(MaterializationError):
-    """A retained read exceeds its complete-result collection contract."""

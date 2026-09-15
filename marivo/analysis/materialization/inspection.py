@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import sqlite3
-import subprocess
-import sys
-import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,7 +20,6 @@ from marivo.analysis.materialization.contracts import (
     RetainedPart,
 )
 from marivo.analysis.materialization.errors import (
-    CollectionLimitError,
     IntegrityError,
     MaterializationError,
     StorageAccessError,
@@ -39,8 +34,6 @@ from marivo.analysis.materialization.retained import (
 from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.targets import (
     ObjectBinding,
-    access_payload,
-    decode_access,
 )
 from marivo.analysis.refs import ArtifactRef
 
@@ -53,17 +46,12 @@ if TYPE_CHECKING:
     from marivo.analysis.materialization.store import SessionStore
 
 _POLICY = ReadPolicy()
-_WORKER = "from marivo.analysis.materialization.inspection import _worker; _worker()"
 _STORAGE_FAILURE_PRIORITY: tuple[StorageStatus, ...] = (
     "mutated",
     "missing",
     "unauthorized",
     "unknown",
 )
-
-
-class _InspectionDeadlineError(Exception):
-    """A check could not complete within the one inspection deadline."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,43 +193,6 @@ def _source_private_check(
         backend.disconnect()
 
 
-def _worker() -> None:
-    """Stream one safe receipt outcome at a time; never emit native diagnostics."""
-    request = codec._obj(
-        codec.parse_json(sys.stdin.read()), "project_root descriptor bindings deadline"
-    )
-    descriptor_payload = request["descriptor"]
-    if not isinstance(descriptor_payload, str):
-        raise codec.invalid("invalid inspection descriptor")
-    descriptor = codec.decode_descriptor(descriptor_payload)
-    root = Path(codec._text(request["project_root"]))
-    bindings = tuple(decode_access(value) for value in codec._array(request["bindings"]))
-    deadline = request["deadline"]
-    if not isinstance(deadline, (float, int)) or isinstance(deadline, bool) or deadline <= 0:
-        raise codec.invalid("invalid inspection deadline")
-    started = time.monotonic()
-    for part in (None, *descriptor.retained_parts):
-        role = "primary" if part is None else part.role
-        status: StorageStatus = "readable"
-        remaining = float(deadline) - (time.monotonic() - started)
-        if remaining <= 0:
-            status = "unknown"
-        else:
-            try:
-                _payload_check(
-                    root, descriptor, part, bindings, replace(_POLICY, deadline_seconds=remaining)
-                )
-            except StorageAccessError as error:
-                status = error.storage_status
-            except CollectionLimitError:
-                status = "unknown"
-            except MaterializationError:
-                status = "mutated"
-            except Exception:
-                status = "unknown"
-        print(codec.canonical_json({"role": role, "status": status}), flush=True)
-
-
 def _storage_checks(
     project_root: Path,
     descriptor: ArtifactDescriptor,
@@ -249,58 +200,19 @@ def _storage_checks(
     *,
     policy: ReadPolicy = _POLICY,
 ) -> tuple[_StorageCheck, ...]:
-    roles = ("primary", *(part.role for part in descriptor.retained_parts))
-    request = codec.canonical_json(
-        {
-            "project_root": str(project_root),
-            "descriptor": codec.encode_descriptor(descriptor),
-            "bindings": [access_payload(value) for value in bindings],
-            "deadline": policy.deadline_seconds,
-        }
-    )
-    output = ""
-    try:
-        process = subprocess.Popen(
-            [sys.executable, "-B", "-c", _WORKER],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            env={**os.environ, "MARIVO_TELEMETRY": "off"},
-        )
-        try:
-            output, _ = process.communicate(request, timeout=policy.deadline_seconds)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            output, _ = process.communicate()
-        except BaseException:
-            process.kill()
-            process.communicate()
-            raise
-    except OSError:
-        pass
     checks: list[_StorageCheck] = []
-    for line in output.splitlines():
+    for part in (None, *descriptor.retained_parts):
+        role = "primary" if part is None else part.role
+        status: StorageStatus = "readable"
         try:
-            value = codec._obj(codec.parse_json(line), "role status")
-            status = value["status"]
-            if len(checks) >= len(roles) or value["role"] != roles[len(checks)]:
-                break
-            if status == "readable":
-                checks.append(_StorageCheck(roles[len(checks)], "readable"))
-            elif status == "unauthorized":
-                checks.append(_StorageCheck(roles[len(checks)], "unauthorized"))
-            elif status == "missing":
-                checks.append(_StorageCheck(roles[len(checks)], "missing"))
-            elif status == "mutated":
-                checks.append(_StorageCheck(roles[len(checks)], "mutated"))
-            elif status == "unknown":
-                checks.append(_StorageCheck(roles[len(checks)], "unknown"))
-            else:
-                break
+            _payload_check(project_root, descriptor, part, bindings, policy)
+        except StorageAccessError as error:
+            status = error.storage_status
         except MaterializationError:
-            break
-    checks.extend(_StorageCheck(role, "unknown") for role in roles[len(checks) :])
+            status = "mutated"
+        except Exception:
+            status = "unknown"
+        checks.append(_StorageCheck(role, status))
     return tuple(checks)
 
 
@@ -322,11 +234,6 @@ def revalidate(
 
     ref = reference if isinstance(reference, ArtifactRef) else ArtifactRef(ref=reference)
     checked_at = datetime.now(UTC)
-    deadline = time.monotonic() + policy.deadline_seconds
-
-    def check_deadline() -> None:
-        if time.monotonic() >= deadline:
-            raise _InspectionDeadlineError
 
     artifact: IntegrityStatus = "unverifiable"
     evidence: IntegrityStatus = "unverifiable"
@@ -335,14 +242,11 @@ def revalidate(
     storage_descriptor: ArtifactDescriptor | None = None
     try:
         with store._read() as conn:
-            conn.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
-            check_deadline()
             raw = _one(conn, "SELECT * FROM dataset_artifacts WHERE artifact_ref=?", (ref.ref,))
             if raw is None:
                 raise missing_artifact(ref.ref)
             try:
                 descriptor = codec.decode_descriptor(_text(raw, "descriptor_payload"))
-                check_deadline()
                 # Owner admission is independent of producer/Evidence validity and
                 # must precede any external access even when another check fails.
                 prefix = (
@@ -374,7 +278,6 @@ def revalidate(
             if descriptor is not None:
                 # Evidence remains independently checkable when a producer edge is corrupt.
                 try:
-                    check_deadline()
                     metadata = codec.ArtifactMetadata(
                         ref.ref,
                         _text(raw, "session_ref"),
@@ -393,8 +296,7 @@ def revalidate(
                         metadata.producing_run_ref,
                         envelope,
                     )
-                    audit_findings(conn, record, check=check_deadline)
-                    check_deadline()
+                    audit_findings(conn, record)
                     evidence = "valid"
                 except MaterializationError:
                     evidence = "invalid"
@@ -405,7 +307,7 @@ def revalidate(
                             safe_message="The selected Evidence envelope or complete Finding set is inconsistent.",
                         )
                     )
-    except (sqlite3.Error, _InspectionDeadlineError):
+    except sqlite3.Error:
         if artifact == "unverifiable":
             issues.append(
                 ArtifactRevalidationIssue(
@@ -414,21 +316,9 @@ def revalidate(
                     safe_message="The selected Store snapshot is unavailable; integrity could not be established.",
                 )
             )
-    remaining = deadline - time.monotonic()
     checks: tuple[_StorageCheck, ...] = ()
     if storage_descriptor is not None:
-        if remaining > 0:
-            checks = _storage_checks(
-                store.project_root,
-                storage_descriptor,
-                bindings,
-                policy=replace(policy, deadline_seconds=remaining),
-            )
-        else:
-            checks = tuple(
-                _StorageCheck(role, "unknown")
-                for role in ("primary", *(part.role for part in storage_descriptor.retained_parts))
-            )
+        checks = _storage_checks(store.project_root, storage_descriptor, bindings, policy=policy)
     storage_status: StorageStatus = "unknown" if not checks else "readable"
     for status in _STORAGE_FAILURE_PRIORITY:
         if any(check.status == status for check in checks):

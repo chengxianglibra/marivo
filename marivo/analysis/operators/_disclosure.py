@@ -203,7 +203,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalAttributionDataset",
             "result = delta.attribute(axes=(region,))",
             ("delta", "region"),
-            "Admits additive, component-mix, exact distinct-membership and distribution-Shapley comparisons under method-specific authority; retained inputs require complete sufficient statistics. Distribution-Shapley admits at most eight mapped players per comparison scope and resolution, including Other, and preserves the selected exact or approximate quantile method.",
+            "Admits additive, component-mix, exact distinct-membership and distribution-Shapley comparisons under method-specific authority; retained inputs require complete sufficient statistics. Distribution-Shapley uses complete mapped players and coalitions and preserves the selected exact or approximate quantile method.",
         ),
         (
             "metric",

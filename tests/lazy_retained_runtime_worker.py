@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 from contextlib import ExitStack, nullcontext
-from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,7 +15,6 @@ from marivo.analysis import grain, time_scope
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.local_worker import supervise
 from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.population import MaterializedPopulationDataset
@@ -26,7 +24,6 @@ from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_local_fixtures import pandas_methods
-from tests.lazy_local_runtime_worker import _GUARDED_WORKER
 from tests.lazy_materialization_crash_worker import record_evidence, statistics, versions
 from tests.lazy_retained_fixtures import setup_retained
 
@@ -104,20 +101,15 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
                     "compile_dataset",
                 ):
                     guards.enter_context(patch.object(admission, name, forbidden))
-                guards.enter_context(
-                    patch.object(
-                        admission, "supervise", partial(supervise, worker_code=_GUARDED_WORKER)
-                    )
-                )
             if mode == "cold":
                 runtime.target = ObjectTarget("unconfigured")
-                for name in ("place", "_build_backend_from_effective", "supervise"):
+                for name in ("place", "_build_backend_from_effective", "execute_local"):
                     guards.enter_context(patch.object(admission, name, forbidden))
             for logical in definitions:
                 output = logical.execute()
                 stats = {
                     **statistics(runtime),
-                    "worker_pid": runtime.statistics.worker_pid,
+                    "local_executions": runtime.statistics.events.get("local_execution_started", 0),
                     "handoffs": runtime.statistics.local_handoffs,
                 }
                 record = runtime.store.artifact(output.state.artifact_ref.ref)

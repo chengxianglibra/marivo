@@ -104,7 +104,12 @@ def run(
     with ExitStack() as guards:
         guards.enter_context(guard_distribution_transport())
         if mode == "cold":
-            for name in ("place", "compile_dataset", "_build_backend_from_effective", "supervise"):
+            for name in (
+                "place",
+                "compile_dataset",
+                "_build_backend_from_effective",
+                "execute_local",
+            ):
                 guards.enter_context(patch.object(admission, name, forbidden))
         result = logical.execute()
         selected = result.rank(result.fields.get("contribution")).limit(1).execute()

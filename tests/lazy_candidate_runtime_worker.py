@@ -61,7 +61,7 @@ def run(
                     "place",
                     "compile_dataset",
                     "_build_backend_from_effective",
-                    "supervise",
+                    "execute_local",
                 ):
                     guards.enter_context(patch.object(admission, name, forbidden))
             rebound = discover(source_rows, objective).execute()

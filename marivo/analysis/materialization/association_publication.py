@@ -26,7 +26,6 @@ from marivo.analysis.materialization.contracts import (
     invalid,
 )
 from marivo.analysis.operators.association_contracts import (
-    MAX_CANDIDATES,
     SELECTION_RULE_ID,
     STATUSES,
     AssociationSearchSummary,
@@ -120,8 +119,6 @@ def build_association_publication(
     dims = tuple(rule.field.name for rule in registration.coordinates)
     rows: list[dict[str, t.Scalar]] = []
     for batch in batches:
-        if len(rows) + batch.num_rows > MAX_CANDIDATES:
-            raise invalid("Association candidate ceiling exceeded")
         for raw in batch.to_pylist():
             rows.append({str(key): _scalar(value) for key, value in raw.items()})
     if len(rows) != descriptor.storage_receipt.realized_row_count:

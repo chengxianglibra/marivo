@@ -167,7 +167,7 @@ statement roles so the inventory remains usable as line numbers move.
 | Sampling | `sampling.py:sample_statement`, `execute_sample`: quoted DuckDB identifiers, reservoir SQL, temporary table, identity/count scalar query | Seed is not a cross-statement realization proof; declaration requires an admitted fence |
 | Primary batching | `admission.py:_batches`: diagnostic compile then `to_pyarrow_batches` | Ibis DuckDB hooks execute, then compile again; selected SQL is currently not the immutable submission input |
 | Pre-execute hooks | installed Ibis DuckDB `_run_pre_execute_hooks`, `to_pyarrow_batches`, `to_pyarrow` | Inventory UDF/in-memory/read-source preparation effects, parameter substitution, default limits, schema conversion and cursor closure; required resource effects become declared preparations |
-| Transfer sizing | `_batch_rows`: source string length max query, conservative row width, 1..1024 batch rows; `_batches`: 8MiB check after fetch | Remote page/decompression/nested-width bounds must hold before decoding; reducing batch rows alone is insufficient |
+| Transfer tuning after 1b | `_batch_rows` width queries and 8MiB rejection removed; source streams use 1024-row chunks | Preserve complete results and exact Arrow normalization; no total-result, cell/page or memory-bound admission |
 | Proof/scalar queries | `admission.py` event/reducer/selection/candidate/association/driver proofs, pair/support counts, attribution reconciliation | Current paths compile then call `to_pyarrow` or `raw_sql(...).fetchone`; enumerate each statement role and retain typed bounded decoding |
 | Private retained relations | `admission.py:_parquet_parts` and retained-part loops: zero-row schema query, count/support queries, primary/part streaming | Preserve source-private authority, exact type/row/coverage reconciliation and statement realization |
 | Retained helper validation | `retained.py`: membership schema, DuckDB struct/key/support reconciliation; `lifecycle_publication.py`: part keys, coverage ledger, scalar proof and bounded native incoming-row staging | Include helper-generated statements, not only their admission call sites; no private-state authority expansion |
@@ -176,15 +176,15 @@ statement roles so the inventory remains usable as line numbers move.
 | Native Parquet | `parquet_scan.py`: `.con.register`, temporary table, unregister, count, zero-row schema reads; `admission.py` Parquet read views | Keep native DuckDB domain explicit; do not silently upload retained data into remote sources |
 | SQL/dialect lowering | `compiler/lifecycle.py`, `driver_numeric.py`, `distribution.py`; `admission.py` identifier rendering, `DESCRIBE`, reconciliation SQL | Concrete dialect/macro/list/quantile/diagnostic behavior stays scoped; Ibis compilation is not numerical parity |
 | Termination/publication | `_source_backend` rollback and exact `TransactionException` matching; success rollback/disconnect before publication; `resources.py` process/nonce proof | Local PID death cannot prove remote query termination; journal submit/ack/unknown and terminal receipts without retry |
-| Cleanup/recovery | `resources.py:confirm_execution_termination`; worker and object-request proof families | New remote adapter needs its own exact capability; unknown work remains unresolved, not clean by connection close |
+| Cleanup/recovery | `resources.py:confirm_execution_termination`; connection and object-request proof families; worker-only obligations removed in generation 4 | New remote adapter needs its own exact capability; unknown work remains unresolved, not clean by connection close |
 
 ### Slice 1a reconciliation
 
 The table above records the pre-extraction baseline, not current transaction
 requirements. Slice 1a removes the action-wide consistency BEGIN/ROLLBACK and
 rollback-error matching. One action-local execution context retains statement
-and resource ownership. Initialization still sets UTC and existing resource
-controls; removing budgets and changing termination admission remain 1b/1c.
+and resource ownership. Initialization sets UTC and thread tuning. Slice 1b removes resource budgets;
+changing remote termination admission remains Slice 1c.
 
 Sampling, source preparation and native retained-reader fences remain required
 for single evaluation. Their connection-owned temporary objects are cleaned by
@@ -236,7 +236,7 @@ proved below; production assertion ordering still requires its owning amendment.
 | `sales.orders.source_row_unique` | Same preflight, on full governed source | Same blocker; grouping/filtering the output must not hide duplicates |
 | Identity finiteness | Generated additionally for floating identity columns | Not in this int64-ID fixture; float identity needs separate probe |
 | Snapshot/validity/relationship assertions | Generated only for corresponding semantic shapes | Not admitted by this unversioned single-table probe |
-| Schema and resource sizing | Source schema before lowering; source-width check before result transfer | Must remain before transfer. No envelope decoder can substitute for a server barrier or pre-decode bound |
+| Schema validation after 1b | Source schema before lowering; budget-only width probes removed | Preserve exact types and semantic validation without resource admission |
 | Envelope integrity | New test-only decoder before exposure of primary/parts | Missing/duplicate ordinal, nonzero violations, unknown kinds and malformed payload fail closed |
 | Output/retained/evidence validation | Current Runtime before atomic publication | Not implemented by the envelope probe; existing owners remain authoritative |
 
@@ -294,7 +294,7 @@ completion of this qualification investigation:
 | Owning enabling work | Required evidence / remaining blocker |
 | --- | --- |
 | ClickHouse assertion order (Slice 6) | The live envelope proves post-transfer fail-closed decoding, not pre-transfer enforcement. Identity and uniqueness remain pre-transfer checks in current production. An explicit owner amendment is required for staged validation, and any check that must stay before transfer needs a proven server barrier; `wait_end_of_query` does not provide that barrier |
-| Remote transport (Slices 3–6) | Multi-page, wide/nested values, source sizing, bounded driver decompression/decoding and slow-fetch budgets. The fixed small Arrow probe and Trino fetchall are not production streaming implementations; Trino wire-byte accounting is still absent |
+| Remote transport (Slices 3–6) | Multi-page, wide/nested values, lossless driver decoding and external failure propagation without resource budgets. The fixed small Arrow probe and Trino fetchall are not production streaming implementations; Trino wire-byte accounting is still absent |
 | Remote lifetime (Slices 3–6) | Submit/ack uncertainty, lost cancellation acknowledgement, process death and authoritative remote terminal receipts integrated with the reserved Run and recovery journal |
 | Publication and reuse (enabling slices) | Real Dataset primary/parts/Evidence/Findings atomic publication, source-offline binding hit and cold reads on each newly enabled backend |
 | Wider matrix (Slices 3–7) | PostgreSQL/MySQL/SQLite exact versions and controls, other Trino connectors/table combinations, Distributed/Replicated ClickHouse, broader types/methods and cross-relation/fence/private-state proofs |
@@ -303,3 +303,12 @@ All non-DuckDB source registrations remain disabled. Slice 0 completion authoriz
 no backend activation or later-slice completion. The Trino and ClickHouse probes
 must be rerun for any change to their pinned versions, table scope, compiler,
 settings, validation envelope or decoder; rerun commands are in the runbook.
+
+## Slice 1b qualification boundary
+
+Worker, hard-deadline, RSS, transfer-width and storage-budget observations above
+are historical qualification evidence. They do not establish the replacement
+calling-process behavior. Current 1b evidence is recorded separately in
+[the 1b acceptance record](2026-09-15-multisource-slice-1b-acceptance.md).
+Version certification, remote termination and new backend activation remain
+separate work; this update admits no additional backend.

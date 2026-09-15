@@ -62,7 +62,7 @@ def test_engine_rows_remain_native_after_source_is_removed(tmp_path: Path) -> No
     output = logical.execute()
     assert output.to_pandas()["revenue"].tolist() == [100, 30]
     assert runtime.statistics.transferred_rows == 0
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.statistics.events.get("profile_resolution", 0) == 0
     assert runtime.statistics.events.get("credential_resolution", 0) == 0
 
@@ -82,7 +82,7 @@ def test_engine_metric_projection_selects_one_of_two_metrics_without_origin(tmp_
             [10, 30, 100, -1, 0, 7] if selected == REVENUE else [1, 1, 1, 0, 1, 1]
         )
         assert runtime.statistics.transferred_rows == 0
-        assert runtime.statistics.worker_pid is None
+        assert runtime.statistics.events.get("local_execution_started", 0) == 0
         assert runtime.statistics.events.get("profile_resolution", 0) == 0
 
 

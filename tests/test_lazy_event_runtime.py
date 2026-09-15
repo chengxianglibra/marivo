@@ -95,7 +95,7 @@ def test_event_failure_has_no_partial_authority(tmp_path: Path, failure: str) ->
             raise RuntimeError("injected Event failure")
 
     runtime, sources, _ = setup_event(tmp_path, event=fail)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(RuntimeError):
         journey(sources).execute()
     assert snapshot(runtime)["dataset_artifacts"] == 0
     assert snapshot(runtime)["dataset_evidence"] == 0
@@ -175,7 +175,7 @@ def test_large_identity_relation_stays_inside_the_native_engine(tmp_path: Path) 
             "INSERT INTO started_rows SELECT 981730041 + i, 881730041 + i, TIMESTAMP '2026-02-01 12:00:00' FROM range(5000) AS t(i)"
         )
     with (
-        patch.object(admission, "supervise", forbidden),
+        patch.object(admission, "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         result = journey(sources).execute()
@@ -190,6 +190,6 @@ def test_large_identity_relation_stays_inside_the_native_engine(tmp_path: Path) 
     )
     assert runtime.statistics.transferred_rows == 10000
     assert runtime.statistics.transferred_bytes > 0
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.statistics.local_handoffs == ()
     assert_identity_private(runtime, ("881730041", "981730041"))

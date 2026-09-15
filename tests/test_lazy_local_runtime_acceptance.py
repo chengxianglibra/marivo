@@ -77,7 +77,7 @@ def test_source_offline_continuation_and_exact_cold_binding(tmp_path: Path) -> N
     assert isinstance(handoffs, list) and len(handoffs) == 4
     assert all(handoffs[i][1] == handoffs[i + 1][0] for i in range(3))
     cold = recovered["statistics"]
-    assert isinstance(cold, dict) and cold["worker_pid"] is None and cold["primary_queries"] == 0
+    assert isinstance(cold, dict) and cold["local_executions"] == 0 and cold["primary_queries"] == 0
     assert continued["forbidden_attempts"] == recovered["forbidden_attempts"] == []
     after = _manifest()
     assert candidate == after

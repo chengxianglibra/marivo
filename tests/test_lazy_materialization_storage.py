@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
-import threading
-import time
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -22,7 +17,6 @@ from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.materialization import storage
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import (
-    CollectionLimitError,
     IntegrityError,
     MaterializationError,
 )
@@ -33,7 +27,6 @@ from marivo.analysis.materialization.storage import (
     StoragePolicy,
 )
 from marivo.refs import ref
-from tests.lazy_observation_fixtures import make_sources
 
 _STORAGE_POLICY = StoragePolicy()
 _READ_POLICY = ReadPolicy()
@@ -151,7 +144,7 @@ def test_primary_and_parts_split_one_stream_with_exact_receipts(tmp_path: Path) 
 
     def event(name: str) -> None:
         hooks.append(name)
-        assert (tmp_path / "run" / "staging").exists() == (name == "before_rename")
+        assert (tmp_path / "run" / "staging").exists() == (name != "after_rename")
         assert (tmp_path / "artifacts" / "result").exists() == (name == "after_rename")
 
     result = storage.write_local_dataset(
@@ -165,7 +158,12 @@ def test_primary_and_parts_split_one_stream_with_exact_receipts(tmp_path: Path) 
         event=event,
     )
     assert calls == [1, 1, 1]
-    assert hooks == ["before_rename", "after_rename"]
+    assert hooks == [
+        "parquet_payload_create",
+        "parquet_payload_create",
+        "before_rename",
+        "after_rename",
+    ]
     assert result.realized_row_count == 3
     assert result.realized_schema.columns[0].physical_type_state.kind == "resolved"
     part = result.retained_parts[0]
@@ -324,50 +322,6 @@ def test_stream_schema_cannot_change_between_batches(tmp_path: Path) -> None:
         )
 
 
-def test_batch_guard_rejects_a_single_oversized_value(tmp_path: Path) -> None:
-    contracts = _contracts((("id", "int64", False), ("payload", "string", True)))
-    with pytest.raises(MaterializationError, match="batch byte budget"):
-        _write(
-            tmp_path,
-            pa.table({"id": [1], "payload": ["a" * 1024]}),
-            contracts,
-            policy=StoragePolicy(max_batch_bytes=64),
-        )
-    assert not (tmp_path / "artifacts" / "result").exists()
-
-
-def test_writer_never_accepts_bytes_beyond_combined_disk_limit(tmp_path: Path) -> None:
-    contracts = _contracts((("id", "int64", False),))
-    limit = 128
-    with pytest.raises(MaterializationError, match="disk budget exceeded"):
-        _write(
-            tmp_path,
-            pa.table({"id": [1, 2]}),
-            contracts,
-            policy=StoragePolicy(max_stored_bytes=limit),
-        )
-    assert sum(file.stat().st_size for file in tmp_path.rglob("*") if file.is_file()) <= limit
-    assert not (tmp_path / "artifacts" / "result").exists()
-
-
-def test_writer_counts_manifests_in_combined_disk_limit(tmp_path: Path) -> None:
-    contracts = _contracts((("id", "int64", False),))
-    table = pa.table({"id": [1, 2]})
-    first = tmp_path / "first"
-    first.mkdir()
-    result = _write(first, table, contracts)
-    second = tmp_path / "second"
-    second.mkdir()
-    with pytest.raises(MaterializationError, match="disk budget exceeded"):
-        _write(
-            second,
-            table,
-            contracts,
-            policy=StoragePolicy(max_stored_bytes=result.primary_receipt.realized_byte_count - 1),
-        )
-    assert not (second / "artifacts" / "result").exists()
-
-
 def test_preview_reads_only_twenty_rows_without_full_content_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -383,20 +337,6 @@ def test_preview_reads_only_twenty_rows_without_full_content_hash(
         row_set_contract=contracts[1],
     )
     assert preview.column("id").to_pylist() == list(range(20))
-
-
-@pytest.mark.parametrize(
-    "policy",
-    [ReadPolicy(max_rows=1), ReadPolicy(max_decoded_bytes=1), ReadPolicy(deadline_seconds=0)],
-)
-def test_complete_collection_guards_leave_committed_output_untouched(
-    tmp_path: Path, policy: ReadPolicy
-) -> None:
-    contracts = _contracts((("id", "int64", False),))
-    result = _write(tmp_path, pa.table({"id": [1, 2]}), contracts)
-    with pytest.raises(CollectionLimitError):
-        _read(tmp_path, result, contracts, policy=policy)
-    assert _read(tmp_path, result, contracts)["id"].tolist() == [1, 2]
 
 
 @pytest.mark.parametrize("target", ["manifest.json", "data.parquet"])
@@ -505,297 +445,59 @@ def test_accessed_page_corruption_fails_bounded_preview(tmp_path: Path) -> None:
         )
 
 
-def test_dictionary_expansion_is_guarded_before_decode(tmp_path: Path) -> None:
-    contracts = _contracts((("id", "int64", False), ("label", "string", True)))
-    batch = pa.record_batch(
-        {"id": list(range(12)), "label": pa.array(["x" * 100] * 12).dictionary_encode()}
-    )
-    assert batch.nbytes < 400
-    with pytest.raises(MaterializationError, match="decoded batch budget exceeded"):
-        storage.write_local_dataset(
-            project_root=tmp_path,
-            staging_path=tmp_path / "staging",
-            final_path=tmp_path / "result",
-            batches=(batch,),
-            row_contract=contracts[0],
-            row_set_contract=contracts[1],
-            event=lambda _name: None,
-            policy=StoragePolicy(max_batch_bytes=400),
-        )
-    assert not (tmp_path / "result").exists()
-
-
-def test_primary_reader_rejects_large_row_group_before_decoding(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    contracts = _contracts((("id", "int64", False),))
-    result = _write(tmp_path, pa.table({"id": [1, 2]}), contracts)
-    monkeypatch.setattr(
-        pq.ParquetFile,
-        "iter_batches",
-        lambda *args, **kwargs: pytest.fail("known oversized group must fail before decoding"),
-    )
-    with pytest.raises(CollectionLimitError, match="row group"):
-        _read(tmp_path, result, contracts, policy=ReadPolicy(max_batch_bytes=1))
-
-
-def _worker_fixture(
-    tmp_path: Path,
-) -> tuple[
-    DatasetWriteResult[LocalReceipt], tuple[d.DatasetRowContract, d.DatasetRowSetContract], str
-]:
-    logical = make_sources().observe(ref.metric("sales.revenue"))
-    contracts = (logical.row_contract, logical.row_set_contract)
-    table = pa.table(
-        {
-            "entity_identity": pa.array(
-                [{"id": 1}, {"id": 2}], type=pa.struct([("id", pa.int64())])
-            ),
-            "revenue": [12.0, None],
-        }
-    )
-    result = _write(tmp_path, table, contracts)
-    return (
-        result,
-        contracts,
-        storage._read_request(tmp_path, result.primary_receipt, *contracts, ReadPolicy()),
-    )
-
-
-@pytest.mark.runtime
-def test_supervised_collection_decodes_only_retained_authority(tmp_path: Path) -> None:
-    result, contracts, _ = _worker_fixture(tmp_path)
-    frame = storage.read_primary(
-        project_root=tmp_path,
-        receipt=result.primary_receipt,
-        row_contract=contracts[0],
-        row_set_contract=contracts[1],
-    )
-    assert frame["entity_identity"].tolist() == [(1,), (2,)]
-    assert frame.loc[0, "revenue"] == 12.0
-    assert pd.isna(frame.loc[1, "revenue"])
-
-
-@pytest.mark.runtime
-def test_supervised_read_does_not_reexecute_unguarded_caller_script(tmp_path: Path) -> None:
-    _, _, payload = _worker_fixture(tmp_path)
-    payload_file = tmp_path / "request.json"
-    payload_file.write_text(payload)
-    counter = tmp_path / "caller.txt"
-    script = tmp_path / "caller.py"
-    script.write_text(
-        "from pathlib import Path\n"
-        "from marivo.analysis.materialization.storage import _supervise_read\n"
-        f"counter = Path({str(counter)!r})\n"
-        "counter.write_text(counter.read_text() + 'called\\n' if counter.exists() else 'called\\n')\n"
-        f"value = _supervise_read(Path({str(payload_file)!r}).read_text(), 20)\n"
-        "assert value['entity_identity'].tolist() == [(1,), (2,)]\n"
-    )
-    completed = subprocess.run(
-        [sys.executable, "-B", str(script)], capture_output=True, text=True, timeout=25, check=False
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert counter.read_text() == "called\n"
-
-
-class _StartedCollectionClock:
-    """Start this probe's deadline only after its selected stage has entered."""
-
-    def __init__(self, marker: Path) -> None:
-        self.marker = marker
-        self.origin = time.monotonic()
-        self.entered_at: float | None = None
-        self._initial_read = True
-
-    def monotonic(self) -> float:
-        if self._initial_read:
-            self._initial_read = False
-            return self.origin
-        if self.entered_at is None:
-            startup_deadline = self.origin + 30
-            while not self.marker.exists():
-                assert time.monotonic() < startup_deadline, (
-                    "The collection worker did not enter its selected stage within 30 seconds."
-                )
-                threading.Event().wait(0.01)
-            os.kill(int(self.marker.read_text()), 0)
-            self.entered_at = time.monotonic()
-        return self.origin + time.monotonic() - self.entered_at
-
-
-@pytest.mark.parametrize("phase", ["decode", "hash", "pandas"])
-@pytest.mark.runtime
-def test_supervisor_terminates_a_genuinely_blocked_collection_stage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str
-) -> None:
-    _, _, payload = _worker_fixture(tmp_path)
-    marker = tmp_path / "blocked-worker.txt"
-    target = {
-        "decode": "storage.pq.ParquetFile.iter_batches",
-        "hash": "storage._hash_file",
-        "pandas": "storage._to_dataframe",
-    }[phase]
-    worker = (
-        "import os, threading\nfrom pathlib import Path\n"
-        "from marivo.analysis.materialization import storage\n"
-        "def blocked(*args, **kwargs):\n"
-        f"    marker = Path({str(marker)!r})\n"
-        "    pending = marker.with_suffix('.pending')\n"
-        "    pending.write_text(str(os.getpid()))\n"
-        "    pending.replace(marker)\n"
-        "    threading.Event().wait()\n"
-        f"{target} = blocked\n"
-        "storage._read_worker_entry()\n"
-    )
-    clock = _StartedCollectionClock(marker)
-    monkeypatch.setattr(storage, "time", clock)
-    with pytest.raises(CollectionLimitError, match="deadline"):
-        storage._supervise_read(payload, 0.25, worker_code=worker)
-    assert clock.entered_at is not None
-    assert time.monotonic() - clock.entered_at < 3
-    assert marker.exists(), "The actual requested collection stage must have started."
-    with pytest.raises(ProcessLookupError):
-        os.kill(int(marker.read_text()), 0)
-    assert not any(thread.name == "marivo-primary-read" for thread in threading.enumerate())
-
-
-@pytest.mark.runtime
-def test_supervisor_preserves_safe_typed_failure_without_traceback(tmp_path: Path) -> None:
-    _, _, payload = _worker_fixture(tmp_path)
-    worker = (
-        "from marivo.analysis.materialization import storage\n"
-        "def fail(*args, **kwargs):\n"
-        "    raise RuntimeError('PRIVATE_READ_FAILURE_CANARY')\n"
-        "storage._to_dataframe = fail\n"
-        "storage._read_worker_entry()\n"
-    )
-    with pytest.raises(MaterializationError) as caught:
-        storage._supervise_read(payload, 20, worker_code=worker)
-    assert "PRIVATE_READ_FAILURE_CANARY" not in str(caught.value)
-    assert caught.value.expected and caught.value.received and caught.value.repair
-
-
-def test_known_overlimit_collection_never_spawns_worker(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    result, contracts, _ = _worker_fixture(tmp_path)
-    monkeypatch.setattr(
-        subprocess,
-        "Popen",
-        lambda *args, **kwargs: pytest.fail("known row overflow must fail before spawning"),
-    )
-    with pytest.raises(CollectionLimitError):
-        storage.read_primary(
-            project_root=tmp_path,
-            receipt=result.primary_receipt,
-            row_contract=contracts[0],
-            row_set_contract=contracts[1],
-            policy=ReadPolicy(max_rows=1),
-        )
-
-
-@pytest.mark.runtime
-def test_collection_worker_never_opens_store_or_origin_or_writes_state(tmp_path: Path) -> None:
-    _, _, payload = _worker_fixture(tmp_path)
-    before = {
-        path.relative_to(tmp_path): path.read_bytes()
-        for path in tmp_path.rglob("*")
-        if path.is_file()
-    }
-    worker = (
-        "import sqlite3\nfrom pathlib import Path\n"
-        "from marivo.analysis.materialization import storage\n"
-        "from marivo.datasource import backends\n"
-        "from marivo.analysis.session.core import Session\n"
-        "def forbidden(*args, **kwargs):\n"
-        "    raise AssertionError('read crossed an origin or mutation boundary')\n"
-        "sqlite3.connect = forbidden\n"
-        "backends.build_backend = forbidden\n"
-        "backends.build_backend_with_secrets = forbidden\n"
-        "Session.__init__ = forbidden\n"
-        "Path.mkdir = forbidden\nPath.write_text = forbidden\nPath.write_bytes = forbidden\n"
-        "storage._read_worker_entry()\n"
-    )
-    value = storage._supervise_read(payload, 20, worker_code=worker)
-    assert value["entity_identity"].tolist() == [(1,), (2,)]
-    assert before == {
-        path.relative_to(tmp_path): path.read_bytes()
-        for path in tmp_path.rglob("*")
-        if path.is_file()
-    }
-
-
-@pytest.mark.parametrize("payload", ["x" * 16384, "\u00e9" * 16384], ids=["ascii", "utf8"])
-def test_wide_string_primary_read_checks_actual_bytes_and_predecode_bound(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: str
-) -> None:
+def test_complete_wide_primary_and_binary_part_without_batch_rejection(tmp_path: Path) -> None:
+    payload = "x" * (8_388_608 + 1)
+    binary = b"y" * (8_388_608 + 1)
     contracts = _contracts((("id", "int64", False), ("payload", "string", True)))
-    table = pa.table({"id": [1, 2], "payload": [payload, payload]})
-    result = _write(tmp_path, table, contracts)
-
-    def read(policy: ReadPolicy) -> pa.Table:
-        return storage._read(
-            project_root=tmp_path,
-            receipt=result.primary_receipt,
-            row_contract=contracts[0],
-            row_set_contract=contracts[1],
-            preview=False,
-            policy=policy,
-        )
-
-    decoded = read(ReadPolicy()).nbytes
-    assert read(ReadPolicy(max_decoded_bytes=decoded))["payload"].to_pylist() == [payload, payload]
-    with pytest.raises(CollectionLimitError, match="decoded byte limit"):
-        read(ReadPolicy(max_decoded_bytes=decoded - 1))
-    monkeypatch.setattr(
-        pq.ParquetFile,
-        "iter_batches",
-        lambda *args, **kwargs: pytest.fail("oversized variable-width group must not be decoded"),
-    )
-    with pytest.raises(CollectionLimitError, match="row group"):
-        _read(tmp_path, result, contracts, policy=ReadPolicy(max_batch_bytes=1024))
-
-
-def test_large_binary_required_part_read_is_bounded_before_local_collection(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo.analysis.materialization.local import LocalBudget, LocalPolicy, collect_part
-
-    contracts = _contracts((("id", "int64", False),))
-    payload = b"x" * 16384
-    table = pa.table(
-        {"id": [1, 2], "payload": pa.array([payload, payload], type=pa.large_binary())}
-    )
+    table = pa.table({"id": [1], "payload": [payload], "state": [binary]})
     result = _write(
         tmp_path,
         table,
         contracts,
-        parts=(PartWriteSpec("binary_state", "test.binary", 1, ("id", "payload")),),
+        parts=(PartWriteSpec("binary_state", "fixture.binary", 1, ("id", "state")),),
     )
+    assert _read(tmp_path, result, contracts)["payload"].tolist() == [payload]
     selected = result.retained_parts[0]
-    schema = table.schema
-    batches = list(storage.read_part_batches(tmp_path, selected, expected_schema=schema))
-    decoded = sum(batch.nbytes for batch in batches)
-    for limit in (decoded, decoded - 1):
-        budget = LocalBudget(replace(LocalPolicy(), max_input_bytes=limit), time.monotonic() + 60)
-        incoming = storage.read_part_batches(tmp_path, selected, expected_schema=schema)
-        if limit == decoded:
-            assert collect_part(incoming, schema, ("id",), budget)["payload"].to_pylist() == [
-                payload,
-                payload,
-            ]
-        else:
-            with pytest.raises(MaterializationError, match="combined input overflow"):
-                collect_part(incoming, schema, ("id",), budget)
-    monkeypatch.setattr(
-        pq.ParquetFile,
-        "iter_batches",
-        lambda *args, **kwargs: pytest.fail("oversized binary group must not be decoded"),
-    )
-    with pytest.raises(CollectionLimitError, match="row group"):
-        list(
-            storage.read_part_batches(
-                tmp_path, selected, expected_schema=schema, policy=ReadPolicy(max_batch_bytes=1024)
-            )
+    batches = list(
+        storage.read_part_batches(
+            tmp_path,
+            selected,
+            expected_schema=table.select(["id", "state"]).schema,
         )
+    )
+    assert pa.Table.from_batches(batches)["state"].to_pylist() == [binary]
+
+
+def test_writer_cleanup_failure_preserves_original_stream_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contracts = _contracts((("id", "int64", False), ("amount", "float64", True)))
+    original = ValueError("stream failed")
+    cause = RuntimeError("upstream failure")
+    original_close = pq.ParquetWriter.close
+    close_failures: list[str] = []
+
+    def failed_close(writer: pq.ParquetWriter) -> None:
+        original_close(writer)
+        if not close_failures:
+            close_failures.append("cleanup failed")
+            raise RuntimeError("cleanup failed")
+
+    def batches() -> Iterator[pa.RecordBatch]:
+        yield pa.record_batch({"id": [1], "amount": [1.0]})
+        raise original from cause
+
+    monkeypatch.setattr(pq.ParquetWriter, "close", failed_close)
+    with pytest.raises(ValueError) as caught:
+        storage.write_local_dataset(
+            project_root=tmp_path,
+            staging_path=tmp_path / "run" / "staging",
+            final_path=tmp_path / "artifacts" / "result",
+            batches=batches(),
+            row_contract=contracts[0],
+            row_set_contract=contracts[1],
+            event=lambda name: None,
+        )
+    assert close_failures == ["cleanup failed"]
+    assert caught.value is original and caught.value.__cause__ is cause
+    assert not (tmp_path / "artifacts" / "result").exists()

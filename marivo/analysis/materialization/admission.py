@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import time
+import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
@@ -90,9 +90,7 @@ from marivo.analysis.materialization.duckdb_execution import (
 )
 from marivo.analysis.materialization.duckdb_statements import attribution_summary_sql
 from marivo.analysis.materialization.errors import (
-    IntegrityError,
     MaterializationError,
-    RecoveryPendingError,
 )
 from marivo.analysis.materialization.event_codec import EventEvidenceSummary
 from marivo.analysis.materialization.event_reducer_codec import (
@@ -108,8 +106,7 @@ from marivo.analysis.materialization.lifecycle_reducer_codec import (
     LifecycleReducerEvidence,
     LifecycleSelectionEvidence,
 )
-from marivo.analysis.materialization.local import LocalPolicy
-from marivo.analysis.materialization.local_worker import (
+from marivo.analysis.materialization.local_execution import (
     ArtifactInput,
     LocalBoundary,
     LocalGraphRequest,
@@ -118,7 +115,7 @@ from marivo.analysis.materialization.local_worker import (
     LocalResult,
     LocalStage,
     StreamInput,
-    supervise,
+    execute_local,
 )
 from marivo.analysis.materialization.ownership import owns_resource
 from marivo.analysis.materialization.publication import make_descriptor, materialization_contract
@@ -160,7 +157,6 @@ from marivo.analysis.materialization.targets import (
     selection_error,
 )
 from marivo.analysis.materialization.validation import compile_preparations, execute_batch
-from marivo.analysis.materialization.worker_lifetime import reserve_worker
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
     MetricPayload,
@@ -181,7 +177,6 @@ from marivo.analysis.operators.association import (
     MaterializedAssociationDataset,
 )
 from marivo.analysis.operators.association_contracts import (
-    MAX_CANDIDATES,
     AssociationSearchSummary,
     CorrelatePayload,
     CorrelateSpecV1,
@@ -242,12 +237,8 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.validator import Registry, normalize_target_entity
 
-_MAX_BATCH_BYTES = 8_388_608
-# Engine work and retained collection have separate deadlines and cancellation owners.
-_SOURCE_EXECUTION_DEADLINE_SECONDS = 60.0
 _PREVIEW_MAX_OUTPUT_BYTES = 8192
 _READ_POLICY = ReadPolicy()
-_LOCAL_POLICY = LocalPolicy()
 _DEFAULT_TARGET = LocalTarget()
 
 
@@ -264,8 +255,6 @@ class ExecutionStatistics:
     events: dict[str, int] = field(default_factory=dict)
     statements: list[tuple[str, str]] = field(default_factory=list)
     local_handoffs: tuple[tuple[int, int], ...] = ()
-    worker_pid: int | None = None
-    worker_peak_rss: int = 0
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -290,14 +279,13 @@ class _ReservedJsonReader:
     def read_json(self, path: str, *, columns: Mapping[str, str], format: str = "auto") -> ir.Table:
         self.record(
             "source_fence_reader",
-            json_statement(self.name, path, columns, format, _MAX_BATCH_BYTES),
+            json_statement(self.name, path, columns, format),
         )
         return self.backend.read_json(
             path,
             table_name=self.name,
             columns=columns,
             format=format,
-            maximum_object_size=_MAX_BATCH_BYTES,
         )
 
 
@@ -312,18 +300,12 @@ def _local_output_batches(table: pa.Table) -> list[pa.RecordBatch]:
 
 def _error(stage: str, run_ref: str | None = None) -> MaterializationError:
     return MaterializationError(
-        expected="a supported, complete and bounded registered Dataset execution",
+        expected="a supported and complete registered Dataset execution",
         received="the admitted action could not complete its current phase",
         repair="Inspect the safe Run phase, correct its source or resource requirement, and retry.",
         stage=stage,
         run_ref=run_ref,
     )
-
-
-@contextmanager
-def _engine_deadline(backend: ExecutionAdapter) -> Iterator[None]:
-    with backend.deadline(_SOURCE_EXECUTION_DEADLINE_SECONDS):
-        yield
 
 
 def _declared_table(
@@ -370,7 +352,6 @@ class DatasetRuntime:
         session_ref: str,
         *,
         event: Callable[[str], None] | None = None,
-        local_policy: LocalPolicy = _LOCAL_POLICY,
         target: MaterializationTarget | ProjectTarget = _DEFAULT_TARGET,
         object_bindings: tuple[ObjectBinding, ...] = (),
         event_coverage_provider: EventCoverageProvider | None = None,
@@ -386,7 +367,6 @@ class DatasetRuntime:
         self.target = target
         self.object_bindings = object_bindings
         self.event_coverage_provider = event_coverage_provider
-        self.local_policy = local_policy
         self.session_ref = session_ref
         self._hook = event
         self.statistics = ExecutionStatistics()
@@ -521,7 +501,7 @@ class DatasetRuntime:
     def recent(
         project_root: Path, *, limit: int = 20, cursor: str | None = None
     ) -> SessionSummaryPage:
-        """Read existing v3 Session history without creating or activating a Session."""
+        """Read existing v4 Session history without creating or activating a Session."""
         _lazy_runtime_reads.page_after(limit, cursor, operation="recent")
         return _lazy_history.recent(
             SessionStore.open_existing(project_root), limit=limit, cursor=cursor
@@ -531,7 +511,7 @@ class DatasetRuntime:
     def inspect(
         project_root: Path, name: str, *, run_limit: int = 5, run_cursor: str | None = None
     ) -> SessionInspection:
-        """Read a named existing v3 Session and one bounded Run page."""
+        """Read a named existing v4 Session and one bounded Run page."""
         _lazy_runtime_reads.page_after(run_limit, run_cursor, operation="inspect")
         return _lazy_history.inspect(
             SessionStore.open_existing(project_root),
@@ -991,7 +971,6 @@ class DatasetRuntime:
             execution: ResourceRecord | None = None
             opening = False
             phase = "storage_selection"
-            pending_error: MaterializationError | None = None
             object_bindings = self.object_bindings
             try:
                 from marivo.analysis.materialization.project_storage import configured_target
@@ -1072,13 +1051,12 @@ class DatasetRuntime:
                                 native_summary,
                             )
 
-                            with _engine_deadline(proof_backend):
-                                lifecycle_summary = native_summary(
-                                    proof_backend,
-                                    proof_recipe,
-                                    source_boundary.dataset.row_contract,
-                                    self._record_statement,
-                                )
+                            lifecycle_summary = native_summary(
+                                proof_backend,
+                                proof_recipe,
+                                source_boundary.dataset.row_contract,
+                                self._record_statement,
+                            )
                         if proof_recipe.lifecycle_reducer_coverage is not None and (
                             isinstance(
                                 source_boundary.dataset.row_contract.family_semantics, REDUCER_TYPES
@@ -1089,18 +1067,16 @@ class DatasetRuntime:
                                 native_summary as continuation_summary,
                             )
 
-                            with _engine_deadline(proof_backend):
-                                lifecycle_summary = continuation_summary(
-                                    proof_backend,
-                                    proof_recipe,
-                                    source_boundary.dataset.row_contract,
-                                    self._record_statement,
-                                    filtered=isinstance(
-                                        source_boundary.dataset._root, LogicalRootHandle
-                                    )
-                                    and source_boundary.dataset._root.operator_id
-                                    == "lifecycle.where",
+                            lifecycle_summary = continuation_summary(
+                                proof_backend,
+                                proof_recipe,
+                                source_boundary.dataset.row_contract,
+                                self._record_statement,
+                                filtered=isinstance(
+                                    source_boundary.dataset._root, LogicalRootHandle
                                 )
+                                and source_boundary.dataset._root.operator_id == "lifecycle.where",
+                            )
                         if proof_recipe.event_proof is not None:
                             from marivo.analysis.materialization.event_codec import (
                                 summary_from_proof,
@@ -1108,23 +1084,22 @@ class DatasetRuntime:
 
                             if proof_recipe.event_coverage is None:
                                 raise _error("output_validation", run.run_ref)
-                            with _engine_deadline(proof_backend):
-                                self._record_statement(
-                                    "event.journey_summary",
-                                    proof_backend.compile(proof_recipe.event_proof),
+                            self._record_statement(
+                                "event.journey_summary",
+                                proof_backend.compile(proof_recipe.event_proof),
+                            )
+                            self._event("source_statement")
+                            checked_event = proof_backend.read_table(
+                                proof_backend.prepare(
+                                    proof_recipe.event_proof, role="event.journey_summary"
                                 )
-                                self._event("source_statement")
-                                checked_event = proof_backend.read_table(
-                                    proof_backend.prepare(
-                                        proof_recipe.event_proof, role="event.journey_summary"
-                                    )
-                                )
-                                if checked_event.num_rows != 1:
-                                    raise _error("output_validation", run.run_ref)
-                                event_summary = summary_from_proof(
-                                    checked_event.to_pylist()[0], proof_recipe.event_coverage
-                                )
-                                boundary_validations.append(("event.journey_output", 0))
+                            )
+                            if checked_event.num_rows != 1:
+                                raise _error("output_validation", run.run_ref)
+                            event_summary = summary_from_proof(
+                                checked_event.to_pylist()[0], proof_recipe.event_coverage
+                            )
+                            boundary_validations.append(("event.journey_output", 0))
                         if proof_recipe.event_reducer_proof is not None:
                             from marivo.analysis.materialization.event_reducer_codec import (
                                 summary_from_proof as reducer_summary,
@@ -1132,26 +1107,25 @@ class DatasetRuntime:
 
                             if proof_recipe.event_reducer_coverage is None:
                                 raise _error("output_validation", run.run_ref)
-                            with _engine_deadline(proof_backend):
-                                self._record_statement(
-                                    "event.reducer_summary",
-                                    proof_backend.compile(proof_recipe.event_reducer_proof),
+                            self._record_statement(
+                                "event.reducer_summary",
+                                proof_backend.compile(proof_recipe.event_reducer_proof),
+                            )
+                            self._event("source_statement")
+                            checked_reducer = proof_backend.read_table(
+                                proof_backend.prepare(
+                                    proof_recipe.event_reducer_proof,
+                                    role="event.reducer_summary",
                                 )
-                                self._event("source_statement")
-                                checked_reducer = proof_backend.read_table(
-                                    proof_backend.prepare(
-                                        proof_recipe.event_reducer_proof,
-                                        role="event.reducer_summary",
-                                    )
-                                )
-                                if checked_reducer.num_rows != 1:
-                                    raise _error("output_validation", run.run_ref)
-                                event_summary = reducer_summary(
-                                    str(source_boundary.dataset.row_contract.shape_id),
-                                    checked_reducer.to_pylist()[0],
-                                    proof_recipe.event_reducer_coverage,
-                                )
-                                boundary_validations.append(("event.reducer_output", 0))
+                            )
+                            if checked_reducer.num_rows != 1:
+                                raise _error("output_validation", run.run_ref)
+                            event_summary = reducer_summary(
+                                str(source_boundary.dataset.row_contract.shape_id),
+                                checked_reducer.to_pylist()[0],
+                                proof_recipe.event_reducer_coverage,
+                            )
+                            boundary_validations.append(("event.reducer_output", 0))
                         if proof_recipe.selection_proof is not None:
                             from marivo.analysis.materialization.event_reducer_codec import (
                                 selection_summary_from_proof,
@@ -1163,27 +1137,26 @@ class DatasetRuntime:
                                 or proof_recipe.selection_input_definition is None
                             ):
                                 raise _error("output_validation", run.run_ref)
-                            with _engine_deadline(proof_backend):
-                                self._record_statement(
-                                    "event.selection_summary",
-                                    proof_backend.compile(proof_recipe.selection_proof),
+                            self._record_statement(
+                                "event.selection_summary",
+                                proof_backend.compile(proof_recipe.selection_proof),
+                            )
+                            self._event("source_statement")
+                            checked_selection = proof_backend.read_table(
+                                proof_backend.prepare(
+                                    proof_recipe.selection_proof, role="event.selection_summary"
                                 )
-                                self._event("source_statement")
-                                checked_selection = proof_backend.read_table(
-                                    proof_backend.prepare(
-                                        proof_recipe.selection_proof, role="event.selection_summary"
-                                    )
-                                )
-                                if checked_selection.num_rows != 1:
-                                    raise _error("output_validation", run.run_ref)
-                                selection_summary = selection_summary_from_proof(
-                                    checked_selection.to_pylist()[0],
-                                    proof_recipe.selection_coverage,
-                                    journey=proof_recipe.selection_payload.journey,
-                                    step=proof_recipe.selection_payload.selection.step,
-                                    input_definition=proof_recipe.selection_input_definition,
-                                )
-                                boundary_validations.append(("event.selection_output", 0))
+                            )
+                            if checked_selection.num_rows != 1:
+                                raise _error("output_validation", run.run_ref)
+                            selection_summary = selection_summary_from_proof(
+                                checked_selection.to_pylist()[0],
+                                proof_recipe.selection_coverage,
+                                journey=proof_recipe.selection_payload.journey,
+                                step=proof_recipe.selection_payload.selection.step,
+                                input_definition=proof_recipe.selection_input_definition,
+                            )
+                            boundary_validations.append(("event.selection_output", 0))
                         if proof_recipe.candidate_proof is not None:
                             from marivo.analysis.compiler.entity_candidate import (
                                 decode_candidate_proof,
@@ -1191,76 +1164,71 @@ class DatasetRuntime:
 
                             if proof_recipe.candidate_definition is None:
                                 raise _error("implementation_registration", run.run_ref)
-                            with _engine_deadline(proof_backend):
-                                self._record_statement(
-                                    "candidate.driver_summary"
-                                    if isinstance(
-                                        proof_recipe.candidate_definition, DriverCandidateDefinition
-                                    )
-                                    else "candidate.entity_summary",
-                                    proof_backend.compile(proof_recipe.candidate_proof),
-                                )
-                                self._event("source_statement")
-                                scalar_proof = proof_backend.read_table(
-                                    proof_backend.prepare(
-                                        proof_recipe.candidate_proof,
-                                        role="candidate.driver_summary"
-                                        if isinstance(
-                                            proof_recipe.candidate_definition,
-                                            DriverCandidateDefinition,
-                                        )
-                                        else "candidate.entity_summary",
-                                    )
-                                )
-                                if scalar_proof.num_rows != 1:
-                                    raise _error("output_validation", run.run_ref)
+                            self._record_statement(
+                                "candidate.driver_summary"
                                 if isinstance(
                                     proof_recipe.candidate_definition, DriverCandidateDefinition
-                                ):
-                                    from marivo.analysis.compiler.driver_candidate import (
-                                        decode_driver_candidate_proof,
+                                )
+                                else "candidate.entity_summary",
+                                proof_backend.compile(proof_recipe.candidate_proof),
+                            )
+                            self._event("source_statement")
+                            scalar_proof = proof_backend.read_table(
+                                proof_backend.prepare(
+                                    proof_recipe.candidate_proof,
+                                    role="candidate.driver_summary"
+                                    if isinstance(
+                                        proof_recipe.candidate_definition,
+                                        DriverCandidateDefinition,
                                     )
+                                    else "candidate.entity_summary",
+                                )
+                            )
+                            if scalar_proof.num_rows != 1:
+                                raise _error("output_validation", run.run_ref)
+                            if isinstance(
+                                proof_recipe.candidate_definition, DriverCandidateDefinition
+                            ):
+                                from marivo.analysis.compiler.driver_candidate import (
+                                    decode_driver_candidate_proof,
+                                )
 
-                                    candidate_summary = decode_driver_candidate_proof(
-                                        scalar_proof.to_pylist()[0],
-                                        proof_recipe.candidate_definition,
-                                    )
-                                else:
-                                    candidate_summary = decode_candidate_proof(
-                                        scalar_proof.to_pylist()[0],
-                                        proof_recipe.candidate_definition,
-                                    )
+                                candidate_summary = decode_driver_candidate_proof(
+                                    scalar_proof.to_pylist()[0],
+                                    proof_recipe.candidate_definition,
+                                )
+                            else:
+                                candidate_summary = decode_candidate_proof(
+                                    scalar_proof.to_pylist()[0],
+                                    proof_recipe.candidate_definition,
+                                )
                         if proof_recipe.association_proof is not None:
                             from marivo.analysis.operators.association_values import (
                                 summarize_search,
                             )
 
-                            with _engine_deadline(proof_backend):
-                                proof_sql = proof_backend.compile(proof_recipe.association_proof)
-                                self._record_statement("association.search_summary", proof_sql)
-                                self._event("source_statement")
-                                proof_table = proof_backend.read_table(
-                                    proof_backend.prepare(
-                                        proof_recipe.association_proof,
-                                        role="association.search_summary",
-                                    )
+                            proof_sql = proof_backend.compile(proof_recipe.association_proof)
+                            self._record_statement("association.search_summary", proof_sql)
+                            self._event("source_statement")
+                            proof_table = proof_backend.read_table(
+                                proof_backend.prepare(
+                                    proof_recipe.association_proof,
+                                    role="association.search_summary",
                                 )
-                                if proof_table.num_rows > MAX_CANDIDATES:
-                                    raise _error("output_validation", run.run_ref)
-                                association_summary = summarize_search(
-                                    proof_table.to_pandas(types_mapper=pd.ArrowDtype),
-                                    source_boundary.dataset.row_contract,
-                                )
+                            )
+                            association_summary = summarize_search(
+                                proof_table.to_pandas(types_mapper=pd.ArrowDtype),
+                                source_boundary.dataset.row_contract,
+                            )
                         if (
                             proof_recipe.attribution_proof is not None
                             and source_boundary.dataset.kind == "attribution"
                         ):
-                            with _engine_deadline(proof_backend):
-                                attribution_summary = self._attribution_source_summary(
-                                    proof_backend,
-                                    proof_recipe.attribution_proof,
-                                    source_boundary.dataset.row_contract,
-                                )
+                            attribution_summary = self._attribution_source_summary(
+                                proof_backend,
+                                proof_recipe.attribution_proof,
+                                source_boundary.dataset.row_contract,
+                            )
                         validations.extend(
                             (
                                 f"source.{source_boundary.output}.{name}"
@@ -1273,153 +1241,150 @@ class DatasetRuntime:
                     if not physical.local_steps:
                         if source_step is None:
                             raise _error("execution_boundary", run.run_ref)
-                        current_backend, recipe, tables = prepared[source_step.output]
-                        with _engine_deadline(current_backend):
-                            if (
-                                dataset.kind == "candidate"
-                                and dataset.row_contract.shape_id.local_shape_id == "entity-outlier"
-                            ):
-                                from marivo.analysis.compiler.entity_candidate import (
-                                    entity_candidate_output_proof,
-                                )
-
-                                if (
-                                    candidate_summary is None
-                                    or not isinstance(
-                                        candidate_summary.evaluation,
-                                        EntityCandidateEvaluationSummary,
-                                    )
-                                    or not isinstance(
-                                        candidate_summary.definition, CandidateDefinition
-                                    )
-                                ):
-                                    raise _error("output_validation", run.run_ref)
-                                output_proof = entity_candidate_output_proof(
-                                    recipe.expression,
-                                    dataset.row_contract,
-                                    candidate_summary.definition,
-                                    evaluation=candidate_summary.evaluation,
-                                )
-                                self._record_statement(
-                                    "candidate.entity_output",
-                                    current_backend.compile(output_proof),
-                                )
-                                self._event("source_statement")
-                                checked = current_backend.read_table(
-                                    current_backend.prepare(
-                                        output_proof, role="candidate.entity_output"
-                                    )
-                                )
-                                if (
-                                    checked.column_names != ["violations"]
-                                    or checked.num_rows != 1
-                                    or checked["violations"][0].as_py() != 0
-                                ):
-                                    raise _error("output_validation", run.run_ref)
-                                validations.append(("candidate.entity_output", 0))
-                            if (
-                                dataset.kind == "candidate"
-                                and dataset.row_contract.shape_id.local_shape_id == "driver-axis"
-                            ):
-                                from marivo.analysis.compiler.driver_candidate import (
-                                    driver_candidate_output_proof,
-                                )
-
-                                if (
-                                    candidate_summary is None
-                                    or not isinstance(
-                                        candidate_summary.definition, DriverCandidateDefinition
-                                    )
-                                    or not isinstance(
-                                        candidate_summary.evaluation,
-                                        DriverCandidateEvaluationSummary,
-                                    )
-                                ):
-                                    raise _error("output_validation", run.run_ref)
-                                driver_proof = driver_candidate_output_proof(
-                                    recipe.expression,
-                                    dataset.row_contract,
-                                    candidate_summary.definition,
-                                    evaluation=candidate_summary.evaluation,
-                                )
-                                self._record_statement(
-                                    "candidate.driver_output", current_backend.compile(driver_proof)
-                                )
-                                self._event("source_statement")
-                                checked_driver = current_backend.read_table(
-                                    current_backend.prepare(
-                                        driver_proof, role="candidate.driver_output"
-                                    )
-                                )
-                                if (
-                                    checked_driver.column_names != ["violations"]
-                                    or checked_driver.num_rows != 1
-                                    or checked_driver["violations"][0].as_py() != 0
-                                ):
-                                    raise _error("output_validation", run.run_ref)
-                                validations.append(("candidate.driver_output", 0))
-                            from marivo.analysis.compiler.nodes import RetainedRelationSpec
-                            from marivo.analysis.materialization.retained import (
-                                validate_source_private_relation,
+                        current_backend, recipe, _tables = prepared[source_step.output]
+                        if (
+                            dataset.kind == "candidate"
+                            and dataset.row_contract.shape_id.local_shape_id == "entity-outlier"
+                        ):
+                            from marivo.analysis.compiler.entity_candidate import (
+                                entity_candidate_output_proof,
                             )
 
-                            for part in recipe.retained_parts:
-                                if isinstance(part, RetainedRelationSpec):
-                                    validate_source_private_relation(
-                                        current_backend,
-                                        part.expression,
-                                        recipe.expression.select(recipe.primary_columns),
-                                        dataset.row_contract,
-                                        part.role,
-                                        self._record_statement,
-                                    )
-                            independent_parts = tuple(
-                                IndependentPartWrite(
-                                    part.role,
-                                    self._batches(
-                                        current_backend,
-                                        part.expression,
-                                        self._batch_rows(current_backend, tables, part.expression),
-                                    ),
+                            if (
+                                candidate_summary is None
+                                or not isinstance(
+                                    candidate_summary.evaluation,
+                                    EntityCandidateEvaluationSummary,
                                 )
-                                for part in recipe.retained_parts
-                                if isinstance(part, RetainedRelationSpec)
-                            )
-                            incoming = self._batches(
-                                current_backend,
+                                or not isinstance(candidate_summary.definition, CandidateDefinition)
+                            ):
+                                raise _error("output_validation", run.run_ref)
+                            output_proof = entity_candidate_output_proof(
                                 recipe.expression,
-                                self._batch_rows(current_backend, tables, recipe.expression),
+                                dataset.row_contract,
+                                candidate_summary.definition,
+                                evaluation=candidate_summary.evaluation,
                             )
-                            output_parts = tuple(
-                                PartWriteSpec(
-                                    part.role,
-                                    part.contract_id,
-                                    part.contract_version,
-                                    part.column_names,
+                            self._record_statement(
+                                "candidate.entity_output",
+                                current_backend.compile(output_proof),
+                            )
+                            self._event("source_statement")
+                            checked = current_backend.read_table(
+                                current_backend.prepare(
+                                    output_proof, role="candidate.entity_output"
                                 )
-                                for part in recipe.retained_parts
-                                if isinstance(part, RetainedPartSpec)
                             )
-                            phase = "storage_staging"
-                            artifact_ref, storage = self._write_output(
-                                dataset,
-                                incoming,
-                                run.run_ref,
-                                parts=output_parts,
-                                independent_parts=independent_parts,
-                                sampling=tuple(sampling),
-                                source_key_validation=True,
-                                target=target,
-                                object_bindings=object_bindings,
+                            if (
+                                checked.column_names != ["violations"]
+                                or checked.num_rows != 1
+                                or checked["violations"][0].as_py() != 0
+                            ):
+                                raise _error("output_validation", run.run_ref)
+                            validations.append(("candidate.entity_output", 0))
+                        if (
+                            dataset.kind == "candidate"
+                            and dataset.row_contract.shape_id.local_shape_id == "driver-axis"
+                        ):
+                            from marivo.analysis.compiler.driver_candidate import (
+                                driver_candidate_output_proof,
                             )
+
+                            if (
+                                candidate_summary is None
+                                or not isinstance(
+                                    candidate_summary.definition, DriverCandidateDefinition
+                                )
+                                or not isinstance(
+                                    candidate_summary.evaluation,
+                                    DriverCandidateEvaluationSummary,
+                                )
+                            ):
+                                raise _error("output_validation", run.run_ref)
+                            driver_proof = driver_candidate_output_proof(
+                                recipe.expression,
+                                dataset.row_contract,
+                                candidate_summary.definition,
+                                evaluation=candidate_summary.evaluation,
+                            )
+                            self._record_statement(
+                                "candidate.driver_output", current_backend.compile(driver_proof)
+                            )
+                            self._event("source_statement")
+                            checked_driver = current_backend.read_table(
+                                current_backend.prepare(
+                                    driver_proof, role="candidate.driver_output"
+                                )
+                            )
+                            if (
+                                checked_driver.column_names != ["violations"]
+                                or checked_driver.num_rows != 1
+                                or checked_driver["violations"][0].as_py() != 0
+                            ):
+                                raise _error("output_validation", run.run_ref)
+                            validations.append(("candidate.driver_output", 0))
+                        from marivo.analysis.compiler.nodes import RetainedRelationSpec
+                        from marivo.analysis.materialization.retained import (
+                            validate_source_private_relation,
+                        )
+
+                        for part in recipe.retained_parts:
+                            if isinstance(part, RetainedRelationSpec):
+                                validate_source_private_relation(
+                                    current_backend,
+                                    part.expression,
+                                    recipe.expression.select(recipe.primary_columns),
+                                    dataset.row_contract,
+                                    part.role,
+                                    self._record_statement,
+                                )
+                        independent_parts = tuple(
+                            IndependentPartWrite(
+                                part.role,
+                                self._batches(
+                                    current_backend,
+                                    part.expression,
+                                    1024,
+                                ),
+                            )
+                            for part in recipe.retained_parts
+                            if isinstance(part, RetainedRelationSpec)
+                        )
+                        incoming = self._batches(
+                            current_backend,
+                            recipe.expression,
+                            1024,
+                        )
+                        output_parts = tuple(
+                            PartWriteSpec(
+                                part.role,
+                                part.contract_id,
+                                part.contract_version,
+                                part.column_names,
+                            )
+                            for part in recipe.retained_parts
+                            if isinstance(part, RetainedPartSpec)
+                        )
+                        phase = "storage_staging"
+                        artifact_ref, storage = self._write_output(
+                            dataset,
+                            incoming,
+                            run.run_ref,
+                            parts=output_parts,
+                            independent_parts=independent_parts,
+                            sampling=tuple(sampling),
+                            source_key_validation=True,
+                            target=target,
+                            object_bindings=object_bindings,
+                        )
                     else:
                         boundaries: list[LocalBoundary] = []
                         streams: list[LocalInputStreams] = []
                         for step in physical.steps:
                             if isinstance(step, SourceStep):
-                                current_backend, recipe, tables = prepared[step.output]
+                                current_backend, recipe, _tables = prepared[step.output]
                                 if step.correlation_preparation:
-                                    from marivo.analysis.materialization.local_worker import (
+                                    from marivo.analysis.materialization.local_execution import (
                                         PairInput,
                                     )
 
@@ -1434,31 +1399,21 @@ class DatasetRuntime:
                                         )
                                     )
                                     self._record_statement("correlation_cardinality", count_sql)
-                                    with _engine_deadline(current_backend):
-                                        pair_count = current_backend.read_scalar(
-                                            current_backend.statement(
-                                                count_sql,
-                                                role="correlation_cardinality",
-                                                inputs=(
-                                                    current_backend.prepare(
-                                                        recipe.expression.aggregate(
-                                                            __mv_rows=recipe.expression.count()
-                                                        )
-                                                    ),
+                                    pair_count = current_backend.read_scalar(
+                                        current_backend.statement(
+                                            count_sql,
+                                            role="correlation_cardinality",
+                                            inputs=(
+                                                current_backend.prepare(
+                                                    recipe.expression.aggregate(
+                                                        __mv_rows=recipe.expression.count()
+                                                    )
                                                 ),
-                                            )
+                                            ),
                                         )
-                                    if type(pair_count) is not int or pair_count > min(
-                                        self.local_policy.max_input_rows,
-                                        self.local_policy.max_method_rows,
-                                    ):
-                                        raise MaterializationError(
-                                            expected="complete correlation pairs within local budgets",
-                                            received="correlation input count exceeds budget",
-                                            repair="Narrow Metrics, lags or observation scope.",
-                                            stage="transfer_guard",
-                                            run_ref=run.run_ref,
-                                        )
+                                    )
+                                    if type(pair_count) is not int or pair_count < 0:
+                                        raise _error("output_validation", run.run_ref)
                                     boundaries.append(
                                         LocalBoundary(
                                             step.output,
@@ -1470,15 +1425,13 @@ class DatasetRuntime:
                                             self._batches(
                                                 current_backend,
                                                 recipe.expression,
-                                                self._batch_rows(
-                                                    current_backend, tables, recipe.expression
-                                                ),
+                                                1024,
                                             )
                                         )
                                     )
                                     continue
                                 if step.distribution_preparation:
-                                    from marivo.analysis.materialization.local_worker import (
+                                    from marivo.analysis.materialization.local_execution import (
                                         CoalitionInput,
                                     )
                                     from marivo.analysis.operators.attribution_contracts import (
@@ -1500,33 +1453,27 @@ class DatasetRuntime:
                                         )
                                     )
                                     self._record_statement("distribution_cardinality", count_sql)
-                                    with _engine_deadline(current_backend):
-                                        expected_count: object = current_backend.read_scalar(
-                                            current_backend.statement(
-                                                count_sql,
-                                                role="distribution_cardinality",
-                                                inputs=(
-                                                    current_backend.prepare(
-                                                        recipe.expression.aggregate(
-                                                            __mv_rows=recipe.expression.count()
-                                                        )
-                                                    ),
+                                    expected_count: object = current_backend.read_scalar(
+                                        current_backend.statement(
+                                            count_sql,
+                                            role="distribution_cardinality",
+                                            inputs=(
+                                                current_backend.prepare(
+                                                    recipe.expression.aggregate(
+                                                        __mv_rows=recipe.expression.count()
+                                                    )
                                                 ),
-                                            )
+                                            ),
                                         )
+                                    )
                                     if (
                                         not isinstance(expected_count, int)
                                         or isinstance(expected_count, bool)
                                         or expected_count < 0
-                                        or expected_count
-                                        > min(
-                                            self.local_policy.max_input_rows,
-                                            self.local_policy.max_method_rows,
-                                        )
                                     ):
                                         raise MaterializationError(
-                                            expected="complete coalition input within registered row budgets",
-                                            received="distribution coalition count exceeds the action budget",
+                                            expected="a non-negative source-certified coalition count",
+                                            received="invalid coalition count",
                                             repair="Narrow comparison scopes or lower top_k before retrying.",
                                             stage="transfer_guard",
                                             run_ref=run.run_ref,
@@ -1544,9 +1491,7 @@ class DatasetRuntime:
                                             self._batches(
                                                 current_backend,
                                                 recipe.expression,
-                                                self._batch_rows(
-                                                    current_backend, tables, recipe.expression
-                                                ),
+                                                1024,
                                             )
                                         )
                                     )
@@ -1601,9 +1546,7 @@ class DatasetRuntime:
                                         self._batches(
                                             current_backend,
                                             recipe.expression,
-                                            self._batch_rows(
-                                                current_backend, tables, recipe.expression
-                                            ),
+                                            1024,
                                         )
                                     )
                                 )
@@ -2028,6 +1971,8 @@ class DatasetRuntime:
                 self._event("delivery")
                 return self._recover(record)
             except BaseException as exc:
+                if isinstance(exc, MaterializationError) and exc.run_ref is None:
+                    exc.run_ref = run.run_ref
                 if backend is not None:
                     try:
                         backend.disconnect()
@@ -2045,33 +1990,10 @@ class DatasetRuntime:
                     )
                     if recovered is not None:
                         return recovered
-                    pending_error = MaterializationError(
-                        expected=safe.expected or "a complete registered execution",
-                        received=safe.received or "execution failed",
-                        repair=safe.hint or "Inspect the safe Run and retry.",
-                        stage=safe.stage,
-                        run_ref=run.run_ref,
-                    )
-                except BaseException as recovery_error:
-                    if isinstance(recovery_error, IntegrityError):
-                        pending_error = IntegrityError(
-                            expected=recovery_error.expected or "consistent committed metadata",
-                            received=recovery_error.received or "metadata integrity failure",
-                            repair="Inspect the selected generation integrity.",
-                            stage="reconciliation",
-                            run_ref=run.run_ref,
-                        )
-                    else:
-                        pending_error = RecoveryPendingError(
-                            expected="authoritative Store readback and execution termination",
-                            received="the producing outcome remains unresolved",
-                            repair="Restore Store access and termination proof, then retry Session recovery.",
-                            stage="reconciliation",
-                            run_ref=run.run_ref,
-                        )
-            if pending_error is None:
-                raise _error("presentation", run.run_ref)
-            raise pending_error from None
+                except BaseException:
+                    # Recovery retains unresolved obligations; preserve the original failure.
+                    pass
+                raise
 
     @contextmanager
     def _prepared_source(
@@ -2105,8 +2027,6 @@ class DatasetRuntime:
         backend: ExecutionAdapter | None = None
         execution: ResourceRecord | None = None
         opening = False
-        phase = "authority_resolution"
-        yielded = False
         try:
             domain = source_step.binding.datasource_id
             candidate: object
@@ -2190,7 +2110,6 @@ class DatasetRuntime:
                     tables[entity.ref.path] = ibis.table(dict(entity.columns), name=name)
                 else:
                     raise _error("source_binding", run_ref)
-            phase = "ibis_expression_construction"
             event_coverages: dict[str, EventCoverageResolution] = {
                 reference: record.descriptor.event_evidence.coverage
                 for reference, record in records.items()
@@ -2208,25 +2127,22 @@ class DatasetRuntime:
 
                 for event_root in logical_roots(source_dataset):
                     if isinstance(event_root.payload, (EventPayload, LifecyclePayload)):
-                        phase = "source_binding"
-                        with _engine_deadline(backend):
-                            event_coverages[event_root.definition_fingerprint] = (
-                                backend.resolve_coverage(
-                                    event_root.payload.definition,
-                                    require_source_origin=isinstance(
-                                        event_root.payload, LifecyclePayload
-                                    ),
-                                    provider=self.event_coverage_provider,
-                                    source_binding_fingerprint=_canonical_digest(
-                                        tuple(
-                                            capture.identity_payload()
-                                            for capture in event_root.payload.captures
-                                        )
-                                    ),
-                                    execution_domain_id=engine_domain(source_step.binding),
-                                )
+                        event_coverages[event_root.definition_fingerprint] = (
+                            backend.resolve_coverage(
+                                event_root.payload.definition,
+                                require_source_origin=isinstance(
+                                    event_root.payload, LifecyclePayload
+                                ),
+                                provider=self.event_coverage_provider,
+                                source_binding_fingerprint=_canonical_digest(
+                                    tuple(
+                                        capture.identity_payload()
+                                        for capture in event_root.payload.captures
+                                    )
+                                ),
+                                execution_domain_id=engine_domain(source_step.binding),
                             )
-            phase = "ibis_expression_construction"
+                        )
             from marivo.analysis.materialization.retained import required_primary_input
 
             primary_inputs = {
@@ -2335,7 +2251,6 @@ class DatasetRuntime:
                     if recipe.preparations
                     else (),
                 )
-            phase = "ibis_backend_compile"
             self._event("backend_compile")
             backend.compile(recipe.expression)
             preparations = compile_preparations(
@@ -2357,107 +2272,101 @@ class DatasetRuntime:
                 for preparation in preparations
                 if isinstance(preparation, CompiledSampleFence)
             }
-            phase = "source_binding"
-            with _engine_deadline(backend):
-                from marivo.analysis.materialization.parquet_scan import validate_parquet_relation
+            from marivo.analysis.materialization.parquet_scan import validate_parquet_relation
 
-                for table, receipt, row in engine_inputs:
-                    validate_parquet_relation(backend, table, receipt, row, self._record_statement)
-                for entity in entities:
-                    if (
-                        isinstance(entity.source, TableSourceIR)
-                        and entity.ref.path not in checked_schemas
-                    ):
-                        self._validate_source_schema(backend, entity)
-                for fence in fences:
-                    for name in (fence.reader_name, fence.relation_name):
-                        self.store.reserve(
-                            ResourceRecord(
-                                run_ref=run_ref,
-                                resource_kind="planner_temporary_relation",
-                                execution_domain_id=domain,
-                                ownership_nonce=execution.ownership_nonce,
-                                cleanup_capability_id=execution.cleanup_capability_id,
-                                safe_locator=f"{execution.safe_locator}/{name}",
-                            )
+            for table, receipt, row in engine_inputs:
+                validate_parquet_relation(backend, table, receipt, row, self._record_statement)
+            for entity in entities:
+                if (
+                    isinstance(entity.source, TableSourceIR)
+                    and entity.ref.path not in checked_schemas
+                ):
+                    self._validate_source_schema(backend, entity)
+            for fence in fences:
+                for name in (fence.reader_name, fence.relation_name):
+                    self.store.reserve(
+                        ResourceRecord(
+                            run_ref=run_ref,
+                            resource_kind="planner_temporary_relation",
+                            execution_domain_id=domain,
+                            ownership_nonce=execution.ownership_nonce,
+                            cleanup_capability_id=execution.cleanup_capability_id,
+                            safe_locator=f"{execution.safe_locator}/{name}",
                         )
-                    self._event("source_statement")
-                    source_table = read_json_source(
-                        _ReservedJsonReader(backend, fence.reader_name, self._record_statement),
-                        fence.source,
-                        source_params=fence.parameters,
                     )
-                    fence_statement = backend.table_statement(fence.relation_name, source_table)
+                self._event("source_statement")
+                source_table = read_json_source(
+                    _ReservedJsonReader(backend, fence.reader_name, self._record_statement),
+                    fence.source,
+                    source_params=fence.parameters,
+                )
+                fence_statement = backend.table_statement(fence.relation_name, source_table)
+                self._record_statement("source_fence", fence_statement.sql)
+                backend.submit(fence_statement)
+                self.statistics.source_fences += 1
+            for validation in preparations:
+                if isinstance(validation, CompiledRelationFence):
+                    self.store.reserve(
+                        ResourceRecord(
+                            run_ref=run_ref,
+                            resource_kind="planner_temporary_relation",
+                            execution_domain_id=domain,
+                            ownership_nonce=execution.ownership_nonce,
+                            cleanup_capability_id=execution.cleanup_capability_id,
+                            safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
+                        )
+                    )
+                    self._event("source_statement")
+                    fence_statement = relation_statements[validation.relation_name]
                     self._record_statement("source_fence", fence_statement.sql)
                     backend.submit(fence_statement)
                     self.statistics.source_fences += 1
-            phase = "stage_execution"
-            with _engine_deadline(backend):
-                for validation in preparations:
-                    if isinstance(validation, CompiledRelationFence):
-                        self.store.reserve(
-                            ResourceRecord(
-                                run_ref=run_ref,
-                                resource_kind="planner_temporary_relation",
-                                execution_domain_id=domain,
-                                ownership_nonce=execution.ownership_nonce,
-                                cleanup_capability_id=execution.cleanup_capability_id,
-                                safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
-                            )
+                    continue
+                if isinstance(validation, CompiledSampleFence):
+                    self.store.reserve(
+                        ResourceRecord(
+                            run_ref=run_ref,
+                            resource_kind="planner_temporary_relation",
+                            execution_domain_id=domain,
+                            ownership_nonce=execution.ownership_nonce,
+                            cleanup_capability_id=execution.cleanup_capability_id,
+                            safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
                         )
-                        self._event("source_statement")
-                        fence_statement = relation_statements[validation.relation_name]
-                        self._record_statement("source_fence", fence_statement.sql)
-                        backend.submit(fence_statement)
-                        self.statistics.source_fences += 1
-                        continue
-                    if isinstance(validation, CompiledSampleFence):
-                        self.store.reserve(
-                            ResourceRecord(
-                                run_ref=run_ref,
-                                resource_kind="planner_temporary_relation",
-                                execution_domain_id=domain,
-                                ownership_nonce=execution.ownership_nonce,
-                                cleanup_capability_id=execution.cleanup_capability_id,
-                                safe_locator=f"{execution.safe_locator}/{validation.relation_name}",
-                            )
+                    )
+                    self._event("sampling_reserved")
+                    sampling.append(
+                        execute_sample(
+                            backend,
+                            validation,
+                            statement=sample_statements[validation.relation_name],
+                            ordinal=len(sampling),
+                            record=self._record_statement,
+                            event=self._event,
                         )
-                        self._event("sampling_reserved")
-                        sampling.append(
-                            execute_sample(
-                                backend,
-                                validation,
-                                statement=sample_statements[validation.relation_name],
-                                ordinal=len(sampling),
-                                record=self._record_statement,
-                                event=self._event,
-                            )
-                        )
-                        sampling_by_root[validation.root_identity] = sampling[-1]
-                        self.statistics.sampling_fences += 1
-                        self.statistics.validation_queries += 1
-                        validations.append((f"sampling.{len(sampling) - 1}.identity", 0))
-                        continue
-                    self._event("source_statement")
+                    )
+                    sampling_by_root[validation.root_identity] = sampling[-1]
+                    self.statistics.sampling_fences += 1
                     self.statistics.validation_queries += 1
-                    self._record_statement("validation_batch", validation.statement.sql)
-                    validations.extend(execute_batch(backend, validation, run_ref=run_ref))
-            yielded = True
+                    validations.append((f"sampling.{len(sampling) - 1}.identity", 0))
+                    continue
+                self._event("source_statement")
+                self.statistics.validation_queries += 1
+                self._record_statement("validation_batch", validation.statement.sql)
+                validations.extend(execute_batch(backend, validation, run_ref=run_ref))
             yield backend, recipe, tables
-        except MaterializationError:
-            raise
-        except BaseException:
-            if yielded:
-                raise
-            raise _error(phase, run_ref) from None
         finally:
-            if backend is not None:
-                if execution is not None:
-                    finish_execution(backend, execution)
-                else:
-                    backend.finish()
-            elif execution is not None and not opening:
-                prove_local_termination(execution)
+            failed = sys.exc_info()[0] is not None
+            try:
+                if backend is not None:
+                    if execution is not None:
+                        finish_execution(backend, execution)
+                    else:
+                        backend.finish()
+                elif execution is not None and not opening:
+                    prove_local_termination(execution)
+            except BaseException:
+                if not failed:
+                    raise
 
     def _write_output(
         self,
@@ -2506,7 +2415,6 @@ class DatasetRuntime:
                 artifact_ref=artifact_ref,
                 source=storage,
                 access=object_access(object_bindings, target.object_store_ref),
-                max_stored_bytes=target.policy.max_stored_bytes,
                 event=self._event,
             )
         return artifact_ref, storage
@@ -2520,15 +2428,8 @@ class DatasetRuntime:
     ) -> None:
         if not isinstance(target, (LocalTarget, ObjectTarget)):
             selection_error("one supported configured target", "unknown target")
-        if any(
-            type(value) is not int or value <= 0
-            for value in (
-                target.policy.max_stored_bytes,
-                target.policy.max_batch_bytes,
-                target.policy.row_group_rows,
-            )
-        ):
-            selection_error("positive fixed storage budgets", "invalid storage policy")
+        if any(type(value) is not int or value <= 0 for value in (target.policy.row_group_rows,)):
+            selection_error("positive row-group size", "invalid writer settings")
         if isinstance(target, ObjectTarget):
             from marivo.analysis.materialization.object_storage import validate_target
 
@@ -2538,10 +2439,7 @@ class DatasetRuntime:
         self, descriptor: ArtifactDescriptor, object_bindings: tuple[ObjectBinding, ...]
     ) -> Iterator[pa.RecordBatch]:
         from marivo.analysis.materialization.reads import payload_batches
-        from marivo.analysis.materialization.storage import _limited
 
-        if descriptor.storage_receipt.realized_row_count > _READ_POLICY.max_rows:
-            _limited("committed row count exceeds the complete local input limit")
         return payload_batches(
             self.store.project_root,
             descriptor.storage_receipt,
@@ -2605,83 +2503,80 @@ class DatasetRuntime:
         from marivo.analysis.materialization.storage import _integrity
 
         tables: dict[str, ir.Table] = {}
-        with _engine_deadline(backend):
-            for part in selected_parts(descriptor, dataset, input_dataset=input_dataset):
-                receipt = part.storage_receipt
-                table = attach_parquet_scan(
+        for part in selected_parts(descriptor, dataset, input_dataset=input_dataset):
+            receipt = part.storage_receipt
+            table = attach_parquet_scan(
+                backend,
+                self.store.project_root,
+                receipt,
+                bindings=self.object_bindings,
+                verify_schema=True,
+            )
+            self._record_statement("engine_check.part_schema", backend.compile(table.limit(0)))
+            # Native scans erase Arrow nullability. The exact stored schema is
+            # checked before attachment; validate native types and data below.
+            schema = backend.read_table(
+                backend.prepare(table.limit(0), role="engine_check.part_schema")
+            ).schema
+            if source_private_part(part):
+                primary_receipt = descriptor.storage_receipt
+                primary = attach_parquet_scan(
                     backend,
                     self.store.project_root,
-                    receipt,
+                    primary_receipt,
                     bindings=self.object_bindings,
-                    verify_schema=True,
                 )
-                self._record_statement("engine_check.part_schema", backend.compile(table.limit(0)))
-                # Native scans erase Arrow nullability. The exact stored schema is
-                # checked before attachment; validate native types and data below.
-                schema = backend.read_table(
-                    backend.prepare(table.limit(0), role="engine_check.part_schema")
-                ).schema
-                if source_private_part(part):
-                    primary_receipt = descriptor.storage_receipt
-                    primary = attach_parquet_scan(
-                        backend,
-                        self.store.project_root,
-                        primary_receipt,
-                        bindings=self.object_bindings,
+                validate_source_private_relation(
+                    backend,
+                    table,
+                    primary,
+                    descriptor.row_contract,
+                    part.role,
+                    self._record_statement,
+                )
+            else:
+                component_schema(descriptor.row_contract, part.role, schema)
+                if str(descriptor.row_contract.shape_id) == "lifecycle/history@v1":
+                    from marivo.analysis.materialization.lifecycle_publication import (
+                        validate_relation,
                     )
-                    validate_source_private_relation(
+
+                    validate_relation(
                         backend,
                         table,
-                        primary,
                         descriptor.row_contract,
                         part.role,
                         self._record_statement,
                     )
-                else:
-                    component_schema(descriptor.row_contract, part.role, schema)
-                    if str(descriptor.row_contract.shape_id) == "lifecycle/history@v1":
-                        from marivo.analysis.materialization.lifecycle_publication import (
-                            validate_relation,
-                        )
-
-                        validate_relation(
-                            backend,
-                            table,
-                            descriptor.row_contract,
-                            part.role,
-                            self._record_statement,
-                        )
-                self._record_statement("engine_check.part_count", backend.compile(table.count()))
-                count: object = backend.read_scalar(
-                    backend.prepare(table.count(), role="engine_check.part_count")
+            self._record_statement("engine_check.part_count", backend.compile(table.count()))
+            count: object = backend.read_scalar(
+                backend.prepare(table.count(), role="engine_check.part_count")
+            )
+            if count != receipt.realized_row_count:
+                _integrity("the exact committed part row count", "engine part count differs")
+            required = (
+                []
+                if source_private_part(part)
+                else [
+                    table[name].isnull()
+                    for name, _, nullable in _part_state_columns(descriptor.row_contract, part.role)
+                    if not nullable
+                ]
+            )
+            if required:
+                invalid = required[0]
+                for predicate in required[1:]:
+                    invalid = invalid | predicate
+                check = table.filter(invalid).count()
+                self._record_statement("engine_check.part_support", backend.compile(check))
+                failures: object = backend.read_scalar(
+                    backend.prepare(check, role="engine_check.part_support")
                 )
-                if count != receipt.realized_row_count:
-                    _integrity("the exact committed part row count", "engine part count differs")
-                required = (
-                    []
-                    if source_private_part(part)
-                    else [
-                        table[name].isnull()
-                        for name, _, nullable in _part_state_columns(
-                            descriptor.row_contract, part.role
-                        )
-                        if not nullable
-                    ]
-                )
-                if required:
-                    invalid = required[0]
-                    for predicate in required[1:]:
-                        invalid = invalid | predicate
-                    check = table.filter(invalid).count()
-                    self._record_statement("engine_check.part_support", backend.compile(check))
-                    failures: object = backend.read_scalar(
-                        backend.prepare(check, role="engine_check.part_support")
+                if failures != 0:
+                    _integrity(
+                        "non-null component support and coverage", "null required engine state"
                     )
-                    if failures != 0:
-                        _integrity(
-                            "non-null component support and coverage", "null required engine state"
-                        )
-                tables[part.role] = table
+            tables[part.role] = table
         return tables
 
     def _local_input_parts(
@@ -2698,7 +2593,6 @@ class DatasetRuntime:
             component_schema,
             selected_parts,
         )
-        from marivo.analysis.materialization.storage import _limited
 
         selected = (
             *selected_parts(descriptor, dataset, input_dataset=input_dataset),
@@ -2708,11 +2602,6 @@ class DatasetRuntime:
                 if part.role == "population_sampling_state"
             ),
         )
-        if any(
-            part.storage_receipt.realized_row_count > self.local_policy.max_input_rows
-            for part in selected
-        ):
-            _limited("committed part row count exceeds the complete local input limit")
         inputs: list[LocalPartInput] = []
         streams: list[Iterable[pa.RecordBatch]] = []
         for part in selected:
@@ -2862,31 +2751,11 @@ class DatasetRuntime:
             else:
                 raise _error("implementation_registration", run_ref)
             stages.append(LocalStage(step.output, step.inputs, call))
-        reservation = reserve_worker(self.store, run_ref, self.session_ref)
-        try:
-            self._event("local_worker_reserved")
-        except BaseException:
-            prove_local_termination(reservation.execution)
-            raise
-        request = LocalGraphRequest(
-            boundaries,
-            tuple(stages),
-            physical.primary_output,
-            self.local_policy,
-            time.monotonic() + self.local_policy.deadline_seconds,
-        )
-        result = supervise(
-            request,
-            (),
-            lifetime=reservation,
-            cancel_source=cancel_source,
-            terminal=lambda: prove_local_termination(reservation.execution),
-            input_streams=streams,
-        )
+        request = LocalGraphRequest(boundaries, tuple(stages), physical.primary_output)
+        self._event("local_execution_started")
+        result = execute_local(request, streams)
         self.statistics.local_handoffs = result.handoffs
-        self.statistics.worker_pid = result.worker_pid
-        self.statistics.worker_peak_rss = result.peak_rss
-        self._event("local_worker_terminal")
+        self._event("local_execution_completed")
         return result
 
     def _resolve_outcome(
@@ -2969,34 +2838,6 @@ class DatasetRuntime:
                 )
         return actual
 
-    def _batch_rows(
-        self, backend: ExecutionAdapter, tables: Mapping[str, ir.Table], expression: ir.Table
-    ) -> int:
-        maximum_string = 0
-        for table in tables.values():
-            values = [
-                table[name].length().fill_null(0) * 4
-                for name, kind in table.schema().items()
-                if isinstance(kind, dt.String)
-            ]
-            if values:
-                self._event("source_statement")
-                self.statistics.validation_queries += 1
-                width = ibis.greatest(*values).max().fill_null(0)
-                self._record_statement(
-                    "transfer_guard", backend.compile(table.aggregate(maximum_bytes=width))
-                )
-                value: object = backend.read_table(
-                    backend.prepare(table.aggregate(maximum_bytes=width), role="transfer_guard")
-                )["maximum_bytes"][0].as_py()
-                if type(value) is not int:
-                    raise _error("transfer_guard")
-                maximum_string = max(maximum_string, value)
-        conservative_row = len(expression.columns) * (maximum_string + 64)
-        if conservative_row > _MAX_BATCH_BYTES:
-            raise _error("transfer_guard")
-        return max(1, min(1024, _MAX_BATCH_BYTES // max(1, conservative_row * 2)))
-
     def _batches(
         self, backend: ExecutionAdapter, expression: ir.Table, batch_rows: int
     ) -> Iterator[pa.RecordBatch]:
@@ -3008,8 +2849,6 @@ class DatasetRuntime:
         try:
             for batch in reader:
                 self._event("transfer")
-                if batch.nbytes > _MAX_BATCH_BYTES:
-                    raise _error("transfer_guard")
                 seen = True
                 self.statistics.transferred_rows += batch.num_rows
                 self.statistics.transferred_bytes += batch.nbytes
@@ -3019,7 +2858,12 @@ class DatasetRuntime:
                     [pa.array([], type=field.type) for field in reader.schema], schema=reader.schema
                 )
         finally:
-            reader.close()
+            failed = sys.exc_info()[0] is not None
+            try:
+                reader.close()
+            except BaseException:
+                if not failed:
+                    raise
 
 
 def producer_contract_versions(operator_id: str) -> tuple[tuple[str, str], ...]:

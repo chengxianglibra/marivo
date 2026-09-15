@@ -140,7 +140,7 @@ def test_entity_failure_rolls_back_complete_publication(
         local_attempts.append(True)
         raise AssertionError("Entity source failure attempted a local retry")
 
-    monkeypatch.setattr(admission, "supervise", local_retry)
+    monkeypatch.setattr(admission, "execute_local", local_retry)
 
     def fault(event: str) -> None:
         if event == point:
@@ -149,9 +149,9 @@ def test_entity_failure_rolls_back_complete_publication(
 
     runtime._hook = fault
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError) as error:
+    with pytest.raises(RuntimeError) as error:
         entity_metric(sources).discover.entity_outliers().execute()
-    assert "private-entity-error-canary" not in str(error.value)
+    assert "private-entity-error-canary" in str(error.value)
     assert observed == [point]
     assert local_attempts == []
     _unchanged(before, snapshot(runtime))
@@ -169,7 +169,7 @@ def test_entity_cancellation_keeps_no_partial_authority(tmp_path: Path, point: s
 
     runtime._hook = cancel
     before = snapshot(runtime)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(KeyboardInterrupt):
         entity_metric(sources).discover.entity_outliers().execute()
     _unchanged(before, snapshot(runtime))
 
@@ -239,7 +239,7 @@ def test_engine_metric_checkpoint_scores_without_origin_and_cold_reuses(
         raise AssertionError("Entity engine checkpoint reached origin or local computation")
 
     monkeypatch.setattr(admission, "_build_backend_from_effective", forbidden)
-    monkeypatch.setattr(admission, "supervise", forbidden)
+    monkeypatch.setattr(admission, "execute_local", forbidden)
     monkeypatch.setattr(candidate_publication, "validate_rows", forbidden)
     result = checkpoint.discover.entity_outliers().execute()
     frame = result.to_pandas()
@@ -252,7 +252,10 @@ def test_engine_metric_checkpoint_scores_without_origin_and_cold_reuses(
         == checkpoint.state.artifact_ref.ref
     )
     assert runtime.statistics.source_fences == 1
-    assert runtime.statistics.transferred_rows == 1 and runtime.statistics.worker_pid is None
+    assert (
+        runtime.statistics.transferred_rows == 1
+        and runtime.statistics.events.get("local_execution_started", 0) == 0
+    )
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
     retained = cold.artifact(checkpoint.state.artifact_ref)
     assert isinstance(retained, MaterializedMetricDataset)

@@ -25,13 +25,11 @@ from marivo.analysis.operators.association import (
 )
 from marivo.analysis.operators.association_contracts import (
     ASSOCIATION_SHAPES,
-    MAX_CANDIDATES,
     SELECTION_RULE_ID,
     AssociationSemantics,
     CorrelatePayload,
     CorrelateSpecV1,
     CorrelationMethod,
-    candidate_count,
     pair_count,
     selection_description,
 )
@@ -87,14 +85,8 @@ def correlate(
             raise correlation_error(
                 "quantitative governed Metric fields", "unsupported value or identity type"
             )
-    try:
-        lag_count = 1 if lag_range is None else len(lag_range)
-    except OverflowError:
-        raise correlation_error("at most 4096 pair/lag candidates", "oversized lag range") from None
-    if lag_count == 0 or candidate_count(len(metrics), lag_count) > MAX_CANDIDATES:
-        raise correlation_error(
-            "1-4096 pair/lag candidates", "candidate ceiling exceeded or empty range"
-        )
+    if lag_range is not None and not lag_range:
+        raise correlation_error("a nonempty exact lag range", "empty range")
     lags = (0,) if lag_range is None else tuple(lag_range)
     if any(not -(2**63) <= k < 2**63 for k in lags):
         raise correlation_error("signed int64 bucket offsets", "lag overflow")
@@ -165,7 +157,7 @@ def correlate(
     )
     rows = d._make_row_set_contract(
         schema_version=1,
-        cardinality=d._keyed_cardinality(d._static_row_bound(MAX_CANDIDATES)),
+        cardinality=d._keyed_cardinality(d._unknown_row_bound()),
         ordering=d._ordered_ordering(
             tuple(
                 d._make_order_term(
@@ -243,11 +235,10 @@ def validate_association(row: d.DatasetRowContract, rows: d.DatasetRowSetContrac
     if (
         not s.lag_offsets
         or len(set(s.lag_offsets)) != len(s.lag_offsets)
-        or candidate_count(len(s.metric_keys), len(s.lag_offsets)) > MAX_CANDIDATES
         or any(type(k) is not int or not -(2**63) <= k < 2**63 for k in s.lag_offsets)
         or ("time" not in s.input_shape and s.lag_offsets != (0,))
     ):
-        raise correlation_error("bounded exact lag candidates", "invalid retained lag scope")
+        raise correlation_error("nonempty exact lag candidates", "invalid retained lag scope")
     dims = tuple(f for f in row.schema.columns if f.role_id == "dimension")
     if bool(dims) != (s.input_shape == "dimension-time") or any(
         not isinstance(f.identity, d._CatalogFieldIdentity) for f in dims

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -23,19 +22,12 @@ from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.local import (
-    LocalBudget,
-    LocalPolicy,
-    collect_primary,
-    to_local_frame,
-)
-from marivo.analysis.materialization.local_worker import (
+from marivo.analysis.materialization.local_execution import (
     LocalBoundary,
     LocalGraphRequest,
     LocalInputStreams,
     LocalStage,
     StreamInput,
-    supervise,
 )
 from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
@@ -47,7 +39,6 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from tests.lazy_compare_runtime_fixtures import independent_sources as _independent_sources
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
-from tests.lazy_local_fixtures import standalone_worker_reservation
 from tests.lazy_materialization_crash_worker import snapshot
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
@@ -168,7 +159,10 @@ def test_all_admitted_shapes_and_operand_states(tmp_path: Path, shape: Shape, st
     after = snapshot(runtime)
     assert logical.execute().state.artifact_ref == result.state.artifact_ref
     assert snapshot(runtime) == after
-    assert runtime.statistics.primary_queries == 0 and runtime.statistics.worker_pid is None
+    assert (
+        runtime.statistics.primary_queries == 0
+        and runtime.statistics.events.get("local_execution_started", 0) == 0
+    )
     _record(
         f"topology-{states}-{shape}",
         candidate,
@@ -205,7 +199,7 @@ def test_repeated_checkpoint_keeps_two_operand_occurrences_and_immutable_rows(
     assert run is not None
     assert run.input_artifact_refs == (checkpoint.state.artifact_ref.ref,) * 2
     assert runtime.statistics.primary_queries == 1
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
     selected = cold.get_run(result.state.producing_run_ref)
     expected_inputs = (checkpoint.state.artifact_ref,) * 2
@@ -250,7 +244,7 @@ def test_delta_row_operations_preserve_source_and_retained_numerical_results(
     filtered = logical.where(gt(logical.fields.get("current_value"), 0))
     source = filtered.rank(filtered.fields.get("delta")).limit(1).execute()
     source_frame = source.to_pandas()
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     retained = logical.execute()
     # Customer/channel a: 10 - 30 = -20; customer/channel b: 100 - 20 = 80.
     finite = retained.to_pandas().dropna(subset=["delta"])
@@ -270,10 +264,10 @@ def test_delta_row_operations_preserve_source_and_retained_numerical_results(
     assert continued_frame["delta"].tolist() == [80.0]
     assert continued_frame["relative_delta"].tolist() == [4.0]
     if shape == "entity":
-        assert runtime.statistics.worker_pid is None
+        assert runtime.statistics.events.get("local_execution_started", 0) == 0
         assert continued.findings().items == ()
     else:
-        assert runtime.statistics.worker_pid is None
+        assert runtime.statistics.events.get("local_execution_started", 0) == 0
         assert runtime.statistics.primary_queries == 1
     _record(
         f"row-operation-parity-{shape}",
@@ -334,7 +328,7 @@ def test_independent_equal_argument_connections_feed_one_local_comparison(tmp_pa
         assert result.to_pandas()["delta"].tolist() == [-18.0]
         assert len(calls) == len(set(calls)) == 2
         assert runtime.statistics.primary_queries == 2
-        assert runtime.statistics.worker_pid is not None
+        assert runtime.statistics.events.get("local_execution_started", 0) > 0
         assert runtime.store.resources(runtime.session_ref) == ()
         _record(
             "independent-connections",
@@ -346,7 +340,7 @@ def test_independent_equal_argument_connections_feed_one_local_comparison(tmp_pa
                 "baseline": 29,
                 "delta": -18,
                 "queries": runtime.statistics.primary_queries,
-                "worker_pid": runtime.statistics.worker_pid,
+                "local_executions": runtime.statistics.events.get("local_execution_started", 0),
                 "after": snapshot(runtime),
             },
         )
@@ -388,7 +382,7 @@ def test_cross_session_selected_checkpoint_preserves_original_owner(tmp_path: Pa
     assert consumer.store.resources(consumer.session_ref) == ()
 
 
-@pytest.mark.parametrize("failure", ["schema", "key", "rows", "combined", "method_size"])
+@pytest.mark.parametrize("failure", ["schema", "key"])
 def test_later_complete_operand_failure_prevents_worker_consumer_invocation(
     tmp_path: Path, failure: str
 ) -> None:
@@ -400,60 +394,25 @@ def test_later_complete_operand_failure_prevents_worker_consumer_invocation(
     assert isinstance(compared._root.payload, ComparePayload)
     table = pa.table({"channel": ["a" * 100, "b" * 100], "revenue": [2.0, 3.0]})
     later = table
-    policy = LocalPolicy()
     if failure == "schema":
         later = pa.table({"channel": ["a", "b"], "revenue": ["2", "3"]})
     elif failure == "key":
         later = pa.table({"channel": ["a", "a"], "revenue": [2.0, 3.0]})
-    elif failure == "rows":
-        policy = replace(policy, max_input_rows=2)
-        later = pa.table({"channel": ["a", "b", "c"], "revenue": [2.0, 3.0, 4.0]})
-    elif failure == "method_size":
-        policy = replace(policy, max_input_rows=2, max_method_rows=3)
-    else:
-        policy = replace(policy, max_input_bytes=32 * 1024)
-        table = pa.table({"channel": ["a" * 10_000, "b" * 10_000], "revenue": [2.0, 3.0]})
-        later = table
-        assert table.nbytes < policy.max_input_bytes < 2 * table.nbytes
-        # Each complete operand independently passes the actual conversion guard.
-        for _ in range(2):
-            separate = LocalBudget(policy, time.monotonic() + 60)
-            complete = collect_primary(
-                table.to_batches(), metric.row_contract, metric.row_set_contract, separate
-            )
-            to_local_frame(complete, metric.row_contract, separate)
     stream = StreamInput(metric.row_contract, metric.row_set_contract)
     request = LocalGraphRequest(
         (LocalBoundary(0, stream), LocalBoundary(1, stream)),
         (LocalStage(2, (0, 1), compared._root.payload.spec),),
         2,
-        policy,
-        time.monotonic() + 60,
     )
-    marker = tmp_path / "consumer-invoked"
-    worker = (
-        "from pathlib import Path\n"
-        "import marivo.analysis.operators.compare as comparison\n"
-        "from marivo.analysis.materialization.local_worker import worker_entry\n"
-        "original = comparison.execute_compare\n"
-        "def marked(*args, **kwargs):\n"
-        f"    Path({str(marker)!r}).write_text('invoked')\n"
-        "    return original(*args, **kwargs)\n"
-        "comparison.execute_compare = marked\n"
-        "worker_entry()\n"
-    )
+    from marivo.analysis.materialization.local_execution import execute_local
+
     with pytest.raises(MaterializationError) as caught:
-        supervise(
+        execute_local(
             request,
-            (),
-            cancel_source=lambda: None,
-            lifetime=standalone_worker_reservation(tmp_path),
-            terminal=lambda: None,
-            input_streams=(
+            (
                 LocalInputStreams(table.to_batches()),
                 LocalInputStreams(later.to_batches()),
             ),
-            worker_code=worker,
         )
     assert caught.value.stage in ("transfer_guard", "output_validation")
     received = caught.value.received
@@ -468,7 +427,6 @@ def test_later_complete_operand_failure_prevents_worker_consumer_invocation(
             "method_size": ("method size",),
         }[failure]
     )
-    assert not marker.exists()
     _record(
         f"later-operand-{failure}",
         candidate,

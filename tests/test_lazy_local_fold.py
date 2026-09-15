@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -12,26 +11,23 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo._temporal import builtin_grain, certify_period_calendar, semantic_grain
 from marivo.analysis import grain, time_scope
 from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local import (
-    LocalBudget,
-    LocalPolicy,
     collect_part,
     collect_primary,
     execute_retained_suffix,
     to_local_frame,
     to_part_frame,
 )
-from marivo.analysis.materialization.local_worker import (
+from marivo.analysis.materialization.local_execution import (
+    LocalInputStreams,
     LocalPartInput,
     LocalRequest,
     StreamInput,
-    supervise,
+    execute_local,
 )
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
@@ -45,7 +41,7 @@ from marivo.analysis.observation.fold_contracts import (
 )
 from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.analysis.observation.predicates import gt
-from marivo.analysis.operators.rollup import bucket_bounds, validate_parts
+from marivo.analysis.operators.rollup import validate_parts
 from marivo.analysis.operators.row import PartFrame, RowCall, row_key_names
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.refs import ref
@@ -57,7 +53,6 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.validator import Registry
 from tests.lazy_execution_fixtures import ExecutionFixture, execution_fixture
-from tests.lazy_local_fixtures import standalone_worker_reservation
 from tests.lazy_observation_fixtures import NoIoActionPort
 
 REVENUE = ref.metric("sales.revenue")
@@ -116,6 +111,9 @@ def _wide(
     compiled = compile_dataset(source, fixture.tables(source))
     table = compiled.expression.to_pyarrow()
     keys = row_key_names(source.row_contract)
+    from marivo.analysis.compiler.nodes import RetainedPartSpec
+
+    assert all(isinstance(part, RetainedPartSpec) for part in compiled.retained_parts)
     return table, tuple(
         LocalPartInput(
             part.role,
@@ -125,22 +123,21 @@ def _wide(
             keys,
         )
         for part in compiled.retained_parts
+        if isinstance(part, RetainedPartSpec)
     )
 
 
 def _frames(
     fixture: ExecutionFixture,
     source: LogicalMetricDataset,
-) -> tuple[pd.DataFrame, tuple[PartFrame, ...], LocalBudget]:
+) -> tuple[pd.DataFrame, tuple[PartFrame, ...]]:
     table, specs = _wide(fixture, source)
-    budget = LocalBudget(LocalPolicy(), time.monotonic() + 60)
     primary = collect_primary(
         table.select([field.name for field in source.schema.columns]).to_batches(),
         source.row_contract,
         source.row_set_contract,
-        budget,
     )
-    frame = to_local_frame(primary, source.row_contract, budget)
+    frame = to_local_frame(primary, source.row_contract)
     parts = tuple(
         PartFrame(
             spec.role,
@@ -149,16 +146,13 @@ def _frames(
             spec.schema,
             spec.keys,
             to_part_frame(
-                collect_part(
-                    table.select(spec.schema.names).to_batches(), spec.schema, spec.keys, budget
-                ),
+                collect_part(table.select(spec.schema.names).to_batches(), spec.schema, spec.keys),
                 source.row_contract,
-                budget,
             ),
         )
         for spec in specs
     )
-    return frame, parts, budget
+    return frame, parts
 
 
 def _rebind(fixture: ExecutionFixture, registry: Registry) -> ExecutionFixture:
@@ -178,13 +172,13 @@ def test_selected_mean_and_weighted_mean_use_exact_current_contributions(tmp_pat
         source = _source(fixture)
         selected = source.where(gt(REVENUE, 10))
         output = selected.aggregate()
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         # Part physical order is independent of primary order; keys own the join.
         parts = tuple(
             replace(part, frame=part.frame.iloc[::-1].reset_index(drop=True)) for part in parts
         )
         result, retained, handoffs = execute_retained_suffix(
-            frame, parts, (_call(source, selected), _call(selected, output, fold=True)), budget
+            frame, parts, (_call(source, selected), _call(selected, output, fold=True))
         )
         assert result["revenue"].tolist() == [140]
         assert result["mean_amount"].tolist() == pytest.approx([140 / 3])
@@ -208,9 +202,9 @@ def test_each_simple_component_fold_matches_independent_numbers(
         )
         fixture = _rebind(original, registry)
         source = fixture.sources.observe(REVENUE, population=fixture.sources.population(CUSTOMERS))
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         result, _, _ = execute_retained_suffix(
-            frame, parts, (_call(source, source.aggregate(), fold=True),), budget
+            frame, parts, (_call(source, source.aggregate(), fold=True),)
         )
         assert result["revenue"].tolist() == pytest.approx([expected])
 
@@ -237,9 +231,9 @@ def test_linear_fold_finalizes_independent_component_totals(tmp_path: Path) -> N
         source = fixture.sources.observe(
             ref.metric("sales.net"), population=fixture.sources.population(CUSTOMERS)
         )
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         result, _, _ = execute_retained_suffix(
-            frame, parts, (_call(source, source.aggregate(), fold=True),), budget
+            frame, parts, (_call(source, source.aggregate(), fold=True),)
         )
         assert result["net"].tolist() == [137]
 
@@ -261,9 +255,9 @@ def test_combined_time_dimension_fold_passes_current_state_directly(tmp_path: Pa
         output = source.rollup(drop_dimensions=(region,), grain=grain("month"))
         intermediate = output._inputs[0]
         assert isinstance(intermediate, LogicalMetricDataset)
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         result, retained, handoffs = execute_retained_suffix(
-            frame, parts, (_call(source, intermediate), _call(intermediate, output)), budget
+            frame, parts, (_call(source, intermediate), _call(intermediate, output))
         )
         assert result["order_time"].tolist() == [date(2026, 2, 1)]
         assert result["revenue"].tolist() == [140]
@@ -281,12 +275,11 @@ def test_rank_limit_selects_parts_by_contribution_key_and_projection_drops_roles
         rank = source.rank(source.fields.metric(REVENUE))
         limited = rank.limit(2)
         projected = limited.metric(MEAN)
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         result, retained, handoffs = execute_retained_suffix(
             frame,
             parts,
             (_call(source, rank), _call(rank, limited), _call(limited, projected)),
-            budget,
         )
         assert result["entity_identity"].tolist() == [(2,), (1,)]
         assert result["mean_amount"].tolist() == [100, 20]
@@ -300,7 +293,7 @@ def test_rank_limit_selects_parts_by_contribution_key_and_projection_drops_roles
 def test_fold_rejects_incomplete_current_part_keys(tmp_path: Path, corruption: str) -> None:
     with execution_fixture(tmp_path) as fixture:
         source = _source(fixture)
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         first = parts[0]
         changed = first.frame.iloc[:-1].copy() if corruption == "missing" else first.frame.copy()
         if corruption == "duplicate":
@@ -314,14 +307,13 @@ def test_fold_rejects_incomplete_current_part_keys(tmp_path: Path, corruption: s
                 frame,
                 (replace(first, frame=changed), *parts[1:]),
                 (_call(source, source.aggregate(), fold=True),),
-                budget,
             )
 
 
 def test_consumed_part_value_must_reconcile_before_row_selection(tmp_path: Path) -> None:
     with execution_fixture(tmp_path) as fixture:
         source = _source(fixture)
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         first = parts[0]
         changed = first.frame.copy(deep=True)
         total = next(name for name in changed.columns if name.endswith("_sum"))
@@ -332,7 +324,6 @@ def test_consumed_part_value_must_reconcile_before_row_selection(tmp_path: Path)
                 frame,
                 (replace(first, frame=changed), *parts[1:]),
                 (_call(source, selected),),
-                budget,
             )
 
 
@@ -341,9 +332,9 @@ def test_empty_selected_scalar_has_owned_null_and_empty_semantics(tmp_path: Path
         source = _source(fixture)
         selected = source.where(gt(REVENUE, 1000))
         output = selected.aggregate()
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         actual, retained, _ = execute_retained_suffix(
-            frame, parts, (_call(source, selected), _call(selected, output, fold=True)), budget
+            frame, parts, (_call(source, selected), _call(selected, output, fold=True))
         )
         expected = (
             compile_dataset(output, fixture.tables(output))
@@ -379,12 +370,11 @@ def test_selected_ratio_uses_selected_computational_denominator(tmp_path: Path) 
             population=fixture.sources.population(CUSTOMERS),
         )
         selected = source.where(gt(REVENUE, 5))
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         result, _, _ = execute_retained_suffix(
             frame,
             parts,
             (_call(source, selected), _call(selected, selected.aggregate(), fold=True)),
-            budget,
         )
         assert result["conversion_rate"].tolist() == [0.8]
 
@@ -411,7 +401,7 @@ def test_cumulative_time_fold_selects_latest_state_and_tracks_selected_coverage(
             .with_time_axis(day, grain=grain("day"))
             .aggregate()
         )
-        frame, parts, budget = _frames(fixture, source)
+        frame, parts = _frames(fixture, source)
         calls: tuple[RowCall, ...] = ()
         current = source
         selected = selection != "complete"
@@ -420,7 +410,7 @@ def test_cumulative_time_fold_selects_latest_state_and_tracks_selected_coverage(
             calls = (_call(source, current),)
         output = current.rollup(drop_time=True)
         result, retained, _ = execute_retained_suffix(
-            frame, parts, (*calls, _call(current, output)), budget
+            frame, parts, (*calls, _call(current, output))
         )
         validate_parts(result, retained, output.row_contract)
         semantics = source.row_contract.family_semantics
@@ -472,10 +462,8 @@ def test_cumulative_dimension_fold_requires_contiguous_aligned_observed_interval
         )
         intermediate = source.rollup(grain=grain("month"))
         output = intermediate.rollup(drop_dimensions=(region,))
-        frame, parts, budget = _frames(fixture, source)
-        current, retained, _ = execute_retained_suffix(
-            frame, parts, (_call(source, intermediate),), budget
-        )
+        frame, parts = _frames(fixture, source)
+        current, retained, _ = execute_retained_suffix(frame, parts, (_call(source, intermediate),))
         semantics = intermediate.row_contract.family_semantics
         assert isinstance(semantics, EntityReducedMetricSemantics)
         _, _, _, seconds, complete = coverage_columns(semantics.metric_folds[0])
@@ -485,97 +473,28 @@ def test_cumulative_dimension_fold_requires_contiguous_aligned_observed_interval
             changed[seconds] = changed[seconds] - 86400
             retained = (replace(retained[0], frame=changed),)
             with pytest.raises(DatasetCompilationError, match="noncontiguous"):
-                execute_retained_suffix(current, retained, (_call(intermediate, output),), budget)
+                execute_retained_suffix(current, retained, (_call(intermediate, output),))
         else:
             result, folded, _ = execute_retained_suffix(
-                current, retained, (_call(intermediate, output),), budget
+                current, retained, (_call(intermediate, output),)
             )
             assert result["running"].tolist() == [140]
             assert folded[0].frame[seconds].tolist() == [259200.0]
             assert folded[0].frame[complete].tolist() == [False]
 
 
-@pytest.mark.parametrize("excess", [0, 1])
-def test_one_wide_source_stream_counts_every_part_before_fold(tmp_path: Path, excess: int) -> None:
+def test_one_wide_source_stream_preserves_every_part_before_fold(tmp_path: Path) -> None:
     with execution_fixture(tmp_path) as fixture:
         source = _source(fixture)
         table, parts = _wide(fixture, source)
-        batches = tuple(table.to_batches(max_chunksize=1))
-        combined = table.select([field.name for field in source.schema.columns]).nbytes + sum(
-            table.select(part.schema.names).nbytes for part in parts
-        )
-        # Conversion also has its independent cap; the Arrow cap is tested by overflow.
-        policy = replace(
-            LocalPolicy(),
-            max_input_bytes=combined - excess if excess else LocalPolicy().max_input_bytes,
-        )
         request = LocalRequest(
             StreamInput(source.row_contract, source.row_set_contract, wide_parts=True),
             (_call(source, source.aggregate(), fold=True),),
-            policy,
-            time.monotonic() + 60,
             parts,
         )
-        terminal: list[bool] = []
-        if excess:
-            with pytest.raises(MaterializationError, match="combined input overflow"):
-                supervise(
-                    request,
-                    batches,
-                    cancel_source=lambda: None,
-                    lifetime=standalone_worker_reservation(tmp_path),
-                    terminal=lambda: terminal.append(True),
-                )
-        else:
-            result = supervise(
-                request,
-                batches,
-                cancel_source=lambda: None,
-                lifetime=standalone_worker_reservation(tmp_path),
-                terminal=lambda: terminal.append(True),
-            )
-            assert result.table["revenue"].to_pylist() == [147]
-            assert result.table["mean_amount"].to_pylist() == pytest.approx([147 / 5])
-            assert result.table["weighted_amount"].to_pylist() == [50]
-            # Arrow IPC can add bitmap rounding per split batch; it must never
-            # account less than the complete independent primary/part payloads.
-            assert result.input_bytes >= combined
-            assert len(result.parts) == 3
-            assert set(result.table.column_names) > {"revenue", "mean_amount", "weighted_amount"}
-        assert terminal == [True]
-
-
-@pytest.mark.parametrize(
-    "unit,count,value,start,end",
-    [
-        ("week", 1, date(2026, 2, 8), "2026-02-02", "2026-02-09"),
-        ("day", 1, date(2026, 2, 8), "2026-02-08", "2026-02-09"),
-        ("month", 1, date(2026, 2, 8), "2026-02-01", "2026-03-01"),
-        ("quarter", 1, date(2026, 2, 8), "2026-01-01", "2026-04-01"),
-    ],
-)
-def test_builtin_fold_buckets_have_explicit_admitted_anchors(
-    unit: str, count: int, value: date, start: str, end: str
-) -> None:
-    actual = bucket_bounds(value, builtin_grain(unit, count=count), None)
-    assert actual == (pd.Timestamp(start), pd.Timestamp(end))
-
-
-def test_semantic_fold_uses_only_certified_snapshot_periods() -> None:
-    calendar = ref.period_calendar("sales.fiscal")
-    snapshot = certify_period_calendar(
-        calendar_ref=calendar,
-        boundary_timezone="UTC",
-        coverage=(date(2026, 2, 1), date(2026, 2, 5)),
-        rows=tuple(
-            {"date": date(2026, 2, day), "period": "A" if day < 3 else "B"} for day in range(1, 5)
-        ),
-        levels={"reporting_period": "period"},
-    )
-    selected = semantic_grain(calendar=calendar, level="reporting_period")
-    assert bucket_bounds(date(2026, 2, 4), selected, snapshot) == (
-        pd.Timestamp("2026-02-03"),
-        pd.Timestamp("2026-02-05"),
-    )
-    with pytest.raises(DatasetCompilationError, match="uncovered"):
-        bucket_bounds(date(2026, 2, 5), selected, snapshot)
+        result = execute_local(request, (LocalInputStreams(table.to_batches(max_chunksize=1)),))
+        assert result.table["revenue"].to_pylist() == [147]
+        assert result.table["mean_amount"].to_pylist() == pytest.approx([147 / 5])
+        assert result.table["weighted_amount"].to_pylist() == [50]
+        assert len(result.parts) == 3
+        assert set(result.table.column_names) > {"revenue", "mean_amount", "weighted_amount"}

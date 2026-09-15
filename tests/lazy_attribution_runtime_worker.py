@@ -148,7 +148,12 @@ def run(
     logical = delta.attribute(axes=[REGION, CHANNEL], mode="hierarchy", top_k=1)
     with ExitStack() as guards:
         if mode == "cold":
-            for name in ("place", "compile_dataset", "_build_backend_from_effective", "supervise"):
+            for name in (
+                "place",
+                "compile_dataset",
+                "_build_backend_from_effective",
+                "execute_local",
+            ):
                 guards.enter_context(patch.object(admission, name, _forbidden))
         result = logical.execute()
         assert isinstance(result, MaterializedAttributionDataset)

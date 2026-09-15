@@ -1,19 +1,17 @@
 """Immutable Parquet checkpoints keep private membership native through recovery and inspection."""
 
 import os
-import time
 import traceback
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-import duckdb
 import pytest
 
 from marivo._compat import Never
 from marivo.analysis.compiler.errors import DatasetCompilationError
-from marivo.analysis.materialization import admission, inspection
+from marivo.analysis.materialization import inspection
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
@@ -109,9 +107,9 @@ def test_membership_failure_releases_whole_checkpoint_and_scrubs_native_diagnost
             raise RuntimeError("private-member-canary")
 
     runtime, metric, _ = _setup(tmp_path, event=fail)
-    with pytest.raises(MaterializationError) as caught:
+    with pytest.raises(RuntimeError) as caught:
         metric.execute()
-    assert "private-member-canary" not in str(caught.value)
+    assert "private-member-canary" in str(caught.value)
     assert runtime.last_run_ref is not None
     run = runtime.store.run(runtime.last_run_ref)
     assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
@@ -248,48 +246,25 @@ def test_mixed_source_input_membership_is_rechecked_before_publication(tmp_path:
     assert len(runtime.graph().artifacts) == 1
 
 
-def test_distinct_native_deadline_cancels_query_and_redacts_failure(tmp_path: Path) -> None:
+def test_distinct_external_failure_preserves_traceback_and_has_no_publication(
+    tmp_path: Path,
+) -> None:
     runtime, metric, _ = _setup(tmp_path)
     delta = metric.compare(metric).execute()
-    elapsed: list[float] = []
-    interrupted: list[bool] = []
+    original = TimeoutError("external driver timeout")
 
-    def slow(backend: ExecutionAdapter, *_: object) -> Never:
-        started = time.monotonic()
-        try:
-            with (
-                patch.object(admission, "_SOURCE_EXECUTION_DEADLINE_SECONDS", 0.05),
-                admission._engine_deadline(backend),
-            ):
-                backend.submit(
-                    backend.statement(
-                        "SELECT sum(i), 'private-member-timeout-canary' FROM range(1000000000000) AS rows(i)"
-                    )
-                )
-        except duckdb.InterruptException:
-            interrupted.append(True)
-            raise
-        finally:
-            elapsed.append(time.monotonic() - started)
-        raise AssertionError("Unbounded source query completed without cancellation")
+    def failed(backend: ExecutionAdapter, *_: object) -> Never:
+        raise original
 
     with (
-        patch.object(runtime, "_attribution_source_summary", side_effect=slow),
-        pytest.raises(MaterializationError) as caught,
+        patch.object(runtime, "_attribution_source_summary", side_effect=failed),
+        pytest.raises(TimeoutError) as caught,
     ):
         delta.attribute(axes=(ref.dimension("sales.orders.channel"),)).execute()
-    assert interrupted == [True]
-    assert len(elapsed) == 1 and elapsed[0] < 5
-    assert caught.value.__cause__ is None and caught.value.__context__ is None
+    assert caught.value is original
+    assert "failed" in [item.name for item in traceback.extract_tb(caught.value.__traceback__)]
     assert runtime.last_run_ref is not None
-    failed = runtime.store.run(runtime.last_run_ref)
-    assert (
-        failed is not None and failed.lifecycle == "failed" and failed.output_artifact_ref is None
-    )
+    run = runtime.store.run(runtime.last_run_ref)
+    assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
     assert runtime.store.resources(runtime.session_ref) == ()
     assert len(runtime.graph().artifacts) == 1
-    with runtime.store._read() as connection:
-        dump = "\n".join(connection.iterdump())
-    assert "private-member-timeout-canary" not in dump + "".join(
-        traceback.format_exception(caught.value)
-    ) + repr(runtime.statistics.statements)

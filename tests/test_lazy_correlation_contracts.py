@@ -45,8 +45,10 @@ def test_construction_rejects_invalid_arity_and_lag_without_io() -> None:
         two.correlate(lag_range=range(1))
     with pytest.raises(CorrelationError):
         two.aggregate().correlate()
-    with pytest.raises(CorrelationError):
-        association_spec("pearson", shape="time", lags=range(4097))
+    assert (
+        len(association_spec("pearson", shape="time", lags=range(4097)).semantics.lag_offsets)
+        == 4097
+    )
     with pytest.raises(CorrelationError):
         association_spec("pearson", shape="time", lags=range(0))
     assert (

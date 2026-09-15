@@ -12,7 +12,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import StoragePolicy
 
 _LOCAL_STORAGE_POLICY = StoragePolicy()
-_EXTERNAL_POLICY = StoragePolicy(max_stored_bytes=134_217_728)
+_EXTERNAL_POLICY = StoragePolicy()
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +110,7 @@ def engine_domain(binding: ExecutionBinding) -> str:
 
 
 def access_payload(value: ObjectBinding) -> dict[str, object]:
-    """Private worker IPC only; this value must never enter Store or diagnostics."""
+    """Private access serialization; never persist this value or expose it in diagnostics."""
     if isinstance(value, ProjectObjectBindings):
         return {"project_root": str(value.project_root)}
     return {

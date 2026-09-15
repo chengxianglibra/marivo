@@ -73,7 +73,7 @@ def _continuation(retained: MaterializedMetricDataset, threshold: int) -> Logica
 def _statistics(runtime: DatasetRuntime) -> dict[str, object]:
     return {
         **statistics(runtime),
-        "worker_pid": runtime.statistics.worker_pid,
+        "local_executions": runtime.statistics.events.get("local_execution_started", 0),
         "handoffs": runtime.statistics.local_handoffs,
     }
 
@@ -270,7 +270,7 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
             assert origin.runs.has_more
             object_read_count = len(requests)
             with contextlib.ExitStack() as guards:
-                for name in ("place", "_build_backend_from_effective", "supervise"):
+                for name in ("place", "_build_backend_from_effective", "execute_local"):
                     guards.enter_context(patch.object(admission, name, forbidden))
                 for selected, threshold, expected in (
                     (runtime, 10, str(state["output"])),
@@ -282,7 +282,7 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
                     recovered = _continuation(bound_input, threshold).execute()
                     assert str(recovered.state.artifact_ref) == expected
                     assert selected.statistics.primary_queries == 0
-                    assert selected.statistics.worker_pid is None
+                    assert selected.statistics.events.get("local_execution_started", 0) == 0
                     assert selected.statistics.events == {"reconciliation": 1}
             assert snapshot(runtime) == before
             assert len(requests) == object_read_count

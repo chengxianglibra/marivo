@@ -167,8 +167,7 @@ def test_independent_series_and_candidate_ceiling() -> None:
             "order_count": [1] * 4097,
         }
     )
-    with pytest.raises(CorrelationError, match="candidate ceiling"):
-        prepare_local(too_many.to_pandas(types_mapper=pd.ArrowDtype), spec)
+    assert len(prepare_local(too_many.to_pandas(types_mapper=pd.ArrowDtype), spec)) == 4097
 
 
 @pytest.mark.parametrize("method", ["pearson", "spearman", "kendall"])
@@ -306,8 +305,7 @@ def test_source_series_count_and_null_dimension_pairs(method: CorrelationMethod)
             },
         )
         _, limits = prepare_pairs(excessive, spec)
-        guard = next(check for check in limits if check.name == "correlate.candidate_ceiling")
-        assert backend.execute(guard.expression).iloc[0, 0] == 1
+        assert all(check.name != "correlate.candidate_ceiling" for check in limits)
     finally:
         backend.disconnect()
 

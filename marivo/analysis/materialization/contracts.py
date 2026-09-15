@@ -42,7 +42,6 @@ if TYPE_CHECKING:
     from marivo.analysis.materialization.quality import QualitySummary
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
-_MAX_PAYLOAD_BYTES = 1_048_576
 FINDING_CAP = 1000
 # Bound realization metadata independently of the generic JSON byte envelope.
 _MAX_SAMPLING_REALIZATIONS = 64
@@ -75,8 +74,6 @@ def canonical_json(value: object) -> str:
         )
     if text is None:
         raise invalid("non-canonical metadata")
-    if len(text.encode("utf-8")) > _MAX_PAYLOAD_BYTES:
-        raise invalid("metadata byte bound exceeded")
     return text
 
 
@@ -94,8 +91,6 @@ def _pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def parse_json(text: str) -> object:
-    if len(text.encode("utf-8")) > _MAX_PAYLOAD_BYTES:
-        raise invalid("metadata byte bound exceeded")
     try:
         value: object = json.loads(text, object_pairs_hook=_pairs)
         if canonical_json(value) != text:
@@ -125,8 +120,8 @@ def _int(value: object, *, minimum: int = 0) -> int:
 
 
 def _array(value: object) -> tuple[object, ...]:
-    if type(value) is not list or len(value) > 4096:
-        raise invalid("invalid bounded array")
+    if type(value) is not list:
+        raise invalid("invalid array")
     return tuple(value)
 
 
@@ -940,8 +935,8 @@ def _retained_fold_payload(value: object) -> str:
     """Decode the bounded typed fold closure, rather than an ordinary text label."""
     from marivo.analysis.observation.fold_contracts import decode_fold_authority
 
-    if type(value) is not str or not value or len(value.encode("utf-8")) > _MAX_PAYLOAD_BYTES:
-        raise invalid("invalid retained fold authority byte bound")
+    if type(value) is not str or not value:
+        raise invalid("invalid retained fold authority")
     try:
         decode_fold_authority(value)
     except (ValueError, TypeError, RecursionError) as exc:

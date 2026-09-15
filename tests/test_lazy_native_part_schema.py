@@ -57,7 +57,7 @@ def _pandas_delta(
     current, baseline = series("2026-02-03", "2026-02-05"), series("2026-02-01", "2026-02-03")
     with pandas_methods("metric.compare"):
         delta = current.compare(baseline).execute()
-    assert runtime.statistics.worker_pid is not None
+    assert runtime.statistics.events.get("local_execution_started", 0) > 0
     return runtime, delta, database
 
 
@@ -87,7 +87,10 @@ def test_pandas_delta_parts_support_native_rank_without_origin(
     assert frame["rank"].tolist() == [1, 2]
     assert frame["current_time"].tolist() == [date(2026, 2, 3), date(2026, 2, 4)]
     assert cold.statistics.events.get("profile_resolution", 0) == 0
-    assert cold.statistics.primary_queries == 1 and cold.statistics.worker_pid is None
+    assert (
+        cold.statistics.primary_queries == 1
+        and cold.statistics.events.get("local_execution_started", 0) == 0
+    )
     assert cold.store.resources(cold.session_ref) == ()
     integrity = cold.revalidate(ranked.state.artifact_ref)
     assert (

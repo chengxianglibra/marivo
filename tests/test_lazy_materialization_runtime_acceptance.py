@@ -105,7 +105,7 @@ def _counts(snapshot: object) -> dict[str, object]:
 
 def _assert_bundle(snapshot: object, *, committed: bool, terminal: bool) -> None:
     counts = _counts(snapshot)
-    assert _object(snapshot)["user_version"] == 3
+    assert _object(snapshot)["user_version"] == 4
     assert counts["analysis_action_runs"] == 1
     assert counts["analysis_action_run_terminals"] == int(terminal)
     assert counts["dataset_artifacts"] == int(committed)

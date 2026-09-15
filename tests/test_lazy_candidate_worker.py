@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import date
 from itertools import pairwise
-from multiprocessing import Pipe
-from multiprocessing.connection import Connection
 from pathlib import Path
-from threading import Thread
 
 import pandas as pd
 import pyarrow as pa
@@ -19,12 +15,13 @@ import pytest
 
 from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.materialization import local_worker
+from marivo.analysis.materialization import local_execution
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.local import LocalBudget, LocalPolicy, to_local_frame
-from marivo.analysis.materialization.local_worker import (
+from marivo.analysis.materialization.local import to_local_frame
+from marivo.analysis.materialization.local_execution import (
     LocalBoundary,
     LocalGraphRequest,
+    LocalInputStreams,
     LocalStage,
     StreamInput,
 )
@@ -47,26 +44,8 @@ from tests.lazy_observation_fixtures import make_sources
 
 
 @contextmanager
-def _stream(table: pa.Table) -> Iterator[Connection]:
-    parent, child = Pipe()
-
-    def send() -> None:
-        try:
-            for batch in table.to_batches(max_chunksize=len(VALUES)):
-                child.send(batch)
-            child.send(None)
-        except (BrokenPipeError, EOFError, OSError):
-            pass
-
-    sender = Thread(target=send, daemon=True)
-    sender.start()
-    try:
-        yield parent
-    finally:
-        parent.close()
-        sender.join(timeout=5)
-        child.close()
-        assert not sender.is_alive()
+def _stream(table: pa.Table) -> Iterator[tuple[LocalInputStreams, ...]]:
+    yield (LocalInputStreams(table.to_batches(max_chunksize=len(VALUES))),)
 
 
 def _case(objective: CandidateObjective) -> tuple[LogicalCandidateDataset, pa.Table]:
@@ -113,7 +92,7 @@ def _row_call(value: LogicalCandidateDataset) -> RowCall:
 @pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
 @pytest.mark.parametrize(
     "guard",
-    [None, "input_rows", "input_bytes", "method_rows", "allocation", "deadline", "duplicate_key"],
+    [None, "duplicate_key"],
 )
 def test_complete_panel_and_budgets_precede_one_discovery_invocation(
     monkeypatch: pytest.MonkeyPatch, objective: CandidateObjective, guard: str | None
@@ -134,36 +113,24 @@ def test_complete_panel_and_budgets_precede_one_discovery_invocation(
         calls += 1
         assert len(frame) == len(VALUES) * 2
         assert set(frame.channel) == {"a", "b"}
-        assert received is spec and check is not None
+        assert received is spec and check is None
         return original(frame, received, check)
 
     monkeypatch.setattr(candidate_values, "execute_candidate", execute)
-    policy = LocalPolicy()
-    if guard == "input_rows":
-        policy = replace(policy, max_input_rows=len(table) - 1)
-    elif guard == "input_bytes":
-        policy = replace(policy, max_input_bytes=table.nbytes - 1)
-    elif guard == "method_rows":
-        policy = replace(policy, max_method_rows=len(table) - 1)
-    elif guard == "allocation":
-        policy = replace(policy, max_intermediate_bytes=1)
-    elif guard == "duplicate_key":
+    if guard == "duplicate_key":
         table = pa.concat_tables([table, table.slice(len(table) - 1)])
-    deadline = time.monotonic() + (-1 if guard == "deadline" else 30)
     request = LocalGraphRequest(
         (LocalBoundary(0, StreamInput(spec.input_row, spec.input_rows)),),
         (LocalStage(1, (0,), spec),),
         1,
-        policy,
-        deadline,
     )
     with _stream(table) as parent:
         if guard is not None:
             with pytest.raises(MaterializationError):
-                local_worker._execute_graph(parent, request, LocalBudget(policy, deadline))
+                local_execution._execute_graph(parent, request)
             assert calls == 0
         else:
-            output = local_worker._execute_graph(parent, request, LocalBudget(policy, deadline))
+            output = local_execution._execute_graph(parent, request)
             assert calls == 1 and output.input_rows == len(VALUES) * 2
             assert output.summaries.candidate is not None
             assert output.summaries.candidate.definition is spec.definition
@@ -185,13 +152,12 @@ def test_candidate_successors_reuse_private_frames_without_reconversion(
     conversions = 0
     convert = to_local_frame
 
-    def to_frame(table: pa.Table, row: DatasetRowContract, budget: LocalBudget) -> pd.DataFrame:
+    def to_frame(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
         nonlocal conversions
         conversions += 1
-        return convert(table, row, budget)
+        return convert(table, row)
 
-    monkeypatch.setattr(local_worker, "to_local_frame", to_frame)
-    policy = LocalPolicy()
+    monkeypatch.setattr(local_execution, "to_local_frame", to_frame)
     request = LocalGraphRequest(
         (LocalBoundary(0, StreamInput(spec.input_row, spec.input_rows)),),
         (
@@ -201,11 +167,9 @@ def test_candidate_successors_reuse_private_frames_without_reconversion(
             LocalStage(4, (3,), _row_call(limited)),
         ),
         4,
-        policy,
-        time.monotonic() + 30,
     )
     with _stream(table) as parent:
-        result = local_worker._execute_graph(parent, request, LocalBudget(policy, request.deadline))
+        result = local_execution._execute_graph(parent, request)
         assert conversions == 1 and len(result.frames.frame) == 1
         assert len(result.handoffs) == 4
         assert all(left[1] == right[0] for left, right in pairwise(result.handoffs))

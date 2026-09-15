@@ -206,7 +206,6 @@ def write_object_dataset(
     artifact_ref: str,
     source: DatasetWriteResult[LocalReceipt],
     access: S3Access,
-    max_stored_bytes: int,
     event: Callable[[str], None],
 ) -> DatasetWriteResult[ObjectReceipt]:
     """Export private Parquet encoding, never publish a local intermediate Artifact."""
@@ -228,12 +227,6 @@ def write_object_dataset(
                 store.project_root, Path(receipt.project_relative_path) / entry.relative_path
             )
             total += entry.size_bytes
-            if total > max_stored_bytes:
-                _fail(
-                    "combined object payloads within storage budget",
-                    "object storage budget exceeded",
-                    stage="transfer_guard",
-                )
             with data.open("rb") as stream:
                 version = _put(
                     s3, access, store, run_ref, key, stream, entry.size_bytes, nonce, event
@@ -248,12 +241,6 @@ def write_object_dataset(
                 }
             ).encode()
             total += len(manifest)
-            if total > max_stored_bytes:
-                _fail(
-                    "combined objects and manifests within storage budget",
-                    "object manifest budget exceeded",
-                    stage="transfer_guard",
-                )
             manifest_key = prefix + role + "/manifest.json"
             manifest_version = _put(
                 s3, access, store, run_ref, manifest_key, manifest, len(manifest), nonce, event
@@ -338,8 +325,8 @@ def open_manifest(s3: S3Client, access: S3Access, receipt: ObjectReceipt) -> Obj
         )
     )
     size = head.get("ContentLength", 0)
-    if not 0 < size <= 65_536:
-        _integrity("a bounded committed object manifest", "invalid manifest size")
+    if size <= 0:
+        _integrity("a nonempty committed object manifest", "invalid manifest size")
     data = _get(
         s3,
         access,
@@ -374,8 +361,8 @@ def open_manifest(s3: S3Client, access: S3Access, receipt: ObjectReceipt) -> Obj
 class ObjectRangeFile(io.RawIOBase):
     """Seekable PyArrow input with one bounded, exact-version range per read."""
 
-    def __init__(self, s3: S3Client, access: S3Access, file: ObjectFile, max_read: int) -> None:
-        self.s3, self.access, self.file, self.max_read = s3, access, file, max_read
+    def __init__(self, s3: S3Client, access: S3Access, file: ObjectFile) -> None:
+        self.s3, self.access, self.file = s3, access, file
         self.position = 0
 
     def readable(self) -> bool:
@@ -400,12 +387,6 @@ class ObjectRangeFile(io.RawIOBase):
             if size < 0
             else min(size, self.file.size - self.position)
         )
-        if length > self.max_read:
-            _fail(
-                "bounded Parquet object range reads",
-                "object range exceeds batch budget",
-                stage="transfer_guard",
-            )
         data = _get(self.s3, self.access, self.file.key, self.file.version, self.position, length)
         self.position += length
         return data

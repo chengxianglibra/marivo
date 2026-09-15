@@ -48,13 +48,12 @@ prefix and executes the admitted terminal suffix in pandas. The owner-approved
 execution domain or a compatible bound source domain. This fully removes the
 former prohibition on importing retained local/object data into native analysis.
 It introduces no database Artifact storage, hidden durable stages, execution
-fallback or target retry. Native scan, memory, deadline and cancellation guards
-remain mandatory.
+fallback or target retry. Native scan integrity and exact owned-resource cleanup remain mandatory.
 
 The owner-approved 2026-09-08 delivery allocation in the
 [public-cutover plan](2026-09-01-lazy-analysis-public-cutover-plan.md) assigns the
 first registered multi-input local consumer and its combined-input validation
-and budget acceptance to Slice 5a. Slice 4 proves independent source-domain
+acceptance to Slice 5a. Slice 4 proves independent source-domain
 identity and existing unary/retained-part execution. The final multi-input
 contracts below remain mandatory for Slice 5a; this allocation does not weaken
 complete-input validation or permit invocation before all combined guards pass.
@@ -220,7 +219,7 @@ The runtime consumes these compiler decisions:
     projection. There is no generic federation or local substitute for source-only
     semantic work.
 
-Runtime enforces separate datasource, pandas and storage budgets. It executes
+Runtime validates complete typed inputs and owns publication. It executes
 the compiler's fixed source prefixes and local suffix without inventing a new
 boundary or implementation, and never promotes private staging into durable
 Dataset authority.
@@ -384,20 +383,20 @@ marivo.dataset_storage_receipt/v1
 marivo.dataset_evidence/v1
 ```
 
-The replacement Session Store uses exact `PRAGMA user_version = 3`. Its schema,
+The replacement Session Store uses exact `PRAGMA user_version = 4`. Its schema,
 constraints, indexes, and version are created in one short SQLite schema
 transaction before Session resolution; initialization never admits analysis.
-No released v3 schema is being migrated by this design amendment. Existing older
+Slice 1b does not migrate any v3 schema or its resource obligations. Existing older
 or future Store generations fail closed; no compatibility decoder,
 in-place upgrade, dual read, or import exists.
 
 ### Generation-scoped layout
 
 ```text
-.marivo/analysis/generations/v3/session_store.db
-.marivo/analysis/generations/v3/sessions/<session_ref>/session.lock
-.marivo/analysis/generations/v3/sessions/<session_ref>/artifacts/<artifact_ref>/...
-.marivo/analysis/generations/v3/sessions/<session_ref>/runs/<run_ref>/...
+.marivo/analysis/generations/v4/session_store.db
+.marivo/analysis/generations/v4/sessions/<session_ref>/session.lock
+.marivo/analysis/generations/v4/sessions/<session_ref>/artifacts/<artifact_ref>/...
+.marivo/analysis/generations/v4/sessions/<session_ref>/runs/<run_ref>/...
 ```
 
 One project-level Store contains all Sessions and all durable analytical
@@ -413,10 +412,10 @@ Its presence is not ownership; the held OS lock is. It is never unlinked or repl
 normal use. All entrypoints resolve the same canonical Store, Session ref, and
 Session lock path.
 
-The lazy runtime never opens `.marivo/analysis/session_store.db` as v3
+The lazy runtime never opens `.marivo/analysis/session_store.db` as v4
 authority. `get_or_create(name)` operates only in the generation-scoped Store
 and may create a Session even when an eager v2 Store exists. `resume(...)`,
-`current()`, and Artifact reads resolve only v3 identities. Old identities fail
+`current()`, and Artifact reads resolve only v4 identities. Old identities fail
 with a structured generation error; no old rows, names, or payloads are copied.
 
 ### Exact Store relations
@@ -856,7 +855,7 @@ While continuing to hold the Session writer guard, the runtime:
 1. resolves current semantic requirements and credentials without storing secrets;
 2. resolves datasource execution profiles without source-version certification;
 3. validates materialized input leaves;
-4. supplies fixed input bindings, executor budgets and one configured storage
+4. supplies fixed input bindings and one configured storage
    target; the compiler selects source prefixes and the registered pandas suffix
    from declared support, the writer validates the target, and all source
    expressions compile using schema-declared references before data statements;
@@ -1140,76 +1139,37 @@ variable-width allocations before admitting a batch. Declaration-only schema
 checks are insufficient; normalization is permitted only when lossless under
 the owning row contract, with explicit overflow failure.
 
-Every required source/Artifact input is collected completely under all per-input
-and combined guards before its first pandas consumer starts. This includes
-retained parts and hidden sufficient state required by that consumer, rather
-than only displayed primary rows. For an admitted multi-input calculation, all
-of its independently produced inputs must pass the combined guard before
-invocation; a late overflow in one input discards previously collected private
-inputs. Arrow validation precedes conversion, and conversion allocations count
-toward the local memory budget.
+Every required source/Artifact input and retained part is collected completely
+and validated before its first local consumer starts. All operands must pass
+schema, key, ownership and alignment checks. Later local steps reuse private
+DataFrames without recollecting the source or mutating shared inputs. Output
+validation precedes publication; failures never change the selected recipe.
 
-Later pandas steps consume validated private DataFrames without re-collecting
-the source. Their output, key/alignment invariants and intermediate-size guards
-are checked before downstream admission. A small source result does not waive
-join-cardinality, pair-count, coalition-count or peak-memory guards. Local output
-feeds the successors selected by the registered execution recipe and the selected
-writer. Native Parquet reads are permitted; a failed step never changes that recipe.
+### Caller execution and resource responsibility
 
-Streaming engine/writer work may create private partial state before a late
-overflow is detected. It stops and discards that state without publishing rows.
-It does not claim that all streaming input was known before calculation began.
+Local pandas and numerical methods, complete retained collection and explicit
+inspection execute synchronously in the calling Python process. Runtime creates
+no execution/read worker, IPC protocol, supervisor, RSS monitor or watchdog.
+Original kernel/driver exceptions preserve their causes and tracebacks; cleanup
+failure cannot replace the original exception. Safe journal summaries remain
+separate from the exception delivered to the caller.
 
-### Executor-specific resource budgets
-
-Runtime binds positive budgets from its private execution configuration before
-starting work. They are operational settings, not compiler-schema constants or
-Dataset definition identity. An operator may require stricter limits; it cannot
-weaken a runtime guard or change analytical meaning to fit one.
-
-| Executor | Bound resources and enforcement |
-| --- | --- |
-| Pandas suffix, including numerical kernels | complete input/output rows and decoded bytes, combined inputs and retained parts, method-specific problem size, intermediate expansion, peak-memory allowance and deadline |
-| Datasource engine | statement deadline, exact cancellation/fencing, bounded result reader and selected output writer; supported engine-native memory/temp controls |
-| Storage writer | in-flight batch memory, stored bytes for all parts, exact counts and atomic visibility |
-
-The initial private pandas defaults retain 100,000 rows per input, 64 MiB
-combined decoded input, 100,000 output rows, 64 MiB decoded output and a
-60-second transfer-plus-local-computation deadline. Per-input guards apply to
-each required primary/part payload, and the combined budget covers every live
-input needed by the local consumer. These are runtime defaults, not Dataset
-definition facts. Methods also bind their own scale facts such as series/history
-length, Metric-pair count or coalition count. Decoded bytes do not bound peak
-process RSS; numerical allocation and cancellation
-require separate implementation evidence.
-
-Hard-deadline pandas and numerical work runs behind a terminable worker boundary
-with cleanup and terminal-state proof. Worker imports defer public Dataset Help initialization until a public analysis consumer requests it. Native providers explicitly mark Session activation/recovery and Dataset execute as telemetry operations. Pure constructors, logical transformations, state rendering and retained metadata probes do not create telemetry files; telemetry cannot weaken their no-I/O or non-mutating contracts. Public Session mutations install instrumentation before invocation, with invalid project configuration rejected before telemetry writes. Receipt decoding and Attribution execution load their owned
-metadata models only when consumed. This changes bootstrap cost, not process
-isolation, receipt validation or worker lifetime.
-
-The parent samples worker RSS through Darwin task information or Linux procfs,
-without spawning a monitor process on each poll. Other POSIX platforms retain
-the bounded `ps` probe. Native probe failure aborts supervision; only an exited
-process reports zero. Poll cadence, worker-reported peak RSS, deadlines and
-termination proof remain enforced.
-
-Checking the clock only after a blocking
-library call returns is insufficient. A configured DuckDB datasource obeys its
-normal datasource-engine controls. A transient Parquet-native DuckDB domain
-uses explicit query, memory and termination controls and produces no persistent
-database Artifact. Payload exceeding a selected pandas input allowance fails
-before pandas invocation, even when it was valid to stream that Artifact to storage. Resource overflow never changes algorithm, inserts
-sampling or switches executors.
+Marivo imposes no execution row/byte/cell/page, intermediate expansion, method
+complexity, memory/RSS/spill, storage or deadline budgets. Resource decisions
+belong to the caller and environment; database, driver, OS and runner limits
+still apply. Batch sizes are tuning values, not total-result limits or peak-memory
+guarantees. Required semantic checks and explicit analytical parameters remain.
+A blocking native call has no promised immediate interruption. Where Python
+retains control, close owned resources after errors or user interruption.
+External termination is recovered through writer ownership and Store integrity;
+no partial result becomes a successful Artifact.
 
 ### Runtime staging and cleanup
 
-Arrow buffers and private DataFrames normally remain in memory under the admitted
-budget. Local steps may reread their admitted inputs without reconstructing
-source queries. Output staging, datasource-native temporary resources and any
-necessary private spill are Runtime resources, not selectable compiler exchanges.
-Spill cannot widen pandas complete-input or peak-memory admission and does not
-provide an out-of-core pandas execution mode.
+Arrow buffers and private DataFrames remain in the caller. Local steps may reread
+admitted inputs without reconstructing source queries. Keep output staging and
+actual datasource-owned resources for atomic publication and recovery; remove
+worker-only workspaces and lifetime records.
 
 Before creating any surviving resource, Runtime reserves its exact Run-scoped
 locator and ownership nonce. Files use the common Parquet contract where
@@ -1248,7 +1208,7 @@ bindings may remain configured while new outputs use local storage.
 
 The only Artifact receipt kinds are local and object Parquet. Database result
 storage is removed. The selected target covers primary rows and every required
-retained part as one atomic Artifact and one combined storage budget. Exact
+retained part as one atomic Artifact. Exact
 membership and distribution parts may stream to either target without exposing
 raw private rows through the public Dataset boundary.
 
@@ -1278,33 +1238,13 @@ and execution-binding hits never enter this writer handoff.
 Local persistence streams rows into Parquet; it is not a bounded-local analytical
 calculation. Its fixed first-cutover limits are:
 
-```text
-LocalMaterializationPolicyV1
-  max_stored_bytes_per_artifact = 67_108_864
-  max_decoded_bytes_per_batch = 8_388_608
-```
-
-The 64-MiB disk budget counts actual files/manifests for the primary output and
-all retained parts together. The 8-MiB batch budget bounds decoded batches,
-with a bounded number of in-flight batches and bounded writer buffers. There is
-no total decoded-row or decoded-byte limit for this storage-only stream and no
-pre-transfer worst-case schema-width proof. Row counts accumulate exactly while
-writing. Source and pandas calculation obey their separate Runtime execution
-budgets; `to_pandas()` still obeys its complete-collection memory limit.
-
-The writer checks actual serialized bytes as it writes, before accepting bytes
-beyond the disk budget. The source adapter must enforce bounded fetching and
-individual variable-width values before unbounded allocation; an oversized
-single value or unsupported bounded reader fails explicitly. Compression never
-waives the decoded-batch guard. An enforceable streaming writer is enough for
-sink admission even when total size is unknown; known-over-budget outputs are
-rejected for the configured local target without scanning; no engine or object
-target is tried automatically.
-
-Crossing a guard stops execution and publishes nothing. It never truncates the
-Artifact, collects the whole result to measure it, or switches sinks after partial
-execution. Unpublished files remain exactly journaled until cleaned. No public
-storage parameter or new policy variant is introduced.
+Parquet writers stream complete primary rows and all required parts to the
+selected target. Normalize Arrow types losslessly and validate exact schemas,
+keys and row counts. There are no stored-byte, decoded-batch, cell or page caps.
+Available byte/row measurements describe actual work without admitting it.
+Variable-width data and driver buffering may allocate more than a transfer
+batch. External write failures publish nothing; no truncation, alternate sink or
+fallback is attempted. Unpublished files remain exactly journaled until cleaned.
 
 ### Storage choice does not change definition identity
 
@@ -1362,10 +1302,9 @@ library fingerprints and compression tuning are diagnostics, not compatibility
 or Artifact-reuse gates.
 
 Local/object receipts support authorized PyArrow decoding and registered native
-Parquet scans. Preview and complete pandas collection retain their respective
-budgets. Native scans validate exact manifest/version, content hash, schema and
-row count, then use the preselected domain and its memory/deadline/cancellation
-controls. No receipt grants access to origin sources or changes its retained
+Parquet scans. Preview retains display bounds; complete collection has no resource caps.
+Native scans validate exact manifest/version, content hash, schema and row count,
+then use the preselected domain with owned-resource cleanup. No receipt grants access to origin sources or changes its retained
 semantic authority. Every reader accesses selected backing only.
 
 ### Local receipt
@@ -1967,7 +1906,7 @@ Connection-lifetime resources can use their registered proof without persisting
 an unusable connection handle.
 
 Pure in-process Arrow batches, pandas/numerical buffers, and guarded in-memory
-results are never journal rows. Their counters, resource limits, and cleanup
+results are never journal rows. Their counters and cleanup
 remain action-local; process termination discharges their memory lifetime.
 If an executor spills to files, those files belong to an exactly reserved
 workspace or exchange obligation. There is no Artifact metadata-file resource.
@@ -2313,7 +2252,7 @@ Artifact.
   continuations and safe optional execution diagnostics;
 - configured-target writer inputs, with no sink candidates or selection callback.
 
-Runtime admits the Run and supplies bindings, operational budgets and one storage
+Runtime admits the Run and supplies bindings and one storage
 target. It validates the writer, executes the fixed steps, checks actual batches,
 invokes complete-input pandas consumers, validates local intermediate results,
 journals resources and commits the Artifact.
@@ -2455,7 +2394,7 @@ object Parquet, including exact private membership/distribution state. Retained
 identity selections may join eligible current sources through the fixed native
 Parquet reader. Cold Artifact-only native execution must work with origin sources
 offline and without a persistent database output. Retain independent native and
-pandas algorithm conformance, same-Session ownership, combined-input budgets,
+pandas algorithm conformance, same-Session ownership, complete-input validation,
 source-domain conflicts and failure/no-retry assertions. Native eligibility must
 be established before execution; failed compilation never chooses another path.
 
@@ -2508,11 +2447,9 @@ be established before execution; failed compilation never chooses another path.
 6. Inject source compilation/execution, Arrow validation, pandas/output overflow,
    numerical failure, timeout and cleanup failure; prove no executor changes and
    no private buffer or staging becomes reusable authority.
-7. Consume a local Artifact whose required rows or retained parts exceed the
-   pandas budget. Its committed storage remains readable within preview limits,
-   but the calculation fails before local invocation without DuckDB or spill
-   bypass. A separately registered source-only operation without a compatible
-   source domain fails at compilation rather than collecting identities locally.
+7. Consume complete local primary/part inputs beyond former resource caps without
+   origin replay or fallback. Separately registered source-only operations still
+   reject incompatible domains before collecting private identities locally.
 
 ### Retained parts and scoped reads
 
@@ -2532,15 +2469,12 @@ be established before execution; failed compilation never chooses another path.
 
 1. Write a small string-bearing result whose schema has no maximum text width.
    It succeeds without a full count query or static worst-case byte proof.
-2. Stream more than 100,000 rows that fit the serialized budget; verify bounded
-   batches/buffers and exact counts with no local analytical stage or DataFrame.
-3. Test exactly-at/over limits for stored Artifact bytes including parts/manifests,
-   decoded batches, and an oversized individual value. Overflow returns no partial
-   Artifact, stops transfer, and never retries another sink inside the Run.
-4. Prove pandas calculation and full collection retain their complete-input
-   limits: a source result may stream successfully into an Artifact yet fail a
-   later local consumer whose required payload exceeds those limits. An immutable
-   engine Artifact can still perform eligible source work under engine budgets.
+2. Stream and collect more than 100,000 rows; verify exact counts and complete values.
+3. Verify wide/nested values and complete primary-plus-part writes without resource
+   ceilings, using safe fixtures. Inject external write failures and verify no
+   partial Artifact, truncation or alternate sink.
+4. Exercise caller PID, original exceptions, user interruption and cold recovery
+   after external process termination. Never deliberately exhaust the host.
 
 ### High-cardinality engine materialization
 
@@ -2734,7 +2668,7 @@ The Public Cutover Plan must require at least:
 - cold scan-leaf recovery without logical origin tests;
 - Session graph produced/binding-recovery/input-edge tests;
 - redaction and bounded-payload adversarial tests;
-- streaming-persistence batch/disk budget tests, variable-width values without
+- complete streaming-persistence tests, variable-width values without
   static total-size proof, exact streamed counts, and no whole-result buffering;
 - source/Artifact-to-pandas Arrow tests that reject a bad batch before consumer
   admission, validate all required parts and combined inputs, and account decoded
@@ -2745,7 +2679,7 @@ The Public Cutover Plan must require at least:
 - Runtime Parquet staging tests for file/resource guards, schema drift,
   reservation-before-create, cleanup, and proof that no receipt, Artifact,
   Evidence, execution-key Artifact row, or graph node is created;
-- pandas-worker, numerical-buffer and datasource-resource crash/cleanup tests
+- caller-process, numerical-buffer and datasource-resource crash/cleanup tests
   proving only the validated root output may enter the configured durable target;
 - source-prefix pushdown tests and admitted multi-input pandas tests proving
   support-based boundaries before data work, no failed-compilation probing, no
@@ -2807,7 +2741,7 @@ consulting implementation guesses:
     or submission;
 23. cold recovery admits no new work in its Session while old backend writes
     remain possible; harmless garbage does not block work in any Session;
-24. Store v3, `storage_selection`, and unverifiable integrity states are exact
+24. Store v4, `storage_selection`, and unverifiable integrity states are exact
     closed contracts;
 25. every producing definition resolves one exact
     `DatasetMaterializationContractV1` before Run admission, while family owners
@@ -2834,12 +2768,10 @@ consulting implementation guesses:
 33. eligible contiguous operators compose in Ibis before a support-selected
     pandas terminal suffix; dependent successors never return to SQL, and no
     internal DuckDB executor or failure fallback exists;
-34. every local consumer admits complete required primary/part inputs and
-    combined multi-input budgets before invocation, with separate intermediate
-    expansion, peak-memory and deadline enforcement;
-35. local/object Parquet continuation uses authorized PyArrow and pandas under
-    complete-input guards, while storage-only streaming and immutable engine
-    source calculation retain their separate budgets.
+34. every local consumer validates complete required primary/part operands before
+    invocation, preserving ownership, alignment and exact values;
+35. local/object Parquet continuation and full collection execute in the caller,
+    without resource budgets or workers; atomic publication and recovery remain.
 
 ## Owner-Confirmed Module Decisions
 
@@ -2849,7 +2781,7 @@ Session-level locking and atomic publication decisions:
 
 1. One Agent writes each Session serially. A non-blocking Session writer guard
    covers each whole action; different Sessions can execute concurrently.
-2. The project-level v3 SQLite Store owns all Session, Run, Artifact descriptor,
+2. The project-level v4 SQLite Store owns all Session, Run, Artifact descriptor,
    Evidence, Finding, and external-obligation metadata. No metadata sidecar or
    independent Evidence database participates in publication.
 3. Immutable external storage is finalized before one metadata transaction
@@ -2920,14 +2852,14 @@ Session-level locking and atomic publication decisions:
 23. Graph reads project one Store snapshot without recovery or Finding-body scans.
     External inputs are boundary Artifacts with their actual owners; only local
     Runs enter the Session graph. Coordination remains private.
-24. The clean Store generation stays `user_version = 3`; eager state is neither
+24. The clean Store generation is `user_version = 4`; older state is neither
     decoded nor migrated. Public deletion waits for a recoverable metadata and
     external-storage deletion contract.
 25. Local/object Artifact readers use authorized PyArrow or a registered native
-    Parquet scan. Each selected execution domain enforces its own resource
-    limits; storage success does not waive computation admission.
+    Parquet scan. Computation validates complete typed inputs and semantic
+    authority without Marivo resource admission.
 26. An admitted multi-input pandas method may collect separate source outputs
-    under combined semantic, privacy and resource checks. There is no generic
+    under combined semantic and privacy checks. There is no generic
     federation or unregistered substitute for identity and semantic work.
     Native Parquet scans do not recover missing origin semantics.
 
@@ -3007,7 +2939,7 @@ do not consume unused distributions.
 The existing physical stage graph gains one closed distribution preparation
 input. Its stream is not a Dataset or an Artifact: it carries one value per
 scope/resolution/coalition, a consistent typed non-identity player inventory,
-player count and independent endpoints. The complete input is budgeted before
+player count and independent endpoints. The complete input is validated before
 exact local Shapley combination. Missing coalitions, duplicate players,
 inconsistent inventories/endpoints or incomplete resolutions fail atomically.
 Run resources, cancellation, source realization and receipt rechecks retain
@@ -3029,7 +2961,7 @@ interruption belong to the concrete DuckDB execution path. Every validation
 still runs separately in its existing order. Successful adapter close precedes
 termination proof and atomic publication. Native retained Parquet computation
 and isolated cold inspection remain local domains. The existing Event coverage
-provider receives its owned native connection within the adapter's deadline.
+provider receives its owned native connection without a Marivo deadline.
 This amendment enables no remote backend or new public API; the Slice 1
 [evidence record](2026-09-15-multisource-slice-1-acceptance.md) owns verification status.
 
@@ -3038,7 +2970,7 @@ This amendment enables no remote backend or new public API; the Slice 1
 
 Slice 1a removes the action-wide DuckDB BEGIN/ROLLBACK wrapper and its
 consistency-only rollback exception handling. Initialization retains the existing
-UTC, thread and budget settings. Statements still require the exact open
+UTC and thread settings; Slice 1b removes resource settings. Statements still require the exact open
 execution context, including composed preparation inputs. Close failures still
 leave termination unproved and resources unresolved; this is not Slice 1c's
 recovery simplification.
@@ -3054,3 +2986,12 @@ semantic version selection and retained integrity checks remain unchanged.
 
 The [Slice 1a evidence record](2026-09-15-multisource-slice-1a-acceptance.md)
 tracks verification separately from historical Slice 1 results.
+
+### Slice 1b Store generation
+
+Generation 4 owns the caller-execution resource protocol. Older generation files
+remain untouched; old Session identities are not resumed or migrated. A database
+with a different `user_version` in the current generation is rejected before
+mutation. Worker-only obligations cannot be discarded as successful cleanup.
+Remote termination certification and ordinary driver cleanup simplification
+remain separately owned by Slice 1c.

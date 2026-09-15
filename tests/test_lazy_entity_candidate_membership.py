@@ -186,7 +186,10 @@ def test_engine_candidate_membership_reads_checkpoint_after_selection_source_dro
             .state.artifact_ref
             == result.state.artifact_ref
         )
-    assert not cold.statistics.statements and cold.statistics.worker_pid is None
+    assert (
+        not cold.statistics.statements
+        and cold.statistics.events.get("local_execution_started", 0) == 0
+    )
 
 
 @pytest.mark.runtime

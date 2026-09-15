@@ -3,29 +3,22 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import math
 import os
 import re
-import subprocess
-import sys
 import time
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal
-from multiprocessing import Pipe
-from multiprocessing.connection import Connection
 from pathlib import Path
-from threading import Event, Thread
 from typing import BinaryIO, Generic, Literal, TypeAlias, TypeVar
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from typing_extensions import Buffer
 
 from marivo._compat import Never
 from marivo.analysis.datasets.descriptors import (
@@ -53,7 +46,6 @@ from marivo.analysis.materialization.contracts import (
     schema_fingerprint,
 )
 from marivo.analysis.materialization.errors import (
-    CollectionLimitError,
     IntegrityError,
     MaterializationError,
     StorageAccessError,
@@ -67,18 +59,16 @@ _ROLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@+-]{0,159}\Z")
 
 @dataclass(frozen=True, slots=True)
 class StoragePolicy:
-    max_stored_bytes: int = 67_108_864
-    max_batch_bytes: int = 8_388_608
+    """Parquet row-group tuning; no storage or allocation limits."""
+
     row_group_rows: int = 1024
 
 
 @dataclass(frozen=True, slots=True)
 class ReadPolicy:
+    """Preview display length only; complete reads have no resource caps."""
+
     preview_rows: int = 20
-    max_rows: int = 100_000
-    max_decoded_bytes: int = 67_108_864
-    deadline_seconds: float = 60.0
-    max_batch_bytes: int = 8_388_608
 
 
 _STORAGE_POLICY = StoragePolicy()
@@ -134,7 +124,7 @@ def _fail(expected: str, received: str, *, stage: str = "output_validation") -> 
     raise MaterializationError(
         expected=expected,
         received=received,
-        repair="Use the exact registered schema, ordered row keys and bounded local storage route.",
+        repair="Use the exact registered schema, ordered row keys and immutable local storage route.",
         stage=stage,
     )
 
@@ -145,15 +135,6 @@ def _integrity(expected: str, received: str) -> Never:
         received=received,
         repair="Restore the exact committed backing or explicitly author a new execution.",
         stage="storage_read",
-    )
-
-
-def _limited(received: str) -> Never:
-    raise CollectionLimitError(
-        expected="a complete retained result within the configured row, byte and deadline limits",
-        received=received,
-        repair="Narrow the logical Dataset before execution and collect its committed result.",
-        stage="collection",
     )
 
 
@@ -195,54 +176,6 @@ def _create_directory(path: Path) -> None:
         _fsync_directory(directory.parent)
 
 
-@dataclass(slots=True)
-class _DiskBudget:
-    limit: int
-    used: int = 0
-
-
-class _BudgetFile(io.BufferedIOBase):
-    """The Arrow sink refuses bytes before they exceed the shared Artifact budget."""
-
-    def __init__(self, path: Path, budget: _DiskBudget) -> None:
-        self._stream: BinaryIO = path.open("xb")
-        self._budget = budget
-
-    def writable(self) -> bool:
-        return True
-
-    def tell(self) -> int:
-        return self._stream.tell()
-
-    def write(self, data: Buffer) -> int:
-        view = memoryview(data)
-        size = view.nbytes
-        if self._budget.used + size > self._budget.limit:
-            _fail(
-                "stored bytes within the local Artifact budget",
-                "disk budget exceeded",
-                stage="transfer_guard",
-            )
-        written = self._stream.write(view)
-        self._budget.used += written
-        return written
-
-    def flush(self) -> None:
-        if not self._stream.closed:
-            self._stream.flush()
-
-    def close(self) -> None:
-        if not self.closed:
-            try:
-                self.flush()
-                os.fsync(self._stream.fileno())
-            finally:
-                try:
-                    super().close()
-                finally:
-                    self._stream.close()
-
-
 def _normal_type(value: pa.DataType) -> pa.DataType:
     if pa.types.is_dictionary(value):
         return _normal_type(value.value_type)
@@ -253,52 +186,11 @@ def _normal_type(value: pa.DataType) -> pa.DataType:
     return value
 
 
-def _decoded_bound(column: pa.Array, limit: int) -> int:
-    if pa.types.is_struct(column.type):
-        estimate = (len(column) + 7) // 8
-        for index in range(column.type.num_fields):
-            estimate += _decoded_bound(column.field(index), limit - estimate)
-            if estimate > limit:
-                _fail(
-                    "bounded struct decoding",
-                    "decoded batch budget exceeded",
-                    stage="transfer_guard",
-                )
-        return estimate
-    if not pa.types.is_dictionary(column.type):
-        return int(column.nbytes)
-    estimate = 0
-    for scalar in column:
-        value: object = scalar.as_py()
-        estimate += len(value.encode("utf-8")) + 8 if isinstance(value, str) else 16
-        if estimate > limit:
-            _fail(
-                "bounded dictionary decoding",
-                "decoded batch budget exceeded",
-                stage="transfer_guard",
-            )
-    return estimate
-
-
-def _normalize_batch(batch: pa.RecordBatch, limit: int) -> pa.RecordBatch:
-    if batch.nbytes > limit:
-        _fail("a bounded decoded Arrow batch", "batch byte budget exceeded", stage="transfer_guard")
+def _normalize_batch(batch: pa.RecordBatch) -> pa.RecordBatch:
     fields = [pa.field(item.name, _normal_type(item.type), item.nullable) for item in batch.schema]
     target = pa.schema(fields)
     if not batch.schema.equals(target, check_metadata=False):
-        # Check dictionary expansion one scalar at a time before allocating decoded arrays.
-        estimate = 0
-        for column in batch.columns:
-            estimate += _decoded_bound(column, limit - estimate)
-        if estimate > limit:
-            _fail(
-                "a bounded normalized batch",
-                "decoded batch budget exceeded",
-                stage="transfer_guard",
-            )
         batch = batch.cast(target)
-    if batch.nbytes > limit:
-        _fail("a bounded normalized batch", "decoded batch budget exceeded", stage="transfer_guard")
     return batch
 
 
@@ -748,10 +640,9 @@ def write_local_dataset(
                 "retained columns containing the complete shared row key",
                 "invalid retained column projection",
             )
-    budget = _DiskBudget(policy.max_stored_bytes)
     _create_directory(staging)
     writers: list[pq.ParquetWriter] = []
-    sinks: list[_BudgetFile] = []
+    sinks: list[BinaryIO] = []
     schemas: list[pa.Schema] = []
     realized: DatasetSchema | None = None
     full_schema: pa.Schema | None = None
@@ -762,7 +653,7 @@ def write_local_dataset(
     directories = ("primary", *(f"parts/{part.role}" for part in parts))
     try:
         for incoming in batches:
-            batch = _normalize_batch(incoming, policy.max_batch_bytes)
+            batch = _normalize_batch(incoming)
             if len(set(batch.schema.names)) != len(batch.schema.names):
                 _fail("unique stream column names", "duplicate stream columns")
             if full_schema is None:
@@ -787,8 +678,9 @@ def write_local_dataset(
                             ]
                         )
                     schemas.append(schema)
-                    sink = _BudgetFile(target / "data.parquet", budget)
+                    sink: BinaryIO = (target / "data.parquet").open("wb")
                     sinks.append(sink)
+                    event("parquet_payload_create")
                     writers.append(
                         pq.ParquetWriter(
                             sink,
@@ -838,31 +730,34 @@ def write_local_dataset(
             part_count = 0
             part_schema_value: pa.Schema | None = None
             part_writer: pq.ParquetWriter | None = None
-            part_sink = _BudgetFile(target / "data.parquet", budget)
-            try:
-                for incoming in checked_component_batches(
-                    independent.batches, row_contract, independent.role
-                ):
-                    batch = _normalize_batch(incoming, policy.max_batch_bytes)
-                    if part_schema_value is None:
-                        part_schema_value = batch.schema
-                        component_schema(row_contract, independent.role, part_schema_value)
-                        part_writer = pq.ParquetWriter(
-                            part_sink,
-                            part_schema_value,
-                            compression="zstd",
-                            use_dictionary=False,
-                            write_page_checksum=True,
-                        )
-                    if not batch.schema.equals(part_schema_value, check_metadata=False):
-                        _fail("one canonical part schema", "changing independent part schema")
-                    assert part_writer is not None
-                    part_writer.write_batch(batch, row_group_size=policy.row_group_rows)
-                    part_count += batch.num_rows
-            finally:
-                if part_writer is not None:
-                    part_writer.close()
-                part_sink.close()
+            part_sink = (target / "data.parquet").open("wb")
+            sinks.append(part_sink)
+            event("parquet_payload_create")
+            for incoming in checked_component_batches(
+                independent.batches, row_contract, independent.role
+            ):
+                batch = _normalize_batch(incoming)
+                if part_schema_value is None:
+                    part_schema_value = batch.schema
+                    component_schema(row_contract, independent.role, part_schema_value)
+                    part_writer = pq.ParquetWriter(
+                        part_sink,
+                        part_schema_value,
+                        compression="zstd",
+                        use_dictionary=False,
+                        write_page_checksum=True,
+                    )
+                    writers.append(part_writer)
+                if not batch.schema.equals(part_schema_value, check_metadata=False):
+                    _fail("one canonical part schema", "changing independent part schema")
+                assert part_writer is not None
+                part_writer.write_batch(batch, row_group_size=policy.row_group_rows)
+                part_count += batch.num_rows
+            if part_writer is not None:
+                part_writer.close()
+                writers.clear()
+            part_sink.close()
+            sinks.clear()
             if part_schema_value is None:
                 _fail(
                     "an empty or populated schema-carrying part", "missing independent part stream"
@@ -880,13 +775,16 @@ def write_local_dataset(
                 [pa.array([codec.digest(codec.sampling_payload(sampling))], type=pa.string())],
                 schema=schema,
             )
-            with (
-                _BudgetFile(target / "data.parquet", budget) as sink,
-                pq.ParquetWriter(
-                    sink, schema, compression="zstd", write_page_checksum=True
-                ) as writer,
-            ):
-                writer.write_batch(batch)
+            sink = (target / "data.parquet").open("wb")
+            sinks.append(sink)
+            event("parquet_payload_create")
+            writer = pq.ParquetWriter(sink, schema, compression="zstd", write_page_checksum=True)
+            writers.append(writer)
+            writer.write_batch(batch)
+            writer.close()
+            writers.clear()
+            sink.close()
+            sinks.clear()
             schemas.append(schema)
             directories += (directory,)
             row_counts += (1,)
@@ -909,7 +807,7 @@ def write_local_dataset(
             entry = FileEntry("data.parquet", file.stat().st_size, _hash_file(file))
             entries = (entry,)
             manifest = _manifest_bytes(entries)
-            with _BudgetFile(target / "manifest.json", budget) as stream:
+            with (target / "manifest.json").open("wb") as stream:
                 stream.write(manifest)
             _fsync_directory(target)
             receipts.append(
@@ -950,10 +848,10 @@ def write_local_dataset(
         )
     finally:
         for writer in writers:
-            with suppress(OSError, MaterializationError, pa.ArrowException):
+            with suppress(BaseException):
                 writer.close()
         for sink in sinks:
-            with suppress(OSError, MaterializationError):
+            with suppress(BaseException):
                 sink.close()
 
 
@@ -969,8 +867,8 @@ def validate_sampling_state(project_root: Path, state: SamplingStateRead | None)
     if len(receipt.file_manifest) != 1 or receipt.realized_row_count != 1:
         _integrity("one bounded sampling state row", "invalid sampling state receipt")
     entry = receipt.file_manifest[0]
-    if entry.relative_path != "data.parquet" or entry.size_bytes > 65_536:
-        _integrity("the bounded sampling state Parquet file", "invalid sampling backing")
+    if entry.relative_path != "data.parquet":
+        _integrity("the exact sampling state Parquet file", "invalid sampling backing")
     data = _checked_path(project_root, root / "data.parquet")
     manifest = _checked_path(project_root, root / "manifest.json")
     schema = pa.schema([pa.field("sampling_execution_digest", pa.string(), nullable=False)])
@@ -993,7 +891,6 @@ def validate_sampling_state(project_root: Path, state: SamplingStateRead | None)
             if (
                 parquet.metadata.num_rows != 1
                 or parquet.metadata.num_row_groups != 1
-                or parquet.metadata.row_group(0).total_byte_size > 65_536
                 or not parquet.schema_arrow.equals(schema)
             ):
                 _integrity("the bounded sampling state schema", "invalid sampling state rows")
@@ -1105,24 +1002,18 @@ def _read_part_batches(
     receipt = part.storage_receipt
     if not isinstance(receipt, LocalReceipt):
         _integrity("the local part reader", "non-local part receipt")
-    if receipt.realized_row_count > policy.max_rows:
-        _limited("required part row count exceeds the collection limit")
     expected_hash = hashlib.sha256(expected_schema.serialize().to_pybytes()).hexdigest()
     if receipt.schema_fingerprint != expected_hash:
         _integrity("the exact registered part schema", "required part schema fingerprint differs")
     parquet, data = _open_payload(project_root, receipt)
-    started = time.monotonic()
+    time.monotonic()
     count = decoded = 0
     try:
         if not parquet.schema_arrow.equals(expected_schema, check_metadata=False):
             _integrity("the exact registered part schema", "required part schema differs")
-        for batch in _bounded_batches(parquet, policy, preview=False):
+        for batch in _parquet_batches(parquet, policy, preview=False):
             count += batch.num_rows
             decoded += batch.nbytes
-            if count > policy.max_rows or decoded > policy.max_decoded_bytes:
-                _limited("required part exceeds the collection budget")
-            if time.monotonic() - started > policy.deadline_seconds:
-                _limited("required part read deadline exceeded")
             for field in expected_schema:
                 if not field.nullable and batch.column(field.name).null_count:
                     _integrity("required non-null part fields", "null required part field")
@@ -1161,14 +1052,12 @@ def _to_dataframe(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
     return result.copy(deep=True)
 
 
-def _bounded_batches(
+def _parquet_batches(
     parquet: pq.ParquetFile, policy: ReadPolicy, *, preview: bool, use_threads: bool = True
 ) -> Iterator[pa.RecordBatch]:
     remaining = policy.preview_rows
     for index in range(parquet.metadata.num_row_groups):
-        group = parquet.metadata.row_group(index)
-        if group.total_byte_size > policy.max_batch_bytes:
-            _limited("declared uncompressed row group exceeds the decoded batch limit")
+        parquet.metadata.row_group(index)
         size = min(1024, remaining) if preview else 1024
         for batch in parquet.iter_batches(
             batch_size=max(1, size), row_groups=[index], use_threads=use_threads
@@ -1188,14 +1077,12 @@ def _read(
     preview: bool,
     policy: ReadPolicy,
 ) -> pa.Table:
-    started = time.monotonic()
+    time.monotonic()
     if row_set_contract.cardinality.kind == "singleton" and receipt.realized_row_count != 1:
         _integrity("exactly one committed singleton row", "invalid singleton count")
     bound = getattr(row_set_contract.cardinality, "row_bound", None)
     if isinstance(bound, _StaticRowBound) and receipt.realized_row_count > bound.max_rows:
         _integrity("the declared static row bound", "committed row bound exceeded")
-    if not preview and receipt.realized_row_count > policy.max_rows:
-        _limited("committed row count exceeds the collection limit")
     parquet, data = _open_primary(project_root, receipt, row_contract)
     # The committed descriptor requires the producer's independent key validation.
     validator = _RowValidator(row_contract, row_set_contract, source_key_validation=True)
@@ -1203,22 +1090,14 @@ def _read(
     decoded = 0
     remaining = policy.preview_rows if preview else receipt.realized_row_count
     try:
-        for batch in _bounded_batches(parquet, policy, preview=preview):
-            if time.monotonic() - started > policy.deadline_seconds:
-                _limited("retained read deadline exceeded")
-            if batch.nbytes > policy.max_batch_bytes:
-                _limited("decoded batch limit exceeded")
+        for batch in _parquet_batches(parquet, policy, preview=preview):
             selected = batch.slice(0, remaining) if preview else batch
             decoded += selected.nbytes
-            if decoded > policy.max_decoded_bytes:
-                _limited("decoded byte limit exceeded")
             validator.accept(selected)
             retained.append(selected)
             remaining -= selected.num_rows
             if preview and remaining <= 0:
                 break
-            if not preview and validator.count > policy.max_rows:
-                _limited("realized row count exceeds the collection limit")
         if not preview:
             validator.finish()
             if validator.count != receipt.realized_row_count:
@@ -1228,10 +1107,8 @@ def _read(
                 or receipt.file_manifest[0].sha256 != receipt.bytes_hash
             ):
                 _integrity("the exact immutable primary content hash", "primary content changed")
-        if time.monotonic() - started > policy.deadline_seconds:
-            _limited("retained read deadline exceeded")
         return pa.Table.from_batches(retained, schema=parquet.schema_arrow)
-    except (IntegrityError, CollectionLimitError):
+    except IntegrityError:
         raise
     except MaterializationError:
         _integrity("valid ordered retained rows and nullability", "selected row contract violation")
@@ -1269,7 +1146,7 @@ def _read_primary(
     policy: ReadPolicy = _READ_POLICY,
 ) -> pd.DataFrame:
     """Collect complete retained primary rows into an isolated terminal DataFrame."""
-    started = time.monotonic()
+    time.monotonic()
     table = _read(
         project_root=project_root,
         receipt=receipt,
@@ -1279,231 +1156,7 @@ def _read_primary(
         policy=policy,
     )
     result = _to_dataframe(table, row_contract)
-    if int(result.memory_usage(index=True, deep=True).sum()) > policy.max_decoded_bytes:
-        _limited("complete DataFrame byte limit exceeded")
-    if time.monotonic() - started > policy.deadline_seconds:
-        _limited("complete collection deadline exceeded")
     return result
-
-
-_WORKER_CODE = (
-    "from marivo.analysis.materialization.storage import _read_worker_entry; _read_worker_entry()"
-)
-
-
-def _read_request(
-    project_root: Path,
-    receipt: StorageReceipt,
-    row: DatasetRowContract,
-    rows: DatasetRowSetContract,
-    policy: ReadPolicy,
-) -> str:
-    return codec.canonical_json(
-        {
-            "schema": "marivo.primary_read/v1",
-            "project_root": str(project_root.absolute()),
-            "receipt": codec.receipt_payload(receipt),
-            "row": codec.row_payload(row),
-            "row_set": codec.row_set_payload(rows),
-            "policy": {
-                "preview_rows": policy.preview_rows,
-                "max_rows": policy.max_rows,
-                "max_decoded_bytes": policy.max_decoded_bytes,
-                "deadline_seconds": policy.deadline_seconds,
-                "max_batch_bytes": policy.max_batch_bytes,
-            },
-        }
-    )
-
-
-def _read_request_value(text: str) -> pd.DataFrame:
-    from marivo.analysis.observation.contracts import make_ids
-
-    raw = codec.parse_json(text)
-    obj = codec._obj(raw, "schema project_root receipt row row_set policy")
-    if obj["schema"] != "marivo.primary_read/v1":
-        _integrity("the supported read request version", "unsupported read request")
-    policy_obj = codec._obj(
-        obj["policy"], "preview_rows max_rows max_decoded_bytes deadline_seconds max_batch_bytes"
-    )
-    seconds = policy_obj["deadline_seconds"]
-    if (
-        type(seconds) not in (int, float)
-        or not isinstance(seconds, (int, float))
-        or not math.isfinite(seconds)
-        or seconds <= 0
-    ):
-        _limited("invalid collection deadline")
-    policy = ReadPolicy(
-        preview_rows=codec._int(policy_obj["preview_rows"], minimum=1),
-        max_rows=codec._int(policy_obj["max_rows"]),
-        max_decoded_bytes=codec._int(policy_obj["max_decoded_bytes"], minimum=1),
-        deadline_seconds=float(seconds),
-        max_batch_bytes=codec._int(policy_obj["max_batch_bytes"], minimum=1),
-    )
-    ids = make_ids(())
-    receipt = codec.decode_receipt(obj["receipt"])
-    if not isinstance(receipt, LocalReceipt):
-        _integrity("the local read worker", "non-local receipt")
-    return _read_primary(
-        project_root=Path(codec._text(obj["project_root"])),
-        receipt=receipt,
-        row_contract=codec.decode_row(obj["row"], ids),
-        row_set_contract=codec.decode_row_set(obj["row_set"], ids),
-        policy=policy,
-    )
-
-
-def _read_worker_entry(
-    read_value: Callable[[str], pd.DataFrame] = _read_request_value,
-) -> None:
-    """Run the selected reader behind the shared bounded IPC/error envelope."""
-    connection = Connection(int(sys.argv[1]), readable=False, writable=True)
-    try:
-        payload = sys.stdin.buffer.read(1_048_577)
-        if len(payload) > 1_048_576:
-            _integrity("a bounded canonical read request", "read request exceeded its limit")
-        result = read_value(payload.decode("utf-8"))
-        connection.send(("dataframe", result))
-    except MaterializationError as error:
-        kind = (
-            "integrity"
-            if isinstance(error, IntegrityError)
-            else "limit"
-            if isinstance(error, CollectionLimitError)
-            else "materialization"
-        )
-        connection.send(
-            (
-                "failure",
-                codec.canonical_json(
-                    {
-                        "kind": kind,
-                        "expected": error.expected,
-                        "received": error.received,
-                        "repair": error.hint,
-                        "stage": error.stage,
-                    }
-                ),
-            )
-        )
-    except Exception:
-        connection.send(
-            (
-                "failure",
-                codec.canonical_json(
-                    {
-                        "kind": "materialization",
-                        "expected": "a complete supported retained primary read",
-                        "received": "the isolated read worker could not complete",
-                        "repair": "Inspect the exact selected backing and retry the retained read.",
-                        "stage": "storage_read",
-                    }
-                ),
-            )
-        )
-    finally:
-        connection.close()
-
-
-def _response(value: object) -> pd.DataFrame:
-    if not isinstance(value, tuple) or len(value) != 2:
-        _integrity("one complete terminal read response", "invalid read worker response")
-    kind, body = value
-    if kind == "dataframe" and isinstance(body, pd.DataFrame):
-        return body
-    if kind == "failure" and isinstance(body, str):
-        failure = codec._obj(codec.parse_json(body), "kind expected received repair stage")
-        error_type = {
-            "integrity": IntegrityError,
-            "limit": CollectionLimitError,
-            "materialization": MaterializationError,
-        }.get(codec._text(failure["kind"]))
-        if error_type is not None:
-            raise error_type(
-                expected=codec._text(failure["expected"]),
-                received=codec._text(failure["received"]),
-                repair=codec._text(failure["repair"]),
-                stage=codec._text(failure["stage"]),
-            )
-    _integrity("a supported terminal read response", "invalid read worker outcome")
-
-
-def _supervise_read(
-    payload: str, seconds: float, *, worker_code: str = _WORKER_CODE
-) -> pd.DataFrame:
-    if seconds <= 0 or not math.isfinite(seconds):
-        _limited("collection deadline exceeded before the worker started")
-    if os.name != "posix":
-        _fail(
-            "a supported terminable local read worker",
-            "this platform lacks the registered file-descriptor handoff",
-            stage="collection",
-        )
-    deadline = time.monotonic() + seconds
-    receive, send = Pipe(duplex=False)
-    completed = Event()
-    response: list[object] = []
-    process: subprocess.Popen[bytes] | None = None
-    collector: Thread | None = None
-    try:
-        environment = os.environ.copy()
-        environment["MARIVO_TELEMETRY"] = "off"
-        process = subprocess.Popen(
-            [sys.executable, "-B", "-c", worker_code, str(send.fileno())],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            pass_fds=(send.fileno(),),
-            env=environment,
-        )
-        send.close()
-        input_stream = process.stdin
-        if input_stream is None:
-            _integrity("the isolated worker input pipe", "missing read worker pipe")
-
-        def collect() -> None:
-            try:
-                input_stream.write(payload.encode("utf-8"))
-                input_stream.close()
-                received: object = receive.recv()
-                response.append(received)
-            except Exception:
-                # An incomplete or undecodable IPC value is never a terminal result.
-                pass
-            finally:
-                completed.set()
-
-        collector = Thread(target=collect, name="marivo-primary-read", daemon=True)
-        collector.start()
-        if not completed.wait(max(0, deadline - time.monotonic())):
-            _limited("the isolated collection worker exceeded its deadline")
-        try:
-            process.wait(timeout=max(0, deadline - time.monotonic()))
-        except subprocess.TimeoutExpired:
-            _limited("the isolated collection worker did not terminate before its deadline")
-        if process.returncode != 0 or not response:
-            _integrity(
-                "a successful complete read worker response",
-                "read worker exited without a complete response",
-            )
-        if time.monotonic() > deadline:
-            _limited("complete collection deadline exceeded")
-        return _response(response[0])
-    finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=0.5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=1)
-        receive.close()
-        send.close()
-        if collector is not None:
-            collector.join(timeout=1)
-        if process is not None and process.stdin is not None:
-            process.stdin.close()
 
 
 def read_primary(
@@ -1514,14 +1167,17 @@ def read_primary(
     row_set_contract: DatasetRowSetContract,
     policy: ReadPolicy = _READ_POLICY,
 ) -> pd.DataFrame:
-    """Collect isolated terminal rows under a terminable fresh-process deadline."""
-    started = time.monotonic()
-    if receipt.realized_row_count > policy.max_rows:
-        _limited("committed row count exceeds the collection limit")
+    """Collect complete terminal rows in the calling process."""
+    time.monotonic()
     if row_set_contract.cardinality.kind == "singleton" and receipt.realized_row_count != 1:
         _integrity("exactly one committed singleton row", "invalid singleton count")
     bound = getattr(row_set_contract.cardinality, "row_bound", None)
     if isinstance(bound, _StaticRowBound) and receipt.realized_row_count > bound.max_rows:
         _integrity("the declared static row bound", "committed row bound exceeded")
-    payload = _read_request(project_root, receipt, row_contract, row_set_contract, policy)
-    return _supervise_read(payload, policy.deadline_seconds - (time.monotonic() - started))
+    return _read_primary(
+        project_root=project_root,
+        receipt=receipt,
+        row_contract=row_contract,
+        row_set_contract=row_set_contract,
+        policy=policy,
+    )

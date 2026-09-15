@@ -132,7 +132,7 @@ def test_all_selected_metadata_is_validated_before_any_cleanup(
                 "local_parquet@v1",
                 "artifact",
                 "local_owned_path@v1",
-                ".marivo/analysis/generations/v3/sessions/session/artifacts/artifact",
+                ".marivo/analysis/generations/v4/sessions/session/artifacts/artifact",
             ),
         )
 

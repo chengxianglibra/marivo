@@ -108,7 +108,7 @@ def test_complete_aggregate_matrix_matches_source_and_retained_runtime(
     assert fixture.runtime.statistics.events.get("credential_resolution", 0) == 0
     assert fixture.runtime.statistics.source_fences == 0
     assert fixture.runtime.statistics.primary_queries == 1
-    assert fixture.runtime.statistics.worker_pid is None
+    assert fixture.runtime.statistics.events.get("local_execution_started", 0) == 0
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 
@@ -460,5 +460,7 @@ def test_entity_key_distinct_has_exact_runtime_fold_without_origin(
     assert result.to_pandas()["distinct_orders"].tolist() == [6]
     assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
     assert fixture.runtime.statistics.events.get("credential_resolution", 0) == 0
-    assert (fixture.runtime.statistics.worker_pid is not None) is (kind == "local")
+    assert (fixture.runtime.statistics.events.get("local_execution_started", 0) > 0) is (
+        kind == "local"
+    )
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()

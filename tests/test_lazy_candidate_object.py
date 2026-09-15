@@ -124,7 +124,7 @@ def test_candidate_object_roundtrip_and_local_continuation(
             assert snapshot(reopened) == before
         assert tuple(reads) == old_reads
         assert reopened.statistics.primary_queries == 0
-        assert reopened.statistics.worker_pid is None
+        assert reopened.statistics.events.get("local_execution_started", 0) == 0
         assert reopened.store.resources(reopened.session_ref) == ()
         return
     selected_result = recovered.limit(1).execute()
@@ -141,7 +141,7 @@ def test_candidate_object_roundtrip_and_local_continuation(
     assert selected_evidence.definition == original.definition
     assert selected_evidence.evaluation == original.evaluation and selected_evidence.row_count == 1
     assert reopened.statistics.primary_queries == 1
-    assert reopened.statistics.worker_pid is None
+    assert reopened.statistics.events.get("local_execution_started", 0) == 0
 
 
 @pytest.mark.parametrize("objective", ["point_anomalies", "entity_outliers"])
@@ -176,4 +176,7 @@ def test_candidate_object_denial_precedes_evaluation_and_publishes_nothing(
     assert isinstance(old, dict) and isinstance(new, dict)
     for table in ("dataset_artifacts", "dataset_evidence", "findings", "action_resource_journal"):
         assert old[table] == new[table]
-    assert runtime.statistics.worker_pid is None and runtime.statistics.primary_queries == 0
+    assert (
+        runtime.statistics.events.get("local_execution_started", 0) == 0
+        and runtime.statistics.primary_queries == 0
+    )

@@ -22,19 +22,14 @@ from marivo.analysis.materialization.contracts import (
     StorageReceipt,
 )
 from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
-from marivo.analysis.materialization.storage import ReadPolicy, _integrity, _limited
+from marivo.analysis.materialization.storage import ReadPolicy, _integrity
 from marivo.analysis.materialization.targets import (
     ObjectBinding,
     S3Access,
-    access_payload,
-    decode_access,
     object_access,
 )
 
 _DEFAULT_READ_POLICY = ReadPolicy()
-_WORKER_CODE = (
-    "from marivo.analysis.materialization.reads import read_worker_entry; read_worker_entry()"
-)
 
 
 def _object_read_access(bindings: tuple[ObjectBinding, ...], reference: str) -> S3Access:
@@ -59,9 +54,7 @@ def _payload_batches(
     audit: bool = False,
 ) -> Iterator[pa.RecordBatch]:
     """Read only this payload. Complete exhaustion includes content verification."""
-    if not preview and not audit and receipt.realized_row_count > policy.max_rows:
-        _limited("committed row count exceeds the collection limit")
-    started = time.monotonic()
+    time.monotonic()
     count = decoded = 0
 
     def checked(incoming: Iterator[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
@@ -69,18 +62,11 @@ def _payload_batches(
         seen = False
         for batch in incoming:
             seen = True
-            batch = storage._normalize_batch(batch, policy.max_batch_bytes)
+            batch = storage._normalize_batch(batch)
             if preview:
                 batch = batch.slice(0, max(0, policy.preview_rows - count))
             count += batch.num_rows
             decoded += batch.nbytes
-            if not audit and (
-                count > (policy.preview_rows if preview else policy.max_rows)
-                or decoded > policy.max_decoded_bytes
-            ):
-                _limited("selected payload exceeds its collection budget")
-            if time.monotonic() - started > policy.deadline_seconds:
-                _limited("selected payload read deadline exceeded")
             yield batch
             if preview and count >= policy.preview_rows:
                 return
@@ -98,7 +84,7 @@ def _payload_batches(
         with client(access) as s3:
             file = open_manifest(s3, access, receipt)
             with (
-                ObjectRangeFile(s3, access, file, policy.max_batch_bytes) as stream,
+                ObjectRangeFile(s3, access, file) as stream,
                 pq.ParquetFile(stream, page_checksum_verification=True) as parquet,
             ):
                 if parquet.metadata.num_rows != receipt.realized_row_count:
@@ -108,7 +94,7 @@ def _payload_batches(
                     schema=parquet.schema_arrow,
                 )
                 yield from checked(
-                    storage._bounded_batches(parquet, policy, preview=preview, use_threads=False)
+                    storage._parquet_batches(parquet, policy, preview=preview, use_threads=False)
                 )
             if not preview:
                 file.verify(s3, access)
@@ -121,7 +107,7 @@ def _payload_batches(
                 [pa.array([], type=f.type) for f in parquet.schema_arrow],
                 schema=parquet.schema_arrow,
             )
-            yield from checked(storage._bounded_batches(parquet, policy, preview=preview))
+            yield from checked(storage._parquet_batches(parquet, policy, preview=preview))
             if not preview and (
                 storage._hash_file(path) != receipt.bytes_hash
                 or receipt.file_manifest[0].sha256 != receipt.bytes_hash
@@ -312,67 +298,16 @@ def read_primary(
             row_set_contract=row_set_contract,
             policy=policy,
         )
-    if receipt.realized_row_count > policy.max_rows:
-        _limited("committed row count exceeds the collection limit")
-    selected = (_object_read_access(bindings, receipt.object_store_ref),)
-    request = codec.parse_json(
-        storage._read_request(project_root, receipt, row_contract, row_set_contract, policy)
-    )
-    if not isinstance(request, dict):
-        _integrity("one private read request", "invalid read request")
-    request["schema"] = "marivo.external_primary_read/v1"
-    request["access"] = [access_payload(value) for value in selected]
-    return storage._supervise_read(
-        codec.canonical_json(request), policy.deadline_seconds, worker_code=_WORKER_CODE
-    )
-
-
-def read_worker_entry() -> None:
-    """Select the external reader without reversing the storage dependency."""
-    storage._read_worker_entry(read_worker_value)
-
-
-def read_worker_value(text: str) -> pd.DataFrame:
-    from marivo.analysis.observation.contracts import make_ids
-
-    obj = codec._obj(
-        codec.parse_json(text), "schema project_root receipt row row_set policy access"
-    )
-    if obj["schema"] != "marivo.external_primary_read/v1":
-        _integrity("the supported external read request", "unsupported external read version")
-    settings = codec._obj(
-        obj["policy"], "preview_rows max_rows max_decoded_bytes deadline_seconds max_batch_bytes"
-    )
-    seconds = settings["deadline_seconds"]
-    if not isinstance(seconds, (int, float)) or seconds <= 0:
-        _limited("invalid external read deadline")
-    policy = ReadPolicy(
-        codec._int(settings["preview_rows"], minimum=1),
-        codec._int(settings["max_rows"]),
-        codec._int(settings["max_decoded_bytes"], minimum=1),
-        float(seconds),
-        codec._int(settings["max_batch_bytes"], minimum=1),
-    )
-    ids = make_ids(())
-    row = codec.decode_row(obj["row"], ids)
-    started = time.monotonic()
     table = read_table(
-        project_root=Path(codec._text(obj["project_root"])),
-        receipt=codec.decode_receipt(obj["receipt"]),
-        row_contract=row,
-        row_set_contract=codec.decode_row_set(obj["row_set"], ids),
+        project_root=project_root,
+        receipt=receipt,
+        row_contract=row_contract,
+        row_set_contract=row_set_contract,
+        preview=False,
         policy=policy,
-        bindings=tuple(decode_access(value) for value in codec._array(obj["access"])),
+        bindings=bindings,
     )
-    # Guard the Python identity conversion and complete DataFrame as in local execution.
-    if table.nbytes * 4 + table.num_rows * (256 + 64 * table.num_columns) > 268_435_456:
-        _limited("complete conversion allocation exceeds the intermediate budget")
-    result = storage._to_dataframe(table, row)
-    if int(result.memory_usage(index=True, deep=True).sum()) > policy.max_decoded_bytes:
-        _limited("complete DataFrame byte limit exceeded")
-    if time.monotonic() - started > policy.deadline_seconds:
-        _limited("complete external collection deadline exceeded")
-    return result
+    return storage._to_dataframe(table, row_contract)
 
 
 def read_part_batches(
@@ -431,7 +366,7 @@ def validate_sampling_state(
             project_root,
             part,
             expected_schema=schema,
-            policy=ReadPolicy(max_rows=1, max_decoded_bytes=65_536),
+            policy=ReadPolicy(),
             bindings=bindings,
         )
     )

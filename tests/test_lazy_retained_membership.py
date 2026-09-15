@@ -75,7 +75,10 @@ def test_resolved_engine_versioned_population_continues_after_membership_table_d
     ):
         reused = continued.execute()
     assert reused.state.artifact_ref == result.state.artifact_ref
-    assert not cold.statistics.statements and cold.statistics.worker_pid is None
+    assert (
+        not cold.statistics.statements
+        and cold.statistics.events.get("local_execution_started", 0) == 0
+    )
 
 
 @pytest.mark.parametrize("with_time", [False, True])
@@ -166,7 +169,10 @@ def test_january_checkpoint_does_not_become_the_new_observation_scope(tmp_path: 
             .state.artifact_ref
             == omitted.state.artifact_ref
         )
-    assert not cold.statistics.statements and cold.statistics.worker_pid is None
+    assert (
+        not cold.statistics.statements
+        and cold.statistics.events.get("local_execution_started", 0) == 0
+    )
 
 
 def test_true_entity_time_multiplicity_is_rejected_before_identity_projection(
@@ -205,7 +211,7 @@ def test_local_identity_uses_registered_native_parquet_membership(
     observed = sources.observe(REVENUE, population=checkpoint)
     result = observed.execute()
     assert len(result.to_pandas()) == len(checkpoint.to_pandas())
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.statistics.primary_queries == 1
     assert runtime.store.resources(runtime.session_ref) == ()
 

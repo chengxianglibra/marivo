@@ -15,7 +15,7 @@ class MaterializationLayout:
 
     @property
     def generation_dir(self) -> Path:
-        return self.project_root / ".marivo" / "analysis" / "generations" / "v3"
+        return self.project_root / ".marivo" / "analysis" / "generations" / "v4"
 
     @property
     def store_db(self) -> Path:

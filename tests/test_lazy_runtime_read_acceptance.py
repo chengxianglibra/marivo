@@ -77,9 +77,9 @@ def test_real_retained_bundle_failure_foreign_reads_and_cold_binding(
         assert stats["primary_queries"] == (1 if kind == "engine" else 0)
         assert stats["transferred_rows"] == 0
         if kind == "engine":
-            assert stats["worker_pid"] is None
+            assert stats["local_executions"] == 0
         else:
-            assert isinstance(stats["worker_pid"], int)
+            assert isinstance(stats["local_executions"], int)
             assert isinstance(stats["handoffs"], list) and len(stats["handoffs"]) == 2
         assert '"orders"' not in json.dumps(stats["statements"])
     assert cold["binding_object_requests"] == 0

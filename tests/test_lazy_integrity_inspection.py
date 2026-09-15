@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -14,13 +12,10 @@ import pytest
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt, ObjectReceipt
 from marivo.analysis.materialization.errors import (
-    CollectionLimitError,
     IntegrityError,
     StorageAccessError,
 )
-from marivo.analysis.materialization.inspection import _storage_checks
 from marivo.analysis.materialization.object_storage import _call, client, open_manifest
-from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.targets import S3Access
 from marivo.analysis.observation.sampling import engine_sample
@@ -166,8 +161,7 @@ def test_full_inspection_streams_above_the_primary_collection_row_limit(
         backend.execute("INSERT INTO customers(id,region) SELECT range+5,'EU' FROM range(100000)")
     result = fixture.sources.population(ref.entity("sales.customers")).execute()
     assert result.state.realized_row_count == 100004
-    with pytest.raises(CollectionLimitError):
-        result.to_pandas()
+    result.to_pandas()
     inspection = fixture.runtime.revalidate(result.state.artifact_ref)
     assert inspection.storage_authority == "readable" and not inspection.issues
 
@@ -245,28 +239,11 @@ def test_sdk_failure_classification_retains_no_native_message(
     assert "secret-canary" not in str(caught.value)
 
 
-def test_audit_deadline_kills_reader_and_leaves_store_unchanged(
-    tmp_path: Path, request: pytest.FixtureRequest
-) -> None:
-    fixture, _ = _setup(tmp_path, request, "local")
-    result = fixture.sources.population(ref.entity("sales.customers")).execute()
-    record = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None
-    before = _snapshot(fixture.runtime.store)
-    started = time.monotonic()
-    checks = _storage_checks(
-        tmp_path, record.descriptor, (), policy=replace(ReadPolicy(), deadline_seconds=0.001)
-    )
-    assert time.monotonic() - started < 5
-    assert tuple(check.status for check in checks) == ("unknown",)
-    assert _snapshot(fixture.runtime.store) == before
-
-
 @pytest.mark.parametrize("state", ["missing", "empty", "old"])
 def test_read_factory_never_initializes_missing_or_unversioned_state(
     tmp_path: Path, state: str
 ) -> None:
-    path = tmp_path / ".marivo/analysis/generations/v3/session_store.db"
+    path = tmp_path / ".marivo/analysis/generations/v4/session_store.db"
     if state != "missing":
         path.parent.mkdir(parents=True)
         with sqlite3.connect(path) as conn:

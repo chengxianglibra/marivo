@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import threading
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager, suppress
+from contextlib import suppress
 from dataclasses import replace
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -177,31 +176,8 @@ class DuckDBExecutionAdapter:
     def interrupt(self) -> None:
         self._backend.con.interrupt()
 
-    @contextmanager
-    def deadline(self, seconds: float) -> Iterator[None]:
-        expired = threading.Event()
-
-        def cancel() -> None:
-            expired.set()
-            self.interrupt()
-
-        timer = threading.Timer(seconds, cancel)
-        timer.daemon = True
-        timer.start()
-        try:
-            yield
-            if expired.is_set():
-                raise _invalid("stage_execution")
-        finally:
-            timer.cancel()
-            timer.join()
-
     def configure(self) -> None:
-        for sql in (
-            "SET threads=1",
-            "SET memory_limit='256MiB'",
-            "SET max_temp_directory_size='0B'",
-        ):
+        for sql in ("SET threads=1",):
             self.submit(self.statement(sql, role="source_setting"))
 
     def initialize(self) -> None:
@@ -277,9 +253,8 @@ class DuckDBExecutionAdapter:
         table_name: str,
         columns: Mapping[str, str],
         format: str,
-        maximum_object_size: int,
     ) -> ir.Table:
-        sql = json_statement(table_name, path, columns, format, maximum_object_size)
+        sql = json_statement(table_name, path, columns, format)
         self.submit(self.statement(sql, role="source_fence_reader"))
         return ibis.table({name: dt.dtype(kind) for name, kind in columns.items()}, name=table_name)
 
@@ -347,15 +322,12 @@ def describe_statement(name: str, database: str | None, catalog: str | None) -> 
     ).sql(dialect="duckdb")
 
 
-def json_statement(
-    name: str, path: str, columns: Mapping[str, str], format: str, maximum_object_size: int
-) -> str:
+def json_statement(name: str, path: str, columns: Mapping[str, str], format: str) -> str:
     physical = {
         key: Backend.compiler.type_mapper.to_string(dt.dtype(kind)) for key, kind in columns.items()
     }
     options = [
         sge.to_identifier("format").eq(sge.convert(format)),
-        sge.to_identifier("maximum_object_size").eq(sge.convert(maximum_object_size)),
         sge.to_identifier("columns").eq(
             sge.Struct.from_arg_list(
                 [

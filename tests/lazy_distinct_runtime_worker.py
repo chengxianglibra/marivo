@@ -174,7 +174,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
     barrier_before = snapshot(runtime)
     with ExitStack() as guards:
         guards.enter_context(patch.object(runtime.store, "artifact", _forbidden))
-        for name in ("place", "compile_dataset", "_build_backend_from_effective", "supervise"):
+        for name in ("place", "compile_dataset", "_build_backend_from_effective", "execute_local"):
             guards.enter_context(patch.object(admission, name, _forbidden))
         try:
             barrier.attribute(axes=(REGION, CHANNEL))
@@ -188,7 +188,12 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
     with ExitStack() as guards:
         guards.enter_context(guard_membership_transport())
         if mode == "cold":
-            for name in ("place", "compile_dataset", "_build_backend_from_effective", "supervise"):
+            for name in (
+                "place",
+                "compile_dataset",
+                "_build_backend_from_effective",
+                "execute_local",
+            ):
                 guards.enter_context(patch.object(admission, name, _forbidden))
         result = logical.execute()
         assert isinstance(result, MaterializedAttributionDataset)

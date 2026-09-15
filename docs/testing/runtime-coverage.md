@@ -7,7 +7,7 @@ not acquire a new local/engine/object Cartesian product.
 
 | Boundary | Owning checks |
 | --- | --- |
-| Analysis, compare, attribution, sampling, ordering, ordinary concurrency | Local-file Runtime tests with real DuckDB sources and isolated execution/read workers |
+| Analysis, compare, attribution, sampling, ordering, ordinary concurrency | Local-file Runtime tests with real DuckDB sources and calling-process execution/reads |
 | Producer, continuation, and cold binding independence | Local-file fresh-process journeys; dedicated engine adapter/recovery journeys |
 | File integrity, complete-input limits, atomic publication and crash recovery | Local-file and engine-specific Runtime checks |
 | SQLite publication interrupted inside its transaction | `test_lazy_materialization_store.py::test_process_exit_preserves_atomic_publication`, with actual child exit and a reopened Store; the native adapter retains an `insert_terminal` crash journey |
@@ -18,7 +18,7 @@ not acquire a new local/engine/object Cartesian product.
 | Private Event reducers and complete subject selection | `test_lazy_event_reducer_runtime.py` and `test_lazy_event_reducer_failures.py`: logical and retained engine funnel/TTE/selection, native high-cardinality identity, complete empty membership, per-attempt partial coverage, selection validation before filtering/sampling/Metric membership, and explicit Population enrichment with inherited sampling authority |
 | Event reducer result storage and cold continuation | `test_lazy_event_reducer_runtime_acceptance.py`: separate journey producer, source-offline reducer/selection and cold binding interpreters exercise Metric -> Event -> Population -> Metric; `test_lazy_event_reducer_failures.py` covers local Parquet result filtering and canonical ordering after source deletion; `test_lazy_event_reducer_publication_runtime.py` covers shape-specific cold Evidence corruption and atomic commit/cancellation failures |
 | Selected Population Metric enrichment and propagated TTE entry truth | `test_lazy_event_reducer_runtime.py::test_selected_population_metric_enriches_current_subject_dimensions`: logical, retained and sampled identity inputs admit explicit current subject Dimensions, while missing current subjects fail atomically; `test_lazy_event_reducer_publication_runtime.py::test_time_to_event_entry_coverage_propagates_and_anchor_is_observed`: a covered later from-step inherits earlier unknown entry through publication/cold recovery, while the observed anchor rejects forged entry-unknown Evidence |
-| Private Event funnel comparison and loss-rate attribution | `test_lazy_event_comparison_runtime.py`: native and compact pandas execution over logical/retained journeys, target/censoring rejection (including cold filtered checkpoints on local and engine storage), governed axes named `positive`/`negative` with full source/local parity, combined local input budgets, aggregate checkpoint admission, atomic failure/cancellation, and cold mapped-component/Evidence corruption; independent numeric tests compare complete Ibis/pandas rows, masks, status, ordering, per-side endpoints and contributions, exact method roles and native/pandas duplicate-coordinate rejection |
+| Private Event funnel comparison and loss-rate attribution | `test_lazy_event_comparison_runtime.py`: native and compact pandas execution over logical/retained journeys, target/censoring rejection (including cold filtered checkpoints on local and engine storage), governed axes named `positive`/`negative` with full source/local parity, complete local input validation, aggregate checkpoint admission, atomic failure/cancellation, and cold mapped-component/Evidence corruption; independent numeric tests compare complete Ibis/pandas rows, masks, status, ordering, per-side endpoints and contributions, exact method roles and native/pandas duplicate-coordinate rejection |
 | Event comparison source-offline recovery | `lazy_event_comparison_worker.py`: distinct producer, continuation and cold interpreters prove exact journey reuse after both occurrence tables are deleted, exact Delta/Attribution identity reuse and zero cold execution queries; optional `MARIVO_SLICE7C_EVIDENCE_DIR` captures PIDs and executable fingerprints |
 | Private Lifecycle replay, mandatory canonical roles and exact membership | `test_lazy_lifecycle_runtime.py` and `test_lazy_lifecycle_coverage_runtime.py`: native inception lookback, source-origin versus bounded coverage, retained prefixes, logical/retained/sampled membership, subjects without intervals, per-role failure/cancellation, clean retry, privacy and source-native large inputs |
 | Lifecycle source-offline history and canonical-part recovery | `test_lazy_lifecycle_runtime_acceptance.py` with `lazy_lifecycle_worker.py`: three independent interpreters compare primary and every required part, exact cold binding and zero source execution; `test_lazy_lifecycle_runtime.py` verifies corrupt model metadata produces integrity reports and typed cold-recovery errors; `MARIVO_SLICE7D_EVIDENCE_DIR` retains process and candidate evidence |
@@ -45,7 +45,7 @@ absence and same-length in-place changes to immutable Parquet payloads.
 Registered Parquet membership scans are accepted across native source files.
 Pandas lifetime/orphan and composed-read journeys explicitly preselect the
 registered pandas method before execution, so native Parquet support cannot
-bypass the worker boundary being tested. Public scoped-read acceptance separately
+bypass the local execution boundary being tested. Public scoped-read acceptance separately
 uses the default native route and real nonempty Findings in three processes.
 
 ## Commands
@@ -81,7 +81,7 @@ crash point appended to the requested filename stem, avoiding concurrent overwri
 `tests.lazy_acceptance_capture` is an opt-in observer, loaded with
 `-p tests.lazy_acceptance_capture` and `MARIVO_SLICE9B_EVIDENCE_DIR`. It records
 existing selected steps, terminal receipts, Run/Artifact counts, query/transfer
-statistics, available worker RSS and timings. Test nodes remain the owners of
+statistics, available execution measurements and timings. Test nodes remain the owners of
 row, authority, repair and recovery assertions; this is not a support registry.
 Adapter-internal metadata and storage wire request counts are uninstrumented,
 not zero. Native primary/independent-part streams count decoded transfer once;
@@ -96,3 +96,13 @@ storage or SDK stubs; only the object gate requests `object_connection_access`.
 Funnel comparison tests cover authored step order through publication and
 filtering. Distinct temporal checkpoints validate physical coordinate types in
 both the primary rows and independent membership parts before cold reuse.
+
+## Slice 1b replacement coverage
+
+`test_lazy_in_process_execution.py` owns caller PID/no-spawn, complete inputs above
+the former 100,000-row cap, wide nested dictionary normalization, original errors
+and interruptions, and SIGKILL recovery at local calculation/publication boundaries.
+Local row/fold, Forecast/Candidate graph, multi-input comparison/attribution and
+Parquet integrity tests retain their independent numerical and semantic assertions.
+Worker IPC, watchdog, RSS and resource-ceiling tests are retired with those
+protocols; their historical acceptance is not evidence for caller execution.

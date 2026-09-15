@@ -320,14 +320,14 @@ class MaterializedLifecycleDataset(
     def to_pandas(self) -> pandas.DataFrame:
         """Return an isolated retained history copy; no parameters.
 
-        Example: ``history.to_pandas()``. Constraints: Runtime read budgets apply.
+        Example: ``history.to_pandas()``. Constraints: Complete retained rows are read in the caller.
         """
         return owner_of(self).action_port.to_pandas(self)
 
     def show(self, *, max_output_bytes: int | None = None) -> None:
         """Print history bounded by max_output_bytes and return None.
 
-        Example: ``history.show()``. Constraints: Authorized Runtime read budgets apply.
+        Example: ``history.show()``. Constraints: Authorized Complete retained rows are read in the caller.
         """
         owner_of(self).action_port.show(self, max_output_bytes=max_output_bytes)
 

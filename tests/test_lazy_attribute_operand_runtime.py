@@ -89,7 +89,7 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
     assert snapshot(fixture.runtime) == before
     result = logical.execute()
     assert isinstance(result, MaterializedAttributionDataset)
-    worker_pid = fixture.runtime.statistics.worker_pid
+    local_executions = fixture.runtime.statistics.events.get("local_execution_started", 0)
     primary_queries = fixture.runtime.statistics.primary_queries
     frame = result.to_pandas()
     assert frame.channel.tolist()[0] == "b" and frame.channel.isna().tolist() == [False, True]
@@ -106,7 +106,7 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
         assert frame.overall_delta.tolist() == pytest.approx([12.5, 12.5])
     assert frame.share_of_negative_pool.isna().all()
     assert len(result.findings().items) == 2
-    assert (worker_pid is None) == (execution == "native")
+    assert (local_executions == 0) == (execution == "native")
     assert primary_queries == 1
     if states == "MM":
         assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
@@ -134,7 +134,7 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
             "contributions": frame.contribution.tolist(),
             "overall_delta": frame.overall_delta.tolist(),
             "primary_queries": primary_queries,
-            "worker_pid": worker_pid,
+            "local_executions": local_executions,
             "after": completed,
         },
     )
@@ -147,7 +147,9 @@ def test_all_metric_operand_authorities_feed_exact_attribution(
         assert values["rank"].tolist() == [1]
         assert ranked.findings().items == ()
         assert ranked.evidence_digest.finding_count == 0
-        assert (fixture.runtime.statistics.worker_pid is None) == (execution == "native")
+        assert (fixture.runtime.statistics.events.get("local_execution_started", 0) == 0) == (
+            execution == "native"
+        )
         assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
 
 
@@ -162,7 +164,7 @@ def test_independent_equal_argument_sources_continue_from_local_compare_into_att
         baseline = right.with_dimensions(CHANNEL).aggregate()
         result = current.compare(baseline).attribute(axes=(CHANNEL,)).execute()
         assert runtime.statistics.primary_queries == 2
-        assert runtime.statistics.worker_pid is not None
+        assert runtime.statistics.events.get("local_execution_started", 0) > 0
         assert len(calls) == len(set(calls)) == 2
         frame = result.to_pandas()
         assert frame.current_value.tolist() == [11]
@@ -185,7 +187,7 @@ def test_independent_equal_argument_sources_continue_from_local_compare_into_att
                 "baseline": frame.baseline_value.tolist(),
                 "contributions": frame.contribution.tolist(),
                 "primary_queries": runtime.statistics.primary_queries,
-                "worker_pid": runtime.statistics.worker_pid,
+                "local_executions": runtime.statistics.events.get("local_execution_started", 0),
                 "after": snapshot(runtime),
             },
         )

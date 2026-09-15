@@ -67,7 +67,7 @@ def test_selected_identity_authority_drives_events_without_origin_replay(
             semantic_registry=sources._owner.semantic_registry, sidecar=sources._owner.sidecar
         )
     with (
-        patch.object(admission, "supervise", forbidden),
+        patch.object(admission, "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         result = journey(sources, population=selected).execute()

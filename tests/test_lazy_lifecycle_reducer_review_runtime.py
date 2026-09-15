@@ -216,7 +216,7 @@ def test_high_cardinality_identity_relations_stay_native_and_private(
             "INSERT INTO finished_rows SELECT 997730041+i,881730041+i,TIMESTAMP '2026-02-01 02:00:00' FROM range(5000) t(i)"
         )
     with (
-        patch.object(admission, "supervise", forbidden),
+        patch.object(admission, "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         h = history(sources).execute()
@@ -242,7 +242,10 @@ def test_high_cardinality_identity_relations_stay_native_and_private(
     ]
     assert runtime.statistics.transferred_rows == 5000
     assert runtime.statistics.transferred_bytes > 0
-    assert runtime.statistics.worker_pid is None and runtime.statistics.local_handoffs == ()
+    assert (
+        runtime.statistics.events.get("local_execution_started", 0) == 0
+        and runtime.statistics.local_handoffs == ()
+    )
     canaries = ("881730041", "981730041", "991730041", "997730041")
     assert_identity_private(runtime, canaries)
     metadata = repr([(repr(r), r.contract(), r.evidence_digest) for r in results])
@@ -325,7 +328,7 @@ def test_unregistered_parquet_reader_is_rejected_before_data_work(
     with (
         patch.object(admission, "_duckdb_version", "unsupported"),
         patch.object(admission, "_build_backend_from_effective", forbidden),
-        patch.object(admission, "supervise", forbidden),
+        patch.object(admission, "execute_local", forbidden),
         pytest.raises(DatasetCompilationError, match="source-required"),
     ):
         logical.execute()
@@ -358,9 +361,9 @@ def test_selected_membership_uses_registered_parquet_reader(
         else history(sources, population=selected)
     )
     before = snapshot(runtime)
-    with patch.object(admission, "supervise", forbidden):
+    with patch.object(admission, "execute_local", forbidden):
         result = logical.execute()
     assert set(result.to_pandas().entity_identity) == {(1,)}
     assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"] + 1
-    assert runtime.statistics.worker_pid is None
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.store.resources(runtime.session_ref) == ()

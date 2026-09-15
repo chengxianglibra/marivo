@@ -48,7 +48,6 @@ def test_temporal_authority_survives_cold_continuations(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("point", ["parse", "temporal_authority", "insert_artifact"])
 def test_temporal_failures_are_atomic(tmp_path: Path, point: str) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
     from tests.lazy_materialization_crash_worker import snapshot
     from tests.lazy_temporal_runtime_worker import setup
 
@@ -61,9 +60,9 @@ def test_temporal_failures_are_atomic(tmp_path: Path, point: str) -> None:
             raise RuntimeError("temporal-failure-canary")
 
     runtime._hook = fail
-    with pytest.raises(MaterializationError) as failed:
+    with pytest.raises(RuntimeError) as failed:
         logical.execute()
-    assert "canary" not in str(failed.value)
+    assert "canary" in str(failed.value)
     assert hits == ([] if point == "parse" else [point])
     assert runtime.last_run_ref is not None
     run = runtime.store.run(runtime.last_run_ref)

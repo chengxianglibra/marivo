@@ -77,13 +77,18 @@ atomic publication does not certify a common source snapshot.
 One admitted execution creates a Run. Publication commits the primary result,
 required private parts, descriptor, Evidence and Findings atomically. Cache hits
 on the same exact realization do not invent another Run. Failed or interrupted
-Runs never masquerade as successful Artifacts. Store generation3 is required;
+Runs never masquerade as successful Artifacts. Store generation4 is required;
 existing older generations are rejected without rewriting their files.
 
-Complete retained input and memory/byte/row/deadline limits are checked by the
-owning execution method. A bounded `show()` does not grant an unbounded
-`to_pandas()` read. Exact distinct membership and explicit quantile methods retain
-all state needed for valid downstream computation and cold recovery.
+Local kernels and complete retained reads run synchronously in the calling Python
+process. Marivo imposes no execution row/byte/cell, memory/spill, complexity,
+storage or deadline budgets. Batch sizes tune transfer; they never truncate the
+result. Database, driver, OS and external runner limits remain independent.
+Original exceptions retain their causes and tracebacks, including when cleanup
+also fails. Complete inputs, semantic validation and atomic publication remain
+mandatory. `show()` keeps its display bounds; `to_pandas()` returns a complete
+isolated copy. Exact distinct membership and quantile methods retain all state
+required for valid computation and cold recovery.
 
 ## Disclosure and interpretation
 

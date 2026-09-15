@@ -9,8 +9,6 @@ import pytest
 from marivo.analysis.compiler.placement import place
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.local import LocalPolicy
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.registry import ImplementationRegistration
@@ -39,7 +37,7 @@ def test_artifact_suffix_publishes_and_reuses_without_source(tmp_path: Path) -> 
         handoffs = runtime.statistics.local_handoffs
         assert len(handoffs) == 4
         assert all(first[1] == second[0] for first, second in pairwise(handoffs))
-        assert runtime.statistics.worker_pid is not None
+        assert runtime.statistics.events.get("local_execution_started", 0) > 0
         assert runtime.store.resources(runtime.session_ref) == ()
         recovered = logical.execute()
         assert recovered.state.artifact_ref == result.state.artifact_ref
@@ -72,20 +70,6 @@ def test_selected_source_prefix_feeds_one_local_suffix(
     assert runtime.statistics.primary_queries == 1
     assert len(runtime.statistics.local_handoffs) == 2
     assert runtime.store.resources(runtime.session_ref) == ()
-
-
-def test_input_guard_precedes_local_limit_and_leaves_no_artifact(tmp_path: Path) -> None:
-    with pandas_methods("metric.rank"):
-        runtime, sources, _ = setup_local(tmp_path)
-        retained = sources.observe(REVENUE).execute()
-        ranked = retained.rank(retained.fields.metric(REVENUE))
-        runtime.local_policy = replace(LocalPolicy(), max_input_rows=5)
-        with pytest.raises(MaterializationError):
-            ranked.limit(1).execute()
-        assert runtime.last_run_ref is not None
-        run = runtime.store.run(runtime.last_run_ref)
-        assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
-        assert runtime.store.resources(runtime.session_ref) == ()
 
 
 def test_partitioned_time_rank_matches_independent_values_and_source(tmp_path: Path) -> None:
@@ -124,8 +108,8 @@ def test_partitioned_time_rank_matches_independent_values_and_source(tmp_path: P
 @pytest.mark.parametrize(
     "point",
     [
-        "local_worker_reserved",
-        "local_worker_terminal",
+        "local_execution_started",
+        "local_execution_completed",
         "output_reserved",
         "after_rename",
         "quality",
@@ -150,9 +134,9 @@ def test_local_failure_atomicity_and_committed_readback(tmp_path: Path, point: s
         if point == "after_commit":
             assert logical.execute().to_pandas()["revenue"].tolist() == [10.0, 30.0, 100.0, 7.0]
         else:
-            with pytest.raises(MaterializationError) as failure:
+            with pytest.raises(RuntimeError) as failure:
                 logical.execute()
-            assert "private-literal" not in str(failure.value)
+            assert "private-literal" in str(failure.value)
         state = snapshot(runtime)
         counts = state["counts"]
         assert isinstance(counts, dict)
@@ -165,7 +149,7 @@ def test_local_failure_atomicity_and_committed_readback(tmp_path: Path, point: s
         assert counts["action_resource_journal"] == 0
 
 
-@pytest.mark.parametrize("method", ["compile", "to_pyarrow_batches"])
+@pytest.mark.parametrize("method", ["compile", "batches"])
 def test_selected_source_failure_never_runs_replacement_pandas(
     tmp_path: Path, method: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -188,10 +172,12 @@ def test_selected_source_failure_never_runs_replacement_pandas(
         raise RuntimeError("private source failure canary")
 
     monkeypatch.setattr(registry, "implementation", registrations)
-    monkeypatch.setattr(Backend, method, broken)
-    with pytest.raises(MaterializationError) as error:
+    from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
+
+    monkeypatch.setattr(Backend if method == "compile" else DuckDBExecutionAdapter, method, broken)
+    with pytest.raises(RuntimeError) as error:
         target.execute()
-    assert "canary" not in str(error.value)
+    assert "canary" in str(error.value)
     assert runtime.statistics.local_handoffs == ()
     assert runtime.last_run_ref is not None
     run = runtime.store.run(runtime.last_run_ref)
@@ -257,38 +243,3 @@ def test_projection_drops_rank_value_and_preserves_order_for_later_limit(tmp_pat
         assert frame["rank"].tolist() == [1, 2, 3]
         assert frame.equals(expected.to_pandas())
         assert runtime.statistics.primary_queries == runtime.statistics.validation_queries == 0
-
-
-@pytest.mark.parametrize(
-    "policy,diagnostic",
-    [
-        (replace(LocalPolicy(), max_input_bytes=1), "byte limit"),
-        (replace(LocalPolicy(), max_batch_bytes=1), "row group"),
-        (replace(LocalPolicy(), max_method_rows=5), "method"),
-        (replace(LocalPolicy(), max_intermediate_bytes=1), "byte limit"),
-        (replace(LocalPolicy(), max_output_rows=5), "output"),
-        (replace(LocalPolicy(), max_output_bytes=1), "output"),
-        (replace(LocalPolicy(), max_worker_rss=1), "memory"),
-        (replace(LocalPolicy(), deadline_seconds=0.001), "deadline"),
-    ],
-)
-def test_bound_runtime_policy_reaches_worker_and_failure_is_atomic(
-    tmp_path: Path, policy: LocalPolicy, diagnostic: str
-) -> None:
-    with pandas_methods("metric.metric"):
-        from tests.lazy_materialization_crash_worker import snapshot
-
-        runtime, sources, _ = setup_local(tmp_path)
-        retained = sources.observe(REVENUE).execute()
-        before = snapshot(runtime)
-        runtime.local_policy = policy
-        with pytest.raises(MaterializationError, match=diagnostic):
-            retained.metric(REVENUE).execute()
-        after = snapshot(runtime)
-        before_tables, after_tables = before["tables"], after["tables"]
-        assert isinstance(before_tables, dict) and isinstance(after_tables, dict)
-        for field in ("dataset_artifacts", "dataset_evidence", "action_resource_journal"):
-            assert after_tables[field] == before_tables[field]
-        assert runtime.last_run_ref is not None
-        run = runtime.store.run(runtime.last_run_ref)
-        assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None

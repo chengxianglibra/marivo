@@ -196,3 +196,10 @@ material conclusion:
 Do not prescribe a fixed report template or continue exploring after the
 required answers and limitations are complete. Delivery or publication belongs
 to an independent capability when the user requests it.
+
+### Resource decisions
+
+Choose input scope and external runner resources deliberately. Use current result
+contracts for complete-input requirements and semantic repairs. An external
+resource failure does not authorize sampling, truncation or fallback; explain
+the incomplete outcome before changing the analytical question or scope.

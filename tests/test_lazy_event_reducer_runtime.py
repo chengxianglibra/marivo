@@ -85,7 +85,7 @@ def test_reducers_and_selection_consume_exact_journey(tmp_path: Path, retained: 
         funnel = receiver.funnel()
         durations = receiver.time_to_event(from_step=first, to_step=last)
         selected = receiver.select_subjects(dropped_before(step=last))
-    with patch("marivo.analysis.materialization.admission.supervise", forbidden):
+    with patch("marivo.analysis.materialization.admission.execute_local", forbidden):
         funnel_result = funnel.execute()
         duration_result = durations.execute()
         selection_result = selected.execute()
