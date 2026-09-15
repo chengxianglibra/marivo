@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 import pyarrow as pa
-from sqlglot import expressions as sge
 
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract, _EntityFieldIdentity
@@ -19,6 +18,7 @@ from marivo.analysis.materialization.contracts import (
     RetainedPart,
     StorageReceipt,
 )
+from marivo.analysis.materialization.duckdb_statements import membership_integrity_sql
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import _integrity, _matches_type
 from marivo.analysis.observation.contracts import (
@@ -40,7 +40,7 @@ from marivo.analysis.observation.fold_contracts import (
 from marivo.analysis.observation.private_parts import source_private_part_authorities
 
 if TYPE_CHECKING:
-    from ibis.backends.duckdb import Backend
+    from marivo.analysis.materialization.execution import ExecutionAdapter
 
 _STATE_TYPE_CHECKS: dict[str, tuple[Callable[[pa.DataType], bool], ...]] = {
     "integer": (pa.types.is_integer,),
@@ -213,7 +213,7 @@ def membership_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> 
 
 
 def validate_source_private_relation(
-    backend: Backend,
+    backend: ExecutionAdapter,
     table: ir.Table,
     primary: ir.Table,
     row: DatasetRowContract,
@@ -234,42 +234,32 @@ def validate_source_private_relation(
         validate_distribution_relation(backend, table, primary, row, role, record)
         return
     record("engine_check.membership_schema", backend.compile(table.limit(0)))
-    keys = membership_schema(row, role, backend.to_pyarrow(table.limit(0)).schema)
+    keys = membership_schema(
+        row,
+        role,
+        backend.read_table(
+            backend.prepare(table.limit(0), role="engine_check.membership_schema")
+        ).schema,
+    )
     authority = next(item for name, item in membership_part_authorities(row) if name == role)
     endpoint = membership_endpoint_name(row, role)
 
-    def quoted(name: str) -> str:
-        return sge.to_identifier(name, quoted=True).sql(dialect="duckdb")
-
-    member = quoted(DISTINCT_KEY_COLUMN)
     assert authority.membership is not None
-    null_member = " OR ".join(
-        [f"{member} IS NULL"]
-        + [
-            f"struct_extract({member}, {sge.Literal.string(name).sql(dialect='duckdb')}) IS NULL"
-            for name, _ in authority.membership.identity_signature
-        ]
-    )
-    coordinates = ", ".join(quoted(name) for name in keys)
-    equality = (
-        " AND ".join(f"m.{quoted(name)} IS NOT DISTINCT FROM p.{quoted(name)}" for name in keys)
-        or "TRUE"
-    )
-    grouped = f"{coordinates}, " if coordinates else ""
-    grouping = f" GROUP BY {coordinates}" if coordinates else ""
-    sql = (
-        f"WITH membership AS ({backend.compile(table)}), primary_rows AS ({backend.compile(primary)}), "
-        f"counts AS (SELECT {grouped}count(*) AS __mv_members FROM membership{grouping}) "
-        "SELECT "
-        f"(SELECT count(*) FROM membership WHERE {null_member}) + "
-        f"(SELECT count(*) FROM (SELECT {grouped}{member} FROM membership "
-        f"GROUP BY {grouped}{member} HAVING count(*) <> 1)) + "
-        f"(SELECT count(*) FROM membership m WHERE NOT EXISTS (SELECT 1 FROM primary_rows p WHERE {equality})) + "
-        f"(SELECT count(*) FROM primary_rows p LEFT JOIN counts m ON {equality} "
-        f"WHERE p.{quoted(endpoint)} IS NULL OR p.{quoted(endpoint)} <> coalesce(m.__mv_members, 0))"
+    sql = membership_integrity_sql(
+        backend.compile(table),
+        backend.compile(primary),
+        keys,
+        endpoint,
+        authority.membership.identity_signature,
     )
     record("engine_check.membership_integrity", sql)
-    violations: object = backend.raw_sql(sql).fetchone()[0]
+    violations: object = backend.read_scalar(
+        backend.statement(
+            sql,
+            role="engine_check.membership_integrity",
+            inputs=(backend.prepare(table), backend.prepare(primary)),
+        )
+    )
     if violations != 0:
         _integrity(
             "unique complete membership with exact primary endpoints",

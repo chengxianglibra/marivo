@@ -11,7 +11,6 @@ import ibis.expr.types as ir
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from ibis.backends.duckdb import Backend
 
 from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.nodes import CompiledSampleFence
@@ -26,13 +25,16 @@ from marivo.analysis.materialization import admission, storage
 from marivo.analysis.materialization import sampling as sampling_runtime
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import (
+    LocalReceipt,
     SamplingRealization,
     decode_descriptor,
     decode_sampling,
     encode_descriptor,
     sampling_payload,
 )
+from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
 from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
+from marivo.analysis.materialization.execution import ExecutionAdapter as Backend
 from marivo.analysis.materialization.storage import sampling_state_read, validate_sampling_state
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.observation.sampling import EntitySamplingPolicy, engine_sample
@@ -290,6 +292,7 @@ def test_corrupt_sampling_state_blocks_its_validation_but_not_primary_reads(
         for part in record.descriptor.retained_parts
         if part.role == "population_sampling_state"
     )
+    assert isinstance(part.storage_receipt, LocalReceipt)
     path = tmp_path / part.storage_receipt.project_relative_path / "data.parquet"
     path.write_bytes(b"corrupt")
     recovered = DatasetRuntime.open(tmp_path, runtime.session_ref).artifact(
@@ -382,7 +385,7 @@ def test_sampled_failure_never_publishes_partial_rows_or_state(
             hits.append(point)
             return f"CREATE TEMPORARY TABLE \"{fence.relation_name}\" AS SELECT error('sampling-failure-canary') AS invalid"
 
-        monkeypatch.setattr(sampling_runtime, "sample_statement", sample_failure)
+        monkeypatch.setattr(admission, "sample_statement", sample_failure)
     elif point == "primary_query":
         original_batches = DatasetRuntime._batches
 
@@ -390,7 +393,7 @@ def test_sampled_failure_never_publishes_partial_rows_or_state(
             self: DatasetRuntime, backend: Backend, expression: ir.Table, batch_rows: int
         ) -> Iterator[pa.RecordBatch]:
             hits.append(point)
-            backend.raw_sql("SELECT error('sampling-failure-canary')")
+            backend.submit(backend.statement("SELECT error('sampling-failure-canary')"))
             yield from original_batches(self, backend, expression, batch_rows)
 
         monkeypatch.setattr(DatasetRuntime, "_batches", primary_failure)
@@ -443,10 +446,12 @@ def test_distinct_authored_samples_keep_separate_physical_fences(tmp_path: Path)
             assert len(fences) == 1
             # Distinct authored handles use separate action-local names when composed.
             fence = replace(fences[0], relation_name=f"__mv_sample_{ordinal}")
+            adapter = DuckDBExecutionAdapter(fixture.backend)
             samples.append(
                 sampling_runtime.execute_sample(
-                    fixture.backend,
+                    adapter,
                     fence,
+                    statement=adapter.statement(sampling_runtime.sample_statement(adapter, fence)),
                     ordinal=ordinal,
                     record=lambda kind, sql: (
                         statements.append(sql) if kind == "sampling_fence" else None

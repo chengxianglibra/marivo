@@ -5,7 +5,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ibis
-import ibis.expr.types as ir
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -161,23 +160,27 @@ def test_native_membership_checks_only_export_schema_and_scalar_violations(damag
                 {key_name: coordinates, "__mv_distinct_key": pa.array(members, type=pa.float64())}
             ),
         )
-        original = backend.to_pyarrow
+        from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
+        from marivo.analysis.materialization.execution import Statement
 
-        def schema_only(expression: ir.Table) -> pa.Table:
+        adapter = DuckDBExecutionAdapter(backend)
+        original = adapter.read_table
+
+        def schema_only(expression: Statement) -> pa.Table:
             result: object = original(expression)
             assert isinstance(result, pa.Table)
             assert result.num_rows == 0
             return result
 
-        with patch.object(backend, "to_pyarrow", side_effect=schema_only):
+        with patch.object(adapter, "read_table", side_effect=schema_only):
             if damage == "none":
                 validate_source_private_relation(
-                    backend, membership, primary, row, role, lambda *_: None
+                    adapter, membership, primary, row, role, lambda *_: None
                 )
             else:
                 with pytest.raises(IntegrityError, match="membership"):
                     validate_source_private_relation(
-                        backend, membership, primary, row, role, lambda *_: None
+                        adapter, membership, primary, row, role, lambda *_: None
                     )
     finally:
         backend.disconnect()

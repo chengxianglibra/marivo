@@ -9,12 +9,12 @@ from uuid import uuid4
 
 import ibis.expr.types as ir
 import pyarrow as pa
-from ibis.backends.duckdb import Backend
 
 from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import LocalReceipt, ObjectReceipt, StorageReceipt
 from marivo.analysis.materialization.errors import StorageAccessError
+from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.storage import (
     ReadPolicy,
     _hash_file,
@@ -46,7 +46,7 @@ def checked_local_path(root: Path, receipt: LocalReceipt, *, verify_schema: bool
 
 
 def attach_parquet_scan(
-    backend: Backend,
+    backend: ExecutionAdapter,
     root: Path,
     receipt: StorageReceipt,
     *,
@@ -76,19 +76,14 @@ def attach_parquet_scan(
         ):
             _integrity("the exact immutable part schema", "Parquet part schema differs")
         with pa.RecordBatchReader.from_batches(header.schema, stream) as reader:
-            registered = name + "_input"
-            backend.con.register(registered, reader)
-            try:
-                backend.raw_sql(f'CREATE TEMPORARY TABLE "{name}" AS SELECT * FROM "{registered}"')
-            finally:
-                backend.con.unregister(registered)
+            backend.freeze_reader(name, reader)
     finally:
         stream.close()
     return backend.table(name)
 
 
 def validate_parquet_relation(
-    backend: Backend,
+    backend: ExecutionAdapter,
     table: ir.Table,
     receipt: StorageReceipt,
     row: DatasetRowContract,
@@ -96,9 +91,17 @@ def validate_parquet_relation(
 ) -> None:
     count_sql = backend.compile(table.count())
     record("parquet_check.input_count", count_sql)
-    if backend.raw_sql(count_sql).fetchone()[0] != receipt.realized_row_count:
+    if (
+        backend.read_scalar(backend.prepare(table.count(), role="parquet_check.input_count"))
+        != receipt.realized_row_count
+    ):
         _integrity("the exact Parquet receipt row count", "native scan count differs")
     record("parquet_check.input_schema", backend.compile(table.limit(0)))
-    realized = _realized_schema(row, backend.to_pyarrow(table.limit(0)).schema)
+    realized = _realized_schema(
+        row,
+        backend.read_table(
+            backend.prepare(table.limit(0), role="parquet_check.input_schema")
+        ).schema,
+    )
     if codec.schema_fingerprint(realized) != receipt.schema_fingerprint:
         _integrity("the exact Parquet receipt schema", "native scan schema differs")

@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 import duckdb
 import pytest
-from ibis.backends.duckdb import Backend
 
 from marivo._compat import Never
 from marivo.analysis.compiler.errors import DatasetCompilationError
@@ -18,6 +17,7 @@ from marivo.analysis.materialization import admission, inspection
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.contracts import source_owner_of
@@ -254,15 +254,17 @@ def test_distinct_native_deadline_cancels_query_and_redacts_failure(tmp_path: Pa
     elapsed: list[float] = []
     interrupted: list[bool] = []
 
-    def slow(backend: Backend, *_: object) -> Never:
+    def slow(backend: ExecutionAdapter, *_: object) -> Never:
         started = time.monotonic()
         try:
             with (
                 patch.object(admission, "_SOURCE_EXECUTION_DEADLINE_SECONDS", 0.05),
                 admission._engine_deadline(backend),
             ):
-                backend.raw_sql(
-                    "SELECT sum(i), 'private-member-timeout-canary' FROM range(1000000000000) AS rows(i)"
+                backend.submit(
+                    backend.statement(
+                        "SELECT sum(i), 'private-member-timeout-canary' FROM range(1000000000000) AS rows(i)"
+                    )
                 )
         except duckdb.InterruptException:
             interrupted.append(True)

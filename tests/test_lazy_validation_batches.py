@@ -4,9 +4,9 @@ from collections.abc import Iterator
 
 import ibis
 import pytest
-from ibis.backends.duckdb import Backend
 
 from marivo.analysis.compiler.nodes import CompiledSampleFence, CompiledValidation
+from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter as Backend
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.validation import (
     ValidationBatch,
@@ -18,7 +18,7 @@ from marivo.analysis.observation.sampling import engine_sample
 
 @pytest.fixture
 def backend() -> Iterator[Backend]:
-    connection = ibis.duckdb.connect()
+    connection = Backend(ibis.duckdb.connect())
     try:
         yield connection
     finally:
@@ -124,5 +124,5 @@ def test_sampling_fence_splits_batches_without_creating_its_source(backend: Back
     assert len(steps) == 3 and steps[1] is fence
     assert isinstance(steps[0], ValidationBatch) and steps[0].checks == (before,)
     assert isinstance(steps[2], ValidationBatch) and steps[2].checks == (after,)
-    assert backend.list_tables() == []
+    assert backend.read_table(backend.statement("SHOW TABLES")).num_rows == 0
     assert execute_batch(backend, steps[0], run_ref="run-test") == (("before", 0),)

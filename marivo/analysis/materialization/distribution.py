@@ -7,10 +7,10 @@ from collections.abc import Callable
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 import pyarrow as pa
-from ibis.backends.duckdb import Backend
 
 from marivo.analysis.compiler.distribution import distribution_validations
 from marivo.analysis.datasets.descriptors import DatasetRowContract, _EntityFieldIdentity
+from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.storage import _integrity, _matches_type
 from marivo.analysis.observation.distribution_contracts import (
     FREQUENCY,
@@ -20,7 +20,7 @@ from marivo.analysis.observation.distribution_contracts import (
 
 
 def validate_distribution_relation(
-    backend: Backend,
+    backend: ExecutionAdapter,
     table: ir.Table,
     primary: ir.Table,
     row: DatasetRowContract,
@@ -32,7 +32,12 @@ def validate_distribution_relation(
     for check in checks:
         sql = backend.compile(check.expression)
         record("engine_check." + check.name, sql)
-        if backend.raw_sql(sql).fetchone()[0] != 0:
+        if (
+            backend.read_scalar(
+                backend.prepare(check.expression, role="engine_check." + check.name)
+            )
+            != 0
+        ):
             _integrity(
                 "complete exact distribution and independent endpoint",
                 "distribution integrity failed",

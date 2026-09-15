@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import ibis
-from duckdb import DuckDBPyConnection
-from ibis.backends.duckdb import Backend
 
 from marivo.analysis.compiler.nodes import (
     CompiledRelationFence,
@@ -14,16 +12,17 @@ from marivo.analysis.compiler.nodes import (
     CompiledValidation,
 )
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.execution import ExecutionAdapter, Statement
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ValidationBatch:
     checks: tuple[CompiledValidation, ...]
-    sql: str
+    statement: Statement
 
 
 def compile_preparations(
-    backend: Backend,
+    backend: ExecutionAdapter,
     preparations: tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...],
     *,
     run_ref: str,
@@ -51,7 +50,8 @@ def compile_preparations(
         expression = ibis.union(*tables) if len(tables) > 1 else tables[0]
         result.append(
             ValidationBatch(
-                tuple(pending), backend.compile(expression.order_by("validation_ordinal"))
+                tuple(pending),
+                backend.prepare(expression.order_by("validation_ordinal"), role="validation_batch"),
             )
         )
         pending.clear()
@@ -72,11 +72,9 @@ def compile_preparations(
 
 
 def execute_batch(
-    backend: Backend, batch: ValidationBatch, *, run_ref: str
+    backend: ExecutionAdapter, batch: ValidationBatch, *, run_ref: str
 ) -> tuple[tuple[str, int], ...]:
-    cursor: object = backend.raw_sql(batch.sql)
-    if not isinstance(cursor, DuckDBPyConnection):
-        raise _failure(batch.checks[0], run_ref)
+    cursor = backend.submit(batch.statement)
     results: list[tuple[str, int]] = []
     row: object = cursor.fetchone()
     for index, check in enumerate(batch.checks):

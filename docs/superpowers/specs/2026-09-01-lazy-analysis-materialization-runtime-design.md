@@ -3012,3 +3012,22 @@ exact local Shapley combination. Missing coalitions, duplicate players,
 inconsistent inventories/endpoints or incomplete resolutions fail atomically.
 Run resources, cancellation, source realization and receipt rechecks retain
 the existing owners; no separate publication or recovery mechanism is added.
+
+## 2026-09-15 amendment: private DuckDB execution inputs
+
+The first multi-datasource extraction retains the existing DuckDB transaction
+realization and publication order. Runtime and shared publication helpers use
+private immutable statement inputs carrying the selected SQL, typed parameters,
+result schema, statement role, owned realization and declared preparation
+dependencies. The concrete adapter submits those inputs without expression-based
+recompilation. Wrapping an input in a fence or compound proof retains its
+preparations; resource-producing Ibis hooks require reservation before execution.
+
+Native cursor access, dialect statements, transaction exceptions and timer
+interruption belong to the concrete DuckDB execution path. Every validation
+still runs separately in its existing order. Successful adapter close precedes
+termination proof and atomic publication. Native retained Parquet computation
+and isolated cold inspection remain local domains. The existing Event coverage
+provider receives its owned native connection within the adapter's deadline.
+This amendment enables no remote backend or new public API; the Slice 1
+[evidence record](2026-09-15-multisource-slice-1-acceptance.md) owns verification status.

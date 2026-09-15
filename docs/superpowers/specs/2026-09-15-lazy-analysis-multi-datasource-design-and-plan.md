@@ -535,6 +535,12 @@ under concurrent writes. Remaining activation gates (including validation orderi
 production transport and recovery) are assigned to their enabling slices in that
 inventory. Non-DuckDB execution remains disabled.
 
+Slice 1 is complete for the private DuckDB adapter extraction, with 246 targeted
+Runtime cases and the broad gate passing. The
+[DuckDB adapter evidence record](2026-09-15-multisource-slice-1-acceptance.md)
+records the exact scope and independent review. Non-DuckDB execution remains
+disabled; exact multi-backend dispatch is Slice 2.
+
 Do not combine backend activation with unrelated compiler cleanup. New optional
 dependency constraints must be justified by the tested adapter and recorded in
 its slice. Each enabling slice updates affected Help, dynamic guidance, drift
