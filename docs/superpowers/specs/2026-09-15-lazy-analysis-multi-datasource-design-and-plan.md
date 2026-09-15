@@ -2,9 +2,12 @@
 
 Date: 2026-09-15
 
-Status: staged implementation; Slices 0, 1, 1a and 1b complete. Slice 1c and
-remote backend implementation remain pending. No new backend is enabled by this
+Status: staged implementation; Slices 0, 1, 1a, 1b, 1c, corrected 1d and 2 complete.
+Remote backend implementation remains pending. No new backend is enabled by this
 document. Each backend/method combination requires its own acceptance.
+The original Slice 1d blanket read-only restriction is superseded by the
+[capability restoration and abstraction correction](2026-09-15-multisource-slice-1d-restoration-acceptance.md).
+Remote read-only qualification remains part of each future backend activation.
 
 ## 1. Outcome and scope
 
@@ -19,6 +22,35 @@ claim that every Ibis backend supports every Dataset method. Push the maximal
 eligible contiguous calculation into the declared source. Use an existing
 in-process local method only where its owner admits that exact input shape.
 Reject unsupported source-required work before reading source rows.
+
+### Unified operators and backend-owned execution
+
+Operator contracts are backend-neutral: input/output meaning, exact numeric
+semantics, single evaluation, mandatory assertions and atomic publication are
+unchanged across implementations. The existing implementation registry selects
+an exact method/backend implementation and its concrete execution owner. There
+is no operator-level DuckDB exemption, global payload ban or implicit rerouting.
+Sharing an abstraction does not require identical SQL or simultaneous backend
+coverage.
+
+DuckDB supports its existing internal temporary tables/views, macros, memtable
+and UDF registration, JSON and retained-stream readers, and owned cleanup. These
+are concrete adapter facilities, not special operator semantics or permission to
+modify business tables. Datasource/entity authoring keeps its existing ownership.
+
+Remote adapters (including Trino, ClickHouse, MySQL and PostgreSQL) must work with
+read-only accounts. They must not require data writes, object creation, uploads,
+macros/UDF registration or cleanup DDL. Required metadata, connection/session
+controls and cancellation must be qualified against the actual read-only account.
+Marivo changes generated operations; it does not add a general SQL security layer.
+An unimplemented method/backend combination fails through the same registration
+and admission mechanism before source work. CTE syntax alone does not prove a
+volatile input is evaluated once.
+
+This correction restores existing implementations only. It activates no remote
+backend and grants no new transfer of private source identities, events or
+intermediate state into local DuckDB. Existing Parquet/Store and object-output
+writes retain their separate authority.
 
 ### Execution and resource responsibility
 
@@ -75,7 +107,8 @@ the support claim, not hidden implementation assumptions.
   introducing a remote backend does not authorize exporting it through pandas.
 
 Out of scope: generic federation, a cost optimizer, backend auto-discovery,
-arbitrary SQL execution through Dataset APIs, persistent remote scratch schemas,
+arbitrary SQL execution through Dataset APIs, business-data writes, remote
+datasource DDL/uploads and new cross-engine private-state transfer,
 new statistical methods, dependency upgrades unrelated to an admitted adapter,
 and automatic rollout to existing projects.
 
@@ -91,11 +124,18 @@ owns the public execution and persistence contract.
 Upon acceptance, amend those owners for the multi-backend registration,
 execution ownership, the removal of cross-query source consistency guarantees,
 in-process local execution without Marivo execution budgets, ordinary Ibis
-execution, no version admission, and the simplified cleanup rules below.
+execution, no version admission, the simplified cleanup rules below, and strictly
+remote read-only account compatibility. The corrected Slice 1d restores DuckDB
+internal execution facilities while retaining one operator and registration
+contract. Concrete adapters own preparation and resource effects.
 Do not change the older
 Slice 9 acceptance status or treat this proposal as its completion evidence.
 
 ## 2. Verified baseline and required changes
+
+The inventory below records the pre-slice baseline. Completed removals and
+replacement evidence are recorded in each slice; these historical couplings
+are not current requirements.
 
 The current `lazy-dataset` checkout supports six datasource engine profiles but
 only DuckDB source execution for lazy analysis. The targeted Runtime economics
@@ -107,9 +147,9 @@ non-DuckDB rejections. Those rejection tests do not prove remote execution.
 | `marivo/datasource/engines/` | Connection, metadata, timezone and authoring timeout profiles already exist for six engines | Reuse physical connection facts; keep lazy operator eligibility in Analysis |
 | `analysis/operators/registry.py` | `source_adapter` is one string; source versions default to DuckDB 1.5.3 / Ibis 12.0.0 | Register implementations per method/backend in the existing registry; delete engine/driver/Ibis version requirements |
 | `analysis/compiler/placement.py` | Every source binding includes local DuckDB/Ibis versions | Remove version fields from domain/eligibility decisions; preserve exact datasource and Session ownership |
-| `analysis/materialization/admission.py` | DuckDB `Backend` checks, `.con.interrupt()`, `SET`, transactions, schema lookup, temporary tables and batch readers | Route physical operations through typed execution adapters |
+| `analysis/materialization/admission.py` | DuckDB `Backend` checks, `.con.interrupt()`, `SET`, transactions, schema lookup, temporary tables and batch readers | Route permitted read operations through typed execution adapters; keep concrete preparation and cleanup in the adapter; remote implementations must work with read-only accounts |
 | `analysis/materialization/validation.py` | Validation cursor must be `DuckDBPyConnection` | Decode typed validation rows independently of a concrete cursor |
-| Statement paths in `materialization/admission.py` and `sampling.py` | `sqlglot`/`sge` rendering with the DuckDB dialect, sampling SQL parsing, `DESCRIBE`, temporary relation SQL, raw scalar checks and `TransactionException` handling | Inventory actual statements and error paths; move dialect behavior into concrete adapters, including diagnostics |
+| Statement paths in `materialization/admission.py` and `sampling.py` | `sqlglot`/`sge` rendering with the DuckDB dialect, sampling SQL parsing, `DESCRIBE`, temporary relation SQL, raw scalar checks and `TransactionException` handling | Inventory actual statements and error paths; move dialect behavior into concrete adapters, including diagnostics; remote implementations must not require write/DDL permissions |
 | `analysis/materialization/resources.py` | Cleanup and Session recovery require execution terminal proof | Separate local publication safety from remote read-only query cleanup; unknown remote termination alone does not block a Session |
 | `analysis/materialization/local_worker.py`, `worker_lifetime.py`, `local.py`, `admission.py` | Supervised local execution, IPC, worker reservations and resource admission | Execute local kernels in the caller; remove worker-only protocols and budget enforcement in Slice 1b |
 | Materialization storage/read policies, execution adapters and method registrations | Execution deadlines, row/byte/memory/spill and problem-size caps | Remove resource-only policies, probes, checks and error guidance across source, local, writer and retained-read paths |
@@ -144,7 +184,7 @@ Each registration supplies concrete typed facts for:
 
 - adapter identity and implemented method/backend support;
 - admitted Dataset shapes, value types and method parameters;
-- source builder and, where needed, a declared preparation builder;
+- source builder and, where needed, a declared backend-owned preparation builder;
 - required validation, single-evaluation fence and retained-part capabilities;
 - output and numerical conformance validators;
 - the existing exact local method, independently of source eligibility.
@@ -170,10 +210,10 @@ operations are shared; backend-specific operations stay with their concrete owne
 | Open | Open the declared datasource through its existing connection owner; no version certification or version-based admission |
 | Bind execution | Bind statements and resources to the owned action-local execution context; this establishes lifetime and authority, not a shared source snapshot |
 | Resolve table/schema | Use datasource-owned qualification and normalize physical types without losing precision |
-| Execute expressions | Prefer normal Ibis execution; use backend-specific SQL/driver operations only where the method requires them |
+| Execute expressions | Use the registered concrete implementation, including its hooks and preparation; remote implementations must work with read-only accounts |
 | Read assertions | Return the required named integer/scalar checks; reject missing, duplicate or malformed results |
 | Stream rows | Yield typed Arrow batches and close the actual underlying cursor/response; batching is a transport strategy, not a hard allocation guarantee |
-| Own fences | A separately admitted fence implementation creates its owned resources after reservation; variants without that capability cannot accept fence-requiring methods |
+| Own fences | Preserve method-required single evaluation through the selected adapter; DuckDB may use owned temporary resources, while remote implementations must satisfy their read-only account boundary |
 | Cancel and close | Attempt cancellation and close the exact owned driver resources; report failures or unknown remote status without requiring termination certification |
 
 Use one typed action-local execution context for statement ownership and resource
@@ -189,11 +229,11 @@ depend on `.con`, a DuckDB cursor class or dialect-specific SQL.
 
 **Use the normal execution path.** Recompiling an expression is not resubmitting
 a query. Permit Ibis to compile during execution and retain its parameter
-binding, preparation hooks and result conversion. Do not require every backend
-to rebuild these facilities merely to enforce a compile count or immutable
-statement wrapper. Use a direct driver path only for a concrete missing feature
-or correctness requirement; existing useful DuckDB code need not be rewritten
-solely to normalize its shape with other adapters.
+binding, required preparation hooks and result conversion. Concrete adapters own
+temporary resources, registration and numerical preparation. DuckDB retains these
+facilities; remote adapters must implement their methods without requiring write
+permissions. Do not require a second execution route merely to enforce compile
+counts or immutable statement wrappers.
 
 Preserve complete results, correct parameters/types, required validation order,
 owned resource cleanup and method-required single evaluation. Capture actual
@@ -216,7 +256,9 @@ controls only where their owners and lifetimes are identical.
 2. On a miss, check locally known method, backend, type and shape eligibility.
    Known unsupported source roots retain their pre-Run rejection behavior.
 3. Select the complete physical graph, including declared preparation boundaries.
-   No source stage may acquire rows from an unregistered local upload path.
+   Resolve physical eligibility through the selected implementation before Run
+   admission. DuckDB may use its existing internal resources; remote source stages
+   must not require uploads or object creation.
 4. Admit the Run and reserve execution resources before connecting or submitting.
 5. Open the declared datasource and resolve schema or method-required source
    facts. Do not run version certification or version-based admission. Connection,
@@ -225,6 +267,8 @@ controls only where their owners and lifetimes are identical.
    snapshot or pin source versions solely to align related reads.
 7. Execute the selected expressions through Ibis or the justified backend path,
    in owner-defined order, including assertions, primary reads and part reads.
+   Concrete adapters own submission paths and implicit hooks; remote acceptance
+   must prove they work with the declared read-only account.
 8. Validate and publish through the existing writer and recovery protocol.
 
 Read catalog/schema/settings only where needed for source resolution or a
@@ -292,15 +336,16 @@ meaning and must not be removed with physical snapshot-pinning machinery.
   Findings, plus immutable Artifact identity and cold reads. Atomic publication
   does not certify a common source observation.
 - Preserve resource ownership reservation, streaming, cancellation, cleanup and
-  recovery. Transactions needed by a driver, cursor or temporary resource may
-  remain for that concrete purpose, without a cross-query consistency claim.
+  recovery. Read transactions needed by a driver or cursor may remain for that
+  concrete purpose, without datasource mutation or a cross-query consistency claim.
   Reservation records ownership for recovery; it does not allocate a budget.
 
-The existing DuckDB single-evaluation fences remain admitted. Other engines
-must qualify any required fence's creation, shared consumption, cancellation
-and cleanup before accepting fence-requiring methods. Initial Trino and
-ClickHouse group-A registrations remain deterministic and fence-free; reject
-fence-requiring graphs until that independent capability is implemented.
+Existing DuckDB temporary-relation fences preserve shared evaluation and remain
+available through its adapter. Every remote implementation must independently
+prove the same semantics using operations allowed for its read-only account.
+A CTE or repeated query is not sufficient proof of single evaluation. Initial
+Trino and ClickHouse group-A registrations remain deterministic and fence-free;
+other methods stay unregistered until implemented and accepted.
 
 ### 4.2 Current implementation and removal task
 
@@ -309,7 +354,8 @@ rollback paths. The adapter now initializes the owned execution connection
 without opening a shared read transaction. Statement ownership, required checks,
 single-evaluation fences and atomic publication remain enforced. The
 [Slice 1a evidence record](2026-09-15-multisource-slice-1a-acceptance.md) records
-controlled source-update, stable-fixture, cleanup and broad verification.
+controlled source-update, stable-fixture, cleanup and broad verification. This
+remains evidence for that candidate; current restoration has its own acceptance.
 
 ## 5. Backend-specific delivery scope
 
@@ -320,7 +366,7 @@ reproducibility without using them to control runtime eligibility.
 
 | Backend | Initial execution and useful scope | Important restrictions |
 | --- | --- | --- |
-| DuckDB | Existing registered methods, single-evaluation fences and native retained scans | Remove consistency-only transactions in Slice 1a and workers/budgets in Slice 1b; preserve numerical results on stable fixtures and cleanup |
+| DuckDB | Existing methods and native retained scans under their existing authority | Preserve exact semantics through the common registration and adapter boundary, including internal temporary resources and macros |
 | PostgreSQL | Ordinary relational scalar Metric chains | Verify cursor lifetime, exact decimal/time decoding and ordering; no repeatable-read requirement or inherited DuckDB macros |
 | MySQL | Scalar Metric chains on qualified table engines | Window and join rewrites need exact parity; document buffering and external timeout behavior; no shared-snapshot requirement |
 | SQLite | Conservative scalar types and simple Metric chains on a verified database | Do not advertise unsupported Decimal or timezone semantics; interrupt during fetch as well as execute |
@@ -348,7 +394,8 @@ aggregate. Ordinary support does not depend on multi-statement transactions.
 ### Driver-owned transactions
 
 PostgreSQL, MySQL and SQLite adapters may use transactions where required for
-cursor operation or resource management. Qualify their lifetime, cancellation
+read cursor operation or read-resource management only, with no write/DDL
+permission. Qualify their lifetime, cancellation
 and cleanup for that purpose. Do not require repeatable-read isolation or reject
 a supported method solely because contributing queries may observe updates.
 
@@ -382,7 +429,9 @@ Specific risks requiring fixtures and explicit registration:
 - Private retained membership/distribution relations, ordered list/struct
   construction, quantile reproduction and contribution-state integrity.
 - Driver numerical macros currently use DuckDB BIGNUM to preserve binary64
-  summation semantics. Ordinary remote `SUM(double)` is not an equivalent port.
+  summation semantics. Their installation belongs to the DuckDB adapter.
+  Remote implementations need an equivalent read-only implementation;
+  ordinary remote `SUM(double)` is not an equivalent port.
 - Event matching, sampling and Lifecycle replay require exact ordering and
   single-evaluation boundaries; successful SQL compilation does not prove them.
 
@@ -431,8 +480,10 @@ may be published as successful, including after a crash and subsequent recovery.
 
 Attempt cancellation and close the actual owned cursor, response and connection
 on errors or user interruption where Python retains control. Use the driver's
-normal cleanup facilities; retain a safely available query ID for diagnostics
-or exact cancellation. Never kill sessions by username, broad SQL matching or
+normal resource cleanup facilities. DuckDB may clean up its exact owned temporary
+resources; remote adapters must not require cleanup DDL. Unknown historical
+resources are not certified deleted by discharging local publication ownership. Retain a safely available
+query ID for diagnostics or exact cancellation. Never kill sessions by username, broad SQL matching or
 reused numeric IDs. Never persist credentials, token-bearing result URLs or raw
 connection strings in the journal or Evidence.
 
@@ -468,7 +519,9 @@ transfer, cancellation and schema drift leave no successful Artifact or cache hi
 The existing `admitted_binding` shortcut assigns a sole source candidate to a
 Parquet Artifact. Replace that assumption with an explicit native-reader
 capability check. New remote adapters initially have no retained-Parquet import
-capability. Do not upload a local result to make a remote source-only method work.
+capability. This is not permission to upload: the remote read-only boundary
+prohibits result uploads to remote datasources. Do not upload a local result to
+make a source-only method work.
 
 Retained-only operations may continue through the existing DuckDB Parquet domain
 or admitted in-process local method. Mixed remote-source/Artifact operands use an existing
@@ -505,6 +558,7 @@ blocker after generic infrastructure has been built.
 | 1a: remove source-consistency enforcement | `materialization/admission.py`, `execution.py`, `duckdb_execution.py`, `resources.py`; consistency-specific tests and owning planner/Runtime/public docs | Remove action-wide `BEGIN`/`ROLLBACK` used solely to align source reads and transaction-realization typing/admission; preserve execution ownership, single-evaluation fences, driver/resource-required transactions and atomic publication; pass focused Runtime and broad gates |
 | 1b: remove local workers and execution budgets | `materialization/local_worker.py`, `worker_lifetime.py`, `local.py`, `admission.py`, `resources.py`, storage/read policies, adapters, method registrations and affected contracts/tests | Local kernels execute in the caller without spawning; no Marivo resource-budget admission or enforcement remains in lazy analysis; errors preserve tracebacks; publication, semantic checks and owned-resource recovery pass focused and broad gates |
 | 1c: simplify execution and recovery | `materialization/execution.py`, `duckdb_execution.py`, `resources.py`, `admission.py`, `operators/registry.py`, `compiler/placement.py`, Session recovery and owning contracts/tests | Ordinary Ibis execution permitted; no compile-count gate or version certification/admission; remote termination uncertainty alone does not block Session work; local publication integrity remains protected |
+| 1d correction: restore capabilities and unify execution ownership | Existing registry, concrete adapters, sampling/preparation and owning contracts/tests | Restore DuckDB capabilities without operator special cases; declare remote read-only requirements for later activation; pass restored success tests and broad gates |
 | 2: extend exact dispatch | `operators/registry.py`, `compiler/placement.py`, source binding and retained binding admission | Multiple closed backend registrations supported; only DuckDB enabled; unsupported backend/type/method cases fail at the correct phase; no version gate; binding hits remain source-free |
 | 3: PostgreSQL group A | New PostgreSQL execution adapter; focused datasource control reuse; shared scalar lowering | Real group-A success with separate checks and output reads, streaming, cancellation/recovery and cold Artifact reads; no execution-budget prerequisite |
 | 4: MySQL and SQLite group A | Separate concrete adapters and per-engine tests | Same group-A contract under each declared physical-type/table scope; no inherited authoring transaction bugs; driver buffering documented |
@@ -538,20 +592,30 @@ records the exact scope and independent review. Non-DuckDB execution remains
 disabled. Slice 1a is also complete, with separate
 [acceptance evidence](2026-09-15-multisource-slice-1a-acceptance.md). Slice 1b is complete with
 [caller-execution acceptance evidence](2026-09-15-multisource-slice-1b-acceptance.md).
-Slice 1c remains pending and precedes exact multi-backend dispatch in Slice 2.
+Slice 1c is complete for execution, version-independent placement and guarded
+recovery simplification; see the [Slice 1c evidence record](2026-09-15-multisource-slice-1c-acceptance.md).
+Store v5 owns the replacement resource semantics without migration or dual read.
+Slice 2 is complete for exact backend registration and dispatch; see the
+[Slice 2 evidence record](2026-09-15-multisource-slice-2-acceptance.md).
+Only DuckDB is enabled. Multi-entry registration tests are pure dispatch checks,
+not remote execution acceptance.
 Historical Slice 1 behavior preservation is not a requirement to
-retain the mechanisms explicitly removed by these amendments.
+retain the mechanisms explicitly removed by these amendments. Slice 1d is a
+correction of execution ownership; remote read-only compliance requires actual
+per-backend acceptance, which completed Slices 0-1c do not supply.
 
 Slice 1a was implemented as a separately authorized task with the following
 scope and acceptance requirements. Inventory each existing transaction and fence
 by purpose before removal. Remove the action-wide consistency transaction wrapper,
 its consistency-only rollback/exception paths, realization variants and any
 snapshot-equality admission/tests introduced solely for that guarantee. Keep
-statement-to-execution ownership guards, read-only source access and cleanup.
+statement-to-execution ownership guards, source authority and owned cleanup.
 Existing timeouts are removed in Slice 1b; remote recovery is simplified in
 Slice 1c. Retain transactions only where a concrete driver or
-resource lifecycle needs them; document and test that purpose. Do not remove
-semantic version selection, sample/relation fences required for single evaluation,
+read-resource lifecycle needs them; document and test that purpose. Slice 1d
+places internal DuckDB resources with its adapter and requires remote adapters
+to support read-only accounts. Do not remove
+semantic version selection, the requirement for single evaluation,
 retained-result integrity checks, or Store publication transactions.
 
 Update the linked planner and Runtime owners, current public execution docs,
@@ -624,8 +688,9 @@ as evidence; no execution cap may survive under a sizing or safety-policy name.
 
 ### Slice 1c execution simplification tasks
 
-This is a planned refactoring task. This documentation update does not implement
-the changes or activate another backend.
+The following implementation and acceptance requirements are complete for the
+current DuckDB route. The linked Slice 1c record owns final verification evidence.
+No additional backend is activated.
 
 1. **Remove remote termination certification.** Inventory remote-query journal
    fields, submission correlation, terminal receipts and Session-wide recovery
@@ -644,9 +709,10 @@ the changes or activate another backend.
    obligations that still protect local writes or delete guessed resources.
 3. **Remove the mandatory compile/submit framework.** Permit normal Ibis
    expression execution, including its own compilation, parameter handling,
-   hooks and result conversion. Delete compile-count rejection and wrapper or
-   adapter requirements used only to forbid recompilation. Keep direct driver
-   paths where concretely needed and useful existing DuckDB implementation.
+   backend-owned hooks and result conversion, subject to the corrected Slice 1d. Delete compile-count
+   rejection and wrapper or adapter requirements used only to forbid recompilation. Keep direct driver
+   paths where concretely needed; remote activation must remove forbidden operations from
+   existing DuckDB implementations.
    Capture actual submissions and test parameters, complete typed output,
    validation ordering and no unintended duplicate queries. Do not replace the
    removed framework with another mandatory execution-plan representation.
@@ -687,6 +753,22 @@ Slice 8 consolidates and verifies them rather than postponing that obligation.
 Fixture changes follow the repository's `marivo-test-fixtures` skill
 when implementation begins. No runtime fixtures or services are started by this
 documentation task.
+
+### Slice 1d correction: capability restoration
+
+1. Restore the pre-1d capabilities without reverting earlier Slice 1a–1c or
+   Slice 2 work. Remove the blanket payload bans and DuckDB-only read backend.
+2. Use the existing implementation registry to resolve adapter binding and
+   retained import. Keep physical sampling eligibility/SQL and Driver macro
+   preparation in the concrete adapter. Do not add a parallel capability system.
+3. Restore sampling, Event/Lifecycle, Candidate, JSON and retained-stream success
+   paths, mandatory assertions, single evaluation and owned resource lifetime.
+4. Restore affected tests and disclosure. Preserve the original 1d record as
+   superseded evidence and record fresh restoration acceptance separately.
+5. Run focused/default tests, necessary Runtime tests, typing/lint, broad checks,
+   site checks and independent review. Activate no remote backend or new private
+   state transfer. Later remote implementations must pass real read-only-account
+   acceptance through the same method registration and execution contract.
 
 ## 10. Acceptance matrix and evidence
 
@@ -743,6 +825,15 @@ Every enabled backend/method entry requires the following applicable checks:
     failure tracebacks and never publish partial success; test external failure
     and subsequent recovery without promising a traceback after process death.
 
+12. **Unified execution and remote read-only compatibility:** verify method
+    selection, adapter binding, physical preparation and retained-import authority
+    use the existing registration mechanism. Prove DuckDB success for its restored
+    internal facilities, including failure cleanup and shared evaluation. For each
+    later remote activation, capture actual connection, metadata, hook, query and
+    cleanup operations under a read-only account; no method may depend on writes,
+    object creation, uploads or cleanup DDL. Unimplemented methods reject before
+    source work rather than gaining an implicit alternate execution route.
+
 Record fixture identity, connector/table scope, enabled methods, statements by
 role, transferred rows/bytes, cleanup outcomes or unknown remote status, and
 commands/outcomes. Available server/Ibis/driver versions are diagnostic evidence
@@ -762,7 +853,8 @@ release workflow, not ordinary documentation or commit preparation.
 Initial multi-datasource delivery is complete only when each of the five new
 backends has a real successful group-A Dataset journey within its explicitly
 advertised scope, with validation, streaming, driver cleanup, publication and
-installed-package evidence. A backend blocked at Slice 0 or later remains
+installed-package evidence, plus remote read-only-account acceptance across every
+operation path. A backend blocked at Slice 0 or later remains
 unavailable; the overall five-backend objective is then incomplete.
 
 Full DuckDB feature parity is a separate milestone. Group-D restrictions must

@@ -11,7 +11,7 @@ from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.observation.contracts import source_owner_of
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators import registry
-from marivo.analysis.operators.registry import ImplementationRegistration
+from marivo.analysis.operators.registry import BackendRegistration, ImplementationRegistration
 from tests.lazy_local_fixtures import REVENUE, setup_local
 
 
@@ -37,7 +37,7 @@ def test_source_required_successor_never_reenters_source(
     def registrations(dataset: LogicalDataset) -> ImplementationRegistration:
         registered = original(dataset)
         return (
-            replace(registered, source_adapter=None)
+            replace(registered, backends=())
             if registered.operator_id == "metric.where"
             else registered
         )
@@ -53,16 +53,18 @@ def test_binding_identity_never_uses_connection_argument_equality(tmp_path: Path
     owner = source_owner_of(first)
     other = runtime.sources(semantic_registry=owner.semantic_registry, sidecar=owner.sidecar)
     second_owner = source_owner_of(other.observe(REVENUE))
-    a = SourceBinding(owner, "same-name", "duckdb", ("1.5.3", "12.0.0"))
-    b = SourceBinding(second_owner, "same-name", "duckdb", ("1.5.3", "12.0.0"))
+    a = SourceBinding(owner, "same-name", "duckdb")
+    b = SourceBinding(second_owner, "same-name", "duckdb")
     registration = ImplementationRegistration(
-        "metric.where", ("left", "right"), "duckdb", "metric.where"
+        "metric.where",
+        ("left", "right"),
+        (BackendRegistration("duckdb", source=True),),
+        "metric.where",
     )
     assert not a.same_domain(b)
     assert source_eligible(registration, (a, a), a)
     assert not source_eligible(registration, (a, b), a)
     assert not source_eligible(registration, (None, a), a)
-    assert not source_eligible(registration, (), replace(a, adapter_versions=("future", "future")))
 
 
 def test_required_parts_place_locally_without_worker_or_origin_work(
@@ -96,24 +98,27 @@ def test_required_parts_place_locally_without_worker_or_origin_work(
 
 
 @pytest.mark.parametrize("dependency", ["duckdb", "ibis"])
-def test_unregistered_source_version_fails_before_run_admission(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dependency: str
+@pytest.mark.parametrize("version", [None, "unregistered"])
+def test_diagnostic_version_does_not_change_selection_or_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dependency: str, version: str | None
 ) -> None:
-    from marivo.analysis.compiler import placement
-    from tests.lazy_materialization_crash_worker import snapshot
+    import importlib
 
-    runtime, sources, _ = setup_local(tmp_path)
+    from marivo.analysis.compiler.placement import source_binding
+
+    _, sources, _ = setup_local(tmp_path)
     source = sources.observe(REVENUE)
     target = source.where(gt(REVENUE, 0))
-    target = target.rank(target.fields.metric(REVENUE)).limit(2).metric(REVENUE)
-    before = snapshot(runtime)
-    monkeypatch.setattr(getattr(placement, dependency), "__version__", "unregistered")
-    with pytest.raises(DatasetCompilationError, match="source-required"):
-        target.execute()
-    assert runtime.last_run_ref is None
-    assert runtime.statistics.primary_queries == runtime.statistics.validation_queries == 0
-    assert runtime.statistics.events.get("local_execution_started", 0) == 0
-    assert snapshot(runtime) == before
+    before = source_binding(target)
+    module = importlib.import_module(dependency)
+    if version is None:
+        monkeypatch.delattr(module, "__version__")
+    else:
+        monkeypatch.setattr(module, "__version__", version)
+    after = source_binding(target)
+    assert before.same_domain(after)
+    assert source_eligible(registry.implementation(target), (before,), after)
+    assert target.execute().to_pandas()["revenue"].sum() == 147
 
 
 def test_semantic_observation_keeps_its_owner_while_comparison_federates_inputs() -> None:

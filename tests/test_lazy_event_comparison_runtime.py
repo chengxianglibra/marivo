@@ -63,7 +63,7 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
     def implementation(dataset: LogicalDataset) -> registry.ImplementationRegistration:
         registered = original(dataset)
         return (
-            replace(registered, source_adapter=None)
+            replace(registered, backends=())
             if local and registered.operator_id in ("event.compare", "delta.funnel_attribute")
             else registered
         )
@@ -188,7 +188,8 @@ def test_attribution_failure_or_cancellation_is_atomic(tmp_path: Path, point: st
     )
     before = snapshot(runtime)
     armed = True
-    with pytest.raises(KeyboardInterrupt) as caught:
+    expected_error = KeyboardInterrupt if point == "quality" else OSError
+    with pytest.raises(expected_error) as caught:
         output.execute()
     assert "canary" in str(caught.value)
     assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"]
@@ -338,7 +339,7 @@ def test_nonzero_shifted_cohorts_have_full_runtime_source_local_parity(
         ) -> registry.ImplementationRegistration:
             registered = original(dataset)
             return (
-                replace(registered, source_adapter=None)
+                replace(registered, backends=())
                 if local and registered.operator_id in ("event.compare", "delta.funnel_attribute")
                 else registered
             )

@@ -148,7 +148,7 @@ def test_source_prefix_transfers_all_parts_once_to_local_fold(
     def supported(dataset: LogicalDataset) -> implementations.ImplementationRegistration:
         registration = registered(dataset)
         return (
-            replace(registration, source_adapter=None)
+            replace(registration, backends=())
             if registration.operator_id == "metric.where"
             else registration
         )

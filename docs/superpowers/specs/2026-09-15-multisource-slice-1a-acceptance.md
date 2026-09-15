@@ -1,5 +1,10 @@
 # Multi-datasource Slice 1a: source execution without consistency transactions
 
+Historical evidence: this record describes the named slice's implementation.
+Slice 1c supersedes remote termination certification, compile-count and version
+admission requirements and uses Store v5. These results are not 1c acceptance.
+
+
 Date: 2026-09-15. Implementation base: `75a8e560d` (Slice 1 adapter extraction).
 
 Status: **Slice 1a complete**, including focused, Runtime and broad verification. No remote backend

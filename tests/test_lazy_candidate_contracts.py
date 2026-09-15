@@ -300,4 +300,4 @@ def test_registered_local_frontier_without_backend_access() -> None:
     assert len(graph.steps) == 5 and isinstance(graph.steps[0], SourceStep)
     assert all(isinstance(step, PandasStep) for step in graph.steps[1:])
     assert graph.local_steps[0].implementation.local_method == "discover.point_anomalies"
-    assert graph.local_steps[0].implementation.source_adapter is None
+    assert graph.local_steps[0].implementation.backends == ()

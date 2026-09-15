@@ -338,7 +338,7 @@ def test_unsupported_native_request_rejects_before_run_or_source(
     with pytest.raises(MaterializationError, match="registered engine capability"):
         sampled.execute()
     assert runtime.last_run_ref is None
-    assert runtime.statistics.events == {}
+    assert runtime.statistics.events == {"reconciliation": 1}
 
 
 def test_duplicate_source_identity_cannot_be_hidden_by_sampling(tmp_path: Path) -> None:

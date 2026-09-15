@@ -108,8 +108,8 @@ def capture_terminal_actions(
                     facts.update(
                         binding=type(step.binding).__name__,
                         adapter=step.binding.adapter,
-                        correlation_preparation=step.correlation_preparation,
-                        distribution_preparation=step.distribution_preparation,
+                        correlation_preparation=step.operation == "correlation",
+                        distribution_preparation=step.operation == "distribution",
                     )
                 elif isinstance(step, PandasStep):
                     facts["implementation"] = asdict(step.implementation)

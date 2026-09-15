@@ -57,10 +57,10 @@ def test_v3_schema_is_strict_normalized_and_durable(tmp_path: Path) -> None:
     old.parent.mkdir(parents=True)
     old.write_bytes(b"preserved eager generation")
     store = _admitted(tmp_path)
-    assert "/generations/v4/" in str(store.db_path)
+    assert "/generations/v5/" in str(store.db_path)
     assert old.read_bytes() == b"preserved eager generation"
     with store._read() as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         tables = tuple(
@@ -74,9 +74,9 @@ def test_v3_schema_is_strict_normalized_and_durable(tmp_path: Path) -> None:
     assert store.incomplete("session")[0].lifecycle == "incomplete"
 
 
-@pytest.mark.parametrize("version", [0, 1, 2, 3])
+@pytest.mark.parametrize("version", [0, 1, 2, 3, 4])
 def test_existing_wrong_generation_is_not_mutated(tmp_path: Path, version: int) -> None:
-    path = tmp_path / ".marivo/analysis/generations/v4/session_store.db"
+    path = tmp_path / ".marivo/analysis/generations/v5/session_store.db"
     path.parent.mkdir(parents=True)
     with sqlite3.connect(path) as conn:
         conn.execute(f"PRAGMA user_version={version}")
@@ -256,7 +256,7 @@ def test_reservations_transfer_only_with_publication(tmp_path: Path) -> None:
         "local_parquet@v1",
         "nonce",
         "local_owned_path@v1",
-        ".marivo/analysis/generations/v4/sessions/session/artifacts/artifact",
+        ".marivo/analysis/generations/v5/sessions/session/artifacts/artifact",
     )
     store.reserve(resource)
     with pytest.raises(IntegrityError, match="cleanup obligation"):
@@ -346,7 +346,7 @@ def test_concurrent_schema_creation_resolves_one_complete_generation(tmp_path: P
     assert len({store.db_path for store in stores}) == 1
     for store in stores:
         with store._read() as conn:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
             assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -355,7 +355,7 @@ def _initialize_generations_in_process(root: Path, start: Barrier) -> None:
         start.wait(timeout=15)
         store = SessionStore(root / str(index))
         with store._read() as conn:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
             assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
             assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
             assert (
@@ -385,7 +385,7 @@ def test_processes_create_one_complete_generation_without_thread_lock(tmp_path: 
 
 
 def test_existing_empty_generation_is_rejected_even_with_an_active_reader(tmp_path: Path) -> None:
-    path = tmp_path / ".marivo/analysis/generations/v4/session_store.db"
+    path = tmp_path / ".marivo/analysis/generations/v5/session_store.db"
     path.parent.mkdir(parents=True)
     blocker = sqlite3.connect(path)
     blocker.execute("BEGIN")
@@ -417,3 +417,18 @@ def test_existing_generation_opens_readonly_while_writer_is_active(
         writer.execute("BEGIN IMMEDIATE")
         writer.execute("UPDATE sessions SET question='uncommitted' WHERE session_ref='current'")
         assert SessionStore(tmp_path).current() == session
+
+
+def test_previous_generation_files_are_preserved_when_creating_new_store(tmp_path: Path) -> None:
+    old = tmp_path / ".marivo/analysis/generations/v4/session_store.db"
+    old.parent.mkdir(parents=True)
+    with sqlite3.connect(old) as connection:
+        connection.execute("PRAGMA user_version=4")
+        connection.execute("CREATE TABLE preserved(value TEXT)")
+        connection.execute("INSERT INTO preserved VALUES ('old obligation')")
+    before = old.read_bytes()
+    store = SessionStore(tmp_path)
+    assert old.read_bytes() == before
+    assert store.db_path != old
+    with sqlite3.connect(store.db_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5

@@ -1,5 +1,8 @@
 # Session State and Runtime
 
+Execution follows the [unified operator and backend ownership contract](python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
+
+
 A Session owns one investigation and its immutable Run/Artifact history under the
 project's `.marivo/` directory. Use `mv.session.get_or_create(name, ...)`,
 `mv.session.current()` and `mv.session.resume(session_id)` through their native
@@ -53,10 +56,10 @@ part uses the exact selected storage authority, with independent schemas,
 cardinalities, hashes and integrity checks. Cleanup covers interrupted and failed
 publication without deleting another Run's resources.
 
-## Atomic Store v4
+## Atomic Store v5
 
-A new Store publishes only a complete initialized generation 4 database. Existing
-v0, v2, v3 or other incompatible generations fail read-only preflight; their original
+A new Store publishes only a complete initialized generation 5 database. Existing
+v0, v2, v3, v4 or other incompatible generations fail read-only preflight; their original
 bytes remain intact. No migration, dual reader or in-place generation upgrade is
 provided. Older generation files and resource obligations remain untouched.
 
@@ -90,3 +93,13 @@ stored report/read/calendar authority rather than resolving the new host's zone.
 Evidence integrity assessments. It is not a source-freshness verdict, permission
 to reuse stale values, or a business recommendation. Runtime cards and pages stay
 bounded and do not expose raw secrets or private implementation inventories.
+
+## Read-only execution cleanup
+
+Normal driver cancellation and close are attempted on errors or interruption.
+Missing query IDs, failed cancellation and unknown remote read status do not
+certify server termination and do not block later work once Store commit state
+and local writer ownership are safe. Failed Runs have no successful local output.
+Unknown commit state, conflicting publishers and unresolved write-capable object
+requests still prevent unsafe continuation. Recovery never resubmits the action.
+Engine, driver and Ibis versions are diagnostics, not admission or identity facts.

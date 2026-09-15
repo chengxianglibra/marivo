@@ -243,7 +243,7 @@ def test_sdk_failure_classification_retains_no_native_message(
 def test_read_factory_never_initializes_missing_or_unversioned_state(
     tmp_path: Path, state: str
 ) -> None:
-    path = tmp_path / ".marivo/analysis/generations/v4/session_store.db"
+    path = tmp_path / ".marivo/analysis/generations/v5/session_store.db"
     if state != "missing":
         path.parent.mkdir(parents=True)
         with sqlite3.connect(path) as conn:

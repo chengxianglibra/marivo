@@ -1,5 +1,10 @@
 # Multi-datasource Slice 1b: calling-process execution without resource budgets
 
+Historical evidence: this record describes the named slice's implementation.
+Slice 1c supersedes remote termination certification, compile-count and version
+admission requirements and uses Store v5. These results are not 1c acceptance.
+
+
 Date: 2026-09-15.
 
 Status: complete. Focused Runtime, recovery, typing/lint and the broad gate passed.

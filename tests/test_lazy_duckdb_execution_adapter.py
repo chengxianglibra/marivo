@@ -25,7 +25,7 @@ def native() -> Iterator[Backend]:
         backend.disconnect()
 
 
-def test_compile_once_and_submit_exact_sql_and_parameters(
+def test_repeated_pure_compile_and_exact_sql_and_parameters(
     native: Backend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = DuckDBExecutionAdapter(native)
@@ -41,12 +41,9 @@ def test_compile_once_and_submit_exact_sql_and_parameters(
             assert isinstance(result, DuckDBPyConnection)
             return result
 
-    def forbidden_compile(*args: object, **kwargs: object) -> str:
-        raise AssertionError("execution recompiled an expression")
-
     with monkeypatch.context() as patch:
         patch.setattr(native, "con", Driver())
-        patch.setattr(native, "compile", forbidden_compile)
+        assert native.compile(expression, limit=None) == native.compile(expression, limit=None)
         assert adapter.prepare(expression, role="primary") == statement
         assert adapter.read_table(statement).to_pylist() == [{"value": 17}]
         scalar = adapter.statement(
@@ -183,9 +180,7 @@ def test_composed_fence_preserves_reserved_preparations(
     expression = ibis.memtable({"value": [2, 3]})
     statement = adapter.table_statement("frozen", expression)
     assert reservations == []
-    with monkeypatch.context() as patch:
-        patch.setattr(native, "compile", lambda *_args, **_kwargs: pytest.fail("fence recompiled"))
-        adapter.submit(statement)
+    adapter.submit(statement)
     assert len(reservations) == 1
     assert adapter.read_scalar(adapter.statement("SELECT sum(value) FROM frozen")) == 5
 
@@ -224,31 +219,21 @@ def test_python_udf_registers_once_for_distinct_argument_nodes(native: Backend) 
     assert len(reservations) == 1
 
 
-def test_failed_disconnect_does_not_prove_resource_termination(
+def test_failed_disconnect_preserves_driver_error(
     native: Backend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization.resources import (
-        backend_reservation,
-        confirm_execution_termination,
-        finish_execution,
-        forget_local_termination,
-    )
-
-    resource = backend_reservation("adapter-test", "source")
     adapter = DuckDBExecutionAdapter(native)
-    adapter.initialize()
+    failure = OSError("disconnect failed")
 
-    def failed_close() -> None:
-        raise OSError("no termination receipt")
+    def fail() -> None:
+        raise failure
 
     with monkeypatch.context() as patch:
-        patch.setattr(native, "disconnect", failed_close)
-        with pytest.raises(OSError):
-            finish_execution(adapter, resource)
-    assert not confirm_execution_termination(resource)
-    finish_execution(adapter, resource)
-    assert confirm_execution_termination(resource)
-    forget_local_termination((resource,))
+        patch.setattr(native, "disconnect", fail)
+        with pytest.raises(OSError) as raised:
+            adapter.finish()
+        assert raised.value is failure
+    adapter.finish()
 
 
 @pytest.mark.parametrize("start", [False, True])
@@ -337,13 +322,7 @@ def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
     submitted: list[tuple[str, str]] = []
 
     def submit(adapter: DuckDBExecutionAdapter, statement: Statement) -> DuckDBPyConnection:
-        with monkeypatch.context() as patch:
-            patch.setattr(
-                adapter._backend,
-                "compile",
-                lambda *_args, **_kwargs: pytest.fail("submission recompiled"),
-            )
-            result = original(adapter, statement)
+        result = original(adapter, statement)
         submitted.append((statement.role, statement.sql))
         return result
 
@@ -353,13 +332,13 @@ def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
     actual = Counter(submitted)
     for statement, count in Counter(runtime.statistics.statements).items():
         assert actual[statement] >= count
+    assert sum(role == "primary" for role, _ in submitted) == 1
     assert {role for role, _ in submitted} >= {
         "primary",
         "sampling_fence",
         "sampling_validation",
         "validation_batch",
         "source_schema",
-        "transfer_guard",
     }
 
 
@@ -458,6 +437,71 @@ def test_invalid_source_is_rejected_even_for_empty_output(
     assert run is not None and run.lifecycle == "failed"
     assert runtime.store.resources(runtime.session_ref) == ()
     assert not list(runtime.store.layout.session_dir(runtime.session_ref).rglob("*.parquet"))
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_normal_ibis_parameters_hooks_and_complete_stream(
+    native: Backend, monkeypatch: pytest.MonkeyPatch, empty: bool
+) -> None:
+    reservations: list[str] = []
+    adapter = DuckDBExecutionAdapter(native, reserve=reservations.append)
+    parameter = ibis.param("int64")
+    table = ibis.memtable({"value": [1, 2, 3, 4]})
+    expression = table.filter(table.value > parameter)
+    submitted: list[tuple[str, str]] = []
+    compilations = 0
+    original = native.compile
+
+    def compile_expression(*args: object, **kwargs: object) -> str:
+        nonlocal compilations
+        compilations += 1
+        result: str = original(*args, **kwargs)
+        return result
+
+    monkeypatch.setattr(native, "compile", compile_expression)
+    params = {parameter: 10 if empty else 1}
+    native.compile(expression, params=params, limit=None)
+    native.compile(expression, params=params, limit=None)
+    old = ibis.options.sql.default_limit
+    try:
+        ibis.options.sql.default_limit = 1
+        result = adapter.read_table(
+            expression,
+            params=params,
+            role="primary",
+            record=lambda role, sql: submitted.append((role, sql)),
+        )
+    finally:
+        ibis.options.sql.default_limit = old
+    assert compilations >= 3
+    assert result.to_pylist() == ([] if empty else [{"value": 2}, {"value": 3}, {"value": 4}])
+    assert result.schema == expression.schema().to_pyarrow()
+    assert len(submitted) == 1 and submitted[0][0] == "primary"
+    assert len(reservations) == 1
+    assert "raw_sql" not in vars(native)
+
+
+def test_expression_read_preserves_transfer_failure_when_reader_close_also_fails(
+    native: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pyarrow as pa
+
+    failure = OSError("transfer failed")
+
+    class Reader:
+        schema = pa.schema([("value", pa.int64())])
+
+        def __iter__(self) -> Iterator[pa.RecordBatch]:
+            raise failure
+
+        def close(self) -> None:
+            raise RuntimeError("close also failed")
+
+    adapter = DuckDBExecutionAdapter(native)
+    monkeypatch.setattr(adapter, "batches", lambda *args, **kwargs: Reader())
+    with pytest.raises(OSError) as raised:
+        adapter.read_table(ibis.literal(1).name("value").as_table())
+    assert raised.value is failure
 
 
 def test_binding_failure_preserves_run_reference() -> None:

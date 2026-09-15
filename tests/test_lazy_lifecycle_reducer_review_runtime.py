@@ -12,7 +12,6 @@ import pytest
 import sqlglot
 from sqlglot import expressions as exp
 
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.domains.lifecycle import MaterializedLifecycleDataset
 from marivo.analysis.domains.lifecycle_reducers import in_state
 from marivo.analysis.materialization import admission
@@ -325,11 +324,13 @@ def test_unregistered_parquet_reader_is_rejected_before_data_work(
         else h.select_subjects(in_state(ModelStateHandle(MODEL, "done"), at=END))
     )
     before = snapshot(runtime)
+    from marivo.analysis.operators import registry
+
     with (
-        patch.object(admission, "_duckdb_version", "unsupported"),
+        patch.object(registry, "backend_execution", return_value=None),
         patch.object(admission, "_build_backend_from_effective", forbidden),
         patch.object(admission, "execute_local", forbidden),
-        pytest.raises(DatasetCompilationError, match="source-required"),
+        pytest.raises(MaterializationError),
     ):
         logical.execute()
     assert runtime.last_run_ref is None

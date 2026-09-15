@@ -1,4 +1,4 @@
-"""Named v3 Session lifecycle and bounded retained metadata reads."""
+"""Named Session lifecycle and bounded retained metadata reads."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _invalid(expected: str, received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
         expected=expected,
         received=received,
-        repair="Inspect mv.session.recent() for v3 identities, or create a new named Session with mv.session.get_or_create(name).",
+        repair="Inspect mv.session.recent() for identities, or create a new named Session with mv.session.get_or_create(name).",
         location="session.identity",
     )
 
@@ -36,7 +36,7 @@ def _invalid(expected: str, received: str) -> DatasetConstructionError:
 def get_or_create(
     name: str, question: str | None = None, *, report_timezone: str | None = None
 ) -> Session:
-    """Create or recover a named Session in the current project's v3 Store.
+    """Create or recover a named Session in the current project's Store.
 
     Args:
         name: Nonempty Session name.
@@ -83,7 +83,7 @@ def get_or_create(
 
 
 def current() -> Session | None:
-    """Read the current existing v3 Session without activation or source loading.
+    """Read the current existing Session without activation or source loading.
 
     Args: None.
     Returns: The persisted current Session, or None when absent.
@@ -112,7 +112,7 @@ def current() -> Session | None:
 
 
 def resume(identity: str, *, by: Literal["name", "id"] | None = None) -> Session:
-    """Recover and activate one existing v3 Session by exact identity.
+    """Recover and activate one existing Session by exact identity.
 
     Args:
         identity: Existing Session name or immutable id.
@@ -169,7 +169,7 @@ def resume(identity: str, *, by: Literal["name", "id"] | None = None) -> Session
             )
         selection = "name or id" if by is None else by
         raise SessionNotFoundError(
-            message="The selected Session does not exist in this project's v3 Store.",
+            message="The selected Session does not exist in this project's Store.",
             expected=f"an existing project session {selection} from mv.session.recent().items",
             received=identity[:320],
             location="mv.session.resume(identity)",
@@ -193,7 +193,7 @@ def resume(identity: str, *, by: Literal["name", "id"] | None = None) -> Session
 
 
 def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
-    """Read a bounded page of existing v3 Sessions.
+    """Read a bounded page of existing Sessions.
 
     Args:
         limit: Page size from 1 through 100.
@@ -211,7 +211,7 @@ def inspect(name: str, *, run_limit: int = 5, run_cursor: str | None = None) -> 
     """Read a Session summary and one bounded Run page without activating it.
 
     Args:
-        name: Exact existing v3 Session name.
+        name: Exact existing Session name.
         run_limit: Run page size from 1 through 100.
         run_cursor: The previous Run page's next_cursor, or None.
     Returns: The typed SessionInspection.
@@ -226,14 +226,14 @@ def inspect(name: str, *, run_limit: int = 5, run_cursor: str | None = None) -> 
 
 
 def abandon_run(*, session_id: str, run_id: str) -> None:
-    """Reconcile one stopped Run under its Session's existing writer guard.
+    """Reconcile one incomplete or failed Run under its Session's writer guard.
 
     Args:
-        session_id: Exact owning v3 Session identity.
+        session_id: Exact owning Session identity.
         run_id: Exact same-Session incomplete or already failed Run identity.
     Returns: None after guarded reconciliation succeeds.
     Example: ``mv.session.abandon_run(session_id=session_id, run_id=run_id)``.
-    Constraints: Runtime terminal/fencing proof is mandatory; committed success cannot be abandoned.
+    Constraints: Local publication and object-write safety are mandatory; remote read status may remain unknown. Committed success cannot be abandoned.
     """
     store = SessionStore.open_existing(resolve_project_root())
     with session_writer_guard(store.layout.lock_path(session_id), session_ref=session_id):

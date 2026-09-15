@@ -1,5 +1,8 @@
 # Lazy Analysis Materialization Runtime and Authority Design
 
+Execution follows the [unified operator and backend ownership contract](../../specs/analysis/python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
+
+
 Date: 2026-09-01
 
 Revised: 2026-09-08
@@ -383,20 +386,20 @@ marivo.dataset_storage_receipt/v1
 marivo.dataset_evidence/v1
 ```
 
-The replacement Session Store uses exact `PRAGMA user_version = 4`. Its schema,
+The replacement Session Store uses exact `PRAGMA user_version = 5`. Its schema,
 constraints, indexes, and version are created in one short SQLite schema
 transaction before Session resolution; initialization never admits analysis.
-Slice 1b does not migrate any v3 schema or its resource obligations. Existing older
+Slice 1c does not migrate any v4 schema or its resource obligations. Existing older
 or future Store generations fail closed; no compatibility decoder,
 in-place upgrade, dual read, or import exists.
 
 ### Generation-scoped layout
 
 ```text
-.marivo/analysis/generations/v4/session_store.db
-.marivo/analysis/generations/v4/sessions/<session_ref>/session.lock
-.marivo/analysis/generations/v4/sessions/<session_ref>/artifacts/<artifact_ref>/...
-.marivo/analysis/generations/v4/sessions/<session_ref>/runs/<run_ref>/...
+.marivo/analysis/generations/v5/session_store.db
+.marivo/analysis/generations/v5/sessions/<session_ref>/session.lock
+.marivo/analysis/generations/v5/sessions/<session_ref>/artifacts/<artifact_ref>/...
+.marivo/analysis/generations/v5/sessions/<session_ref>/runs/<run_ref>/...
 ```
 
 One project-level Store contains all Sessions and all durable analytical
@@ -412,10 +415,10 @@ Its presence is not ownership; the held OS lock is. It is never unlinked or repl
 normal use. All entrypoints resolve the same canonical Store, Session ref, and
 Session lock path.
 
-The lazy runtime never opens `.marivo/analysis/session_store.db` as v4
+The lazy runtime never opens `.marivo/analysis/session_store.db` as v5
 authority. `get_or_create(name)` operates only in the generation-scoped Store
 and may create a Session even when an eager v2 Store exists. `resume(...)`,
-`current()`, and Artifact reads resolve only v4 identities. Old identities fail
+`current()`, and Artifact reads resolve only v5 identities. Old identities fail
 with a structured generation error; no old rows, names, or payloads are copied.
 
 ### Exact Store relations
@@ -838,7 +841,7 @@ Three distinct paths apply before a new Run exists:
 - pure definition checks cannot open connections, resolve live credentials,
   compile against a backend, query sources, or create resources;
 - recovery may contact an already recorded external execution or owned resource
-  to prove termination and clean up; it never restarts analysis;
+  to protect publication and clean up; remote read termination proof is not required;
 - an existing Artifact read may resolve storage credentials and validate its
   immutable backing, authorization, and content. It may query that backing, but
   never read current origin data or replay the origin plan.
@@ -863,16 +866,16 @@ While continuing to hold the Session writer guard, the runtime:
 5. executes steps, reserving durable external obligations before side effects;
 6. validates transfer guards, schema, keys, counts, bounds, and family checks;
 7. completes quality, Evidence, Findings, and primary/part storage; proves
-   execution terminal/fenced and attempts cleanup of harmless leftovers;
+   publication ownership safe and attempts driver close and harmless cleanup;
 8. commits the entire publication bundle or records a proven failed outcome.
 
 Exceptions do not prove database rollback or backend termination. Uncertain
-commit acknowledgement follows Store readback; surviving external work follows
-reconciliation before another execution is admitted.
+commit acknowledgement follows Store readback; surviving publishers and object
+writes require reconciliation. Unknown read-only server work does not block a
+new action after local publication safety is established.
 
 Source validation relations compile into separate queries, one check per query.
-Even small unions of complex checks can exceed the unchanged native memory cap
-by retaining their aggregate state together. All queries are planned before
+Even small unions of complex checks can retain unnecessary aggregate state. All queries are planned before
 execution; a failed query is never split and retried. Every check produces its own named
 zero-violation receipt; missing, duplicate, non-integer or nonzero scalar results
 fail at the owning check. Successful results retain their original check order.
@@ -1881,7 +1884,8 @@ exactly one owned resource/execution. They are not process-owner identities.
 Presence means only that reconciliation remains necessary, not that creation
 succeeded or that the backend is still running. No progress/state column exists.
 
-An adapter unable to reserve or recover an exact locator is not admitted.
+Write-capable resources require exact owned locators. A read-only query may lack
+a query ID; missing remote correlation or termination lookup is not admission.
 Locators contain no credentials, SQL, broad prefixes, or unresolved patterns.
 An exact Run-owned workspace directory is allowed only when the registered
 adapter proves exclusive ownership of its entire subtree; a shared parent is
@@ -1898,12 +1902,13 @@ engine_storage_staging
 object_storage_staging
 ```
 
-Every started external stage declares a registered process/connection-lifetime
-termination proof or a recovery capability able to cancel/fence its reserved
-execution and observe terminal status. Recovery must prove no further writes
-before cleaning dependent resources or admitting another Run in that Session.
-Connection-lifetime resources can use their registered proof without persisting
-an unusable connection handle.
+Read-only execution uses `read_only_execution@v1` with an action nonce, not a
+process identity or remote termination certificate. Driver cancellation/close is
+attempted where Python retains control. Query IDs are optional safe diagnostics.
+Connection-local temporary relations cannot publish Artifacts on their own.
+Recovery resolves Store commit state under the Session writer guard before
+cleaning exact local output paths. S3 requests retain `s3_request@v1` write-safety
+proof; unknown object writes are not treated as harmless remote reads.
 
 Pure in-process Arrow batches, pandas/numerical buffers, and guarded in-memory
 results are never journal rows. Their counters and cleanup
@@ -1922,12 +1927,10 @@ Artifact and succeeded terminal and deletes precisely those output reservations.
 Their receipts then own the complete committed bundle. Cleanup cannot delete a
 committed payload or infer ownership by scanning shared directories.
 
-All started executions must be terminal or fenced against further writes before
-publication or a failed terminal. Only after that proof can remaining non-output
-resources be treated as harmless garbage: exact independently owned locations,
-no dependency from a committed output, no shared mutable state, and no ability
-to affect later Runs. Otherwise the operation remains incomplete and blocks new
-computation until reconciled. Unknown termination is never a cleanup-only issue.
+Publication and failed terminals require resolved local commit and publisher
+ownership. Unknown remote read termination alone does not block Session work.
+Only exactly owned non-output locations with no committed dependency may be
+cleaned; unknown object writes and unresolved publication ownership still block.
 
 Attempt immediate idempotent cleanup of harmless garbage, but its deletion failure
 does not veto valid output, turn success into failure, or block another Run.
@@ -1938,9 +1941,9 @@ background scheduler, or lease is introduced.
 
 A terminal Run proves all surviving journal entries are harmless cleanup
 obligations unreferenced by committed Artifacts, including discarded output
-reservations of a failed Run. Incomplete Runs still require exact termination/fencing
+reservations of a failed Run. Incomplete Runs still require guarded publication
 reconciliation. Delete each garbage row only after exact cleanup is confirmed;
-terminal proof alone discharges a backend-execution obligation, not file deletion.
+read-only execution discharge does not claim remote death or file deletion.
 Missing resources count as resolved only under the registered ownership protocol.
 If maintenance cannot clean a terminal Run's garbage, it leaves the row and
 continues without blocking unrelated work. Real quota exhaustion may still fail
@@ -2145,10 +2148,10 @@ truncation; budget omissions still do.
 | transfer or local guard exceeded | failed `transfer_guard` | none | narrow scope or use an admitted execution boundary |
 | output schema/key/count mismatch | failed `output_validation` | none | repair lowering or operator contract |
 | no durable sink for result bounds | failed `storage_selection` | none | configure immutable storage or reduce the result |
-| quality or Evidence construction fails | failed before publication | none | repair check/extractor and retry after execution termination |
+| quality or Evidence construction fails | failed before publication | none | repair check/extractor and retry after guarded publication recovery |
 | harmless temporary deletion fails after terminal proof | computation outcome unchanged | publish/recover valid output | retain journal entry and retry cleanup later; new work remains allowed |
 | commit acknowledgement uncertain | read existing terminal; no inferred transition | same Artifact only if commit is proved | read authoritative Store before deleting output or retrying |
-| process dies before metadata commit | incomplete until guarded recovery proves termination, then failed | none | reconcile this Session, then retry explicitly |
+| process dies before metadata commit | incomplete until guarded recovery proves no successful publication, then failed | none | reconcile this Session, then retry explicitly |
 | process dies after metadata commit | already succeeded | recover exact Artifact | read the committed bundle; no index repair or re-execution |
 | exact metadata-valid binding exists | no Run | same Materialized Dataset | none |
 | selected backing missing/mutated when accessed | existing producer unchanged | dependent read/operator fails | restore exact backing or explicitly author new work; never replay implicitly |
@@ -2379,8 +2382,8 @@ unrecoverable and leak resources without an auditable owner.
 
 Rejected. Once executions are terminal/fenced and leftovers are exactly owned,
 unreferenced garbage, deletion does not affect result correctness. Persist the
-existing cleanup obligation and allow valid publication/new work. Unknown remote
-termination still blocks computation; it is not garbage-only maintenance.
+existing cleanup obligation and allow valid publication/new work. Unknown write-capable
+requests still block unsafe publication; unknown remote reads alone do not.
 
 ### Expose writer guards, receipts, or recovery coordination publicly
 
@@ -2550,8 +2553,8 @@ be established before execution; failed compilation never chooses another path.
 1. Start long backend work in Session A and execute another key in Session B.
 2. Prove backend work overlaps while each publication is a short complete SQLite
    transaction. No project execution lock or cross-Session resource reuse occurs.
-3. Leave A with an unresolved remote execution; B admits work while A waits for
-   termination/fencing proof. Then leave only harmless garbage in A and prove
+3. Leave A with an unresolved object write; B admits work while A waits for
+   publication safety. Then leave only harmless garbage in A and prove
    A also admits new work without losing its cleanup obligation.
 4. Race creation/activation by name and verify one canonical Session per name,
    transactional current-pointer updates, and stable ownership of existing handles.
@@ -2741,7 +2744,7 @@ consulting implementation guesses:
     or submission;
 23. cold recovery admits no new work in its Session while old backend writes
     remain possible; harmless garbage does not block work in any Session;
-24. Store v4, `storage_selection`, and unverifiable integrity states are exact
+24. Store v5, `storage_selection`, and unverifiable integrity states are exact
     closed contracts;
 25. every producing definition resolves one exact
     `DatasetMaterializationContractV1` before Run admission, while family owners
@@ -2781,7 +2784,7 @@ Session-level locking and atomic publication decisions:
 
 1. One Agent writes each Session serially. A non-blocking Session writer guard
    covers each whole action; different Sessions can execute concurrently.
-2. The project-level v4 SQLite Store owns all Session, Run, Artifact descriptor,
+2. The project-level v5 SQLite Store owns all Session, Run, Artifact descriptor,
    Evidence, Finding, and external-obligation metadata. No metadata sidecar or
    independent Evidence database participates in publication.
 3. Immutable external storage is finalized before one metadata transaction
@@ -2827,8 +2830,8 @@ Session-level locking and atomic publication decisions:
     garbage can remain journaled after success without blocking new work.
 15. Every writer reconciles only its own Session's prior incomplete execution
     and cleanup obligations. Session-lock acquisition proves no remote query
-    termination; inability to prove termination blocks that Session alone.
-16. Proven uncommitted interruption becomes failed after termination/fencing;
+    publication safety; unresolved writers or object writes block that Session alone.
+16. Proven uncommitted interruption becomes failed after guarded ownership recovery;
     harmless uncleaned resources remain journaled.
     Committed success needs no index repair or terminal rewrite. Uncertain
     acknowledgement is resolved through authoritative Store readback.
@@ -2852,7 +2855,7 @@ Session-level locking and atomic publication decisions:
 23. Graph reads project one Store snapshot without recovery or Finding-body scans.
     External inputs are boundary Artifacts with their actual owners; only local
     Runs enter the Session graph. Coordination remains private.
-24. The clean Store generation is `user_version = 4`; older state is neither
+24. The clean Store generation is `user_version = 5`; older state is neither
     decoded nor migrated. Public deletion waits for a recoverable metadata and
     external-storage deletion contract.
 25. Local/object Artifact readers use authorized PyArrow or a registered native
@@ -2945,53 +2948,37 @@ inconsistent inventories/endpoints or incomplete resolutions fail atomically.
 Run resources, cancellation, source realization and receipt rechecks retain
 the existing owners; no separate publication or recovery mechanism is added.
 
-## 2026-09-15 amendment: private DuckDB execution inputs
+## 2026-09-15 amendment: Slice 1c execution and recovery
 
-After Slice 1a, the private DuckDB adapter uses an action-local execution
-context without an action-wide source-consistency transaction. Publication
-order is preserved. Runtime and shared publication helpers use
-private immutable statement inputs carrying the selected SQL, typed parameters,
-result schema, statement role, owned execution context and declared preparation
-dependencies. The concrete adapter submits those inputs without expression-based
-recompilation. Wrapping an input in a fence or compound proof retains its
-preparations; resource-producing Ibis hooks require reservation before execution.
+Shared execution accepts Ibis expressions as well as explicit concrete driver
+statements. Ibis owns normal compilation, parameters and preparation hooks;
+DuckDB retains its useful direct SQL/fence and typed transport implementation.
+There is no compile-count gate, persisted physical plan or engine-version
+certification. Actual submissions, including validation and preparations, are
+captured by role rather than inferred from a diagnostic compile.
 
-Native cursor access, dialect statements and timer
-interruption belong to the concrete DuckDB execution path. Every validation
-still runs separately in its existing order. Successful adapter close precedes
-termination proof and atomic publication. Native retained Parquet computation
-and isolated cold inspection remain local domains. The existing Event coverage
-provider receives its owned native connection without a Marivo deadline.
-This amendment enables no remote backend or new public API; the Slice 1
-[evidence record](2026-09-15-multisource-slice-1-acceptance.md) owns verification status.
+Store generation 5 replaces generation 4 resource semantics without migration
+or dual reading. Read-only execution obligations carry exact action ownership
+but do not certify server death. Failed cancellation, close or missing query ID
+cannot override the original execution exception. A failed Run means no local
+successful publication. S3 write proofs, surviving publisher exclusion, exact
+cleanup, commit readback and atomic primary/part publication remain mandatory.
 
+The Slice 1/1a/1b records describe their historical implementations, not acceptance
+of these simplified contracts. Slice 1c has its own evidence record and does not
+activate any remote backend.
 
-## 2026-09-15 amendment: source execution without consistency transactions
+## 2026-09-15 amendment: Slice 2 selected backend operations
 
-Slice 1a removes the action-wide DuckDB BEGIN/ROLLBACK wrapper and its
-consistency-only rollback exception handling. Initialization retains the existing
-UTC and thread settings; Slice 1b removes resource settings. Statements still require the exact open
-execution context, including composed preparation inputs. Close failures still
-leave termination unproved and resources unresolved; this is not Slice 1c's
-recovery simplification.
+The physical graph carries the selected backend registration and one exact
+source/preparation operation. Runtime checks this selection against the declared
+source binding before opening its connection; no execution failure changes the
+selection. Only the existing DuckDB operations are enabled. Retained Parquet
+imports require the existing native DuckDB reader, not merely a sole source
+candidate. Source-domain equality and action-local execution ownership retain
+their separate checks, independent of version diagnostics.
 
-Source validations, primary reads and required part reads may observe different
-source states. Successful checks describe the queries actually performed, not a
-certificate that later reads satisfy them. An intervening update alone neither
-rejects execution nor triggers a retry. Required failed or malformed assertions
-still prevent publication, including empty outputs. Sampling, JSON and retained
-reader fences preserve their required single evaluation; temporary macros and
-relations expire with their owned connection. Store publication transactions,
-semantic version selection and retained integrity checks remain unchanged.
-
-The [Slice 1a evidence record](2026-09-15-multisource-slice-1a-acceptance.md)
-tracks verification separately from historical Slice 1 results.
-
-### Slice 1b Store generation
-
-Generation 4 owns the caller-execution resource protocol. Older generation files
-remain untouched; old Session identities are not resumed or migrated. A database
-with a different `user_version` in the current generation is rejected before
-mutation. Worker-only obligations cannot be discarded as successful cleanup.
-Remote termination certification and ordinary driver cleanup simplification
-remain separately owned by Slice 1c.
+An immutable binding hit returns before placement and source resolution. On a
+miss, known unsupported methods/backends/shapes fail before Run admission; live
+physical schema checks still precede source-row computation. The registry
+extension changes neither the execution key nor Store generation 5 publication.

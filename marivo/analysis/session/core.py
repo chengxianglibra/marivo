@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 class Session:
-    """One named v3 Session for logical sources and committed Dataset reads.
+    """One named Session for logical sources and committed Dataset reads.
 
     Acquire with ``mv.session.get_or_create(name)`` or ``mv.session.resume(identity)``.
     Source methods load authored semantics without executing datasource queries.
@@ -88,7 +88,7 @@ class Session:
 
         record = self._runtime.store.session(self.id)
         if record is None:
-            raise invalid("Session is absent from its owning v3 Store")
+            raise invalid("Session is absent from its owning Store")
         return record
 
     @property

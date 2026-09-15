@@ -139,20 +139,20 @@ def test_unavailable_readback_preserves_authority_until_reconciliation(
     assert fresh.statistics.primary_queries == 0
 
 
-def test_unproved_connection_termination_blocks_next_writer_without_admission(
+def test_unknown_open_without_query_id_allows_next_writer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def unknown_open(*args: object, **kwargs: object) -> None:
         raise RuntimeError("unknown backend construction outcome")
 
     runtime, dataset = _setup(tmp_path)
-    monkeypatch.setattr(admission, "_build_backend_from_effective", unknown_open)
-    with pytest.raises(RuntimeError):
-        dataset.execute()
-    assert _bundle(runtime) == (1, 0, 0, 0, 0)
-    with pytest.raises(RecoveryPendingError):
-        dataset.execute()
-    assert _bundle(runtime) == (1, 0, 0, 0, 0)
+    with monkeypatch.context() as patch:
+        patch.setattr(admission, "_build_backend_from_effective", unknown_open)
+        with pytest.raises(RuntimeError, match="unknown backend"):
+            dataset.execute()
+    assert _bundle(runtime) == (1, 0, 0, 0, 1)
+    assert dataset.execute().to_pandas().loc[0, "revenue"] == 147
+    assert _bundle(runtime) == (2, 1, 1, 0, 2)
 
 
 def test_contender_admits_no_run_and_committed_reads_remain_available(tmp_path: Path) -> None:
@@ -253,3 +253,44 @@ def test_shared_store_runtime_events_belong_to_the_publishing_action(tmp_path: P
     assert "after_commit" in second_events and "delivery" in second_events
     assert _bundle(second) == (2, 1, 1, 0, 2)
     assert second.last_run_ref == result.state.producing_run_ref
+
+
+def test_failed_cancel_and_close_preserve_failure_and_allow_later_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
+
+    runtime, dataset = _setup(tmp_path)
+    cause = ValueError("driver cause")
+    failure = OSError("driver read failed")
+    attempts: list[str] = []
+    adapters: list[DuckDBExecutionAdapter] = []
+    original_finish = DuckDBExecutionAdapter.finish
+
+    def read(*args: object, **kwargs: object) -> None:
+        raise failure from cause
+
+    def cancel(adapter: DuckDBExecutionAdapter) -> None:
+        attempts.append("cancel")
+        raise OSError("cancel acknowledgement lost")
+
+    def close(adapter: DuckDBExecutionAdapter) -> None:
+        attempts.append("close")
+        adapters.append(adapter)
+        raise OSError("close failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(DuckDBExecutionAdapter, "batches", read)
+        patch.setattr(DuckDBExecutionAdapter, "interrupt", cancel)
+        patch.setattr(DuckDBExecutionAdapter, "finish", close)
+        with pytest.raises(OSError) as raised:
+            dataset.execute()
+        assert raised.value is failure and raised.value.__cause__ is cause
+        assert runtime.statistics.events["remote_read_status_unknown"] == 1
+    try:
+        assert attempts == ["cancel", "close"]
+        assert _bundle(runtime) == (1, 0, 0, 0, 1)
+        assert dataset.execute().to_pandas().loc[0, "revenue"] == 147
+    finally:
+        for adapter in adapters:
+            original_finish(adapter)

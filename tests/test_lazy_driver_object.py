@@ -7,7 +7,6 @@ from pathlib import Path
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import ObjectReceipt
 from marivo.analysis.materialization.reads import payload_batches
@@ -16,9 +15,9 @@ from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
 from marivo.analysis.operators.driver_contracts import DriverCandidateEvaluationSummary
+from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_candidate_object_fixtures import stub_candidate_objects
 from tests.lazy_driver_runtime_fixtures import CHANNEL, driver_metric, setup_driver
-from tests.lazy_materialization_crash_worker import snapshot
 
 pytestmark = pytest.mark.runtime
 
@@ -86,7 +85,7 @@ def test_driver_object_roundtrip_preserves_original_screening_authority(
     assert reopened.statistics.primary_queries == 1
 
 
-def test_entity_driver_object_rejects_unregistered_native_reader(
+def test_entity_driver_object_continues_through_registered_native_reader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     fixture = setup_driver(tmp_path)
@@ -111,21 +110,18 @@ def test_entity_driver_object_rejects_unregistered_native_reader(
     assert "<identity>" in rendered and "axis_concentration" in rendered
     assert "{'id':" not in rendered
     assert recovered.findings().items == () and recovered.evidence_digest.finding_count == 0
-    from marivo.analysis.materialization import admission
-
-    monkeypatch.setattr(admission, "_duckdb_version", "unsupported")
-    before, reads = snapshot(reopened), tuple(objects.reads)
+    before = snapshot(reopened)
     for successor in (
         recovered.where(gt(recovered.fields.get("score"), 0)),
         recovered.rank(recovered.fields.get("score")),
         recovered.limit(1),
     ):
-        with pytest.raises(DatasetCompilationError, match="source-required"):
-            successor.execute()
-        assert snapshot(reopened) == before
-        assert tuple(objects.reads) == reads
-    assert (
-        reopened.statistics.primary_queries == 0
-        and reopened.statistics.events.get("local_execution_started", 0) == 0
-    )
+        result = successor.execute()
+        assert 0 < len(result.to_pandas()) <= len(recovered.to_pandas())
+        record = reopened.store.artifact(result.state.artifact_ref.ref)
+        assert record is not None and record.descriptor.candidate_evidence is not None
+        assert record.descriptor.candidate_evidence.definition == original.definition
+        assert reopened.statistics.events.get("local_execution_started", 0) == 0
+    assert snapshot(reopened)["dataset_artifacts"] == before["dataset_artifacts"] + 3
+    assert objects.reads
     assert reopened.store.resources(reopened.session_ref) == ()

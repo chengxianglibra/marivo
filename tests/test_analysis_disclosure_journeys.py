@@ -262,3 +262,15 @@ print("offline Help recovery passed")
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "offline Help recovery passed" in completed.stdout
+
+
+def test_recovery_help_requires_publication_safety_without_remote_death_proof(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import marivo
+
+    marivo.help("analysis.session.abandon_run")
+    output = capsys.readouterr().out
+    assert "local publication must be safe" in output
+    assert "remote read status may remain unknown" in output
+    assert "terminal/fencing proof is mandatory" not in output

@@ -23,8 +23,8 @@ def reconcile_session(
 ) -> None:
     """Resolve guarded Session obligations, optionally selecting one exact Run.
 
-    The caller owns the Session writer guard. Selection never bypasses backend
-    terminal/fencing proof or admits a successful publication.
+    The caller owns the Session writer guard. Selection never bypasses publication
+    ownership or object-write safety or admits a successful publication.
     """
     event("reconciliation")
     entries = store.recovery_snapshot(session_ref)
@@ -57,10 +57,10 @@ def reconcile_session(
                 RunFailure(
                     phase="process_lost",
                     kind="process_lost",
-                    safe_message="The producing process ended before publication.",
+                    safe_message="The prior action has no successful local publication.",
                     safe_location="dataset.reconciliation",
                     expected="a committed output from a completed producer",
-                    received="an uncommitted producer with proven terminal execution",
+                    received="no committed output and no conflicting local publisher; remote read status may be unknown",
                     repair=AnalysisRepair(
                         kind="inspect",
                         action="Retry the logical definition after Session recovery completes.",

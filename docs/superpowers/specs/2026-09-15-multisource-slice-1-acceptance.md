@@ -1,5 +1,10 @@
 # Multi-datasource Slice 1: DuckDB execution adapter
 
+Historical evidence: this record describes the named slice's implementation.
+Slice 1c supersedes remote termination certification, compile-count and version
+admission requirements and uses Store v5. These results are not 1c acceptance.
+
+
 Date: 2026-09-15. Base: `dc1f3981989d2f96c0ce0d8be29d257fb6874947`.
 
 Status: **Slice 1 complete**, including the focused, fixed-snapshot Runtime and

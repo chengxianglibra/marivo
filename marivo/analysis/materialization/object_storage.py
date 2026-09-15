@@ -19,9 +19,11 @@ from marivo.analysis.materialization.contracts import (
     RetainedPart,
 )
 from marivo.analysis.materialization.errors import StorageAccessError
-from marivo.analysis.materialization.object_termination import OBJECT_REQUEST_CAPABILITY
+from marivo.analysis.materialization.object_termination import (
+    OBJECT_REQUEST_CAPABILITY,
+    prove_object_termination,
+)
 from marivo.analysis.materialization.ownership import object_artifact_prefix
-from marivo.analysis.materialization.resources import prove_local_termination
 from marivo.analysis.materialization.storage import (
     DatasetWriteResult,
     _checked_path,
@@ -154,7 +156,7 @@ def _put(
     try:
         event("object_before_put")
     except BaseException:
-        prove_local_termination(request)
+        prove_object_termination(request)
         raise
     from botocore.exceptions import ClientError
 
@@ -179,7 +181,7 @@ def _put(
         # Persist the synchronous request's terminal response before callbacks or
         # receipt validation. Its separately reserved object still needs cleanup.
         # A crash before this discharge deliberately leaves cold recovery pending.
-        prove_local_termination(request)
+        prove_object_termination(request)
         store.discharge(request)
     if response is None:
         _fail(

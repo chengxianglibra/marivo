@@ -58,7 +58,7 @@ def publish(
         value,
         storage_receipt=replace(
             receipt,
-            project_relative_path=f".marivo/analysis/generations/v4/sessions/{session_ref}/artifacts/{artifact_ref}/primary",
+            project_relative_path=f".marivo/analysis/generations/v5/sessions/{session_ref}/artifacts/{artifact_ref}/primary",
         ),
     )
     store.admit(

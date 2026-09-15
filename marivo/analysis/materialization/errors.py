@@ -53,7 +53,7 @@ class StorageAccessError(IntegrityError):
 
 
 class RecoveryPendingError(MaterializationError):
-    """Authoritative transaction outcome or execution termination remains unknown."""
+    """Commit state, publication ownership or storage integrity prevents safe continuation."""
 
 
 class SessionBusyError(MaterializationError):

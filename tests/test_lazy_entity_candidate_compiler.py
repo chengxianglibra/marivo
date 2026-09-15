@@ -139,7 +139,10 @@ def test_entity_candidate_and_selection_have_no_local_implementation() -> None:
     selected = candidate.where(gt(candidate.fields.get("score"), 4.0)).limit(1)
     for dataset in (candidate, selected):
         registration = implementation(dataset)
-        assert registration.source_adapter == "duckdb" and registration.local_method is None
+        assert (
+            tuple(item.backend for item in registration.backends) == ("duckdb",)
+            and registration.local_method is None
+        )
         with pytest.raises(DatasetCompilationError, match="source-required"):
             admit_local(dataset, registration)
 

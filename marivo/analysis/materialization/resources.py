@@ -1,26 +1,22 @@
-"""Exact resource reservations and process-lifetime proof for the first route."""
+"""Exact resource reservations and guarded publication cleanup."""
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from marivo.analysis.materialization.contracts import ResourceRecord
 from marivo.analysis.materialization.errors import IntegrityError, RecoveryPendingError
-from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.object_termination import (
     OBJECT_REQUEST_CAPABILITY,
     object_request_is_terminal,
-    prove_object_termination,
 )
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.targets import ObjectBinding
 
-_TERMINATED: set[ResourceRecord] = set()
 _LOCAL_CAPABILITY = "local_owned_path@v1"
-_DUCKDB_CAPABILITY = "duckdb_process_lifetime@v1"
+_READ_CAPABILITY = "read_only_execution@v1"
 
 
 def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
@@ -30,77 +26,9 @@ def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
         resource_kind="backend_execution",
         execution_domain_id=domain,
         ownership_nonce=nonce,
-        cleanup_capability_id=_DUCKDB_CAPABILITY,
-        safe_locator=f"process/{os.getpid()}/{nonce}",
+        cleanup_capability_id=_READ_CAPABILITY,
+        safe_locator=f"execution/{nonce}",
     )
-
-
-def prove_local_termination(resource: ResourceRecord) -> None:
-    """Record proof only after synchronous work and strict connection close finish."""
-    if resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY:
-        prove_object_termination(resource)
-    else:
-        _TERMINATED.add(resource)
-
-
-def forget_local_termination(resources: tuple[ResourceRecord, ...]) -> None:
-    """Retire exact in-process proof only after the Store removed its obligation."""
-    _TERMINATED.difference_update(resources)
-
-
-def confirm_execution_termination(resource: ResourceRecord) -> bool:
-    """Validate exact termination and retain derived local proof until discharge.
-
-    A planner relation inherits its owning connection's proof. Retaining that
-    exact relation proof makes independent durable discharge order irrelevant.
-    Repeated confirmation is idempotent and never terminates an execution.
-    """
-    if resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY:
-        return object_request_is_terminal(resource)
-    if (
-        resource.resource_kind not in ("backend_execution", "planner_temporary_relation")
-        or resource.cleanup_capability_id != _DUCKDB_CAPABILITY
-    ):
-        return False
-    parts = resource.safe_locator.split("/")
-    expected_length = 3 if resource.resource_kind == "backend_execution" else 4
-    if (
-        len(parts) != expected_length
-        or parts[0] != "process"
-        or parts[2] != resource.ownership_nonce
-    ):
-        return False
-    try:
-        pid = int(parts[1])
-    except ValueError:
-        return False
-    if pid <= 0:
-        return False
-    if pid == os.getpid():
-        if resource in _TERMINATED:
-            return True
-        owner = ResourceRecord(
-            resource.run_ref,
-            "backend_execution",
-            resource.execution_domain_id,
-            resource.ownership_nonce,
-            resource.cleanup_capability_id,
-            "/".join(parts[:3]),
-        )
-        if resource.resource_kind == "planner_temporary_relation" and owner in _TERMINATED:
-            # Keep the derived exact proof until this relation's own obligation
-            # is durably removed, even if its connection is discharged first.
-            _TERMINATED.add(resource)
-            return True
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    except PermissionError:
-        return False
-    # A live or reused PID is never treated as proof of termination.
-    return False
 
 
 def reserve_output(
@@ -144,19 +72,44 @@ def discharge_resources(
     resources: tuple[ResourceRecord, ...],
     object_bindings: tuple[ObjectBinding, ...] = (),
 ) -> tuple[ResourceRecord, ...]:
-    """Clean exact unpublished paths only after every execution is proven terminal."""
+    """Discharge guarded local recovery without certifying remote read termination.
+
+    The caller holds the Session writer guard and has resolved Store commit state.
+    Object requests can still write and therefore retain their exact proof gate.
+    Read-only queries and connection-scoped temporary relations cannot publish.
+    """
+    runs = tuple(store.run(ref) for ref in {item.run_ref for item in resources})
+    journal = tuple(
+        item for run in runs if run is not None for item in store.resources(run.session_ref)
+    )
     for resource in resources:
-        if resource.resource_kind in (
-            "backend_execution",
-            "planner_temporary_relation",
-        ) and not confirm_execution_termination(resource):
-            raise RecoveryPendingError(
-                expected="authoritative process or connection termination proof",
-                received="execution termination remains unproved",
-                repair="Restore the recorded execution's termination proof and retry Session recovery.",
-                stage="reconciliation",
-                run_ref=resource.run_ref,
-            )
+        if resource not in journal:
+            raise _invalid_resource(resource)
+        if resource.resource_kind not in ("backend_execution", "planner_temporary_relation"):
+            continue
+        if resource.cleanup_capability_id == _READ_CAPABILITY:
+            parts = resource.safe_locator.split("/")
+            expected_length = 2 if resource.resource_kind == "backend_execution" else 3
+            if (
+                len(parts) != expected_length
+                or parts[0] != "execution"
+                or parts[1] != resource.ownership_nonce
+                or any(not part or part in (".", "..") for part in parts)
+            ):
+                raise _invalid_resource(resource)
+            continue
+        if (
+            resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY
+            and object_request_is_terminal(resource)
+        ):
+            continue
+        raise RecoveryPendingError(
+            expected="resolved publication ownership and exact write-capable resource cleanup",
+            received="an unresolved object write or unsupported resource obligation",
+            repair="Resolve the recorded publication or object-write obligation before retrying Session recovery.",
+            stage="reconciliation",
+            run_ref=resource.run_ref,
+        )
     resolved: list[ResourceRecord] = []
     for resource in resources:
         if resource.resource_kind in ("backend_execution", "planner_temporary_relation"):
@@ -227,9 +180,3 @@ def _invalid_resource(resource: ResourceRecord) -> IntegrityError:
         stage="reconciliation",
         run_ref=resource.run_ref,
     )
-
-
-def finish_execution(adapter: ExecutionAdapter, resource: ResourceRecord) -> None:
-    """Discharge native execution only after its adapter closes successfully."""
-    adapter.finish()
-    prove_local_termination(resource)

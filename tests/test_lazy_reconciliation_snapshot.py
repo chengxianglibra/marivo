@@ -18,9 +18,7 @@ from marivo.analysis.materialization.contracts import (
 from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
 from marivo.analysis.materialization.resources import (
     backend_reservation,
-    confirm_execution_termination,
     discharge_resources,
-    prove_local_termination,
     reserve_output,
 )
 from marivo.analysis.materialization.store import SessionStore
@@ -132,7 +130,7 @@ def test_all_selected_metadata_is_validated_before_any_cleanup(
                 "local_parquet@v1",
                 "artifact",
                 "local_owned_path@v1",
-                ".marivo/analysis/generations/v4/sessions/session/artifacts/artifact",
+                ".marivo/analysis/generations/v5/sessions/session/artifacts/artifact",
             ),
         )
 
@@ -278,13 +276,12 @@ def test_snapshot_transaction_closes_before_resource_proof_or_cleanup(
     assert run is not None and run.lifecycle == "failed"
 
 
-def test_local_execution_proof_retires_only_after_durable_discharge(
+def test_read_execution_journal_retires_only_after_durable_discharge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = _store(tmp_path)
     resource = backend_reservation("run", "duckdb@v1")
     store.reserve(resource)
-    prove_local_termination(resource)
     original = store._write
 
     @contextmanager
@@ -298,10 +295,8 @@ def test_local_execution_proof_retires_only_after_durable_discharge(
         with pytest.raises(OSError):
             store.discharge(resource)
     assert store.resources("session") == (resource,)
-    assert confirm_execution_termination(resource)
     store.discharge(resource)
     assert store.resources("session") == ()
-    assert not confirm_execution_termination(resource)
 
 
 @pytest.mark.parametrize("selection", ("missing", "foreign", "succeeded", "failed"))
@@ -344,3 +339,38 @@ def test_exact_run_selection_is_checked_by_reconciliation_owner(
             assert caught.value.repair is not None
     with sqlite3.connect(store.db_path) as connection:
         assert tuple(connection.iterdump()) == before
+
+
+def test_unknown_read_execution_does_not_block_guarded_recovery(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    store = _store(tmp_path)
+    resource = backend_reservation("run", "remote-source")
+    relation = replace(
+        resource,
+        resource_kind="planner_temporary_relation",
+        safe_locator=resource.safe_locator + "/owned_temporary",
+    )
+    store.reserve(resource)
+    store.reserve(relation)
+    with session_writer_guard(store.layout.lock_path("session")):
+        reconciliation.reconcile_session(store, "session", event=lambda _: None)
+    run = store.run("run")
+    assert run is not None and run.lifecycle == "failed"
+    assert store.resources("session") == ()
+    store.admit("session", "f" * 64, _input(), run_ref="next")
+
+
+@pytest.mark.parametrize("field", ["run_ref", "execution_domain_id", "ownership_nonce"])
+def test_read_cleanup_never_inherits_another_execution_authority(
+    tmp_path: Path, field: str
+) -> None:
+    from dataclasses import replace
+
+    store = _store(tmp_path)
+    resource = backend_reservation("run", "remote-source")
+    store.reserve(resource)
+    foreign = replace(resource, **{field: "another"})
+    with pytest.raises(IntegrityError):
+        discharge_resources(store, (foreign,))
+    assert store.resources("session") == (resource,)

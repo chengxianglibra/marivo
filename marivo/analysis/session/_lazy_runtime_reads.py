@@ -1,4 +1,4 @@
-"""Operation-scoped v3 metadata reads within one SQLite snapshot."""
+"""Operation-scoped metadata reads within one SQLite snapshot."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ def require_session(
     row = _one(conn, "SELECT * FROM sessions WHERE session_ref=?", (session_ref,))
     if row is None:
         raise SessionNotFoundError(
-            message="The selected v3 Session does not exist in this project.",
+            message="The selected Session does not exist in this project.",
             expected="an existing Session from recent()",
             received=session_ref,
             location="session.runtime",

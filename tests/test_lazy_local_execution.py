@@ -58,7 +58,7 @@ def test_selected_source_prefix_feeds_one_local_suffix(
 
     def restricted(dataset: LogicalDataset) -> ImplementationRegistration:
         value = original(dataset)
-        return replace(value, source_adapter=None) if value.operator_id == "metric.rank" else value
+        return replace(value, backends=()) if value.operator_id == "metric.rank" else value
 
     monkeypatch.setattr(registry, "implementation", restricted)
     assert [step.implementation.operator_id for step in place(logical).local_steps] == [
@@ -162,11 +162,7 @@ def test_selected_source_failure_never_runs_replacement_pandas(
 
     def registrations(dataset: LogicalDataset) -> ImplementationRegistration:
         current = original(dataset)
-        return (
-            replace(current, source_adapter=None)
-            if current.operator_id == "metric.rank"
-            else current
-        )
+        return replace(current, backends=()) if current.operator_id == "metric.rank" else current
 
     def broken(*args: object, **kwargs: object) -> None:
         raise RuntimeError("private source failure canary")

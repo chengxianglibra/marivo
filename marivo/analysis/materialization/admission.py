@@ -82,11 +82,8 @@ from marivo.analysis.materialization.contracts import (
     run_failure_phase,
 )
 from marivo.analysis.materialization.duckdb_execution import (
-    bind_duckdb,
     describe_statement,
     json_statement,
-    native_versions,
-    open_native_backend,
 )
 from marivo.analysis.materialization.duckdb_statements import attribution_summary_sql
 from marivo.analysis.materialization.errors import (
@@ -128,12 +125,9 @@ from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.resources import (
     backend_reservation,
     discharge_resources,
-    finish_execution,
-    prove_local_termination,
     reserve_output,
 )
 from marivo.analysis.materialization.sampling import (
-    admit_sampling,
     execute_sample,
     sample_statement,
 )
@@ -170,7 +164,6 @@ from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
 )
-from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.analysis.operators.association import (
     LogicalAssociationDataset,
@@ -301,7 +294,7 @@ def _local_output_batches(table: pa.Table) -> list[pa.RecordBatch]:
 def _error(stage: str, run_ref: str | None = None) -> MaterializationError:
     return MaterializationError(
         expected="a supported and complete registered Dataset execution",
-        received="the admitted action could not complete its current phase",
+        received="the admitted action could not complete its current phase; remote read status may be unknown",
         repair="Inspect the safe Run phase, correct its source or resource requirement, and retry.",
         stage=stage,
         run_ref=run_ref,
@@ -501,7 +494,7 @@ class DatasetRuntime:
     def recent(
         project_root: Path, *, limit: int = 20, cursor: str | None = None
     ) -> SessionSummaryPage:
-        """Read existing v4 Session history without creating or activating a Session."""
+        """Read existing v5 Session history without creating or activating a Session."""
         _lazy_runtime_reads.page_after(limit, cursor, operation="recent")
         return _lazy_history.recent(
             SessionStore.open_existing(project_root), limit=limit, cursor=cursor
@@ -511,7 +504,7 @@ class DatasetRuntime:
     def inspect(
         project_root: Path, name: str, *, run_limit: int = 5, run_cursor: str | None = None
     ) -> SessionInspection:
-        """Read a named existing v4 Session and one bounded Run page."""
+        """Read a named existing v5 Session and one bounded Run page."""
         _lazy_runtime_reads.page_after(run_limit, run_cursor, operation="inspect")
         return _lazy_history.inspect(
             SessionStore.open_existing(project_root),
@@ -843,10 +836,6 @@ class DatasetRuntime:
         for root in roots:
             if root.contract_versions != producer_contract_versions(root.operator_id):
                 raise _error("implementation_registration")
-            if isinstance(root.payload, PopulationPayload) and root.payload.sampling is not None:
-                admit_sampling(root.payload.sampling)
-            elif isinstance(root.payload, PopulationSamplePayload):
-                admit_sampling(root.payload.policy)
         key = execution_key(dataset.definition_fingerprint)
         with session_writer_guard(
             self.store.layout.lock_path(self.session_ref), session_ref=self.session_ref
@@ -899,7 +888,11 @@ class DatasetRuntime:
                     raise _error("execution_boundary")
                 # A fixed Parquet adapter can participate in the one existing
                 # source domain, or own a source-free native retained stage.
-                if len(source_candidates) == 1:
+                from marivo.analysis.operators.registry import supports_retained_import
+
+                if len(source_candidates) == 1 and supports_retained_import(
+                    source_candidates[0].adapter
+                ):
                     return source_candidates[0]
                 from marivo.analysis.operators.registry import admit_retained_rows
 
@@ -908,11 +901,17 @@ class DatasetRuntime:
                     self,
                     "parquet",
                     codec.digest(("parquet", 1)),
-                    adapter_versions=native_versions(),
                 )
 
             physical = place(dataset, artifact_binding=admitted_binding)
             source_steps = tuple(step for step in physical.steps if isinstance(step, SourceStep))
+            from marivo.analysis.materialization.execution import resolve_execution
+
+            for admitted_step in source_steps:
+                implementation = resolve_execution(admitted_step.implementation.backend)
+                if implementation is None:
+                    raise _error("implementation_registration")
+                implementation.admit(admitted_step.dataset)
             if (
                 physical.steps[-1].output != physical.primary_output
                 or physical.steps[-1].dataset is not dataset
@@ -969,7 +968,6 @@ class DatasetRuntime:
             self.last_run_ref = run.run_ref
             backend: ExecutionAdapter | None = None
             execution: ResourceRecord | None = None
-            opening = False
             phase = "storage_selection"
             object_bindings = self.object_bindings
             try:
@@ -1383,7 +1381,7 @@ class DatasetRuntime:
                         for step in physical.steps:
                             if isinstance(step, SourceStep):
                                 current_backend, recipe, _tables = prepared[step.output]
-                                if step.correlation_preparation:
+                                if step.operation == "correlation":
                                     from marivo.analysis.materialization.local_execution import (
                                         PairInput,
                                     )
@@ -1430,7 +1428,7 @@ class DatasetRuntime:
                                         )
                                     )
                                     continue
-                                if step.distribution_preparation:
+                                if step.operation == "distribution":
                                     from marivo.analysis.materialization.local_execution import (
                                         CoalitionInput,
                                     )
@@ -1941,7 +1939,6 @@ class DatasetRuntime:
                 if backend is not None and execution is not None:
                     backend.disconnect()
                     backend = None
-                    prove_local_termination(execution)
                 phase = "publication"
                 resources = tuple(
                     item
@@ -1976,12 +1973,8 @@ class DatasetRuntime:
                 if backend is not None:
                     try:
                         backend.disconnect()
-                        if execution is not None:
-                            prove_local_termination(execution)
                     except BaseException:
-                        pass
-                elif execution is not None and not opening:
-                    prove_local_termination(execution)
+                        self._event("close_failed")
                 # Retain only owner-safe error facts, never a datasource exception chain.
                 safe = exc if isinstance(exc, MaterializationError) else _error(phase, run.run_ref)
                 try:
@@ -2006,7 +1999,7 @@ class DatasetRuntime:
         sampling_by_root: dict[int, SamplingRealization],
     ) -> Iterator[tuple[ExecutionAdapter, CompiledDataset, dict[str, ir.Table]]]:
         source_dataset: Dataset = source_step.dataset
-        if source_step.correlation_preparation:
+        if source_step.operation == "correlation":
             source_dataset = source_dataset._inputs[0]
 
         records = {
@@ -2026,26 +2019,33 @@ class DatasetRuntime:
         )
         backend: ExecutionAdapter | None = None
         execution: ResourceRecord | None = None
-        opening = False
         try:
             domain = source_step.binding.datasource_id
+            selected = source_step.implementation
+            if selected.backend != source_step.binding.adapter:
+                raise _error("source_binding", run_ref)
+            from marivo.analysis.materialization.execution import resolve_execution
+
+            implementation = resolve_execution(selected.backend)
+            if implementation is None:
+                raise _error("implementation_registration", run_ref)
             candidate: object
             if isinstance(source_step.binding, ParquetBinding):
                 execution = backend_reservation(run_ref, domain)
                 self.store.reserve(execution)
                 self._event("resource_create")
-                opening = True
-                candidate = open_native_backend()
+                candidate = implementation.open_retained()
             else:
                 datasource = source_step.binding.owner.semantic_registry.datasources[domain]
+                if datasource.backend_type != selected.backend:
+                    raise _error("source_binding", run_ref)
                 self._event("profile_resolution")
-                require_profile_for_backend_type(datasource.backend_type)
+                require_profile_for_backend_type(selected.backend)
                 self._event("credential_resolution")
                 effective = _effective_kwargs(datasource)
                 execution = backend_reservation(run_ref, domain)
                 self.store.reserve(execution)
                 self._event("resource_create")
-                opening = True
                 candidate = _build_backend_from_effective(
                     datasource, effective, read_only=True
                 ).backend
@@ -2064,20 +2064,16 @@ class DatasetRuntime:
                     )
                 )
 
-            backend = bind_duckdb(candidate, reserve=reserve_preparation, run_ref=run_ref)
+            backend = implementation.bind(candidate, reserve=reserve_preparation, run_ref=run_ref)
             read_time = None
             if isinstance(source_step.binding, SourceBinding):
                 self._event("source_timezone")
-                profile = require_profile_for_backend_type("duckdb")
+                profile = require_profile_for_backend_type(selected.backend)
                 if profile.timezone_probe_sql is not None:
                     self._record_statement("source_timezone", profile.timezone_probe_sql)
                 read_time = backend.timezone()
             backend.initialize()
-            if isinstance(source_dataset, LogicalDataset) and any(
-                isinstance(root.payload, DriverCandidatePayload)
-                for root in logical_roots(source_dataset)
-            ):
-                backend.install_numeric()
+            backend.prepare_dataset(source_step.dataset)
             tables: dict[str, ir.Table] = {}
             fences: list[_JsonFence] = []
             checked_schemas: set[str] = set()
@@ -2232,7 +2228,7 @@ class DatasetRuntime:
                     read_timezone_source=read_time.read_tz_resolution,
                     event_coverages=event_coverages,
                 )
-            if source_step.correlation_preparation:
+            if source_step.operation == "correlation":
                 from marivo.analysis.compiler.correlation import prepare_pairs
 
                 root = source_step.dataset._root
@@ -2328,17 +2324,22 @@ class DatasetRuntime:
                 validations.extend(execute_batch(backend, validation, run_ref=run_ref))
             yield backend, recipe, tables
         finally:
-            failed = sys.exc_info()[0] is not None
+            failure = sys.exc_info()[1]
+            failed = failure is not None
+            if failed and execution is not None:
+                self._event("remote_read_status_unknown")
+                if backend is not None:
+                    try:
+                        backend.interrupt()
+                    except BaseException:
+                        self._event("cancel_failed")
             try:
                 if backend is not None:
-                    if execution is not None:
-                        finish_execution(backend, execution)
-                    else:
-                        backend.finish()
-                elif execution is not None and not opening:
-                    prove_local_termination(execution)
+                    backend.finish()
             except BaseException:
+                self._event("close_failed")
                 if not failed:
+                    self._event("remote_read_status_unknown")
                     raise
 
     def _write_output(
@@ -2816,8 +2817,9 @@ class DatasetRuntime:
     ) -> Iterator[pa.RecordBatch]:
         self._event("source_statement")
         self.statistics.primary_queries += 1
-        self._record_statement("primary", backend.compile(expression))
-        reader = backend.batches(backend.prepare(expression, role="primary"), chunk_size=batch_rows)
+        reader = backend.batches(
+            expression, role="primary", chunk_size=batch_rows, record=self._record_statement
+        )
         seen = False
         try:
             for batch in reader:

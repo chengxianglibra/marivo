@@ -106,3 +106,42 @@ Local row/fold, Forecast/Candidate graph, multi-input comparison/attribution and
 Parquet integrity tests retain their independent numerical and semantic assertions.
 Worker IPC, watchdog, RSS and resource-ceiling tests are retired with those
 protocols; their historical acceptance is not evidence for caller execution.
+
+## Multi-datasource Slice 1c
+
+- `test_lazy_duckdb_execution_adapter.py`: real Ibis parameters/hooks, repeated
+  pure compilation, actual submissions, complete typed transport and error cause.
+- `test_lazy_materialization_failures.py`: unknown open without query ID, failed
+  cancel/close, safe later same-Session work and committed readback.
+- `test_lazy_reconciliation_snapshot.py` and `test_lazy_materialization_store.py`:
+  exact ownership, contradictory commit state, safe read-only discharge and v5
+  generation rejection without old-file mutation.
+- `test_lazy_runtime_concurrency.py`, `test_lazy_adapter_crash_acceptance.py` and
+  `test_lazy_materialization_runtime_acceptance.py`: surviving writer exclusion,
+  fork/lock ownership, real process death and atomic cold primary/part readback.
+- `test_lazy_object_storage_contracts.py`: unknown write-capable S3 requests remain
+  blocking without a live object service. Removed process-termination proof tests
+  are replaced by the read-only recovery cases above, not backend activation.
+
+## Multi-datasource Slice 2
+
+`test_lazy_backend_dispatch.py` owns pure exact-registration, preparation-only,
+local-shape and Help checks. Its Runtime cases inspect retained-reader admission
+with injected physical backend candidates; these do not enable remote execution.
+`test_lazy_dispatch_authority.py` owns independent source/retained identity
+perturbations and a Runtime binding hit that forbids placement and source access.
+
+`test_lazy_execution_economics.py` retains real DuckDB reduction and five remote
+pre-Run rejections. Distribution/correlation Runtime suites own their preparation
+and local-result parity. The adapter suite owns foreign/forged/closed execution
+contexts; materialization execution owns physical-type rejection before primary
+rows. Event comparison's three-process journey freezes source/test bytes across
+produce, continue and recover. Run that journey without concurrent code edits.
+
+## Corrected Slice 1d restoration
+
+Sampling, Event/Lifecycle, Entity/Driver Candidate and JSON producer success tests
+are restored. Adapter tests cover required hooks, memtables, UDFs and temporary
+preparations; backend dispatch tests cover the common registry, retained import
+and unimplemented backend refusal. This supersedes the blanket read-only 1d
+acceptance, without enabling remote methods or new private-state transfer.

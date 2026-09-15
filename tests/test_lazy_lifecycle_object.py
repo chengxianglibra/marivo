@@ -77,7 +77,7 @@ def test_remote_required_part_failure_leaves_no_bundle(
     access = S3Access("fixture", "http://127.0.0.1:9", "bucket", "test-key", "test-secret")
     objects = stub_candidate_objects(monkeypatch, access)
     runtime.target, runtime.object_bindings = ObjectTarget("fixture"), (access,)
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt if cancel else OSError):
         history(sources).execute()
     assert snapshot(runtime)["dataset_artifacts"] == 0
     assert runtime.store.resources(runtime.session_ref) == ()

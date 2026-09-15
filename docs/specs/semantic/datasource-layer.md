@@ -1,5 +1,11 @@
 # Datasource Layer Design
 
+DuckDB datasource/entity readers retain their existing JSON, authentication,
+extension and registration facilities. Internal execution resources belong to
+the backend adapter. Remote analysis activation separately requires compatibility
+with read-only accounts; it does not globally disable DuckDB authoring.
+
+
 Status: draft design. This document describes the current design of
 `marivo.datasource` (`md`): the project-level connection and evidence layer that
 the semantic layer builds on. It is the ground-truth boundary between physical
