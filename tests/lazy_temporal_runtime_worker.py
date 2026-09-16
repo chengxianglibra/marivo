@@ -87,9 +87,11 @@ def recover(project: Path, session: str, reference: str) -> dict[str, object]:
             "_effective_kwargs",
             "_build_backend_from_effective",
             "compile_dataset",
-            "probe_engine_timezone",
         ):
             stack.enter_context(patch.object(admission, name, forbidden))
+        from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
+
+        stack.enter_context(patch.object(DuckDBExecutionAdapter, "timezone", forbidden))
         runtime = DatasetRuntime.open(project, session)
         materialized = runtime.artifact(reference)
         assert isinstance(materialized, MaterializedMetricDataset)

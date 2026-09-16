@@ -13,8 +13,13 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import (
+    MaterializationError,
+    source_type_errors,
+    unsupported_source_type,
+)
 from marivo.analysis.materialization.execution import Parameter
 from marivo.analysis.materialization.scalar_sql_execution import ScalarExecutionAdapter
 from marivo.analysis.operators.trino_support import supported_type
@@ -118,8 +123,12 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         *,
         database: str | None = None,
         catalog: str | None = None,
+        dependency: EntitySourceDependency | None = None,
         record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
+        if dependency is not None:
+            dependency.validate_request(name, database, catalog)
+        columns = None if dependency is None else dependency.physical_columns
         default_catalog: str | None = catalog or self._trino.con.catalog
         default_schema: str | None = self._trino.con.schema
         if not isinstance(default_catalog, str):
@@ -161,11 +170,12 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
             column, kind = row[:2]
             if not isinstance(column, str) or not isinstance(kind, str):
                 raise self.unsupported("malformed Trino column metadata")
-            if self._declared_columns is not None and column not in self._declared_columns:
+            if columns is not None and column not in columns:
                 continue
-            datatype = self._trino.compiler.type_mapper.from_string(kind)
+            with source_type_errors(dependency, column, kind):
+                datatype = self._trino.compiler.type_mapper.from_string(kind)
             if not supported_type(str(datatype)):
-                raise self.unsupported(f"Trino physical type {kind!r} for column {column!r}")
+                raise unsupported_source_type(dependency, column, kind)
             fields[column] = datatype
             if datatype.is_floating():
                 finite_checks.append(f"NOT is_finite({_identifier(column)})")

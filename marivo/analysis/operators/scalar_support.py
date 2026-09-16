@@ -5,7 +5,12 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots, required_entities
+from marivo.analysis.compiler.normalize import (
+    artifact_inputs,
+    logical_roots,
+    required_entities,
+    required_source_dependencies,
+)
 from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity
@@ -88,8 +93,15 @@ def unsupported_reason(
         return "only declared table sources are supported"
     if any(entity.version is not None for entity in entities) and not versions:
         return "semantic version selection is not qualified for this backend"
-    if any(not supported_type(kind) for entity in entities for _, kind in entity.columns):
-        return "the dependency closure contains an unsupported declared source type"
+    dependencies = required_source_dependencies(dataset)
+    for entry in dependencies.entries:
+        for column in entry.columns:
+            if not supported_type(column.declared_type):
+                return (
+                    "unsupported declared source type "
+                    f"{column.declared_type[:100]} for Entity {entry.entity.ref.path[:160]} "
+                    f"column {column.logical[:100]} -> {column.physical[:100]}"
+                )
     entity_paths = {entity.ref.path for entity in entities}
     owner = source_owner_of(dataset)
 
@@ -226,7 +238,9 @@ def unsupported_reason(
                     ):
                         return "only direct-column measures are qualified for this backend"
     if explicit_decimal_sources and any(
-        kind == "decimal" for entity in entities for _, kind in entity.columns
+        column.declared_type == "decimal"
+        for entry in dependencies.entries
+        for column in entry.columns
     ):
         return "Decimal source columns require explicit precision and scale"
     if closed_open_null_validity and any(

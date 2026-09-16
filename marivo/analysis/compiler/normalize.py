@@ -6,6 +6,7 @@ from collections.abc import Iterator
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.predicates import predicate_leaves
+from marivo.analysis.compiler.source_dependencies import ColumnCollector, SourceDependencies
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity, _EntityFieldIdentity
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
@@ -59,8 +60,11 @@ def logical_roots(dataset: LogicalDataset) -> Iterator[LogicalRootHandle]:
     yield from visit(dataset._root)
 
 
-def required_entities(
-    dataset: LogicalDataset, *, registry: Registry | None = None
+def _required_entities(
+    dataset: LogicalDataset,
+    *,
+    registry: Registry | None = None,
+    columns: ColumnCollector | None = None,
 ) -> tuple[TargetEntityContract, ...]:
     """Return normalized, exactly reachable Entities, never unrelated catalog entries."""
     registry = source_owner_of(dataset).semantic_registry if registry is None else registry
@@ -69,6 +73,8 @@ def required_entities(
     def path(source: str, target: str, *, versioned: bool = False) -> None:
         route = functional_path(registry, source, target, allow_versioned_target=versioned)
         ids.update(path_entities(registry, source, (route,)))
+        if columns is not None:
+            columns.route(route)
 
     for root in logical_roots(dataset):
         payload = root.payload
@@ -77,6 +83,8 @@ def required_entities(
             ids.add(entity)
             if payload.reference_axis is not None:
                 path(entity, payload.reference_axis.entity_ref.path)
+                if columns is not None:
+                    columns.axis(payload.reference_axis)
             for predicate in predicate_leaves(payload.predicate):
                 field = predicate.field
                 if field is None or not isinstance(field.identity, _CatalogFieldIdentity):
@@ -85,12 +93,24 @@ def required_entities(
                     registry, field.identity.identity_id.split(":", 1)[1]
                 )
                 path(entity, dimension.entity_ref.path)
+                if columns is not None:
+                    columns.axis(dimension)
         elif isinstance(payload, (EventPayload, LifecyclePayload)):
             for step in payload.definition.steps:
                 ids.update(path_entities(registry, step.source.ref.path, (step.participant_path,)))
+                if columns is not None:
+                    columns.route(step.participant_path)
+                    for axis in (*step.identity, step.occurred_at):
+                        columns.axis(axis)
+                    columns.body(
+                        step.step.event.kind, step.step.event.path, (step.source.ref.path,)
+                    )
         elif isinstance(payload, (EventFunnelPayload, LifecycleReducerPayload)):
             for event_axis in payload.axes:
                 ids.update(path_entities(registry, event_axis.subject.ref.path, (event_axis.path,)))
+                if columns is not None:
+                    columns.route(event_axis.path)
+                    columns.axis(event_axis.dimension)
         elif isinstance(payload, MetricPayload):
             definition = payload.definition
             entity = definition.entity.ref.path
@@ -100,6 +120,8 @@ def required_entities(
                 *((definition.time_axis,) if definition.time_axis else ()),
             )
             for axis in axes:
+                if columns is not None:
+                    columns.axis(axis)
                 binding = next(
                     (item for item in definition.coordinate_paths if item.ref == axis.ref.path),
                     None,
@@ -108,24 +130,44 @@ def required_entities(
                     path(entity, axis.entity_ref.path)
                 else:
                     ids.update(path_entities(registry, entity, (binding.spine_path,)))
+                    if columns is not None:
+                        columns.route(binding.spine_path)
                     for coordinate_root, component_path in binding.component_paths:
                         ids.update(path_entities(registry, coordinate_root, (component_path,)))
+                        if columns is not None:
+                            columns.route(component_path)
             for metric in definition.metrics:
                 for component_root in metric.computation_roots:
                     path(component_root.path, entity, versioned=True)
                     if definition.reference_axis is not None:
                         path(component_root.path, definition.reference_axis.entity_ref.path)
+                        if columns is not None:
+                            columns.axis(definition.reference_axis)
                     for cumulative in metric.cumulative:
                         axis = normalize_target_dimension(registry, cumulative.over_ref.path)
                         path(component_root.path, axis.entity_ref.path)
+                        if columns is not None:
+                            columns.axis(axis)
                 for component in metric.components:
                     if component.status_time_dimension is not None:
                         axis = normalize_target_dimension(
                             registry, component.status_time_dimension.path
                         )
                         path(component.computation_root.path, axis.entity_ref.path)
+                        if columns is not None:
+                            columns.axis(axis)
                 for component in metric.components:
                     node = component_node(metric.graph, component.node_id)
+                    if columns is not None:
+                        from marivo.semantic.metric_graph import AggregateNodeV1
+
+                        refs = (
+                            (node.target_ref,)
+                            if isinstance(node, AggregateNodeV1)
+                            else (node.value_ref, node.weight_ref)
+                        )
+                        for reference in refs:
+                            columns.field(reference, component.computation_root.path)
                     for condition in node.filter:
                         dimension = normalize_target_dimension(
                             registry, condition.dimension_ref.path
@@ -133,6 +175,9 @@ def required_entities(
                         source = component.computation_root.path
                         route = governed_path(registry, source, dimension.entity_ref.path)
                         ids.update(path_entities(registry, source, (route,)))
+                        if columns is not None:
+                            columns.route(route)
+                            columns.axis(dimension)
         elif not isinstance(
             payload,
             (
@@ -203,6 +248,23 @@ def required_entities(
         if not needed:
             ids.discard(entity)
     return tuple(normalize_target_entity(registry, name) for name in sorted(ids))
+
+
+def required_entities(
+    dataset: LogicalDataset, *, registry: Registry | None = None
+) -> tuple[TargetEntityContract, ...]:
+    """Return the exact semantic source closure without opening retained origins."""
+    return _required_entities(dataset, registry=registry)
+
+
+def required_source_dependencies(
+    dataset: LogicalDataset, *, registry: Registry | None = None
+) -> SourceDependencies:
+    """Produce binding-owned column facts using the shared semantic path traversal."""
+    owner = source_owner_of(dataset)
+    registry = owner.semantic_registry if registry is None else registry
+    collector = ColumnCollector(owner, registry)
+    return collector.finish(_required_entities(dataset, registry=registry, columns=collector))
 
 
 def artifact_inputs(dataset: Dataset) -> tuple[MaterializedDataset, ...]:

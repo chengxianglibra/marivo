@@ -380,14 +380,14 @@ def test_large_source_and_blocks(
 def test_unqualified_physical_types(tmp_path: Path, source_table: str, physical: str) -> None:
     with clickhouse.connection(admin=True) as con:
         con.command(f"TRUNCATE TABLE {source_table}")
-        con.command(f"ALTER TABLE {source_table} DROP COLUMN region")
-        con.command(f"ALTER TABLE {source_table} ADD COLUMN region {physical}")
+        con.command(f"ALTER TABLE {source_table} DROP COLUMN channel")
+        con.command(f"ALTER TABLE {source_table} ADD COLUMN channel {physical}")
     registry, sidecar = registry_for(tmp_path / "unused", engine="clickhouse", table=source_table)
     runtime = DatasetRuntime.create(tmp_path, "physical-rejection")
     with pytest.raises(MaterializationError):
         runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(
             REVENUE
-        ).aggregate().execute()
+        ).with_dimensions(CHANNEL).aggregate().execute()
     assert counts(runtime)["dataset_artifacts"] == 0
     assert runtime.statistics.primary_queries == 0
 

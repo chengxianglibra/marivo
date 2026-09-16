@@ -25,7 +25,11 @@ from marivo.analysis.compiler.nodes import (
     CompiledSampleFence,
     RetainedPartSpec,
 )
-from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
+from marivo.analysis.compiler.normalize import (
+    artifact_inputs,
+    logical_roots,
+    required_source_dependencies,
+)
 from marivo.analysis.compiler.placement import (
     ArtifactReadStep,
     ExecutionBinding,
@@ -36,6 +40,7 @@ from marivo.analysis.compiler.placement import (
     place,
     source_binding,
 )
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency, SourceDependencies
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
@@ -87,6 +92,7 @@ from marivo.analysis.materialization.duckdb_execution import (
 from marivo.analysis.materialization.duckdb_statements import attribution_summary_sql
 from marivo.analysis.materialization.errors import (
     MaterializationError,
+    SourceSchemaError,
 )
 from marivo.analysis.materialization.event_codec import EventEvidenceSummary
 from marivo.analysis.materialization.event_reducer_codec import (
@@ -301,7 +307,10 @@ def _error(stage: str, run_ref: str | None = None) -> MaterializationError:
 
 
 def _declared_table(
-    entity: TargetEntityContract, physical_schema: ibis.Schema | None = None
+    entity: TargetEntityContract,
+    physical_schema: ibis.Schema | None = None,
+    *,
+    dependency: EntitySourceDependency,
 ) -> ir.Table:
     source = entity.source
     if not isinstance(source, TableSourceIR) or not source.columns:
@@ -323,7 +332,8 @@ def _declared_table(
             binding.source: binding.data_type
             if physical_schema is None
             else physical_schema[binding.source]
-            for _, binding in source.columns
+            for logical, binding in source.columns
+            if logical in {column.logical for column in dependency.columns}
         },
         name=source.table,
         database=namespace,
@@ -331,7 +341,10 @@ def _declared_table(
     )
     bindings = dict(source.columns)
     return physical.select(
-        *(physical[bindings[name].source].name(name) for name, _ in entity.columns)
+        *(
+            physical[bindings[column.logical].source].name(column.logical)
+            for column in dependency.columns
+        )
     )
 
 
@@ -2005,12 +2018,15 @@ class DatasetRuntime:
             value.state.artifact_ref.ref: all_records[value.state.artifact_ref.ref]
             for value in artifact_inputs(source_dataset)
         }
-        entities = (
-            required_entities(source_dataset, registry=source_step.binding.owner.semantic_registry)
+        dependencies = (
+            required_source_dependencies(
+                source_dataset, registry=source_step.binding.owner.semantic_registry
+            )
             if isinstance(source_step.binding, SourceBinding)
             and isinstance(source_dataset, LogicalDataset)
-            else ()
+            else SourceDependencies(())
         )
+        entities = tuple(entry.entity for entry in dependencies.entries)
         captures = (
             captured_parameters(source_dataset)
             if isinstance(source_dataset, LogicalDataset)
@@ -2083,10 +2099,17 @@ class DatasetRuntime:
                 source = entity.source
                 if isinstance(source, TableSourceIR):
                     physical_schema = None
-                    if any(binding.data_type == "decimal" for _, binding in source.columns):
-                        physical_schema = self._validate_source_schema(backend, entity)
+                    if any(
+                        column.declared_type == "decimal"
+                        for column in dependencies.for_entity(entity).columns
+                    ):
+                        physical_schema = self._validate_source_schema(
+                            backend, entity, dependency=dependencies.for_entity(entity)
+                        )
                         checked_schemas.add(entity.ref.path)
-                    tables[entity.ref.path] = _declared_table(entity, physical_schema)
+                    tables[entity.ref.path] = _declared_table(
+                        entity, physical_schema, dependency=dependencies.for_entity(entity)
+                    )
                 elif (
                     isinstance(source, JsonSourceIR)
                     and source.method == "GET"
@@ -2225,6 +2248,7 @@ class DatasetRuntime:
                     tables,
                     scans=scans,
                     source_owner=source_step.binding.owner,
+                    dependencies=dependencies,
                     read_timezone=read_time.engine_timezone_name,
                     read_timezone_source=read_time.read_tz_resolution,
                     event_coverages=event_coverages,
@@ -2278,7 +2302,9 @@ class DatasetRuntime:
                     isinstance(entity.source, TableSourceIR)
                     and entity.ref.path not in checked_schemas
                 ):
-                    self._validate_source_schema(backend, entity)
+                    self._validate_source_schema(
+                        backend, entity, dependency=dependencies.for_entity(entity)
+                    )
             for fence in fences:
                 for name in (fence.reader_name, fence.relation_name):
                     reserve_preparation(name)
@@ -2770,7 +2796,11 @@ class DatasetRuntime:
         return None
 
     def _validate_source_schema(
-        self, backend: ExecutionAdapter, entity: TargetEntityContract
+        self,
+        backend: ExecutionAdapter,
+        entity: TargetEntityContract,
+        *,
+        dependency: EntitySourceDependency,
     ) -> ibis.Schema:
         source = entity.source
         if not isinstance(source, TableSourceIR):
@@ -2781,9 +2811,14 @@ class DatasetRuntime:
         self._event("source_statement")
         self.statistics.validation_queries += 1
         actual = backend.get_schema(
-            source.table, database=namespace, catalog=catalog, record=self._record_statement
+            source.table,
+            database=namespace,
+            catalog=catalog,
+            dependency=dependency,
+            record=self._record_statement,
         )
-        for _, binding in source.columns:
+        for column in dependency.columns:
+            binding = dict(source.columns)[column.logical]
             declared = dt.dtype(binding.data_type).copy(nullable=True)
             physical_type = (
                 actual[binding.source].copy(nullable=True) if binding.source in actual else None
@@ -2803,11 +2838,11 @@ class DatasetRuntime:
                 and physical_type.scale == 6
             )
             if physical_type != declared and not decimal_match and not timestamp_match:
-                raise MaterializationError(
-                    expected="physical source types matching declarations after nullability normalization; generic decimal accepts precision up to 38, and an unspecified timestamp scale accepts microseconds with the same timezone",
-                    received="the governed source schema differs from its declaration",
-                    repair="Correct the declaration or physical schema before executing this Dataset.",
-                    stage="output_validation",
+                raise SourceSchemaError(
+                    dependency,
+                    binding.source,
+                    "missing_column" if physical_type is None else "type_mismatch",
+                    None if physical_type is None else str(physical_type),
                     run_ref=self.last_run_ref,
                 )
         return actual

@@ -129,7 +129,12 @@ def test_invalid_source_never_publishes_and_recovers(
     runtime = DatasetRuntime.create(tmp_path / "invalid", corruption)
     target = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe(REVENUE)
+        .observe(
+            REVENUE,
+            time_scope=time_scope(start="2026-02-01", end="2026-03-01")
+            if corruption in {"date", "zero_year"}
+            else None,
+        )
         .where(gt(REVENUE, 1e9))
         .aggregate()
     )

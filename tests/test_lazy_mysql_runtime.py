@@ -160,6 +160,7 @@ def test_invalid_source(tmp_path: Path, source_table: str, invalid: str) -> None
     target = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
         .observe(REVENUE)
+        .with_dimensions(CHANNEL)
         .where(gt(REVENUE, 1e9))
         .aggregate()
     )
@@ -201,7 +202,8 @@ def test_large_source_collation_and_small_output(
     assert list(zip(frame.revenue, frame.channel, strict=True)) == expected
     assert duckdb_grouped_totals(rows) == expected
     assert any(item["parameters"] for item in submitted)
-    assert runtime.statistics.validation_queries == 5
+    assert runtime.statistics.validation_queries == 4
+    assert not any(role == "engine_check.mysql_dates" for role, _ in runtime.statistics.statements)
     capture_receipt("mysql", runtime, expected, source_rows=len(rows), submitted=submitted)
     assert runtime.statistics.transferred_rows == 2
     primary = [sql for role, sql in runtime.statistics.statements if role == "primary"]
@@ -250,7 +252,9 @@ def test_invalid_mysql_date_rejected_before_publication(
     registry, sidecar = registry_for(tmp_path / "unused", engine="mysql", table=source_table)
     runtime = DatasetRuntime.create(tmp_path, "invalid-date")
     target = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(REVENUE).aggregate()
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(REVENUE, time_scope=time_scope(start="2026-02-01", end="2026-03-01"))
+        .aggregate()
     )
     with pytest.raises(MaterializationError, match="invalid MySQL dates"):
         target.execute()

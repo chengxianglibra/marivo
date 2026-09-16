@@ -27,7 +27,11 @@ from marivo.analysis.compiler.nodes import (
     CompiledValidation,
     RetainedPartSpec,
 )
-from marivo.analysis.compiler.normalize import logical_roots, required_entities
+from marivo.analysis.compiler.normalize import (
+    logical_roots,
+    required_entities,
+    required_source_dependencies,
+)
 from marivo.analysis.compiler.predicates import lower_bound_predicate, predicate_leaves
 from marivo.analysis.compiler.private_parts import (
     PrivateRelations,
@@ -36,6 +40,7 @@ from marivo.analysis.compiler.private_parts import (
     private_part_validations,
     selected_private_parts,
 )
+from marivo.analysis.compiler.source_dependencies import SourceDependencies
 from marivo.analysis.compiler.source_time import boundary_instant, source_time
 from marivo.analysis.compiler.temporal import bucket, bucket_end, cumulative_start
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
@@ -606,6 +611,7 @@ class _Compiler:
         event_coverages: Mapping[str, EventCoverageResolution] | None = None,
         read_timezone: str | None = None,
         read_timezone_source: Literal["engine", "system_fallback"] = "engine",
+        dependencies: SourceDependencies | None = None,
     ) -> None:
         self.dataset = dataset
         self.owner = source_owner_of(dataset) if source_owner is None else source_owner
@@ -614,7 +620,14 @@ class _Compiler:
         self.read_timezone_source = read_timezone_source
         self.time_authorities: dict[tuple[str, str], SourceTimeAuthority] = {}
         self.version_selections: dict[str, CanonicalValue] = {}
-        self.tables = tables
+        dependencies = (
+            required_source_dependencies(dataset, registry=self.registry)
+            if dependencies is None
+            else dependencies
+        )
+        if any(entry.owner is not self.owner for entry in dependencies.entries):
+            raise compilation_error("the exact source dependency owner", "source binding mismatch")
+        self.tables = dict(tables)
         self.scans = scans
         self.datasets: dict[int, Dataset] = {}
 
@@ -657,16 +670,20 @@ class _Compiler:
             )
         for entity in self.entities:
             table = tables[entity.ref.path]
-            if tuple(table.columns) != tuple(name for name, _ in entity.columns):
+            needed = dependencies.for_entity(entity).columns
+            if any(column.logical not in table.columns for column in needed):
                 raise compilation_error(
                     "ordered declared semantic source columns", "source schema mismatch"
                 )
             if any(
-                not _source_type_matches(table[name].type(), kind) for name, kind in entity.columns
+                not _source_type_matches(table[column.logical].type(), column.declared_type)
+                for column in needed
             ):
                 raise compilation_error(
                     "exact declared semantic source types", "source type mismatch"
                 )
+            table = table.select(*(column.logical for column in needed))
+            self.tables[entity.ref.path] = table
             self._validate_source(entity, table)
         for root in logical_roots(dataset):
             payload = root.payload
@@ -1266,7 +1283,7 @@ class _Compiler:
         table = membership.mutate(entity_identity=_identity(membership, definition.entity))
         if (definition.dimensions or definition.time_axis is not None) and (
             definition.entity.version is not None
-            or not {name for name, _ in definition.entity.columns}.issubset(membership.columns)
+            or not set(self.tables[definition.entity.ref.path].columns).issubset(membership.columns)
         ):
             source_rows = self.tables[definition.entity.ref.path].view()
             source_rows = source_rows.mutate(
@@ -2677,6 +2694,7 @@ def compile_dataset(
     dataset: LogicalDataset,
     tables: Mapping[str, ir.Table],
     *,
+    dependencies: SourceDependencies | None = None,
     scans: Mapping[str, CompiledArtifactScan] | None = None,
     source_owner: ObservationOwner | None = None,
     event_coverages: Mapping[str, EventCoverageResolution] | None = None,
@@ -2692,6 +2710,7 @@ def compile_dataset(
         event_coverages,
         read_timezone,
         read_timezone_source,
+        dependencies,
     ).compile()
 
 

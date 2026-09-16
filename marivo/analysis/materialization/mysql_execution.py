@@ -10,8 +10,13 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import (
+    MaterializationError,
+    source_type_errors,
+    unsupported_source_type,
+)
 from marivo.analysis.materialization.scalar_sql_execution import Cursor, ScalarExecutionAdapter
 from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
 
@@ -70,8 +75,12 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
         *,
         database: str | None = None,
         catalog: str | None = None,
+        dependency: EntitySourceDependency | None = None,
         record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
+        if dependency is not None:
+            dependency.validate_request(name, database, catalog)
+        columns = None if dependency is None else dependency.physical_columns
         if catalog is not None:
             raise self.unsupported("MySQL catalog qualification")
         namespace = database or str(
@@ -104,17 +113,18 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
             column, kind, nullable, collation = row
             if not isinstance(column, str) or not isinstance(kind, str):
                 raise self.unsupported("malformed MySQL column metadata")
-            if self._declared_columns is not None and column not in self._declared_columns:
+            if columns is not None and column not in columns:
                 continue
-            if "unsigned" in kind.lower() or (
-                collation is not None and collation != "utf8mb4_0900_bin"
-            ):
+            if "unsigned" in kind.lower():
+                raise unsupported_source_type(dependency, column, kind)
+            if collation is not None and collation != "utf8mb4_0900_bin":
                 raise self.unsupported(
                     f"MySQL column {column!r} requires signed types and utf8mb4_0900_bin text"
                 )
-            datatype = self._mysql.compiler.type_mapper.from_string(
-                kind, nullable=nullable == "YES"
-            )
+            with source_type_errors(dependency, column, kind):
+                datatype = self._mysql.compiler.type_mapper.from_string(
+                    kind, nullable=nullable == "YES"
+                )
             if not (
                 datatype.is_signed_integer()
                 or datatype.is_floating()
@@ -127,7 +137,7 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                     and 0 <= datatype.scale <= datatype.precision <= 38
                 )
             ):
-                raise self.unsupported(f"MySQL column {column!r} has unsupported type {kind!r}")
+                raise unsupported_source_type(dependency, column, kind)
             fields[column] = datatype
             if datatype.is_date():
                 quoted = "`" + column.replace("`", "``") + "`"
@@ -136,7 +146,7 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                     f"OR DAY({quoted}) < 1 OR LAST_DAY({quoted}) IS NULL "
                     f"OR DAY({quoted}) > DAY(LAST_DAY({quoted}))))"
                 )
-        if not fields:
+        if not fields and dependency is None:
             raise self.unsupported("missing MySQL relation")
         if date_checks:
             qualified = ".".join("`" + part.replace("`", "``") + "`" for part in (namespace, name))

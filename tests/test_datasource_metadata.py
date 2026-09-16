@@ -535,6 +535,10 @@ def test_inspect_table_postgres_populates_physical_profile(
                     ("amount", "double precision", "YES", 2),
                 ],
             ),
+            "col_description": _FakeCursor(
+                ["column_name", "comment"],
+                [("order_id", "Stable order key"), ("amount", "Gross amount")],
+            ),
             "pg_total_relation_size": _FakeCursor(
                 ["reltuples", "total_relation_size"],
                 [(1200.0, 8192)],
@@ -555,6 +559,12 @@ def test_inspect_table_postgres_populates_physical_profile(
         size_kind="on_disk",
         source="postgres.pg_class",
     )
+
+    assert {column.name: column.comment for column in metadata.columns} == {
+        "order_id": "Stable order key",
+        "amount": "Gross amount",
+    }
+    assert any('to_regclass(\'"analytics"."orders"\')' in query for query in backend.queries)
 
 
 def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
