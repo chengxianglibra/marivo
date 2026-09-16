@@ -295,7 +295,7 @@ SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 会
 会将其报告为结构化的不支持-操作错误。此时应改用受支持的聚合与原生时间
 列。
 
-数据源建模支持与 Dataset 执行是两个边界。PostgreSQL、MySQL、SQLite 与 Trino 的 Group A
+数据源建模支持与 Dataset 执行是两个边界。PostgreSQL、MySQL、SQLite、Trino 与 ClickHouse 的 Group A
 分别支持单张未版本化表及直接列上的标量 Metric，并有各自的物理类型和表范围限制。
 参见[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)。声明数据源不会启用其他
 Dataset 方法或后端。
@@ -1404,3 +1404,5 @@ result.show()
 并用 Parquet 保留状态。冷恢复后的投影与下游分析保持方法不变；执行不会自动选择
 其他方法，也不会失败后更换算法重试。通过 `marivo.help("semantic.quantile_metric")`
 发现完整输入契约。
+
+ClickHouse Dataset 仅支持普通本地 MergeTree 表的已验证标量类型，且要求只读账户具有有效的 `join_use_nulls=1`；详细范围见分析工作流。

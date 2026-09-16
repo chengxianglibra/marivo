@@ -326,3 +326,25 @@ data-bearing page counts, Arrow rows/bytes and available server statistics. Wire
 bytes remain unavailable; SQL predicates alone are not partition-pruning evidence.
 The fixture's server limits are external limits, not Marivo admission budgets.
 Historical Slice 0 snapshot/expiry probes do not gate ordinary Dataset execution.
+
+### Slice 6 ClickHouse Group A
+
+Run this group serially with Trino; the existing manager stops the dedicated
+Trino group before starting ClickHouse. No pytest target starts services.
+
+```bash
+bash tests/multisource_environment/manage.sh start clickhouse
+.venv/bin/python -m tests.multisource_environment.clickhouse_analysis
+MARIVO_CLICKHOUSE_ANALYSIS_TEST=1 make runtime-test TESTS='tests/test_lazy_clickhouse_runtime.py tests/test_lazy_scalar_recovery.py'
+```
+
+Setup provisions a SELECT-only `analysis_reader` on `qualification.*`, with
+server-enforced `readonly=1` and `join_use_nulls=1`. Admin fixture setup is
+separate from actual Dataset reads. Passwords remain in the existing private
+environment file and are passed via environment references.
+
+Set `MARIVO_SLICE6_RECEIPT` to an output JSON path to capture the real Dataset
+20,000-row reduction, executed statements and Native block counts. The historical
+Slice 0 Arrow assertion-envelope/snapshot experiment is not Slice 6 acceptance.
+This slice uses separate metadata, assertion and output reads without a shared
+snapshot. Timestamp/timezone and unsigned input types remain unqualified.

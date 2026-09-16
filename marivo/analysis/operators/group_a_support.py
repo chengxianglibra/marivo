@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots, required_entities
@@ -26,6 +27,33 @@ _METHODS = frozenset(
         "metric.limit",
     }
 )
+
+
+def supports_scalar_type(value: str) -> bool:
+    """Recognize the common scalar types, including derived generic Decimal."""
+    if value in {
+        "string",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "float32",
+        "float64",
+        "date",
+        "decimal",
+    }:
+        return True
+    decimal = re.fullmatch(r"decimal\(([1-9][0-9]?),\s*([0-9]+)\)", value)
+    return decimal is not None and 0 <= int(decimal[2]) <= int(decimal[1]) <= 38
+
+
+def supports_explicit_decimal_sources(
+    dataset: LogicalDataset, supported_type: Callable[[str], bool]
+) -> bool:
+    """Reject generic source Decimal while permitting derived Metric Decimal."""
+    return supports(dataset, supported_type) and all(
+        kind != "decimal" for entity in required_entities(dataset) for _, kind in entity.columns
+    )
 
 
 def _dimension(

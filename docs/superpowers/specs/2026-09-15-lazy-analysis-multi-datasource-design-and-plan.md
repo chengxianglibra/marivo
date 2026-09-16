@@ -388,9 +388,11 @@ qualification, without a common-snapshot admission test.
 Use source assertions and output queries in the required order. A
 single-statement assertion envelope and proof of read sharing under concurrent
 writes are not activation requirements. Verify empty-output validation, effective
-JOIN null behavior, finite-value handling, Decimal decoding and timezone
-conversion. Do not skip required checks or infer Dataset support from a raw
-aggregate. Ordinary support does not depend on multi-statement transactions.
+JOIN null behavior, finite-value handling and Decimal decoding. Timezone
+conversion must be qualified before admitting timestamp/timezone inputs; the
+approved Slice 6 scope defers those inputs and conversion, while retaining the
+engine timezone metadata probe for native-date scope resolution. Do not skip
+required checks or infer Dataset support from a raw aggregate. Ordinary support does not depend on multi-statement transactions.
 
 ### Driver-owned transactions
 
@@ -609,8 +611,12 @@ Slice 5 is complete for the declared Trino Iceberg Group A scope; see the
 [Slice 5 evidence record](2026-09-16-multisource-slice-5-acceptance.md), including
 server-enforced read-only execution, ordinary scans, exact scalar identity/types,
 actual multi-page transport, cursor cancellation, safe local recovery, independent
-review and final broad/site validation. ClickHouse execution remains unenabled; advanced method groups remain unenabled
-on Trino.
+review and final broad/site validation. At the Slice 5 boundary ClickHouse
+execution remained unenabled; advanced method groups remain unenabled on Trino.
+Slice 6 implements the declared ordinary local MergeTree ClickHouse Group A
+scope; see the [Slice 6 evidence record](2026-09-16-multisource-slice-6-acceptance.md).
+Timestamp/timezone, unsigned physical inputs and advanced groups are not enabled.
+Consolidated installed-package acceptance remains Slice 8.
 At the Slice 2 boundary only DuckDB was enabled; its multi-entry registration
 tests are pure dispatch checks, not remote execution acceptance. PostgreSQL
 activation is established by the separate Slice 3 evidence above.

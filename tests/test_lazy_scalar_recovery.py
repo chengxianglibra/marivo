@@ -1,4 +1,4 @@
-"""Real MySQL, SQLite and Trino producer death and independent Session recovery."""
+"""Real MySQL, SQLite, Trino and ClickHouse producer death and independent Session recovery."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from tests.lazy_acceptance_capture import counts
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
+from tests.multisource_environment import clickhouse_analysis as clickhouse
 from tests.multisource_environment import mysql_analysis as mysql
 from tests.multisource_environment import trino_analysis as trino
 
@@ -36,18 +37,23 @@ REVENUE = ref.metric("sales.revenue")
 def registry_for(table: str, patch: pytest.MonkeyPatch):
     if table.endswith(".sqlite"):
         return scalar_registry(Path(table))
+    if table.startswith("clickhouse_"):
+        patch.setenv("MARIVO_TEST_CLICKHOUSE_PASSWORD", clickhouse.password())
+        return scalar_registry(Path("unused"), engine="clickhouse", table=table)
     if table.startswith("trino_"):
         return scalar_registry(Path("unused"), engine="trino", table=table)
     patch.setenv("MARIVO_TEST_MYSQL_PASSWORD", mysql.password())
     return scalar_registry(Path("unused"), engine="mysql", table=table)
 
 
-@pytest.fixture(params=["sqlite", "mysql", "trino"])
+@pytest.fixture(params=["sqlite", "mysql", "trino", "clickhouse"])
 def source_table(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str]:
     if request.param == "mysql" and os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1":
         pytest.skip("opt-in MySQL service")
     if request.param == "trino" and os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1":
         pytest.skip("opt-in Trino service")
+    if request.param == "clickhouse" and os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1":
+        pytest.skip("opt-in ClickHouse service")
     schema = "id BIGINT, tenant TEXT, customer_id BIGINT, order_id BIGINT, amount DOUBLE, weight DOUBLE, region TEXT, channel TEXT, day DATE, start DATE, `end` DATE"
     if request.param == "sqlite":
         path = tmp_path / "source.sqlite"
@@ -55,6 +61,21 @@ def source_table(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str
             con.execute(f"CREATE TABLE orders({schema})")
             con.execute("INSERT INTO orders(id,amount) VALUES (1,10.25),(2,20.50)")
         yield str(path)
+    elif request.param == "clickhouse":
+        name = "clickhouse_recovery_" + uuid4().hex
+        with clickhouse.connection(admin=True) as con:
+            ch_schema = (
+                schema.replace("BIGINT", "Nullable(Int64)")
+                .replace("DOUBLE", "Nullable(Float64)")
+                .replace("TEXT", "Nullable(String)")
+                .replace("DATE", "Nullable(Date)")
+            )
+            con.command(f"CREATE TABLE {name}({ch_schema}) ENGINE=MergeTree ORDER BY tuple()")
+            con.command(f"INSERT INTO {name}(id,amount) VALUES (1,10.25),(2,20.50)")
+            try:
+                yield name
+            finally:
+                con.command(f"DROP TABLE {name}")
     elif request.param == "trino":
         name = "trino_recovery_" + uuid4().hex
         with trino.connection(admin=True) as con:

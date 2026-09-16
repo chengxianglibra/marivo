@@ -145,6 +145,10 @@ def resolve_execution(backend: str) -> ExecutionBackend | None:
     owns concrete functions only; declarations and realizations are checked together
     by the backend contract test without importing Runtime into the compiler.
     """
+    from marivo.analysis.materialization.clickhouse_execution import (
+        admit_dataset as admit_clickhouse,
+    )
+    from marivo.analysis.materialization.clickhouse_execution import bind_clickhouse
     from marivo.analysis.materialization.duckdb_execution import (
         admit_dataset,
         bind_duckdb,
@@ -169,5 +173,6 @@ def resolve_execution(backend: str) -> ExecutionBackend | None:
         "mysql": ExecutionBackend(bind_mysql, None, admit_mysql),
         "sqlite": ExecutionBackend(bind_sqlite, None, admit_sqlite),
         "trino": ExecutionBackend(bind_trino, None, admit_trino),
+        "clickhouse": ExecutionBackend(bind_clickhouse, None, admit_clickhouse),
     }
     return factories.get(registration.backend)

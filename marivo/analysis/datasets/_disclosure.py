@@ -273,7 +273,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="Paired Materialized Dataset",
                 code="result = metric.execute()",
                 requires=("metric",),
-                effects="Source execution supports DuckDB and admitted PostgreSQL, MySQL, SQLite and Trino scalar Metrics on one unversioned table; physical types and table scope are backend-specific. All source methods use the same implementation registry; concrete adapters own preparation and resource effects. Local methods run in the caller without execution budgets; original exceptions propagate. Source queries may observe different source states; required checks and atomic publication remain enforced. An execution-key hit recovers the existing snapshot, not fresh source rows. For current source rows, use a new named Session or change an explicit row-affecting input.",
+                effects="Source execution supports DuckDB and admitted PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar Metrics on one unversioned table; physical types and table scope are backend-specific. All source methods use the same implementation registry; concrete adapters own preparation and resource effects. Local methods run in the caller without execution budgets; original exceptions propagate. Source queries may observe different source states; required checks and atomic publication remain enforced. An execution-key hit recovers the existing snapshot, not fresh source rows. For current source rows, use a new named Session or change an explicit row-affecting input.",
                 runtime=True,
             ),
             common(

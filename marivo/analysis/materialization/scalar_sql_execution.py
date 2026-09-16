@@ -24,6 +24,7 @@ from marivo.analysis.materialization.scalar_projection import project
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 if TYPE_CHECKING:
+    from ibis.backends.clickhouse import Backend as ClickHouseBackend
     from ibis.backends.mysql import Backend as MySQLBackend
     from ibis.backends.sqlite import Backend as SQLiteBackend
     from ibis.backends.trino import Backend as TrinoBackend
@@ -169,7 +170,10 @@ class ScalarExecutionAdapter:
     engine: str
 
     def __init__(
-        self, backend: MySQLBackend | SQLiteBackend | TrinoBackend, *, run_ref: str | None = None
+        self,
+        backend: MySQLBackend | SQLiteBackend | TrinoBackend | ClickHouseBackend,
+        *,
+        run_ref: str | None = None,
     ) -> None:
         self._backend = backend
         self._run_ref = run_ref
