@@ -227,7 +227,7 @@ class ScalarExecutionAdapter:
             raise self.error(
                 "declared relational input",
                 "upload or UDF expression",
-                "Use the registered source-only Group A shape.",
+                "Use an admitted read-only expression without uploads or UDF preparation.",
                 stage="implementation_registration",
             )
         physical = project(self._lower(expression), run_ref=self._run_ref)
@@ -376,9 +376,9 @@ class ScalarExecutionAdapter:
 
         if implementation(dataset).for_backend(self.engine) is None:
             raise self.error(
-                "an exact Group A registration",
+                "an exact backend method registration",
                 "unsupported dependency closure",
-                "Use a single unversioned table and registered direct-column Metrics.",
+                "Use source types and method shapes admitted by this backend.",
                 stage="implementation_registration",
             )
 
@@ -409,7 +409,7 @@ class ScalarExecutionAdapter:
 
     def unsupported(self, operation: str) -> MaterializationError:
         return self.error(
-            "a registered read-only Group A operation",
+            "a registered read-only source operation",
             operation,
             "Keep this operation on an explicitly registered execution owner.",
             stage="implementation_registration",

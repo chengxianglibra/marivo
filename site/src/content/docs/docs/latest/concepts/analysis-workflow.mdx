@@ -151,9 +151,42 @@ must support read-only accounts and meet the same semantic requirements before
 activation. An unavailable implementation fails explicitly; it does not silently
 move source data to another engine. PostgreSQL, MySQL, SQLite, Trino and ClickHouse support the subsets below.
 
+
+### Relational methods and native-date analysis
+
+Within each backend's table and physical type scope, you can also use direct-column
+mean, weighted mean and ratio, same-source relationships, native-date buckets
+(day/week/month/quarter/year, one unit), and snapshot/validity membership.
+PostgreSQL supports both validity interval closures and configured open-end sentinels;
+MySQL, SQLite, Trino and ClickHouse admit closed-open intervals with NULL open ends.
+All joins and version selections retain their required identity and fanout checks.
+
+For an authored mean Metric, retain its sufficient components before rolling up:
+
+```python
+mean_amount = ms.ref.metric("sales.mean_amount")
+channel = ms.ref.dimension("sales.orders.channel")
+means = session.observe(mean_amount).with_dimensions(channel).aggregate().execute()
+overall = means.rollup(drop_dimensions=(channel,)).execute()
+overall.show()
+```
+
+The rollup recomputes the mean from retained sum/count state, rather than averaging
+group means. Comparison and attribution use complete non-Entity retained axes.
+Forecast, Kendall and time discovery run locally on complete source-aggregated
+inputs. Cold retained reads and folds do not need the original source.
+
+Timestamp/timezone/DST and string-parser time axes, multi-unit or semantic-calendar
+buckets, cumulative/status-time folds, linear Metric graphs and unresolved Decimal
+result precision remain unsupported. Sampling, hidden-axis expanded attribution,
+Entity correlation, exact distinct/quantile private state, Entity candidates,
+source driver screening and Event/Lifecycle are not enabled by this extension.
+Unsupported shapes report a concrete reason; they do not trigger raw source
+collection or remote retained uploads.
+
 ### PostgreSQL scalar Metrics
 
-PostgreSQL analysis accepts a single datasource and a single unversioned table,
+PostgreSQL Group A accepts a single datasource and a single unversioned table,
 with direct-column `sum`, `count`, `min` or `max` Metrics. You can select Population
 membership, scope observations by native dates, add dimensions, aggregate Entity
 rows, filter, project Metrics, rank deterministically and select Top-N. The entire
@@ -223,8 +256,8 @@ SQLite steps its native cursor incrementally; sorting and aggregation may still
 materialize inside the engine. Batches limit rows, not bytes, and each cell is
 decoded in full. SQLite execution is query-only. Source assertions and output reads may see
 different states; publication remains atomic. Retained results stay in Parquet
-and use the existing native reader, without upload to either source. Relationships,
-composed Metrics, sampling and advanced methods remain outside this subset.
+and use the existing native reader, without upload to either source. The relational/native-date extension above adds individually qualified methods.
+Sampling and source-private advanced methods remain outside this subset.
 
 ### Trino Iceberg scalar Metrics
 
@@ -250,8 +283,8 @@ are reconstructed from typed scalar columns. Batches are not byte or memory
 limits. Driver/server limits remain external. Active cursors are owned before
 submission; cancellation and close failures report unknown remote status without
 blocking safe local recovery. Validation and output can observe different source
-states. Relationships, composed Metrics, sampling, retained imports and advanced
-methods remain unavailable.
+states. Sampling, retained imports and source-private advanced methods remain unavailable;
+the relational/native-date extension above adds individually qualified methods.
 
 The scalar workflow example above also applies to an authored Trino Iceberg Metric.
 
@@ -260,8 +293,8 @@ The scalar workflow example above also applies to an authored Trino Iceberg Metr
 ClickHouse Group A admits one datasource and one unversioned ordinary local
 MergeTree table: direct-column sum/count/min/max, Population filters, native-date
 scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
-limit. Relationships, versions, sampling, retained import and advanced methods
-remain unavailable.
+limit. Sampling, retained import and source-private advanced methods remain unavailable.
+The relational/native-date extension owns additional method admission.
 
 Physical inputs are Int8/16/32/64, Float32/64, String, Date and explicit Decimal
 precision up to 38, optionally Nullable. Unsigned inputs, Int128/256, Enum,

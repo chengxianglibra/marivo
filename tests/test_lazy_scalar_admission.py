@@ -66,7 +66,7 @@ def test_complete_closure(
             .aggregate()
         )
     registration = implementation(target).for_backend(engine)
-    if unsupported:
+    if unsupported not in {None, "mean", "projected_mean", "relationship"}:
         assert registration is None
         with pytest.raises(DatasetCompilationError):
             place(target)

@@ -226,12 +226,13 @@ def bind_trino(
 
 
 def admit_dataset(dataset: LogicalDataset) -> None:
-    from marivo.analysis.operators.trino_support import supports
+    from marivo.analysis.operators.trino_support import unsupported_reason
 
-    if not supports(dataset):
+    reason = unsupported_reason(dataset)
+    if reason is not None:
         raise MaterializationError(
-            expected="an exact Trino Group A closure",
-            received="unsupported Dataset",
-            repair="Use one unversioned Iceberg table and registered scalar operations and types.",
+            expected="a qualified Trino Iceberg scalar closure",
+            received=reason,
+            repair="Use qualified scalar methods over declared Iceberg tables and native civil dates.",
             stage="implementation_registration",
         )

@@ -89,9 +89,38 @@ Candidate 实现；临时资源、宏和注册由具体适配器负责。远程�
 并满足相同语义要求后才能启用。没有可用实现时明确拒绝，不会隐式把源数据搬到其他
 引擎执行。PostgreSQL、MySQL、SQLite、Trino 与 ClickHouse 支持下述子集。
 
+
+### 关系方法与原生日期分析
+
+在各后端已支持的表和物理类型范围内，还可以使用直接列上的 mean、weighted mean、
+ratio、同源关系、原生日期桶（单单位 day/week/month/quarter/year）以及 snapshot/validity
+成员选择。PostgreSQL 支持两种 validity 区间闭合方式及已配置的开放端哨兵；
+MySQL、SQLite、Trino、ClickHouse 支持左闭右开区间及 NULL 开放端。
+所有关系与版本选择仍执行必要的身份和 fanout 校验。
+
+对于已声明的均值 Metric，先保留充分组成状态，再进行 rollup：
+
+```python
+mean_amount = ms.ref.metric("sales.mean_amount")
+channel = ms.ref.dimension("sales.orders.channel")
+means = session.observe(mean_amount).with_dimensions(channel).aggregate().execute()
+overall = means.rollup(drop_dimensions=(channel,)).execute()
+overall.show()
+```
+
+rollup 从保留的 sum/count 状态重新计算均值，不对分组均值直接平均。
+比较与归因使用完整的非 Entity 保留轴；Forecast、Kendall 和时间发现方法在源端完整
+聚合后于调用进程执行。冷读与保留结果折叠不需要原始数据源。
+
+timestamp/时区/DST、字符串时间解析、多单位或语义日历桶、累计/status-time 折叠、
+线性 Metric 图以及未确定结果精度的 Decimal 组合仍不支持。
+采样、隐藏轴展开归因、Entity correlation、exact distinct/quantile 私有状态、
+Entity candidates、源端 driver screening 和 Event/Lifecycle 不随此扩展启用。
+不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。
+
 ### PostgreSQL 标量 Metric
 
-PostgreSQL 分析接受单个数据源、单张未版本化表，以及直接列上的 `sum`、`count`、
+PostgreSQL Group A 接受单个数据源、单张未版本化表，以及直接列上的 `sum`、`count`、
 `min`、`max` Metric。可以选择 Population 成员、按原生日期限定观察范围、添加维度、
 聚合 Entity 行、过滤、投影 Metric、确定性排名和选择 Top-N。整个依赖图都必须受支持，
 包括被投影移除的 Metric。
@@ -150,8 +179,7 @@ SQLite 将写入的 NaN 转成 NULL，无法恢复该区别；整数 SUM 溢出�
 MySQL 非缓冲游标提前关闭时可能排空未读响应，不承诺硬取消时限或内存上限。
 SQLite 原生游标逐步读取，但引擎内部仍可能物化排序或聚合。批次限制行数而非字节数，
 单个值仍会完整解码。SQLite 执行启用 query-only。校验与输出查询可能观察到不同源状态，结果仍原子发布。
-保留结果使用 Parquet 和现有读取器，不上传到来源。关系、组合指标、采样和高级方法
-不在此子集内。
+保留结果使用 Parquet 和现有读取器，不上传到来源。关系与组合指标的扩展见上文；采样和源端私有状态高级方法仍未启用。
 
 ### Trino Iceberg 标量 Metric
 
@@ -170,8 +198,7 @@ Trino Group A 支持单个数据源、单张未版本化的普通 Iceberg 基表
 使用有 connector 和表元数据读取权限的只读身份。正常 Ibis 编译配合驱动增量分页，
 内部身份结构由类型化标量列重建；batch 不是字节或内存限制。驱动与服务端限制属于
 外部限制。提交前登记活跃 cursor；取消或关闭失败如实报告远程状态未知，但不阻塞
-安全的本地恢复。校验和输出可观察不同源状态。关系、组合 Metric、采样、retained
-导入及高级方法仍未启用。
+安全的本地恢复。校验和输出可观察不同源状态。关系与组合 Metric 的扩展见上文；采样、retained 导入及源端私有状态高级方法仍未启用。
 
 上述标量工作流示例也适用于已建模的 Trino Iceberg Metric。
 
@@ -179,7 +206,7 @@ Trino Group A 支持单个数据源、单张未版本化的普通 Iceberg 基表
 
 ClickHouse Group A 支持单数据源、单张未版本化的普通本地 MergeTree 表：
 直接列 sum/count/min/max、Population 过滤、原生日期范围、同 Entity 维度、
-聚合、投影、确定性排名与 limit。关系、版本、采样、retained import 和高级方法仍未启用。
+聚合、投影、确定性排名与 limit。关系与版本的扩展范围见上文；采样、retained import 和源端私有状态高级方法仍未启用。
 
 物理类型限于 Int8/16/32/64、Float32/64、String、Date、精度不超过 38 的显式
 Decimal，以及相应 Nullable 类型。unsigned、Int128/256、Enum、LowCardinality、

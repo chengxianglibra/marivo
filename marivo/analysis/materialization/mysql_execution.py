@@ -1,4 +1,4 @@
-"""MySQL read-only InnoDB Group A execution using unbuffered driver cursors."""
+"""MySQL read-only InnoDB scalar method execution using unbuffered driver cursors."""
 
 from __future__ import annotations
 
@@ -31,6 +31,9 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
             node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
         ) -> ops.Node:
             value = node.copy(**kwargs)
+            if isinstance(value, ops.DateTruncate) and value.unit.name == "WEEK":
+                date = value.arg.to_expr()
+                return (date - date.day_of_week.index().as_interval("D")).op()
             if isinstance(value, ops.Sum) and value.dtype.is_floating():
                 # Native MySQL SUM may serialize overflow as zero or saturate a cast.
                 # Adding floating zero preserves finite sums and forces native overflow.
@@ -85,7 +88,9 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
             record=record,
         )
         if engine != "InnoDB":
-            raise self.unsupported(f"MySQL table engine {engine!r}; Group A requires InnoDB")
+            raise self.unsupported(
+                f"MySQL table engine {engine!r}; scalar execution requires InnoDB"
+            )
         query = (
             "SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLLATION_NAME FROM information_schema.columns "
             "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s ORDER BY ORDINAL_POSITION"
@@ -181,12 +186,13 @@ def bind_mysql(
 
 
 def admit_dataset(dataset: LogicalDataset) -> None:
-    from marivo.analysis.operators.mysql_support import supports
+    from marivo.analysis.operators.mysql_support import unsupported_reason
 
-    if not supports(dataset):
+    reason = unsupported_reason(dataset)
+    if reason is not None:
         raise MaterializationError(
-            expected="an exact MySQL Group A closure",
-            received="unsupported Dataset",
-            repair="Use the registered single-table scalar operations and types.",
+            expected="an individually qualified MySQL scalar method closure",
+            received=reason,
+            repair="Use qualified scalar methods, native civil-date axes and declared InnoDB sources.",
             stage="implementation_registration",
         )

@@ -1,12 +1,8 @@
-"""Pure admission for the implemented PostgreSQL scalar Metric closure."""
+"""Pure admission for the implemented postgres scalar method closure."""
 
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.operators.group_a_support import (
-    supports as supports_group_a,
-)
-from marivo.analysis.operators.group_a_support import (
-    supports_scalar_type,
-)
+from marivo.analysis.operators.scalar_support import supports_scalar_type
+from marivo.analysis.operators.scalar_support import unsupported_reason as scalar_reason
 
 
 def supported_type(value: str) -> bool:
@@ -14,6 +10,12 @@ def supported_type(value: str) -> bool:
     return value in {"boolean", "timestamp"} or supports_scalar_type(value)
 
 
-def supports(dataset: LogicalDataset) -> bool:
-    """Check the complete source closure without opening a datasource."""
-    return supports_group_a(dataset, supported_type)
+def unsupported_reason(dataset: LogicalDataset) -> str | None:
+    """Describe an unqualified source closure without source work."""
+    return scalar_reason(
+        dataset,
+        supported_type,
+        relationships=True,
+        versions=True,
+        date_buckets=True,
+    )

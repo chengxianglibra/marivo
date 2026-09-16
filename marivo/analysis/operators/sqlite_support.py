@@ -1,7 +1,7 @@
-"""Pure admission for the implemented sqlite Group A closure."""
+"""Pure admission for the implemented sqlite scalar method closure."""
 
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.operators.group_a_support import supports as supports_group_a
+from marivo.analysis.operators.scalar_support import unsupported_reason as scalar_reason
 
 
 def supported_type(value: str) -> bool:
@@ -9,6 +9,13 @@ def supported_type(value: str) -> bool:
     return value in {"string", "int64", "float64", "date"}
 
 
-def supports(dataset: LogicalDataset) -> bool:
-    """Check the complete source-only dependency closure without source work."""
-    return supports_group_a(dataset, supported_type)
+def unsupported_reason(dataset: LogicalDataset) -> str | None:
+    """Describe an unqualified source closure without source work."""
+    return scalar_reason(
+        dataset,
+        supported_type,
+        relationships=True,
+        versions=True,
+        date_buckets=True,
+        closed_open_null_validity=True,
+    )

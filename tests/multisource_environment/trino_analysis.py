@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from trino.dbapi import Connection
@@ -22,7 +22,9 @@ def connection(*, admin: bool = False) -> Iterator[Connection]:
     try:
         yield con
     finally:
-        con.close()
+        # The driver leaves close unannotated; its connection protocol takes no arguments.
+        close: Callable[[], None] = con.close
+        close()
 
 
 def setup() -> dict[str, object]:

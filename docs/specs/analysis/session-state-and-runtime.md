@@ -166,8 +166,8 @@ writer ownership and cold source-free Artifact/binding reuse retain existing rul
 ClickHouse Group A admits one datasource and one unversioned ordinary local
 MergeTree table: direct-column sum/count/min/max, Population filters, native-date
 scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
-limit. Relationships, versions, sampling, retained import and advanced methods
-remain unavailable.
+limit. Sampling, retained import and source-private advanced methods remain unavailable.
+The relational/native-date extension owns additional method admission.
 
 Physical inputs are Int8/16/32/64, Float32/64, String, Date and explicit Decimal
 precision up to 38, optionally Nullable. Unsigned inputs, Int128/256, Enum,
@@ -188,3 +188,14 @@ Connection close does not prove remote termination. Unknown remote status does
 not prevent safe local recovery; partial output is never published. No shared
 snapshot, execution budget, upload, temporary object or implicit retry is added.
 Batch size is transport configuration, not a result cap.
+
+## Relational scalar sufficient-state execution
+
+The [relational/date admission owner](python-analysis-design.md#relational-and-native-date-methods)
+extends the existing adapters; it adds no executor, Store generation or retained-import
+permission. Mean, weighted mean and ratio publish their sufficient components with
+the primary result in the existing atomic transaction. Cold retained rollup reads
+those components without reconnecting to the original source. Source checks,
+primary output and part reads remain separate observations, without a shared
+snapshot or automatic retry. Source-to-local Forecast, Kendall and time discovery
+transfer the complete admitted aggregate input and execute synchronously.

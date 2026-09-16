@@ -9,6 +9,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
@@ -73,7 +74,7 @@ def _invalid(
             "implementation_registration",
             "read-only relational inputs without uploads or UDF registration",
             "the expression or statement requests unregistered preparation",
-            "Use declared PostgreSQL table columns and the registered Group A operations.",
+            "Use declared PostgreSQL table columns and admitted read-only scalar or relational methods.",
         ),
         "statement_params": (
             "execution_boundary",
@@ -121,7 +122,7 @@ def _invalid(
             "implementation_registration",
             "an exact PostgreSQL registration for the Dataset's full dependency closure",
             "the Dataset has no PostgreSQL implementation registration",
-            "Use a single unversioned table with direct-column sum/count/min/max and admitted Group A operations.",
+            "Use PostgreSQL source types and method shapes admitted by the implementation registry.",
         ),
         "record_shape": (
             "output_validation",
@@ -144,6 +145,16 @@ def _invalid(
         stage=stage,
         run_ref=run_ref,
     )
+
+
+def _postgres_expression(expression: ir.Expr) -> ir.Expr:
+    """Lower boolean numeric casts through PostgreSQL's supported int4 cast."""
+    replacements = {
+        node: ops.Cast(ops.Cast(node.arg, to=dt.int32), to=node.to)
+        for node in expression.op().find(ops.Cast)
+        if node.arg.dtype.is_boolean() and node.to.is_integer() and node.to != dt.int32
+    }
+    return expression.op().replace(replacements).to_expr() if replacements else expression
 
 
 class PostgresScalarRows:
@@ -262,7 +273,7 @@ class PostgresExecutionAdapter:
     def prepare(self, expression: ir.Expr, *, role: str = "query") -> Statement:
         self._expression(expression)
         return Statement(
-            self._backend.compile(expression.as_table(), limit=None),
+            self._backend.compile(_postgres_expression(expression).as_table(), limit=None),
             (),
             expression.as_table().schema().to_pyarrow(),
             role,
@@ -312,7 +323,9 @@ class PostgresExecutionAdapter:
             self._expression(value)
             self._backend._run_pre_execute_hooks(value)
             statement = Statement(
-                self._backend.compile(value.as_table(), params=params, limit=None),
+                self._backend.compile(
+                    _postgres_expression(value).as_table(), params=params, limit=None
+                ),
                 (),
                 value.as_table().schema().to_pyarrow(),
                 role,
@@ -499,7 +512,8 @@ def bind_postgres(
 
 
 def admit_dataset(dataset: LogicalDataset) -> None:
+    from marivo.analysis.operators.postgres_support import unsupported_reason
     from marivo.analysis.operators.registry import implementation
 
     if implementation(dataset).for_backend("postgres") is None:
-        raise _invalid("unsupported_dataset")
+        raise _invalid("unsupported_dataset", detail=unsupported_reason(dataset))

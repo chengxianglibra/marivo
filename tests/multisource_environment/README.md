@@ -348,3 +348,11 @@ Set `MARIVO_SLICE6_RECEIPT` to an output JSON path to capture the real Dataset
 Slice 0 Arrow assertion-envelope/snapshot experiment is not Slice 6 acceptance.
 This slice uses separate metadata, assertion and output reads without a shared
 snapshot. Timestamp/timezone and unsigned input types remain unqualified.
+
+## Slice 7 relational and native-date acceptance
+
+The same isolated read-only identities and table scopes now qualify individual
+mean/weighted-mean/ratio, relationship, native-date and local-suffix methods.
+See the [Slice 7 matrix and reproduction commands](../../docs/superpowers/specs/2026-09-16-multisource-slice-7-acceptance.md).
+Run backend suites serially; starting ClickHouse stops this environment's Trino
+group, and vice versa. No pytest invocation starts a service or relaxes privileges.
