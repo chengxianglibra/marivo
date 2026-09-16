@@ -12,21 +12,12 @@ bounded, evidence-backed Marivo investigation. This skill owns workflow
 boundaries, handoffs, evidence continuity, and closeout obligations. The agent
 owns planning, method choice, analytical judgment, synthesis, and stopping.
 
-Trust the verified installed Marivo environment and its live guidance:
-
-- `marivo.help("analysis")` owns the environment fingerprint, responsibility
-  boundary, and progressive entry map;
-- `analysis.entry`, `analysis.methods`, `analysis.inputs`, `analysis.artifacts`,
-  `analysis.evidence`, and `analysis.runtime` are the six discovery hubs;
-- focused `marivo.help("analysis.<target>")` owns exact signatures,
-  constraints, return types, and examples;
-- governed semantic objects own reusable business meaning;
-- Materialized Dataset `.show()` owns bounded committed result state;
-- Dataset `.contract()` owns current state and mechanically valid next actions;
-- `marivo.help("analysis.actions.to_pandas")` owns the exact terminal exit;
-- structured errors own repair guidance.
-
-Do not reconstruct those contracts from this skill, remembered syntax, or
+Use the host-selected verified environment. `marivo.help("analysis")` provides
+progressive discovery; focused Help owns signatures, constraints, and examples.
+Materialized Dataset `.show()` owns committed result state, Dataset `.contract()`
+owns mechanically valid continuations, and structured errors own repair.
+Governed semantic objects own reusable business meaning. Consult live guidance
+when the next decision needs it; do not reconstruct contracts from memory or
 private implementation details.
 
 ## Bounded analysis loop
@@ -70,10 +61,10 @@ Do not upload retained results or bypass governed analysis to evade a rejection.
 
 Build the smallest logical Dataset chain that can satisfy the Evidence
 obligation. Logical construction describes work; it is not evidence that rows
-were read or results exist. Inspect `.contract().show()` when state or the valid next
+were read or results exist. Inspect the Dataset contract when state or the next
 action is uncertain, and follow its exact Help target for the chosen continuation.
 Execute when a result is needed for interpretation or an intentional recovery
-boundary, then inspect the Materialized Dataset with `.show()`. Route method discovery through
+boundary, then inspect the Materialized Dataset with `.show()`. Discover methods through
 `marivo.help("analysis.methods")`, but choose subsequent methods from the
 question and the Artifact in hand rather than from a fixed recipe.
 
@@ -94,9 +85,9 @@ projection, proposed hypotheses, and causal evidence.
 Use `marivo.help("analysis.artifacts")`,
 `marivo.help("analysis.evidence")`, the Artifact's current state, and its
 structured contract for the installed inspection mechanics. Preserve warnings
-and partial coverage. Exact versus approximate quantile evaluation is part of
-the business meaning: preserve the selected method through comparisons and
-retained continuations, and never change it merely to obtain a result. Do not turn absence into zero, association into causation,
+and partial coverage. Preserve the selected method and accuracy requirements
+through comparisons and retained continuations; do not relax them merely to
+obtain a result. Do not turn absence into zero, association into causation,
 a point forecast into certainty, or a segment result into a population claim.
 
 ### 5. Synthesize, hand off, or stop
@@ -135,12 +126,26 @@ limits that materially affect a conclusion, and hand the definition to
 Do not query business rows through Ibis, DuckDB, pandas readers, backend
 connections, private datasource handles, or ad hoc SQL to bypass Marivo.
 
-Before a terminal conversion, read
-`marivo.help("analysis.actions.to_pandas")`. Exit typed flow only when the
-required method is outside the installed governed surface and a bounded typed
-Artifact already establishes the inputs, scope, and Evidence chain. Keep the
-terminal calculation rerunnable alongside the exit, do not export and reload
-Artifact rows, and never feed a terminal result back into typed analysis.
+Before exporting rows, read `marivo.help("analysis.actions.to_pandas")` and
+distinguish inspection or presentation from a new calculation. Presentation may
+plot, arrange, label, or format existing results; changing population, metric
+meaning, aggregation, or comparison is analytical work and stays in typed flow
+when supported. A failed precondition is not an unsupported method.
+
+For a method outside the installed surface, complete the supported upstream
+work before exporting. Keep external calculations rerunnable with exact inputs,
+assumptions, and limitations; their outputs do not inherit typed Evidence
+guarantees. Preserve the original Artifact identity and scope for presentation.
+Terminality applies to the exported branch: the original Artifact remains
+usable, but exported rows and derivatives cannot re-enter typed analysis.
+
+Use `md.raw_sql(...)` only for a concrete source-specific question public
+inspection cannot answer, or provisional terminal analysis when typed inputs
+cannot be established. Read `marivo.help("datasource.raw_sql")` first, preserve
+caller-stated access budgets, and disclose scope, truncation, and semantic gaps.
+Raw SQL cannot replace available governed definitions or settle missing business
+meaning; keep provisional results separate from canonical Evidence and hand
+reusable gaps to `marivo-semantic`.
 
 ### Evidence continuity and recovery
 
@@ -155,24 +160,17 @@ If the question requires current source rows, follow the live execution contract
 for an explicit fresh observation boundary rather than treating a cache hit as
 refresh evidence.
 
-When resuming work, start with `marivo.help("analysis.runtime")` and use only its
-public runtime reads to recover the relevant branch. Consult
-`marivo.help("analysis.evidence")` before treating recovered Evidence as current.
-Distinguish committed integrity from current semantic authority and source
-freshness. Follow the installed inspection and repair guidance for the specific
-question; passing an integrity check cannot establish the other two.
+When resuming work, start with `marivo.help("analysis.runtime")`. Use bounded
+Run history to locate the exact committed Artifact, public runtime reads to
+restore it, and graph or Finding reads only when adjacency or audit detail is
+needed. Consult `marivo.help("analysis.evidence")` before relying on recovered
+Evidence.
 
-Runtime history, graph projections, and persisted Evidence reads aid recovery
-and audit. They do not by themselves establish current semantic authority,
-datasource freshness, causal interpretation, or business validity. Stop and
-disclose an affected branch when its authority or Evidence cannot be restored,
-and disclose freshness as unchecked unless a separate current source check
-establishes it.
-
-Cold-start recovery starts with bounded Run history. Use the runtime Help route
-to choose the installed Run read, restore the exact committed Artifact through
-the public runtime read, use a focused Session graph only for factual adjacency,
-and choose Artifact-owned Finding reads when audit details are required.
+Recovery and integrity checks do not establish current semantic authority,
+source freshness, causality, or business validity. Follow live inspection and
+repair guidance; disclose freshness as unchecked without a separate current
+source check. If authority or Evidence cannot be restored, stop and disclose
+only the affected branch and continue independent work.
 
 ### Structured repair and stopping
 
@@ -180,6 +178,13 @@ Follow the structured repair or focused Help for a failed public capability.
 Do not invent a neighboring API, private workaround, or silent fallback. Stop
 and disclose the affected branch when the current public contract cannot
 produce the required Evidence.
+
+### Resource decisions
+
+Choose input scope and external runner resources deliberately. Use current result
+contracts for complete-input requirements and semantic repairs. An external
+resource failure does not authorize sampling, truncation or fallback; explain
+the incomplete outcome before changing the analytical question or scope.
 
 ## Closeout
 
@@ -201,10 +206,3 @@ material conclusion:
 Do not prescribe a fixed report template or continue exploring after the
 required answers and limitations are complete. Delivery or publication belongs
 to an independent capability when the user requests it.
-
-### Resource decisions
-
-Choose input scope and external runner resources deliberately. Use current result
-contracts for complete-input requirements and semantic repairs. An external
-resource failure does not authorize sampling, truncation or fallback; explain
-the incomplete outcome before changing the analytical question or scope.

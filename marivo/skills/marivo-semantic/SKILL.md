@@ -12,32 +12,16 @@ analysis can reference safely. Enter when a business question needs new or
 changed governed meaning, or when `marivo-analysis` identifies a reusable gap.
 Keep question-specific calculations and presentation logic in analysis.
 
-This skill owns decision order, evidence and business-authority boundaries,
-coherent checkpoint choice, validation routing, and handoff. Mechanical
-contracts stay in the installed environment:
+`marivo.help("authoring")` selects the owning surface; focused Help owns
+constructors, effects, constraints, and examples. `.show()` and structured
+errors own result detail and repair. Project Python evaluated by `ms.load()` is
+the semantic source of truth. The agent interprets evidence and drafts Python;
+current business authority establishes reusable meaning.
 
-- `marivo.help("authoring")` selects the owning surface;
-- `marivo.help("semantic.authoring")`, `marivo.help("semantic.objects")`,
-  `marivo.help("semantic.builders")`, and `marivo.help("semantic.checks")`
-  own progressive semantic routing, while exact focused help owns constructors,
-  parameters, effects, constraints, and examples;
-- `.show()` and structured errors own result detail and repair;
-- project Python evaluated by `ms.load()` is the semantic source of truth.
-
-The agent interprets evidence and drafts Python; current authority owns reusable
-business meaning. Do not copy API inventories or error taxonomies into this
-skill.
-
-## Semantic modeling principles
-
-- Start from reusable business demand, not available tables or columns.
-- Reuse matching governed objects; repair changed shared meaning; add only a
-  distinct reusable concept.
-- Separate physical facts, reusable business meaning, and analysis choices.
-- Make grain, identity, time, unit, additivity, relationship cardinality, and
-  metric guardrails explicit when they affect interpretation.
-- Author one dependency-coherent semantic slice, never an unrelated domain-wide
-  rewrite.
+Author one dependency-coherent semantic slice. Keep grain, identity, time,
+units, additivity, cardinality, and metric guardrails explicit when they affect
+interpretation. Follow the decision dependencies below without repeating
+already-established facts or completed checks.
 
 ## General construction method
 
@@ -65,7 +49,12 @@ catalog = ms.load()
 
 Inspect current identities and definitions before mutation. Reuse matching refs,
 repair the smallest conflict, and author only genuine gaps. For a
-datasource-only request, declare, register, test the connection, and stop.
+datasource-only request, reuse a suitable existing datasource or declare and
+register a new one, test the connection, and stop.
+
+For a definition-explanation request, use the current catalog and focused Help.
+Do not run preview or readiness solely to explain a declaration; distinguish
+authored meaning from what the available structural evidence can establish.
 
 ### 3. Establish necessary physical facts
 
@@ -107,8 +96,9 @@ material unresolved choice needs one current, non-conflicting authority:
 
 When authority already establishes the meaning, proceed without asking for redundant confirmation.
 Otherwise name the earliest material choice, summarize the evidence and its
-limit, ask one question, and stop before typed analysis handoff. Do not create
-approval tokens or batch unrelated business questions.
+limit, ask one question, and stop before typed analysis handoff for the affected
+branch. Continue independent authorized work. Do not create approval tokens or
+batch unrelated business questions.
 
 ### 6. Author and validate one coherent slice
 
@@ -140,9 +130,10 @@ analysis, pass current refs or `analysis_ready_inputs` to `marivo-analysis` and
 continue the original question. Return only for another reusable semantic gap.
 
 For authoring-only work, report the slice, evidence and scope, material business
-authority, validation outcome, ready roots, and remaining risks. If blocked,
-name the exact object and single blocker, disclose data reads or source changes,
-and state the one action required to continue.
+authority, validation outcome, ready roots, and remaining risks. Disclose data
+reads or source changes. If blocked, name the affected objects, all known
+material blockers, and the smallest next action; do not hide blockers to fit
+a fixed template.
 
 ## Hard boundaries
 

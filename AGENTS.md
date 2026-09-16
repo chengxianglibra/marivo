@@ -171,6 +171,9 @@ When working on a task, read the right docs first:
 
 ## Documentation Updates
 
+- Any changes to the `marivo-semantic` or `marivo-analysis` skills require
+  explicit user approval before editing, including changes made to keep skills
+  aligned with implementation or documentation updates.
 - After behavior changes, update affected API, UI, user documentation, spec,
   or skill files in the same change.
 - When changing the public API, also update the example code in the `site/`
