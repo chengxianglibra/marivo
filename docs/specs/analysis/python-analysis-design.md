@@ -11,6 +11,22 @@ accounts and prove equivalent single evaluation, numerical behavior and required
 assertions before registration. No implicit alternate route or new cross-engine
 private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar subsets and the individually qualified relational/date methods below are enabled.
 
+### Required source columns
+
+All six backends derive required columns from the complete logical dependency
+closure, preserving each Entity, exact source binding and physical relation.
+Unused declared columns and unrelated physical columns do not participate in
+execution type admission, schema validation or source projection. Hidden Metrics,
+identity and relationship keys, version axes, predicates and retained components
+remain required even when the displayed result is empty or projected.
+Missing required columns, unsupported physical types and type mismatches identify
+the Entity, relation, logical/physical column and expected/actual type. This does
+not relax semantic loading or enable additional backend types or methods.
+
+Column comments remain datasource inspection evidence. Explicit inspection retains
+comments for unused columns and maps physical comments to declared aliases;
+execution does not fetch comments or infer business semantics from them.
+
 ### Discovering execution boundaries
 
 `marivo.help("analysis.actions.execute")` owns the bounded execution guidance.
@@ -63,7 +79,7 @@ Metrics, membership predicates and Metric slices. Supported operations are
 Population membership, scoped observation, dimensions, Entity aggregation,
 filtering, Metric projection, deterministic ranking and Top-N.
 
-All declared table columns must use Boolean, string, signed integer, float32,
+All required source columns must use Boolean, string, signed integer, float32,
 float64, date, plain timestamp or Decimal types. Explicit Decimal precision is
 at most 38 and scale lies between zero and precision; a generic Decimal declaration
 still requires compatible physical metadata. Temporal scopes use native date

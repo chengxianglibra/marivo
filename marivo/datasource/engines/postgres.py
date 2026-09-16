@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
@@ -69,6 +70,7 @@ def _inspect_postgres(
         _merge_columns,
         _partition_columns_from_expression,
         _query_rows,
+        _quote_identifier,
         _quote_literal,
         _schema_columns,
     )
@@ -76,6 +78,12 @@ def _inspect_postgres(
     schema_columns = _schema_columns(table_expr)
     schema_name = _database_label(database) or default_schema or "public"
     warnings: list[MetadataWarning] = []
+    comment_schema = _database_label(database) or default_schema
+    qualified = ".".join(
+        _quote_identifier(part)
+        for part in ((comment_schema, table) if comment_schema else (table,))
+    )
+    relation = f"pg_catalog.to_regclass({_quote_literal(qualified)})"
     table_comment: str | None = None
     catalog_columns: dict[str, ColumnMetadata] = {}
     physical_profile: TablePhysicalProfile | None = None
@@ -83,8 +91,7 @@ def _inspect_postgres(
     try:
         table_rows = _query_rows(
             backend,
-            "SELECT obj_description(to_regclass("
-            f"{_quote_literal(f'{schema_name}.{table}')}), 'pg_class') AS comment",
+            f"SELECT obj_description({relation}, 'pg_class') AS comment",
         )
         if table_rows:
             table_comment = _empty_to_none(table_rows[0].get("comment"))
@@ -120,6 +127,37 @@ def _inspect_postgres(
             MetadataWarning(
                 kind="metadata_query_failed",
                 message=f"postgres column metadata query failed: {exc}",
+            )
+        )
+
+    try:
+        comment_rows = _query_rows(
+            backend,
+            "SELECT a.attname AS column_name, pg_catalog.col_description(a.attrelid, a.attnum) AS comment "
+            "FROM pg_catalog.pg_attribute a "
+            f"WHERE a.attrelid = {relation} AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum",
+        )
+        if not comment_rows and schema_columns:
+            warnings.append(
+                MetadataWarning(
+                    kind="column_comments_unavailable",
+                    message="PostgreSQL column comment metadata was unavailable for the resolved relation.",
+                )
+            )
+        comments = {
+            str(row["column_name"]): _empty_to_none(row.get("comment")) for row in comment_rows
+        }
+        for schema_column in schema_columns:
+            if schema_column.name in comments:
+                comment_column = catalog_columns.get(schema_column.name, schema_column)
+                catalog_columns[schema_column.name] = replace(
+                    comment_column, comment=comments[schema_column.name]
+                )
+    except Exception:
+        warnings.append(
+            MetadataWarning(
+                kind="column_comments_unavailable",
+                message="PostgreSQL column comments could not be read for the resolved relation.",
             )
         )
 

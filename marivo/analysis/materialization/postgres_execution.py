@@ -16,11 +16,17 @@ import pyarrow as pa
 from sqlglot import expressions as sge
 
 from marivo.analysis.compiler.nodes import CompiledSampleFence
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import (
+    MaterializationError,
+    source_type_errors,
+    unsupported_source_type,
+)
 from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
+from marivo.analysis.operators.postgres_support import supported_type
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 if TYPE_CHECKING:
@@ -390,8 +396,12 @@ class PostgresExecutionAdapter:
         *,
         database: str | None = None,
         catalog: str | None = None,
+        dependency: EntitySourceDependency | None = None,
         record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
+        if dependency is not None:
+            dependency.validate_request(name, database, catalog)
+        columns = None if dependency is None else dependency.physical_columns
         if catalog is not None:
             raise self._error("cross_catalog")
         qualified = ".".join(
@@ -417,10 +427,21 @@ class PostgresExecutionAdapter:
                 or type(row[2]) is not bool
             ):
                 raise self._error("schema_row")
-            fields[row[0]] = self._backend.compiler.type_mapper.from_string(
-                row[1], nullable=bool(row[2])
+            if columns is not None and row[0] not in columns:
+                continue
+            with source_type_errors(dependency, row[0], row[1]):
+                fields[row[0]] = self._backend.compiler.type_mapper.from_string(
+                    row[1], nullable=bool(row[2])
+                )
+            datatype = fields[row[0]]
+            kind = (
+                "timestamp"
+                if isinstance(datatype, dt.Timestamp) and datatype.timezone is None
+                else str(datatype.copy(nullable=True))
             )
-        if not fields:
+            if dependency is not None and not supported_type(kind):
+                raise unsupported_source_type(dependency, row[0], row[1])
+        if not fields and dependency is None:
             raise self._error("missing_relation", detail=qualified)
         return ibis.schema(fields)
 

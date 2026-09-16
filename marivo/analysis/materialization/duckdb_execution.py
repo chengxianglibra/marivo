@@ -17,10 +17,14 @@ from ibis.backends.duckdb import Backend
 from sqlglot import expressions as sge
 
 from marivo.analysis.compiler.nodes import CompiledSampleFence
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import (
+    MaterializationError,
+    source_type_errors,
+)
 from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
@@ -310,8 +314,12 @@ class DuckDBExecutionAdapter:
         *,
         database: str | None = None,
         catalog: str | None = None,
+        dependency: EntitySourceDependency | None = None,
         record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
+        if dependency is not None:
+            dependency.validate_request(name, database, catalog)
+        columns = None if dependency is None else dependency.physical_columns
         sql = describe_statement(name, database, catalog)
         if record is not None:
             record("source_schema", sql)
@@ -320,14 +328,17 @@ class DuckDBExecutionAdapter:
         while (row := rows.fetchone()) is not None:
             if len(row) < 3 or not isinstance(row[0], str) or not isinstance(row[1], str):
                 raise _invalid("source_binding")
-            fields.append(
-                (
-                    row[0],
-                    self._backend.compiler.type_mapper.from_string(
-                        row[1], nullable=row[2] == "YES"
-                    ),
+            if columns is not None and row[0] not in columns:
+                continue
+            with source_type_errors(dependency, row[0], row[1]):
+                fields.append(
+                    (
+                        row[0],
+                        self._backend.compiler.type_mapper.from_string(
+                            row[1], nullable=row[2] == "YES"
+                        ),
+                    )
                 )
-            )
         return ibis.schema(fields)
 
     def table(self, name: str) -> ir.Table:

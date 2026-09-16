@@ -13,6 +13,7 @@ import ibis.expr.types as ir
 import pyarrow as pa
 
 from marivo.analysis.compiler.nodes import CompiledSampleFence
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
@@ -107,6 +108,7 @@ class ExecutionAdapter(Protocol):
         *,
         database: str | None,
         catalog: str | None,
+        dependency: EntitySourceDependency | None = None,
         record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema: ...
     def table(self, name: str) -> ir.Table: ...

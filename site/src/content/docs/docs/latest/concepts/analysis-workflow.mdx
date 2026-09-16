@@ -14,6 +14,14 @@ structured repair for unsupported shapes. Remote sources require read-only
 accounts; uploading retained results to bypass admission is unsupported.
 
 
+Source execution checks only the columns required by the complete computation,
+including hidden Metrics, identities, joins and version assertions. An unused
+complex column does not block a supported scalar calculation. For example, the
+existing revenue example still works when its table also declares an unused JSON
+payload; referencing that payload does not gain a new supported method or type.
+Column comments remain available through datasource inspection, including for
+columns unused by the current Dataset.
+
 ## Construct and execute
 
 Analysis uses a question-scoped Session. Source constructors and Dataset methods
@@ -212,7 +220,7 @@ top_channels = by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execu
 top_channels.show()
 ```
 
-All declared table columns must use Boolean, string, signed integers, float32,
+All required source columns must use Boolean, string, signed integers, float32,
 float64, date, plain timestamp or Decimal types. Decimal precision is at most 38,
 with scale from zero to precision; generic Decimal declarations also undergo
 physical metadata validation. String time parsing, timezone-bearing timestamp
@@ -241,7 +249,7 @@ by_channel = session.observe(revenue).with_dimensions(
 by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute().show()
 ```
 
-MySQL requires InnoDB and a SELECT-only account. All declared columns must use
+MySQL requires InnoDB and a SELECT-only account. All required source columns must use
 signed integers, float32/64, native DATE, `utf8mb4_0900_bin` text or explicitly
 specified Decimal precision up to 38. Unsigned, Boolean, timestamp and nested
 types are excluded. Binary text semantics preserve case, Unicode differences

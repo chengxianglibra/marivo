@@ -60,7 +60,11 @@ def test_temporal_failures_are_atomic(tmp_path: Path, point: str) -> None:
             raise RuntimeError("temporal-failure-canary")
 
     runtime._hook = fail
-    with pytest.raises(RuntimeError) as failed:
+    import duckdb
+
+    with pytest.raises(
+        duckdb.InvalidInputException if point == "parse" else RuntimeError
+    ) as failed:
         logical.execute()
     assert "canary" in str(failed.value)
     assert hits == ([] if point == "parse" else [point])

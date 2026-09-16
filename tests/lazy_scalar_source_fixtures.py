@@ -123,7 +123,7 @@ def capture_receipt(
 
 
 class _CursorFactory(Protocol):
-    def __call__(self, adapter: ScalarExecutionAdapter, *, stream: bool) -> Cursor: ...
+    def __call__(self, adapter: ScalarExecutionAdapter, /, *, stream: bool) -> Cursor: ...
 
 
 def capture_submissions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
@@ -156,12 +156,13 @@ def capture_submissions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, objec
 
         return cursor
 
-    for adapter_type in (
+    adapter_types: tuple[type[ScalarExecutionAdapter], ...] = (
         MySQLExecutionAdapter,
         SQLiteExecutionAdapter,
         TrinoExecutionAdapter,
         ClickHouseExecutionAdapter,
-    ):
+    )
+    for adapter_type in adapter_types:
         monkeypatch.setattr(adapter_type, "cursor", wrap(adapter_type.cursor))
     return submitted
 

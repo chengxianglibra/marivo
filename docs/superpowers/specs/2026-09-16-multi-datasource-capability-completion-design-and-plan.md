@@ -2,7 +2,7 @@
 
 日期：2026-09-16
 
-状态：C0 基线与目标矩阵已完成，C1–C10 未开始；本文不激活任何新能力，也不代表后续阶段已完成实现或验收。
+状态：C0 与 C1 已完成；C1 的六后端列依赖、schema 诊断及列 comment 证据见 [C1 验收](2026-09-16-multisource-capability-c1-acceptance.md)。C2–C10 未开始，后续能力仍须独立实施及验收。
 
 C0 的当前能力、目标/排除、历史证据与本次只读环境探测见 [C0 验收](2026-09-16-multisource-capability-c0-acceptance.md)；后续各阶段的 owner、fixture、验证入口及进入条件见 [C0 实施计划清单](2026-09-16-multisource-capability-c0-implementation-plan.md)。
 
@@ -30,7 +30,7 @@ C0 的当前能力、目标/排除、历史证据与本次只读环境探测见 
 
 | 类别 | 当前边界 | 业务影响 |
 | --- | --- | --- |
-| 类型与依赖列 | 以有限标量类型为主；依赖 Entity 的全部声明列参与类型准入 | 未使用的复杂列可能挡住简单聚合；常见 Boolean、UInt、时间戳或字符串包装类型受限 |
+| 类型与依赖列 | 必要列仍以有限标量类型为主；C1 已统一必要列依赖 | 未使用复杂列的阻断已解除；常见必要 Boolean、UInt、时间戳或字符串包装类型仍受限 |
 | 时间语义 | 主要支持原生 date；未覆盖 timestamp/timezone/DST 时间轴、多单位桶和语义日历 | 订单时间、小时趋势、跨时区报表等受阻 |
 | 指标表达 | 直接列 measure 为主；Linear graph 和未解析精度的复合 Decimal 不支持 | 行级计算、组合指标和精确金额运算表达受限 |
 | 物理表范围 | MySQL InnoDB、Trino Iceberg、ClickHouse 普通本地 MergeTree、SQLite main 普通表 | 已有数据库中不少表不能直接使用 |
@@ -171,14 +171,14 @@ C3a 一并修正时区查询的双重事实来源：Runtime 不再根据 profile
 
 C0 为后续阶段建立实施计划清单；每个阶段执行前须补齐该阶段的独立实施计划，包含精确后端/方法/类型范围、拥有者文件与符号、复用的 fixture、测试文件、具体验证命令和排除项。只写“运行相关测试”不能替代可执行命令；本总计划不要求提前猜测后续阶段尚未确定的函数名。
 
-C1 已核实的入口是 `analysis/operators/scalar_support.py::unsupported_reason()` 中遍历 `entity.columns` 的全声明列检查，以及 `analysis/materialization/scalar_sql_execution.py::ScalarExecutionAdapter.prepare_dataset()` 中生成 `_declared_columns` 的事实供应。后者目前按列名合并，实施时须改为关系归属明确的依赖事实，并追踪各 adapter 的 schema 消费路径。PostgreSQL 与 DuckDB 独立 adapter 也须覆盖，不能只修改共享 scalar adapter。Runtime 的 `materialization/admission.py::DatasetRuntime._validate_source_schema()` 和 `_declared_table()` 当前仍遍历全部声明列，必须同步接入统一依赖事实。现有 `compiler/normalize.py::required_entities()` 可用于定位 Entity，但不等于已经具备完整列依赖分析。不要求将所有 adapter 合并为同一继承体系，也不把只读限制施加到 DuckDB 已有本地临时资源、文件和 retained 路径。
+以下为 C0 核查时定位的 C1 改动入口；这些全列检查已由 [C1 实施及验收](2026-09-16-multisource-capability-c1-acceptance.md) 改为统一必要列依赖。原入口是 `analysis/operators/scalar_support.py::unsupported_reason()` 中遍历 `entity.columns` 的全声明列检查，以及 `analysis/materialization/scalar_sql_execution.py::ScalarExecutionAdapter.prepare_dataset()` 中生成 `_declared_columns` 的事实供应。后者目前按列名合并，实施时须改为关系归属明确的依赖事实，并追踪各 adapter 的 schema 消费路径。PostgreSQL 与 DuckDB 独立 adapter 也须覆盖，不能只修改共享 scalar adapter。Runtime 的 `materialization/admission.py::DatasetRuntime._validate_source_schema()` 和 `_declared_table()` 当前仍遍历全部声明列，必须同步接入统一依赖事实。现有 `compiler/normalize.py::required_entities()` 可用于定位 Entity，但不等于已经具备完整列依赖分析。不要求将所有 adapter 合并为同一继承体系，也不把只读限制施加到 DuckDB 已有本地临时资源、文件和 retained 路径。
 
 以下编号使用 C 前缀，与上一轮 Slice 0–8 区分。每个阶段可以拆成逐后端子任务，实施记录必须标明具体启用单元及剩余拒绝项。
 
 | 阶段 | 范围与交付 | 前置条件 | 完成标准 |
 | --- | --- | --- | --- |
 | C0 基线与目标矩阵（已完成） | 核对当前注册、类型、物理表和实测环境；修正原计划过时的进度摘要；确定第一批目标及后续实施计划清单 | 无 | 已交付可追溯矩阵与计划清单；未验证项明确标记，后续阶段细化后方可执行 |
-| C1 统一列依赖契约 | 六后端声明表源按关系归属计算完整所需列，统一静态准入、Runtime schema 校验、adapter 类型解析和源投影 | C0 | 已声明未使用列及未声明物理列均不引入无关执行限制；隐藏计算、身份、关系和版本依赖仍被正确检查，schema 错误提供具体依赖/类型事实，DuckDB 既有能力不退化 |
+| C1 统一列依赖契约（已完成） | 六后端声明表源按关系归属计算完整所需列，统一静态准入、Runtime schema 校验、adapter 类型解析和源投影 | C0 | 已声明未使用列及未声明物理列均不引入无关执行限制；隐藏计算、身份、关系和版本依赖仍被正确检查，schema 错误提供具体依赖/类型事实，DuckDB 既有能力不退化 |
 | C2 常用标量类型 | Boolean、UInt、字符串包装、普通 timestamp 的精确传输和基础方法 | C1 | 每个目标后端的极值、NULL、排序、聚合及冷读通过；不自动激活时间轴 |
 | C3 时间分析 | C3a：T2 时间类型、timestamp 时间轴、小时桶、统一时区策略与实际执行记录；C3b：解析和多单位桶 | C2、时间 owner 契约核对；先验证所需类型再启用方法 | 每个子范围具有边界矩阵、真实执行和独立期望值 |
 | C4 计算与精确数值 | 计算型 measure、Linear graph、可解析精度的 Decimal 组合 | C1、相关 C2 类型 | 源计算、断言、components、rollup 和冷读数值一致 |

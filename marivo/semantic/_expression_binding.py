@@ -11,7 +11,7 @@ import math
 import textwrap
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import CellType, FunctionType, MappingProxyType
 from typing import Literal, TypeAlias, cast
 
@@ -73,6 +73,7 @@ class ExpressionBody:
     bindings: tuple[ExpressionBindingV1, ...]
     source_column: str | None = None
     source_columns: tuple[str, ...] = ()
+    source_syntax: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not callable(self.callable):
@@ -119,6 +120,88 @@ class ExpressionBody:
             source_column=column,
             source_columns=(column,),
         )
+
+
+def expression_column_accesses(body: ExpressionBody) -> tuple[tuple[int, str], ...]:
+    """Resolve parameter-owned column syntax without invoking the captured function."""
+    if body.source_column is not None:
+        return ((0, body.source_column),)
+    try:
+        tree = ast.parse(
+            body.source_syntax
+            if body.source_syntax is not None
+            else textwrap.dedent(inspect.getsource(body.callable))
+        )
+        function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
+        parameters = (*function.args.posonlyargs, *function.args.args)
+        if len(parameters) != body.parameter_count:
+            raise ValueError("expression arity mismatch")
+        positions = {parameter.arg: index for index, parameter in enumerate(parameters)}
+        parents = {
+            id(child): parent
+            for parent in ast.walk(function)
+            for child in ast.iter_child_nodes(parent)
+        }
+        accesses: list[tuple[int, str]] = []
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Name) or node.id not in positions:
+                continue
+            parent = parents.get(id(node))
+            column: str | None = None
+            if isinstance(parent, ast.Attribute) and parent.value is node:
+                column = parent.attr
+            elif isinstance(parent, ast.Subscript) and parent.value is node:
+                if isinstance(parent.slice, ast.Constant) and isinstance(parent.slice.value, str):
+                    column = parent.slice.value
+                else:
+                    raise ValueError("dynamic column access")
+            elif (
+                isinstance(parent, ast.Call)
+                and isinstance(parent.func, ast.Attribute)
+                and parent.func.attr == "bind"
+                and body.bindings
+            ):
+                continue
+            else:
+                raise ValueError("unknown Entity expression")
+            access = (positions[node.id], column)
+            if access not in accesses:
+                accesses.append(access)
+        if not accesses and not body.bindings:
+            returns = [node.value for node in function.body if isinstance(node, ast.Return)]
+            if len(returns) != 1:
+                raise ValueError("unknown constant expression")
+            value = returns[0]
+            if not (
+                isinstance(value, ast.Constant)
+                or (
+                    isinstance(value, ast.Call)
+                    and isinstance(value.func, ast.Attribute)
+                    and isinstance(value.func.value, ast.Name)
+                    and (
+                        (
+                            value.func.value.id == "ibis"
+                            and value.func.attr == "literal"
+                            and all(isinstance(arg, ast.Constant) for arg in value.args)
+                        )
+                        or (
+                            value.func.value.id == "ms"
+                            and value.func.attr == "all_rows"
+                            and not value.args
+                        )
+                    )
+                )
+            ):
+                raise ValueError("unproven column-free expression")
+        return tuple(accesses)
+    except (OSError, TypeError, SyntaxError, StopIteration, ValueError) as exc:
+        raise SemanticRuntimeError(
+            kind=ErrorKind.COMPILE_ERROR,
+            message="Expression column dependencies cannot be resolved.",
+            expected="static column accesses on exact Entity parameters",
+            received="an unknown or unavailable expression dependency",
+            hint="Use declared column fields and statically bound Entity expressions.",
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -712,6 +795,7 @@ def compile_expression_body(
         ),
         parameter_count=len(parameters),
         bindings=tuple(collector.bindings),
+        source_syntax=ast.unparse(function),
         source_columns=_physical_source_columns(
             function,
             parameter_positions=parameter_positions,

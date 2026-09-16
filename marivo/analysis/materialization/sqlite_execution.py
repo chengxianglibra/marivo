@@ -12,8 +12,12 @@ import ibis.expr.types as ir
 import sqlglot
 from sqlglot import expressions as sge
 
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import (
+    MaterializationError,
+    unsupported_source_type,
+)
 from marivo.analysis.materialization.scalar_sql_execution import Cursor, ScalarExecutionAdapter
 from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
 
@@ -62,8 +66,12 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
         *,
         database: str | None = None,
         catalog: str | None = None,
+        dependency: EntitySourceDependency | None = None,
         record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
+        if dependency is not None:
+            dependency.validate_request(name, database, catalog)
+        columns = None if dependency is None else dependency.physical_columns
         if catalog is not None or database not in (None, "main"):
             raise self.unsupported("SQLite source outside the declared main database")
         definition = self.read_scalar(
@@ -82,10 +90,7 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
         ):
             raise self.unsupported("non-ordinary SQLite table")
         for column_definition in parsed_definition.find_all(sge.ColumnDef):
-            if (
-                self._declared_columns is not None
-                and column_definition.name not in self._declared_columns
-            ):
+            if columns is not None and column_definition.name not in columns:
                 continue
             for collation in column_definition.find_all(sge.CollateColumnConstraint):
                 if collation.this.name.upper() != "BINARY":
@@ -102,7 +107,7 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
             column, declaration = row
             if not isinstance(column, str) or not isinstance(declaration, str):
                 raise self.unsupported("malformed SQLite column metadata")
-            if self._declared_columns is not None and column not in self._declared_columns:
+            if columns is not None and column not in columns:
                 continue
             kind = declaration.upper()
             allowed = {
@@ -115,9 +120,7 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
                 "DATE": (dt.date, "'text'"),
             }
             if kind not in allowed:
-                raise self.unsupported(
-                    f"SQLite column {column!r} has unsupported type {declaration!r}"
-                )
+                raise unsupported_source_type(dependency, column, declaration)
             datatype, storage = allowed[kind]
             fields[column] = datatype
             quoted = _quote(column)

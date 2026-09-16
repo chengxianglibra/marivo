@@ -15,6 +15,7 @@ import ibis.expr.types as ir
 import pyarrow as pa
 
 from marivo.analysis.compiler.nodes import CompiledSampleFence
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
@@ -180,7 +181,6 @@ class ScalarExecutionAdapter:
         self._context = ExecutionContext()
         self._closed = False
         self._streams: set[ScalarBatchStream] = set()
-        self._declared_columns: frozenset[str] | None = None
 
     def error(
         self, expected: str, received: str, repair: str, *, stage: str = "execution_boundary"
@@ -356,6 +356,7 @@ class ScalarExecutionAdapter:
         *,
         database: str | None = None,
         catalog: str | None = None,
+        dependency: EntitySourceDependency | None = None,
         record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         raise NotImplementedError
@@ -370,9 +371,7 @@ class ScalarExecutionAdapter:
         self._check()
 
     def prepare_dataset(self, dataset: LogicalDataset) -> None:
-        from marivo.analysis.compiler.normalize import required_entities
         from marivo.analysis.operators.registry import implementation
-        from marivo.semantic.ir import TableSourceIR
 
         if implementation(dataset).for_backend(self.engine) is None:
             raise self.error(
@@ -381,12 +380,6 @@ class ScalarExecutionAdapter:
                 "Use source types and method shapes admitted by this backend.",
                 stage="implementation_registration",
             )
-
-        columns: set[str] = set()
-        for entity in required_entities(dataset):
-            if isinstance(entity.source, TableSourceIR):
-                columns.update(binding.source for _, binding in entity.source.columns)
-        self._declared_columns = frozenset(columns)
 
     def interrupt(self) -> None:
         raise NotImplementedError

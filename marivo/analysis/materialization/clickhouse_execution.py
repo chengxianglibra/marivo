@@ -15,8 +15,13 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import (
+    MaterializationError,
+    source_type_errors,
+    unsupported_source_type,
+)
 from marivo.analysis.materialization.execution import Parameter
 from marivo.analysis.materialization.scalar_sql_execution import ScalarExecutionAdapter
 from marivo.analysis.operators.clickhouse_support import supported_type
@@ -127,8 +132,12 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         *,
         database: str | None = None,
         catalog: str | None = None,
+        dependency: EntitySourceDependency | None = None,
         record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
+        if dependency is not None:
+            dependency.validate_request(name, database, catalog)
+        columns = None if dependency is None else dependency.physical_columns
         database = database or self._clickhouse.con.database
         if not isinstance(database, str) or catalog is not None:
             raise self.unsupported("ClickHouse requires a database and table without a catalog")
@@ -168,14 +177,15 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
             column, kind = row[:2]
             if not isinstance(column, str) or not isinstance(kind, str):
                 raise self.unsupported("malformed ClickHouse column metadata")
-            if self._declared_columns is not None and column not in self._declared_columns:
+            if columns is not None and column not in columns:
                 continue
             physical = (
                 kind.removeprefix("Nullable(").removesuffix(")")
                 if kind.startswith("Nullable(")
                 else kind
             )
-            datatype = self._clickhouse.compiler.type_mapper.from_string(kind)
+            with source_type_errors(dependency, column, kind):
+                datatype = self._clickhouse.compiler.type_mapper.from_string(kind)
             if (
                 not supported_type(str(datatype.copy(nullable=True)))
                 or re.fullmatch(
@@ -184,7 +194,7 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 )
                 is None
             ):
-                raise self.unsupported(f"ClickHouse physical type {kind!r} for column {column!r}")
+                raise unsupported_source_type(dependency, column, kind)
             fields[column] = datatype
             if datatype.is_floating():
                 finite.append(f"NOT isFinite({_identifier(column)})")

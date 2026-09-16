@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Literal
 
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.semantic.ir import TableSourceIR
 
 
 class MaterializationError(DatasetConstructionError):
@@ -69,3 +73,61 @@ class SessionBusyError(MaterializationError):
             repair="Wait for the current Session action to finish, then retry the same definition.",
             stage="writer_guard",
         )
+
+
+class SourceSchemaError(MaterializationError):
+    """A necessary source column failed physical schema validation."""
+
+    def __init__(
+        self,
+        dependency: EntitySourceDependency,
+        column: str,
+        reason: Literal["missing_column", "unsupported_physical_type", "type_mismatch"],
+        actual_type: str | None,
+        *,
+        run_ref: str | None = None,
+    ) -> None:
+        binding = next(item for item in dependency.columns if item.physical == column)
+        self.reason = reason
+        self.entity_ref = dependency.entity.ref.path
+        self.datasource_ref = dependency.entity.datasource_ref.path
+        self.catalog, self.database = dependency.namespace
+        source = dependency.entity.source
+        self.table = source.table if isinstance(source, TableSourceIR) else None
+        self.logical_column = binding.logical
+        self.physical_column = column
+        self.declared_type = binding.declared_type
+        self.actual_type = actual_type
+        relation = ".".join(part for part in (self.catalog, self.database, self.table) if part)
+        super().__init__(
+            expected=f"Entity {self.entity_ref[:160]} on {relation[:200]}: {binding.logical[:100]} -> {column[:100]} declared as {binding.declared_type[:100]}",
+            received=f"{reason}: necessary source column has type {(actual_type or '<missing>')[:120]}",
+            repair="Correct this column binding or the physical source type; use a type qualified for this backend and retry.",
+            stage="output_validation",
+            run_ref=run_ref,
+        )
+
+
+def unsupported_source_type(
+    dependency: EntitySourceDependency | None, column: str, actual_type: str
+) -> MaterializationError:
+    if dependency is not None:
+        return SourceSchemaError(dependency, column, "unsupported_physical_type", actual_type)
+    return MaterializationError(
+        expected="a supported physical source type",
+        received=f"unsupported type {actual_type[:120]} on column {column[:100]}",
+        repair="Use a physical column type qualified for this backend.",
+        stage="output_validation",
+    )
+
+
+@contextmanager
+def source_type_errors(
+    dependency: EntitySourceDependency | None,
+    column: str,
+    actual_type: str,
+) -> Iterator[None]:
+    try:
+        yield
+    except Exception as exc:
+        raise unsupported_source_type(dependency, column, actual_type) from exc
