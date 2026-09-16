@@ -143,3 +143,20 @@ remote read termination alone does not block safe local recovery.
 
 The [analysis design](python-analysis-design.md#mysql-and-sqlite-group-a) owns the
 precise table, type and method activation scope.
+
+## Trino Group A execution
+
+The Trino adapter owns cursors before execute, including metadata/assertion reads
+and the wait for the first HTTP page. It cancels/closes each owned cursor before
+closing the HTTP connection; connection close alone is not cancellation proof.
+Failed cursor close remains owned until final cleanup. Original execution errors
+survive cancellation/close failures and Runtime reports unknown remote read status.
+Safe local recovery remains independent of remote termination confirmation.
+
+Execution uses ordinary Iceberg scans, separate semantic checks, native driver
+page fetching and typed scalar-to-Arrow identity reconstruction. No source snapshot,
+shared observation, execution budget or compile-count requirement is introduced.
+Driver capability probes and prepared statements are additional operations, not
+Dataset primary queries. Read-only metadata access to `system.metadata.catalogs`
+and the selected catalog's information schema is required. Local publication,
+writer ownership and cold source-free Artifact/binding reuse retain existing rules.

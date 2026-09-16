@@ -53,7 +53,7 @@ complete journeys or journey checkpoints opened with `session.artifact(ref)`;
 materialized funnel summaries or a materialized funnel Delta cannot replace
 those journey inputs.
 
-Source execution supports DuckDB and the PostgreSQL, MySQL and SQLite scalar subsets below;
+Source execution supports DuckDB and the PostgreSQL, MySQL, SQLite and Trino scalar subsets below;
 datasource authoring alone does not enable Dataset execution on another backend. Unsupported methods report
 the backend and input shape. Retained results are never implicitly uploaded to
 another source, and a same-Session execution-key hit needs no source connection.
@@ -149,8 +149,8 @@ retains its existing sampling, Event/Lifecycle and Candidate implementations; it
 adapter owns temporary resources, macros and registration. Remote implementations
 must support read-only accounts and meet the same semantic requirements before
 activation. An unavailable implementation fails explicitly; it does not silently
-move source data to another engine. PostgreSQL, MySQL and SQLite support the subsets below; Trino and ClickHouse
-analysis remain unenabled.
+move source data to another engine. PostgreSQL, MySQL, SQLite and Trino support the subsets below; ClickHouse
+analysis remains unenabled.
 
 ### PostgreSQL scalar Metrics
 
@@ -226,3 +226,32 @@ decoded in full. SQLite execution is query-only. Source assertions and output re
 different states; publication remains atomic. Retained results stay in Parquet
 and use the existing native reader, without upload to either source. Relationships,
 composed Metrics, sampling and advanced methods remain outside this subset.
+
+### Trino Iceberg scalar Metrics
+
+Trino Group A supports one datasource and one unversioned ordinary Iceberg base
+table, with direct-column `sum`, `count`, `min` and `max`, Population filtering,
+native-date scopes, same-Entity dimensions, aggregation, projection, rank and limit.
+Use the existing catalog/schema/table declaration; both tuple and dotted
+catalog/schema overrides are resolved consistently for metadata and executed SQL.
+The adapter verifies connector identity and base-table metadata at execution;
+a catalog merely named `iceberg` is not sufficient.
+
+Declared physical inputs are signed integers supported by Iceberg, float32/64,
+VARCHAR, DATE and explicit Decimal precision/scale up to 38. Generic Decimal
+source declarations, Boolean, timestamps/timezones, nested values and other
+connectors are excluded. Declared floating columns must contain finite values or
+NULL; source checks reject NaN/infinity even for empty output, and non-finite
+aggregate results fail before publication. Decimal and integer identities retain
+exact values. Ranking preserves explicit NULL order and deterministic ties.
+
+Use a read-only identity with access to connector and table metadata. Ordinary
+Ibis compilation feeds incremental driver page reads; internal identity structs
+are reconstructed from typed scalar columns. Batches are not byte or memory
+limits. Driver/server limits remain external. Active cursors are owned before
+submission; cancellation and close failures report unknown remote status without
+blocking safe local recovery. Validation and output can observe different source
+states. Relationships, composed Metrics, sampling, retained imports and advanced
+methods remain unavailable; ClickHouse execution remains disabled.
+
+The scalar workflow example above also applies to an authored Trino Iceberg Metric.

@@ -1,4 +1,4 @@
-"""Owned scalar SQL transport shared by the MySQL and SQLite concrete adapters."""
+"""Owned scalar SQL transport shared by the scalar source concrete adapters."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from marivo.datasource.timezone import DatasourceEngineTimezone
 if TYPE_CHECKING:
     from ibis.backends.mysql import Backend as MySQLBackend
     from ibis.backends.sqlite import Backend as SQLiteBackend
+    from ibis.backends.trino import Backend as TrinoBackend
 
 
 class Cursor(Protocol):
@@ -168,7 +169,7 @@ class ScalarExecutionAdapter:
     engine: str
 
     def __init__(
-        self, backend: MySQLBackend | SQLiteBackend, *, run_ref: str | None = None
+        self, backend: MySQLBackend | SQLiteBackend | TrinoBackend, *, run_ref: str | None = None
     ) -> None:
         self._backend = backend
         self._run_ref = run_ref

@@ -71,7 +71,9 @@ def test_unregistered_source_adapter_rejects_before_admission(tmp_path: Path, ad
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     logical = sources.observe(
         ref.metric(
-            "sales.mean_amount" if adapter in {"postgres", "mysql", "sqlite"} else "sales.revenue"
+            "sales.mean_amount"
+            if adapter in {"postgres", "mysql", "sqlite", "trino"}
+            else "sales.revenue"
         )
     )
     before = counts(runtime)

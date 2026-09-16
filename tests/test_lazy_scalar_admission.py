@@ -1,4 +1,4 @@
-"""Independent pure admission boundaries for MySQL and SQLite Group A."""
+"""Independent pure admission boundaries for MySQL, SQLite and Trino Group A."""
 
 from dataclasses import replace
 from pathlib import Path
@@ -16,12 +16,14 @@ from tests.lazy_observation_fixtures import NoIoActionPort
 from tests.lazy_scalar_source_fixtures import registry_for
 
 
-@pytest.mark.parametrize("engine", ["mysql", "sqlite"])
+@pytest.mark.parametrize("engine", ["mysql", "sqlite", "trino"])
 @pytest.mark.parametrize(
     "unsupported",
     [None, "mean", "projected_mean", "relationship", "timestamp", "decimal_generic", "sampling"],
 )
-def test_complete_closure(engine: Literal["mysql", "sqlite"], unsupported: str | None) -> None:
+def test_complete_closure(
+    engine: Literal["mysql", "sqlite", "trino"], unsupported: str | None
+) -> None:
     registry, sidecar = registry_for(Path("must-not-open.sqlite"), engine=engine)
     if unsupported in {"timestamp", "decimal_generic"}:
         entities = dict(registry.entities)

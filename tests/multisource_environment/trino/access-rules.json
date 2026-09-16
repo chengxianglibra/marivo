@@ -1,0 +1,7 @@
+{
+  "catalogs": [
+    {"user": "qualifier", "catalog": ".*", "allow": "all"},
+    {"user": "analysis_reader", "catalog": "iceberg|system", "allow": "read-only"},
+    {"catalog": ".*", "allow": "none"}
+  ]
+}

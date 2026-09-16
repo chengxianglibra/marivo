@@ -303,3 +303,26 @@ Small metadata/assertion `submit` results are collected in full. This is not a h
 memory or cancellation bound. The slow-execution cases use real MySQL SLEEP and a
 SQLite progress-handler delay; blocked-fetch cases use a controlled gate around
 real cursor fetches. They test ownership across a pause, not a real network stall.
+
+## Trino Group A Dataset acceptance (Slice 5)
+
+The Trino service now mounts file-based access rules. `qualifier` prepares fixtures;
+`analysis_reader` has read-only access to Iceberg and system metadata. The loopback
+HTTP test service does not authenticate identities; this is authorization testing,
+not a production authentication configuration. The reader is explicitly checked
+for denied CREATE/INSERT/DELETE/DROP operations. Production deployments must supply
+their own authenticated read-only identity.
+
+```bash
+bash tests/multisource_environment/manage.sh start trino
+.venv/bin/python tests/multisource_environment/trino_analysis.py
+MARIVO_TRINO_ANALYSIS_TEST=1 MARIVO_SLICE5_RECEIPTS=/tmp/marivo-slice5-receipts make runtime-test TESTS='tests/test_lazy_trino_runtime.py tests/test_lazy_scalar_recovery.py' RUNTIME_WORKERS=1
+```
+
+Starting this group stops the local qualification ClickHouse service. Tests never
+start services. The optional receipt distinguishes metadata/assertions/output,
+HTTP POST statements including the cold driver parameter-capability probe, actual
+data-bearing page counts, Arrow rows/bytes and available server statistics. Wire
+bytes remain unavailable; SQL predicates alone are not partition-pruning evidence.
+The fixture's server limits are external limits, not Marivo admission budgets.
+Historical Slice 0 snapshot/expiry probes do not gate ordinary Dataset execution.

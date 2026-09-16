@@ -64,6 +64,7 @@ def backend_execution(backend: str) -> BackendExecution | None:
         "postgres": BackendExecution("postgres", retained_import=False),
         "mysql": BackendExecution("mysql", retained_import=False),
         "sqlite": BackendExecution("sqlite", retained_import=False),
+        "trino": BackendExecution("trino", retained_import=False),
     }.get(backend)
 
 
@@ -227,6 +228,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     from marivo.analysis.operators.mysql_support import supports as supports_mysql
     from marivo.analysis.operators.postgres_support import supports as supports_postgres
     from marivo.analysis.operators.sqlite_support import supports as supports_sqlite
+    from marivo.analysis.operators.trino_support import supports as supports_trino
 
     backends = (
         (*_DUCKDB, BackendRegistration("postgres", source=True))
@@ -237,6 +239,8 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         backends = (*backends, BackendRegistration("mysql", source=True))
     if supports_sqlite(dataset):
         backends = (*backends, BackendRegistration("sqlite", source=True))
+    if supports_trino(dataset):
+        backends = (*backends, BackendRegistration("trino", source=True))
     # Source behavior is owned by the existing complete Observation lowerer.
     return ImplementationRegistration(
         root.operator_id,

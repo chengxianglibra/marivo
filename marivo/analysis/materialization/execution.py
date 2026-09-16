@@ -156,6 +156,8 @@ def resolve_execution(backend: str) -> ExecutionBackend | None:
     from marivo.analysis.materialization.postgres_execution import bind_postgres
     from marivo.analysis.materialization.sqlite_execution import admit_dataset as admit_sqlite
     from marivo.analysis.materialization.sqlite_execution import bind_sqlite
+    from marivo.analysis.materialization.trino_execution import admit_dataset as admit_trino
+    from marivo.analysis.materialization.trino_execution import bind_trino
     from marivo.analysis.operators.registry import backend_execution
 
     registration = backend_execution(backend)
@@ -166,5 +168,6 @@ def resolve_execution(backend: str) -> ExecutionBackend | None:
         "postgres": ExecutionBackend(bind_postgres, None, admit_postgres),
         "mysql": ExecutionBackend(bind_mysql, None, admit_mysql),
         "sqlite": ExecutionBackend(bind_sqlite, None, admit_sqlite),
+        "trino": ExecutionBackend(bind_trino, None, admit_trino),
     }
     return factories.get(registration.backend)
