@@ -9,7 +9,31 @@ registration hooks implement the same semantic requirements; they are not
 operator-level exceptions. Remote implementations must work with read-only
 accounts and prove equivalent single evaluation, numerical behavior and required
 assertions before registration. No implicit alternate route or new cross-engine
-private-state transfer is introduced. Only DuckDB analysis is currently enabled.
+private-state transfer is introduced. DuckDB analysis and the PostgreSQL Group A subset below are enabled; other remote backends remain unenabled.
+
+### PostgreSQL Group A
+
+The registry admits one datasource and one unversioned `md.table` Entity with
+direct-column scalar `sum`, `count`, `min` and `max` Metrics. Admission examines
+the complete logical and semantic dependency closure, including projected-away
+Metrics, membership predicates and Metric slices. Supported operations are
+Population membership, scoped observation, dimensions, Entity aggregation,
+filtering, Metric projection, deterministic ranking and Top-N.
+
+All declared table columns must use Boolean, string, signed integer, float32,
+float64, date, plain timestamp or Decimal types. Explicit Decimal precision is
+at most 38 and scale lies between zero and precision; a generic Decimal declaration
+still requires compatible physical metadata. Temporal scopes use native date
+columns. Parsed string time axes, timezone-bearing timestamp declarations,
+time-series axes, relationship traversal, versioned Entities, sampling, composed
+Metrics, private state and other methods are not admitted. PostgreSQL receives
+no retained-import capability.
+
+The adapter uses read-only service-side cursor transactions and records actual
+metadata, validation and output statements. It creates no remote temporary tables,
+uploads or UDFs. Each query may read a different source state; no common snapshot
+or implicit retry is added. Transport and cleanup failures preserve the original
+error and cannot publish partial output.
 
 The original Slice 1d blanket restriction is superseded. Existing DuckDB sampling,
 Event/Lifecycle, Candidate, JSON and retained-stream execution remain available.
@@ -76,7 +100,7 @@ whether the requested transition is admitted before source work.
 ## Exact execution and persistence
 
 Runtime fixes the registered implementation and destination before executing.
-Source execution currently supports DuckDB only. The private method registry
+Source execution supports DuckDB and admitted PostgreSQL Group A. The private method registry
 selects one exact backend registration for the typed invocation, with full
 source execution and preparation declared separately. Unsupported known inputs
 fail before Run admission; exact same-Session binding hits remain source-free.

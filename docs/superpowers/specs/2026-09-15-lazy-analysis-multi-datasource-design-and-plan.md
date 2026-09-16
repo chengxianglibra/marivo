@@ -2,9 +2,10 @@
 
 Date: 2026-09-15
 
-Status: staged implementation; Slices 0, 1, 1a, 1b, 1c, corrected 1d and 2 complete.
-Remote backend implementation remains pending. No new backend is enabled by this
-document. Each backend/method combination requires its own acceptance.
+Status: staged implementation; Slices 0, 1, 1a, 1b, 1c, corrected 1d, 2 and 3 complete.
+PostgreSQL Group A is enabled within its separately verified scope. MySQL, SQLite,
+Trino and ClickHouse implementation remains pending. This document alone does
+not enable a backend. Each backend/method combination requires its own acceptance.
 The original Slice 1d blanket read-only restriction is superseded by the
 [capability restoration and abstraction correction](2026-09-15-multisource-slice-1d-restoration-acceptance.md).
 Remote read-only qualification remains part of each future backend activation.
@@ -583,13 +584,13 @@ ClickHouse assertion envelope under concurrent writes. Those are historical
 experiments, not requirements of this amended plan. Reconcile the inventory in
 Slices 1a-1c; production transport, required validation and local publication
 recovery remain activation gates. Historical version and remote-termination
-proofs do not create new prerequisites. Non-DuckDB execution remains disabled.
+proofs do not create new prerequisites. At the Slice 0 boundary, non-DuckDB execution remained disabled.
 
 Slice 1 is complete for the private DuckDB adapter extraction, with 246 targeted
 Runtime cases and the broad gate passing. The
 [DuckDB adapter evidence record](2026-09-15-multisource-slice-1-acceptance.md)
-records the exact scope and independent review. Non-DuckDB execution remains
-disabled. Slice 1a is also complete, with separate
+records the exact scope and independent review. At the Slice 1 boundary,
+non-DuckDB execution remained disabled. Slice 1a is also complete, with separate
 [acceptance evidence](2026-09-15-multisource-slice-1a-acceptance.md). Slice 1b is complete with
 [caller-execution acceptance evidence](2026-09-15-multisource-slice-1b-acceptance.md).
 Slice 1c is complete for execution, version-independent placement and guarded
@@ -597,8 +598,12 @@ recovery simplification; see the [Slice 1c evidence record](2026-09-15-multisour
 Store v5 owns the replacement resource semantics without migration or dual read.
 Slice 2 is complete for exact backend registration and dispatch; see the
 [Slice 2 evidence record](2026-09-15-multisource-slice-2-acceptance.md).
-Only DuckDB is enabled. Multi-entry registration tests are pure dispatch checks,
-not remote execution acceptance.
+Slice 3 is complete for the declared PostgreSQL Group A scope; see the
+[Slice 3 evidence record](2026-09-16-multisource-slice-3-acceptance.md) and its
+real read-only Dataset, cursor, recovery and cold-read evidence.
+At the Slice 2 boundary only DuckDB was enabled; its multi-entry registration
+tests are pure dispatch checks, not remote execution acceptance. PostgreSQL
+activation is established by the separate Slice 3 evidence above.
 Historical Slice 1 behavior preservation is not a requirement to
 retain the mechanisms explicitly removed by these amendments. Slice 1d is a
 correction of execution ownership; remote read-only compliance requires actual

@@ -982,7 +982,7 @@ no new backend. Historical Slice 1 compilation evidence is not 1c acceptance.
 
 Slice 2 replaces the single backend name with a closed, immutable collection
 per typed method invocation; duplicate backend keys are rejected. Existing
-payload, method and shape validation constructs the registration. DuckDB is the
+payload, method and shape validation constructs the registration. At Slice 2, DuckDB was the
 only production entry. Its existing builders and validators remain the owners
 of calculation semantics; no generic remote builder protocol is implied.
 
@@ -998,3 +998,17 @@ backend bindings cannot inherit retained rows through the single-source shortcut
 Same-domain checks retain Session/store/catalog/binding authority; execution
 contexts retain statement/resource lifetime ownership. Neither uses versions.
 The immutable execution-key hit precedes placement and source access.
+
+## 2026-09-16 amendment: Slice 3 PostgreSQL Group A
+
+The same registry now declares PostgreSQL source execution for the precise
+[Group A scalar closure](../../specs/analysis/python-analysis-design.md#postgresql-group-a).
+Pure admission inspects every logical dependency and Metric graph node, source
+column type, predicate and coordinate dependency before source work. Projection
+does not hide an unsupported upstream Metric. All dependencies must remain on one
+unversioned table without relationships, private state or retained imports.
+
+The adapter selection changes neither public APIs, definition identity nor Store
+format. Other remote backends and Groups B–D remain unenabled. The Slice 2 section
+above records its historical boundary; it is not current PostgreSQL acceptance
+evidence. Runtime acceptance is recorded separately after real-backend checks.

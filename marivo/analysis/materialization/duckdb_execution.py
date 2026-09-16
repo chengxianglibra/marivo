@@ -305,9 +305,16 @@ class DuckDBExecutionAdapter:
         self.disconnect()
 
     def get_schema(
-        self, name: str, *, database: str | None = None, catalog: str | None = None
+        self,
+        name: str,
+        *,
+        database: str | None = None,
+        catalog: str | None = None,
+        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         sql = describe_statement(name, database, catalog)
+        if record is not None:
+            record("source_schema", sql)
         rows = self.submit(self.statement(sql, role="source_schema"))
         fields: list[tuple[str, dt.DataType]] = []
         while (row := rows.fetchone()) is not None:

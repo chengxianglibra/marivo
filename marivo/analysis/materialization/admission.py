@@ -82,7 +82,6 @@ from marivo.analysis.materialization.contracts import (
     run_failure_phase,
 )
 from marivo.analysis.materialization.duckdb_execution import (
-    describe_statement,
     json_statement,
 )
 from marivo.analysis.materialization.duckdb_statements import attribution_summary_sql
@@ -2031,6 +2030,8 @@ class DatasetRuntime:
                 raise _error("implementation_registration", run_ref)
             candidate: object
             if isinstance(source_step.binding, ParquetBinding):
+                if implementation.open_retained is None:
+                    raise _error("implementation_registration", run_ref)
                 execution = backend_reservation(run_ref, domain)
                 self.store.reserve(execution)
                 self._event("resource_create")
@@ -2779,10 +2780,9 @@ class DatasetRuntime:
         catalog = database[0] if isinstance(database, tuple) and len(database) == 2 else None
         self._event("source_statement")
         self.statistics.validation_queries += 1
-        self._record_statement(
-            "source_schema", describe_statement(source.table, namespace, catalog)
+        actual = backend.get_schema(
+            source.table, database=namespace, catalog=catalog, record=self._record_statement
         )
-        actual = backend.get_schema(source.table, database=namespace, catalog=catalog)
         for _, binding in source.columns:
             declared = dt.dtype(binding.data_type).copy(nullable=True)
             physical_type = (

@@ -103,3 +103,19 @@ and local writer ownership are safe. Failed Runs have no successful local output
 Unknown commit state, conflicting publishers and unresolved write-capable object
 requests still prevent unsafe continuation. Recovery never resubmits the action.
 Engine, driver and Ibis versions are diagnostics, not admission or identity facts.
+
+## PostgreSQL Group A execution
+
+The PostgreSQL adapter implements the [precise scalar Metric subset](python-analysis-design.md#postgresql-group-a).
+It owns a read-only transaction and named cursor for each streamed query; normal
+exhaustion, early close and failure release those resources. Metadata operations,
+validation reads and primary output submissions are recorded as their actual
+operations. Shared Runtime code does not invent DuckDB schema statements for a
+remote adapter. Required assertions run even when primary output is empty.
+
+Read-only credentials need no write, CREATE, TEMP or UDF privileges. Validation
+and output queries may see different source states. Cancellation and disconnect
+preserve the original failure; cleanup uncertainty does not prove server death.
+Atomic publication, recoverable Session state, source-free binding hits and the
+existing retained Parquet reader remain the same contracts. PostgreSQL cannot
+import retained rows or retry on a different executor.

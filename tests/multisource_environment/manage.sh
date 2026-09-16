@@ -7,8 +7,8 @@ state_dir="$HOME/.cache/marivo-multisource"
 profile="marivo-multisource"
 socket="unix://$HOME/.colima/$profile/docker.sock"
 
-if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse)$ ]]; then
-    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse}" >&2
+if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse|postgres-analysis)$ ]]; then
+    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse|postgres-analysis}" >&2
     exit 2
 fi
 if [[ ! -f "$state_dir/secrets.env" || ! -f "$state_dir/docker/config.json" ]]; then
@@ -27,16 +27,19 @@ case "$1" in
             # Named volumes must be writable by the pinned Trino image's uid 1000.
             "${compose[@]}" run --rm --no-deps --user root --entrypoint sh trino \
                 -c 'mkdir -p /warehouse && chown 1000:1000 /warehouse'
-        else
+        elif [[ "$2" == clickhouse ]]; then
             "${compose[@]}" stop trino postgres
         fi
         "${compose[@]}" up -d --wait --wait-timeout 180
+        if [[ "$2" == postgres-analysis ]]; then
+            "$repo_root/.venv/bin/python" "$repo_root/tests/multisource_environment/postgres_analysis.py"
+        fi
         ;;
     stop)
         if [[ "$2" == trino ]]; then
             "${compose[@]}" stop trino postgres
         else
-            "${compose[@]}" stop clickhouse
+            "${compose[@]}" stop "$2"
         fi
         ;;
     status) "${compose[@]}" ps -a ;;

@@ -40,6 +40,24 @@ services:
       - ./trino/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
       - warehouse:/warehouse
     logging: *logging
+  postgres-analysis:
+    image: postgres@sha256:dfc2780980fe6ca2d158bfe4342660db5e4c6431fb969088e543430d09f8d0f2
+    platform: linux/arm64
+    profiles: [postgres-analysis]
+    mem_limit: 512m
+    environment:
+      POSTGRES_DB: analysis
+      POSTGRES_USER: analysis_admin
+      POSTGRES_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
+    ports: [127.0.0.1:15432:5432]
+    volumes:
+      - postgres-analysis:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U analysis_admin -d analysis]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    logging: *logging
   clickhouse:
     image: clickhouse/clickhouse-server@sha256:d283856e8da15163f250f683ee9a7ad8876111094ef4d4caf9bcc3d9843db5d7
     platform: linux/arm64
@@ -66,6 +84,7 @@ services:
       - ./clickhouse.xml:/etc/clickhouse-server/config.d/qualification.xml:ro
     logging: *logging
 volumes:
+  postgres-analysis:
   catalog:
   warehouse:
   clickhouse:
