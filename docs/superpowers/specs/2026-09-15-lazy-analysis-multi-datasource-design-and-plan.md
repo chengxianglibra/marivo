@@ -2,10 +2,17 @@
 
 Date: 2026-09-15
 
-Status: staged implementation; Slices 0, 1, 1a, 1b, 1c, corrected 1d, 2, 3, 4 and 5 complete.
-PostgreSQL, MySQL, SQLite and Trino Iceberg Group A are enabled within their separately
-verified scopes. ClickHouse implementation remains pending. This document alone does
-not enable a backend. Each backend/method combination requires its own acceptance.
+Status: bounded delivery through Slice 8 complete, including corrected Slice 1d.
+PostgreSQL, MySQL, SQLite, Trino Iceberg and ordinary local ClickHouse MergeTree
+are enabled within their separately verified scalar, relational and native-date
+scopes. See [Slice 6 ClickHouse acceptance](2026-09-16-multisource-slice-6-acceptance.md),
+[Slice 7 method acceptance](2026-09-16-multisource-slice-7-acceptance.md) and
+[Slice 8 installed-package acceptance](2026-09-16-multisource-slice-8-acceptance.md).
+These are historical source and wheel results, not full backend parity or a new
+live rerun. The [C0 baseline](2026-09-16-multisource-capability-c0-acceptance.md)
+separates current admission, historical evidence and the new completion targets.
+This document alone does not enable a backend. Each backend/method combination
+requires its own acceptance.
 The original Slice 1d blanket read-only restriction is superseded by the
 [capability restoration and abstraction correction](2026-09-15-multisource-slice-1d-restoration-acceptance.md).
 Remote read-only qualification remains part of each future backend activation.
