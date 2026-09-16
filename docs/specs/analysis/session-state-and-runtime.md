@@ -160,3 +160,31 @@ Driver capability probes and prepared statements are additional operations, not
 Dataset primary queries. Read-only metadata access to `system.metadata.catalogs`
 and the selected catalog's information schema is required. Local publication,
 writer ownership and cold source-free Artifact/binding reuse retain existing rules.
+
+### ClickHouse MergeTree scalar Metrics
+
+ClickHouse Group A admits one datasource and one unversioned ordinary local
+MergeTree table: direct-column sum/count/min/max, Population filters, native-date
+scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
+limit. Relationships, versions, sampling, retained import and advanced methods
+remain unavailable.
+
+Physical inputs are Int8/16/32/64, Float32/64, String, Date and explicit Decimal
+precision up to 38, optionally Nullable. Unsigned inputs, Int128/256, Enum,
+LowCardinality, FixedString, Date32, timestamp/timezone and nested values are not
+admitted. Distributed, Replicated, specialized MergeTree engines and views are
+excluded. Timestamp conversion is not qualified by this slice.
+
+Use a SELECT-only account configured with effective `join_use_nulls=1`.
+Metadata, required assertions and output run separately; empty output never
+bypasses validation. Declared floating values must be finite or NULL. Exact
+integer/Decimal sums widen internally to Decimal256 before checked output
+conversion; overflow and non-finite output fail without publication.
+
+Native row streams preserve Decimal and typed Entity identities without pandas
+or raw source transfer to another engine. Each response is owned and closed;
+driver close can drain unread data, so cancellation has no hard latency promise.
+Connection close does not prove remote termination. Unknown remote status does
+not prevent safe local recovery; partial output is never published. No shared
+snapshot, execution budget, upload, temporary object or implicit retry is added.
+Batch size is transport configuration, not a result cap.

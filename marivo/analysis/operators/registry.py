@@ -65,6 +65,7 @@ def backend_execution(backend: str) -> BackendExecution | None:
         "mysql": BackendExecution("mysql", retained_import=False),
         "sqlite": BackendExecution("sqlite", retained_import=False),
         "trino": BackendExecution("trino", retained_import=False),
+        "clickhouse": BackendExecution("clickhouse", retained_import=False),
     }.get(backend)
 
 
@@ -225,6 +226,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         isinstance(root.payload, AttributePayload)
         and root.payload.spec.method == "distinct_membership@v1"
     )
+    from marivo.analysis.operators.clickhouse_support import supports as supports_clickhouse
     from marivo.analysis.operators.mysql_support import supports as supports_mysql
     from marivo.analysis.operators.postgres_support import supports as supports_postgres
     from marivo.analysis.operators.sqlite_support import supports as supports_sqlite
@@ -239,6 +241,8 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         backends = (*backends, BackendRegistration("mysql", source=True))
     if supports_sqlite(dataset):
         backends = (*backends, BackendRegistration("sqlite", source=True))
+    if supports_clickhouse(dataset):
+        backends = (*backends, BackendRegistration("clickhouse", source=True))
     if supports_trino(dataset):
         backends = (*backends, BackendRegistration("trino", source=True))
     # Source behavior is owned by the existing complete Observation lowerer.

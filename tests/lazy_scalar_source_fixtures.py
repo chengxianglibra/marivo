@@ -1,4 +1,4 @@
-"""Shared declarations for MySQL, SQLite and Trino scalar source acceptance."""
+"""Shared declarations for MySQL, SQLite, Trino and ClickHouse scalar source acceptance."""
 
 from __future__ import annotations
 
@@ -21,7 +21,10 @@ if TYPE_CHECKING:
 
 
 def registry_for(
-    database: Path, *, engine: Literal["sqlite", "mysql", "trino"] = "sqlite", table: str = "orders"
+    database: Path,
+    *,
+    engine: Literal["sqlite", "mysql", "trino", "clickhouse"] = "sqlite",
+    table: str = "orders",
 ) -> tuple[Registry, CompiledExpressionSidecar]:
     original, sidecar = make_execution_registry(database)
     entities = dict(original.entities)
@@ -46,6 +49,14 @@ def registry_for(
             "user": "analysis_reader",
         }
         env_refs = {"password": "MARIVO_TEST_MYSQL_PASSWORD"}
+    if engine == "clickhouse":
+        fields = {
+            "host": "127.0.0.1",
+            "port": 18123,
+            "database": "qualification",
+            "user": "analysis_reader",
+        }
+        env_refs = {"password": "MARIVO_TEST_CLICKHOUSE_PASSWORD"}
     if engine == "trino":
         fields = {
             "host": "127.0.0.1",
@@ -117,6 +128,7 @@ class _CursorFactory(Protocol):
 
 def capture_submissions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
     """Capture the actual driver call arguments in acceptance, without changing Store."""
+    from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
     from marivo.analysis.materialization.mysql_execution import MySQLExecutionAdapter
     from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
     from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
@@ -144,7 +156,12 @@ def capture_submissions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, objec
 
         return cursor
 
-    for adapter_type in (MySQLExecutionAdapter, SQLiteExecutionAdapter, TrinoExecutionAdapter):
+    for adapter_type in (
+        MySQLExecutionAdapter,
+        SQLiteExecutionAdapter,
+        TrinoExecutionAdapter,
+        ClickHouseExecutionAdapter,
+    ):
         monkeypatch.setattr(adapter_type, "cursor", wrap(adapter_type.cursor))
     return submitted
 

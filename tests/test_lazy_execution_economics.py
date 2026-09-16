@@ -72,7 +72,7 @@ def test_unregistered_source_adapter_rejects_before_admission(tmp_path: Path, ad
     logical = sources.observe(
         ref.metric(
             "sales.mean_amount"
-            if adapter in {"postgres", "mysql", "sqlite", "trino"}
+            if adapter in {"postgres", "mysql", "sqlite", "trino", "clickhouse"}
             else "sales.revenue"
         )
     )

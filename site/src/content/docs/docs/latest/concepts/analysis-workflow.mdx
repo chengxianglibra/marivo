@@ -53,7 +53,7 @@ complete journeys or journey checkpoints opened with `session.artifact(ref)`;
 materialized funnel summaries or a materialized funnel Delta cannot replace
 those journey inputs.
 
-Source execution supports DuckDB and the PostgreSQL, MySQL, SQLite and Trino scalar subsets below;
+Source execution supports DuckDB and the PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar subsets below;
 datasource authoring alone does not enable Dataset execution on another backend. Unsupported methods report
 the backend and input shape. Retained results are never implicitly uploaded to
 another source, and a same-Session execution-key hit needs no source connection.
@@ -149,8 +149,7 @@ retains its existing sampling, Event/Lifecycle and Candidate implementations; it
 adapter owns temporary resources, macros and registration. Remote implementations
 must support read-only accounts and meet the same semantic requirements before
 activation. An unavailable implementation fails explicitly; it does not silently
-move source data to another engine. PostgreSQL, MySQL, SQLite and Trino support the subsets below; ClickHouse
-analysis remains unenabled.
+move source data to another engine. PostgreSQL, MySQL, SQLite, Trino and ClickHouse support the subsets below.
 
 ### PostgreSQL scalar Metrics
 
@@ -252,6 +251,34 @@ limits. Driver/server limits remain external. Active cursors are owned before
 submission; cancellation and close failures report unknown remote status without
 blocking safe local recovery. Validation and output can observe different source
 states. Relationships, composed Metrics, sampling, retained imports and advanced
-methods remain unavailable; ClickHouse execution remains disabled.
+methods remain unavailable.
 
 The scalar workflow example above also applies to an authored Trino Iceberg Metric.
+
+### ClickHouse MergeTree scalar Metrics
+
+ClickHouse Group A admits one datasource and one unversioned ordinary local
+MergeTree table: direct-column sum/count/min/max, Population filters, native-date
+scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
+limit. Relationships, versions, sampling, retained import and advanced methods
+remain unavailable.
+
+Physical inputs are Int8/16/32/64, Float32/64, String, Date and explicit Decimal
+precision up to 38, optionally Nullable. Unsigned inputs, Int128/256, Enum,
+LowCardinality, FixedString, Date32, timestamp/timezone and nested values are not
+admitted. Distributed, Replicated, specialized MergeTree engines and views are
+excluded. Timestamp conversion is not qualified by this slice.
+
+Use a SELECT-only account configured with effective `join_use_nulls=1`.
+Metadata, required assertions and output run separately; empty output never
+bypasses validation. Declared floating values must be finite or NULL. Exact
+integer/Decimal sums widen internally to Decimal256 before checked output
+conversion; overflow and non-finite output fail without publication.
+
+Native row streams preserve Decimal and typed Entity identities without pandas
+or raw source transfer to another engine. Each response is owned and closed;
+driver close can drain unread data, so cancellation has no hard latency promise.
+Connection close does not prove remote termination. Unknown remote status does
+not prevent safe local recovery; partial output is never published. No shared
+snapshot, execution budget, upload, temporary object or implicit retry is added.
+Batch size is transport configuration, not a result cap.

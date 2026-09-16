@@ -87,7 +87,7 @@ Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一�
 算子共享同一套语义契约和后端注册机制。DuckDB 保留已有采样、Event/Lifecycle 和
 Candidate 实现；临时资源、宏和注册由具体适配器负责。远程实现必须兼容只读账号，
 并满足相同语义要求后才能启用。没有可用实现时明确拒绝，不会隐式把源数据搬到其他
-引擎执行。PostgreSQL、MySQL、SQLite 与 Trino 支持下述子集，ClickHouse 分析后端尚未启用。
+引擎执行。PostgreSQL、MySQL、SQLite、Trino 与 ClickHouse 支持下述子集。
 
 ### PostgreSQL 标量 Metric
 
@@ -171,6 +171,26 @@ Trino Group A 支持单个数据源、单张未版本化的普通 Iceberg 基表
 内部身份结构由类型化标量列重建；batch 不是字节或内存限制。驱动与服务端限制属于
 外部限制。提交前登记活跃 cursor；取消或关闭失败如实报告远程状态未知，但不阻塞
 安全的本地恢复。校验和输出可观察不同源状态。关系、组合 Metric、采样、retained
-导入及高级方法仍未启用；ClickHouse 执行仍关闭。
+导入及高级方法仍未启用。
 
 上述标量工作流示例也适用于已建模的 Trino Iceberg Metric。
+
+### ClickHouse MergeTree 标量 Metric
+
+ClickHouse Group A 支持单数据源、单张未版本化的普通本地 MergeTree 表：
+直接列 sum/count/min/max、Population 过滤、原生日期范围、同 Entity 维度、
+聚合、投影、确定性排名与 limit。关系、版本、采样、retained import 和高级方法仍未启用。
+
+物理类型限于 Int8/16/32/64、Float32/64、String、Date、精度不超过 38 的显式
+Decimal，以及相应 Nullable 类型。unsigned、Int128/256、Enum、LowCardinality、
+FixedString、Date32、timestamp/timezone、嵌套类型、视图及其他引擎不准入；
+本次不声称已验证时间戳转换。
+
+只读账户须配置有效的 `join_use_nulls=1`。元数据、必要断言与输出分别执行，
+输出为空也必须完成校验。浮点输入必须为有限值或 NULL；整数与 Decimal SUM
+在内部扩宽到 Decimal256 后检查输出转换，溢出或非有限结果不发布。
+
+原生分块流精确保留 Decimal 和 Entity 身份，不经 pandas 或转移原始来源到其他引擎。
+执行拥有并关闭每条响应；驱动 close 可能排空未读数据，因此不承诺固定取消时延，
+也不把连接关闭当作远端终止证明。远端状态未知时仍允许安全的本地恢复。
+不增加共享快照、执行预算、上传、临时对象或隐式重试；批大小只是传输配置。

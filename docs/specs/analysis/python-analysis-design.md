@@ -9,7 +9,7 @@ registration hooks implement the same semantic requirements; they are not
 operator-level exceptions. Remote implementations must work with read-only
 accounts and prove equivalent single evaluation, numerical behavior and required
 assertions before registration. No implicit alternate route or new cross-engine
-private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL, SQLite and Trino Group A subsets below are enabled; ClickHouse analysis remains unenabled.
+private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL, SQLite, Trino and ClickHouse Group A subsets below are enabled.
 
 ### PostgreSQL Group A
 
@@ -105,7 +105,7 @@ limits. Driver/server limits remain external. Active cursors are owned before
 submission; cancellation and close failures report unknown remote status without
 blocking safe local recovery. Validation and output can observe different source
 states. Relationships, composed Metrics, sampling, retained imports and advanced
-methods remain unavailable; ClickHouse execution remains disabled.
+methods remain unavailable.
 
 The original Slice 1d blanket restriction is superseded. Existing DuckDB sampling,
 Event/Lifecycle, Candidate, JSON and retained-stream execution remain available.
@@ -172,7 +172,7 @@ whether the requested transition is admitted before source work.
 ## Exact execution and persistence
 
 Runtime fixes the registered implementation and destination before executing.
-Source execution supports DuckDB and admitted PostgreSQL, MySQL, SQLite and Trino Group A. The private method registry
+Source execution supports DuckDB and admitted PostgreSQL, MySQL, SQLite, Trino and ClickHouse Group A. The private method registry
 selects one exact backend registration for the typed invocation, with full
 source execution and preparation declared separately. Unsupported known inputs
 fail before Run admission; exact same-Session binding hits remain source-free.
@@ -250,3 +250,31 @@ not the agent's narrative conclusion. Custom work through `to_pandas()` or
 - [Multi-datasource lazy execution design and implementation plan](../../superpowers/specs/2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md)
   describes staged backend qualification. It does not enable additional source
   execution backends or change the current contracts above.
+
+### ClickHouse MergeTree scalar Metrics
+
+ClickHouse Group A admits one datasource and one unversioned ordinary local
+MergeTree table: direct-column sum/count/min/max, Population filters, native-date
+scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
+limit. Relationships, versions, sampling, retained import and advanced methods
+remain unavailable.
+
+Physical inputs are Int8/16/32/64, Float32/64, String, Date and explicit Decimal
+precision up to 38, optionally Nullable. Unsigned inputs, Int128/256, Enum,
+LowCardinality, FixedString, Date32, timestamp/timezone and nested values are not
+admitted. Distributed, Replicated, specialized MergeTree engines and views are
+excluded. Timestamp conversion is not qualified by this slice.
+
+Use a SELECT-only account configured with effective `join_use_nulls=1`.
+Metadata, required assertions and output run separately; empty output never
+bypasses validation. Declared floating values must be finite or NULL. Exact
+integer/Decimal sums widen internally to Decimal256 before checked output
+conversion; overflow and non-finite output fail without publication.
+
+Native row streams preserve Decimal and typed Entity identities without pandas
+or raw source transfer to another engine. Each response is owned and closed;
+driver close can drain unread data, so cancellation has no hard latency promise.
+Connection close does not prove remote termination. Unknown remote status does
+not prevent safe local recovery; partial output is never published. No shared
+snapshot, execution budget, upload, temporary object or implicit retry is added.
+Batch size is transport configuration, not a result cap.
