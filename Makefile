@@ -43,6 +43,13 @@ object-storage-test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n 0 -m object_connection tests/test_object_storage_connection.py
 
+# Explicit opt-in only; services are managed outside pytest.
+.PHONY: installed-multisource-test
+installed-multisource-test:
+	@test "$$MARIVO_INSTALLED_MULTISOURCE_TEST" = "1" || (echo "Set MARIVO_INSTALLED_MULTISOURCE_TEST=1 and start the selected services first."; exit 1)
+	@./scripts/require-venv.sh pytest
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n 0 -m release tests/test_installed_multisource.py
+
 release-test: pypi-build pypi-check
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) -n 0 -m release \

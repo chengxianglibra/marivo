@@ -63,6 +63,11 @@ exact typed ref or full semantic identity is already available.
 
 ### 3. Build the minimum typed Evidence chain
 
+Datasource connectivity and semantic readiness do not prove that a method can
+execute on that source. Read `marivo.help("analysis.actions.execute")` for execution
+boundaries and follow the concrete structured repair when a shape is unsupported.
+Do not upload retained results or bypass governed analysis to evade a rejection.
+
 Build the smallest logical Dataset chain that can satisfy the Evidence
 obligation. Logical construction describes work; it is not evidence that rows
 were read or results exist. Inspect `.contract().show()` when state or the valid next

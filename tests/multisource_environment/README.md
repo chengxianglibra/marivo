@@ -356,3 +356,70 @@ mean/weighted-mean/ratio, relationship, native-date and local-suffix methods.
 See the [Slice 7 matrix and reproduction commands](../../docs/superpowers/specs/2026-09-16-multisource-slice-7-acceptance.md).
 Run backend suites serially; starting ClickHouse stops this environment's Trino
 group, and vice versa. No pytest invocation starts a service or relaxes privileges.
+
+## Slice 8 installed-package acceptance
+
+Build the current artifacts with `make pypi-build pypi-check`. The explicitly
+opt-in `make installed-multisource-test` installs that wheel with the existing
+`all` extra into an isolated virtual environment outside the checkout. It pins
+test dependencies to the working development environment, also installing
+`psycopg[binary]` as a test prerequisite on hosts without libpq. MySQL requires a
+working mysqlclient build and its native client library. These are test-host
+prerequisites, not new Marivo package dependency declarations.
+
+The test never starts services. Use the dedicated manager and run Trino and
+ClickHouse serially; its start command stops the opposite group. Each invocation
+writes a unique receipt directory under `MARIVO_MULTISOURCE_EVIDENCE_DIR`.
+
+```bash
+MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=sqlite,postgres,mysql,clickhouse MARIVO_MULTISOURCE_EVIDENCE_DIR=/tmp/marivo-installed make installed-multisource-test
+bash tests/multisource_environment/manage.sh start trino
+MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=trino MARIVO_MULTISOURCE_EVIDENCE_DIR=/tmp/marivo-installed make installed-multisource-test
+```
+
+Start and verify the selected PostgreSQL, MySQL and ClickHouse service profiles
+with the manager before the first command. Administrative preparation owns only
+UUID-named fixture tables and removes them in `finally`. The installed public
+Session journey uses `analysis_reader`; a separate privilege probe checks the
+actual identity and denied fixture INSERT. SQLite has no server account: Marivo
+owns its query-only connection boundary.
+
+Each backend performs public semantic loading, source aggregation, composed-state
+publication, relationship/date execution and a complete-history local Forecast.
+A duplicate target must fail validation without publishing. The producer exits;
+the fixture tables are removed; a new process resumes the Session, recovers exact
+bindings and rolls up retained components with source connection creation forbidden.
+A fresh source computation must then fail without publishing. This is a removed-table
+scenario, not service shutdown or network-failure evidence.
+
+Receipts include wheel hash and installed origins, process identities, commands,
+constraints, independently expected values, runtime statement roles and Arrow
+transfer counters. They do not claim wire-byte or server-pruning measurements, or
+capture every driver-internal probe. Source Runtime tests retain ownership of
+broader type/shape, streaming and fault matrices; installation does not turn
+rejection-only cases into supported capabilities.
+
+On this macOS host, an older pip-cached mysqlclient wheel had unresolved native
+symbols despite matching its version. Rebuild the test dependency against the
+installed MariaDB connector instead of copying the checkout's site-packages:
+
+```bash
+MYSQLCLIENT_CFLAGS='-I/opt/homebrew/opt/mariadb-connector-c/include/mariadb' MYSQLCLIENT_LDFLAGS='-L/opt/homebrew/opt/mariadb-connector-c/lib -lmariadb' .venv/bin/pip wheel --no-deps --no-binary=mysqlclient --no-cache-dir mysqlclient==2.2.7 -w /tmp/marivo-native-wheels
+PIP_FIND_LINKS=/tmp/marivo-native-wheels MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=postgres,mysql MARIVO_MULTISOURCE_EVIDENCE_DIR=/tmp/marivo-installed make installed-multisource-test
+```
+
+This supplies only a third-party driver wheel; Marivo itself must still pass the
+isolated installed-origin and exact wheel-hash checks.
+
+The CLI remains a bootstrap and navigation surface, not a backend execution API.
+Inside the isolated installed working directory, use its interpreter and console
+script to discover the same execution guidance as Python:
+
+```bash
+.venv/bin/marivo help
+.venv/bin/python -c 'import marivo; marivo.help("analysis.actions.execute")'
+```
+
+Cold receipts record each binding hit and retained rollup separately because
+Runtime statistics reset per action. Local retained primary statements and Arrow
+rows/bytes are included; the source factory remains forbidden throughout.

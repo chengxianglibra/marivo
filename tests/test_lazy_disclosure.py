@@ -866,3 +866,18 @@ def test_callable_specialization_uses_registration_scope_not_target_spelling(
         assert isinstance(value, Dataset)
         assert candidate.by_callable(value.attribute).canonical_id == target
         assert candidate.by_callable(type(value).attribute).canonical_id == "renamed.general"
+
+
+def test_execute_help_discloses_qualified_source_boundaries(
+    disclosure: DatasetDisclosureRegistry,
+) -> None:
+    text = render(disclosure, "actions.execute")
+    for fact in (
+        "read-only accounts",
+        "remote retained import and uploads are unsupported",
+        "Iceberg tables",
+        "ordinary local MergeTree tables",
+        "semantic readiness do not prove method support",
+    ):
+        assert fact in text
+    assert len(text.encode()) <= 9000
