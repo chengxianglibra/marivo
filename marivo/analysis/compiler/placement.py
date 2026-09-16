@@ -241,11 +241,16 @@ def place(
                     )
                 else:
                     repair = "Use retained inputs satisfying this method's local input contract."
+                reason = (
+                    registry.source_unsupported_reason(value, candidate.adapter)
+                    if candidate is not None
+                    else None
+                )
                 raise DatasetCompilationError(
                     expected=error.expected or "an exact registered implementation",
                     received=(
                         f"{value._root.operator_id}; backend={candidate.adapter if candidate else 'mixed/local'}; "
-                        f"shape={value.row_contract.shape_id}; {error.received}"
+                        f"shape={value.row_contract.shape_id}; {reason or error.received}"
                     ),
                     repair=repair,
                     location="dataset.compiler",

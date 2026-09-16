@@ -1,4 +1,4 @@
-"""SQLite read-only Group A execution with physical storage-class validation."""
+"""SQLite read-only scalar method execution with physical storage-class validation."""
 
 from __future__ import annotations
 
@@ -167,12 +167,12 @@ def bind_sqlite(
 
 
 def admit_dataset(dataset: LogicalDataset) -> None:
-    from marivo.analysis.operators.sqlite_support import supports
+    from marivo.analysis.operators.sqlite_support import unsupported_reason
 
-    if not supports(dataset):
+    if (reason := unsupported_reason(dataset)) is not None:
         raise MaterializationError(
-            expected="an exact SQLite Group A closure",
-            received="unsupported Dataset",
-            repair="Use the registered single-table scalar operations and types.",
+            expected="an exact qualified SQLite scalar method closure",
+            received=reason,
+            repair="Use qualified scalar methods with declared SQLite INTEGER, REAL, TEXT or DATE columns.",
             stage="implementation_registration",
         )

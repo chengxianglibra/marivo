@@ -1,19 +1,23 @@
-"""Pure admission for single-table ClickHouse MergeTree Group A."""
+"""Pure admission for the implemented clickhouse scalar method closure."""
 
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.operators.group_a_support import (
-    supports_explicit_decimal_sources as supports_group_a,
-)
-from marivo.analysis.operators.group_a_support import (
-    supports_scalar_type,
-)
+from marivo.analysis.operators.scalar_support import supports_scalar_type
+from marivo.analysis.operators.scalar_support import unsupported_reason as scalar_reason
 
 
 def supported_type(value: str) -> bool:
-    """Recognize the logical scalar types admitted by this backend."""
+    """Recognize declared scalar types; physical constraints are checked at execution."""
     return supports_scalar_type(value)
 
 
-def supports(dataset: LogicalDataset) -> bool:
-    """Check the complete source closure without opening a datasource."""
-    return supports_group_a(dataset, supported_type)
+def unsupported_reason(dataset: LogicalDataset) -> str | None:
+    """Describe an unqualified source closure without source work."""
+    return scalar_reason(
+        dataset,
+        supported_type,
+        relationships=True,
+        versions=True,
+        date_buckets=True,
+        explicit_decimal_sources=True,
+        closed_open_null_validity=True,
+    )

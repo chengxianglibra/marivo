@@ -10,7 +10,7 @@ import clickhouse_connect
 from clickhouse_connect.driver.client import Client
 from clickhouse_connect.driver.exceptions import DatabaseError
 
-from tests.multisource_environment.mysql_analysis import password
+from tests.multisource_environment.credentials import password
 
 
 @contextmanager

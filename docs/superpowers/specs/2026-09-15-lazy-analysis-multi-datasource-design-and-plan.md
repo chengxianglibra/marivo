@@ -615,7 +615,12 @@ review and final broad/site validation. At the Slice 5 boundary ClickHouse
 execution remained unenabled; advanced method groups remain unenabled on Trino.
 Slice 6 implements the declared ordinary local MergeTree ClickHouse Group A
 scope; see the [Slice 6 evidence record](2026-09-16-multisource-slice-6-acceptance.md).
-Timestamp/timezone, unsigned physical inputs and advanced groups are not enabled.
+At the Slice 6 boundary, timestamp/timezone, unsigned physical inputs and advanced
+groups were not enabled.
+Slice 7 implements individually qualified relational/date B methods and complete
+aggregate-to-local C continuations on all five backends; see the
+[Slice 7 acceptance and explicit unsupported matrix](2026-09-16-multisource-slice-7-acceptance.md).
+Advanced private-state, timestamp/DST and other unqualified entries remain rejected.
 Consolidated installed-package acceptance remains Slice 8.
 At the Slice 2 boundary only DuckDB was enabled; its multi-entry registration
 tests are pure dispatch checks, not remote execution acceptance. PostgreSQL

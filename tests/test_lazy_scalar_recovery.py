@@ -22,23 +22,29 @@ from marivo.analysis.materialization.scalar_sql_execution import (
     ScalarExecutionAdapter,
 )
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
+from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.validator import Registry
 from tests.lazy_acceptance_capture import counts
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
 from tests.multisource_environment import clickhouse_analysis as clickhouse
 from tests.multisource_environment import mysql_analysis as mysql
 from tests.multisource_environment import trino_analysis as trino
+from tests.multisource_environment.postgres_analysis import password as qualification_password
 
 pytestmark = pytest.mark.runtime
 REVENUE = ref.metric("sales.revenue")
 
 
-def registry_for(table: str, patch: pytest.MonkeyPatch):
+def registry_for(
+    table: str, patch: pytest.MonkeyPatch
+) -> tuple[Registry, CompiledExpressionSidecar]:
     if table.endswith(".sqlite"):
         return scalar_registry(Path(table))
     if table.startswith("clickhouse_"):
-        patch.setenv("MARIVO_TEST_CLICKHOUSE_PASSWORD", clickhouse.password())
+        patch.setenv("MARIVO_TEST_CLICKHOUSE_PASSWORD", qualification_password())
         return scalar_registry(Path("unused"), engine="clickhouse", table=table)
     if table.startswith("trino_"):
         return scalar_registry(Path("unused"), engine="trino", table=table)
@@ -78,8 +84,8 @@ def source_table(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str
                 con.command(f"DROP TABLE {name}")
     elif request.param == "trino":
         name = "trino_recovery_" + uuid4().hex
-        with trino.connection(admin=True) as con:
-            cur = con.cursor()
+        with trino.connection(admin=True) as trino_con:
+            cur = trino_con.cursor()
             trino_schema = schema.replace("TEXT", "VARCHAR").replace("`end`", '"end"')
             cur.execute(f"CREATE TABLE {name}({trino_schema})").fetchall()
             cur.execute(f"INSERT INTO {name}(id,amount) VALUES (1,10.25),(2,20.50)").fetchall()
@@ -102,6 +108,8 @@ def source_table(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str
 
 
 def _produce(project: Path, table: str, point: str) -> None:
+    point, _, variant = point.partition(":")
+    composed = variant == "ratio"
     with pytest.MonkeyPatch.context() as patch:
         registry, sidecar = registry_for(table, patch)
 
@@ -115,6 +123,7 @@ def _produce(project: Path, table: str, point: str) -> None:
                             "session": runtime.session_ref,
                             "run": runtime.last_run_ref,
                             "point": point,
+                            "composed": composed,
                         }
                     )
                 )
@@ -144,15 +153,19 @@ def _produce(project: Path, table: str, point: str) -> None:
             return stream
 
         patch.setattr(ScalarExecutionAdapter, "batches", batches)
-        runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(
-            REVENUE
-        ).aggregate().execute()
+        observed = runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(
+            ref.metric("sales.conversion_rate") if composed else REVENUE
+        )
+        if composed:
+            observed = observed.with_dimensions(ref.dimension("sales.orders.channel"))
+        observed.aggregate().execute()
     raise AssertionError("Producer did not reach requested crash point")
 
 
 def _recover(project: Path, table: str) -> None:
     metadata = json.loads((project / "crash.json").read_text())
     runtime = DatasetRuntime.open(project, metadata["session"])
+    composed = metadata.get("composed", False)
     with session_writer_guard(runtime.store.layout.lock_path(runtime.session_ref)):
         reconcile_session(runtime.store, runtime.session_ref, event=runtime._event)
     run = runtime.store.run(metadata["run"])
@@ -163,9 +176,10 @@ def _recover(project: Path, table: str) -> None:
     assert runtime.statistics.validation_queries == 0
     if run.lifecycle == "succeeded":
         assert run.output_artifact_ref is not None
-        assert runtime.artifact(run.output_artifact_ref).to_pandas()["revenue"].astype(
-            str
-        ).tolist() == ["30.75"]
+        artifact = runtime.artifact(run.output_artifact_ref)
+        column = "conversion_rate" if composed else "revenue"
+        expected = "15.375" if composed else "30.75"
+        assert artifact.to_pandas()[column].astype(str).tolist() == [expected]
     else:
         assert run.lifecycle == "failed"
         assert run.output_artifact_ref is None
@@ -182,9 +196,29 @@ def _recover(project: Path, table: str) -> None:
             with patch.context() as cold:
                 cold.setattr(admission, "_build_backend_from_effective", forbidden)
                 cold.delenv("MARIVO_TEST_MYSQL_PASSWORD", raising=False)
-                hit = source.observe(REVENUE).aggregate().execute()
+                observed = source.observe(
+                    ref.metric("sales.conversion_rate") if composed else REVENUE
+                )
+                if composed:
+                    observed = observed.with_dimensions(ref.dimension("sales.orders.channel"))
+                hit = observed.aggregate().execute()
                 assert hit.state.artifact_ref.ref == run.output_artifact_ref
                 assert runtime.statistics.primary_queries == 0
+        if composed and run.lifecycle == "succeeded":
+            from marivo.analysis.materialization import admission
+
+            def no_source(*args: object, **kwargs: object) -> object:
+                raise AssertionError("cold sufficient-state fold attempted source access")
+
+            assert run.output_artifact_ref is not None
+            with patch.context() as cold:
+                cold.setattr(admission, "_build_backend_from_effective", no_source)
+                retained = runtime.artifact(run.output_artifact_ref)
+                assert isinstance(retained, MaterializedMetricDataset)
+                folded = retained.rollup(
+                    drop_dimensions=(ref.dimension("sales.orders.channel"),)
+                ).execute()
+                assert folded.to_pandas().conversion_rate.tolist() == [15.375]
         safe = source.observe(REVENUE).where(gt(REVENUE, 0)).aggregate().execute()
         assert safe.to_pandas()["revenue"].astype(str).tolist() == ["30.75"]
         assert runtime.statistics.primary_queries == 1
@@ -301,6 +335,19 @@ def test_writer_error_is_original_and_retry_is_explicit(
     assert runtime.store.resources(runtime.session_ref) == ()
     armed = False
     assert target.execute().to_pandas().revenue.tolist() == [30.75]
+
+
+@pytest.mark.parametrize("point", ["transfer", "before_rename", "before_commit", "after_commit"])
+def test_composed_parts_have_atomic_publication_and_cold_fold(
+    tmp_path: Path, source_table: str, point: str
+) -> None:
+    process = _worker("produce", tmp_path, source_table, point + ":ratio")
+    assert process.returncode == 73, process.stdout + process.stderr
+    recovered = _worker("recover", tmp_path, source_table)
+    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    result = json.loads(recovered.stdout)
+    assert result["lifecycle"] == ("succeeded" if point == "after_commit" else "failed")
+    assert result["before"]["dataset_artifacts"] == int(point == "after_commit")
 
 
 if __name__ == "__main__":

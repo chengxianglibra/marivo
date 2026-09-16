@@ -297,6 +297,8 @@ SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 会
 
 数据源建模支持与 Dataset 执行是两个边界。PostgreSQL、MySQL、SQLite、Trino 与 ClickHouse 的 Group A
 分别支持单张未版本化表及直接列上的标量 Metric，并有各自的物理类型和表范围限制。
+逐项验证的关系/日期扩展还支持 mean、weighted mean、ratio、同源关系和原生日期分析；
+完整的源端聚合结果可继续交给本地方法。
 参见[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)。声明数据源不会启用其他
 Dataset 方法或后端。
 

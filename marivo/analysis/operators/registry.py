@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
@@ -118,6 +119,32 @@ def supports_retained_import(backend: str) -> bool:
 _DUCKDB = (BackendRegistration("duckdb", source=True),)
 
 
+def _source_admissions() -> dict[BackendName, Callable[[LogicalDataset], str | None]]:
+    """Keep eligibility and diagnostics on the same concrete backend owner."""
+    from marivo.analysis.operators.clickhouse_support import unsupported_reason as clickhouse_reason
+    from marivo.analysis.operators.mysql_support import unsupported_reason as mysql_reason
+    from marivo.analysis.operators.postgres_support import unsupported_reason as postgres_reason
+    from marivo.analysis.operators.sqlite_support import unsupported_reason as sqlite_reason
+    from marivo.analysis.operators.trino_support import unsupported_reason as trino_reason
+
+    return {
+        "postgres": postgres_reason,
+        "mysql": mysql_reason,
+        "sqlite": sqlite_reason,
+        "clickhouse": clickhouse_reason,
+        "trino": trino_reason,
+    }
+
+
+def source_unsupported_reason(dataset: LogicalDataset, backend: str) -> str | None:
+    """Resolve a source admission diagnostic through its concrete backend owner."""
+    execution = backend_execution(backend)
+    if execution is None:
+        return None
+    reason = _source_admissions().get(execution.backend)
+    return None if reason is None else reason(dataset)
+
+
 _ROW_METHODS = frozenset(
     {
         "event.where",
@@ -226,25 +253,14 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         isinstance(root.payload, AttributePayload)
         and root.payload.spec.method == "distinct_membership@v1"
     )
-    from marivo.analysis.operators.clickhouse_support import supports as supports_clickhouse
-    from marivo.analysis.operators.mysql_support import supports as supports_mysql
-    from marivo.analysis.operators.postgres_support import supports as supports_postgres
-    from marivo.analysis.operators.sqlite_support import supports as supports_sqlite
-    from marivo.analysis.operators.trino_support import supports as supports_trino
-
     backends = (
-        (*_DUCKDB, BackendRegistration("postgres", source=True))
-        if supports_postgres(dataset)
-        else _DUCKDB
+        *_DUCKDB,
+        *(
+            BackendRegistration(name, source=True)
+            for name, reason in _source_admissions().items()
+            if reason(dataset) is None
+        ),
     )
-    if supports_mysql(dataset):
-        backends = (*backends, BackendRegistration("mysql", source=True))
-    if supports_sqlite(dataset):
-        backends = (*backends, BackendRegistration("sqlite", source=True))
-    if supports_clickhouse(dataset):
-        backends = (*backends, BackendRegistration("clickhouse", source=True))
-    if supports_trino(dataset):
-        backends = (*backends, BackendRegistration("trino", source=True))
     # Source behavior is owned by the existing complete Observation lowerer.
     return ImplementationRegistration(
         root.operator_id,

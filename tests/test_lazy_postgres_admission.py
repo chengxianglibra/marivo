@@ -83,14 +83,14 @@ def test_group_a_registers_source_without_retained_import(metric: str) -> None:
 
 
 @pytest.mark.parametrize("metric", ["mean_amount", "conversion_rate", "weighted_amount"])
-def test_composed_and_nonscalar_metrics_are_not_registered(metric: str) -> None:
+def test_composed_scalar_metrics_are_registered(metric: str) -> None:
     sources = _sources()
     dataset = sources.observe(ref.metric(f"sales.{metric}"))
-    assert implementation(dataset).for_backend("postgres") is None
+    assert implementation(dataset).for_backend("postgres") is not None
     assert implementation(dataset).for_backend("duckdb") is not None
 
 
-def test_relationship_and_time_axis_dependencies_are_not_registered() -> None:
+def test_relationship_and_native_date_dependencies_are_registered() -> None:
     sources = _sources()
     base = sources.observe(ref.metric("sales.revenue"))
     related = base.with_dimensions(ref.dimension("sales.customers.region"))
@@ -98,7 +98,7 @@ def test_relationship_and_time_axis_dependencies_are_not_registered() -> None:
         ref.time_dimension("sales.orders.order_time"), grain=grain("day")
     )
     for dataset in (related, temporal):
-        assert implementation(dataset).for_backend("postgres") is None
+        assert implementation(dataset).for_backend("postgres") is not None
 
 
 def test_unsupported_declared_source_type_is_not_registered() -> None:
@@ -114,15 +114,15 @@ def test_filter_projection_rank_and_limit_keep_full_closure() -> None:
     ranked = selected.rank(selected.fields.metric(revenue)).limit(3)
     assert implementation(ranked).for_backend("postgres") is not None
     mixed = sources.observe([revenue, ref.metric("sales.mean_amount")]).metric(revenue)
-    assert implementation(mixed).for_backend("postgres") is None
+    assert implementation(mixed).for_backend("postgres") is not None
 
 
-def test_versioned_population_is_not_registered() -> None:
+def test_civil_date_versioned_population_is_registered() -> None:
     population = _sources().population(
         ref.entity("sales.snapshots"),
         time_scope=time_scope(start="2026-02-01", end="2026-03-01"),
     )
-    assert implementation(population).for_backend("postgres") is None
+    assert implementation(population).for_backend("postgres") is not None
 
 
 @pytest.mark.parametrize("aggregation", ["sum", "count", "min", "max"])
@@ -152,7 +152,7 @@ def test_metric_slice_cannot_hide_unsupported_time_parse() -> None:
     assert implementation(dataset).for_backend("postgres") is None
 
 
-def test_unsupported_mean_reports_postgres_placement_without_source_io(
+def test_unsupported_median_reports_postgres_placement_without_source_io(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from pathlib import Path
@@ -164,6 +164,12 @@ def test_unsupported_mean_reports_postgres_placement_without_source_io(
     original, sidecar = make_execution_registry(Path("unused.duckdb"))
     registry = replace(
         original,
+        metrics={
+            **original.metrics,
+            "sales.mean_amount": replace(
+                original.metrics["sales.mean_amount"], aggregation="median"
+            ),
+        },
         datasources={
             name: replace(datasource, backend_type="postgres")
             for name, datasource in original.datasources.items()

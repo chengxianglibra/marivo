@@ -156,7 +156,7 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         )
         if kind != "MergeTree":
             raise self.unsupported(
-                f"ClickHouse engine {kind!r}; Group A requires ordinary MergeTree"
+                f"ClickHouse engine {kind!r}; qualified methods require ordinary MergeTree"
             )
         query = f"DESCRIBE TABLE {_identifier(database)}.{_identifier(name)}"
         if record:
@@ -249,12 +249,13 @@ def bind_clickhouse(
 
 
 def admit_dataset(dataset: LogicalDataset) -> None:
-    from marivo.analysis.operators.clickhouse_support import supports
+    from marivo.analysis.operators.clickhouse_support import unsupported_reason
 
-    if not supports(dataset):
+    reason = unsupported_reason(dataset)
+    if reason is not None:
         raise MaterializationError(
-            expected="an exact ClickHouse Group A closure",
-            received="unsupported Dataset",
-            repair="Use one unversioned MergeTree table and registered scalar operations and types.",
+            expected="an individually qualified ClickHouse scalar method closure",
+            received=reason,
+            repair="Use qualified scalar methods, native civil-date axes and declared MergeTree sources.",
             stage="implementation_registration",
         )

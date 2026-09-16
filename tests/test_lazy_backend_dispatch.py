@@ -35,15 +35,20 @@ from marivo.datasource.backends import (
 )
 from marivo.datasource.ir import DatasourceIR
 from marivo.refs import ref
+from marivo.semantic.ir import AggKind
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_local_fixtures import REVENUE, setup_local
 from tests.lazy_observation_fixtures import NoIoActionPort
 
 
-def _sources(backend: BackendName) -> LazySources:
+def _sources(backend: BackendName, *, aggregation: AggKind = "sum") -> LazySources:
     semantic, sidecar = make_execution_registry(Path("unopened.duckdb"))
     semantic = replace(
         semantic,
+        metrics={
+            **semantic.metrics,
+            "sales.revenue": replace(semantic.metrics["sales.revenue"], aggregation=aggregation),
+        },
         datasources={
             name: replace(value, backend_type=backend)
             for name, value in semantic.datasources.items()
@@ -107,13 +112,12 @@ def test_closed_collection_selects_exact_backend_without_io(
 
 @pytest.mark.parametrize("backend", ["postgres", "mysql", "sqlite", "trino", "clickhouse"])
 def test_production_backend_rejects_unqualified_shape(backend: BackendName) -> None:
-    logical = _sources(backend).observe(ref.metric("sales.mean_amount"))
+    logical = _sources(backend, aggregation="median").observe(REVENUE)
     with pytest.raises(DatasetCompilationError) as caught:
         place(logical)
     error = caught.value
-    assert error.received == (
-        f"session.observe; backend={backend}; shape=metric/entity@v1; source-required method"
-    )
+    assert error.received is not None
+    assert f"session.observe; backend={backend}; shape=metric/entity@v1;" in error.received
     assert error.repair is not None and "duckdb" in error.repair.action
 
 
@@ -233,7 +237,10 @@ def test_execute_contract_routes_to_help_without_claiming_backend_admission(
     bound_help = capsys.readouterr().out
     coordinator("analysis.actions.execute")
     assert bound_help == capsys.readouterr().out
-    assert "admitted PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar Metrics" in bound_help
+    assert (
+        "admitted PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar and individually admitted"
+        in bound_help
+    )
 
 
 @pytest.mark.runtime

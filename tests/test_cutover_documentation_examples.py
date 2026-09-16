@@ -25,7 +25,7 @@ def _blocks(language: str, page: str) -> tuple[str, ...]:
 
 
 @pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 3), ("evidence", 2), ("semantic-layer", 45)]
+    "page,count", [("analysis-workflow", 4), ("evidence", 2), ("semantic-layer", 45)]
 )
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count
@@ -49,6 +49,21 @@ def test_semantic_tutorial_uses_current_observation_and_alignment_contracts() ->
             assert "mv.occurrence_progress" not in text, path
             assert "mv.working_day_progress" not in text, path
             assert "meta.zero_denominator_rows" not in text, path
+
+
+@pytest.mark.runtime
+def test_workflow_mean_rollup_example(tmp_path: Path) -> None:
+    from tests.lazy_local_fixtures import setup_local
+
+    _, sources, _ = setup_local(tmp_path)
+    namespace: dict[str, object] = {"session": sources, "ms": ms}
+    code = next(
+        block for block in _blocks("en", "analysis-workflow") if block.startswith("mean_amount =")
+    )
+    exec(compile(code, "mean-rollup-example", "exec"), namespace)
+    overall = namespace["overall"]
+    assert isinstance(overall, mv.MaterializedMetricDataset)
+    assert overall.to_pandas().mean_amount.tolist() == pytest.approx([147.0 / 5.0])
 
 
 @pytest.mark.runtime

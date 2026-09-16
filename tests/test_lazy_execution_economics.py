@@ -57,10 +57,14 @@ def test_compound_source_chain_and_retained_rollup(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("adapter", ["sqlite", "trino", "mysql", "postgres", "clickhouse"])
-def test_unregistered_source_adapter_rejects_before_admission(tmp_path: Path, adapter: str) -> None:
+def test_unqualified_source_method_rejects_before_admission(tmp_path: Path, adapter: str) -> None:
     registry, sidecar = make_execution_registry(tmp_path / "absent.duckdb")
     registry = replace(
         registry,
+        metrics={
+            **registry.metrics,
+            "sales.revenue": replace(registry.metrics["sales.revenue"], aggregation="median"),
+        },
         datasources={
             name: replace(value, backend_type=adapter)
             for name, value in registry.datasources.items()
@@ -69,15 +73,9 @@ def test_unregistered_source_adapter_rejects_before_admission(tmp_path: Path, ad
     registry.freeze()
     runtime = DatasetRuntime.create(tmp_path, f"unsupported-{adapter}")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    logical = sources.observe(
-        ref.metric(
-            "sales.mean_amount"
-            if adapter in {"postgres", "mysql", "sqlite", "trino", "clickhouse"}
-            else "sales.revenue"
-        )
-    )
+    logical = sources.observe(ref.metric("sales.revenue"))
     before = counts(runtime)
-    with pytest.raises(DatasetCompilationError, match="source-required"):
+    with pytest.raises(DatasetCompilationError):
         logical.execute()
     assert counts(runtime) == before == {"analysis_action_runs": 0, "dataset_artifacts": 0}
     assert runtime.statistics.primary_queries == 0

@@ -9,7 +9,40 @@ registration hooks implement the same semantic requirements; they are not
 operator-level exceptions. Remote implementations must work with read-only
 accounts and prove equivalent single evaluation, numerical behavior and required
 assertions before registration. No implicit alternate route or new cross-engine
-private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL, SQLite, Trino and ClickHouse Group A subsets below are enabled.
+private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar subsets and the individually qualified relational/date methods below are enabled.
+
+### Relational and native-date methods
+
+PostgreSQL, MySQL, SQLite, Trino and ClickHouse use exact per-backend admission
+for direct-column mean, weighted mean and ratio in addition to Group A. The
+complete dependency graph is checked, including predicates and projected-away
+components. Same-source relationship paths retain identity, missing-coordinate
+and fanout assertions. Each participating table must meet its backend's existing
+physical table and type restrictions.
+
+Native civil-date axes support single-unit day, week, month, quarter and year
+buckets. Snapshot and validity membership retain required exact-period,
+non-overlap and selected-identity assertions. PostgreSQL admits both authored
+validity interval closures and configured open-end sentinels. Other backends
+admit closed-open validity with NULL open ends only. Version diagnostics still
+never gate execution or domain equality.
+
+Mean, weighted mean and ratio preserve sufficient components through atomic
+primary/parts publication and immutable retained rollup. A generic Decimal-valued
+composed result remains unsupported when its exact precision/scale is unresolved;
+a Decimal input with an already resolved floating result is a separate case.
+Comparison and attribution use the existing complete non-Entity retained-axis
+methods. Forecast, Kendall and time discovery consume complete source-aggregated
+inputs in the caller; they do not collect raw semantic Entity rows.
+
+The following remain explicitly unsupported on these new backends: linear or
+cumulative Metric graphs, status-time folds, semantic calendars, multi-unit buckets,
+timestamp/timezone/DST and string-parser time axes, hidden-axis expanded
+attribution, sampling, Entity correlation preparation, exact distinct membership,
+quantile/distribution state, Entity candidates, source driver screening and
+Event/Lifecycle. These need their own numerical, private-state, temporal or
+single-evaluation implementations. Remote retained import stays disabled. No
+private state is uploaded or moved to a different executor to bypass rejection.
 
 ### PostgreSQL Group A
 
@@ -25,8 +58,7 @@ float64, date, plain timestamp or Decimal types. Explicit Decimal precision is
 at most 38 and scale lies between zero and precision; a generic Decimal declaration
 still requires compatible physical metadata. Temporal scopes use native date
 columns. Parsed string time axes, timezone-bearing timestamp declarations,
-time-series axes, relationship traversal, versioned Entities, sampling, composed
-Metrics, private state and other methods are not admitted. PostgreSQL receives
+sampling and source-private methods are not admitted by Group A. The relational/date extension above owns additional method admission. PostgreSQL receives
 no retained-import capability.
 
 The adapter uses read-only service-side cursor transactions and records actual
@@ -41,8 +73,8 @@ Both backends admit the same single-source, single-unversioned-table Group A
 closure: Population, scoped observations, direct-column sum/count/min/max,
 dimensions, aggregation, filtering, projection, deterministic ranking and Top-N.
 All dependencies must be admitted, including projected-away Metrics. Neither
-backend imports retained Artifacts or enables relationships, temporal buckets,
-version selection, sampling, composed Metrics or private-state methods.
+backend imports retained Artifacts or enables sampling or source-private methods.
+The relational/date extension above owns additional method admission.
 
 MySQL requires InnoDB, signed integers, float32/64, native DATE, text using
 `utf8mb4_0900_bin` (binary ordering without trailing-space folding), or explicitly
@@ -104,8 +136,8 @@ are reconstructed from typed scalar columns. Batches are not byte or memory
 limits. Driver/server limits remain external. Active cursors are owned before
 submission; cancellation and close failures report unknown remote status without
 blocking safe local recovery. Validation and output can observe different source
-states. Relationships, composed Metrics, sampling, retained imports and advanced
-methods remain unavailable.
+states. Sampling, retained imports and source-private advanced methods remain unavailable.
+The relational/date extension above owns additional method admission.
 
 The original Slice 1d blanket restriction is superseded. Existing DuckDB sampling,
 Event/Lifecycle, Candidate, JSON and retained-stream execution remain available.
@@ -172,7 +204,7 @@ whether the requested transition is admitted before source work.
 ## Exact execution and persistence
 
 Runtime fixes the registered implementation and destination before executing.
-Source execution supports DuckDB and admitted PostgreSQL, MySQL, SQLite, Trino and ClickHouse Group A. The private method registry
+Source execution supports DuckDB and admitted PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar/relational methods. The private method registry
 selects one exact backend registration for the typed invocation, with full
 source execution and preparation declared separately. Unsupported known inputs
 fail before Run admission; exact same-Session binding hits remain source-free.
@@ -256,8 +288,8 @@ not the agent's narrative conclusion. Custom work through `to_pandas()` or
 ClickHouse Group A admits one datasource and one unversioned ordinary local
 MergeTree table: direct-column sum/count/min/max, Population filters, native-date
 scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
-limit. Relationships, versions, sampling, retained import and advanced methods
-remain unavailable.
+limit. Sampling, retained import and source-private advanced methods remain unavailable.
+The relational/native-date extension owns additional method admission.
 
 Physical inputs are Int8/16/32/64, Float32/64, String, Date and explicit Decimal
 precision up to 38, optionally Nullable. Unsigned inputs, Int128/256, Enum,
