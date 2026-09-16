@@ -2,7 +2,9 @@
 
 日期：2026-09-16
 
-状态：设计提案，待审阅；本文不激活任何新能力，也不代表已完成实现或验收。
+状态：C0 基线与目标矩阵已完成，C1–C10 未开始；本文不激活任何新能力，也不代表后续阶段已完成实现或验收。
+
+C0 的当前能力、目标/排除、历史证据与本次只读环境探测见 [C0 验收](2026-09-16-multisource-capability-c0-acceptance.md)；后续各阶段的 owner、fixture、验证入口及进入条件见 [C0 实施计划清单](2026-09-16-multisource-capability-c0-implementation-plan.md)。
 
 ## 1. 目标与基线
 
@@ -10,13 +12,13 @@
 
 本计划的当前基线来自：
 
-- [上一轮设计实施计划](2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md)。其顶部进度仍停留在部分早期阶段，不能作为当前能力矩阵。
+- [上一轮设计实施计划](2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md)。C0 已修正其顶部过时摘要；精确能力仍以当前代码与各阶段验收范围为准。
 - [Slice 7 方法验收](2026-09-16-multisource-slice-7-acceptance.md)。
 - [Slice 8 安装包验收](2026-09-16-multisource-slice-8-acceptance.md)。
 - [Analysis 当前契约](../../specs/analysis/python-analysis-design.md)、[Semantic 对象模型](../../specs/semantic/semantic-object-model.md)及[时间语义](../../specs/temporal-semantics.md)。
 - 当前 `analysis/operators/scalar_support.py`、各后端 support 模块、implementation registry 及 execution adapter。
 
-本文基于代码和已有验收记录，不包含一次新的实时数据库验收。实施前记录实际提交、工作区变化和服务可用性；本轮完成记录必须与旧验收分开。
+本文基于代码和已有验收记录，不包含一次新的实时 Dataset 验收。C0 仅补充当前只读账户/权限/元数据探测；各阶段实施前仍须记录实际提交、工作区变化和服务可用性，本轮完成记录与旧验收分开。
 
 ### 1.1 已具备的能力
 
@@ -66,7 +68,9 @@
 - snapshot/validity 坐标、状态时间、时间解析及合法性断言所需列；
 - retained components 和方法私有准备路径的真实源依赖。
 
-准入与物理类型验证使用同一依赖事实，adapter 只解析相关列并构造明确投影，避免驱动对无关复杂列解码。不能通过忽略未知依赖放行；无法静态解析的表达式继续结构化拒绝。未引用列的变化不应新增执行限制，但不得借此跳过 Entity 身份或关系断言。
+列依赖由 compiler/normalization 统一产生，静态准入、Runtime 物理 schema 校验和源表投影消费同一份按 Entity、精确 datasource binding 与物理关系归属的依赖事实。该契约同时覆盖 PostgreSQL、MySQL、SQLite、Trino、ClickHouse 和 DuckDB 的声明表源路径；不得仅修补共享 scalar adapter。adapter 保留各自的元数据 SQL、关系解析、类型映射与流式传输方式，但只对本次所需列执行类型解析和执行相关检查。允许元数据接口返回全列描述，不得因此解析无关类型或读取无关数据列。不能通过忽略未知依赖放行；无法静态解析的表达式继续结构化拒绝。未引用列的变化不应新增执行限制，但不得借此跳过 Entity 身份或关系断言。
+
+C1 同时统一 schema 失败诊断：必要列缺失、物理类型不支持和声明/实际类型不匹配必须可区分，携带 Entity/物理关系、逻辑列/源列、预期/实际类型及具体修复；缺失列的实际类型明确为缺失，不复用笼统的类型不匹配文本。诊断从已有依赖与物理元数据生成，不包含凭据或业务行值。
 
 这仅收窄 Analysis 的执行相关检查，不直接削弱 datasource 声明、semantic load 或 readiness 自身的契约。若上游加载也拒绝某类声明，必须由其所属层单独解决；不得承诺只改 Analysis 即可接入任意复杂表。
 
@@ -99,6 +103,8 @@ Decimal 沿用语义层结果类型规则，明确每步运算及聚合的 preci
 
 复用现有时间语义所有者，不新增 adapter 自定义的业务时区默认值。源时间、业务时区、输出桶坐标和边界解释必须一致。
 
+C3a 将六后端的时区解析策略收敛到现有时间 owner：adapter 负责获取实际引擎事实，共同策略决定显式 parser、引擎时区与允许的显式系统 fallback 的优先级、失败和来源记录。独立实施计划必须先区分无引擎时区能力、查询失败、无效时区、固定偏移及合法 IANA 时区，确定每种情形的处理和诊断；不得由 adapter 自行 catch 后改用主机时区，也不得机械改成全部 fallback 或全部拒绝。已有 civil-date、显式 parser 和冷读时间事实不能退化；具体策略在激活 timestamp 前与 owner 契约对齐。
+
 按以下顺序推进：C3a 负责普通 timestamp 和小时/日桶、时区与 DST，并包含所需的 T2 时间类型支持；C3b 负责既有解析声明支持的字符串时间和多单位桶。语义日历、累计、status-time fold 和更完整 validity 形态归 C6，不计入 C3。C3a 与 C3b 分别验收，不能用 C3a 完成记录标记整个 C3 完成。
 
 时间戳类型准入与时间方法准入分别记录。覆盖精度边界、跨日/周/年、DST 重复和缺失时间，以及 validity 的端点与 open-end 语义。解析失败、模糊时间或精度损失必须按现有契约失败；不得隐式 cast 为 date、依赖服务器默认时区或取近似桶。
@@ -119,13 +125,13 @@ Linear graph 的组件、单位、NULL/空集及系数规则由现有 Metric 契
 | --- | --- | --- |
 | MySQL | 更多实际使用的文本 collation、普通视图 | 证明等值、分组、排序及尾随空格语义；不能用 binary cast 偷换原契约 |
 | SQLite | 普通视图；有明确需求时再考虑 attached/virtual table | 查询只读、依赖关系和实际存储语义可验证；扩展加载不自动授权 |
-| Trino | 根据真实业务选择一个额外 connector 或视图形态 | 每个 connector 独立证明类型、表达式下推、只读、分页和取消；不得一次宣称支持全部 connector |
-| ClickHouse | ReplicatedMergeTree、ReplacingMergeTree、Distributed 等逐项资格验证 | 明确可见行、重复/版本行、分片与副本语义、身份断言及传输；不隐式加 FINAL 或去重 |
+| Trino | 不限制 catalog 名称或 connector 类型，不以 Iceberg 或其他 connector 白名单决定准入 | 按实际列类型、表达式、关系形态、只读权限和执行语义校验；用 Iceberg 与非 Iceberg catalog 的真实旅程验证通用路径，实际覆盖范围单独记录 |
+| ClickHouse | Distributed 分布式表纳入第一批必交目标；ReplicatedMergeTree、ReplacingMergeTree 仍另行选择 | 真实多分片验证全局聚合、跨分片重复身份、关系 fanout、分片与副本语义、传输及故障；不隐式加 FINAL 或去重 |
 | PostgreSQL | C0 核实目标视图、分区表已有支持及证据；类型扩展归 C2–C4 | 本行是基线核验项，不预设功能缺失；仅当核验发现具体缺口且纳入目标矩阵后，才进入 C5 实施范围 |
 
 ReplacingMergeTree 等表若需要业务级去重或版本选择，由既有语义模型显式表达；普通读取不能承诺后台合并已经完成。Distributed 的分布式执行也不能改变精确聚合和身份规则。
 
-本计划不预选缺乏真实需求和测试环境的 Trino connector；对应实施阶段须先写明具体目标。没有环境时保持该单元未完成，不以模拟结果替代。
+C5 已锁定 ClickHouse Distributed 和 Trino 不按 catalog/connector 类型设白名单两个目标。Trino 的具体非 Iceberg 测试 catalog 在 C5 独立计划中选定，它是验收样本而非支持白名单；元数据检查不得继续依赖 Iceberg 专属接口。ClickHouse 须准备真实多分片环境，单节点 MergeTree 不能代替分布式验收。没有环境时记录阻塞并保持目标未完成，不将已锁定目标移出第一批，也不以模拟结果替代。
 
 ### 3.6 高级方法的独立实施边界
 
@@ -139,6 +145,14 @@ ReplacingMergeTree 等表若需要业务级去重或版本选择，由既有语�
 | Event/Lifecycle | 事件顺序、并列规则、匹配、状态重放与单次求值 | 用普通聚合近似事件过程 |
 
 每组先建立最小后端实现和独立期望值，再逐后端复制验收。若只读能力不能满足必要的准备或求值约束，该后端保持拒绝并记录阻塞原因。不得因此开放远程写入、改变方法定义或宣称全功能对等。
+
+### 3.7 统一实际执行记录
+
+C3a 一并修正时区查询的双重事实来源：Runtime 不再根据 profile 预先制造“已执行 SQL”，记录由 adapter 的实际提交边界产生。将相同记录约定覆盖六后端的元数据、validation、primary、parts 和本地续算路径，避免某些查询预记、某些查询漏记或重复记账；C10 负责最终安装包的独立核对，而不是延后实现。
+
+记录保留实际提交的 SQL 文本与语句角色，不重新编译或通过字符串归一化掩盖差异。参数的处理沿用安全证据边界，凭据和私有行值不得进入回执。提交尝试、执行成功和失败必须区分；编译或提交前失败不能当成成功执行，未捕获的驱动内部操作明确标记为覆盖限制。计数从同一提交事实按既有口径归类，保留 metadata 与业务断言的区别，不以操作调用数冒充物理 SQL 数量。
+
+这项统一不要求统一游标、binary RECORD、标量身份展开、引擎数值转换、取消或清理的物理机制，也不增加远程终止证明、共同快照、重试或新的监控系统。
 
 ## 4. 代码归属与披露
 
@@ -157,16 +171,16 @@ ReplacingMergeTree 等表若需要业务级去重或版本选择，由既有语�
 
 C0 为后续阶段建立实施计划清单；每个阶段执行前须补齐该阶段的独立实施计划，包含精确后端/方法/类型范围、拥有者文件与符号、复用的 fixture、测试文件、具体验证命令和排除项。只写“运行相关测试”不能替代可执行命令；本总计划不要求提前猜测后续阶段尚未确定的函数名。
 
-C1 已核实的入口是 `analysis/operators/scalar_support.py::unsupported_reason()` 中遍历 `entity.columns` 的全声明列检查，以及 `analysis/materialization/scalar_sql_execution.py::ScalarExecutionAdapter.prepare_dataset()` 中生成 `_declared_columns` 的事实供应。后者目前按列名合并，实施时须改为关系归属明确的依赖事实，并追踪各 adapter 的 schema 消费路径。PostgreSQL 独立 adapter 也须覆盖，不能只修改共享 scalar adapter。现有 `compiler/normalize.py::required_entities()` 可用于定位 Entity，但不等于已经具备完整列依赖分析。
+C1 已核实的入口是 `analysis/operators/scalar_support.py::unsupported_reason()` 中遍历 `entity.columns` 的全声明列检查，以及 `analysis/materialization/scalar_sql_execution.py::ScalarExecutionAdapter.prepare_dataset()` 中生成 `_declared_columns` 的事实供应。后者目前按列名合并，实施时须改为关系归属明确的依赖事实，并追踪各 adapter 的 schema 消费路径。PostgreSQL 与 DuckDB 独立 adapter 也须覆盖，不能只修改共享 scalar adapter。Runtime 的 `materialization/admission.py::DatasetRuntime._validate_source_schema()` 和 `_declared_table()` 当前仍遍历全部声明列，必须同步接入统一依赖事实。现有 `compiler/normalize.py::required_entities()` 可用于定位 Entity，但不等于已经具备完整列依赖分析。不要求将所有 adapter 合并为同一继承体系，也不把只读限制施加到 DuckDB 已有本地临时资源、文件和 retained 路径。
 
 以下编号使用 C 前缀，与上一轮 Slice 0–8 区分。每个阶段可以拆成逐后端子任务，实施记录必须标明具体启用单元及剩余拒绝项。
 
 | 阶段 | 范围与交付 | 前置条件 | 完成标准 |
 | --- | --- | --- | --- |
-| C0 基线与目标矩阵 | 核对当前注册、类型、物理表和实测环境；修正原计划过时的进度摘要；确定第一批目标及后续实施计划清单 | 无 | 可追溯的当前/目标/排除矩阵，未验证项明确标记；各阶段按前述要求细化后方可执行 |
-| C1 依赖列准入 | 按关系归属计算完整所需列，统一静态准入、元数据验证和源投影 | C0 | 无关复杂列不阻断；隐藏计算、身份、关系和版本依赖仍被正确检查 |
+| C0 基线与目标矩阵（已完成） | 核对当前注册、类型、物理表和实测环境；修正原计划过时的进度摘要；确定第一批目标及后续实施计划清单 | 无 | 已交付可追溯矩阵与计划清单；未验证项明确标记，后续阶段细化后方可执行 |
+| C1 统一列依赖契约 | 六后端声明表源按关系归属计算完整所需列，统一静态准入、Runtime schema 校验、adapter 类型解析和源投影 | C0 | 已声明未使用列及未声明物理列均不引入无关执行限制；隐藏计算、身份、关系和版本依赖仍被正确检查，schema 错误提供具体依赖/类型事实，DuckDB 既有能力不退化 |
 | C2 常用标量类型 | Boolean、UInt、字符串包装、普通 timestamp 的精确传输和基础方法 | C1 | 每个目标后端的极值、NULL、排序、聚合及冷读通过；不自动激活时间轴 |
-| C3 时间分析 | C3a：T2 时间类型、timestamp 时间轴、小时桶、时区/DST；C3b：解析和多单位桶 | C2、时间 owner 契约核对；先验证所需类型再启用方法 | 每个子范围具有边界矩阵、真实执行和独立期望值 |
+| C3 时间分析 | C3a：T2 时间类型、timestamp 时间轴、小时桶、统一时区策略与实际执行记录；C3b：解析和多单位桶 | C2、时间 owner 契约核对；先验证所需类型再启用方法 | 每个子范围具有边界矩阵、真实执行和独立期望值 |
 | C4 计算与精确数值 | 计算型 measure、Linear graph、可解析精度的 Decimal 组合 | C1、相关 C2 类型 | 源计算、断言、components、rollup 和冷读数值一致 |
 | C5 常见表形态 | 按 3.5 节逐表引擎/connector 实施 | C0、所需类型已支持 | 真实只读账户、物理语义、失败路径和普通业务旅程验收 |
 | C6 完整时间状态 | 日历、累计、status-time fold、剩余 validity 形态 | C3、C4 所需状态 | 空桶、端点、重叠、跨期和 retained 续算满足原契约 |
@@ -175,7 +189,7 @@ C1 已核实的入口是 `analysis/operators/scalar_support.py::unsupported_reas
 | C9 Event/Lifecycle | 先事件匹配，再状态重放及后续分析 | 排序/时间/准备能力已实现 | 并列、乱序、重复、边界和完整重放验收 |
 | C10 安装包整体验收 | 最终 wheel 上验证已启用单元、冷进程和负向矩阵，汇总剩余缺口 | 本次约定交付阶段完成 | 安装来源/hash 可验证，真实旅程通过，无越界支持声明 |
 
-建议第一批交付为 C0、C1、C2、C3a、C4、C5，并由 C10 做有界安装包验收；C3b 后续单独交付，不算第一批完成条件，也不能提前标记完成。C6–C9 不混入第一批提交。C5 可在相关类型准备好后独立推进，但不以并行执行重型数据库测试节省时间。
+已确认第一批交付为 C0、C1、C2、C3a、C4，以及已明确锁定的 C5 单元，并由 C10 做有界安装包验收。C5 已锁定 ClickHouse Distributed 分布式表和 Trino 不限制 catalog/connector 类型，纳入首批承诺；其测试拓扑与代表性 catalog 在 C5 独立计划中明确。其他表引擎或视图仍待选，C5 本身尚未完成。逐后端类型/方法目标见 C0 验收矩阵。C3b 后续单独交付，不算第一批完成条件，也不能提前标记完成。C6–C9 不混入第一批提交。C5 可在相关类型准备好后独立推进，但不以并行执行重型数据库测试节省时间。
 
 C10 可用于第一批的有界验收，不能因此标记 C6–C9 完成。完整补足目标只有在约定矩阵全部实现时才完成；仍然拒绝的单元必须保留在最终差距表中。
 
@@ -185,7 +199,7 @@ C10 可用于第一批的有界验收，不能因此标记 C6–C9 完成。完�
 
 1. 构造无 I/O；已知不支持项在 Run 前拒绝；实际 schema 问题产生准确诊断且不发布结果。
 2. 独立手算或独立参考实现为主判据，DuckDB 作为额外对照。不能只比较两个后端的共同错误。
-3. 捕获真正提交的 SQL、参数及语句角色，分别统计 metadata、validation、primary、parts 和本地续算。SQL 含谓词不能充当物理分区裁剪证据。
+3. 在实际提交边界捕获 SQL、按安全边界处理的参数及语句角色，分别统计 metadata、validation、primary、parts 和本地续算；独立观察器核对文本、角色、次数与成功/失败，不依赖同一记录函数自证。SQL 含谓词不能充当物理分区裁剪证据。
 4. 验证最大合法源端连续计算链。大输入/小输出用有界 fixture 证明聚合下推，不将原始 Entity 全量搬到本地。
 5. 空输出、NULL、重复身份、关系 fanout、非法值、零分母、溢出和类型漂移均不能绕过必要断言。
 6. 原子发布、冷进程续算、移除源后的命中、失败不发布、取消和断连后资源清理保持成立。
@@ -200,7 +214,8 @@ C10 可用于第一批的有界验收，不能因此标记 C6–C9 完成。完�
 | 整数与 Boolean | UInt64 最大值、超过 int64 的身份值、SUM 溢出、0/1/NULL 及非法 Boolean 存储 |
 | 字符串 | 大小写、重音、尾随空格、空串、NULL、确定性并列排序、LowCardinality/Nullable 组合 |
 | Decimal | 大整数部分、不同 scale、乘除组合、零分母、结果精度增长、源/Arrow/Parquet/冷读一致性 |
-| 时间 | 毫秒/微秒及目标高精度、非整点时区、DST gap/fold、跨年周、月末、闰日和边界包含性 |
+| 时间 | 毫秒/微秒及目标高精度、非整点时区、DST gap/fold、跨年周、月末、闰日和边界包含性；六后端无时区能力、探测失败、非法名称、固定偏移、显式 parser 优先级与冷读来源 |
+| schema 诊断与回执 | 缺列/错类型/不支持类型可区分且指明关系和列；真实 SQL 与记录逐条匹配；无查询不记成功、失败保留原始原因、不漏记或重复记账 |
 | 指标 | 条件和 NULL 行表达式、多组件 Linear、关系贡献粒度、显示结果投影后 components 仍可 rollup |
 | 物理表 | 实际 connector 身份、视图依赖、Replacing 重复行、Distributed 跨分片身份及聚合 |
 | 私有状态 | 重叠集合、相同分位数但不同分布、抽样复用、事件并列和重复、禁止私有身份导出 |
@@ -221,4 +236,4 @@ C10 可用于第一批的有界验收，不能因此标记 C6–C9 完成。完�
 
 所有推进遵循“先证明现有契约能在该后端实现，再激活精确单元”。若需要新增公共类型或修改业务语义，先更新其 owning contract 和本计划对应范围，不在 adapter 中私自定义。
 
-第一批完成意味着常见业务类型、时间轴、计算指标和选定表形态具有安装包级真实旅程；不意味着所有复杂类型、connector 和高级方法都已支持。完整功能对等是矩阵中的全部目标单元通过，而不是所有后端名称都出现在 registry 中。
+第一批完成意味着常见业务类型、时间轴、计算指标和选定表形态具有安装包级真实旅程；不意味着所有复杂类型和高级方法都已支持，也不意味着每个 Trino connector 均已逐一实测；Trino 准入不按 connector 类型设白名单。完整功能对等是矩阵中的全部目标单元通过，而不是所有后端名称都出现在 registry 中。
