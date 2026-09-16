@@ -12,6 +12,7 @@ Existing `marivo-slice9d` containers and volumes are outside its ownership.
 | Trino | 483, pinned linux/arm64 digest in Compose | One coordinator/worker, Iceberg connector, JDBC schema V1, local warehouse, table format v2 |
 | PostgreSQL | 17 Alpine, pinned linux/arm64 digest | Iceberg catalog metadata only; not a Marivo PostgreSQL execution test |
 | PostgreSQL analysis | Same 17 Alpine digest, separate service and volume | Group A analysis acceptance using a restricted read-only role |
+| MySQL analysis | MySQL 8.4, pinned digest, separate service and volume | InnoDB Group A using a SELECT-only role |
 | ClickHouse | 26.3 LTS, pinned linux/arm64 digest | One local MergeTree node |
 
 All images are digest-pinned, including moving branch tags resolved during setup.
@@ -228,3 +229,77 @@ and UTC timestamp conversion. It never registers a Marivo backend, executes a
 Dataset Run or grants a pre-transfer assertion-order amendment.
 
 See the [completed qualification and remaining activation gates](../../docs/superpowers/specs/2026-09-15-multisource-slice-0-qualification.md).
+
+## MySQL and SQLite Group A analysis
+
+MySQL uses the dedicated `mysql-analysis` service and volume, with loopback port
+**23306**. Port 13306 belongs to the separate Slice 9d VM and must not be reused.
+Starting this profile leaves the other profiles and VMs running. The image is
+pinned to the tested MySQL 8.4 digest; this is reproduction information, not a
+runtime version eligibility gate. Its external container memory limit is test
+environment configuration, not a Marivo execution budget.
+
+```bash
+bash tests/multisource_environment/manage.sh start mysql-analysis
+bash tests/multisource_environment/manage.sh status mysql-analysis
+MARIVO_MYSQL_ANALYSIS_TEST=1 make runtime-test TESTS='tests/test_lazy_mysql_runtime.py tests/test_lazy_sqlite_runtime.py tests/test_lazy_scalar_execution_adapter.py tests/test_lazy_scalar_recovery.py' RUNTIME_WORKERS=1
+```
+
+Setup provisions `analysis_reader` with only SELECT on `analysis.*`, checks
+object-creation denial, and keeps the password in the existing private environment
+file. Fixture administration uses root solely on this disposable service. Dataset
+declarations reference `MARIVO_TEST_MYSQL_PASSWORD`; credentials are never saved
+in receipts. Runtime tests also prove INSERT, DELETE and CREATE TEMPORARY denial.
+InnoDB fixtures use `utf8mb4_0900_bin`; every UUID fixture is dropped in `finally`.
+MySQLdb/mysqlclient is provided by Marivo's existing optional `mysql` dependency.
+Tests never start the service. Without the explicit flag, skipped MySQL tests are
+not live acceptance evidence.
+
+SQLite tests use separate persistent files under each test's `tmp_path`; they
+need no service. Production reads use query-only connections. The tests cover
+storage-class/date validation, exact composite identities, native integer
+overflow, execute/fetch interruption, atomic publication and fresh-process recovery.
+
+To retain large-input query receipts, set `MARIVO_SLICE4_RECEIPTS` to an output
+directory when running the two engine runtime suites. They record the independent
+expected top two groups, actual driver SQL and parameter tuples, query counts and
+transferred Arrow rows/bytes. DuckDB is an additional comparator; explicit arithmetic
+remains the primary oracle. Parameter capture is test-only and does not change Store
+or persist connection credentials.
+Unavailable server scan metrics remain explicitly unavailable.
+
+```bash
+bash tests/multisource_environment/manage.sh stop mysql-analysis
+```
+
+Stopping preserves its volume. Do not stop the VM while another profile is in use.
+MySQL unbuffered cursor close can drain unread results; connection close is not
+proof of immediate server termination. No analysis timeout, retry, database DDL,
+source upload or version admission is added to the production adapter.
+
+
+### Slice 4 driver audit
+
+The installed MySQLdb cursor `_query` calls `db.query` once; SSCursor `fetchmany`
+uses `_fetch_row` on that result. Its connection `ping` documentation states that
+modern MySQL defaults to reconnect disabled. Neither Ibis's execution hooks nor
+these adapters call ping/reconnect or replay failed statements. Actual closed
+connection tests fail; service-free execute/fetch fault tests assert one submission
+and preserve the original exception even when close fails.
+
+SQLite's native cursor advances the current statement incrementally; it has no
+network reconnect layer. Native [busy-handler waits](https://www.sqlite.org/c3ref/busy_timeout.html)
+remain possible while acquiring locks. These waits are not a Marivo retry policy.
+SQLite also documents [automatic schema-change recompilation and retry](https://www.sqlite.org/c3ref/prepare.html)
+inside prepared-statement stepping. The adapter does not disable those native
+mechanisms or claim zero internal retries. No application-level execute/fetch
+failure restarts a Dataset action. The existing
+execute/fetch interrupt tests exercise SQLite's own interrupted-statement errors.
+
+For both drivers, complete individual cells are decoded before Arrow batch creation.
+`fetchmany` bounds row count, not bytes; a large cell can exceed an expected batch
+memory budget. SQLite may also materialize sorts/aggregates within its engine.
+Small metadata/assertion `submit` results are collected in full. This is not a hard
+memory or cancellation bound. The slow-execution cases use real MySQL SLEEP and a
+SQLite progress-handler delay; blocked-fetch cases use a controlled gate around
+real cursor fetches. They test ownership across a pause, not a real network stall.

@@ -295,10 +295,10 @@ SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 会
 会将其报告为结构化的不支持-操作错误。此时应改用受支持的聚合与原生时间
 列。
 
-数据源建模支持与 Dataset 执行是两个边界。PostgreSQL Dataset 分析目前仅接受
-单张未版本化表、直接列标量 Metric 及支持的类型。操作和类型限制见
-[PostgreSQL 分析边界](/zh-cn/docs/latest/concepts/analysis-workflow/#postgresql-标量-metric)；
-声明其他远端数据源不会启用对应 Dataset 后端。
+数据源建模支持与 Dataset 执行是两个边界。PostgreSQL、MySQL 与 SQLite 的 Group A
+分别支持单张未版本化表及直接列上的标量 Metric，并有各自的物理类型和表范围限制。
+参见[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)。声明数据源不会启用其他
+Dataset 方法或后端。
 
 :::note[凭据是引用，绝不是明文]
 敏感字段以 `*_env` 引用的形式声明，指向环境变量 —— `user_env="TRINO_USER"`、

@@ -25,7 +25,7 @@ def _blocks(language: str, page: str) -> tuple[str, ...]:
 
 
 @pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 2), ("evidence", 2), ("semantic-layer", 45)]
+    "page,count", [("analysis-workflow", 3), ("evidence", 2), ("semantic-layer", 45)]
 )
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count

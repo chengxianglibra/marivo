@@ -7,8 +7,8 @@ state_dir="$HOME/.cache/marivo-multisource"
 profile="marivo-multisource"
 socket="unix://$HOME/.colima/$profile/docker.sock"
 
-if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse|postgres-analysis)$ ]]; then
-    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse|postgres-analysis}" >&2
+if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse|postgres-analysis|mysql-analysis)$ ]]; then
+    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse|postgres-analysis|mysql-analysis}" >&2
     exit 2
 fi
 if [[ ! -f "$state_dir/secrets.env" || ! -f "$state_dir/docker/config.json" ]]; then
@@ -33,6 +33,8 @@ case "$1" in
         "${compose[@]}" up -d --wait --wait-timeout 180
         if [[ "$2" == postgres-analysis ]]; then
             "$repo_root/.venv/bin/python" "$repo_root/tests/multisource_environment/postgres_analysis.py"
+        elif [[ "$2" == mysql-analysis ]]; then
+            "$repo_root/.venv/bin/python" "$repo_root/tests/multisource_environment/mysql_analysis.py"
         fi
         ;;
     stop)

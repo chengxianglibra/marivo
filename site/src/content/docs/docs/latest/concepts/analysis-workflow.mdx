@@ -53,7 +53,7 @@ complete journeys or journey checkpoints opened with `session.artifact(ref)`;
 materialized funnel summaries or a materialized funnel Delta cannot replace
 those journey inputs.
 
-Source execution supports DuckDB and the PostgreSQL scalar subset described below;
+Source execution supports DuckDB and the PostgreSQL, MySQL and SQLite scalar subsets below;
 datasource authoring alone does not enable Dataset execution on another backend. Unsupported methods report
 the backend and input shape. Retained results are never implicitly uploaded to
 another source, and a same-Session execution-key hit needs no source connection.
@@ -149,8 +149,8 @@ retains its existing sampling, Event/Lifecycle and Candidate implementations; it
 adapter owns temporary resources, macros and registration. Remote implementations
 must support read-only accounts and meet the same semantic requirements before
 activation. An unavailable implementation fails explicitly; it does not silently
-move source data to another engine. PostgreSQL supports the subset below; other
-remote analysis backends remain unenabled.
+move source data to another engine. PostgreSQL, MySQL and SQLite support the subsets below; Trino and ClickHouse
+analysis remain unenabled.
 
 ### PostgreSQL scalar Metrics
 
@@ -185,3 +185,44 @@ Queries stream through an owned server-side cursor; no temporary tables, uploads
 or UDFs are created. Validation and result queries may observe different source
 states. Failures preserve their original error and never publish partial output.
 Retained results use the existing reader and are not imported into PostgreSQL.
+
+
+### MySQL and SQLite scalar Metrics
+
+The Group A workflow above also applies to a single unversioned MySQL or SQLite
+table: direct-column `sum/count/min/max`, Population, date-scoped observation,
+dimensions, aggregation, filters, projection, deterministic rank and Top-N.
+For example, the same authored `sales.revenue` and channel dimension use:
+
+```python
+revenue = ms.ref.metric("sales.revenue")
+by_channel = session.observe(revenue).with_dimensions(
+    ms.ref.dimension("sales.orders.channel")
+).aggregate()
+by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute().show()
+```
+
+MySQL requires InnoDB and a SELECT-only account. All declared columns must use
+signed integers, float32/64, native DATE, `utf8mb4_0900_bin` text or explicitly
+specified Decimal precision up to 38. Unsigned, Boolean, timestamp and nested
+types are excluded. Binary text semantics preserve case, Unicode differences
+and trailing spaces. Invalid/zero dates fail source checks; floating SUM overflow
+raises the original database error rather than publishing a saturated result.
+
+SQLite supports persistent ordinary main-database tables with INTEGER/INT/BIGINT,
+REAL/DOUBLE, binary TEXT and DATE columns. Use int64, float64, string and date
+logical declarations. DATE stores canonical valid `YYYY-MM-DD` text in years
+0001–9999. Source checks reject mixed storage classes and invalid dates. Decimal,
+Boolean, timestamp/timezone, virtual and attached-table semantics are excluded.
+SQLite stores inserted NaN as NULL; this distinction cannot be recovered. Integer
+SUM overflow remains an error.
+
+Both adapters preserve typed composite identities and read driver batches without
+an intermediate pandas collection. MySQL unbuffered cursor close may drain
+unread responses; no hard cancellation deadline or memory bound is promised.
+SQLite steps its native cursor incrementally; sorting and aggregation may still
+materialize inside the engine. Batches limit rows, not bytes, and each cell is
+decoded in full. SQLite execution is query-only. Source assertions and output reads may see
+different states; publication remains atomic. Retained results stay in Parquet
+and use the existing native reader, without upload to either source. Relationships,
+composed Metrics, sampling and advanced methods remain outside this subset.

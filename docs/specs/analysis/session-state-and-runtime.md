@@ -119,3 +119,27 @@ preserve the original failure; cleanup uncertainty does not prove server death.
 Atomic publication, recoverable Session state, source-free binding hits and the
 existing retained Parquet reader remain the same contracts. PostgreSQL cannot
 import retained rows or retry on a different executor.
+
+## MySQL and SQLite Group A execution
+
+The concrete adapters own metadata, read-only cursors, cancellation and physical
+validation. They share private scalar identity lowering and typed Arrow transport;
+no public executor or retained-import capability is added. MySQL uses SSCursor;
+SQLite uses native fetchmany with incremental statement stepping, while the engine
+may materialize sorts or aggregates internally. Both drivers decode complete cells;
+fetchmany limits rows rather than bytes, and Arrow allocates each decoded batch.
+Early MySQL cursor close can drain unread responses. Numeric and non-finite
+lowering belongs to each concrete adapter; the shared projection pass only handles
+identity structure. Internal identity/date/integer conversion guards raise
+structured MaterializationError with the owning Run reference.
+Neither execution path reuses datasource authoring timeout/transaction wrappers.
+
+Source storage/date assertions and normal semantic assertions precede publication.
+MySQL floating SUM triggers native overflow before lossy conversion, and statement
+warnings reject potential truncation. SQLite preserves native integer overflow.
+Original errors survive cleanup failures. Each engine retains atomic publication,
+process-death reconciliation and source-free cold Artifact/binding reads; unknown
+remote read termination alone does not block safe local recovery.
+
+The [analysis design](python-analysis-design.md#mysql-and-sqlite-group-a) owns the
+precise table, type and method activation scope.
