@@ -7,6 +7,13 @@ Give the agent the business question, confirmed Metric, Population and compariso
 scope. The agent chooses the methods and checkpoints that answer that question.
 You do not need to prescribe operator calls or result-display mechanics.
 
+Datasource connectivity and semantic readiness do not prove that an analysis method
+can execute on that source. Read `marivo.help("analysis.actions.execute")` for
+execution boundaries, inspect the Dataset contract, and follow the concrete
+structured repair for unsupported shapes. Remote sources require read-only
+accounts; uploading retained results to bypass admission is unsupported.
+
+
 ## Construct and execute
 
 Analysis uses a question-scoped Session. Source constructors and Dataset methods

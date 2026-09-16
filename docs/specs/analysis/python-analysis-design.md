@@ -11,6 +11,16 @@ accounts and prove equivalent single evaluation, numerical behavior and required
 assertions before registration. No implicit alternate route or new cross-engine
 private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar subsets and the individually qualified relational/date methods below are enabled.
 
+### Discovering execution boundaries
+
+`marivo.help("analysis.actions.execute")` owns the bounded execution guidance.
+Datasource connectivity and semantic readiness do not establish support for a
+particular method or input shape. Read the logical Dataset contract and the
+structured rejection for the selected invocation. Remote sources require read-only
+accounts; retained import and uploads remain unsupported. Trino qualification is
+limited to Iceberg and ClickHouse to ordinary local MergeTree tables. Installed
+package acceptance is recorded separately from source-tree Runtime evidence.
+
 ### Relational and native-date methods
 
 PostgreSQL, MySQL, SQLite, Trino and ClickHouse use exact per-backend admission

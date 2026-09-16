@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import sysconfig
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -265,6 +266,7 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         "finding_ids": [item.finding_id for item in findings.items],
         "graph": graph.render(),
         "execution_statements": session._runtime.statistics.statements,
+        "statistics": asdict(session._runtime.statistics),
         "origin": assert_installed_origin(),
     }
 
