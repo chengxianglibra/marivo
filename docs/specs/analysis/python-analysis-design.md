@@ -9,7 +9,7 @@ registration hooks implement the same semantic requirements; they are not
 operator-level exceptions. Remote implementations must work with read-only
 accounts and prove equivalent single evaluation, numerical behavior and required
 assertions before registration. No implicit alternate route or new cross-engine
-private-state transfer is introduced. DuckDB analysis and the PostgreSQL Group A subset below are enabled; other remote backends remain unenabled.
+private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL and SQLite Group A subsets below are enabled; Trino and ClickHouse analysis remain unenabled.
 
 ### PostgreSQL Group A
 
@@ -34,6 +34,51 @@ metadata, validation and output statements. It creates no remote temporary table
 uploads or UDFs. Each query may read a different source state; no common snapshot
 or implicit retry is added. Transport and cleanup failures preserve the original
 error and cannot publish partial output.
+
+### MySQL and SQLite Group A
+
+Both backends admit the same single-source, single-unversioned-table Group A
+closure: Population, scoped observations, direct-column sum/count/min/max,
+dimensions, aggregation, filtering, projection, deterministic ranking and Top-N.
+All dependencies must be admitted, including projected-away Metrics. Neither
+backend imports retained Artifacts or enables relationships, temporal buckets,
+version selection, sampling, composed Metrics or private-state methods.
+
+MySQL requires InnoDB, signed integers, float32/64, native DATE, text using
+`utf8mb4_0900_bin` (binary ordering without trailing-space folding), or explicitly
+specified Decimal precision up to 38 with a valid scale. Generic Decimal source
+declarations, unsigned types, Boolean, timestamps and nested types are not admitted.
+MySQL integer SUM results are decoded from Decimal without float conversion.
+Floating SUM adds exact floating zero before conversion so server overflow raises
+its native exception instead of serializing zero or saturating a cast. Zero or
+invalid dates are rejected by source assertions before publication.
+
+SQLite accepts persistent ordinary tables in the declared main database, with
+INTEGER/INT/BIGINT, REAL/DOUBLE, TEXT with binary collation, and DATE columns.
+Logical types are int64, float64, string and date. DATE values must be canonical
+`YYYY-MM-DD` text representing valid Gregorian dates in years 0001 through 9999.
+Source assertions reject incompatible storage classes and invalid dates even
+when the result would be empty. REAL admits SQLite numeric storage; Decimal,
+Boolean, timestamps, timezone semantics, virtual tables and attached databases
+are not enabled. SQLite converts an inserted NaN to SQL NULL; Marivo cannot
+recover that lost distinction. Ranking excludes NULL and infinite values under
+its existing contract. Native integer SUM overflow remains an error.
+
+Both adapters flatten internal Entity identity structs into typed scalar SQL
+columns and rebuild the unchanged Arrow identity schema without string or float
+encoding. Transport uses direct cursor fetches, not Ibis's pandas-buffered Arrow
+path. MySQL uses an unbuffered SSCursor; early cursor close may drain unread
+responses. SQLite uses its native incremental cursor. Batch size is transport
+configuration, not a result or memory cap. Driver, database and runner limits
+remain external; Marivo sets no execution timeout and promises no hard cancel
+latency. Analysis does not reuse authoring timeout/transaction wrappers.
+
+Use a SELECT-only MySQL account without write or object-creation privileges;
+SQLite execution enables query-only mode. Cancellation targets only the owned
+connection, including SQLite fetch execution. Connection close is not proof of
+remote termination. Original failures survive cleanup errors, partial output is
+never published, and locally safe recovery remains possible with unknown remote
+status. Cold Artifact reads and exact binding hits do not access the source.
 
 The original Slice 1d blanket restriction is superseded. Existing DuckDB sampling,
 Event/Lifecycle, Candidate, JSON and retained-stream execution remain available.
@@ -100,7 +145,7 @@ whether the requested transition is admitted before source work.
 ## Exact execution and persistence
 
 Runtime fixes the registered implementation and destination before executing.
-Source execution supports DuckDB and admitted PostgreSQL Group A. The private method registry
+Source execution supports DuckDB and admitted PostgreSQL, MySQL and SQLite Group A. The private method registry
 selects one exact backend registration for the typed invocation, with full
 source execution and preparation declared separately. Unsupported known inputs
 fail before Run admission; exact same-Session binding hits remain source-free.

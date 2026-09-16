@@ -150,8 +150,12 @@ def resolve_execution(backend: str) -> ExecutionBackend | None:
         bind_duckdb,
         open_native_backend,
     )
+    from marivo.analysis.materialization.mysql_execution import admit_dataset as admit_mysql
+    from marivo.analysis.materialization.mysql_execution import bind_mysql
     from marivo.analysis.materialization.postgres_execution import admit_dataset as admit_postgres
     from marivo.analysis.materialization.postgres_execution import bind_postgres
+    from marivo.analysis.materialization.sqlite_execution import admit_dataset as admit_sqlite
+    from marivo.analysis.materialization.sqlite_execution import bind_sqlite
     from marivo.analysis.operators.registry import backend_execution
 
     registration = backend_execution(backend)
@@ -160,5 +164,7 @@ def resolve_execution(backend: str) -> ExecutionBackend | None:
     factories = {
         "duckdb": ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset),
         "postgres": ExecutionBackend(bind_postgres, None, admit_postgres),
+        "mysql": ExecutionBackend(bind_mysql, None, admit_mysql),
+        "sqlite": ExecutionBackend(bind_sqlite, None, admit_sqlite),
     }
     return factories.get(registration.backend)

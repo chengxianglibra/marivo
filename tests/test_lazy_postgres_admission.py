@@ -80,7 +80,7 @@ def test_group_a_registers_source_without_retained_import(metric: str) -> None:
         assert registration is not None and registration.source
     execution = backend_execution("postgres")
     assert execution is not None and not execution.retained_import
-    assert backend_execution("mysql") is None
+    assert backend_execution("trino") is None
 
 
 @pytest.mark.parametrize("metric", ["mean_amount", "conversion_rate", "weighted_amount"])

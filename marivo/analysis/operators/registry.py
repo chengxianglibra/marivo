@@ -62,6 +62,8 @@ def backend_execution(backend: str) -> BackendExecution | None:
     return {
         "duckdb": BackendExecution("duckdb", retained_import=True),
         "postgres": BackendExecution("postgres", retained_import=False),
+        "mysql": BackendExecution("mysql", retained_import=False),
+        "sqlite": BackendExecution("sqlite", retained_import=False),
     }.get(backend)
 
 
@@ -222,13 +224,19 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         isinstance(root.payload, AttributePayload)
         and root.payload.spec.method == "distinct_membership@v1"
     )
+    from marivo.analysis.operators.mysql_support import supports as supports_mysql
     from marivo.analysis.operators.postgres_support import supports as supports_postgres
+    from marivo.analysis.operators.sqlite_support import supports as supports_sqlite
 
     backends = (
         (*_DUCKDB, BackendRegistration("postgres", source=True))
         if supports_postgres(dataset)
         else _DUCKDB
     )
+    if supports_mysql(dataset):
+        backends = (*backends, BackendRegistration("mysql", source=True))
+    if supports_sqlite(dataset):
+        backends = (*backends, BackendRegistration("sqlite", source=True))
     # Source behavior is owned by the existing complete Observation lowerer.
     return ImplementationRegistration(
         root.operator_id,

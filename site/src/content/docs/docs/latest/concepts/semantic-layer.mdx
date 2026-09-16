@@ -336,11 +336,11 @@ support median or percentile metrics, or string `strptime` expressions in the cu
 backend; Marivo reports these as structured unsupported-operation errors. Use a
 supported aggregation and a native temporal column instead.
 
-Datasource authoring support is separate from Dataset execution. PostgreSQL
-Dataset analysis currently admits only one unversioned table with direct-column
-scalar Metrics and supported types. See the [PostgreSQL analysis boundary](/docs/latest/concepts/analysis-workflow/#postgresql-scalar-metrics)
-for operations and type limits; declaring another remote datasource does not
-activate its Dataset backend.
+Datasource authoring support is separate from Dataset execution. PostgreSQL,
+MySQL and SQLite Group A each admit one unversioned table with direct-column
+scalar Metrics under their declared physical type and table restrictions.
+See the [analysis boundaries](/docs/latest/concepts/analysis-workflow/#backend-implementation-boundaries).
+Declaring a datasource does not enable other Dataset methods or backends.
 
 :::caution[Credentials are references, never literals]
 Sensitive fields are authored as `*_env` references that name an environment

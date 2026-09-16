@@ -58,6 +58,24 @@ services:
       timeout: 3s
       retries: 30
     logging: *logging
+  mysql-analysis:
+    image: mysql@sha256:85b9bf2e29cf836ecb8c2a15a935d4ba0c606631dff1dd79531a11983c638f2a
+    platform: linux/arm64
+    profiles: [mysql-analysis]
+    mem_limit: 768m
+    environment:
+      MYSQL_DATABASE: analysis
+      MYSQL_ROOT_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
+      MYSQL_ROOT_HOST: "%"
+    ports: [127.0.0.1:23306:3306]
+    volumes:
+      - mysql-analysis:/var/lib/mysql
+    healthcheck:
+      test: [CMD, mysqladmin, ping, --host=127.0.0.1, --silent]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+    logging: *logging
   clickhouse:
     image: clickhouse/clickhouse-server@sha256:d283856e8da15163f250f683ee9a7ad8876111094ef4d4caf9bcc3d9843db5d7
     platform: linux/arm64
@@ -84,6 +102,7 @@ services:
       - ./clickhouse.xml:/etc/clickhouse-server/config.d/qualification.xml:ro
     logging: *logging
 volumes:
+  mysql-analysis:
   postgres-analysis:
   catalog:
   warehouse:

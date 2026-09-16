@@ -70,7 +70,9 @@ def test_unregistered_source_adapter_rejects_before_admission(tmp_path: Path, ad
     runtime = DatasetRuntime.create(tmp_path, f"unsupported-{adapter}")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     logical = sources.observe(
-        ref.metric("sales.mean_amount" if adapter == "postgres" else "sales.revenue")
+        ref.metric(
+            "sales.mean_amount" if adapter in {"postgres", "mysql", "sqlite"} else "sales.revenue"
+        )
     )
     before = counts(runtime)
     with pytest.raises(DatasetCompilationError, match="source-required"):

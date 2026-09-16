@@ -87,7 +87,7 @@ Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一�
 算子共享同一套语义契约和后端注册机制。DuckDB 保留已有采样、Event/Lifecycle 和
 Candidate 实现；临时资源、宏和注册由具体适配器负责。远程实现必须兼容只读账号，
 并满足相同语义要求后才能启用。没有可用实现时明确拒绝，不会隐式把源数据搬到其他
-引擎执行。PostgreSQL 支持下述子集，其他远端分析后端尚未启用。
+引擎执行。PostgreSQL、MySQL 与 SQLite 支持下述子集，Trino 与 ClickHouse 分析后端尚未启用。
 
 ### PostgreSQL 标量 Metric
 
@@ -119,3 +119,36 @@ timestamp 声明、时间序列轴、关系遍历、版本化 Entity、采样、
 服务端游标分批传输，不创建临时表、不上传数据、不创建 UDF。验证与结果查询可能
 观察到不同的来源状态。失败保留原始异常，且不会发布部分输出。保留结果继续使用
 现有读取器，不会导入 PostgreSQL。
+
+
+### MySQL 与 SQLite 标量 Metric
+
+上面的 Group A 流程同样适用于单张未版本化的 MySQL 或 SQLite 表：直接列上的
+`sum/count/min/max`、Population、日期限定观察、维度、聚合、过滤、投影、确定性排名与 Top-N。
+例如，已声明的 `sales.revenue` 和渠道维度可以使用相同调用：
+
+```python
+revenue = ms.ref.metric("sales.revenue")
+by_channel = session.observe(revenue).with_dimensions(
+    ms.ref.dimension("sales.orders.channel")
+).aggregate()
+by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute().show()
+```
+
+MySQL 限定 InnoDB 和仅有 SELECT 权限的账户。所有声明列须使用有符号整数、
+float32/64、原生 DATE、`utf8mb4_0900_bin` 文本或明确精度且不超过 38 位的 Decimal。
+不接受 unsigned、Boolean、timestamp 和嵌套类型。文本保留大小写、Unicode 与尾空格差异。
+零日期及非法日期在源校验阶段失败；浮点 SUM 溢出抛出数据库原始错误，不发布饱和值。
+
+SQLite 支持主数据库中的持久化普通表，物理类型为 INTEGER/INT/BIGINT、REAL/DOUBLE、
+二进制排序 TEXT 和 DATE；逻辑声明使用 int64、float64、string、date。
+DATE 保存年份 0001–9999 内有效日期的规范 `YYYY-MM-DD` 文本。源校验拒绝混合存储类型
+和非法日期。不支持 Decimal、Boolean、timestamp/时区、虚拟表或附加数据库表。
+SQLite 将写入的 NaN 转成 NULL，无法恢复该区别；整数 SUM 溢出仍然报错。
+
+两个适配器保留精确的复合身份，直接按驱动批次读取，不经 pandas 全量中转。
+MySQL 非缓冲游标提前关闭时可能排空未读响应，不承诺硬取消时限或内存上限。
+SQLite 原生游标逐步读取，但引擎内部仍可能物化排序或聚合。批次限制行数而非字节数，
+单个值仍会完整解码。SQLite 执行启用 query-only。校验与输出查询可能观察到不同源状态，结果仍原子发布。
+保留结果使用 Parquet 和现有读取器，不上传到来源。关系、组合指标、采样和高级方法
+不在此子集内。
