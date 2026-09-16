@@ -11,6 +11,7 @@ Existing `marivo-slice9d` containers and volumes are outside its ownership.
 | --- | --- | --- |
 | Trino | 483, pinned linux/arm64 digest in Compose | One coordinator/worker, Iceberg connector, JDBC schema V1, local warehouse, table format v2 |
 | PostgreSQL | 17 Alpine, pinned linux/arm64 digest | Iceberg catalog metadata only; not a Marivo PostgreSQL execution test |
+| PostgreSQL analysis | Same 17 Alpine digest, separate service and volume | Group A analysis acceptance using a restricted read-only role |
 | ClickHouse | 26.3 LTS, pinned linux/arm64 digest | One local MergeTree node |
 
 All images are digest-pinned, including moving branch tags resolved during setup.
@@ -91,7 +92,7 @@ bash tests/multisource_environment/manage.sh start trino
 .venv/bin/python tests/multisource_environment/smoke.py trino
 ```
 
-`start` first stops the opposite group in this Compose project. Trino startup
+For Trino and ClickHouse, `start` first stops the opposite group in this Compose project. Trino startup
 also initializes warehouse ownership with a short root process from its own
 pinned image. It does not change other filesystem paths. A container being
 started is not readiness: the helper waits up to 180 seconds for container
@@ -103,6 +104,7 @@ bounded logs when startup fails.
 | Trino | `http://127.0.0.1:18080` | user `qualifier`, catalog `iceberg`, session timezone UTC |
 | ClickHouse | `http://127.0.0.1:18123` | user `qualifier`, database `qualification`, password from private file |
 | PostgreSQL | Compose network only, `postgres:5432` | database/user `iceberg`; same private test password |
+| PostgreSQL analysis | `127.0.0.1:15432` | database `analysis`, reader `analysis_reader`, fixture administrator `analysis_admin` |
 
 Smoke creates UUID-named fixtures and drops only those fixtures in `finally`.
 ClickHouse checks exact Decimal aggregation and effective session settings.
@@ -128,6 +130,54 @@ be stopped with `colima stop marivo-multisource`. Restart it with
 Deleting the environment's volumes is an explicit reset, not normal cleanup;
 it discards both Iceberg catalog and warehouse state. Keep the private password
 while retaining initialized PostgreSQL/ClickHouse volumes.
+
+## PostgreSQL Group A analysis environment
+
+This profile owns only `postgres-analysis` and its separate named volume. Starting
+or stopping it does not stop ClickHouse or modify the Trino metadata database.
+Its 512 MiB container can run alongside ClickHouse within the dedicated VM.
+
+```bash
+bash tests/multisource_environment/manage.sh start postgres-analysis
+bash tests/multisource_environment/manage.sh status postgres-analysis
+```
+
+Start waits for health, then runs `postgres_analysis.py`. The setup provisions the
+reader, removes PUBLIC CREATE/TEMP privileges, grants public-schema USAGE and
+SELECT, and defaults reader transactions to read-only and UTC. The reader cannot
+write, create ordinary tables, or create temporary tables even after switching
+its transaction default to read-write. The setup verifies these permissions and
+a disposable exact-decimal aggregate, then removes its fixture. This setup smoke
+does not constitute Dataset acceptance.
+
+Runtime fixtures may import the following helpers. Administrative writes stay
+in fixture preparation; Marivo datasource declarations must use `READER` and
+an environment reference for the password.
+
+```python
+import os
+from tests.multisource_environment import postgres_analysis as pg
+
+os.environ["MARIVO_POSTGRES_ANALYSIS_PASSWORD"] = pg.password()
+with pg.connection(admin=True) as admin:
+    # Use UUID-named tables and remove them in a finally block.
+    # Tables created by this administrator in public grant reader SELECT.
+    pass
+with pg.connection() as reader:
+    assert reader.execute("SELECT current_user").fetchone() == (pg.READER,)
+```
+
+The helper constants are `HOST`, `PORT`, `DATABASE`, `ADMIN`, and `READER`.
+Connections are psycopg connections with autocommit and UTC. Tests that exercise
+server cursors explicitly own their transactions. No service is started by these
+connection helpers or the default test gates. Stop only this service with:
+
+```bash
+bash tests/multisource_environment/manage.sh stop postgres-analysis
+```
+
+Stopping preserves its data volume and private credentials. Do not stop the VM
+while another qualification service is in use.
 
 ## Qualifications still required
 

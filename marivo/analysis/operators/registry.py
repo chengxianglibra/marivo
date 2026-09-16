@@ -59,7 +59,10 @@ class BackendExecution:
 
 def backend_execution(backend: str) -> BackendExecution | None:
     """Resolve implemented backend capabilities without importing Runtime."""
-    return {"duckdb": BackendExecution("duckdb", retained_import=True)}.get(backend)
+    return {
+        "duckdb": BackendExecution("duckdb", retained_import=True),
+        "postgres": BackendExecution("postgres", retained_import=False),
+    }.get(backend)
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,11 +222,18 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         isinstance(root.payload, AttributePayload)
         and root.payload.spec.method == "distinct_membership@v1"
     )
+    from marivo.analysis.operators.postgres_support import supports as supports_postgres
+
+    backends = (
+        (*_DUCKDB, BackendRegistration("postgres", source=True))
+        if supports_postgres(dataset)
+        else _DUCKDB
+    )
     # Source behavior is owned by the existing complete Observation lowerer.
     return ImplementationRegistration(
         root.operator_id,
         roles,
-        _DUCKDB,
+        backends,
         root.operator_id
         if not entity_scoped_result
         and not source_private_state

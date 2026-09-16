@@ -2973,7 +2973,7 @@ activate any remote backend.
 The physical graph carries the selected backend registration and one exact
 source/preparation operation. Runtime checks this selection against the declared
 source binding before opening its connection; no execution failure changes the
-selection. Only the existing DuckDB operations are enabled. Retained Parquet
+selection. At Slice 2, only the existing DuckDB operations were enabled. Retained Parquet
 imports require the existing native DuckDB reader, not merely a sole source
 candidate. Source-domain equality and action-local execution ownership retain
 their separate checks, independent of version diagnostics.
@@ -2982,3 +2982,18 @@ An immutable binding hit returns before placement and source resolution. On a
 miss, known unsupported methods/backends/shapes fail before Run admission; live
 physical schema checks still precede source-row computation. The registry
 extension changes neither the execution key nor Store generation 5 publication.
+
+## 2026-09-16 amendment: Slice 3 PostgreSQL cursor ownership
+
+PostgreSQL Group A uses the existing selected-backend execution seam. Its adapter
+owns each read-only transaction and server-side cursor through metadata handling,
+execution, bounded fetch batches, early close, cancellation and failure. It records
+actual submitted statements, including named-cursor execution; validation result
+handles have an explicit close owner. Schema inspection records the adapter's
+real metadata operation instead of a shared fabricated DuckDB `DESCRIBE`.
+
+No remote temporary relation, upload, UDF, retained import, implicit retry or shared
+source snapshot is introduced. Required validations, no partial publication,
+original-error preservation, safe Session recovery and source-free immutable
+binding hits remain mandatory. The earlier Slice 2 text is historical; real
+PostgreSQL acceptance and its limitations belong to the separate evidence record.

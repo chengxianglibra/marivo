@@ -19,6 +19,7 @@ from marivo.analysis.compiler.placement import (
 )
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.errors import DatasetRegistrationError
+from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.analysis.operators.registry import (
@@ -27,6 +28,12 @@ from marivo.analysis.operators.registry import (
     ImplementationRegistration,
 )
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
+from marivo.datasource.backends import (
+    BuiltDatasourceBackend,
+    EffectiveDatasourceKwargs,
+    _build_backend_from_effective,
+)
+from marivo.datasource.ir import DatasourceIR
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_local_fixtures import REVENUE, setup_local
@@ -98,7 +105,7 @@ def test_closed_collection_selects_exact_backend_without_io(
     assert registered(logical).for_backend("unknown") is None
 
 
-@pytest.mark.parametrize("backend", ["postgres", "mysql", "sqlite", "trino", "clickhouse"])
+@pytest.mark.parametrize("backend", ["mysql", "sqlite", "trino", "clickhouse"])
 def test_production_backend_rejection_has_method_shape_and_repair(backend: BackendName) -> None:
     logical = _sources(backend).observe(REVENUE)
     with pytest.raises(DatasetCompilationError) as caught:
@@ -225,7 +232,7 @@ def test_execute_contract_routes_to_help_without_claiming_backend_admission(
     bound_help = capsys.readouterr().out
     coordinator("analysis.actions.execute")
     assert bound_help == capsys.readouterr().out
-    assert "Source execution currently supports DuckDB only" in bound_help
+    assert "admitted PostgreSQL scalar Metrics" in bound_help
 
 
 @pytest.mark.runtime
@@ -310,7 +317,9 @@ def test_retained_input_inherits_only_admitted_duckdb_source(
 def test_retained_import_reads_the_execution_declaration(monkeypatch: pytest.MonkeyPatch) -> None:
     execution = registry.backend_execution("duckdb")
     assert execution is not None and execution.retained_import
-    assert registry.backend_execution("postgres") is None
+    assert registry.backend_execution("postgres") == registry.BackendExecution(
+        "postgres", retained_import=False
+    )
     monkeypatch.setattr(
         registry, "backend_execution", lambda _: replace(execution, retained_import=False)
     )
@@ -334,12 +343,14 @@ def test_selected_execution_owner_admits_before_connect_and_binds(
     assert execution is not None
     calls: list[str] = []
 
-    def admit(value):
+    def admit(value: LogicalDataset) -> None:
         assert value is logical and runtime.last_run_ref is None
         calls.append("admit")
         execution.admit(value)
 
-    def bind(candidate, *, reserve, run_ref):
+    def bind(
+        candidate: object, *, reserve: Callable[[str], None], run_ref: str
+    ) -> ExecutionAdapter:
         assert calls == ["admit", "connect"]
         calls.append("bind")
         return execution.bind(candidate, reserve=reserve, run_ref=run_ref)
@@ -350,12 +361,14 @@ def test_selected_execution_owner_admits_before_connect_and_binds(
         "resolve_execution",
         lambda name: selected if name == "duckdb" else original(name),
     )
-    connect = admission._build_backend_from_effective
+    connect = _build_backend_from_effective
 
-    def opened(*args, **kwargs):
+    def opened(
+        datasource: DatasourceIR, kwargs: EffectiveDatasourceKwargs, *, read_only: bool
+    ) -> BuiltDatasourceBackend:
         assert calls == ["admit"]
         calls.append("connect")
-        return connect(*args, **kwargs)
+        return connect(datasource, kwargs, read_only=read_only)
 
     monkeypatch.setattr(admission, "_build_backend_from_effective", opened)
     assert logical.execute().to_pandas().revenue.tolist() == [147.0]

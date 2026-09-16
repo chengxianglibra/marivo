@@ -102,7 +102,12 @@ class ExecutionAdapter(Protocol):
     def disconnect(self) -> None: ...
     def finish(self) -> None: ...
     def get_schema(
-        self, name: str, *, database: str | None, catalog: str | None
+        self,
+        name: str,
+        *,
+        database: str | None,
+        catalog: str | None,
+        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema: ...
     def table(self, name: str) -> ir.Table: ...
     def read_parquet(self, path: str, *, table_name: str) -> ir.Table: ...
@@ -129,21 +134,31 @@ class ExecutionBackend:
     """Runtime factories implementing a backend declared in the method registry."""
 
     bind: AdapterFactory
-    open_retained: Callable[[], object]
+    open_retained: Callable[[], object] | None
     admit: Callable[[LogicalDataset], None]
 
 
 def resolve_execution(backend: str) -> ExecutionBackend | None:
-    """Bind a pure registration to concrete Runtime functions, without new capabilities."""
+    """Realize registry admission using Runtime-owned factories, never enable a backend.
+
+    The pure registry owns eligibility and retained-import authority. This mapping
+    owns concrete functions only; declarations and realizations are checked together
+    by the backend contract test without importing Runtime into the compiler.
+    """
     from marivo.analysis.materialization.duckdb_execution import (
         admit_dataset,
         bind_duckdb,
         open_native_backend,
     )
+    from marivo.analysis.materialization.postgres_execution import admit_dataset as admit_postgres
+    from marivo.analysis.materialization.postgres_execution import bind_postgres
     from marivo.analysis.operators.registry import backend_execution
 
     registration = backend_execution(backend)
     if registration is None:
         return None
-    factories = {"duckdb": ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset)}
+    factories = {
+        "duckdb": ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset),
+        "postgres": ExecutionBackend(bind_postgres, None, admit_postgres),
+    }
     return factories.get(registration.backend)

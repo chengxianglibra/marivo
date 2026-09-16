@@ -108,9 +108,11 @@ def test_exact_binding_hit_skips_dispatch_credentials_and_source_open(
         "require_profile_for_backend_type",
         "_effective_kwargs",
         "_build_backend_from_effective",
-        "open_native_backend",
     ):
         monkeypatch.setattr(admission, name, forbidden)
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.duckdb_execution.open_native_backend", forbidden
+    )
 
     recovered = logical.execute()
     assert recovered.state.artifact_ref == retained.state.artifact_ref

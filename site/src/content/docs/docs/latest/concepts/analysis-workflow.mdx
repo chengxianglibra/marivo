@@ -53,8 +53,8 @@ complete journeys or journey checkpoints opened with `session.artifact(ref)`;
 materialized funnel summaries or a materialized funnel Delta cannot replace
 those journey inputs.
 
-Source execution currently supports DuckDB only; datasource authoring support
-does not enable Dataset execution on another backend. Unsupported methods report
+Source execution supports DuckDB and the PostgreSQL scalar subset described below;
+datasource authoring alone does not enable Dataset execution on another backend. Unsupported methods report
 the backend and input shape. Retained results are never implicitly uploaded to
 another source, and a same-Session execution-key hit needs no source connection.
 
@@ -149,4 +149,39 @@ retains its existing sampling, Event/Lifecycle and Candidate implementations; it
 adapter owns temporary resources, macros and registration. Remote implementations
 must support read-only accounts and meet the same semantic requirements before
 activation. An unavailable implementation fails explicitly; it does not silently
-move source data to another engine. Only DuckDB analysis is currently enabled.
+move source data to another engine. PostgreSQL supports the subset below; other
+remote analysis backends remain unenabled.
+
+### PostgreSQL scalar Metrics
+
+PostgreSQL analysis accepts a single datasource and a single unversioned table,
+with direct-column `sum`, `count`, `min` or `max` Metrics. You can select Population
+membership, scope observations by native dates, add dimensions, aggregate Entity
+rows, filter, project Metrics, rank deterministically and select Top-N. The entire
+dependency graph must be supported, including Metrics removed by projection.
+
+For example, with a sum Metric `sales.revenue` and a direct dimension
+`sales.orders.channel` authored on the same PostgreSQL table:
+
+```python
+revenue = ms.ref.metric("sales.revenue")
+by_channel = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+).with_dimensions(ms.ref.dimension("sales.orders.channel")).aggregate()
+top_channels = by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute()
+top_channels.show()
+```
+
+All declared table columns must use Boolean, string, signed integers, float32,
+float64, date, plain timestamp or Decimal types. Decimal precision is at most 38,
+with scale from zero to precision; generic Decimal declarations also undergo
+physical metadata validation. String time parsing, timezone-bearing timestamp
+declarations, time-series axes, relationships, versioned Entities, sampling,
+composed Metrics and private-state methods are outside this subset.
+
+Use a read-only PostgreSQL account without write, CREATE or TEMP privileges.
+Queries stream through an owned server-side cursor; no temporary tables, uploads
+or UDFs are created. Validation and result queries may observe different source
+states. Failures preserve their original error and never publish partial output.
+Retained results use the existing reader and are not imported into PostgreSQL.

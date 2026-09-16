@@ -35,7 +35,7 @@ change.show()
 比较、归因、相关性、预测和发现属于 Dataset 方法。Event 匹配从 `session.events.match(...)` 开始，Lifecycle 回放从 `session.lifecycle.replay(...)` 开始。它们的下游方法属于返回的 Dataset，并消费已保留的匹配或历史。不同 Session 的输入不能混用。
 Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一致。漏斗归因需要从完整旅程或通过 `session.artifact(ref)` 打开的旅程检查点逻辑构建两侧漏斗；已物化的漏斗汇总或漏斗 Delta 不能替代这些旅程输入。
 
-当前源端执行仅支持 DuckDB；数据源建模支持某个后端，不代表 Dataset 已能在该后端执行。不支持的方法会报告后端与输入形状。保留结果不会被隐式上传到其他来源，同一 Session 的执行键命中不需要连接来源。
+当前源端执行支持 DuckDB 和下述 PostgreSQL 标量子集；数据源建模支持某个后端，不代表 Dataset 已能在该后端执行。不支持的方法会报告后端与输入形状。保留结果不会被隐式上传到其他来源，同一 Session 的执行键命中不需要连接来源。
 
 ## 检查证据与恢复
 
@@ -87,4 +87,35 @@ Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一�
 算子共享同一套语义契约和后端注册机制。DuckDB 保留已有采样、Event/Lifecycle 和
 Candidate 实现；临时资源、宏和注册由具体适配器负责。远程实现必须兼容只读账号，
 并满足相同语义要求后才能启用。没有可用实现时明确拒绝，不会隐式把源数据搬到其他
-引擎执行。目前只启用 DuckDB 分析。
+引擎执行。PostgreSQL 支持下述子集，其他远端分析后端尚未启用。
+
+### PostgreSQL 标量 Metric
+
+PostgreSQL 分析接受单个数据源、单张未版本化表，以及直接列上的 `sum`、`count`、
+`min`、`max` Metric。可以选择 Population 成员、按原生日期限定观察范围、添加维度、
+聚合 Entity 行、过滤、投影 Metric、确定性排名和选择 Top-N。整个依赖图都必须受支持，
+包括被投影移除的 Metric。
+
+例如，`sales.revenue` 是求和 Metric，`sales.orders.channel` 是同一 PostgreSQL
+表上的直接列维度：
+
+```python
+revenue = ms.ref.metric("sales.revenue")
+by_channel = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+).with_dimensions(ms.ref.dimension("sales.orders.channel")).aggregate()
+top_channels = by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute()
+top_channels.show()
+```
+
+所有声明的表列必须使用 Boolean、string、有符号整数、float32、float64、date、
+不带时区的 timestamp 或 Decimal。Decimal 精度最大为 38，scale 从零到精度；
+未指定精度的 Decimal 声明仍需通过实际元数据校验。字符串时间解析、带时区的
+timestamp 声明、时间序列轴、关系遍历、版本化 Entity、采样、组合 Metric 和
+私有状态方法不在此子集内。
+
+使用没有写入、CREATE、TEMP 权限的 PostgreSQL 只读账户。查询通过明确管理的
+服务端游标分批传输，不创建临时表、不上传数据、不创建 UDF。验证与结果查询可能
+观察到不同的来源状态。失败保留原始异常，且不会发布部分输出。保留结果继续使用
+现有读取器，不会导入 PostgreSQL。
