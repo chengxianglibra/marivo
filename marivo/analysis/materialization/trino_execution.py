@@ -1,0 +1,237 @@
+"""Read-only Iceberg execution with caller-owned Trino cursor lifetimes."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from contextlib import ExitStack
+from math import isfinite
+from typing import TYPE_CHECKING, Protocol
+from zoneinfo import ZoneInfo
+
+import ibis
+import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
+import ibis.expr.types as ir
+
+from marivo.analysis.datasets.base import LogicalDataset
+from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.execution import Parameter
+from marivo.analysis.materialization.scalar_sql_execution import ScalarExecutionAdapter
+from marivo.analysis.operators.trino_support import supported_type
+from marivo.datasource.engines.trino import _trino_namespace
+from marivo.datasource.timezone import DatasourceEngineTimezone
+
+if TYPE_CHECKING:
+    from ibis.backends.trino import Backend
+
+
+class _NativeCursor(Protocol):
+    def execute(self, operation: str, params: tuple[Parameter, ...] = ()) -> object: ...
+    def fetchmany(self, size: int) -> Sequence[Sequence[object]]: ...
+    def close(self) -> None: ...
+
+
+class TrinoCursor:
+    """Register before submit, including while the driver waits for its first page."""
+
+    def __init__(self, adapter: TrinoExecutionAdapter, native: _NativeCursor) -> None:
+        self._adapter = adapter
+        self._native = native
+        self._closed = False
+
+    def _check(self) -> None:
+        self._adapter._check()
+        if self._closed:
+            raise self._adapter.error(
+                "an open owned Trino cursor",
+                "cursor is closed",
+                "Create a new cursor in an open execution context.",
+            )
+
+    def execute(self, query: str, parameters: tuple[Parameter, ...] = ()) -> object:
+        self._check()
+        result = (
+            self._native.execute(query, parameters) if parameters else self._native.execute(query)
+        )
+        self._check()
+        return result
+
+    def fetchmany(self, size: int) -> Sequence[tuple[object, ...]]:
+        self._check()
+        rows = [tuple(row) for row in self._native.fetchmany(size)]
+        self._check()
+        if any(isinstance(value, float) and not isfinite(value) for row in rows for value in row):
+            raise self._adapter.error(
+                "finite Trino scalar results",
+                "non-finite floating result",
+                "Correct non-finite values or overflowing aggregates before retrying.",
+                stage="output_validation",
+            )
+        return rows
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        # Keep failed closes owned so final cleanup can retry cancellation.
+        self._native.close()
+        self._closed = True
+        self._adapter._cursors.discard(self)
+
+
+def _identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+class TrinoExecutionAdapter(ScalarExecutionAdapter):
+    engine = "trino"
+
+    def __init__(self, backend: Backend, *, run_ref: str | None = None) -> None:
+        super().__init__(backend, run_ref=run_ref)
+        self._trino = backend
+        self._cursors: set[TrinoCursor] = set()
+
+    def cursor(self, *, stream: bool) -> TrinoCursor:
+        self._check()
+        result = TrinoCursor(self, self._trino.con.cursor())
+        self._cursors.add(result)
+        return result
+
+    def _lower(self, expression: ir.Expr) -> ir.Expr:
+        def qualify(
+            node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
+        ) -> ops.Node:
+            if isinstance(node, ops.UnboundTable):
+                default_catalog: str = node.namespace.catalog or self._trino.con.catalog
+                catalog, database = _trino_namespace(
+                    node.namespace.database,
+                    catalog=default_catalog,
+                    default_schema=self._trino.con.schema,
+                )
+                kwargs["namespace"] = ops.Namespace(catalog=catalog, database=database)
+            return node.copy(**kwargs)
+
+        return expression.op().map(qualify)[expression.op()].to_expr()
+
+    def get_schema(
+        self,
+        name: str,
+        *,
+        database: str | None = None,
+        catalog: str | None = None,
+        record: Callable[[str, str], None] | None = None,
+    ) -> ibis.Schema:
+        default_catalog: str | None = catalog or self._trino.con.catalog
+        default_schema: str | None = self._trino.con.schema
+        if not isinstance(default_catalog, str):
+            raise self.unsupported("Trino requires an explicit catalog and schema")
+        catalog, database = _trino_namespace(
+            database, catalog=default_catalog, default_schema=default_schema
+        )
+        if database is None:
+            raise self.unsupported("Trino requires an explicit catalog and schema")
+        connector = self.read_scalar(
+            self.statement(
+                "SELECT connector_name FROM system.metadata.catalogs WHERE catalog_name = ?",
+                parameters=(catalog,),
+                role="source_schema",
+            ),
+            record=record,
+        )
+        if connector != "iceberg":
+            raise self.unsupported(f"Trino connector {connector!r}; Group A requires Iceberg")
+        qualified = ".".join(map(_identifier, (catalog, database, name)))
+        table_kind = self.read_scalar(
+            self.statement(
+                f"SELECT table_type FROM {_identifier(catalog)}.information_schema.tables "
+                "WHERE table_schema = ? AND table_name = ?",
+                parameters=(database, name),
+                role="source_schema",
+            ),
+            record=record,
+        )
+        if table_kind != "BASE TABLE" or "$" in name:
+            raise self.unsupported("Trino Group A requires an ordinary Iceberg base table")
+        query = f"SHOW COLUMNS FROM {qualified}"
+        if record:
+            record("source_schema", query)
+        rows = self.submit(self.statement(query, role="source_schema"))
+        fields: dict[str, dt.DataType] = {}
+        finite_checks: list[str] = []
+        while (row := rows.fetchone()) is not None:
+            column, kind = row[:2]
+            if not isinstance(column, str) or not isinstance(kind, str):
+                raise self.unsupported("malformed Trino column metadata")
+            if self._declared_columns is not None and column not in self._declared_columns:
+                continue
+            datatype = self._trino.compiler.type_mapper.from_string(kind)
+            if not supported_type(str(datatype)):
+                raise self.unsupported(f"Trino physical type {kind!r} for column {column!r}")
+            fields[column] = datatype
+            if datatype.is_floating():
+                finite_checks.append(f"NOT is_finite({_identifier(column)})")
+        if finite_checks:
+            violations = self.read_scalar(
+                self.statement(
+                    f"SELECT count(*) FROM {qualified} WHERE " + " OR ".join(finite_checks),
+                    role="engine_check.trino_finite",
+                ),
+                record=record,
+            )
+            if violations != 0:
+                raise self.error(
+                    "finite declared Trino floating values or SQL NULL",
+                    f"{violations} rows contain non-finite values",
+                    "Correct NaN or infinity values before retrying.",
+                    stage="output_validation",
+                )
+        return ibis.schema(fields)
+
+    def timezone(self) -> DatasourceEngineTimezone:
+        value = self.read_scalar(self.statement("SELECT current_timezone()", role="timezone"))
+        if not isinstance(value, str):
+            raise self.unsupported("Trino returned a non-string session timezone")
+        return DatasourceEngineTimezone(value, ZoneInfo(value), "iana", "engine")
+
+    def disconnect(self) -> None:
+        if self._closed:
+            return
+        try:
+            with ExitStack() as stack:
+                stack.callback(self._trino.disconnect)
+                for cursor in tuple(self._cursors):
+                    stack.callback(cursor.close)
+                for stream in tuple(self._streams):
+                    stack.callback(stream.close)
+        finally:
+            self._closed = True
+
+    def interrupt(self) -> None:
+        self.disconnect()
+
+
+def bind_trino(
+    candidate: object, *, reserve: Callable[[str], None], run_ref: str
+) -> TrinoExecutionAdapter:
+    from ibis.backends.trino import Backend
+
+    if not isinstance(candidate, Backend):
+        raise MaterializationError(
+            expected="an Ibis Trino backend",
+            received=type(candidate).__name__,
+            repair="Resolve the declared Trino datasource.",
+            stage="execution_boundary",
+            run_ref=run_ref,
+        )
+    return TrinoExecutionAdapter(candidate, run_ref=run_ref)
+
+
+def admit_dataset(dataset: LogicalDataset) -> None:
+    from marivo.analysis.operators.trino_support import supports
+
+    if not supports(dataset):
+        raise MaterializationError(
+            expected="an exact Trino Group A closure",
+            received="unsupported Dataset",
+            repair="Use one unversioned Iceberg table and registered scalar operations and types.",
+            stage="implementation_registration",
+        )

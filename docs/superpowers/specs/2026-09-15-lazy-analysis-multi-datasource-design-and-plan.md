@@ -2,9 +2,9 @@
 
 Date: 2026-09-15
 
-Status: staged implementation; Slices 0, 1, 1a, 1b, 1c, corrected 1d, 2, 3 and 4 complete.
-PostgreSQL, MySQL and SQLite Group A are enabled within their separately verified
-scopes. Trino and ClickHouse implementation remains pending. This document alone does
+Status: staged implementation; Slices 0, 1, 1a, 1b, 1c, corrected 1d, 2, 3, 4 and 5 complete.
+PostgreSQL, MySQL, SQLite and Trino Iceberg Group A are enabled within their separately
+verified scopes. ClickHouse implementation remains pending. This document alone does
 not enable a backend. Each backend/method combination requires its own acceptance.
 The original Slice 1d blanket read-only restriction is superseded by the
 [capability restoration and abstraction correction](2026-09-15-multisource-slice-1d-restoration-acceptance.md).
@@ -605,6 +605,12 @@ Slice 4 is complete for the declared MySQL and SQLite Group A scopes; see the
 [Slice 4 evidence record](2026-09-16-multisource-slice-4-acceptance.md), including
 real read-only execution, exact typed identity transport, numerical/date failure
 checks, process recovery, independent review and final broad/site validation.
+Slice 5 is complete for the declared Trino Iceberg Group A scope; see the
+[Slice 5 evidence record](2026-09-16-multisource-slice-5-acceptance.md), including
+server-enforced read-only execution, ordinary scans, exact scalar identity/types,
+actual multi-page transport, cursor cancellation, safe local recovery, independent
+review and final broad/site validation. ClickHouse execution remains unenabled; advanced method groups remain unenabled
+on Trino.
 At the Slice 2 boundary only DuckDB was enabled; its multi-entry registration
 tests are pure dispatch checks, not remote execution acceptance. PostgreSQL
 activation is established by the separate Slice 3 evidence above.

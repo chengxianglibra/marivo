@@ -1,4 +1,4 @@
-"""Real MySQL and SQLite producer death and independent Session recovery."""
+"""Real MySQL, SQLite and Trino producer death and independent Session recovery."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from marivo.refs import ref
 from tests.lazy_acceptance_capture import counts
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
 from tests.multisource_environment import mysql_analysis as mysql
+from tests.multisource_environment import trino_analysis as trino
 
 pytestmark = pytest.mark.runtime
 REVENUE = ref.metric("sales.revenue")
@@ -35,14 +36,18 @@ REVENUE = ref.metric("sales.revenue")
 def registry_for(table: str, patch: pytest.MonkeyPatch):
     if table.endswith(".sqlite"):
         return scalar_registry(Path(table))
+    if table.startswith("trino_"):
+        return scalar_registry(Path("unused"), engine="trino", table=table)
     patch.setenv("MARIVO_TEST_MYSQL_PASSWORD", mysql.password())
     return scalar_registry(Path("unused"), engine="mysql", table=table)
 
 
-@pytest.fixture(params=["sqlite", "mysql"])
+@pytest.fixture(params=["sqlite", "mysql", "trino"])
 def source_table(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str]:
     if request.param == "mysql" and os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1":
         pytest.skip("opt-in MySQL service")
+    if request.param == "trino" and os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1":
+        pytest.skip("opt-in Trino service")
     schema = "id BIGINT, tenant TEXT, customer_id BIGINT, order_id BIGINT, amount DOUBLE, weight DOUBLE, region TEXT, channel TEXT, day DATE, start DATE, `end` DATE"
     if request.param == "sqlite":
         path = tmp_path / "source.sqlite"
@@ -50,6 +55,18 @@ def source_table(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str
             con.execute(f"CREATE TABLE orders({schema})")
             con.execute("INSERT INTO orders(id,amount) VALUES (1,10.25),(2,20.50)")
         yield str(path)
+    elif request.param == "trino":
+        name = "trino_recovery_" + uuid4().hex
+        with trino.connection(admin=True) as con:
+            cur = con.cursor()
+            trino_schema = schema.replace("TEXT", "VARCHAR").replace("`end`", '"end"')
+            cur.execute(f"CREATE TABLE {name}({trino_schema})").fetchall()
+            cur.execute(f"INSERT INTO {name}(id,amount) VALUES (1,10.25),(2,20.50)").fetchall()
+            try:
+                yield name
+            finally:
+                cur.execute(f"DROP TABLE {name}").fetchall()
+                cur.close()
     else:
         name = "recovery_" + uuid4().hex
         with mysql.connection(admin=True) as con, con.cursor() as cur:

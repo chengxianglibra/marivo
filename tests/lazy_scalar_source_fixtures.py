@@ -1,4 +1,4 @@
-"""Shared declarations for MySQL and SQLite scalar source acceptance."""
+"""Shared declarations for MySQL, SQLite and Trino scalar source acceptance."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 def registry_for(
-    database: Path, *, engine: Literal["sqlite", "mysql"] = "sqlite", table: str = "orders"
+    database: Path, *, engine: Literal["sqlite", "mysql", "trino"] = "sqlite", table: str = "orders"
 ) -> tuple[Registry, CompiledExpressionSidecar]:
     original, sidecar = make_execution_registry(database)
     entities = dict(original.entities)
@@ -46,6 +46,14 @@ def registry_for(
             "user": "analysis_reader",
         }
         env_refs = {"password": "MARIVO_TEST_MYSQL_PASSWORD"}
+    if engine == "trino":
+        fields = {
+            "host": "127.0.0.1",
+            "port": 18080,
+            "catalog": "iceberg",
+            "schema": "analysis",
+            "user": "analysis_reader",
+        }
     registry = replace(
         original,
         entities=entities,
@@ -111,6 +119,7 @@ def capture_submissions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, objec
     """Capture the actual driver call arguments in acceptance, without changing Store."""
     from marivo.analysis.materialization.mysql_execution import MySQLExecutionAdapter
     from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
+    from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
 
     submitted: list[dict[str, object]] = []
 
@@ -135,7 +144,7 @@ def capture_submissions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, objec
 
         return cursor
 
-    for adapter_type in (MySQLExecutionAdapter, SQLiteExecutionAdapter):
+    for adapter_type in (MySQLExecutionAdapter, SQLiteExecutionAdapter, TrinoExecutionAdapter):
         monkeypatch.setattr(adapter_type, "cursor", wrap(adapter_type.cursor))
     return submitted
 

@@ -9,7 +9,7 @@ registration hooks implement the same semantic requirements; they are not
 operator-level exceptions. Remote implementations must work with read-only
 accounts and prove equivalent single evaluation, numerical behavior and required
 assertions before registration. No implicit alternate route or new cross-engine
-private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL and SQLite Group A subsets below are enabled; Trino and ClickHouse analysis remain unenabled.
+private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL, SQLite and Trino Group A subsets below are enabled; ClickHouse analysis remains unenabled.
 
 ### PostgreSQL Group A
 
@@ -80,6 +80,33 @@ remote termination. Original failures survive cleanup errors, partial output is
 never published, and locally safe recovery remains possible with unknown remote
 status. Cold Artifact reads and exact binding hits do not access the source.
 
+### Trino Iceberg scalar Metrics
+
+Trino Group A supports one datasource and one unversioned ordinary Iceberg base
+table, with direct-column `sum`, `count`, `min` and `max`, Population filtering,
+native-date scopes, same-Entity dimensions, aggregation, projection, rank and limit.
+Use the existing catalog/schema/table declaration; both tuple and dotted
+catalog/schema overrides are resolved consistently for metadata and executed SQL.
+The adapter verifies connector identity and base-table metadata at execution;
+a catalog merely named `iceberg` is not sufficient.
+
+Declared physical inputs are signed integers supported by Iceberg, float32/64,
+VARCHAR, DATE and explicit Decimal precision/scale up to 38. Generic Decimal
+source declarations, Boolean, timestamps/timezones, nested values and other
+connectors are excluded. Declared floating columns must contain finite values or
+NULL; source checks reject NaN/infinity even for empty output, and non-finite
+aggregate results fail before publication. Decimal and integer identities retain
+exact values. Ranking preserves explicit NULL order and deterministic ties.
+
+Use a read-only identity with access to connector and table metadata. Ordinary
+Ibis compilation feeds incremental driver page reads; internal identity structs
+are reconstructed from typed scalar columns. Batches are not byte or memory
+limits. Driver/server limits remain external. Active cursors are owned before
+submission; cancellation and close failures report unknown remote status without
+blocking safe local recovery. Validation and output can observe different source
+states. Relationships, composed Metrics, sampling, retained imports and advanced
+methods remain unavailable; ClickHouse execution remains disabled.
+
 The original Slice 1d blanket restriction is superseded. Existing DuckDB sampling,
 Event/Lifecycle, Candidate, JSON and retained-stream execution remain available.
 
@@ -145,7 +172,7 @@ whether the requested transition is admitted before source work.
 ## Exact execution and persistence
 
 Runtime fixes the registered implementation and destination before executing.
-Source execution supports DuckDB and admitted PostgreSQL, MySQL and SQLite Group A. The private method registry
+Source execution supports DuckDB and admitted PostgreSQL, MySQL, SQLite and Trino Group A. The private method registry
 selects one exact backend registration for the typed invocation, with full
 source execution and preparation declared separately. Unsupported known inputs
 fail before Run admission; exact same-Session binding hits remain source-free.

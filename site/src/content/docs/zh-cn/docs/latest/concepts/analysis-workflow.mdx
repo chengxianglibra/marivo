@@ -87,7 +87,7 @@ Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一�
 算子共享同一套语义契约和后端注册机制。DuckDB 保留已有采样、Event/Lifecycle 和
 Candidate 实现；临时资源、宏和注册由具体适配器负责。远程实现必须兼容只读账号，
 并满足相同语义要求后才能启用。没有可用实现时明确拒绝，不会隐式把源数据搬到其他
-引擎执行。PostgreSQL、MySQL 与 SQLite 支持下述子集，Trino 与 ClickHouse 分析后端尚未启用。
+引擎执行。PostgreSQL、MySQL、SQLite 与 Trino 支持下述子集，ClickHouse 分析后端尚未启用。
 
 ### PostgreSQL 标量 Metric
 
@@ -152,3 +152,25 @@ SQLite 原生游标逐步读取，但引擎内部仍可能物化排序或聚合�
 单个值仍会完整解码。SQLite 执行启用 query-only。校验与输出查询可能观察到不同源状态，结果仍原子发布。
 保留结果使用 Parquet 和现有读取器，不上传到来源。关系、组合指标、采样和高级方法
 不在此子集内。
+
+### Trino Iceberg 标量 Metric
+
+Trino Group A 支持单个数据源、单张未版本化的普通 Iceberg 基表，以及直接列上的
+`sum`、`count`、`min`、`max`、Population 过滤、原生日期范围、同 Entity 维度、聚合、
+投影、排名与 limit。沿用现有 catalog/schema/table 声明；元数据和执行 SQL 都解析
+元组及 `catalog.schema` 字符串覆盖。执行时验证真实 connector 身份和基表类型，
+不能仅凭 catalog 名为 `iceberg` 判定支持。
+
+物理输入限定为 Iceberg 支持的有符号整数、float32/64、VARCHAR、DATE，以及明确
+精度和小数位且精度不超过 38 的 Decimal。通用 Decimal 源声明、Boolean、时间戳与
+时区类型、嵌套值及其他 connector 均不支持。声明的浮点列只接受有限值或 NULL；
+即使输出为空，源检查也拒绝 NaN/Infinity，非有限聚合结果不得发布。Decimal 与整数
+身份保持精确值，排名保留明确的 NULL 顺序和确定性的并列处理。
+
+使用有 connector 和表元数据读取权限的只读身份。正常 Ibis 编译配合驱动增量分页，
+内部身份结构由类型化标量列重建；batch 不是字节或内存限制。驱动与服务端限制属于
+外部限制。提交前登记活跃 cursor；取消或关闭失败如实报告远程状态未知，但不阻塞
+安全的本地恢复。校验和输出可观察不同源状态。关系、组合 Metric、采样、retained
+导入及高级方法仍未启用；ClickHouse 执行仍关闭。
+
+上述标量工作流示例也适用于已建模的 Trino Iceberg Metric。

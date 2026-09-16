@@ -38,6 +38,8 @@ services:
       - ./trino/config.properties:/etc/trino/config.properties:ro
       - ./trino/jvm.config:/etc/trino/jvm.config:ro
       - ./trino/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
+      - ./trino/access-control.properties:/etc/trino/access-control.properties:ro
+      - ./trino/access-rules.json:/etc/trino/access-rules.json:ro
       - warehouse:/warehouse
     logging: *logging
   postgres-analysis:

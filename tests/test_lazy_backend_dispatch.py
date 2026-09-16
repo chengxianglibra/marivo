@@ -105,7 +105,7 @@ def test_closed_collection_selects_exact_backend_without_io(
     assert registered(logical).for_backend("unknown") is None
 
 
-@pytest.mark.parametrize("backend", ["trino", "clickhouse"])
+@pytest.mark.parametrize("backend", ["clickhouse"])
 def test_production_backend_rejection_has_method_shape_and_repair(backend: BackendName) -> None:
     logical = _sources(backend).observe(REVENUE)
     with pytest.raises(DatasetCompilationError) as caught:
@@ -216,7 +216,7 @@ def test_unknown_method_has_no_backend_default() -> None:
         registry.implementation(logical)
 
 
-@pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "sqlite"])
+@pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "sqlite", "trino"])
 def test_execute_contract_routes_to_help_without_claiming_backend_admission(
     capsys: pytest.CaptureFixture[str],
     backend: BackendName,
@@ -232,7 +232,7 @@ def test_execute_contract_routes_to_help_without_claiming_backend_admission(
     bound_help = capsys.readouterr().out
     coordinator("analysis.actions.execute")
     assert bound_help == capsys.readouterr().out
-    assert "admitted PostgreSQL, MySQL and SQLite scalar Metrics" in bound_help
+    assert "admitted PostgreSQL, MySQL, SQLite and Trino scalar Metrics" in bound_help
 
 
 @pytest.mark.runtime
