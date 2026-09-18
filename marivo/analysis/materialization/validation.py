@@ -97,6 +97,14 @@ def execute_batch(
 
 
 def _failure(check: CompiledValidation, run_ref: str) -> MaterializationError:
+    if check.name.startswith("temporal.local_time."):
+        return MaterializationError(
+            expected="one exactly representable instant per non-null local timestamp",
+            received=f"gap, fold or unavailable native timezone conversion: {check.name}",
+            repair="Correct the named source axis to unambiguous timestamps, use physical instants for repeated times, and verify the engine timezone data.",
+            stage="output_validation",
+            run_ref=run_ref,
+        )
     return MaterializationError(
         expected=check.expected or "zero violations of the declared source validation",
         received=f"source validation failed: {check.name}",

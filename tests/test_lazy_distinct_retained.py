@@ -174,13 +174,9 @@ def test_native_membership_checks_only_export_schema_and_scalar_violations(damag
 
         with patch.object(adapter, "read_table", side_effect=schema_only):
             if damage == "none":
-                validate_source_private_relation(
-                    adapter, membership, primary, row, role, lambda *_: None
-                )
+                validate_source_private_relation(adapter, membership, primary, row, role)
             else:
                 with pytest.raises(IntegrityError, match="membership"):
-                    validate_source_private_relation(
-                        adapter, membership, primary, row, role, lambda *_: None
-                    )
+                    validate_source_private_relation(adapter, membership, primary, row, role)
     finally:
         backend.disconnect()

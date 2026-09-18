@@ -25,7 +25,7 @@ def _blocks(language: str, page: str) -> tuple[str, ...]:
 
 
 @pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 4), ("evidence", 2), ("semantic-layer", 45)]
+    "page,count", [("analysis-workflow", 5), ("evidence", 2), ("semantic-layer", 45)]
 )
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count
@@ -154,3 +154,15 @@ def test_workflow_evidence_and_cold_recovery_examples(
     assert isinstance(recovered, mv.MaterializedDeltaDataset)
     assert recovered.to_pandas()["delta"].tolist() == [18.0]
     assert not resumed._runtime.statistics.statements
+
+
+def test_bilingual_workflow_preserves_temporal_exclusions() -> None:
+    for prefix, storage, strings in (
+        ("docs", "native aware SQLite storage", "String time parsing"),
+        ("zh-cn/docs", "SQLite 原生 aware 时间存储", "字符串解析"),
+    ):
+        text = (
+            ROOT / f"site/src/content/docs/{prefix}/latest/concepts/analysis-workflow.mdx"
+        ).read_text()
+        assert storage in text
+        assert strings in text

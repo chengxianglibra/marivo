@@ -685,17 +685,44 @@ class _Compiler:
             table = table.select(*(column.logical for column in needed))
             self.tables[entity.ref.path] = table
             self._validate_source(entity, table)
+        validated_axes: set[str] = set()
         for root in logical_roots(dataset):
             payload = root.payload
             if isinstance(payload, PopulationPayload) and payload.reference_axis is not None:
-                self._validate_temporal_axis(payload.reference_axis)
+                if payload.reference_axis.ref.path not in validated_axes:
+                    self._validate_temporal_axis(payload.reference_axis)
+                    validated_axes.add(payload.reference_axis.ref.path)
             elif isinstance(payload, MetricPayload):
-                for axis in (payload.definition.reference_axis, payload.definition.time_axis):
-                    if axis is not None:
+                for axis in (
+                    payload.definition.reference_axis,
+                    payload.definition.time_axis,
+                    *payload.definition.dimensions,
+                ):
+                    if (
+                        axis is not None
+                        and axis.is_time_dimension
+                        and axis.ref.path not in validated_axes
+                    ):
                         self._validate_temporal_axis(axis)
+                        validated_axes.add(axis.ref.path)
 
     def _validate_temporal_axis(self, axis: TargetDimensionContract) -> None:
-        self._time_column(self.tables[axis.entity_ref.path], axis.source_column, axis)
+        table = self.tables[axis.entity_ref.path]
+        self._time_column(table, axis.source_column, axis)
+        value = table[axis.source_column]
+        if isinstance(value, ir.TimestampValue) and value.type().timezone is None:
+            if value.type().scale is not None and value.type().scale > 6:
+                # source_time already rejects conversions at this precision;
+                # its exact fixed-zone path needs no lossy round-trip probe.
+                return
+            from marivo.analysis.compiler.source_time import local_time_invalid
+
+            authority = self.time_authorities.get((axis.ref.path, self.owner.report_time.timezone))
+            if authority is not None and authority.read_timezone is not None:
+                self._count(
+                    "temporal.local_time." + axis.ref.path,
+                    table.filter(local_time_invalid(value, authority.read_timezone)),
+                )
 
     def _axis_value(
         self,

@@ -32,7 +32,8 @@ def _fail(expected: str, received: str, location: str) -> Never:
 def _is_stable_identifier(value: object) -> bool:
     return type(value) is str and (
         _ID_PATTERN.fullmatch(value) is not None
-        or re.fullmatch(r"timestamp\([0-6]\)", value) is not None
+        or re.fullmatch(r"timestamp\((?:[0-6]|'[A-Za-z0-9_./:+-]+'(?:, [0-6])?)\)", value)
+        is not None
     )
 
 

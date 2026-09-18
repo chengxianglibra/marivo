@@ -18,10 +18,12 @@ from marivo.analysis.observation.contracts import MetricPayload, PopulationPaylo
 from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import (
     DateParse,
+    DatetimeParse,
     TableSourceIR,
     TargetDimensionContract,
     TargetSnapshotVersion,
     TargetValidityVersion,
+    TimestampParse,
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -67,8 +69,15 @@ def supports_scalar_type(value: str) -> bool:
 
 
 def supports_plain_timestamp(value: str) -> bool:
-    """Admit civil timestamp values up to microseconds, without temporal methods."""
+    """Recognize civil timestamp types up to microseconds."""
     return re.fullmatch(r"timestamp(?:\([0-6]\))?", value) is not None
+
+
+def supports_timestamp(value: str) -> bool:
+    """Recognize native timestamp precision and optional exact physical timezone."""
+    if supports_plain_timestamp(value):
+        return True
+    return re.fullmatch(r"timestamp\('[^']+'(?:, [0-6])?\)", value) is not None
 
 
 def unsupported_reason(
@@ -78,6 +87,7 @@ def unsupported_reason(
     relationships: bool = False,
     versions: bool = False,
     date_buckets: bool = False,
+    timestamp_buckets: bool = False,
     explicit_decimal_sources: bool = False,
     closed_open_null_validity: bool = False,
 ) -> str | None:
@@ -114,12 +124,30 @@ def unsupported_reason(
         return axis is None or (
             axis.entity_ref.path in entity_paths
             and supported_type(axis.logical_type)
-            and (not axis.is_time_dimension or axis.logical_type == "date")
-            and (axis.parse is None or isinstance(axis.parse, DateParse))
+            and (
+                not axis.is_time_dimension
+                or axis.logical_type == "date"
+                or (timestamp_buckets and axis.logical_type == "timestamp")
+            )
+            and (
+                axis.parse is None
+                or isinstance(axis.parse, DateParse)
+                or (
+                    timestamp_buckets
+                    and axis.logical_type == "timestamp"
+                    and isinstance(axis.parse, (DatetimeParse, TimestampParse))
+                )
+            )
         )
 
     def temporal(axis: TargetDimensionContract | None) -> bool:
-        return axis is None or (dimension(axis) and axis.logical_type == "date")
+        return axis is None or (
+            dimension(axis)
+            and (
+                axis.logical_type == "date"
+                or (timestamp_buckets and axis.logical_type == "timestamp")
+            )
+        )
 
     for entity in entities:
         version = entity.version
@@ -130,7 +158,9 @@ def unsupported_reason(
                 else (version.valid_from_ref, version.valid_to_ref)
             )
             if any(
-                not temporal(normalize_target_dimension(owner.semantic_registry, axis.path))
+                normalize_target_dimension(owner.semantic_registry, axis.path).logical_type
+                != "date"
+                or not temporal(normalize_target_dimension(owner.semantic_registry, axis.path))
                 for axis in axes
             ):
                 return "semantic version selection requires qualified native civil-date axes"
@@ -180,7 +210,13 @@ def unsupported_reason(
                 or (
                     grain.kind != "builtin"
                     or grain.count != 1
-                    or grain.unit not in {"day", "week", "month", "quarter", "year"}
+                    or grain.unit
+                    not in (
+                        {"hour", "day"}
+                        if definition.time_axis is not None
+                        and definition.time_axis.logical_type == "timestamp"
+                        else {"day", "week", "month", "quarter", "year"}
+                    )
                 )
             ):
                 return "this temporal type, parser or bucket is not qualified for this backend"

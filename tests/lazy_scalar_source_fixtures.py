@@ -127,7 +127,7 @@ class _CursorFactory(Protocol):
 
 
 def capture_submissions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
-    """Capture the actual driver call arguments in acceptance, without changing Store."""
+    """Capture adapter cursor calls; downstream native-driver rewriting is not observed."""
     from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
     from marivo.analysis.materialization.mysql_execution import MySQLExecutionAdapter
     from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter

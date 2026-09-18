@@ -238,7 +238,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     acquisition = {
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
-        "report_timezone": "Choose an IANA report timezone on first creation; existing Sessions retain their timezone.",
+        "report_timezone": "Choose an IANA or explicit UTC-offset report timezone on first creation; existing Sessions retain their timezone.",
         "question": "Optional guiding question; omission preserves the existing question.",
         "identity": "Use an exact existing Session name or id from recent()/inspect(); missing identities provide real candidates and never create a Session.",
         "by": "Choose name or id explicitly when resolving an ambiguous identity.",

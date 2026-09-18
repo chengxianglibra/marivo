@@ -30,7 +30,10 @@ def test_repeated_pure_compile_and_exact_sql_and_parameters(
 ) -> None:
     adapter = DuckDBExecutionAdapter(native)
     expression = ibis.literal(17).name("value").as_table()
+    receipts: list[str] = []
+    adapter.observe(lambda receipt: receipts.append(receipt.sql), "source")
     statement = adapter.prepare(expression, role="primary")
+    assert receipts == []
     submitted: list[tuple[str, tuple[Parameter, ...] | None]] = []
     connection = native.con
 
@@ -51,6 +54,7 @@ def test_repeated_pure_compile_and_exact_sql_and_parameters(
         )
         assert adapter.read_scalar(scalar) == Decimal("19.25")
     assert submitted == [(statement.sql, None), (scalar.sql, scalar.parameters)]
+    assert receipts == [sql for sql, _ in submitted]
 
 
 @pytest.mark.parametrize("empty", [False, True])
@@ -301,8 +305,6 @@ def test_nested_udfs_register_each_dependency_after_its_reservation(
 def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from collections import Counter
-
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.execution import Statement
     from marivo.analysis.observation.sampling import engine_sample
@@ -329,9 +331,7 @@ def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
     monkeypatch.setattr(DuckDBExecutionAdapter, "submit", submit)
     result = logical.execute()
     assert result.to_pandas().shape[0] == 1
-    actual = Counter(submitted)
-    for statement, count in Counter(runtime.statistics.statements).items():
-        assert actual[statement] >= count
+    assert runtime.statistics.statements == submitted
     assert sum(role == "primary" for role, _ in submitted) == 1
     assert {role for role, _ in submitted} >= {
         "primary",
@@ -449,6 +449,7 @@ def test_normal_ibis_parameters_hooks_and_complete_stream(
     table = ibis.memtable({"value": [1, 2, 3, 4]})
     expression = table.filter(table.value > parameter)
     submitted: list[tuple[str, str]] = []
+    adapter.observe(lambda receipt: submitted.append((receipt.role, receipt.sql)), "source")
     compilations = 0
     original = native.compile
 
@@ -469,7 +470,6 @@ def test_normal_ibis_parameters_hooks_and_complete_stream(
             expression,
             params=params,
             role="primary",
-            record=lambda role, sql: submitted.append((role, sql)),
         )
     finally:
         ibis.options.sql.default_limit = old

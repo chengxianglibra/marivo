@@ -41,7 +41,7 @@ def get_or_create(
     Args:
         name: Nonempty Session name.
         question: Optional current investigation question.
-        report_timezone: Optional IANA report timezone, fixed on first creation.
+        report_timezone: Optional IANA or explicit UTC-offset report timezone, fixed on first creation.
     Returns: The activated Session, with authored semantics loaded only on demand.
     Example: ``session = mv.session.get_or_create('revenue-review')``.
     Constraints: Existing eager Stores remain untouched; no Session is migrated.

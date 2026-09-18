@@ -17,6 +17,7 @@ from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
+from marivo.analysis.materialization.submissions import ExecutionDomain, Submission
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 Parameter = str | int | float | bool | bytes | Decimal | date | datetime | None
@@ -49,6 +50,7 @@ class BatchStream(Protocol):
 
 
 class ExecutionAdapter(Protocol):
+    def observe(self, observer: Callable[[Submission], None], domain: ExecutionDomain) -> None: ...
     def prepare(self, expression: ir.Expr, *, role: str = "query") -> Statement: ...
     def compile(self, expression: ir.Expr) -> str: ...
     def statement(
@@ -66,7 +68,6 @@ class ExecutionAdapter(Protocol):
         *,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> pa.Table: ...
     def read_scalar(
         self,
@@ -74,7 +75,6 @@ class ExecutionAdapter(Protocol):
         *,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> object: ...
     def batches(
         self,
@@ -83,7 +83,6 @@ class ExecutionAdapter(Protocol):
         chunk_size: int,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> BatchStream: ...
     def resolve_coverage(
         self,
@@ -109,7 +108,6 @@ class ExecutionAdapter(Protocol):
         database: str | None,
         catalog: str | None,
         dependency: EntitySourceDependency | None = None,
-        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema: ...
     def table(self, name: str) -> ir.Table: ...
     def read_parquet(self, path: str, *, table_name: str) -> ir.Table: ...

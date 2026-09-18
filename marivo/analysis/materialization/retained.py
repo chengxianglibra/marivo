@@ -218,7 +218,6 @@ def validate_source_private_relation(
     primary: ir.Table,
     row: DatasetRowContract,
     role: str,
-    record: Callable[[str, str], None],
 ) -> None:
     """Inspect source-private state natively; return only scalar violations."""
     from marivo.analysis.observation.distinct_contracts import membership_part_authorities
@@ -226,14 +225,13 @@ def validate_source_private_relation(
     if row.shape_id.family_id == "lifecycle":
         from marivo.analysis.materialization.lifecycle_publication import validate_relation
 
-        validate_relation(backend, table, row, role, record)
+        validate_relation(backend, table, row, role)
         return
     if role.startswith(("metric_distribution.", "delta_distribution.")):
         from marivo.analysis.materialization.distribution import validate_distribution_relation
 
-        validate_distribution_relation(backend, table, primary, row, role, record)
+        validate_distribution_relation(backend, table, primary, row, role)
         return
-    record("engine_check.membership_schema", backend.compile(table.limit(0)))
     keys = membership_schema(
         row,
         role,
@@ -252,7 +250,6 @@ def validate_source_private_relation(
         endpoint,
         authority.membership.identity_signature,
     )
-    record("engine_check.membership_integrity", sql)
     violations: object = backend.read_scalar(
         backend.statement(
             sql,

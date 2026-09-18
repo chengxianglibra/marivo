@@ -46,8 +46,11 @@ def _literal(value: CanonicalValue, predicate: BoundPredicate) -> ir.Scalar:
         return ibis.literal(number, type=f"decimal({precision}, {scale})")
     if kind == "date" and isinstance(payload, str):
         return ibis.literal(date.fromisoformat(payload))
-    if kind == "instant" and isinstance(payload, str):
-        return ibis.literal(datetime.fromisoformat(payload))
+    if kind in ("instant", "civil_timestamp") and isinstance(payload, str):
+        moment = datetime.fromisoformat(payload)
+        return ibis.literal(
+            moment, type="timestamp(6)" if moment.tzinfo is None else "timestamp('UTC', 6)"
+        )
     if kind == "floating" and type(payload) is float:
         logical = predicate.field.logical_type_id if predicate.field is not None else "float64"
         return ibis.literal(payload, type="float32" if logical == "float32" else "float64")

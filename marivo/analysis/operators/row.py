@@ -178,7 +178,7 @@ def _literal(
         return Decimal(body)
     if kind == "date" and isinstance(body, str):
         return date.fromisoformat(body)
-    if kind == "instant" and isinstance(body, str):
+    if kind in ("instant", "civil_timestamp") and isinstance(body, str):
         return datetime.fromisoformat(body)
     if kind in ("integer", "floating", "boolean", "string") and isinstance(
         body, (bool, int, float, str)

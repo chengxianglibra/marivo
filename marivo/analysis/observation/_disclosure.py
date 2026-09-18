@@ -326,7 +326,7 @@ def provider(
                 field,
                 P(
                     "value",
-                    "Supply a compatible scalar literal; null comparison uses is_null/is_not_null.",
+                    "Supply a compatible scalar; match civil/aware timestamp kinds. Use is_null/is_not_null for nulls.",
                 ),
             )
             call = f"{name}(revenue, 0)"

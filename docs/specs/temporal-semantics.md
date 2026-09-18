@@ -20,12 +20,18 @@ occurrence owns its own boundary timezone. A date-only upper bound is excluded a
 that midnight. There is no implicit relative-date language, ambient latest-version
 selection or end-bound epsilon subtraction.
 
-Source read timezone is resolved at admitted execution, after the actual reader
-connection opens. Explicit parser authority takes precedence over engine authority
+Source read timezone is resolved when needed at admitted execution, after the actual reader
+connection opens. Physical instants and explicit parser authority require no reader-authority probe;
+independent adapter transport checks still apply.
+Only absent probe capability permits recorded system fallback; query failures and invalid
+engine facts fail with their original cause when reader authority is required. Explicit parser authority takes precedence over engine authority
 and explicit system fallback. Civil dates do not shift. Naive time values localize
 before instant comparison; absolute instants preserve their meaning. Source
 precision and logical temporal kind are validated separately. Unsupported exact
-precision conversion fails; no silent truncation is permitted.
+precision conversion fails; no silent truncation is permitted. Native naive gap/fold
+values fail before filtering or publication. Known instants in a repeated report hour
+share the same civil bucket coordinate. Timestamp predicate literals must match their
+field kind: naive civil values or aware instants.
 
 ## Dataset construction and continuation
 
@@ -775,3 +781,19 @@ See [timezone and calendar design](analysis/timezone-and-calendar-design.md),
 [observation contract](../superpowers/specs/2026-09-01-lazy-analysis-observation-model-design.md)
 and [materialization contract](../superpowers/specs/2026-09-01-lazy-analysis-materialization-runtime-design.md)
 for detailed owning rules.
+
+
+### Native timestamp timezone-rule agreement (C3a)
+
+Runtime ZoneInfo is the authority for named-zone rules. Before a native timestamp
+source produces a primary result, source-side min/max aggregates bound the relevant
+intervals. Source-side validation then checks that every non-null naive value has
+exactly one ZoneInfo candidate and that source conversion to UTC and the report
+boundary agrees with those rules. TZif transition instants and POSIX continuation
+rules locate intervals; ZoneInfo supplies their offsets. Gaps, folds, unavailable
+rules and engine/runtime disagreement fail with a structured MaterializationError
+before publication. Fixed-offset-only paths need no rule-data comparison. SQLite
+keeps its connection-local Python temporal functions. This does not transfer source
+rows or install remote UDFs. Each range/rule query is an attempted physical
+engine_check validation submission. Separate validation and primary queries retain
+the existing source-concurrency limitation; this is not a snapshot guarantee.

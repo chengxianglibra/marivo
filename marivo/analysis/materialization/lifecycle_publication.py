@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -72,13 +71,11 @@ def validate_relation(
     table: ir.Table,
     row: DatasetRowContract,
     role: str,
-    record: Callable[[str, str], None],
 ) -> None:
     part_schema(row, role, table.schema().to_pyarrow())
     keys = PART_KEYS[ROLES.index(role)]
     query = table.group_by(*keys).aggregate(n=table.count())
     bad = query.filter(query.n != 1).count()
-    record("lifecycle.part_key", backend.compile(bad))
     if backend.read_scalar(backend.prepare(bad, role="lifecycle.part_key")) != 0:
         raise invalid("duplicate Lifecycle retained role keys")
 
@@ -87,7 +84,6 @@ def native_summary(
     backend: ExecutionAdapter,
     recipe: CompiledDataset,
     row: DatasetRowContract,
-    record: Callable[[str, str], None],
 ) -> LifecycleEvidenceSummary:
     parts = {
         p.role: p.expression for p in recipe.retained_parts if isinstance(p, RetainedRelationSpec)
@@ -107,11 +103,9 @@ def native_summary(
         else ibis.null().cast(ledger.known_through.type())
     )
     wrong_coverage = ledger.filter(~ledger.known_through.identical_to(boundary)).count()
-    record("lifecycle.coverage_ledger", backend.compile(wrong_coverage))
     if backend.read_scalar(backend.prepare(wrong_coverage, role="lifecycle.coverage_ledger")) != 0:
         raise invalid("Lifecycle coverage ledger differs from its retained source-origin prefix")
     proof = integrity_sql(backend, recipe.expression, parts, semantics)
-    record("lifecycle.history_integrity", proof)
     if (
         backend.read_scalar(
             backend.statement(
@@ -138,7 +132,6 @@ def native_summary(
     query = "SELECT " + ", ".join(
         f"({backend.compile(expr)}) AS n{i}" for i, expr in enumerate(statements)
     )
-    record("lifecycle.summary", query)
     result = backend.submit(
         backend.statement(
             query,
@@ -216,7 +209,7 @@ def inspect_history(
             lifecycle_coverage=descriptor.lifecycle_evidence.coverage,
         )
         if (
-            native_summary(backend, recipe, descriptor.row_contract, lambda *_: None)
+            native_summary(backend, recipe, descriptor.row_contract)
             != descriptor.lifecycle_evidence
         ):
             raise invalid("retained Lifecycle parts contradict their bounded Evidence")

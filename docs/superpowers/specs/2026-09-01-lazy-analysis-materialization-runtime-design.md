@@ -875,16 +875,31 @@ writes require reconciliation. Unknown read-only server work does not block a
 new action after local publication safety is established.
 
 Source validation relations compile into separate queries, one check per query.
-Even small unions of complex checks can retain unnecessary aggregate state. All queries are planned before
+Even small unions of complex checks can retain unnecessary aggregate state. These static validation queries are planned before
 execution; a failed query is never split and retried. Every check produces its own named
 zero-violation receipt; missing, duplicate, non-integer or nonzero scalar results
 fail at the owning check. Successful results retain their original check order.
 Native SQL failures abort the action without retrying individual checks.
 Sampling fences preserve query order: pre-sampling checks finish before the fence
 is reserved or created, and dependent checks execute only after its realization.
-Execution-local `validation_queries` counts physical batch queries, while the
-Artifact's validation results retain the individual logical checks. Statement
-statistics record each batch's shared SQL once as `validation_batch`.
+Execution-local `validation_queries` counts attempted physical validation submissions:
+`validation_batch`, `sampling_validation`, and `engine_check.*`. Each adapter
+submission contributes once, whether it succeeds or fails; compilation contributes
+zero. Metadata (`source_schema`), timezone discovery (`source_timezone`), settings,
+primary reads, and retained-part reads do not increment this validation counter.
+Both source and local validation submissions count; their execution domains remain
+separate in submission receipts/events. The Artifact's validation results retain
+individual logical checks, so their count need not equal `validation_queries`.
+Statement statistics preserve each physical batch SQL once as `validation_batch`.
+C3a moves counting from Runtime's pre-execution call sites to adapter submissions;
+metadata lookups formerly included in the counter are intentionally removed.
+Native timestamp rule validation has an explicit two-phase preparation: an
+`engine_check.temporal_range` source aggregate returns min/max, then the runtime
+compiles and submits `engine_check.temporal_rules` against the bounded ZoneInfo
+intervals. Both are counted physical checks. This data-dependent compilation is
+not a failed-query fallback or retry and does not transfer source rows. It runs
+before the primary query and retains the existing lack of cross-query snapshot
+isolation.
 
 ### Materialized read lifecycle
 

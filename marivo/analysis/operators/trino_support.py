@@ -22,6 +22,7 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         relationships=True,
         versions=True,
         date_buckets=True,
+        timestamp_buckets=True,
         explicit_decimal_sources=True,
         closed_open_null_validity=True,
     )

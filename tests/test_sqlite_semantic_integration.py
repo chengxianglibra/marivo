@@ -11,7 +11,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.semantic.catalog import SemanticCatalog
 
 
@@ -26,8 +25,8 @@ def _seed_orders(path: Path) -> None:
                 created_at TIMESTAMP NOT NULL
             );
             INSERT INTO orders VALUES
-                (1, 10.0, '2026-07-01 10:00:00'),
-                (2, 20.0, '2026-07-02 11:00:00');
+                (1, 10.0, '2026-07-01 10:00:00.000000'),
+                (2, 20.0, '2026-07-02 11:00:00.000000');
             """
         )
         connection.commit()
@@ -161,7 +160,6 @@ def test_sqlite_agent_native_authoring_journey(
     )
     logical = frame.aggregate()
     assert isinstance(logical, mv.LogicalMetricDataset)
-    with pytest.raises(DatasetCompilationError, match="unsupported type or parser"):
-        logical.execute()
-    assert session.runs().items == ()
-    assert not session._runtime.statistics.statements
+    assert logical.execute().to_pandas().revenue.tolist() == [30.0]
+    assert len(session.runs().items) == 1
+    assert session._runtime.statistics.primary_queries == 1

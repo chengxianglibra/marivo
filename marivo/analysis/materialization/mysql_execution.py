@@ -19,7 +19,7 @@ from marivo.analysis.materialization.errors import (
     unsupported_source_type,
 )
 from marivo.analysis.materialization.scalar_sql_execution import Cursor, ScalarExecutionAdapter
-from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
+from marivo.datasource.timezone import DatasourceEngineTimezone
 
 if TYPE_CHECKING:
     from ibis.backends.mysql import Backend
@@ -33,6 +33,10 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
         self._mysql = backend
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
+        from marivo.analysis.materialization.temporal_sql import lower_temporal
+
+        expression = lower_temporal(expression, self.engine)
+
         def rewrite(
             node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
         ) -> ops.Node:
@@ -52,6 +56,8 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                 and (value.to.scale is None or value.to.scale == value.arg.dtype.scale)
             ):
                 return value.arg
+            if isinstance(value, ops.TimestampTruncate):
+                return ops.Cast(value, dt.Timestamp(scale=6))
             if isinstance(value, ops.DateTruncate) and value.unit.name == "WEEK":
                 date = value.arg.to_expr()
                 return (date - date.day_of_week.index().as_interval("D")).op()
@@ -92,7 +98,6 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
         database: str | None = None,
         catalog: str | None = None,
         dependency: EntitySourceDependency | None = None,
-        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         if dependency is not None:
             dependency.validate_request(name, database, catalog)
@@ -100,9 +105,7 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
         if catalog is not None:
             raise self.unsupported("MySQL catalog qualification")
         namespace = database or str(
-            self.read_scalar(
-                self.statement("SELECT DATABASE()", role="source_schema"), record=record
-            )
+            self.read_scalar(self.statement("SELECT DATABASE()", role="source_schema"))
         )
         engine = self.read_scalar(
             self.statement(
@@ -110,7 +113,6 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                 parameters=(namespace, name),
                 role="source_schema",
             ),
-            record=record,
         )
         if engine != "InnoDB":
             raise self.unsupported(
@@ -120,8 +122,6 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
             "SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLLATION_NAME FROM information_schema.columns "
             "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s ORDER BY ORDINAL_POSITION"
         )
-        if record:
-            record("source_schema", query)
         rows = self.submit(self.statement(query, parameters=(namespace, name)))
         fields: dict[str, dt.DataType] = {}
         date_checks: list[str] = []
@@ -156,11 +156,27 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                 if base_kind == "timestamp":
                     zone = self.read_scalar(
                         self.statement("SELECT @@session.time_zone", role="source_schema"),
-                        record=record,
                     )
                     if zone not in {"UTC", "+00:00"}:
                         raise self.unsupported("MySQL TIMESTAMP requires a verified UTC session")
-                    datatype = datatype.copy(timezone=None)
+                    declared = (
+                        next(
+                            (
+                                item.declared_type
+                                for item in dependency.columns
+                                if item.physical == column
+                            ),
+                            None,
+                        )
+                        if dependency is not None
+                        else None
+                    )
+                    aware = (
+                        declared is not None
+                        and isinstance(dt.dtype(declared), dt.Timestamp)
+                        and dt.dtype(declared).timezone is not None
+                    )
+                    datatype = datatype.copy(timezone="UTC" if aware else None)
                 date_checks.append(
                     f"({quoted} IS NOT NULL AND (YEAR({quoted}) < 1 OR MONTH({quoted}) < 1 "
                     f"OR DAY({quoted}) < 1 OR LAST_DAY({quoted}) IS NULL "
@@ -197,7 +213,7 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
             qualified = ".".join("`" + part.replace("`", "``") + "`" for part in (namespace, name))
             validation = f"SELECT count(*) FROM {qualified} WHERE " + " OR ".join(date_checks)
             violations = self.read_scalar(
-                self.statement(validation, role="engine_check.mysql_dates"), record=record
+                self.statement(validation, role="engine_check.mysql_dates")
             )
             if violations != 0:
                 raise self.error(
@@ -209,7 +225,13 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
         return ibis.schema(fields)
 
     def timezone(self) -> DatasourceEngineTimezone:
-        return probe_engine_timezone(self._mysql)
+        from marivo.datasource.engines import require_profile_for_backend_type
+        from marivo.datasource.timezone import resolve_engine_timezone
+
+        return resolve_engine_timezone(
+            require_profile_for_backend_type("mysql").timezone_probe_sql,
+            lambda query: self.read_scalar(self.statement(query, role="source_timezone")),
+        )
 
     def interrupt(self) -> None:
         # Closing this exact connection is best-effort cancellation, not server termination proof.

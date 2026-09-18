@@ -22,18 +22,12 @@ def execute_sample(
     *,
     statement: Statement,
     ordinal: int,
-    record: Callable[[str, str], None],
     event: Callable[[str], None],
 ) -> SamplingRealization:
     """Create the already reserved relation once; return scalar identity-validation facts."""
-    sql = statement.sql
-    record("sampling_fence", sql)
     event("sampling_fence")
-    event("source_statement")
     backend.submit(statement)
     validation_sql = backend.sample_validation_sql(fence)
-    record("sampling_validation", validation_sql)
-    event("source_statement")
     row: object = backend.submit(
         backend.statement(validation_sql, role="sampling_validation")
     ).fetchone()

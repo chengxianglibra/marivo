@@ -192,7 +192,11 @@ def test_temporal_literals_bind_exact_authority_or_fail_closed() -> None:
         with pytest.raises(ObservationPredicateError, match=r"read.timezone"):
             _bind(eq(VALUE, now), field=_field(logical))
     with pytest.raises(ObservationPredicateError, match="naive"):
-        eq(VALUE, datetime(2026, 9, 1))
+        _bind(eq(VALUE, datetime(2026, 9, 1)), field=_field("instant"))
+    assert _bind(eq(VALUE, datetime(2026, 9, 1)), field=_field("timestamp(6)")).literal == (
+        "civil_timestamp",
+        "2026-09-01T00:00:00.000000",
+    )
     assert _bind(lte(VALUE, date(2026, 9, 1)), field=_field("date")).literal == (
         "date",
         "2026-09-01",

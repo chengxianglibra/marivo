@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import replace
-from zoneinfo import ZoneInfo
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -26,6 +25,7 @@ from marivo.analysis.materialization.errors import (
     source_type_errors,
 )
 from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
+from marivo.analysis.materialization.submissions import ObservedExecution, Submission
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 
@@ -46,7 +46,10 @@ def quote(name: str) -> str:
 class DuckDBBatchStream:
     """Close the driver reader even if iteration never starts or stops early."""
 
-    def __init__(self, native: pa.RecordBatchReader, schema: pa.Schema) -> None:
+    def __init__(
+        self, native: pa.RecordBatchReader, schema: pa.Schema, receipt: Submission | None = None
+    ) -> None:
+        self._receipt = receipt
         self._native = native
         self._reader = pa.RecordBatchReader.from_batches(schema, native)
 
@@ -55,7 +58,12 @@ class DuckDBBatchStream:
         return self._reader.schema
 
     def __iter__(self) -> Iterator[pa.RecordBatch]:
-        yield from self._reader
+        try:
+            yield from self._reader
+        except BaseException as error:
+            if self._receipt is not None:
+                self._receipt.fail(error)
+            raise
 
     def close(self) -> None:
         try:
@@ -67,10 +75,11 @@ class DuckDBBatchStream:
         self._native.close()
 
 
-class DuckDBExecutionAdapter:
+class DuckDBExecutionAdapter(ObservedExecution):
     """One action-local connection for normal Ibis execution and explicit driver SQL."""
 
     def __init__(self, backend: Backend, *, reserve: Callable[[str], None] | None = None) -> None:
+        super().__init__()
         self._backend = backend
         self._reserve = reserve
         self._context = ExecutionContext()
@@ -150,15 +159,14 @@ class DuckDBExecutionAdapter:
     def submit(self, statement: Statement) -> DuckDBPyConnection:
         self._check(statement)
         # The native driver receives exactly the selected SQL and parameters.
-        cursor: object = self._backend.con.execute(statement.sql, statement.parameters or None)
+        with self.submission(statement.role, statement.sql):
+            cursor: object = self._backend.con.execute(statement.sql, statement.parameters or None)
         if not isinstance(cursor, DuckDBPyConnection):
             raise _invalid("execution_boundary")
         return cursor
 
     @contextmanager
-    def _ibis_execution(
-        self, expression: ir.Expr, *, role: str, record: Callable[[str, str], None] | None
-    ) -> Iterator[None]:
+    def _ibis_execution(self, expression: ir.Expr, *, role: str) -> Iterator[None]:
         if self._closed:
             raise _invalid("execution_boundary")
         # This backend belongs exclusively to this action. Observe its actual
@@ -191,18 +199,22 @@ class DuckDBExecutionAdapter:
 
         def raw_sql(query: str | sge.Expression, **kwargs: object) -> DuckDBPyConnection:
             sql = query if isinstance(query, str) else query.sql(dialect="duckdb")
-            if record is not None:
-                record(role, sql)
             if not kwargs:
                 return self.submit(self.statement(sql, role=role))
-            result: object = original(query, **kwargs)
+            with self.submission(role, sql):
+                result: object = original(query, **kwargs)
             if not isinstance(result, DuckDBPyConnection):
                 raise _invalid("execution_boundary")
             return result
 
         backend.raw_sql = raw_sql
+        previous = self._last_submission
         try:
             yield
+        except BaseException as error:
+            if self._last_submission is not None and self._last_submission is not previous:
+                self._last_submission.fail(error)
+            raise
         finally:
             if had_override:
                 backend.raw_sql = original
@@ -215,14 +227,11 @@ class DuckDBExecutionAdapter:
         *,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> pa.Table:
         from ibis.backends.duckdb.converter import DuckDBPyArrowData
 
         if isinstance(value, ir.Expr):
-            stream = self.batches(
-                value, chunk_size=1_000_000, params=params, role=role, record=record
-            )
+            stream = self.batches(value, chunk_size=1_000_000, params=params, role=role)
             try:
                 table = pa.Table.from_batches(stream, schema=stream.schema)
             except BaseException:
@@ -234,9 +243,16 @@ class DuckDBExecutionAdapter:
         if params is not None:
             raise _invalid("execution_boundary")
         cursor = self.submit(value)
-        table = cursor.to_arrow_table()
-        if value.schema:
-            table = DuckDBPyArrowData.convert_table(table, ibis.Schema.from_pyarrow(value.schema))
+        try:
+            table = cursor.to_arrow_table()
+            if value.schema:
+                table = DuckDBPyArrowData.convert_table(
+                    table, ibis.Schema.from_pyarrow(value.schema)
+                )
+        except BaseException as error:
+            assert self._last_submission is not None
+            self._last_submission.fail(error)
+            raise
         return table
 
     def read_scalar(
@@ -245,10 +261,9 @@ class DuckDBExecutionAdapter:
         *,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> object:
         if isinstance(value, ir.Expr):
-            table = self.read_table(value, params=params, role=role, record=record)
+            table = self.read_table(value, params=params, role=role)
             if table.num_rows != 1 or table.num_columns != 1:
                 raise _invalid("output_validation")
             result: object = table.column(0)[0].as_py()
@@ -256,9 +271,14 @@ class DuckDBExecutionAdapter:
         if params is not None:
             raise _invalid("execution_boundary")
         cursor = self.submit(value)
-        row: object = cursor.fetchone()
-        if not isinstance(row, tuple) or len(row) != 1 or cursor.fetchone() is not None:
-            raise _invalid("output_validation")
+        try:
+            row: object = cursor.fetchone()
+            if not isinstance(row, tuple) or len(row) != 1 or cursor.fetchone() is not None:
+                raise _invalid("output_validation")
+        except BaseException as error:
+            assert self._last_submission is not None
+            self._last_submission.fail(error)
+            raise
         return row[0]
 
     def batches(
@@ -268,10 +288,9 @@ class DuckDBExecutionAdapter:
         chunk_size: int,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> DuckDBBatchStream:
         if isinstance(value, ir.Expr):
-            with self._ibis_execution(value, role=role, record=record):
+            with self._ibis_execution(value, role=role):
                 native = self._backend.to_pyarrow_batches(
                     value, params=params, limit=None, chunk_size=chunk_size
                 )
@@ -280,11 +299,18 @@ class DuckDBExecutionAdapter:
             if params is not None:
                 raise _invalid("execution_boundary")
             cursor = self.submit(value)
-            native = cursor.to_arrow_reader(batch_size=chunk_size)
+            try:
+                native = cursor.to_arrow_reader(batch_size=chunk_size)
+            except BaseException as error:
+                assert self._last_submission is not None
+                self._last_submission.fail(error)
+                raise
             schema = value.schema
         try:
-            return DuckDBBatchStream(native, schema)
-        except BaseException:
+            return DuckDBBatchStream(native, schema, self._last_submission)
+        except BaseException as error:
+            assert self._last_submission is not None
+            self._last_submission.fail(error)
             native.close()
             raise
 
@@ -315,14 +341,11 @@ class DuckDBExecutionAdapter:
         database: str | None = None,
         catalog: str | None = None,
         dependency: EntitySourceDependency | None = None,
-        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         if dependency is not None:
             dependency.validate_request(name, database, catalog)
         columns = None if dependency is None else dependency.physical_columns
         sql = describe_statement(name, database, catalog)
-        if record is not None:
-            record("source_schema", sql)
         rows = self.submit(self.statement(sql, role="source_schema"))
         fields: list[tuple[str, dt.DataType]] = []
         while (row := rows.fetchone()) is not None:
@@ -389,17 +412,12 @@ class DuckDBExecutionAdapter:
 
     def timezone(self) -> DatasourceEngineTimezone:
         from marivo.datasource.engines import require_profile_for_backend_type
-        from marivo.datasource.timezone import _fallback
+        from marivo.datasource.timezone import resolve_engine_timezone
 
-        query = require_profile_for_backend_type("duckdb").timezone_probe_sql
-        if query is None:
-            return _fallback()
-        try:
-            name = str(self.read_scalar(self.statement(query, role="source_timezone")))
-            zone = ZoneInfo(name)
-        except Exception as error:
-            return _fallback(f"engine timezone probe failed: {error}")
-        return DatasourceEngineTimezone(name, zone, "iana", "engine")
+        return resolve_engine_timezone(
+            require_profile_for_backend_type("duckdb").timezone_probe_sql,
+            lambda query: self.read_scalar(self.statement(query, role="source_timezone")),
+        )
 
     def prepare_dataset(self, dataset: LogicalDataset) -> None:
         from marivo.analysis.compiler.normalize import logical_roots

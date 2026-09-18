@@ -63,12 +63,64 @@ inputs in the caller; they do not collect raw semantic Entity rows.
 
 The following remain explicitly unsupported on these new backends: linear or
 cumulative Metric graphs, status-time folds, semantic calendars, multi-unit buckets,
-timestamp/timezone/DST and string-parser time axes, hidden-axis expanded
+string-parser time axes, hidden-axis expanded
 attribution, sampling, Entity correlation preparation, exact distinct membership,
 quantile/distribution state, Entity candidates, source driver screening and
 Event/Lifecycle. These need their own numerical, private-state, temporal or
 single-evaluation implementations. Remote retained import stays disabled. No
 private state is uploaded or moved to a different executor to bypass rejection.
+
+### Native timestamp analysis
+
+Qualified native timestamps support typed predicates and `hour`/`day` buckets
+with `count=1`, through microsecond precision. PostgreSQL also admits timestamptz;
+MySQL TIMESTAMP and ClickHouse DateTime/DateTime64 retain physical instant
+semantics when bound with an aware timestamp type. ClickHouse timestamp execution
+requires a verified UTC reader timezone; non-UTC column and report timezones remain
+supported. Existing explicitly asserted
+UTC-labelled civil bindings remain validated as civil values. A physical timezone
+must match an aware declaration; a plain declaration cannot relabel a non-UTC
+ClickHouse instant. Trino uses the actual Iceberg timestamp(6) type. SQLite keeps
+its validated civil-text representation and uses connection-local deterministic
+time functions without transferring source rows to another executor.
+
+An authored native parser timezone takes precedence over the reader timezone.
+Only engines without a timezone probe use recorded system fallback; failed probes
+and invalid names fail when reader authority is needed. Physical instants and
+explicit parser authority do not require a reader probe. IANA and explicit fixed
+offsets are supported for reader/report authority; native parser declarations
+retain their existing IANA validation. Report authority is persisted once.
+
+Scopes compare exact instants before producing report-local civil coordinates.
+Naive timestamps in DST gaps or folds fail rather than selecting an implicit
+interpretation. Two known instants in a repeated report hour share its civil bucket.
+Naive predicate literals compare civil fields; aware literals compare instant
+fields. Mixing these kinds fails. Milliseconds/microseconds remain exact through
+SQL literals, Arrow, Parquet and source-offline cold recovery. Hour-to-day retained
+folds reuse the persisted temporal facts. String/epoch parsing, multi-unit buckets,
+new timestamp version selection and semantic calendar/cumulative extensions are
+not enabled on remote backends.
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+orders_by_hour = (
+    session.observe(
+        ms.ref.metric("sales.revenue"),
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+    )
+    .with_time_axis(ms.ref.time_dimension("sales.orders.order_time"), grain=mv.grain("hour"))
+    .aggregate()
+    .execute()
+)
+orders_by_hour.rollup(grain=mv.grain("day")).execute().show()
+```
+
+Actual adapter submissions own SQL diagnostics, with source/local domain, role
+and submitted/succeeded/failed status. Compilation alone records no submitted SQL.
+Driver-internal connection setup and transaction protocol traffic outside the
+observed submission boundary are not claimed as captured queries.
 
 ### PostgreSQL Group A
 
@@ -80,12 +132,11 @@ Population membership, scoped observation, dimensions, Entity aggregation,
 filtering, Metric projection, deterministic ranking and Top-N.
 
 All required source columns must use Boolean, string, signed integer, float32,
-float64, date, plain timestamp (precision 0–6) or Decimal types. PostgreSQL CHAR is rejected
+float64, date, timestamp/timestamptz (precision 0–6) or Decimal types. PostgreSQL CHAR is rejected
 because its trailing-space semantics differ from string; text/varchar remain supported. Explicit Decimal precision is
 at most 38 and scale lies between zero and precision; a generic Decimal declaration
 still requires compatible physical metadata. Temporal scopes use native date
-columns. Parsed string time axes, timezone-bearing timestamp declarations,
-sampling and source-private methods are not admitted by Group A. The relational/date extension above owns additional method admission. PostgreSQL receives
+columns. Parsed string time axes and sampling and source-private methods are not admitted by Group A. The relational/date extension above owns additional method admission. PostgreSQL receives
 no retained-import capability.
 
 The adapter uses read-only service-side cursor transactions and records actual
@@ -120,13 +171,13 @@ BINARY collation and actual text storage. DATE requires valid canonical YYYY-MM-
 text. BOOL/BOOLEAN requires integer 0/1/NULL. DATETIME/TIMESTAMP requires fixed
 `YYYY-MM-DD HH:MM:SS.ffffff` civil text, valid Gregorian years 0001–9999, without
 an offset. Necessary-column storage checks run even when output is empty.
-Unsigned, Decimal, timezone semantics, virtual and attached tables remain excluded.
+Unsigned, Decimal, native aware SQLite storage, virtual and attached tables remain excluded.
 SQLite stores inserted NaN as NULL; that distinction cannot be recovered.
 Native integer SUM overflow remains an error.
 
-Ordinary timestamps in this scalar extension support exact transport, grouping
-and sorting. Timestamp predicates and temporal methods require the later temporal
-qualification; a declaration alone does not establish read-timezone authority.
+Ordinary timestamps support exact transport, grouping, sorting and typed predicates.
+The native timestamp extension above owns temporal method admission; a declaration
+alone does not establish a naive timestamp's read-timezone authority.
 UInt64 identities, min/max and transport preserve the full unsigned range through
 Arrow, Parquet and cold reads without floating or signed conversion.
 
@@ -331,7 +382,8 @@ Physical inputs include Int8/16/32/64, UInt8/16/32/64, Bool, Float32/64, String,
 Date and explicit Decimal precision up to 38, with legal Nullable wrappers.
 LowCardinality(String) and LowCardinality(Nullable(String)) retain string semantics.
 DateTime('UTC') and DateTime with verified UTC engine timezone preserve seconds.
-DateTime64, non-UTC timestamps, FixedString, Date32, Int128/256, UInt128/256, Enum
+DateTime64 through microseconds and aware non-UTC bindings are admitted by the
+native timestamp extension. FixedString, Date32, Int128/256, UInt128/256, Enum
 and nested values remain excluded. Distributed, Replicated, specialized engines
 and views are not enabled by this scalar-type extension.
 

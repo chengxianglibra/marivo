@@ -7,7 +7,7 @@ import os
 import sqlite3
 import subprocess
 import sys
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from uuid import uuid4
 
@@ -143,12 +143,9 @@ def _produce(project: Path, table: str, point: str) -> None:
             chunk_size: int,
             params: Mapping[ir.Scalar, Parameter] | None = None,
             role: str = "query",
-            record: Callable[[str, str], None] | None = None,
         ) -> ScalarBatchStream:
             crash("source_statement")
-            stream = original(
-                adapter, value, chunk_size=chunk_size, params=params, role=role, record=record
-            )
+            stream = original(adapter, value, chunk_size=chunk_size, params=params, role=role)
             crash("source_ack")
             return stream
 

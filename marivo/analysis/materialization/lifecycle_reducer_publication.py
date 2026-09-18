@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -125,7 +125,6 @@ def native_summary(
     backend: ExecutionAdapter,
     recipe: CompiledDataset,
     row: DatasetRowContract,
-    record: Callable[[str, str], None],
     *,
     filtered: bool = False,
 ) -> LifecycleReducerEvidence | LifecycleSelectionEvidence:
@@ -136,7 +135,6 @@ def native_summary(
     if payload is not None:
         if proof is None or recipe.selection_input_definition is None:
             raise invalid("missing complete Lifecycle selection proof")
-        record("lifecycle.selection_summary", backend.compile(proof))
         checked = backend.read_table(backend.prepare(proof, role="lifecycle.selection_summary"))
         if checked.num_rows != 1:
             raise invalid("invalid Lifecycle selection scalar proof")
@@ -159,7 +157,6 @@ def native_summary(
     if not isinstance(semantics, REDUCER_TYPES):
         raise invalid("missing exact Lifecycle reducer meaning")
     proof = output_proof(recipe.expression, semantics, filtered=filtered)
-    record("lifecycle.reducer_output", backend.compile(proof))
     if (
         backend.read_table(backend.prepare(proof, role="lifecycle.reducer_output"))["violations"][
             0
@@ -172,7 +169,6 @@ def native_summary(
         row_count=table.count(),
         **{name: table[name].sum().fill_null(0) for name in TOTALS[semantics.kind]},
     )
-    record("lifecycle.reducer_summary", backend.compile(summary))
     checked = backend.read_table(
         backend.prepare(summary, role="lifecycle.reducer_summary")
     ).to_pylist()[0]

@@ -287,6 +287,15 @@ outside exact 0/1/NULL before truthiness conversion. Analysis separately validat
 all necessary source columns. SQLite typed Analysis timestamps use fixed-width
 civil `YYYY-MM-DD HH:MM:SS.ffffff` text; its BOOL/BOOLEAN columns use integer
 0/1/NULL. These are checked representations, not casts or timezone inference.
+Native temporal Analysis also admits PostgreSQL timestamptz, MySQL TIMESTAMP and
+ClickHouse DateTime64 through microseconds. MySQL TIMESTAMP and ClickHouse timestamp
+execution retain verified UTC session/reader requirements; source column and report
+timezones remain distinct. Aware bindings preserve actual instant
+kind and timezone; existing verified UTC civil bindings remain supported. Reader
+and report timezone resolution accept IANA names and explicit offsets. An absent
+probe capability permits recorded system fallback; an actual failed or invalid
+probe does not. Physical instants and explicit parser authority skip unnecessary
+reader probes. Native parser declarations retain their existing IANA validation.
 
 
 For ClickHouse tables, inspection also reads active `system.parts_columns` and

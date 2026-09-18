@@ -66,7 +66,7 @@ guards = (
     (SessionStore, 'lookup', 'binding'),
     (DatasetRuntime, 'execute_metric', 'run'),
     (DatasetRuntime, 'execute_population', 'run'),
-    (DatasetRuntime, '_record_statement', 'query'),
+    (DatasetRuntime, '_observe_submission', 'query'),
 )
 with ExitStack() as stack:
     for owner, name, kind in guards:

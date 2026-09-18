@@ -53,14 +53,11 @@ def _watch_primary_streams(
         chunk_size: int,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> ScalarBatchStream:
         nonlocal in_primary
         in_primary = role == "primary" or (isinstance(value, Statement) and value.role == "primary")
         try:
-            return original_batches(
-                adapter, value, chunk_size=chunk_size, params=params, role=role, record=record
-            )
+            return original_batches(adapter, value, chunk_size=chunk_size, params=params, role=role)
         finally:
             in_primary = False
 
