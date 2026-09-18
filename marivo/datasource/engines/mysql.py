@@ -27,14 +27,24 @@ from marivo.datasource.strptime import python_to_mysql_strptime
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    import ibis
+    import ibis.expr.schema as sch
+    import pandas as pd
+    from ibis.backends.mysql import Backend
+    from ibis.backends.mysql.converter import MySQLPandasData
+
+    from marivo.datasource.engines.scalar_decode import ScalarCursor, checked_dataframe
+
+    # Ibis optional backend classes do not ship typing metadata.
+    class CheckedBackend(Backend):  # type: ignore[misc]
+        def _fetch_from_cursor(self, cursor: ScalarCursor, schema: sch.Schema) -> pd.DataFrame:
+            return checked_dataframe(cursor, schema, MySQLPandasData.convert_table)
 
     host = require_field(name, kwargs, "host", help_target="mysql")
     database = require_field(name, kwargs, "database", help_target="mysql")
     connect_kwargs: dict[str, Any] = dict(kwargs)
     connect_kwargs["host"] = host
     connect_kwargs["database"] = database
-    return ibis.mysql.connect(**connect_kwargs)
+    return CheckedBackend().connect(**connect_kwargs)
 
 
 def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
@@ -72,7 +82,6 @@ def _inspect_mysql(
         _query_rows,
         _quote_literal,
         _schema_columns,
-        _table_ref,
     )
 
     schema_columns = _schema_columns(table_expr)
@@ -118,7 +127,14 @@ def _inspect_mysql(
         )
 
     catalog_columns: dict[str, ColumnMetadata] = {}
-    table_ref = _table_ref(table, database)
+    parts = (
+        (*database, table)
+        if isinstance(database, tuple)
+        else (database, table)
+        if database is not None
+        else (table,)
+    )
+    table_ref = ".".join("`" + part.replace("`", "``") + "`" for part in parts)
     try:
         column_rows = _query_rows(backend, f"SHOW FULL COLUMNS FROM {table_ref}")
         for index, row in enumerate(column_rows, start=1):

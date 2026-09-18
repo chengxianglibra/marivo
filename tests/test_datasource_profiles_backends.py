@@ -411,16 +411,13 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
 def test_mysql_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeMysql:
-        @staticmethod
-        def connect(**kwargs: object) -> object:
-            captured.update(kwargs)
-            return object()
+    from ibis.backends.mysql import Backend
 
-    class _FakeIbis:
-        mysql = _FakeMysql()
+    def fake_connect(self: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
 
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setattr(Backend, "connect", fake_connect)
     datasource = datasource_store.save_one(
         _spec("mysql_wh", backend_type="mysql", host="mysql.example", database="mart", port=3307)
     )

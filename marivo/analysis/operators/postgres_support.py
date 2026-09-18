@@ -1,13 +1,13 @@
 """Pure admission for the implemented postgres scalar method closure."""
 
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.operators.scalar_support import supports_scalar_type
+from marivo.analysis.operators.scalar_support import supports_plain_timestamp, supports_scalar_type
 from marivo.analysis.operators.scalar_support import unsupported_reason as scalar_reason
 
 
 def supported_type(value: str) -> bool:
     """Recognize the logical scalar types admitted by this backend."""
-    return value in {"boolean", "timestamp"} or supports_scalar_type(value)
+    return (value == "boolean" or supports_plain_timestamp(value)) or supports_scalar_type(value)
 
 
 def unsupported_reason(dataset: LogicalDataset) -> str | None:

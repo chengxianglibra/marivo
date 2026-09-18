@@ -256,7 +256,7 @@ def test_invalid_mysql_date_rejected_before_publication(
         .observe(REVENUE, time_scope=time_scope(start="2026-02-01", end="2026-03-01"))
         .aggregate()
     )
-    with pytest.raises(MaterializationError, match="invalid MySQL dates"):
+    with pytest.raises(MaterializationError, match="MySQL scalar storage contract"):
         target.execute()
     assert counts(runtime)["dataset_artifacts"] == 0
 

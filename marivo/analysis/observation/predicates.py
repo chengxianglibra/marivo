@@ -330,7 +330,13 @@ def _literal(field: DatasetField, value: PredicateLiteral, kind: PredicateKind) 
         if mask is None:
             _error("exact authored-axis bool mask length", "incompatible mask literal")
         return ("bool_tuple", mask)
-    if logical in ("integer", "int64", "int32", "int16", "int8") and type(value) is int:
+    if (
+        logical
+        in ("integer", "int64", "int32", "int16", "int8", "uint8", "uint16", "uint32", "uint64")
+        and type(value) is int
+    ):
+        if logical.startswith("uint") and not 0 <= value < 1 << int(logical[4:]):
+            _error(f"a {logical} literal in its unsigned range", "out-of-range integer")
         return ("integer", value)
     if logical in ("floating", "float64", "float32", "numeric") and (
         type(value) is int or type(value) is float

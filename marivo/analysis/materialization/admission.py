@@ -2835,7 +2835,7 @@ class DatasetRuntime:
                 and isinstance(physical_type, dt.Timestamp)
                 and declared.timezone == physical_type.timezone
                 and declared.scale is None
-                and physical_type.scale == 6
+                and physical_type.scale in (None, 0, 1, 2, 3, 4, 5, 6)
             )
             if physical_type != declared and not decimal_match and not timestamp_match:
                 raise SourceSchemaError(

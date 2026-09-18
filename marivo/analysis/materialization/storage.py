@@ -177,6 +177,8 @@ def _create_directory(path: Path) -> None:
 
 
 def _normal_type(value: pa.DataType) -> pa.DataType:
+    if pa.types.is_timestamp(value) and value.unit == "s":
+        return pa.timestamp("ms", tz=value.tz)
     if pa.types.is_dictionary(value):
         return _normal_type(value.value_type)
     if pa.types.is_struct(value):
@@ -202,6 +204,10 @@ def _matches_type(logical: str, actual: pa.DataType) -> bool:
             and actual.precision == int(decimal.group(1))
             and actual.scale == int(decimal.group(2))
         )
+    timestamp = re.fullmatch(r"timestamp\(([0-6])\)", logical)
+    if timestamp is not None:
+        scale = int(timestamp[1])
+        return bool(actual == pa.timestamp("ms" if scale <= 3 else "us"))
     if logical == "duration":
         return bool(pa.types.is_int64(actual))
     if logical == "candidate_reasons":
@@ -222,6 +228,10 @@ def _matches_type(logical: str, actual: pa.DataType) -> bool:
         "int16": pa.types.is_int16,
         "int32": pa.types.is_int32,
         "int64": pa.types.is_int64,
+        "uint8": pa.types.is_uint8,
+        "uint16": pa.types.is_uint16,
+        "uint32": pa.types.is_uint32,
+        "uint64": pa.types.is_uint64,
         "integer": pa.types.is_integer,
         "float32": pa.types.is_float32,
         "float64": pa.types.is_float64,

@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import os
-import sqlite3
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-import duckdb
 import pytest
 
 from marivo.analysis.compiler.normalize import required_source_dependencies
@@ -24,69 +22,11 @@ from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_scalar_source_fixtures import registry_for
+from tests.lazy_scalar_type_fixtures import source_writer
 from tests.lazy_source_dependency_fixtures import capture_source_sql
 
 pytestmark = pytest.mark.runtime
 Engine = Literal["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
-
-
-@contextmanager
-def _writer(engine: Engine, database: Path) -> Iterator[Callable[[str], None]]:
-    if engine == "duckdb":
-        with duckdb.connect(str(database)) as connection:
-
-            def execute(sql: str) -> None:
-                connection.execute(sql)
-
-            yield execute
-    elif engine == "sqlite":
-        with sqlite3.connect(database) as connection:
-
-            def execute(sql: str) -> None:
-                connection.execute(sql)
-
-            yield execute
-    elif engine == "postgres":
-        from tests.multisource_environment import postgres_analysis as pg
-
-        with pg.connection(admin=True) as connection:
-
-            def execute(sql: str) -> None:
-                connection.execute(sql.replace("DOUBLE", "DOUBLE PRECISION"))
-
-            yield execute
-    elif engine == "mysql":
-        from tests.multisource_environment import mysql_analysis as mysql
-
-        with mysql.connection(admin=True) as connection, connection.cursor() as cursor:
-
-            def execute(sql: str) -> None:
-                cursor.execute(sql)
-
-            yield execute
-    elif engine == "clickhouse":
-        from tests.multisource_environment import clickhouse_analysis as clickhouse
-
-        with clickhouse.connection(admin=True) as connection:
-
-            def execute(sql: str) -> None:
-                connection.command(sql)
-
-            yield execute
-    else:
-        from tests.multisource_environment import trino_analysis as trino
-
-        with trino.connection(admin=True) as connection:
-            cursor = connection.cursor()
-            try:
-
-                def execute(sql: str) -> None:
-                    cursor.execute(sql)
-                    cursor.fetchall()
-
-                yield execute
-            finally:
-                cursor.close()
 
 
 @contextmanager
@@ -147,7 +87,7 @@ def _source(
     gross_type = "TEXT" if variant == "mismatch" and engine != "clickhouse" else "DOUBLE"
     gross = "" if variant == "missing" else f", gross {gross_type}"
     try:
-        with _writer(engine, path) as execute:
+        with source_writer(engine, path) as execute:
             execute(
                 f"CREATE TABLE {name} (id BIGINT{gross}, weight DOUBLE, customer_id BIGINT, tenant {unused_type}, undocumented {unused_type}){suffix}"
             )
@@ -173,7 +113,7 @@ def _source(
                 execute(f"INSERT INTO {name}_customers (id,region) VALUES (1,'a'),(2,'b')")
         yield registry, sidecar
     finally:
-        with _writer(engine, path) as execute:
+        with source_writer(engine, path) as execute:
             execute(f"DROP TABLE IF EXISTS {name}")
             if variant == "relationship":
                 execute(f"DROP TABLE IF EXISTS {name}_customers")

@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from threading import Timer
 from typing import TYPE_CHECKING
 
+import ibis.expr.datatypes as dt
 from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.base import (
@@ -23,14 +24,40 @@ if TYPE_CHECKING:
     from marivo.datasource.metadata import TableMetadata
 
 
+def declared_scalar_type(declaration: str) -> dt.DataType | None:
+    """Map the bounded SQLite storage declarations used by typed analysis."""
+    kind = declaration.strip().upper()
+    if kind in {"INTEGER", "INT", "BIGINT", "TINYINT", "SMALLINT", "MEDIUMINT", "INT2", "INT8"}:
+        return dt.int64
+    if kind in {"REAL", "DOUBLE", "DOUBLE PRECISION", "FLOAT"}:
+        return dt.float64
+    if re.fullmatch(r"(?:TEXT|CLOB|(?:VAR)?CHAR(?:\([1-9][0-9]*\))?)", kind):
+        return dt.string
+    if kind in {"BOOL", "BOOLEAN"}:
+        return dt.boolean
+    if kind in {"DATETIME", "TIMESTAMP"}:
+        return dt.Timestamp(scale=6)
+    return dt.date if kind == "DATE" else None
+
+
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    import ibis
+    import ibis.expr.schema as sch
+    import pandas as pd
+    from ibis.backends.sqlite import Backend
+    from ibis.backends.sqlite.converter import SQLitePandasData
+
+    from marivo.datasource.engines.scalar_decode import ScalarCursor, checked_dataframe
+
+    # Ibis optional backend classes do not ship typing metadata.
+    class CheckedBackend(Backend):  # type: ignore[misc]
+        def _fetch_from_cursor(self, cursor: ScalarCursor, schema: sch.Schema) -> pd.DataFrame:
+            return checked_dataframe(cursor, schema, SQLitePandasData.convert_table)
 
     connect_kwargs = dict(kwargs)
     path = connect_kwargs.pop("path", ":memory:")
     read_only = bool(connect_kwargs.pop("read_only", False))
     connect_kwargs["database"] = path
-    backend = ibis.sqlite.connect(**connect_kwargs)
+    backend = CheckedBackend().connect(**connect_kwargs)
     if read_only:
         backend.raw_sql("PRAGMA query_only = ON")
     return backend

@@ -91,15 +91,15 @@ def test_complete_closure(
     [
         ("int8", {"postgres", "mysql", "clickhouse"}),
         ("int16", {"postgres", "mysql", "clickhouse"}),
-        ("boolean", {"postgres"}),
-        ("timestamp", {"postgres"}),
+        ("boolean", {"postgres", "mysql", "sqlite", "trino", "clickhouse"}),
+        ("timestamp", {"postgres", "mysql", "sqlite", "trino", "clickhouse"}),
         ("decimal", {"postgres", "mysql", "trino", "clickhouse"}),
         ("decimal(38, 6)", {"postgres", "mysql", "trino", "clickhouse"}),
         ("int64", {"postgres", "mysql", "sqlite", "trino", "clickhouse"}),
         ("float64", {"postgres", "mysql", "sqlite", "trino", "clickhouse"}),
         ("decimal(39,0)", set()),
         ("decimal(4,5)", set()),
-        ("uint64", set()),
+        ("uint64", {"mysql", "clickhouse"}),
         ("timestamp('UTC')", set()),
     ],
 )

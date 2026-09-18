@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -36,6 +37,21 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
             node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
         ) -> ops.Node:
             value = node.copy(**kwargs)
+            if (
+                isinstance(value, ops.Cast)
+                and value.to.is_unsigned_integer()
+                and value.to.copy(nullable=True) == value.arg.dtype.copy(nullable=True)
+            ):
+                # MySQL CAST only accepts UNSIGNED (64-bit), not narrower unsigned names.
+                return value.arg
+            if (
+                isinstance(value, ops.Cast)
+                and isinstance(value.to, dt.Timestamp)
+                and isinstance(value.arg.dtype, dt.Timestamp)
+                and value.to.timezone == value.arg.dtype.timezone
+                and (value.to.scale is None or value.to.scale == value.arg.dtype.scale)
+            ):
+                return value.arg
             if isinstance(value, ops.DateTruncate) and value.unit.name == "WEEK":
                 date = value.arg.to_expr()
                 return (date - date.day_of_week.index().as_interval("D")).op()
@@ -115,18 +131,45 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                 raise self.unsupported("malformed MySQL column metadata")
             if columns is not None and column not in columns:
                 continue
-            if "unsigned" in kind.lower():
+            base_kind = kind.lower().split("(", 1)[0].split()[0]
+            if base_kind in {"char", "enum", "set", "bit"}:
                 raise unsupported_source_type(dependency, column, kind)
             if collation is not None and collation != "utf8mb4_0900_bin":
-                raise self.unsupported(
-                    f"MySQL column {column!r} requires signed types and utf8mb4_0900_bin text"
-                )
+                raise self.unsupported(f"MySQL column {column!r} requires utf8mb4_0900_bin text")
             with source_type_errors(dependency, column, kind):
                 datatype = self._mysql.compiler.type_mapper.from_string(
                     kind, nullable=nullable == "YES"
                 )
+            declared_boolean = dependency is not None and any(
+                item.physical == column and item.declared_type == "boolean"
+                for item in dependency.columns
+            )
+            quoted = "`" + column.replace("`", "``") + "`"
+            if declared_boolean and re.fullmatch(r"tinyint\(1\)", kind.lower()):
+                datatype = dt.boolean.copy(nullable=nullable == "YES")
+                date_checks.append(f"({quoted} IS NOT NULL AND {quoted} NOT IN (0,1))")
+            if isinstance(datatype, dt.Timestamp):
+                if datatype.scale is None:
+                    datatype = datatype.copy(scale=0)
+                if datatype.scale is not None and not 0 <= datatype.scale <= 6:
+                    raise unsupported_source_type(dependency, column, kind)
+                if base_kind == "timestamp":
+                    zone = self.read_scalar(
+                        self.statement("SELECT @@session.time_zone", role="source_schema"),
+                        record=record,
+                    )
+                    if zone not in {"UTC", "+00:00"}:
+                        raise self.unsupported("MySQL TIMESTAMP requires a verified UTC session")
+                    datatype = datatype.copy(timezone=None)
+                date_checks.append(
+                    f"({quoted} IS NOT NULL AND (YEAR({quoted}) < 1 OR MONTH({quoted}) < 1 "
+                    f"OR DAY({quoted}) < 1 OR LAST_DAY({quoted}) IS NULL "
+                    f"OR DAY({quoted}) > DAY(LAST_DAY({quoted}))))"
+                )
             if not (
-                datatype.is_signed_integer()
+                datatype.is_integer()
+                or datatype.is_boolean()
+                or datatype.is_timestamp()
                 or datatype.is_floating()
                 or datatype.is_string()
                 or datatype.is_date()
@@ -138,7 +181,9 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                 )
             ):
                 raise unsupported_source_type(dependency, column, kind)
-            fields[column] = datatype
+            fields[column] = (
+                dt.string.copy(nullable=nullable == "YES") if datatype.is_string() else datatype
+            )
             if datatype.is_date():
                 quoted = "`" + column.replace("`", "``") + "`"
                 date_checks.append(
@@ -156,9 +201,9 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
             )
             if violations != 0:
                 raise self.error(
-                    "valid nonzero Gregorian DATE values or SQL NULL",
-                    f"{violations} rows contain invalid MySQL dates",
-                    "Correct zero or invalid dates before executing again.",
+                    "valid Gregorian dates/timestamps, Boolean 0/1, or SQL NULL",
+                    f"{violations} rows violate the MySQL scalar storage contract",
+                    "Correct invalid dates/timestamps or Boolean storage before executing again.",
                     stage="output_validation",
                 )
         return ibis.schema(fields)

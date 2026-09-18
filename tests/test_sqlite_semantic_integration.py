@@ -161,7 +161,7 @@ def test_sqlite_agent_native_authoring_journey(
     )
     logical = frame.aggregate()
     assert isinstance(logical, mv.LogicalMetricDataset)
-    with pytest.raises(DatasetCompilationError, match="unsupported declared source type"):
+    with pytest.raises(DatasetCompilationError, match="unsupported type or parser"):
         logical.execute()
     assert session.runs().items == ()
     assert not session._runtime.statistics.statements

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
 
@@ -45,6 +45,50 @@ class ScalarStatement(Statement):
 def _cell(value: object, dtype: pa.DataType, *, run_ref: str | None = None) -> object:
     if value is None:
         return None
+    if pa.types.is_boolean(dtype):
+        if type(value) is bool:
+            return value
+        if type(value) is int and value in (0, 1):
+            return bool(value)
+        raise MaterializationError(
+            expected="Boolean or exact integer 0/1",
+            received="invalid Boolean representation",
+            repair="Correct the source Boolean storage to 0, 1 or NULL.",
+            stage="output_validation",
+            run_ref=run_ref,
+        )
+    if pa.types.is_timestamp(dtype):
+        if isinstance(value, str):
+            try:
+                parsed_time = datetime.fromisoformat(value)
+                if parsed_time.isoformat(sep=" ", timespec="microseconds") != value:
+                    raise ValueError("noncanonical timestamp")
+                value = parsed_time
+            except ValueError as cause:
+                raise MaterializationError(
+                    expected="canonical civil YYYY-MM-DD HH:MM:SS.ffffff text",
+                    received="invalid timestamp representation",
+                    repair="Correct source timestamp storage without timezone or precision loss.",
+                    stage="output_validation",
+                    run_ref=run_ref,
+                ) from cause
+        if not isinstance(value, datetime) or (value.tzinfo is not None) != (dtype.tz is not None):
+            raise MaterializationError(
+                expected="a datetime matching the declared timezone semantics",
+                received="incompatible timestamp representation",
+                repair="Correct the source timestamp type and timezone binding.",
+                stage="output_validation",
+                run_ref=run_ref,
+            )
+        quantum = {"s": 1000000, "ms": 1000, "us": 1, "ns": 1}[dtype.unit]
+        if value.microsecond % quantum:
+            raise MaterializationError(
+                expected=f"an exactly representable {dtype} value",
+                received="timestamp fractional precision exceeds output unit",
+                repair="Use a timestamp declaration preserving the source precision.",
+                stage="output_validation",
+                run_ref=run_ref,
+            )
     if pa.types.is_date(dtype) and isinstance(value, str):
         try:
             parsed = date.fromisoformat(value)
@@ -74,7 +118,19 @@ def _cell(value: object, dtype: pa.DataType, *, run_ref: str | None = None) -> o
                 stage="output_validation",
                 run_ref=run_ref,
             )
-        return int(value)
+        value = int(value)
+    if pa.types.is_integer(dtype):
+        bits = dtype.bit_width
+        lower = 0 if pa.types.is_unsigned_integer(dtype) else -(1 << (bits - 1))
+        upper = (1 << (bits if pa.types.is_unsigned_integer(dtype) else bits - 1)) - 1
+        if type(value) is not int or not lower <= value <= upper:
+            raise MaterializationError(
+                expected=f"an exact {dtype} result in [{lower}, {upper}]",
+                received="non-integral or out-of-range integer result",
+                repair="Use representable inputs or a Metric with an appropriate exact result type.",
+                stage="output_validation",
+                run_ref=run_ref,
+            )
     return value
 
 

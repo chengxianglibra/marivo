@@ -335,7 +335,7 @@ def _source_type_matches(actual: dt.DataType, declared: str) -> bool:
         isinstance(actual, dt.Timestamp)
         and isinstance(expected, dt.Timestamp)
         and expected.scale is None
-        and actual.scale == 6
+        and actual.scale in (None, 0, 1, 2, 3, 4, 5, 6)
         and expected.timezone == actual.timezone
         and expected.nullable == actual.nullable
     )

@@ -372,12 +372,11 @@ def test_large_source_and_blocks(
         "Enum8('z'=1,'a'=2)",
         "DateTime64(6,'UTC')",
         "Array(Int64)",
-        "LowCardinality(String)",
         "FixedString(4)",
         "Date32",
     ],
 )
-def test_unqualified_physical_types(tmp_path: Path, source_table: str, physical: str) -> None:
+def test_incompatible_physical_types(tmp_path: Path, source_table: str, physical: str) -> None:
     with clickhouse.connection(admin=True) as con:
         con.command(f"TRUNCATE TABLE {source_table}")
         con.command(f"ALTER TABLE {source_table} DROP COLUMN channel")

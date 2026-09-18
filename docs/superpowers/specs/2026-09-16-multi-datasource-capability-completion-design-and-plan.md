@@ -2,7 +2,7 @@
 
 日期：2026-09-16
 
-状态：C0 与 C1 已完成；C1 的六后端列依赖、schema 诊断及列 comment 证据见 [C1 验收](2026-09-16-multisource-capability-c1-acceptance.md)。C2–C10 未开始，后续能力仍须独立实施及验收。
+状态：C0 与 C1 已完成；C1 的六后端列依赖、schema 诊断及列 comment 证据见 [C1 验收](2026-09-16-multisource-capability-c1-acceptance.md)。C2 已实现并通过六后端标量验收，见 [C2 验收](2026-09-16-multisource-capability-c2-acceptance.md)；普通 timestamp 时间谓词按用户确认归 C3a。C3–C10 未开始，后续能力仍须独立实施及验收。
 
 C0 的当前能力、目标/排除、历史证据与本次只读环境探测见 [C0 验收](2026-09-16-multisource-capability-c0-acceptance.md)；后续各阶段的 owner、fixture、验证入口及进入条件见 [C0 实施计划清单](2026-09-16-multisource-capability-c0-implementation-plan.md)。
 

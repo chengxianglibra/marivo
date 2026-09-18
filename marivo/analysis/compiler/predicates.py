@@ -52,7 +52,12 @@ def _literal(value: CanonicalValue, predicate: BoundPredicate) -> ir.Scalar:
         logical = predicate.field.logical_type_id if predicate.field is not None else "float64"
         return ibis.literal(payload, type="float32" if logical == "float32" else "float64")
     if kind == "integer" and type(payload) is int:
-        return ibis.literal(payload)
+        logical = predicate.field.logical_type_id if predicate.field is not None else "int64"
+        return (
+            ibis.literal(payload, type=logical)
+            if logical.startswith("uint")
+            else ibis.literal(payload)
+        )
     if kind == "boolean" and type(payload) is bool:
         return ibis.literal(payload)
     if kind == "string" and type(payload) is str:

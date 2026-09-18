@@ -30,7 +30,10 @@ def _fail(expected: str, received: str, location: str) -> Never:
 
 
 def _is_stable_identifier(value: object) -> bool:
-    return type(value) is str and _ID_PATTERN.fullmatch(value) is not None
+    return type(value) is str and (
+        _ID_PATTERN.fullmatch(value) is not None
+        or re.fullmatch(r"timestamp\([0-6]\)", value) is not None
+    )
 
 
 def _bool_tuple_arity(logical_type_id: str) -> int | None:

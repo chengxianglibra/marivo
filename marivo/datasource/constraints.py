@@ -218,7 +218,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceFieldInvalid",
         "decorator",
         ("table", "source_column"),
-        "A table column data_type asserts the output schema and never casts the physical value.",
+        "A table column data_type asserts the output schema without casting. Backend storage aliases require runtime validation; metadata alone does not prove Boolean values or UTC timestamp interpretation.",
         "A declared type keeps projected materialization typed without introducing an authored expression.",
         "Declare the canonical physical type accepted by ibis.dtype(...); change the source or use a view when a cast is required.",
     ),

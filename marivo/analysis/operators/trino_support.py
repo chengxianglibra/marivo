@@ -1,13 +1,17 @@
 """Pure admission for the implemented trino scalar method closure."""
 
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.operators.scalar_support import supports_scalar_type
+from marivo.analysis.operators.scalar_support import supports_plain_timestamp, supports_scalar_type
 from marivo.analysis.operators.scalar_support import unsupported_reason as scalar_reason
 
 
 def supported_type(value: str) -> bool:
     """Recognize the logical scalar types admitted by this backend."""
-    return value not in {"int8", "int16"} and supports_scalar_type(value)
+    return (
+        value == "boolean"
+        or supports_plain_timestamp(value)
+        or (value not in {"int8", "int16"} and supports_scalar_type(value))
+    )
 
 
 def unsupported_reason(dataset: LogicalDataset) -> str | None:

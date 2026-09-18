@@ -6,7 +6,7 @@ from marivo.analysis.operators.scalar_support import unsupported_reason as scala
 
 def supported_type(value: str) -> bool:
     """Recognize declared scalar types; physical constraints are checked at execution."""
-    return value in {"string", "int64", "float64", "date"}
+    return value in {"string", "int64", "float64", "date", "boolean", "timestamp", "timestamp(6)"}
 
 
 def unsupported_reason(dataset: LogicalDataset) -> str | None:
