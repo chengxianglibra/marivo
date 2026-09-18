@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
 
@@ -22,6 +22,8 @@ from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
 from marivo.analysis.materialization.scalar_projection import project
+from marivo.analysis.materialization.submissions import ObservedExecution
+from marivo.analysis.materialization.temporal_sql import governed_temporal_operation
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 if TYPE_CHECKING:
@@ -142,7 +144,6 @@ class ScalarBatchStream:
         adapter: ScalarExecutionAdapter,
         statement: Statement,
         chunk_size: int,
-        record: Callable[[str, str], None] | None,
     ) -> None:
         self._adapter = adapter
         self._schema = statement.schema
@@ -155,12 +156,12 @@ class ScalarBatchStream:
         self._closed = False
         self._cursor = adapter.cursor(stream=True)
         try:
-            if record is not None:
-                record(statement.role, statement.sql)
-            if statement.parameters:
-                self._cursor.execute(statement.sql, statement.parameters)
-            else:
-                self._cursor.execute(statement.sql)
+            with adapter.submission(statement.role, statement.sql) as receipt:
+                self._receipt = receipt
+                if statement.parameters:
+                    self._cursor.execute(statement.sql, statement.parameters)
+                else:
+                    self._cursor.execute(statement.sql)
         except BaseException:
             with suppress(BaseException):
                 self._cursor.close()
@@ -183,22 +184,20 @@ class ScalarBatchStream:
                     if pa.types.is_struct(field.type):
                         values = [
                             {
-                                child.name: _cell(
-                                    row[index], child.type, run_ref=self._adapter._run_ref
-                                )
+                                child.name: self._adapter.decode_cell(row[index], child.type)
                                 for child, index in zip(field.type, positions, strict=True)
                             }
                             for row in rows
                         ]
                     else:
                         values = [
-                            _cell(row[positions[0]], field.type, run_ref=self._adapter._run_ref)
-                            for row in rows
+                            self._adapter.decode_cell(row[positions[0]], field.type) for row in rows
                         ]
                     arrays.append(pa.array(values, type=field.type))
                 yield pa.RecordBatch.from_arrays(arrays, schema=self._schema)
             self._adapter.validate_result()
-        except BaseException:
+        except BaseException as error:
+            self._receipt.fail(error)
             with suppress(BaseException):
                 self.close()
             raise
@@ -221,7 +220,7 @@ class ScalarRows:
         return next(self._rows, None)
 
 
-class ScalarExecutionAdapter:
+class ScalarExecutionAdapter(ObservedExecution):
     """Common action ownership; concrete adapters own metadata and physical effects."""
 
     engine: str
@@ -232,6 +231,7 @@ class ScalarExecutionAdapter:
         *,
         run_ref: str | None = None,
     ) -> None:
+        super().__init__()
         self._backend = backend
         self._run_ref = run_ref
         self._context = ExecutionContext()
@@ -247,6 +247,19 @@ class ScalarExecutionAdapter:
 
     def cursor(self, *, stream: bool) -> Cursor:
         raise NotImplementedError
+
+    def decode_cell(self, value: object, dtype: pa.DataType) -> object:
+        if (
+            self.engine in {"mysql", "clickhouse"}
+            and pa.types.is_timestamp(dtype)
+            and dtype.tz is not None
+            and isinstance(value, datetime)
+            and value.tzinfo is None
+        ):
+            # These drivers return UTC instants without a tzinfo under the verified
+            # UTC connection/physical transport contract.
+            value = value.replace(tzinfo=timezone.utc)
+        return _cell(value, dtype, run_ref=self._run_ref)
 
     def validate_result(self) -> None:
         """Reject driver-side lossy conversions before successful publication."""
@@ -279,7 +292,10 @@ class ScalarExecutionAdapter:
         execute: bool = False,
     ) -> ScalarStatement:
         self._check()
-        if expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF)):
+        if any(
+            not governed_temporal_operation(node)
+            for node in expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF))
+        ):
             raise self.error(
                 "declared relational input",
                 "upload or UDF expression",
@@ -317,14 +333,15 @@ class ScalarExecutionAdapter:
         self._check(statement)
         cursor = self.cursor(stream=False)
         try:
-            if statement.parameters:
-                cursor.execute(statement.sql, statement.parameters)
-            else:
-                cursor.execute(statement.sql)
-            rows: list[tuple[object, ...]] = []
-            while batch := cursor.fetchmany(1024):
-                rows.extend(batch)
-            self.validate_result()
+            with self.submission(statement.role, statement.sql):
+                if statement.parameters:
+                    cursor.execute(statement.sql, statement.parameters)
+                else:
+                    cursor.execute(statement.sql)
+                rows: list[tuple[object, ...]] = []
+                while batch := cursor.fetchmany(1024):
+                    rows.extend(batch)
+                self.validate_result()
         except BaseException:
             with suppress(BaseException):
                 cursor.close()
@@ -339,7 +356,6 @@ class ScalarExecutionAdapter:
         chunk_size: int,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> ScalarBatchStream:
         statement: Statement
         if isinstance(value, ir.Expr):
@@ -353,7 +369,7 @@ class ScalarExecutionAdapter:
                 )
             statement = value
         self._check(statement)
-        stream = ScalarBatchStream(self, statement, chunk_size, record)
+        stream = ScalarBatchStream(self, statement, chunk_size)
         self._streams.add(stream)
         return stream
 
@@ -363,9 +379,8 @@ class ScalarExecutionAdapter:
         *,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> pa.Table:
-        stream = self.batches(value, chunk_size=65536, params=params, role=role, record=record)
+        stream = self.batches(value, chunk_size=65536, params=params, role=role)
         try:
             result = pa.Table.from_batches(stream, schema=stream.schema)
         except BaseException:
@@ -381,10 +396,9 @@ class ScalarExecutionAdapter:
         *,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> object:
         if isinstance(value, ir.Expr):
-            table = self.read_table(value, params=params, role=role, record=record)
+            table = self.read_table(value, params=params, role=role)
             if table.num_rows == 1 and table.num_columns == 1:
                 result: object = table.column(0)[0].as_py()
                 return result
@@ -393,8 +407,6 @@ class ScalarExecutionAdapter:
                 raise self.error(
                     "Statement parameters", "separate params", "Use Statement.parameters."
                 )
-            if record is not None:
-                record(value.role, value.sql)
             rows = self.submit(value)
             row = rows.fetchone()
             if row is not None and len(row) == 1 and rows.fetchone() is None:
@@ -413,7 +425,6 @@ class ScalarExecutionAdapter:
         database: str | None = None,
         catalog: str | None = None,
         dependency: EntitySourceDependency | None = None,
-        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         raise NotImplementedError
 

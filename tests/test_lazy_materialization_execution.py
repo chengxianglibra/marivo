@@ -342,7 +342,7 @@ def test_raw_statement_diagnostics_keep_bindings_out_of_persisted_state_and_erro
             if violations == 0
         }
         assert runtime.statistics.validation_queries == sum(
-            kind in {"validation_batch", "source_schema", "transfer_guard"}
+            kind == "validation_batch" or kind.startswith("engine_check.")
             for kind in statement_kinds
         )
 

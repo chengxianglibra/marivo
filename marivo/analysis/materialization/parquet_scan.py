@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
@@ -86,16 +85,12 @@ def validate_parquet_relation(
     table: ir.Table,
     receipt: StorageReceipt,
     row: DatasetRowContract,
-    record: Callable[[str, str], None],
 ) -> None:
-    count_sql = backend.compile(table.count())
-    record("parquet_check.input_count", count_sql)
     if (
         backend.read_scalar(backend.prepare(table.count(), role="parquet_check.input_count"))
         != receipt.realized_row_count
     ):
         _integrity("the exact Parquet receipt row count", "native scan count differs")
-    record("parquet_check.input_schema", backend.compile(table.limit(0)))
     realized = _realized_schema(
         row,
         backend.read_table(

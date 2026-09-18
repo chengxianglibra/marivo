@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
+from datetime import datetime
 from math import isfinite
 from typing import TYPE_CHECKING, Protocol
-from zoneinfo import ZoneInfo
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -102,6 +102,10 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         return result
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
+        from marivo.analysis.materialization.temporal_sql import lower_temporal
+
+        expression = lower_temporal(expression, self.engine)
+
         def qualify(
             node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
         ) -> ops.Node:
@@ -114,6 +118,11 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
                 )
                 kwargs["namespace"] = ops.Namespace(catalog=catalog, database=database)
             value = node.copy(**kwargs)
+            if isinstance(value, ops.Literal) and isinstance(value.dtype, dt.Timestamp):
+                # Ibis' FROM_ISO8601_TIMESTAMP path truncates to milliseconds.
+                # A typed string cast preserves the exact native precision.
+                assert isinstance(value.value, datetime)
+                return ops.Cast(ibis.literal(value.value.isoformat(sep=" ")).op(), value.dtype)
             if (
                 isinstance(value, ops.Cast)
                 and isinstance(value.to, dt.Timestamp)
@@ -133,7 +142,6 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         database: str | None = None,
         catalog: str | None = None,
         dependency: EntitySourceDependency | None = None,
-        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         if dependency is not None:
             dependency.validate_request(name, database, catalog)
@@ -153,7 +161,6 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
                 parameters=(catalog,),
                 role="source_schema",
             ),
-            record=record,
         )
         if connector != "iceberg":
             raise self.unsupported(f"Trino connector {connector!r}; Group A requires Iceberg")
@@ -165,13 +172,10 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
                 parameters=(database, name),
                 role="source_schema",
             ),
-            record=record,
         )
         if table_kind != "BASE TABLE" or "$" in name:
             raise self.unsupported("Trino Group A requires an ordinary Iceberg base table")
         query = f"SHOW COLUMNS FROM {qualified}"
-        if record:
-            record("source_schema", query)
         rows = self.submit(self.statement(query, role="source_schema"))
         fields: dict[str, dt.DataType] = {}
         finite_checks: list[str] = []
@@ -196,7 +200,6 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
                     f"SELECT count(*) FROM {qualified} WHERE " + " OR ".join(finite_checks),
                     role="engine_check.trino_finite",
                 ),
-                record=record,
             )
             if violations != 0:
                 raise self.error(
@@ -208,10 +211,13 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         return ibis.schema(fields)
 
     def timezone(self) -> DatasourceEngineTimezone:
-        value = self.read_scalar(self.statement("SELECT current_timezone()", role="timezone"))
-        if not isinstance(value, str):
-            raise self.unsupported("Trino returned a non-string session timezone")
-        return DatasourceEngineTimezone(value, ZoneInfo(value), "iana", "engine")
+        from marivo.datasource.engines import require_profile_for_backend_type
+        from marivo.datasource.timezone import resolve_engine_timezone
+
+        return resolve_engine_timezone(
+            require_profile_for_backend_type("trino").timezone_probe_sql,
+            lambda query: self.read_scalar(self.statement(query, role="source_timezone")),
+        )
 
     def disconnect(self) -> None:
         if self._closed:

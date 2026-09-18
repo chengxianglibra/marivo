@@ -6,7 +6,6 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, suppress
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -26,6 +25,8 @@ from marivo.analysis.materialization.errors import (
     unsupported_source_type,
 )
 from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
+from marivo.analysis.materialization.submissions import ObservedExecution
+from marivo.analysis.materialization.temporal_sql import governed_temporal_operation
 from marivo.analysis.operators.postgres_support import supported_type
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
@@ -204,7 +205,6 @@ class PostgresBatchStream:
         adapter: PostgresExecutionAdapter,
         statement: Statement,
         chunk_size: int,
-        record: Callable[[str, str], None] | None,
     ) -> None:
         self._adapter = adapter
         self._schema = statement.schema
@@ -217,9 +217,9 @@ class PostgresBatchStream:
                 adapter._backend.con.cursor(name="marivo_" + uuid4().hex, binary=True)
             )
             sql = statement.sql
-            if record is not None:
-                record(statement.role, sql)
-            self._cursor.execute(sql, statement.parameters or None)
+            with adapter.submission(statement.role, sql) as receipt:
+                self._receipt = receipt
+                self._cursor.execute(sql, statement.parameters or None)
         except BaseException:
             with suppress(BaseException):
                 self._stack.close()
@@ -234,7 +234,10 @@ class PostgresBatchStream:
             raise self._adapter._error("closed_stream")
         try:
             while rows := self._cursor.fetchmany(self._chunk_size):
-                if any(pa.types.is_struct(field.type) for field in self._schema):
+                if any(
+                    pa.types.is_struct(field.type) or pa.types.is_timestamp(field.type)
+                    for field in self._schema
+                ):
                     rows = [
                         _transport_row(self._schema, row, run_ref=self._adapter._run_ref)
                         for row in rows
@@ -244,7 +247,8 @@ class PostgresBatchStream:
                     for index, field in enumerate(self._schema)
                 ]
                 yield pa.RecordBatch.from_arrays(arrays, schema=self._schema)
-        except BaseException:
+        except BaseException as error:
+            self._receipt.fail(error)
             with suppress(BaseException):
                 self.close()
             raise
@@ -259,10 +263,11 @@ class PostgresBatchStream:
                 self._adapter._streams.discard(self)
 
 
-class PostgresExecutionAdapter:
+class PostgresExecutionAdapter(ObservedExecution):
     """One real connection; assertions and output use independent read lifetimes."""
 
     def __init__(self, backend: Backend, *, run_ref: str | None = None) -> None:
+        super().__init__()
         self._backend = backend
         self._run_ref = run_ref
         self._context = ExecutionContext()
@@ -275,7 +280,10 @@ class PostgresExecutionAdapter:
     def _expression(self, expression: ir.Expr) -> None:
         if self._closed:
             raise self._error("closed_context")
-        if expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF)):
+        if any(
+            not governed_temporal_operation(node)
+            for node in expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF))
+        ):
             raise self._error("preparation")
 
     def prepare(self, expression: ir.Expr, *, role: str = "query") -> Statement:
@@ -313,7 +321,7 @@ class PostgresExecutionAdapter:
 
     def submit(self, statement: Statement) -> PostgresScalarRows:
         self._check(statement)
-        with self._backend.con.cursor() as cursor:
+        with self._backend.con.cursor() as cursor, self.submission(statement.role, statement.sql):
             cursor.execute(statement.sql, statement.parameters or None)
             rows: list[tuple[object, ...]] = cursor.fetchall() if cursor.description else []
         return PostgresScalarRows(rows)
@@ -325,7 +333,6 @@ class PostgresExecutionAdapter:
         chunk_size: int,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> PostgresBatchStream:
         if isinstance(value, ir.Expr):
             self._expression(value)
@@ -344,7 +351,7 @@ class PostgresExecutionAdapter:
                 raise self._error("statement_params")
             statement = value
         self._check(statement)
-        stream = PostgresBatchStream(self, statement, chunk_size, record)
+        stream = PostgresBatchStream(self, statement, chunk_size)
         self._streams.add(stream)
         return stream
 
@@ -354,9 +361,8 @@ class PostgresExecutionAdapter:
         *,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> pa.Table:
-        stream = self.batches(value, chunk_size=65536, params=params, role=role, record=record)
+        stream = self.batches(value, chunk_size=65536, params=params, role=role)
         try:
             result = pa.Table.from_batches(stream, schema=stream.schema)
         except BaseException:
@@ -372,10 +378,9 @@ class PostgresExecutionAdapter:
         *,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-        record: Callable[[str, str], None] | None = None,
     ) -> object:
         if isinstance(value, ir.Expr):
-            table = self.read_table(value, params=params, role=role, record=record)
+            table = self.read_table(value, params=params, role=role)
             if table.num_rows != 1 or table.num_columns != 1:
                 raise self._error(
                     "scalar_shape", detail=f"rows={table.num_rows}; columns={table.num_columns}"
@@ -384,8 +389,6 @@ class PostgresExecutionAdapter:
             return result
         if params is not None:
             raise self._error("statement_params")
-        if record is not None:
-            record(value.role, value.sql)
         rows = self.submit(value)
         row = rows.fetchone()
         if row is None or len(row) != 1 or rows.fetchone() is not None:
@@ -399,7 +402,6 @@ class PostgresExecutionAdapter:
         database: str | None = None,
         catalog: str | None = None,
         dependency: EntitySourceDependency | None = None,
-        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         if dependency is not None:
             dependency.validate_request(name, database, catalog)
@@ -417,8 +419,6 @@ class PostgresExecutionAdapter:
             "WHERE a.attnum > 0 AND NOT a.attisdropped "
             f"AND a.attrelid = pg_catalog.to_regclass({table}) ORDER BY a.attnum"
         )
-        if record is not None:
-            record("source_schema", sql)
         rows = self.submit(self.statement(sql, role="source_schema"))
         fields = {}
         while (row := rows.fetchone()) is not None:
@@ -464,7 +464,6 @@ class PostgresExecutionAdapter:
                     f"SELECT count(*) FROM {qualified} WHERE {predicates}",
                     role="engine_check.postgres_timestamps",
                 ),
-                record=record,
             )
             if violations != 0:
                 raise MaterializationError(
@@ -483,12 +482,12 @@ class PostgresExecutionAdapter:
 
     def timezone(self) -> DatasourceEngineTimezone:
         from marivo.datasource.engines import require_profile_for_backend_type
+        from marivo.datasource.timezone import resolve_engine_timezone
 
-        query = require_profile_for_backend_type("postgres").timezone_probe_sql
-        if query is None:
-            raise self._error("timezone_probe")
-        name = str(self.read_scalar(self.statement(query, role="source_timezone")))
-        return DatasourceEngineTimezone(name, ZoneInfo(name), "iana", "engine")
+        return resolve_engine_timezone(
+            require_profile_for_backend_type("postgres").timezone_probe_sql,
+            lambda query: self.read_scalar(self.statement(query, role="source_timezone")),
+        )
 
     def initialize(self) -> None:
         if self._closed:

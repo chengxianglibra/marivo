@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -70,13 +70,28 @@ def assert_idle(native: Backend) -> None:
 
 @pytest.mark.parametrize("empty", [False, True])
 def test_complete_batches_params_schema_and_no_default_limit(
-    native: Backend, table_name: str, empty: bool
+    native: Backend, table_name: str, empty: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = PostgresExecutionAdapter(native)
     table = native.table(table_name)
     parameter = ibis.param("int64")
     expression = table.filter(table.id > parameter).order_by("id")
     submitted: list[tuple[str, str]] = []
+    adapter.observe(lambda receipt: submitted.append((receipt.role, receipt.sql)), "source")
+    captured: list[str] = []
+    original = psycopg.ServerCursor.execute
+
+    def execute(
+        cursor: psycopg.ServerCursor[tuple[object, ...]],
+        query: str,
+        params: Sequence[object] | None = None,
+        *,
+        binary: bool | None = None,
+    ) -> psycopg.ServerCursor[tuple[object, ...]]:
+        captured.append(query)
+        return original(cursor, query, params, binary=binary)
+
+    monkeypatch.setattr(psycopg.ServerCursor, "execute", execute)
     previous = ibis.options.sql.default_limit
     try:
         ibis.options.sql.default_limit = 1
@@ -85,7 +100,6 @@ def test_complete_batches_params_schema_and_no_default_limit(
             chunk_size=3,
             params={parameter: 100 if empty else 0},
             role="primary",
-            record=lambda role, statement: submitted.append((role, statement)),
         )
         batches = list(stream)
     finally:
@@ -102,6 +116,7 @@ def test_complete_batches_params_schema_and_no_default_limit(
             "at": datetime(2026, 1, 2, 12, tzinfo=timezone.utc),
         }
     assert len(submitted) == 1 and submitted[0][0] == "primary"
+    assert captured == [query for _, query in submitted]
     assert_idle(native)
 
 
@@ -248,7 +263,10 @@ def test_connection_loss_during_stream_preserves_driver_error(
 
 def test_schema_lookup_uses_postgres_relation_resolution(native: Backend, table_name: str) -> None:
     adapter = PostgresExecutionAdapter(native)
-    assert adapter.get_schema("pg_class") == native.get_schema("pg_class", database="pg_catalog")
+    expected = dict(native.get_schema("pg_class", database="pg_catalog").items())
+    # PostgreSQL's catalog name column is NOT NULL; Ibis loses that name-type fact.
+    expected["relname"] = expected["relname"].copy(nullable=False)
+    assert adapter.get_schema("pg_class") == ibis.schema(expected)
     assert adapter.get_schema(table_name, database="public") == native.get_schema(
         table_name, database="public"
     )

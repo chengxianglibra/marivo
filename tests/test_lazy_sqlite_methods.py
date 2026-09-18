@@ -236,7 +236,7 @@ result = runtime.artifact(artifact)
 assert sorted(result.to_pandas().mean_amount) == [15.0,35.0]
 assert runtime.statistics.primary_queries == 0
 assert result.rollup(drop_dimensions=(ref.dimension("sales.orders.channel"),)).execute().to_pandas().mean_amount.tolist() == [25.0]
-assert not any(role == "source_schema" for role, _ in runtime.statistics.statements)
+assert not any(item.domain == "source" for item in runtime.statistics.submissions)
 """
     subprocess.run(
         [sys.executable, "-c", producer, str(project), str(method_database)],

@@ -520,3 +520,22 @@ def test_calendar_boundary_timezone_is_independent_of_source_read_timezone(tmp_p
         rows = result.expression.to_pyarrow().to_pylist()
         assert len(rows) == 1 and rows[0]["revenue"] == 3
         assert str(rows[0]["order_time"])[:10] == "2026-07-01"
+
+
+def test_duckdb_exact_nanosecond_fixed_zone_path_is_preserved(tmp_path: Path) -> None:
+    with temporal_fixture(
+        tmp_path,
+        physical="TIMESTAMP_NS",
+        declared="timestamp(9)",
+        parse=TimestampParse(timezone="UTC"),
+        report_zone="UTC",
+        values=("2026-07-01 12:00:00.000000001",),
+    ) as fixture:
+        logical = (
+            fixture.sources.observe(ref.metric("sales.revenue"))
+            .with_time_axis(ref.time_dimension(AXIS), grain=grain("hour"))
+            .aggregate()
+        )
+        result = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
+        assert_compiled_validations(result.validations)
+        assert result.expression.to_pyarrow().to_pylist()[0]["revenue"] == 1.0

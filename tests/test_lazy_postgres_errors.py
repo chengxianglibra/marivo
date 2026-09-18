@@ -87,10 +87,8 @@ def test_unsupported_operations_and_missing_timezone_identify_the_request(
         "marivo.datasource.engines.require_profile_for_backend_type",
         lambda name: replace(PROFILE, timezone_probe_sql=None),
     )
-    with pytest.raises(MaterializationError) as timezone:
-        adapter.timezone()
-    assert timezone.value.received == "the registered PostgreSQL profile has no timezone query"
-    assert timezone.value.repair is not None and "Restore" in timezone.value.repair.action
+    monkeypatch.setenv("TZ", "UTC")
+    assert adapter.timezone().read_tz_resolution == "system_fallback"
 
 
 def test_malformed_identity_records_report_shape_without_row_contents() -> None:

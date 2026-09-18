@@ -2,23 +2,18 @@
 
 from datetime import date, datetime, time, tzinfo
 from typing import Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 def time_zone(name: str) -> tzinfo:
     """Decode persisted IANA or explicit fixed-offset authority without host state."""
+    from marivo.datasource.timezone import parse_timezone
+
     try:
-        return ZoneInfo(name)
+        return parse_timezone(name)[1]
     except (ZoneInfoNotFoundError, ValueError):
-        if name.startswith("UTC+") or name.startswith("UTC-"):
-            try:
-                zone = datetime.fromisoformat("2000-01-01T00:00:00" + name[3:]).tzinfo
-                if zone is not None:
-                    return zone
-            except ValueError:
-                pass
         raise ValueError("invalid persisted temporal timezone") from None
 
 

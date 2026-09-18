@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 import pyarrow as pa
@@ -25,13 +23,10 @@ def validate_distribution_relation(
     primary: ir.Table,
     row: DatasetRowContract,
     role: str,
-    record: Callable[[str, str], None],
 ) -> None:
     distribution_schema(row, role, table.schema().to_pyarrow())
     checks = distribution_validations(row, primary, {role: table}, required=False)
     for check in checks:
-        sql = backend.compile(check.expression)
-        record("engine_check." + check.name, sql)
         if (
             backend.read_scalar(
                 backend.prepare(check.expression, role="engine_check." + check.name)

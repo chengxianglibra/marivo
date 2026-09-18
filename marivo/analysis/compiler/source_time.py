@@ -9,6 +9,7 @@ import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.errors import compilation_error
+from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.observation.temporal import SourceTimeAuthority, time_zone
 from marivo.semantic.ir import (
     DateParse,
@@ -28,12 +29,12 @@ def _timezone_signature(zone: str, value: datetime) -> datetime:
 _localize_native: Callable[[str, ir.TimestampValue], ir.TimestampValue] = ibis.udf.scalar.builtin(
     _timezone_signature,
     name="timezone",
-    signature=((dt.string, dt.timestamp), dt.Timestamp(timezone="UTC")),
+    signature=((dt.string, dt.timestamp), dt.Timestamp(timezone="UTC", scale=6)),
 )
 _render_native: Callable[[str, ir.TimestampValue], ir.TimestampValue] = ibis.udf.scalar.builtin(
     _timezone_signature,
     name="timezone",
-    signature=((dt.string, dt.Timestamp(timezone="UTC")), dt.timestamp),
+    signature=((dt.string, dt.Timestamp(timezone="UTC")), dt.Timestamp(scale=6)),
 )
 
 
@@ -141,6 +142,11 @@ def source_time(
     kind = value.type()
     origin: Literal["physical", "declared", "engine", "system_fallback"]
     if kind.timezone is not None:
+        if kind.scale is not None and kind.scale > 6:
+            raise compilation_error(
+                "exact native timezone conversion precision",
+                "submicrosecond conversion unsupported",
+            )
         if declared is not None and declared != kind.timezone:
             raise compilation_error("matching declared and physical timezones", "timezone conflict")
         adopted, origin = kind.timezone, "physical"
@@ -172,3 +178,60 @@ def source_time(
         boundary_timezone=boundary_timezone,
     )
     return (value if instant is None else render(boundary_timezone, instant)), authority
+
+
+def needs_reader_timezone(dataset: LogicalDataset) -> bool:
+    """Use the exact dependency closure to avoid probing for already governed axes."""
+    from marivo.analysis.compiler.normalize import logical_roots, required_source_dependencies
+    from marivo.analysis.observation.contracts import MetricPayload, PopulationPayload
+
+    dependencies = required_source_dependencies(dataset)
+    for root in logical_roots(dataset):
+        payload = root.payload
+        axes: tuple[TargetDimensionContract | None, ...]
+        if isinstance(payload, PopulationPayload):
+            axes = (payload.reference_axis,)
+        elif isinstance(payload, MetricPayload):
+            axes = (
+                payload.definition.reference_axis,
+                payload.definition.time_axis,
+                *payload.definition.dimensions,
+            )
+        else:
+            continue
+        for axis in axes:
+            if axis is None or not axis.is_time_dimension or axis.logical_type == "date":
+                continue
+            physical = next(
+                column.declared_type
+                for entry in dependencies.entries
+                if entry.entity.ref == axis.entity_ref
+                for column in entry.columns
+                if column.logical == axis.source_column
+            )
+            kind = dt.dtype(physical)
+            if isinstance(kind, dt.Timestamp) and kind.timezone is not None:
+                continue
+            parser = axis.parse
+            if (
+                isinstance(parser, (DatetimeParse, TimestampParse, StrptimeParse))
+                and parser.timezone
+            ):
+                continue
+            if isinstance(parser, StrptimeParse) and (
+                "%z" in parser.format or "%Z" in parser.format
+            ):
+                continue
+            return True
+    return False
+
+
+def local_time_invalid(value: ir.TimestampValue, zone: str) -> ir.BooleanValue:
+    """Reject gaps and repeated wall clocks instead of selecting an implicit fold."""
+    instant = localize(zone, value)
+    invalid = instant.isnull() | (render(zone, instant) != value)
+    if time_zone(zone).utcoffset(None) is None:
+        day = ibis.interval(seconds=86400)
+        for candidate in (localize(zone, value - day) + day, localize(zone, value + day) - day):
+            invalid = invalid | ((candidate != instant) & (render(zone, candidate) == value))
+    return value.notnull() & invalid.fill_null(False)

@@ -26,7 +26,7 @@ def adapter_and_stream(rows=()):
 @pytest.mark.parametrize(
     "kind",
     [
-        "timestamp('UTC')",
+        "timestamp('UTC', 9)",
         "array<int64>",
         "decimal(39,0)",
         "decimal(4,5)",

@@ -17,6 +17,7 @@ from marivo.analysis.materialization.scalar_sql_execution import (
     ScalarStatement,
     _cell,
 )
+from marivo.analysis.materialization.submissions import ObservedExecution
 
 
 @pytest.mark.parametrize("value", ["20260202", "2026-W06-1", "2026-02-30", "0000-01-01"])
@@ -62,6 +63,9 @@ def test_transport_preserves_failure_closes_and_never_retries(failure: str) -> N
     adapter = Mock(spec=ScalarExecutionAdapter)
     adapter._run_ref = "run:stream"
     adapter._streams = set()
+    observer = ObservedExecution()
+    adapter.submission = observer.submission
+    adapter.decode_cell = lambda raw, dtype: _cell(raw, dtype, run_ref=adapter._run_ref)
     cursor = adapter.cursor.return_value
     original = OSError("injected driver failure")
     if failure == "execute":
@@ -80,13 +84,15 @@ def test_transport_preserves_failure_closes_and_never_retries(failure: str) -> N
         columns=((0,),),
     )
     with pytest.raises(MaterializationError if failure == "date" else OSError) as caught:
-        stream = ScalarBatchStream(adapter, statement, 3, None)
+        stream = ScalarBatchStream(adapter, statement, 3)
         adapter._streams.add(stream)
         list(stream)
     if failure != "date":
         assert caught.value is original
     else:
         assert caught.value.run_ref == "run:stream"
+    assert observer._last_submission is not None
+    assert observer._last_submission.state == "failed"
     cursor.execute.assert_called_once_with(statement.sql, (7,))
     cursor.close.assert_called_once()
     assert not adapter._streams
@@ -97,6 +103,9 @@ def test_exact_struct_batches_and_truncated_driver_row(malformed: bool) -> None:
     adapter = Mock(spec=ScalarExecutionAdapter)
     adapter._run_ref = "run:identity"
     adapter._streams = set()
+    observer = ObservedExecution()
+    adapter.submission = observer.submission
+    adapter.decode_cell = lambda raw, dtype: _cell(raw, dtype, run_ref=adapter._run_ref)
     cursor = adapter.cursor.return_value
     cursor.fetchmany.side_effect = [
         [(Decimal(2**63 - 1),) if malformed else (Decimal(2**63 - 1), "9999-12-31")],
@@ -106,7 +115,7 @@ def test_exact_struct_batches_and_truncated_driver_row(malformed: bool) -> None:
     statement = ScalarStatement(
         "SELECT id, day FROM rows", (), schema, "query", ExecutionContext(), columns=((0, 1),)
     )
-    stream = ScalarBatchStream(adapter, statement, 2, None)
+    stream = ScalarBatchStream(adapter, statement, 2)
     adapter._streams.add(stream)
     if malformed:
         with pytest.raises(IndexError):

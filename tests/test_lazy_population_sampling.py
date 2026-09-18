@@ -449,15 +449,20 @@ def test_distinct_authored_samples_keep_separate_physical_fences(tmp_path: Path)
             # Distinct authored handles use separate action-local names when composed.
             fence = replace(fences[0], relation_name=f"__mv_sample_{ordinal}")
             adapter = DuckDBExecutionAdapter(fixture.backend)
+            adapter.observe(
+                lambda receipt: (
+                    statements.append(receipt.sql) if receipt.role == "sampling_fence" else None
+                ),
+                "source",
+            )
             samples.append(
                 sampling_runtime.execute_sample(
                     adapter,
                     fence,
-                    statement=adapter.statement(sampling_runtime.sample_statement(adapter, fence)),
-                    ordinal=ordinal,
-                    record=lambda kind, sql: (
-                        statements.append(sql) if kind == "sampling_fence" else None
+                    statement=adapter.statement(
+                        sampling_runtime.sample_statement(adapter, fence), role="sampling_fence"
                     ),
+                    ordinal=ordinal,
                     event=lambda _: None,
                 )
             )

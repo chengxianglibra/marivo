@@ -132,8 +132,6 @@ def _scalar(value: PredicateLiteral, *, kind: PredicateKind) -> None:
         _error("finite decimal literal", "non-finite decimal")
     if type(value) is str and any(0xD800 <= ord(char) <= 0xDFFF for char in value):
         _error("Unicode scalar sequence", "unpaired surrogate")
-    if type(value) is datetime and (value.tzinfo is None or value.utcoffset() is None):
-        _error("timezone-aware datetime", "naive datetime")
 
 
 def _comparison(
@@ -368,7 +366,18 @@ def _literal(field: DatasetField, value: PredicateLiteral, kind: PredicateKind) 
             and field.field_id.value == f"generated.events.time_to_event.{field.name}@v1"
         )
     ):
+        if value.tzinfo is None:
+            _error("a timezone-aware instant literal", "naive timestamp")
         return ("instant", value.astimezone(timezone.utc).isoformat())
+    if (
+        (
+            logical in ("timestamp", "datetime", "localizable_datetime")
+            or re.fullmatch(r"timestamp\([0-6]\)", logical)
+        )
+        and type(value) is datetime
+        and value.tzinfo is None
+    ):
+        return ("civil_timestamp", value.isoformat(timespec="microseconds"))
     if logical in ("timestamp", "datetime", "localizable_datetime"):
         _error(
             "complete read-timezone authority for a localizable datetime",

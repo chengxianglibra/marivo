@@ -62,11 +62,12 @@ def test_probe_engine_timezone_uses_system_fallback_when_probe_fails(
     monkeypatch.setenv("TZ", "UTC")
     backend = _Backend(name="clickhouse", fails=True)
 
-    resolved = probe_engine_timezone(backend)
+    from marivo.datasource.errors import DatasourceConnectionError
 
-    assert resolved.engine_timezone_name == "UTC"
-    assert resolved.read_tz_resolution == "system_fallback"
-    assert resolved.warning == "engine timezone probe failed: probe failed"
+    with pytest.raises(DatasourceConnectionError) as failure:
+        probe_engine_timezone(backend)
+    assert failure.value.received == "timezone_probe_failed"
+    assert isinstance(failure.value.__cause__, RuntimeError)
 
 
 def test_datasource_connection_service_caches_engine_timezone(
@@ -109,12 +110,12 @@ def test_probe_engine_timezone_does_not_probe_snowflake(monkeypatch: pytest.Monk
     assert backend.sql_calls == []
 
 
-def test_probe_engine_timezone_skips_mysql_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_engine_timezone_reads_mysql_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TZ", "Asia/Tokyo")
     backend = _Backend(name="mysql", value="UTC")
 
     resolved = probe_engine_timezone(backend)
 
-    assert resolved.engine_timezone_name == "Asia/Tokyo"
-    assert resolved.read_tz_resolution == "system_fallback"
-    assert backend.sql_calls == []
+    assert resolved.engine_timezone_name == "UTC"
+    assert resolved.read_tz_resolution == "engine"
+    assert len(backend.sql_calls) == 1

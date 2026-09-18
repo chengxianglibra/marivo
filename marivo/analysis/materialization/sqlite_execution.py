@@ -20,7 +20,7 @@ from marivo.analysis.materialization.errors import (
 )
 from marivo.analysis.materialization.scalar_sql_execution import Cursor, ScalarExecutionAdapter
 from marivo.datasource.engines.sqlite import declared_scalar_type
-from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
+from marivo.datasource.timezone import DatasourceEngineTimezone
 
 if TYPE_CHECKING:
     from ibis.backends.sqlite import Backend
@@ -38,6 +38,10 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
         self._sqlite = backend
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
+        from marivo.analysis.materialization.temporal_sql import lower_temporal
+
+        expression = lower_temporal(expression, self.engine)
+
         def rewrite(
             node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
         ) -> ops.Node:
@@ -66,8 +70,21 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
 
     def initialize(self) -> None:
         super().initialize()
-        cursor = self._sqlite.con.execute("PRAGMA query_only = ON")
-        cursor.close()
+        self.submit(self.statement("PRAGMA query_only = ON", role="source_setting"))
+        from marivo.analysis.materialization.temporal_sql import (
+            sqlite_localize,
+            sqlite_render,
+            sqlite_shift,
+            sqlite_truncate,
+        )
+
+        for name, function in (
+            ("_marivo_localize", sqlite_localize),
+            ("_marivo_render", sqlite_render),
+            ("_marivo_truncate", sqlite_truncate),
+            ("_marivo_shift", sqlite_shift),
+        ):
+            self._sqlite.con.create_function(name, 2, function, deterministic=True)
 
     def get_schema(
         self,
@@ -76,7 +93,6 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
         database: str | None = None,
         catalog: str | None = None,
         dependency: EntitySourceDependency | None = None,
-        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         if dependency is not None:
             dependency.validate_request(name, database, catalog)
@@ -89,7 +105,6 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
                 parameters=(name,),
                 role="source_schema",
             ),
-            record=record,
         )
         if not isinstance(definition, str):
             raise self.unsupported("missing ordinary SQLite table definition")
@@ -107,9 +122,7 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
                         f"non-binary SQLite collation on {column_definition.name!r}"
                     )
         query = "SELECT name,type FROM pragma_table_info(?) ORDER BY cid"
-        if record:
-            record("source_schema", query)
-        rows = self.submit(self.statement(query, parameters=(name,)))
+        rows = self.submit(self.statement(query, parameters=(name,), role="source_schema"))
         fields: dict[str, dt.DataType] = {}
         invalid: list[str] = []
         while (row := rows.fetchone()) is not None:
@@ -154,7 +167,7 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
             raise self.unsupported("missing SQLite relation")
         validation = f"SELECT count(*) FROM {_quote(name)} WHERE " + " OR ".join(invalid)
         violations = self.read_scalar(
-            self.statement(validation, role="engine_check.sqlite_storage"), record=record
+            self.statement(validation, role="engine_check.sqlite_storage")
         )
         if violations != 0:
             raise self.error(
@@ -166,7 +179,13 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
         return ibis.schema(fields)
 
     def timezone(self) -> DatasourceEngineTimezone:
-        return probe_engine_timezone(self._sqlite)
+        from marivo.datasource.engines import require_profile_for_backend_type
+        from marivo.datasource.timezone import resolve_engine_timezone
+
+        return resolve_engine_timezone(
+            require_profile_for_backend_type("sqlite").timezone_probe_sql,
+            lambda query: self.read_scalar(self.statement(query, role="source_timezone")),
+        )
 
     def interrupt(self) -> None:
         self._sqlite.con.interrupt()

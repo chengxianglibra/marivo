@@ -202,7 +202,7 @@ def test_large_source_collation_and_small_output(
     assert list(zip(frame.revenue, frame.channel, strict=True)) == expected
     assert duckdb_grouped_totals(rows) == expected
     assert any(item["parameters"] for item in submitted)
-    assert runtime.statistics.validation_queries == 4
+    assert runtime.statistics.validation_queries == 3
     assert not any(role == "engine_check.mysql_dates" for role, _ in runtime.statistics.statements)
     capture_receipt("mysql", runtime, expected, source_rows=len(rows), submitted=submitted)
     assert runtime.statistics.transferred_rows == 2

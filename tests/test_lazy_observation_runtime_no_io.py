@@ -104,7 +104,7 @@ guards = (
     (SessionStore, 'lookup', 'binding'),
     (DatasetRuntime, 'execute_metric', 'run'),
     (DatasetRuntime, 'execute_population', 'run'),
-    (DatasetRuntime, '_record_statement', 'query'),
+    (DatasetRuntime, '_observe_submission', 'query'),
     (NoIoActionPort, 'execute_forecast', 'run'),
     (NoIoActionPort, 'execute_candidate', 'run'),
     (NoIoActionPort, 'execute_delta', 'run'),

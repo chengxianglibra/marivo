@@ -161,3 +161,13 @@ def test_fixed_offset_is_restored_without_system_timezone_changes(tmp_path, monk
     assert recovered.report_tz == fixed
     assert recovered.report_tz_name == "UTC+05:30"
     assert recovered.report_tz_resolution == "fixed_offset"
+
+
+def test_explicit_fixed_offset_is_normalized_and_persisted(monkeypatch: pytest.MonkeyPatch) -> None:
+    created = session_attach.get_or_create(name="offset", report_timezone="+05:45")
+    meta = _read_session_meta(created)
+    assert meta["report_timezone_name"] == "UTC+05:45"
+    assert meta["report_timezone_resolution"] == "fixed_offset"
+    monkeypatch.setenv("TZ", "Pacific/Honolulu")
+    reopened = session_attach.get_or_create(name="offset", report_timezone="UTC+05:45")
+    assert _read_session_meta(reopened)["report_timezone_name"] == "UTC+05:45"

@@ -178,7 +178,7 @@ def test_large_source_small_result(
     assert list(zip(frame.revenue, frame.channel, strict=True)) == expected
     assert duckdb_grouped_totals(rows) == expected
     assert any(item["parameters"] for item in submitted)
-    assert runtime.statistics.validation_queries == 5
+    assert runtime.statistics.validation_queries == 4
     capture_receipt("sqlite", runtime, expected, source_rows=len(rows), submitted=submitted)
     assert runtime.statistics.transferred_rows == 2
     sql = [sql for role, sql in runtime.statistics.statements if role == "primary"]

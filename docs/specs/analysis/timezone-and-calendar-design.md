@@ -25,8 +25,9 @@ rejected. Fixed-offset resolution remains explicit; it does not invent IANA DST
 rules. Changing host timezone does not change a recovered Session.
 
 Logical construction captures the persisted report authority without opening a
-source connection. Runtime probes the admitted actual reader before setting its
-UTC execution environment. An explicit semantic parser timezone takes precedence
+source connection. Runtime probes the admitted actual reader only when native naive axes lack explicit
+parser authority, before setting its UTC execution environment. Probe failures and
+invalid engine facts do not fall back to the host timezone. An explicit semantic parser timezone takes precedence
 over the reader default; system fallback is recorded when the engine has none.
 Conflicting or invalid declarations fail through the owning typed error.
 
@@ -37,8 +38,10 @@ excluded at that midnight. Explicit timestamp endpoints preserve their precision
 no epsilon subtraction or implicit next-day expansion changes their meaning.
 
 Localizable source values are parsed and localized before scope filtering and
-bucketing. Native DuckDB timezone operations preserve report/calendar boundaries
-across DST. Civil dates compare directly. Integer, string and composite date/hour
+bucketing. Concrete adapter timezone operations preserve report/calendar boundaries
+across DST. Native naive gaps/folds fail; known repeated-hour instants share their
+report-local civil bucket. Native remote hour/day buckets use count=1 and precision
+through microseconds; string parsers and multi-unit extensions remain separately gated. Civil dates compare directly. Integer, string and composite date/hour
 partitions follow their governed parser rather than accidental lexical ordering.
 An exact-hour upper bucket is excluded; a bucket beginning before a partial-hour
 upper bound remains eligible.
@@ -68,3 +71,19 @@ The supported semantic parser and calendar authoring contracts are described in
 [temporal semantics](../temporal-semantics.md). Actual source, Runtime and recovery
 checks are owned by the lazy temporal test suites; public Session wiring has its
 own Runtime tests. Exact Help routes expose the current admitted method contracts.
+
+
+### Native timestamp timezone-rule agreement (C3a)
+
+Runtime ZoneInfo is the authority for named-zone rules. Before a native timestamp
+source produces a primary result, source-side min/max aggregates bound the relevant
+intervals. Source-side validation then checks that every non-null naive value has
+exactly one ZoneInfo candidate and that source conversion to UTC and the report
+boundary agrees with those rules. TZif transition instants and POSIX continuation
+rules locate intervals; ZoneInfo supplies their offsets. Gaps, folds, unavailable
+rules and engine/runtime disagreement fail with a structured MaterializationError
+before publication. Fixed-offset-only paths need no rule-data comparison. SQLite
+keeps its connection-local Python temporal functions. This does not transfer source
+rows or install remote UDFs. Each range/rule query is an attempted physical
+engine_check validation submission. Separate validation and primary queries retain
+the existing source-concurrency limitation; this is not a snapshot guarantee.

@@ -170,9 +170,7 @@ def _source_private_check(
         backend.configure()
         primary = attach_parquet_scan(backend, root, primary_receipt, bindings=bindings)
         table = attach_parquet_scan(backend, root, receipt, bindings=bindings)
-        validate_parquet_relation(
-            backend, primary, primary_receipt, descriptor.row_contract, lambda *_: None
-        )
+        validate_parquet_relation(backend, primary, primary_receipt, descriptor.row_contract)
         schema = backend.read_table(
             backend.prepare(table.limit(0), role="inspection.schema")
         ).schema
@@ -184,7 +182,7 @@ def _source_private_check(
         ):
             raise StorageAccessError("mutated")
         validate_source_private_relation(
-            backend, table, primary, descriptor.row_contract, part.role, lambda *_: None
+            backend, table, primary, descriptor.row_contract, part.role
         )
         for checked in (receipt, primary_receipt):
             if isinstance(checked, LocalReceipt):

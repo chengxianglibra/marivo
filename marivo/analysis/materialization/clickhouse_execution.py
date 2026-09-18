@@ -5,10 +5,10 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack
+from datetime import timedelta
 from itertools import islice
 from math import isfinite
 from typing import TYPE_CHECKING, Protocol
-from zoneinfo import ZoneInfo
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -111,7 +111,20 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         return result
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
+        from marivo.analysis.materialization.temporal_sql import lower_temporal
+
+        expression = lower_temporal(expression, self.engine)
+
         def widen(node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object) -> ops.Node:
+            if (
+                isinstance(node, ops.Cast)
+                and isinstance(node.to, dt.Timestamp)
+                and node.to.scale is None
+            ):
+                # A generic timestamp cast must not narrow DateTime64 to DateTime.
+                value = kwargs["arg"]
+                assert isinstance(value, ops.Value)
+                return ops.Cast(value, node.to.copy(scale=6))
             if isinstance(node, (ops.Count, ops.CountStar)):
                 return ops.Cast(ops.Cast(node.copy(**kwargs), dt.Decimal(76, 0)), node.dtype)
             if isinstance(node, ops.Sum) and (
@@ -133,7 +146,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         database: str | None = None,
         catalog: str | None = None,
         dependency: EntitySourceDependency | None = None,
-        record: Callable[[str, str], None] | None = None,
     ) -> ibis.Schema:
         if dependency is not None:
             dependency.validate_request(name, database, catalog)
@@ -146,7 +158,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 "SELECT value FROM system.settings WHERE name = 'join_use_nulls'",
                 role="engine_check.clickhouse_settings",
             ),
-            record=record,
         )
         if settings != "1":
             raise self.error(
@@ -161,18 +172,16 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 parameters=(database, name),
                 role="source_schema",
             ),
-            record=record,
         )
         if kind != "MergeTree":
             raise self.unsupported(
                 f"ClickHouse engine {kind!r}; qualified methods require ordinary MergeTree"
             )
         query = f"DESCRIBE TABLE {_identifier(database)}.{_identifier(name)}"
-        if record:
-            record("source_schema", query)
         rows = self.submit(self.statement(query, role="source_schema"))
         fields: dict[str, dt.DataType] = {}
         finite: list[str] = []
+        temporal_transport_checked = False
         while (row := rows.fetchone()) is not None:
             column, kind = row[:2]
             if not isinstance(column, str) or not isinstance(kind, str):
@@ -188,7 +197,7 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 physical = physical[len("Nullable(") : -1]
             if (
                 re.fullmatch(
-                    r"(?:U?Int(?:8|16|32|64)|Bool|Float(?:32|64)|String|Date|DateTime(?:\('UTC'\))?|Decimal\([0-9]+,\s*[0-9]+\))",
+                    r"(?:U?Int(?:8|16|32|64)|Bool|Float(?:32|64)|String|Date|DateTime(?:\('[A-Za-z0-9_./:+-]+'\))?|DateTime64\([0-6](?:,\s*'[A-Za-z0-9_./:+-]+')?\)|Decimal\([0-9]+,\s*[0-9]+\))",
                     physical,
                 )
                 is None
@@ -199,15 +208,49 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                     nullable=kind.startswith(("Nullable(", "LowCardinality(Nullable("))
                 )
             if isinstance(datatype, dt.Timestamp):
-                if physical == "DateTime":
-                    zone = self.read_scalar(
-                        self.statement("SELECT timezone()", role="source_schema"), record=record
+                if not temporal_transport_checked:
+                    from marivo.datasource.timezone import resolve_engine_timezone
+
+                    transport = resolve_engine_timezone(
+                        "SELECT timezone()",
+                        lambda query: self.read_scalar(
+                            self.statement(query, role="engine_check.clickhouse_timestamp_timezone")
+                        ),
                     )
-                    if zone != "UTC":
-                        raise self.unsupported(
-                            "ClickHouse DateTime requires a verified UTC timezone"
+                    if transport.engine_timezone_tz.utcoffset(None) != timedelta(0):
+                        raise self.error(
+                            "a verified UTC ClickHouse timestamp execution timezone",
+                            "the connection uses a non-UTC execution timezone",
+                            "Configure the ClickHouse reader profile with timezone UTC; retain the actual timezone in aware source-column bindings.",
+                            stage="source_schema",
                         )
-                datatype = datatype.copy(timezone=None)
+                    temporal_transport_checked = True
+                if datatype.timezone is None:
+                    datatype = datatype.copy(timezone=self.timezone().engine_timezone_name)
+                # C2's UTC-labelled civil binding remains exact; new aware bindings
+                # retain the physical instant instead of relabelling its wall clock.
+                declared = (
+                    next(
+                        (
+                            item.declared_type
+                            for item in dependency.columns
+                            if item.physical == column
+                        ),
+                        None,
+                    )
+                    if dependency is not None
+                    else None
+                )
+                if (
+                    declared is not None
+                    and isinstance(dt.dtype(declared), dt.Timestamp)
+                    and dt.dtype(declared).timezone is None
+                ):
+                    if datatype.timezone != "UTC":
+                        raise self.unsupported(
+                            "a civil ClickHouse binding requires a verified UTC physical timezone"
+                        )
+                    datatype = datatype.copy(timezone=None)
             if not supported_type(str(datatype.copy(nullable=True))):
                 raise unsupported_source_type(dependency, column, kind)
             fields[column] = datatype
@@ -220,7 +263,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                     + " OR ".join(finite),
                     role="engine_check.clickhouse_finite",
                 ),
-                record=record,
             )
             if violations != 0:
                 raise self.error(
@@ -232,10 +274,13 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         return ibis.schema(fields)
 
     def timezone(self) -> DatasourceEngineTimezone:
-        value = self.read_scalar(self.statement("SELECT timezone()", role="timezone"))
-        if not isinstance(value, str):
-            raise self.unsupported("ClickHouse returned a non-string timezone")
-        return DatasourceEngineTimezone(value, ZoneInfo(value), "iana", "engine")
+        from marivo.datasource.engines import require_profile_for_backend_type
+        from marivo.datasource.timezone import resolve_engine_timezone
+
+        return resolve_engine_timezone(
+            require_profile_for_backend_type("clickhouse").timezone_probe_sql,
+            lambda query: self.read_scalar(self.statement(query, role="source_timezone")),
+        )
 
     def disconnect(self) -> None:
         if self._closed:

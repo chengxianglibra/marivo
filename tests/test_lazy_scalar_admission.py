@@ -100,7 +100,7 @@ def test_complete_closure(
         ("decimal(39,0)", set()),
         ("decimal(4,5)", set()),
         ("uint64", {"mysql", "clickhouse"}),
-        ("timestamp('UTC')", set()),
+        ("timestamp('UTC')", {"postgres", "mysql", "clickhouse"}),
     ],
 )
 def test_backend_type_boundaries_remain_distinct(kind: str, engines: set[str]) -> None:

@@ -12,14 +12,23 @@ import marivo.semantic as ms
 pytestmark = pytest.mark.runtime
 
 
-@pytest.mark.parametrize("representation", ["declared_utc", "native_naive", "strptime"])
+@pytest.mark.parametrize(
+    "representation", ["declared_utc", "native_naive", "native_aware", "strptime"]
+)
 def test_report_day_buckets_preserve_declared_read_time_authority(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, representation: str
 ) -> None:
     monkeypatch.setenv("TZ", "UTC")
     database = tmp_path / "warehouse.duckdb"
-    physical = "VARCHAR" if representation == "strptime" else "TIMESTAMP"
+    physical = (
+        "VARCHAR"
+        if representation == "strptime"
+        else "TIMESTAMPTZ"
+        if representation == "native_aware"
+        else "TIMESTAMP"
+    )
     with duckdb.connect(str(database)) as connection:
+        connection.execute("SET TimeZone='UTC'")
         connection.execute(
             f"CREATE TABLE events (id BIGINT, happened_at {physical}, amount DOUBLE)"
         )
@@ -42,10 +51,17 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
     )
-    data_type = "string" if representation == "strptime" else "timestamp(6)"
+    data_type = (
+        "string"
+        if representation == "strptime"
+        else "timestamp('UTC', 6)"
+        if representation == "native_aware"
+        else "timestamp(6)"
+    )
     parse = {
         "declared_utc": ", parse=ms.timestamp(timezone='UTC')",
         "native_naive": "",
+        "native_aware": "",
         "strptime": ", parse=ms.strptime('%Y-%m-%d %H:%M:%S', timezone='UTC')",
     }[representation]
     (semantic / "events.py").write_text(

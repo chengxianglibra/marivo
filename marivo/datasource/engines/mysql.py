@@ -301,7 +301,7 @@ PROFILE = EngineProfile(
     required_modules=("ibis.backends.mysql",),
     connect=connect,
     apply_read_only_kwargs=identity_read_only_kwargs,
-    timezone_probe_sql=None,
+    timezone_probe_sql="SELECT CASE WHEN @@session.time_zone = 'SYSTEM' THEN @@system_time_zone ELSE @@session.time_zone END",
     identifier_quote="`",
     table_name_parts=table_name_parts,
     inspect_partition_values=None,

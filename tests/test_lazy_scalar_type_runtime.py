@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
@@ -13,11 +11,9 @@ from pathlib import Path
 from uuid import uuid4
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError, SourceSchemaError
 from marivo.analysis.observation.predicates import eq
 from marivo.datasource.ir import TableSourceIR
@@ -26,7 +22,7 @@ from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_scalar_source_fixtures import registry_for
-from tests.lazy_scalar_type_fixtures import Engine, source_writer
+from tests.lazy_scalar_type_fixtures import Engine, arrow_result, cold_check, source_writer
 
 pytestmark = pytest.mark.runtime
 ENGINES = ["duckdb", "sqlite", "postgres", "mysql", "clickhouse", "trino"]
@@ -119,55 +115,6 @@ def source(
     finally:
         with source_writer(engine, database) as execute:
             execute(f"DROP TABLE IF EXISTS {name}")
-
-
-def arrow_result(runtime: DatasetRuntime, artifact: str) -> pa.Table:
-    record = runtime.store.artifact(artifact)
-    assert record is not None
-    receipt = record.descriptor.storage_receipt
-    assert isinstance(receipt, LocalReceipt)
-    return pa.concat_tables(
-        [
-            pq.read_table(
-                runtime.store.project_root / receipt.project_relative_path / f.relative_path
-            )
-            for f in receipt.file_manifest
-        ]
-    )
-
-
-def cold_check(
-    project: Path, session: str, artifact: str, expected: pa.Table, tmp_path: Path
-) -> None:
-    output = tmp_path / "cold.parquet"
-    code = """
-import sys
-from pathlib import Path
-import pyarrow.parquet as pq
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import LocalReceipt
-import marivo.analysis.materialization.execution as execution
-
-def denied(*args, **kwargs):
-    raise AssertionError('cold read accessed source')
-execution.resolve_execution = denied
-runtime = DatasetRuntime.open(Path(sys.argv[1]), sys.argv[2])
-result = runtime.artifact(sys.argv[3])
-result.to_pandas()
-assert runtime.statistics.primary_queries == 0
-record = runtime.store.artifact(sys.argv[3])
-receipt = record.descriptor.storage_receipt
-assert isinstance(receipt, LocalReceipt)
-pq.write_table(pq.read_table(Path(sys.argv[1]) / receipt.project_relative_path / receipt.file_manifest[0].relative_path), sys.argv[4])
-"""
-    subprocess.run(
-        [sys.executable, "-c", code, str(project), session, artifact, str(output)],
-        check=True,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "TZ": "Pacific/Honolulu"},
-    )
-    assert pq.read_table(output).equals(expected)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
