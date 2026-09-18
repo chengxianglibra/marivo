@@ -106,7 +106,7 @@ def _inspect_postgres(
     try:
         column_rows = _query_rows(
             backend,
-            "SELECT column_name, data_type, is_nullable, ordinal_position "
+            "SELECT column_name, data_type, is_nullable, ordinal_position, datetime_precision "
             "FROM information_schema.columns "
             f"WHERE table_schema = {_quote_literal(schema_name)} "
             f"AND table_name = {_quote_literal(table)} "
@@ -115,9 +115,13 @@ def _inspect_postgres(
         for row in column_rows:
             name = str(row.get("column_name"))
             ordinal = row.get("ordinal_position")
+            physical_type = str(row.get("data_type") or "")
+            precision = row.get("datetime_precision")
+            if physical_type.startswith("timestamp") and type(precision) is int:
+                physical_type = physical_type.replace("timestamp", f"timestamp({precision})", 1)
             catalog_columns[name] = ColumnMetadata(
                 name=name,
-                type=str(row.get("data_type") or ""),
+                type=physical_type,
                 nullable=_bool_from_nullable(row.get("is_nullable")),
                 comment=None,
                 ordinal_position=int(str(ordinal)) if ordinal is not None else None,

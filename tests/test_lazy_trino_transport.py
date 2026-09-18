@@ -86,7 +86,7 @@ def test_foreign_statement_rejected_before_cursor_creation() -> None:
 
 @pytest.mark.parametrize(
     "kind",
-    ["int8", "int16", "timestamp", "boolean", "array<int64>", "decimal(39,0)", "decimal(4,5)"],
+    ["int8", "int16", "array<int64>", "decimal(39,0)", "decimal(4,5)"],
 )
 def test_unqualified_declared_types_are_not_supported(kind: str) -> None:
     from marivo.analysis.operators.trino_support import supported_type

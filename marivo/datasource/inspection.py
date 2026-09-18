@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, replace
@@ -793,23 +794,49 @@ def _declared_only_table_metadata(
 
 
 def _canonical_catalog_type(type_name: str, *, backend_type: str) -> str:
+    from ibis.backends.sql.datatypes import (
+        ClickHouseType,
+        DuckDBType,
+        MySQLType,
+        PostgresType,
+        TrinoType,
+    )
+
+    if backend_type in {"postgres", "mysql", "trino"} and re.fullmatch(
+        r"(?:char|character)(?:\(\d+\))?", type_name.lower()
+    ):
+        return type_name.lower()
+    if backend_type == "sqlite":
+        from marivo.datasource.engines.sqlite import declared_scalar_type
+
+        mapped = declared_scalar_type(type_name)
+        if mapped is not None:
+            return str(mapped)
+    mappers = {
+        "duckdb": DuckDBType,
+        "mysql": MySQLType,
+        "postgres": PostgresType,
+        "trino": TrinoType,
+        "clickhouse": ClickHouseType,
+    }
+    mapper = mappers.get(backend_type)
+    if mapper is not None:
+        try:
+            dtype = mapper.from_string(type_name).copy(nullable=True)
+            if (
+                backend_type == "mysql"
+                and dtype.is_timestamp()
+                and dtype.scale is None
+                and type_name.lower() in {"datetime", "timestamp"}
+            ):
+                dtype = dtype.copy(scale=0)
+            if not dtype.is_unknown():
+                return "string" if dtype.is_string() else str(dtype)
+        except (TypeError, ValueError, RuntimeError):
+            pass
     try:
         return str(ibis.dtype(type_name))
     except (TypeError, ValueError, RuntimeError):
-        if backend_type == "sqlite":
-            from ibis.backends.sql.datatypes import SQLiteType
-
-            try:
-                return str(SQLiteType.from_string(type_name).copy(nullable=True))
-            except (TypeError, ValueError, RuntimeError):
-                pass
-        if backend_type == "clickhouse":
-            try:
-                from ibis.backends.sql.datatypes import ClickHouseType
-
-                return str(ClickHouseType.from_string(type_name).copy(nullable=True))
-            except (TypeError, ValueError, RuntimeError):
-                pass
         return type_name
 
 
@@ -823,7 +850,12 @@ def _declared_type_mismatch(
     observed_type: str,
     scope_state: Literal["known", "none", "unknown"],
 ) -> DatasourceAuthoringError:
-    snippet = f"md.source_column({physical_name!r}, data_type={observed_type!r})"
+    fixed_character = re.fullmatch(r"(?:char|character)(?:\(\d+\))?", observed_type) is not None
+    snippet = (
+        None
+        if fixed_character
+        else f"md.source_column({physical_name!r}, data_type={observed_type!r})"
+    )
     return DatasourceAuthoringError(
         code="declared_type_mismatch",
         stage="inspect",
@@ -846,7 +878,9 @@ def _declared_type_mismatch(
             kind="reauthor",
             canonical_id="source_column",
             action=(
-                f"Correct md.table(columns=...)[{output_name!r}] to use the observed "
+                "Bind a variable-length text column; fixed CHAR padding does not satisfy the string contract."
+                if fixed_character
+                else f"Correct md.table(columns=...)[{output_name!r}] to use the observed "
                 "catalog type, or bind a different physical source."
             ),
             snippet=snippet,
@@ -901,7 +935,37 @@ def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> T
             catalog_column.type,
             backend_type=metadata.backend_type,
         )
-        if observed_type != binding.data_type:
+        boolean_storage = (
+            metadata.backend_type == "mysql"
+            and catalog_column.type.lower() == "tinyint(1)"
+            and binding.data_type == "boolean"
+        )
+        timestamp_storage = (
+            binding.data_type == "timestamp"
+            and re.fullmatch(r"timestamp(?:\([0-6]\))?", observed_type) is not None
+        )
+        utc_timestamp_storage = (
+            metadata.backend_type in {"mysql", "clickhouse"}
+            and re.fullmatch(r"timestamp\('UTC', [0-6]\)", observed_type) is not None
+            and (
+                binding.data_type == "timestamp"
+                or binding.data_type == observed_type.replace("'UTC', ", "")
+            )
+        )
+        if boolean_storage or utc_timestamp_storage:
+            warnings.append(
+                MetadataWarning(
+                    kind="declared_column_unverified",
+                    message="Physical representation is compatible; Boolean values or UTC execution timezone still require runtime validation.",
+                    columns=(output_name,),
+                )
+            )
+        if (
+            observed_type != binding.data_type
+            and not boolean_storage
+            and not timestamp_storage
+            and not utc_timestamp_storage
+        ):
             raise _declared_type_mismatch(
                 datasource_name=metadata.datasource,
                 source=source,

@@ -113,7 +113,16 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
                     default_schema=self._trino.con.schema,
                 )
                 kwargs["namespace"] = ops.Namespace(catalog=catalog, database=database)
-            return node.copy(**kwargs)
+            value = node.copy(**kwargs)
+            if (
+                isinstance(value, ops.Cast)
+                and isinstance(value.to, dt.Timestamp)
+                and isinstance(value.arg.dtype, dt.Timestamp)
+                and value.to.timezone == value.arg.dtype.timezone
+                and (value.to.scale is None or value.to.scale == value.arg.dtype.scale)
+            ):
+                return value.arg
+            return value
 
         return expression.op().map(qualify)[expression.op()].to_expr()
 
@@ -174,7 +183,9 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
                 continue
             with source_type_errors(dependency, column, kind):
                 datatype = self._trino.compiler.type_mapper.from_string(kind)
-            if not supported_type(str(datatype)):
+            if datatype.is_string():
+                datatype = dt.string
+            if kind.lower().startswith("char(") or not supported_type(str(datatype)):
                 raise unsupported_source_type(dependency, column, kind)
             fields[column] = datatype
             if datatype.is_floating():

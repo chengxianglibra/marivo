@@ -80,7 +80,8 @@ Population membership, scoped observation, dimensions, Entity aggregation,
 filtering, Metric projection, deterministic ranking and Top-N.
 
 All required source columns must use Boolean, string, signed integer, float32,
-float64, date, plain timestamp or Decimal types. Explicit Decimal precision is
+float64, date, plain timestamp (precision 0–6) or Decimal types. PostgreSQL CHAR is rejected
+because its trailing-space semantics differ from string; text/varchar remain supported. Explicit Decimal precision is
 at most 38 and scale lies between zero and precision; a generic Decimal declaration
 still requires compatible physical metadata. Temporal scopes use native date
 columns. Parsed string time axes, timezone-bearing timestamp declarations,
@@ -102,25 +103,32 @@ All dependencies must be admitted, including projected-away Metrics. Neither
 backend imports retained Artifacts or enables sampling or source-private methods.
 The relational/date extension above owns additional method admission.
 
-MySQL requires InnoDB, signed integers, float32/64, native DATE, text using
-`utf8mb4_0900_bin` (binary ordering without trailing-space folding), or explicitly
-specified Decimal precision up to 38 with a valid scale. Generic Decimal source
-declarations, unsigned types, Boolean, timestamps and nested types are not admitted.
-MySQL integer SUM results are decoded from Decimal without float conversion.
-Floating SUM adds exact floating zero before conversion so server overflow raises
-its native exception instead of serializing zero or saturating a cast. Zero or
-invalid dates are rejected by source assertions before publication.
+MySQL requires InnoDB and a SELECT-only account. Inputs include signed and unsigned
+integers, float32/64, native DATE, `utf8mb4_0900_bin` VARCHAR/TEXT and explicit
+Decimal precision up to 38. Explicit Boolean bindings accept TINYINT(1) only after
+necessary-column 0/1/NULL checks; integer bindings remain integers. DATETIME(0–6)
+and TIMESTAMP(0–6) preserve microseconds; TIMESTAMP requires an observed session time_zone of UTC or +00:00; other aliases remain unqualified.
+CHAR, BIT, ENUM/SET, nested values and generic Decimal sources are not admitted.
+Zero/invalid dates and timestamps fail before publication. Integer SUM is decoded
+exactly from Decimal; the current result is int64, so values beyond its range fail.
+Floating SUM overflow raises the original database exception.
 
-SQLite accepts persistent ordinary tables in the declared main database, with
-INTEGER/INT/BIGINT, REAL/DOUBLE, TEXT with binary collation, and DATE columns.
-Logical types are int64, float64, string and date. DATE values must be canonical
-`YYYY-MM-DD` text representing valid Gregorian dates in years 0001 through 9999.
-Source assertions reject incompatible storage classes and invalid dates even
-when the result would be empty. REAL admits SQLite numeric storage; Decimal,
-Boolean, timestamps, timezone semantics, virtual tables and attached databases
-are not enabled. SQLite converts an inserted NaN to SQL NULL; Marivo cannot
-recover that lost distinction. Ranking excludes NULL and infinite values under
-its existing contract. Native integer SUM overflow remains an error.
+SQLite accepts persistent ordinary main-database tables. INTEGER/INT/BIGINT,
+TINYINT/SMALLINT/MEDIUMINT/INT2/INT8 map to int64; REAL/DOUBLE/DOUBLE PRECISION/FLOAT
+to float64; TEXT/CLOB/CHAR/VARCHAR (including declared lengths) to string with
+BINARY collation and actual text storage. DATE requires valid canonical YYYY-MM-DD
+text. BOOL/BOOLEAN requires integer 0/1/NULL. DATETIME/TIMESTAMP requires fixed
+`YYYY-MM-DD HH:MM:SS.ffffff` civil text, valid Gregorian years 0001–9999, without
+an offset. Necessary-column storage checks run even when output is empty.
+Unsigned, Decimal, timezone semantics, virtual and attached tables remain excluded.
+SQLite stores inserted NaN as NULL; that distinction cannot be recovered.
+Native integer SUM overflow remains an error.
+
+Ordinary timestamps in this scalar extension support exact transport, grouping
+and sorting. Timestamp predicates and temporal methods require the later temporal
+qualification; a declaration alone does not establish read-timezone authority.
+UInt64 identities, min/max and transport preserve the full unsigned range through
+Arrow, Parquet and cold reads without floating or signed conversion.
 
 Both adapters flatten internal Entity identity structs into typed scalar SQL
 columns and rebuild the unchanged Arrow identity schema without string or float
@@ -149,8 +157,10 @@ The adapter verifies connector identity and base-table metadata at execution;
 a catalog merely named `iceberg` is not sufficient.
 
 Declared physical inputs are signed integers supported by Iceberg, float32/64,
-VARCHAR, DATE and explicit Decimal precision/scale up to 38. Generic Decimal
-source declarations, Boolean, timestamps/timezones, nested values and other
+VARCHAR, BOOLEAN, timestamp(0–6) without time zone, DATE and explicit Decimal
+precision/scale up to 38. The qualified Iceberg connector exposes timestamp DDL
+with precision 0 or 3 as timestamp(6); bindings must match this observed precision. CHAR, generic Decimal source declarations, timezone-bearing
+timestamps, precision above microseconds, nested values and other
 connectors are excluded. Declared floating columns must contain finite values or
 NULL; source checks reject NaN/infinity even for empty output, and non-finite
 aggregate results fail before publication. Decimal and integer identities retain
@@ -317,11 +327,13 @@ scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
 limit. Sampling, retained import and source-private advanced methods remain unavailable.
 The relational/native-date extension owns additional method admission.
 
-Physical inputs are Int8/16/32/64, Float32/64, String, Date and explicit Decimal
-precision up to 38, optionally Nullable. Unsigned inputs, Int128/256, Enum,
-LowCardinality, FixedString, Date32, timestamp/timezone and nested values are not
-admitted. Distributed, Replicated, specialized MergeTree engines and views are
-excluded. Timestamp conversion is not qualified by this slice.
+Physical inputs include Int8/16/32/64, UInt8/16/32/64, Bool, Float32/64, String,
+Date and explicit Decimal precision up to 38, with legal Nullable wrappers.
+LowCardinality(String) and LowCardinality(Nullable(String)) retain string semantics.
+DateTime('UTC') and DateTime with verified UTC engine timezone preserve seconds.
+DateTime64, non-UTC timestamps, FixedString, Date32, Int128/256, UInt128/256, Enum
+and nested values remain excluded. Distributed, Replicated, specialized engines
+and views are not enabled by this scalar-type extension.
 
 Use a SELECT-only account configured with effective `join_use_nulls=1`.
 Metadata, required assertions and output run separately; empty output never

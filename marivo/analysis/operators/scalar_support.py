@@ -66,6 +66,11 @@ def supports_scalar_type(value: str) -> bool:
     return decimal is not None and 0 <= int(decimal[2]) <= int(decimal[1]) <= 38
 
 
+def supports_plain_timestamp(value: str) -> bool:
+    """Admit civil timestamp values up to microseconds, without temporal methods."""
+    return re.fullmatch(r"timestamp(?:\([0-6]\))?", value) is not None
+
+
 def unsupported_reason(
     dataset: LogicalDataset,
     supported_type: Callable[[str], bool],

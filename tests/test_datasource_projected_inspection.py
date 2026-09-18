@@ -522,3 +522,42 @@ def test_projected_source_render_preserves_database_identity_shape(
         rendered = md.inspect(ms.ref.datasource("warehouse"), source).render()
 
         assert f"database: {expected}" in rendered
+
+
+@pytest.mark.parametrize(
+    "engine,physical,logical",
+    [
+        ("mysql", "tinyint(1)", "boolean"),
+        ("mysql", "tinyint(1)", "int8"),
+        ("mysql", "bigint unsigned", "uint64"),
+        ("sqlite", "INT2", "int64"),
+        ("sqlite", "TIMESTAMP", "timestamp"),
+        ("sqlite", "VARCHAR(20)", "string"),
+    ],
+)
+def test_scalar_representation_metadata_is_not_a_cast(
+    engine: str, physical: str, logical: str
+) -> None:
+    metadata = _metadata(
+        columns=(ColumnMetadata("value", physical, True, None, 1),), backend_type=engine
+    )
+    projected = _project_table_metadata(
+        metadata,
+        md.table("orders", columns={"value": md.source_column("value", data_type=logical)}),
+    )
+    assert projected.columns[0].type == logical
+    assert projected.columns[0].nullable is True
+
+
+@pytest.mark.parametrize(
+    "engine,physical", [("postgres", "character(8)"), ("mysql", "char(8)"), ("trino", "char(8)")]
+)
+def test_projected_fixed_char_is_not_a_string_binding(engine: str, physical: str) -> None:
+    metadata = _metadata(
+        columns=(ColumnMetadata("value", physical, True, None, 1),), backend_type=engine
+    )
+    with pytest.raises(DatasourceAuthoringError, match="fixed CHAR"):
+        _project_table_metadata(
+            metadata,
+            md.table("orders", columns={"value": md.source_column("value", data_type="string")}),
+        )

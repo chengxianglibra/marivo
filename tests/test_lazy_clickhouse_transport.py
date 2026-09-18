@@ -5,7 +5,6 @@ from threading import Event, Thread
 from unittest.mock import Mock
 
 import ibis
-import pyarrow as pa
 import pytest
 from ibis.backends.clickhouse import Backend
 
@@ -27,10 +26,7 @@ def adapter_and_stream(rows=()):
 @pytest.mark.parametrize(
     "kind",
     [
-        "uint64",
-        "timestamp",
         "timestamp('UTC')",
-        "boolean",
         "array<int64>",
         "decimal(39,0)",
         "decimal(4,5)",
@@ -123,7 +119,7 @@ def test_invalid_native_values_cannot_publish(rows) -> None:
     statement = replace(
         adapter.statement("SELECT id"), schema=ibis.schema({"id": "int64"}).to_pyarrow()
     )
-    with pytest.raises((OverflowError, pa.ArrowInvalid, IndexError)):
+    with pytest.raises((MaterializationError, IndexError)):
         adapter.read_table(statement)
     native.__exit__.assert_called_once()
 

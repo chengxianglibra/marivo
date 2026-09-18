@@ -179,21 +179,36 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 raise self.unsupported("malformed ClickHouse column metadata")
             if columns is not None and column not in columns:
                 continue
-            physical = (
-                kind.removeprefix("Nullable(").removesuffix(")")
-                if kind.startswith("Nullable(")
-                else kind
-            )
-            with source_type_errors(dependency, column, kind):
-                datatype = self._clickhouse.compiler.type_mapper.from_string(kind)
+            physical = kind
+            if physical.startswith("LowCardinality(") and physical.endswith(")"):
+                physical = physical[len("LowCardinality(") : -1]
+                if physical not in {"String", "Nullable(String)"}:
+                    raise unsupported_source_type(dependency, column, kind)
+            if physical.startswith("Nullable(") and physical.endswith(")"):
+                physical = physical[len("Nullable(") : -1]
             if (
-                not supported_type(str(datatype.copy(nullable=True)))
-                or re.fullmatch(
-                    r"(?:Int(?:8|16|32|64)|Float(?:32|64)|String|Date|Decimal\([0-9]+,\s*[0-9]+\))",
+                re.fullmatch(
+                    r"(?:U?Int(?:8|16|32|64)|Bool|Float(?:32|64)|String|Date|DateTime(?:\('UTC'\))?|Decimal\([0-9]+,\s*[0-9]+\))",
                     physical,
                 )
                 is None
             ):
+                raise unsupported_source_type(dependency, column, kind)
+            with source_type_errors(dependency, column, kind):
+                datatype = self._clickhouse.compiler.type_mapper.from_string(kind).copy(
+                    nullable=kind.startswith(("Nullable(", "LowCardinality(Nullable("))
+                )
+            if isinstance(datatype, dt.Timestamp):
+                if physical == "DateTime":
+                    zone = self.read_scalar(
+                        self.statement("SELECT timezone()", role="source_schema"), record=record
+                    )
+                    if zone != "UTC":
+                        raise self.unsupported(
+                            "ClickHouse DateTime requires a verified UTC timezone"
+                        )
+                datatype = datatype.copy(timezone=None)
+            if not supported_type(str(datatype.copy(nullable=True))):
                 raise unsupported_source_type(dependency, column, kind)
             fields[column] = datatype
             if datatype.is_floating():

@@ -19,6 +19,7 @@ from marivo.analysis.materialization.errors import (
     unsupported_source_type,
 )
 from marivo.analysis.materialization.scalar_sql_execution import Cursor, ScalarExecutionAdapter
+from marivo.datasource.engines.sqlite import declared_scalar_type
 from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
 
 if TYPE_CHECKING:
@@ -41,6 +42,14 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
             node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
         ) -> ops.Node:
             value = node.copy(**kwargs)
+            if (
+                isinstance(value, ops.Cast)
+                and isinstance(value.to, dt.Timestamp)
+                and isinstance(value.arg.dtype, dt.Timestamp)
+                and value.to.timezone == value.arg.dtype.timezone
+                and (value.to.scale is None or value.to.scale == value.arg.dtype.scale)
+            ):
+                return value.arg
             if isinstance(value, ops.IsNan):
                 # Stored NaN is unavailable in this engine's admitted scalar inputs.
                 return ibis.literal(False).op()
@@ -109,26 +118,36 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
                 raise self.unsupported("malformed SQLite column metadata")
             if columns is not None and column not in columns:
                 continue
-            kind = declaration.upper()
-            allowed = {
-                "INTEGER": (dt.int64, "'integer'"),
-                "INT": (dt.int64, "'integer'"),
-                "BIGINT": (dt.int64, "'integer'"),
-                "REAL": (dt.float64, "'real','integer'"),
-                "DOUBLE": (dt.float64, "'real','integer'"),
-                "TEXT": (dt.string, "'text'"),
-                "DATE": (dt.date, "'text'"),
-            }
-            if kind not in allowed:
+            datatype = declared_scalar_type(declaration)
+            if datatype is None:
                 raise unsupported_source_type(dependency, column, declaration)
-            datatype, storage = allowed[kind]
+            storage = (
+                "'integer'"
+                if datatype.is_integer() or datatype.is_boolean()
+                else "'real','integer'"
+                if datatype.is_floating()
+                else "'text'"
+            )
             fields[column] = datatype
             quoted = _quote(column)
             predicate = f"typeof({quoted}) NOT IN ('null',{storage})"
-            if kind == "DATE":
+            if datatype.is_date():
                 predicate += (
                     f" OR ({quoted} IS NOT NULL AND (length({quoted}) != 10 "
                     f"OR substr({quoted}, 1, 4) < '0001' OR substr({quoted}, 1, 4) > '9999' OR date({quoted}, '+0 days') IS NULL OR date({quoted}, '+0 days') != {quoted}))"
+                )
+            if datatype.is_boolean():
+                predicate += f" OR ({quoted} IS NOT NULL AND {quoted} NOT IN (0,1))"
+            if datatype.is_timestamp():
+                digits = "[0-9]"
+                pattern = f"{digits * 4}-{digits * 2}-{digits * 2} {digits * 2}:{digits * 2}:{digits * 2}.{digits * 6}"
+                day = f"substr({quoted},1,10)"
+                predicate += (
+                    f" OR ({quoted} IS NOT NULL AND ({quoted} NOT GLOB '{pattern}'"
+                    f" OR substr({quoted},1,4) < '0001'"
+                    f" OR date({day},'+0 days') IS NULL OR date({day},'+0 days') != {day}"
+                    f" OR substr({quoted},12,2) > '23' OR substr({quoted},15,2) > '59'"
+                    f" OR substr({quoted},18,2) > '59'))"
                 )
             invalid.append(f"({predicate})")
         if not fields:
@@ -139,9 +158,9 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
         )
         if violations != 0:
             raise self.error(
-                "declared SQLite storage classes and canonical valid ISO dates",
+                "declared SQLite storage classes, Boolean 0/1 and canonical valid civil dates/timestamps",
                 f"{violations} rows violate the physical source contract",
-                "Correct mixed storage classes or invalid dates before executing again.",
+                "Correct mixed storage, Boolean values or dates/timestamps before executing again.",
                 stage="output_validation",
             )
         return ibis.schema(fields)
@@ -176,6 +195,6 @@ def admit_dataset(dataset: LogicalDataset) -> None:
         raise MaterializationError(
             expected="an exact qualified SQLite scalar method closure",
             received=reason,
-            repair="Use qualified scalar methods with declared SQLite INTEGER, REAL, TEXT or DATE columns.",
+            repair="Use qualified scalar methods with qualified SQLite scalar declarations and validated storage.",
             stage="implementation_registration",
         )

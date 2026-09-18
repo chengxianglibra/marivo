@@ -279,6 +279,16 @@ datasource adapter generates one identifier-only inner `SELECT` without a table
 alias and supplies the declared schema to the backend. The binding mapping remains
 part of source, snapshot, semantic dependency, cache, and lineage identity.
 
+Backend-aware metadata normalizes SQLite integer aliases to int64 and text
+aliases to string. An explicit MySQL Boolean binding may use TINYINT(1); ordinary
+integer bindings remain integers. Metadata compatibility does not prove stored
+values. SQLite/MySQL bounded dataframe reads reject observed Boolean values
+outside exact 0/1/NULL before truthiness conversion. Analysis separately validates
+all necessary source columns. SQLite typed Analysis timestamps use fixed-width
+civil `YYYY-MM-DD HH:MM:SS.ffffff` text; its BOOL/BOOLEAN columns use integer
+0/1/NULL. These are checked representations, not casts or timezone inference.
+
+
 For ClickHouse tables, inspection also reads active `system.parts_columns` and
 exposes safe adapter-only physical columns through
 `SourceInspection.projectable_columns`. Each row carries the exact physical
@@ -596,3 +606,10 @@ Physical facts remain datasource-owned; semantic refs remain semantic-owned.
 After an entity is registered, semantic authoring reuses the entity ref rather
 than re-supplying `(datasource, source)` tuples. The full write loop is defined
 in [authoring-workflow.md](authoring-workflow.md).
+
+For MySQL and SQLite bounded dataframe acquisition, nullable integer columns keep
+exact integer cells before backend conversion; a NULL must not promote large
+integers through float64. Typed inspection does not normalize PostgreSQL/MySQL/Trino
+fixed CHAR to logical string, because its padding semantics differ. Bind a
+variable-length text column instead; SQLite's qualified BINARY text convention
+continues to admit CHAR declarations.

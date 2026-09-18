@@ -150,7 +150,7 @@ top_channels.show()
 ```
 
 所有必要源列必须使用 Boolean、string、有符号整数、float32、float64、date、
-不带时区的 timestamp 或 Decimal。Decimal 精度最大为 38，scale 从零到精度；
+不带时区且精度为 0–6 的 timestamp 或 Decimal。PostgreSQL CHAR 因尾空格语义不同而拒绝，text/varchar 保持支持。Decimal 精度最大为 38，scale 从零到精度；
 未指定精度的 Decimal 声明仍需通过实际元数据校验。字符串时间解析、带时区的
 timestamp 声明、时间序列轴、关系遍历、版本化 Entity、采样、组合 Metric 和
 私有状态方法不在此子集内。
@@ -175,16 +175,19 @@ by_channel = session.observe(revenue).with_dimensions(
 by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute().show()
 ```
 
-MySQL 限定 InnoDB 和仅有 SELECT 权限的账户。所有必要源列须使用有符号整数、
-float32/64、原生 DATE、`utf8mb4_0900_bin` 文本或明确精度且不超过 38 位的 Decimal。
-不接受 unsigned、Boolean、timestamp 和嵌套类型。文本保留大小写、Unicode 与尾空格差异。
-零日期及非法日期在源校验阶段失败；浮点 SUM 溢出抛出数据库原始错误，不发布饱和值。
+MySQL 限定 InnoDB、只读账户与 utf8mb4_0900_bin 文本，支持 signed/unsigned 整数、
+浮点、DATE、明确精度不超过 38 的 Decimal，以及 DATETIME(0–6)。TIMESTAMP(0–6)
+还需验证 UTC 会话。显式 Boolean 声明仅兼容 TINYINT(1)，必要列必须为 0/1/NULL；
+普通整数声明仍保持整数。CHAR、BIT、ENUM/SET、嵌套类型及通用 Decimal 源声明不准入。
+非法日期/时间在发布前失败；整数 SUM 精确解码为现有 int64 结果，越界失败。
 
-SQLite 支持主数据库中的持久化普通表，物理类型为 INTEGER/INT/BIGINT、REAL/DOUBLE、
-二进制排序 TEXT 和 DATE；逻辑声明使用 int64、float64、string、date。
-DATE 保存年份 0001–9999 内有效日期的规范 `YYYY-MM-DD` 文本。源校验拒绝混合存储类型
-和非法日期。不支持 Decimal、Boolean、timestamp/时区、虚拟表或附加数据库表。
-SQLite 将写入的 NaN 转成 NULL，无法恢复该区别；整数 SUM 溢出仍然报错。
+SQLite 主库普通表支持整数声明别名（统一 int64）、REAL/DOUBLE/FLOAT（float64）、
+BINARY 排序的 TEXT/CLOB/CHAR/VARCHAR（string），以及规范 DATE。BOOL/BOOLEAN
+必须实际存储整数 0/1/NULL；DATETIME/TIMESTAMP 必须为固定宽度、无偏移的
+`YYYY-MM-DD HH:MM:SS.ffffff` 文本，年份 0001–9999 且日期时间合法。即使输出为空也检查
+全部必要列。unsigned、Decimal、时区语义、虚拟表及附加数据库仍不支持；NaN 写入后成为
+NULL，无法恢复原区别。普通 timestamp 本阶段只支持精确传输、分组和排序，时间谓词归 C3a。
+UInt64 身份及 min/max 通过 Arrow、Parquet 和冷读保留全值域，不经 float 或有损 int64。
 
 两个适配器保留精确的复合身份，直接按驱动批次读取，不经 pandas 全量中转。
 MySQL 非缓冲游标提前关闭时可能排空未读响应，不承诺硬取消时限或内存上限。
@@ -201,8 +204,8 @@ Trino Group A 支持单个数据源、单张未版本化的普通 Iceberg 基表
 不能仅凭 catalog 名为 `iceberg` 判定支持。
 
 物理输入限定为 Iceberg 支持的有符号整数、float32/64、VARCHAR、DATE，以及明确
-精度和小数位且精度不超过 38 的 Decimal。通用 Decimal 源声明、Boolean、时间戳与
-时区类型、嵌套值及其他 connector 均不支持。声明的浮点列只接受有限值或 NULL；
+精度和小数位且精度不超过 38 的 Decimal，并支持 Boolean 和无时区 timestamp(0–6)。当前验收的 Iceberg connector 将精度 0 或 3 的建表声明暴露为 timestamp(6)，绑定必须匹配实际元数据精度。
+CHAR、通用 Decimal 源声明、带时区或超微秒时间戳、嵌套值及其他 connector 均不支持。声明的浮点列只接受有限值或 NULL；
 即使输出为空，源检查也拒绝 NaN/Infinity，非有限聚合结果不得发布。Decimal 与整数
 身份保持精确值，排名保留明确的 NULL 顺序和确定性的并列处理。
 
@@ -219,10 +222,11 @@ ClickHouse Group A 支持单数据源、单张未版本化的普通本地 MergeT
 直接列 sum/count/min/max、Population 过滤、原生日期范围、同 Entity 维度、
 聚合、投影、确定性排名与 limit。关系与版本的扩展范围见上文；采样、retained import 和源端私有状态高级方法仍未启用。
 
-物理类型限于 Int8/16/32/64、Float32/64、String、Date、精度不超过 38 的显式
-Decimal，以及相应 Nullable 类型。unsigned、Int128/256、Enum、LowCardinality、
-FixedString、Date32、timestamp/timezone、嵌套类型、视图及其他引擎不准入；
-本次不声称已验证时间戳转换。
+物理类型包括 Int8/16/32/64、UInt8/16/32/64、Bool、Float32/64、String、Date、
+精度不超过 38 的 Decimal 及合法 Nullable 包装。LowCardinality(String) 和
+LowCardinality(Nullable(String)) 保留字符串语义。DateTime('UTC') 以及已验证引擎时区为
+UTC 的 DateTime 保留秒精度。DateTime64、非 UTC 时间戳、FixedString、Date32、
+Int128/256、UInt128/256、Enum、嵌套类型及其他表引擎仍不准入。
 
 只读账户须配置有效的 `join_use_nulls=1`。元数据、必要断言与输出分别执行，
 输出为空也必须完成校验。浮点输入必须为有限值或 NULL；整数与 Decimal SUM
@@ -232,3 +236,6 @@ FixedString、Date32、timestamp/timezone、嵌套类型、视图及其他引擎
 执行拥有并关闭每条响应；驱动 close 可能排空未读数据，因此不承诺固定取消时延，
 也不把连接关闭当作远端终止证明。远端状态未知时仍允许安全的本地恢复。
 不增加共享快照、执行预算、上传、临时对象或隐式重试；批大小只是传输配置。
+
+MySQL TIMESTAMP 当前要求实际会话 `time_zone` 为 `UTC` 或 `+00:00`，其他时区别名尚未验收。
+MySQL/SQLite 的 preview 和 sample 保留含 NULL 的大整数精度，不先转为 float64。

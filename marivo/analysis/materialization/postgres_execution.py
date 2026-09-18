@@ -189,7 +189,9 @@ def _transport_row(
             return {
                 child.name: value(child, item) for child, item in zip(field.type, raw, strict=True)
             }
-        return raw
+        from marivo.analysis.materialization.scalar_sql_execution import _cell
+
+        return _cell(raw, field.type, run_ref=run_ref)
 
     return tuple(value(field, item) for field, item in zip(schema, row, strict=True))
 
@@ -429,18 +431,49 @@ class PostgresExecutionAdapter:
                 raise self._error("schema_row")
             if columns is not None and row[0] not in columns:
                 continue
+            if dependency is not None and (
+                row[1].startswith("character(") or row[1] == "character"
+            ):
+                raise unsupported_source_type(dependency, row[0], row[1])
             with source_type_errors(dependency, row[0], row[1]):
                 fields[row[0]] = self._backend.compiler.type_mapper.from_string(
                     row[1], nullable=bool(row[2])
                 )
             datatype = fields[row[0]]
+            if datatype.is_string():
+                fields[row[0]] = datatype = dt.string.copy(nullable=bool(row[2]))
             kind = (
                 "timestamp"
-                if isinstance(datatype, dt.Timestamp) and datatype.timezone is None
+                if isinstance(datatype, dt.Timestamp)
+                and datatype.timezone is None
+                and datatype.scale in (None, 0, 1, 2, 3, 4, 5, 6)
                 else str(datatype.copy(nullable=True))
             )
             if dependency is not None and not supported_type(kind):
                 raise unsupported_source_type(dependency, row[0], row[1])
+        temporal = [column for column, dtype in fields.items() if dtype.is_timestamp()]
+        if temporal:
+            predicates = " OR ".join(
+                "NOT isfinite("
+                + sge.to_identifier(column, quoted=True).sql(dialect="postgres")
+                + ")"
+                for column in temporal
+            )
+            violations = self.read_scalar(
+                self.statement(
+                    f"SELECT count(*) FROM {qualified} WHERE {predicates}",
+                    role="engine_check.postgres_timestamps",
+                ),
+                record=record,
+            )
+            if violations != 0:
+                raise MaterializationError(
+                    expected="finite PostgreSQL timestamp values or NULL",
+                    received="non-finite necessary timestamp column",
+                    repair="Correct infinite timestamps before executing again.",
+                    stage="output_validation",
+                    run_ref=self._run_ref,
+                )
         if not fields and dependency is None:
             raise self._error("missing_relation", detail=qualified)
         return ibis.schema(fields)
