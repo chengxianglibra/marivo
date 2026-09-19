@@ -249,11 +249,13 @@ def test_sqlite_explicit_and_internal_read_only_connections(
         backend.disconnect()
 
 
-def test_sqlite_profile_rejects_strptime_and_quantile_capability() -> None:
+def test_sqlite_profile_passes_strptime_through_and_lacks_quantile() -> None:
+    """SQLite parses text with its own connection-local scalar, which consumes
+    the Python format directly, so the profile contributes no translation."""
     from marivo.datasource.engines import require_profile_for_backend_type
 
     profile = require_profile_for_backend_type("sqlite")
 
     assert profile.quantile is None
-    with pytest.raises(ValueError, match="native temporal column"):
-        profile.translate_strptime_format("%Y-%m-%d")
+    assert profile.translate_strptime_format("%Y-%m-%d %H:%M:%S") == "%Y-%m-%d %H:%M:%S"
+    assert profile.translate_strptime_format("%M") == "%M"

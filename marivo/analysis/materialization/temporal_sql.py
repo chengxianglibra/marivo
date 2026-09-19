@@ -62,11 +62,14 @@ _sqlite_truncate: Callable[[ir.TimestampValue, str], ir.TimestampValue] = ibis.u
     name="_marivo_truncate",
     signature=((dt.timestamp, dt.string), dt.Timestamp(scale=6)),
 )
-_sqlite_shift: Callable[[ir.TimestampValue, int], ir.TimestampValue] = ibis.udf.scalar.builtin(
-    _shift_signature,
-    name="_marivo_shift",
-    signature=((dt.timestamp, dt.int64), dt.Timestamp(scale=6)),
+_sqlite_shift: Callable[[ir.TimestampValue, ir.IntegerValue | int], ir.TimestampValue] = (
+    ibis.udf.scalar.builtin(
+        _shift_signature,
+        name="_marivo_shift",
+        signature=((dt.timestamp, dt.int64), dt.Timestamp(scale=6)),
+    )
 )
+_SQLITE_INTERVAL_SECONDS = {"s": 1, "m": 60, "h": 3600, "D": 86400}
 _clickhouse_localize: Callable[[ir.TimestampValue, str], ir.TimestampValue] = (
     ibis.udf.scalar.builtin(
         _zone_signature,
@@ -87,6 +90,7 @@ _clickhouse_truncate: Callable[[str, ir.TimestampValue], ir.TimestampValue] = (
     )
 )
 
+
 _probe = ibis.timestamp("2000-01-01")
 _LOCALIZE = type(_localize_native("UTC", _probe).op())
 _RENDER = type(_render_native("UTC", _probe).op())
@@ -94,6 +98,34 @@ _RENDER = type(_render_native("UTC", _probe).op())
 
 def governed_temporal_operation(node: ops.Node) -> bool:
     return type(node) in (_LOCALIZE, _RENDER)
+
+
+def _sqlite_interval_seconds(interval: ops.Value) -> ir.IntegerValue | int | None:
+    """Resolve a whole-second interval to the exact shift this engine can keep.
+
+    SQLite's ``DATETIME(..., '+N second', 'subsec')`` renders three fractional
+    digits, so any addition routed through it truncates the fraction and the
+    canonical six-digit contract downstream rejects the row.  A fixed-unit
+    interval is therefore rewritten as an integer second count, for both the
+    literal the compiler authors and the ``IntervalFromInteger`` the
+    civil-midnight bucket builds.  Sub-second and calendar-variable units have
+    no exact whole-second form here and stay on their default lowering.
+    """
+    if not isinstance(interval.dtype, dt.Interval):
+        return None
+    factor = _SQLITE_INTERVAL_SECONDS.get(interval.dtype.unit.short)
+    if factor is None:
+        return None
+    if isinstance(interval, ops.Literal):
+        count = int(interval.value)
+        return count * factor
+    if isinstance(interval, ops.IntervalFromInteger):
+        # The registered scalar takes an int64; a narrow source integer would
+        # otherwise scale in its own width and overflow.
+        seconds = interval.arg.to_expr().cast(dt.int64)
+        assert isinstance(seconds, ir.IntegerValue)
+        return seconds if factor == 1 else seconds * factor
+    return None
 
 
 def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
@@ -129,21 +161,13 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
                 assert isinstance(naive, ir.TimestampValue)
                 return (_clickhouse_localize if localize else _clickhouse_render)(naive, zone).op()
         if engine == "sqlite" and isinstance(value, (ops.TimestampAdd, ops.TimestampSub)):
-            interval = value.right
-            if (
-                isinstance(interval, ops.Literal)
-                and isinstance(interval.dtype, dt.Interval)
-                and interval.dtype.unit.short in {"s", "m", "h", "D"}
-            ):
-                seconds = (
-                    int(interval.value)
-                    * {"s": 1, "m": 60, "h": 3600, "D": 86400}[interval.dtype.unit.short]
-                )
+            seconds = _sqlite_interval_seconds(value.right)
+            if seconds is not None:
                 timestamp = value.left.to_expr()
                 assert isinstance(timestamp, ir.TimestampValue)
-                return _sqlite_shift(
-                    timestamp, seconds if isinstance(value, ops.TimestampAdd) else -seconds
-                ).op()
+                if isinstance(value, ops.TimestampSub):
+                    seconds = -seconds
+                return _sqlite_shift(timestamp, seconds).op()
         if engine == "sqlite" and isinstance(value, ops.TimestampTruncate):
             timestamp = value.arg.to_expr()
             assert isinstance(timestamp, ir.TimestampValue)
@@ -156,6 +180,29 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
         return value
 
     return expression.op().map(rewrite)[expression.op()].to_expr()
+
+
+def sqlite_strptime(value: str | int | float | None, fmt: str) -> str | None:
+    """Parse one SQLite cell with the authored Python format.
+
+    The result is the canonical six-digit microsecond civil text the rest of
+    this backend already produces, so downstream localization and truncation
+    keep reading one representation. SQLite is dynamically typed, so a declared
+    integer column can still arrive here as a native number; it is rendered
+    through the same text the SQL ``CAST(.. AS TEXT)`` would produce.
+
+    A cell the format cannot read returns SQL NULL rather than raising. The
+    driver reports a Python exception from a stored function as an opaque
+    ``user-defined function raised exception``, which would cross the execution
+    boundary as a raw driver error; returning NULL instead lets the compiled
+    ``temporal.strptime_format`` assertion name the axis and the format.
+    """
+    if value is None:
+        return None
+    try:
+        return datetime.strptime(str(value), fmt).isoformat(sep=" ", timespec="microseconds")
+    except ValueError:
+        return None
 
 
 def sqlite_localize(value: str | None, zone: str) -> str | None:

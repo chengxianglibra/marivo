@@ -202,10 +202,15 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     return _inspect_sqlite(request)
 
 
-def reject_strptime(_value: str) -> str:
-    raise ValueError(
-        "SQLite does not compile string strptime expressions; use a native temporal column"
-    )
+def identity_strptime(value: str) -> str:
+    """SQLite parses text with a connection-local ``datetime.strptime`` scalar.
+
+    That scalar consumes the authored Python format itself, so translation is
+    the identity. It replaces an earlier rejection hook that predated the
+    scalar: the format still never reaches a server parser, because SQLite has
+    no native strptime expression to receive it.
+    """
+    return value
 
 
 @contextmanager
@@ -241,7 +246,7 @@ PROFILE = EngineProfile(
         timeout_enforced=True,
         byte_estimate_supported=False,
     ),
-    translate_strptime_format=reject_strptime,
+    translate_strptime_format=identity_strptime,
     postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,

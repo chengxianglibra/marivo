@@ -11,6 +11,149 @@ import pytest
 pytestmark = pytest.mark.runtime
 
 
+@pytest.mark.parametrize("cell", ["oops", "99", "-3", "", " 15", "007"])
+def test_illegal_hour_cells_are_rejected_before_publication(cell: str, tmp_path: Path) -> None:
+    """A malformed string hour must fail closed as a structured rejection.
+
+    The engine must never coerce the cell into a legal hour and publish it.
+    """
+    from dataclasses import replace
+
+    from marivo.analysis import grain, time_scope
+    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.materialization.store import SessionStore
+    from marivo.analysis.observation.metric import LogicalMetricDataset
+    from marivo.refs import ref
+    from marivo.semantic.ir import DateParse, HourPrefixParse
+    from tests.lazy_temporal_fixtures import AXIS, temporal_fixture
+
+    with temporal_fixture(
+        tmp_path,
+        physical="DATE",
+        declared="date",
+        parse=DateParse(),
+        granularity="day",
+        report_zone="UTC",
+        values=("2026-07-01", "2026-07-01"),
+    ) as fixture:
+        fixture.backend.con.execute("UPDATE orders SET channel = ? WHERE id = 1", [cell])
+        fixture.backend.con.execute("UPDATE orders SET channel = '15' WHERE id = 2")
+        registry = replace(fixture.registry, dimensions=dict(fixture.registry.dimensions))
+        registry.dimensions[AXIS] = replace(registry.dimensions[AXIS], is_default=False)
+        hour = "sales.orders.hour"
+        registry.dimensions[hour] = replace(
+            registry.dimensions[AXIS],
+            semantic_id=hour,
+            name="hour",
+            is_default=True,
+            granularity="hour",
+            parse=HourPrefixParse(AXIS),
+            source_column="channel",
+        )
+        registry.freeze()
+    store = SessionStore(tmp_path)
+    session = store.create_session("hour-range", report_timezone_name="UTC")
+    runtime = DatasetRuntime(store, session.session_ref)
+    logical: LogicalMetricDataset = (
+        runtime.sources(semantic_registry=registry, sidecar=fixture.sidecar)
+        .observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-07-01", end="2026-07-03"),
+        )
+        .with_time_axis(ref.time_dimension(hour), grain=grain("hour"))
+        .aggregate()
+    )
+    with pytest.raises(MaterializationError, match=r"temporal\.hour_range") as failure:
+        logical.execute()
+    # A structured rejection names the contract, the physical cell and the repair.
+    assert failure.value.received == "source validation failed: temporal.hour_range"
+    assert "0-23" in failure.value.expected
+    assert "sales.orders.hour" in str(failure.value.hint)
+    assert failure.value.__cause__ is None
+    assert runtime.statistics.primary_queries == 0
+    assert runtime.last_run_ref is not None
+    run = runtime.store.run(runtime.last_run_ref)
+    assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
+    assert not tuple(runtime.store.layout.session_dir(runtime.session_ref).rglob("*.parquet"))
+
+
+def test_boolean_hour_column_is_rejected_before_publication(tmp_path: Path) -> None:
+    """A flag column must not publish its implicit 0/1 hours, nor raise a bare error."""
+    from dataclasses import replace
+
+    from marivo.analysis import grain, time_scope
+    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.materialization.store import SessionStore
+    from marivo.analysis.observation.metric import LogicalMetricDataset
+    from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
+    from marivo.refs import ref
+    from marivo.semantic.ir import DateParse, HourPrefixParse
+    from tests.lazy_temporal_fixtures import AXIS, temporal_fixture
+
+    with temporal_fixture(
+        tmp_path,
+        physical="DATE",
+        declared="date",
+        parse=DateParse(),
+        granularity="day",
+        report_zone="UTC",
+        values=("2026-07-01", "2026-07-01"),
+    ) as fixture:
+        fixture.backend.raw_sql("ALTER TABLE orders ADD COLUMN bhour BOOLEAN")
+        fixture.backend.con.execute("UPDATE orders SET bhour = TRUE WHERE id = 1")
+        fixture.backend.con.execute("UPDATE orders SET bhour = FALSE WHERE id = 2")
+        registry = replace(
+            fixture.registry,
+            dimensions=dict(fixture.registry.dimensions),
+            entities=dict(fixture.registry.entities),
+        )
+        entity = registry.entities["sales.orders"]
+        source = entity.source
+        assert isinstance(source, TableSourceIR)
+        registry.entities[entity.semantic_id] = replace(
+            entity,
+            source=replace(
+                source,
+                columns=(*source.columns, ("bhour", TableColumnBindingIR("bhour", "boolean"))),
+            ),
+        )
+        registry.dimensions[AXIS] = replace(registry.dimensions[AXIS], is_default=False)
+        hour = "sales.orders.hour"
+        registry.dimensions[hour] = replace(
+            registry.dimensions[AXIS],
+            semantic_id=hour,
+            name="hour",
+            is_default=True,
+            granularity="hour",
+            parse=HourPrefixParse(AXIS),
+            source_column="bhour",
+        )
+        registry.freeze()
+    store = SessionStore(tmp_path)
+    session = store.create_session("boolean-hour", report_timezone_name="UTC")
+    runtime = DatasetRuntime(store, session.session_ref)
+    logical: LogicalMetricDataset = (
+        runtime.sources(semantic_registry=registry, sidecar=fixture.sidecar)
+        .observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-07-01", end="2026-07-03"),
+        )
+        .with_time_axis(ref.time_dimension(hour), grain=grain("hour"))
+        .aggregate()
+    )
+    with pytest.raises(MaterializationError, match=r"temporal\.hour_range") as failure:
+        logical.execute()
+    assert failure.value.received == "source validation failed: temporal.hour_range"
+    assert failure.value.__cause__ is None
+    assert runtime.statistics.primary_queries == 0
+    assert runtime.last_run_ref is not None
+    run = runtime.store.run(runtime.last_run_ref)
+    assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
+    assert not tuple(runtime.store.layout.session_dir(runtime.session_ref).rglob("*.parquet"))
+
+
 def test_temporal_authority_survives_cold_continuations(tmp_path: Path) -> None:
     def run(mode: str, *args: str) -> dict[str, object]:
         completed = subprocess.run(

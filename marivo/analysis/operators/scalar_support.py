@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
+from marivo._temporal import Grain, civil_midnight_width_seconds
 from marivo.analysis.compiler.normalize import (
     artifact_inputs,
     logical_roots,
@@ -14,11 +15,18 @@ from marivo.analysis.compiler.normalize import (
 from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity
-from marivo.analysis.observation.contracts import MetricPayload, PopulationPayload, source_owner_of
+from marivo.analysis.observation.contracts import (
+    MetricDefinition,
+    MetricPayload,
+    PopulationPayload,
+    source_owner_of,
+)
 from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import (
     DateParse,
     DatetimeParse,
+    HourPrefixParse,
+    StrptimeParse,
     TableSourceIR,
     TargetDimensionContract,
     TargetSnapshotVersion,
@@ -32,7 +40,7 @@ from marivo.semantic.metric_graph import (
     SliceNodeV1,
     WeightedMeanAggregateNodeV1,
 )
-from marivo.semantic.validator import normalize_target_dimension
+from marivo.semantic.validator import Registry, normalize_target_dimension
 
 _METHODS = frozenset(
     {
@@ -80,6 +88,47 @@ def supports_timestamp(value: str) -> bool:
     return re.fullmatch(r"timestamp\('[^']+'(?:, [0-6])?\)", value) is not None
 
 
+_SINGLE_UNIT_SUBDAY = frozenset({"second", "minute", "hour"})
+_TIMESTAMP_UNITS = frozenset({"hour", "day"})
+_CALENDAR_UNITS = frozenset({"day", "week", "month", "quarter", "year"})
+
+
+def _prefix_is_same_entity_civil_date(registry: Registry, axis: TargetDimensionContract) -> bool:
+    """Resolve an hour-prefix axis's declared prefix for this backend's decision.
+
+    The compiler owns the rule itself (:meth:`Lowering._prefix_axis`) and refuses
+    the same declaration with its own diagnostic.  Admission only needs the
+    resolved prefix to decide whether this backend may take the axis at all.  A
+    prefix that is not a loaded Dimension raises the shared normalization error,
+    exactly as :class:`ColumnCollector` already does for this axis.
+    """
+    parse = axis.parse
+    if not isinstance(parse, HourPrefixParse):
+        return False
+    prefix = normalize_target_dimension(registry, parse.prefix)
+    return prefix.entity_ref == axis.entity_ref and prefix.logical_type == "date"
+
+
+def _admitted_bucket(definition: MetricDefinition, grain: Grain) -> bool:
+    """Admit exactly the bucket widths every backend now implements identically.
+
+    A sub-day count above one is admitted only on the civil-midnight grid, which
+    exists only when the width divides one civil day.  Calendar-variable units
+    (week, month, quarter, year) and the day unit keep their existing
+    ``count == 1`` contract, so any ``count > 1`` on them returns False.
+    """
+    if grain.kind != "builtin":
+        return False
+    axis = definition.time_axis
+    timestamp_axis = axis is not None and axis.logical_type == "timestamp"
+    units = _TIMESTAMP_UNITS if timestamp_axis else _CALENDAR_UNITS
+    if grain.count == 1:
+        return grain.unit in units
+    if not timestamp_axis or grain.unit not in _SINGLE_UNIT_SUBDAY:
+        return False
+    return civil_midnight_width_seconds(grain) is not None
+
+
 def unsupported_reason(
     dataset: LogicalDataset,
     supported_type: Callable[[str], bool],
@@ -88,6 +137,7 @@ def unsupported_reason(
     versions: bool = False,
     date_buckets: bool = False,
     timestamp_buckets: bool = False,
+    parsed_time_axes: bool = False,
     explicit_decimal_sources: bool = False,
     closed_open_null_validity: bool = False,
 ) -> str | None:
@@ -136,6 +186,24 @@ def unsupported_reason(
                     timestamp_buckets
                     and axis.logical_type == "timestamp"
                     and isinstance(axis.parse, (DatetimeParse, TimestampParse))
+                )
+                or (
+                    parsed_time_axes
+                    and axis.is_time_dimension
+                    and (
+                        # A date-only strptime format stays a civil date, which the
+                        # time clause above already admits; a time-bearing one is a
+                        # timestamp and is admitted only when this backend also
+                        # qualified native timestamp buckets.
+                        isinstance(axis.parse, StrptimeParse)
+                        or (
+                            # A composite hour-prefix axis is an hour value, so the
+                            # validator always labels it a timestamp and the same
+                            # timestamp gate above applies to it.
+                            isinstance(axis.parse, HourPrefixParse)
+                            and _prefix_is_same_entity_civil_date(owner.semantic_registry, axis)
+                        )
+                    )
                 )
             )
         )
@@ -207,17 +275,7 @@ def unsupported_reason(
                 not date_buckets
                 or not temporal(definition.time_axis)
                 or grain is None
-                or (
-                    grain.kind != "builtin"
-                    or grain.count != 1
-                    or grain.unit
-                    not in (
-                        {"hour", "day"}
-                        if definition.time_axis is not None
-                        and definition.time_axis.logical_type == "timestamp"
-                        else {"day", "week", "month", "quarter", "year"}
-                    )
-                )
+                or not _admitted_bucket(definition, grain)
             ):
                 return "this temporal type, parser or bucket is not qualified for this backend"
         if definition.temporal_snapshot is not None:

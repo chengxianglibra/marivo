@@ -191,13 +191,13 @@ group means. Comparison and attribution use complete non-Entity retained axes.
 Forecast, Kendall and time discovery run locally on complete source-aggregated
 inputs. Cold retained reads and folds do not need the original source.
 
-String-parser time axes, multi-unit or semantic-calendar
-buckets, cumulative/status-time folds, linear Metric graphs and unresolved Decimal
-result precision remain unsupported. Sampling, hidden-axis expanded attribution,
-Entity correlation, exact distinct/quantile private state, Entity candidates,
-source driver screening and Event/Lifecycle are not enabled by this extension.
-Unsupported shapes report a concrete reason; they do not trigger raw source
-collection or remote retained uploads.
+Semantic-calendar buckets, cumulative/status-time folds, linear Metric graphs and
+unresolved Decimal result precision remain unsupported. Sampling, hidden-axis
+expanded attribution, Entity correlation, exact distinct/quantile private state,
+Entity candidates, source driver screening and Event/Lifecycle are not enabled by
+this extension. String-parser time axes and multi-unit buckets are enabled per
+backend, with the limits below. Unsupported shapes report a concrete reason; they
+do not trigger raw source collection or remote retained uploads.
 
 ### Native timestamp analysis
 
@@ -226,9 +226,26 @@ interpretation. Two known instants in a repeated report hour share its civil buc
 Naive predicate literals compare civil fields; aware literals compare instant
 fields. Mixing these kinds fails. Milliseconds/microseconds remain exact through
 SQL literals, Arrow, Parquet and source-offline cold recovery. Hour-to-day retained
-folds reuse the persisted temporal facts. String/epoch parsing, multi-unit buckets,
-new timestamp version selection and semantic calendar/cumulative extensions are
-not enabled on remote backends.
+folds reuse the persisted temporal facts. Epoch parsing, new timestamp version
+selection and semantic calendar/cumulative extensions are not enabled on remote
+backends.
+
+### String time parsing and multi-unit buckets
+
+A time dimension authored with an explicit parser (`ms.strptime(...)`) executes on
+the source for DuckDB, SQLite, MySQL, PostgreSQL and ClickHouse, including
+composite hour-prefix axes. Trino has no execution evidence for these yet. A cell
+the declared format cannot read is rejected before publication on SQLite, MySQL and
+ClickHouse; DuckDB and PostgreSQL surface the engine's own parse error, and
+PostgreSQL's `TO_TIMESTAMP` is lenient toward format-mismatched text, so a
+well-formed cell that its format merely misreads can produce a wrong instant there.
+
+A multi-unit bucket (`mv.grain(unit, count=...)` with `count > 1`) is anchored on
+the civil midnight of its own day, and only counts whose width divides one civil
+day are admitted; `mv.grain("hour", count=7)` therefore fails rather than picking
+an arbitrary origin. Because the anchor is a civil boundary, a six-hour bucket
+spanning a spring-forward gap is five hours and one spanning a fall-back gap is
+seven, while the DST day itself still starts at local midnight.
 
 ```python
 import marivo.analysis as mv

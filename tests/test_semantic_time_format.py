@@ -2,7 +2,10 @@ import re
 
 import pytest
 
-from marivo.datasource.strptime import python_to_mysql_strptime
+from marivo.datasource.strptime import (
+    python_to_mysql_strptime,
+    python_to_postgres_strptime,
+)
 from marivo.semantic.time_format import normalize_strptime
 
 
@@ -104,3 +107,79 @@ def test_p2m_rejects_divergent_directives():
 def test_p2m_rejects_unknown_directive():
     with pytest.raises(ValueError):
         python_to_mysql_strptime("%Q")
+
+
+def test_p2m_rejects_stray_percent():
+    with pytest.raises(ValueError, match="stray"):
+        python_to_mysql_strptime("%Y-%")
+
+
+# --- python_to_postgres_strptime ---
+#
+# PostgreSQL ``TO_TIMESTAMP`` uses template patterns, which agree with Python
+# strptime on the calendar fields but not the sub-day ones (Python ``%M`` is
+# minute, PostgreSQL ``MM`` is month; minute is ``MI``). The expectations below
+# are written from the PostgreSQL template table in the documentation, not from
+# the production directive map.
+
+
+def test_p2p_translates_temporal_directives():
+    assert python_to_postgres_strptime("%Y") == "YYYY"
+    assert python_to_postgres_strptime("%y") == "YY"
+    assert python_to_postgres_strptime("%m") == "MM"
+    assert python_to_postgres_strptime("%d") == "DD"
+    assert python_to_postgres_strptime("%H") == "HH24"
+    assert python_to_postgres_strptime("%I") == "HH12"
+    assert python_to_postgres_strptime("%M") == "MI"
+    assert python_to_postgres_strptime("%S") == "SS"
+    assert python_to_postgres_strptime("%f") == "US"
+    assert python_to_postgres_strptime("%j") == "DDD"
+    assert python_to_postgres_strptime("%p") == "AM"
+
+
+def test_p2p_translates_names():
+    assert python_to_postgres_strptime("%b") == "Mon"
+    assert python_to_postgres_strptime("%B") == "Month"
+    assert python_to_postgres_strptime("%a") == "Dy"
+    assert python_to_postgres_strptime("%A") == "Day"
+
+
+def test_p2p_translates_full_timestamp_format():
+    assert python_to_postgres_strptime("%Y-%m-%d %H:%M:%S") == "YYYY-MM-DD HH24:MI:SS"
+    assert python_to_postgres_strptime("%Y%m%d%H%M%S") == "YYYYMMDDHH24MISS"
+    assert python_to_postgres_strptime("%Y-%m-%dT%H:%M:%S") == "YYYY-MM-DDTHH24:MI:SS"
+
+
+def test_p2p_preserves_literal_percent():
+    """``%%`` is a literal percent, not a template pattern."""
+    assert python_to_postgres_strptime("100%%") == "100%"
+
+
+def test_p2p_rejects_directives_without_an_exact_pattern():
+    """Every rejected directive either diverges from its PostgreSQL pattern or
+    has none, so passing it through would silently change the parsed value."""
+    for tok in [
+        "%W",
+        "%u",
+        "%U",
+        "%w",
+        "%e",
+        "%Z",
+        "%z",
+        "%c",
+        "%x",
+        "%X",
+        "%G",
+        "%g",
+        "%V",
+        "%h",
+    ]:
+        with pytest.raises(ValueError, match=re.escape(tok)):
+            python_to_postgres_strptime(tok)
+
+
+def test_p2p_rejects_unknown_directive_and_stray_percent():
+    with pytest.raises(ValueError):
+        python_to_postgres_strptime("%Q")
+    with pytest.raises(ValueError, match="stray"):
+        python_to_postgres_strptime("%Y-%")

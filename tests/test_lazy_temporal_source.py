@@ -9,17 +9,22 @@ import pytest
 from marivo.analysis import grain, time_scope
 from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.errors import DatasetCompilationError
+from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.analysis.observation.temporal import ReportTimeAuthority
-from marivo.analysis.session._lazy_sources import make_lazy_sources
+from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
+from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
 from marivo.refs import ref
 from marivo.semantic.ir import (
     CumulativeComposition,
     DateParse,
+    DatetimeParse,
     HourPrefixParse,
+    SemanticParse,
     StrptimeParse,
     TimestampParse,
 )
-from tests.lazy_execution_fixtures import assert_compiled_validations
+from marivo.semantic.validator import Registry
+from tests.lazy_execution_fixtures import ExecutionFixture, assert_compiled_validations
 from tests.lazy_observation_fixtures import NoIoActionPort
 from tests.lazy_temporal_fixtures import AXIS, temporal_fixture
 
@@ -335,6 +340,230 @@ def test_composite_date_hour_axis_is_localized_before_day_bucket(tmp_path: Path)
         assert [row["revenue"] for row in rows] == [1, 2]
 
 
+def _hour_prefix_fixture(
+    fixture: ExecutionFixture,
+    column: str,
+    *,
+    cells: tuple[object, ...],
+    declared: str | None = None,
+) -> tuple[LazySources, Registry]:
+    """Bind ``column`` as an hour-prefix axis over the DATE prefix column."""
+    for index, cell in enumerate(cells, 1):
+        fixture.backend.con.execute(f"UPDATE orders SET {column} = ? WHERE id = ?", [cell, index])
+    registry = replace(
+        fixture.registry,
+        dimensions=dict(fixture.registry.dimensions),
+        entities=dict(fixture.registry.entities),
+    )
+    if declared is not None:
+        entity = registry.entities["sales.orders"]
+        source = entity.source
+        assert isinstance(source, TableSourceIR)
+        registry.entities[entity.semantic_id] = replace(
+            entity,
+            source=replace(
+                source,
+                columns=(
+                    *source.columns,
+                    (column, TableColumnBindingIR(column, declared)),
+                ),
+            ),
+        )
+    registry.dimensions[AXIS] = replace(registry.dimensions[AXIS], is_default=False)
+    hour = "sales.orders.hour"
+    registry.dimensions[hour] = replace(
+        registry.dimensions[AXIS],
+        semantic_id=hour,
+        name="hour",
+        is_default=True,
+        granularity="hour",
+        parse=HourPrefixParse(AXIS),
+        source_column=column,
+    )
+    registry.freeze()
+    return make_lazy_sources(
+        semantic_registry=registry,
+        sidecar=fixture.sidecar,
+        action_port=NoIoActionPort(),
+        session_id="one",
+        store_id="one",
+        report_time=fixture.sources._owner.report_time,
+    ), registry
+
+
+def _hour_prefix_dataset(sources: LazySources, *, prefix_axis: str = AXIS) -> LogicalMetricDataset:
+    return (
+        sources.observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-07-01", end="2026-07-03"),
+        )
+        .with_time_axis(ref.time_dimension("sales.orders.hour"), grain=grain("hour"))
+        .aggregate()
+    )
+
+
+@pytest.mark.parametrize("cell", ["oops", "99", "-3", "", " 15", "15 ", "007", "1.5", None])
+def test_malformed_hour_cells_are_counted_as_hour_range_violations(
+    cell: object, tmp_path: Path
+) -> None:
+    """The value domain is decided on the raw cell, never an engine cast result.
+
+    A missing cell is outside the integer-literal domain too: silently dropping
+    the row would undercount the composite axis without a diagnostic.
+    """
+    with temporal_fixture(
+        tmp_path,
+        physical="DATE",
+        declared="date",
+        parse=DateParse(),
+        granularity="day",
+        report_zone="UTC",
+        values=("2026-07-01", "2026-07-01", "2026-07-01"),
+    ) as fixture:
+        sources, _ = _hour_prefix_fixture(fixture, "channel", cells=(cell, "15", "16"))
+        logical = _hour_prefix_dataset(sources)
+        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
+        checks = {check.name: check for check in compiled.validations}
+        assert "temporal.hour_range" in checks
+        violations = checks["temporal.hour_range"].expression.to_pyarrow().to_pylist()
+        assert violations == [{"violations": 1}]
+
+
+@pytest.mark.parametrize("cell,expected", [(-1, 1), (24, 1), (99, 1), (0, 0), (23, 0), (None, 1)])
+def test_integer_hour_cells_keep_the_same_open_range_contract(
+    cell: int | None, expected: int, tmp_path: Path
+) -> None:
+    """Integers keep the pre-existing range contract; one domain with the text case.
+
+    A missing hour is now counted rather than silently dropped, so the composite
+    axis can never undercount its rows without a diagnostic.
+    """
+    with temporal_fixture(
+        tmp_path,
+        physical="DATE",
+        declared="date",
+        parse=DateParse(),
+        granularity="day",
+        report_zone="UTC",
+        values=("2026-07-01", "2026-07-01"),
+    ) as fixture:
+        sources, _ = _hour_prefix_fixture(fixture, "order_id", cells=(cell, 16))
+        logical = _hour_prefix_dataset(sources)
+        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
+        checks = {check.name: check for check in compiled.validations}
+        assert checks["temporal.hour_range"].expression.to_pyarrow().to_pylist() == [
+            {"violations": expected}
+        ]
+
+
+@pytest.mark.parametrize("cells", [(True, False), (False, True), (True, True)])
+def test_boolean_hour_columns_are_a_structured_violation(
+    cells: tuple[bool, bool], tmp_path: Path
+) -> None:
+    """A boolean is admissible as a declared type but is not a 0-23 hour literal.
+
+    BooleanValue subclasses NumericValue, so branch selection matters: comparing
+    or taking a remainder against an integer is undefined for booleans and raised
+    a bare IbisTypeError. Every cell must count as a violation instead, and the
+    flag must never be published as the implicit hours 0 and 1.
+    """
+    with temporal_fixture(
+        tmp_path,
+        physical="DATE",
+        declared="date",
+        parse=DateParse(),
+        granularity="day",
+        report_zone="UTC",
+        values=("2026-07-01", "2026-07-01"),
+    ) as fixture:
+        fixture.backend.raw_sql("ALTER TABLE orders ADD COLUMN bhour BOOLEAN")
+        sources, _ = _hour_prefix_fixture(fixture, "bhour", cells=cells, declared="boolean")
+        logical = _hour_prefix_dataset(sources)
+        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
+        checks = {check.name: check for check in compiled.validations}
+        assert checks["temporal.hour_range"].expression.to_pyarrow().to_pylist() == [
+            {"violations": 2}
+        ]
+
+
+@pytest.mark.parametrize("cell,expected", [(15.0, 0), (16.0, 0), (15.5, 1), (23.9, 1)])
+def test_fractional_numeric_hour_cells_are_outside_the_integer_domain(
+    cell: float, expected: int, tmp_path: Path
+) -> None:
+    """A fractional hour is not a 0-23 integer literal even when it casts cleanly."""
+    with temporal_fixture(
+        tmp_path,
+        physical="DATE",
+        declared="date",
+        parse=DateParse(),
+        granularity="day",
+        report_zone="UTC",
+        values=("2026-07-01", "2026-07-01"),
+    ) as fixture:
+        fixture.backend.raw_sql("ALTER TABLE orders ADD COLUMN fhour DOUBLE")
+        sources, _ = _hour_prefix_fixture(fixture, "fhour", cells=(cell, 16.0), declared="float64")
+        logical = _hour_prefix_dataset(sources)
+        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
+        checks = {check.name: check for check in compiled.validations}
+        violations = checks["temporal.hour_range"].expression.to_pyarrow().to_pylist()
+        assert violations == [{"violations": expected}]
+
+
+def test_valid_string_and_integer_hour_columns_share_one_value_domain(tmp_path: Path) -> None:
+    """Physical type must not change the accepted 0-23 integer-literal contract."""
+    outputs: dict[str, list[tuple[str, float]]] = {}
+    for column in ("order_id", "channel"):
+        case = tmp_path / column
+        case.mkdir()
+        with temporal_fixture(
+            case,
+            physical="DATE",
+            declared="date",
+            parse=DateParse(),
+            granularity="day",
+            report_zone="UTC",
+            values=("2026-07-01", "2026-07-01"),
+        ) as fixture:
+            sources, _ = _hour_prefix_fixture(fixture, column, cells=(15, 16))
+            logical = _hour_prefix_dataset(sources)
+            compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
+            assert_compiled_validations(compiled.validations)
+            outputs[column] = [
+                (str(row["hour"]), row["revenue"])
+                for row in compiled.expression.to_pyarrow().to_pylist()
+            ]
+    assert outputs["order_id"] == outputs["channel"]
+
+
+@pytest.mark.parametrize(
+    "zone,expected",
+    [
+        ("UTC", ["2026-07-01 15:00:00", "2026-07-01 16:00:00"]),
+        ("Asia/Kathmandu", ["2026-07-01 20:00:00", "2026-07-01 21:00:00"]),
+        ("America/New_York", ["2026-07-01 11:00:00", "2026-07-01 12:00:00"]),
+    ],
+)
+def test_string_hour_prefix_keeps_the_integer_report_zone_matrix(
+    zone: str, expected: list[str], tmp_path: Path
+) -> None:
+    with temporal_fixture(
+        tmp_path,
+        physical="DATE",
+        declared="date",
+        parse=DateParse(),
+        granularity="day",
+        report_zone=zone,
+        values=("2026-07-01", "2026-07-01"),
+    ) as fixture:
+        sources, _ = _hour_prefix_fixture(fixture, "channel", cells=("15", "16"))
+        logical = _hour_prefix_dataset(sources)
+        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
+        assert_compiled_validations(compiled.validations)
+        rows = compiled.expression.to_pyarrow().to_pylist()
+        assert [str(row["hour"]) for row in rows] == expected
+        assert [row["revenue"] for row in rows] == [1.0, 2.0]
+
+
 def test_submicrosecond_source_is_never_silently_truncated(tmp_path: Path) -> None:
     with temporal_fixture(
         tmp_path,
@@ -410,6 +639,113 @@ def test_validity_selection_uses_report_endpoint_and_source_instants(tmp_path: P
         assert_compiled_validations(result.validations)
         rows = result.expression.to_pyarrow().to_pylist()
         assert rows == [{"entity_identity": {"id": 1}}]
+
+
+# Every parse variant that yields a naive wall clock, keyed by the exact
+# declaration that reaches it.  ``DateParse`` and a date-only ``StrptimeParse``
+# are absent on purpose: they produce a civil date, which carries no time of day
+# to be inside or outside a gap.  A variant added to ``SemanticParse`` must be
+# placed in one of those two groups or this mapping stops being exhaustive.
+NAIVE_TIME_BEARING_PARSES: dict[str, tuple[str, str, SemanticParse | None]] = {
+    "native-naive": ("TIMESTAMP", "timestamp(6)", None),
+    "datetime": ("TIMESTAMP", "timestamp(6)", DatetimeParse()),
+    "timestamp": ("TIMESTAMP", "timestamp(6)", TimestampParse()),
+    "strptime": ("VARCHAR", "string", StrptimeParse("%Y-%m-%d %H:%M:%S")),
+}
+
+
+def test_naive_time_bearing_parse_coverage_is_exhaustive() -> None:
+    """A parse variant cannot be added without deciding its gap/fold duty.
+
+    This is exhaustive over ``SemanticParse`` variants only.  Which *axis kinds*
+    reach the guard is a separate question this test cannot see: a version
+    coordinate named by no payload field was missed once already, and it is the
+    validity-endpoint runtime tests that now own that coverage.
+    """
+    from typing import get_args
+
+    every_variant = set(get_args(SemanticParse))
+    covered = {
+        *(type(parse) for _, _, parse in NAIVE_TIME_BEARING_PARSES.values() if parse is not None),
+        HourPrefixParse,
+        DateParse,
+    }
+    assert every_variant == covered, (
+        "a SemanticParse variant was added without declaring whether it carries a naive "
+        "wall clock that the gap/fold guard must judge; this covers parse variants only, "
+        "so a new axis kind needs its own guard coverage"
+    )
+
+
+@pytest.mark.parametrize(
+    ("physical", "declared", "parse"),
+    NAIVE_TIME_BEARING_PARSES.values(),
+    ids=NAIVE_TIME_BEARING_PARSES,
+)
+def test_every_naive_time_bearing_axis_kind_emits_a_gap_fold_guard(
+    physical: str, declared: str, parse: SemanticParse | None, tmp_path: Path
+) -> None:
+    """A parser cannot silently opt out of the gap/fold guard.
+
+    Every axis kind that carries a naive wall clock must publish its own
+    ``temporal.local_time`` assertion, so a future parser that forgets to
+    register one fails here rather than at publication.
+    """
+    with temporal_fixture(
+        tmp_path,
+        physical=physical,
+        declared=declared,
+        parse=parse,
+        values=("2026-07-01 12:00:00",),
+    ) as fixture:
+        logical = (
+            fixture.sources.observe(ref.metric("sales.revenue"))
+            .with_time_axis(ref.time_dimension(AXIS), grain=grain("hour"))
+            .aggregate()
+        )
+        result = compile_dataset(logical, fixture.tables(logical), read_timezone="America/New_York")
+        assert f"temporal.local_time.{AXIS}" in {check.name for check in result.validations}
+
+
+def test_composite_hour_prefix_axis_emits_a_gap_fold_guard(tmp_path: Path) -> None:
+    """The reconstructed civil date plus stored hour is a wall clock too."""
+    with temporal_fixture(
+        tmp_path,
+        physical="DATE",
+        declared="date",
+        parse=DateParse(),
+        granularity="day",
+        values=("2026-07-01",),
+    ) as fixture:
+        fixture.backend.raw_sql("UPDATE orders SET order_id = 12")
+        registry = replace(fixture.registry, dimensions=dict(fixture.registry.dimensions))
+        registry.dimensions[AXIS] = replace(registry.dimensions[AXIS], is_default=False)
+        hour = "sales.orders.hour"
+        registry.dimensions[hour] = replace(
+            registry.dimensions[AXIS],
+            semantic_id=hour,
+            name="hour",
+            is_default=True,
+            granularity="hour",
+            parse=HourPrefixParse(AXIS),
+            source_column="order_id",
+        )
+        registry.freeze()
+        sources = make_lazy_sources(
+            semantic_registry=registry,
+            sidecar=fixture.sidecar,
+            action_port=NoIoActionPort(),
+            session_id="one",
+            store_id="one",
+            report_time=fixture.sources._owner.report_time,
+        )
+        logical = (
+            sources.observe(ref.metric("sales.revenue"))
+            .with_time_axis(ref.time_dimension(hour), grain=grain("hour"))
+            .aggregate()
+        )
+        result = compile_dataset(logical, fixture.tables(logical), read_timezone="America/New_York")
+        assert f"temporal.local_time.{hour}" in {check.name for check in result.validations}
 
 
 def test_fixed_offset_report_authority_is_explicit(tmp_path: Path) -> None:

@@ -348,6 +348,30 @@ def semantic_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
     return _SemanticGrain(calendar=calendar, level=level)
 
 
+_CIVIL_DAY_SECONDS = 86_400
+_SUBDAY_UNIT_SECONDS = {"second": 1, "minute": 60, "hour": 3_600}
+
+
+def civil_midnight_width_seconds(grain: Grain) -> int | None:
+    """Return one sub-day grain's admitted width on the civil-midnight grid.
+
+    A multi-unit sub-day bucket restarts at the local midnight of its own day,
+    which is only well defined when its width divides one civil day.  Widths
+    that do not divide the day have no unique anchor, so they return ``None``
+    and every consumer fails closed instead of choosing an origin.  Divisibility
+    is the only rule: the constructor already rejects a non-positive count, which
+    is a construction error rather than an absent anchor.
+    """
+    if grain.kind != "builtin":
+        return None
+    value = cast("_BuiltinGrain", grain)
+    unit_seconds = _SUBDAY_UNIT_SECONDS.get(value.unit)
+    if unit_seconds is None:
+        return None
+    width = unit_seconds * value.count
+    return None if _CIVIL_DAY_SECONDS % width != 0 else width
+
+
 def period_calendar_definition_digest(
     *,
     calendar_ref: Ref[PeriodCalendarKind],

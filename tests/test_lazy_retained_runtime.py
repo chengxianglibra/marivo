@@ -1,6 +1,7 @@
 """Independent numeric and immutable-input references for retained Runtime paths."""
 
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -171,3 +172,103 @@ def test_source_prefix_transfers_all_parts_once_to_local_fold(
         == fixture.runtime.statistics.local_handoffs[1][0]
     )
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
+
+
+def test_retained_fold_groups_multi_unit_buckets_on_the_source_grid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The local fold oracle must agree with the source grid for count > 1.
+
+    Both the source observation and the retained continuation fold multi-unit
+    widths, so reverting either owner changes an observed literal here.  The
+    expectations are hand-computed from the declared read authority (DuckDB
+    reads the naive source strings as UTC) rendered into the America/New_York
+    boundary zone, whose spring-forward lands on 2026-03-08 and fall-back on
+    2026-11-01.  One row deliberately sits just inside a 6hour boundary so the
+    source offset is observable rather than rounded away:
+
+        09:30Z -> 05:30 local -> 00:00 (6hour), 00:00 (12hour)
+        15:00Z -> 11:00 local -> 06:00 (6hour), 00:00 (12hour)
+        19:00Z -> 15:00 local -> 12:00 (6hour), 12:00 (12hour)
+        15:00Z -> 10:00 local -> 06:00 (6hour), 00:00 (12hour)
+        16:00Z -> 11:00 local -> 06:00 (6hour), 00:00 (12hour)
+    """
+    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.materialization.store import SessionStore
+    from marivo.analysis.operators.rollup import bucket_bounds
+    from tests.lazy_temporal_fixtures import AXIS as ORDER_TIME
+    from tests.lazy_temporal_fixtures import temporal_fixture
+
+    with temporal_fixture(
+        tmp_path,
+        parse=None,
+        report_zone="America/New_York",
+        values=(
+            "2026-03-08 09:30:00",
+            "2026-03-08 15:00:00",
+            "2026-03-08 19:00:00",
+            "2026-11-01 15:00:00",
+            "2026-11-01 16:00:00",
+        ),
+    ) as fixture:
+        registry, sidecar = fixture.registry, fixture.sidecar
+    store = SessionStore(tmp_path)
+    session = store.create_session("multi-unit", report_timezone_name="America/New_York")
+    runtime = DatasetRuntime(store, session.session_ref)
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    six_hourly = (
+        sources.observe(REVENUE, time_scope=time_scope(start="2026-03-01", end="2026-12-01"))
+        .with_time_axis(ref.time_dimension(ORDER_TIME), grain=grain("hour", count=6))
+        .aggregate()
+    )
+    # Hand-computed source-side literals: the compiled civil-midnight expression.
+    checkpoint = six_hourly.execute()
+    source = checkpoint.to_pandas()
+    assert source["order_time"].tolist() == [
+        datetime(2026, 3, 8, 0, 0),
+        datetime(2026, 3, 8, 6, 0),
+        datetime(2026, 3, 8, 12, 0),
+        datetime(2026, 11, 1, 6, 0),
+    ]
+    assert source["revenue"].tolist() == [1.0, 2.0, 3.0, 9.0]
+
+    # The retained continuation folds 6hour coordinates into 12hour buckets, so
+    # the pandas oracle is the only code that can produce these literals.
+    registered = implementations.implementation
+
+    def supported(dataset: LogicalDataset) -> implementations.ImplementationRegistration:
+        registration = registered(dataset)
+        return (
+            replace(registration, backends=())
+            if registration.operator_id == "metric.where"
+            else registration
+        )
+
+    monkeypatch.setattr(implementations, "implementation", supported)
+    retained = (
+        checkpoint.where(gt(REVENUE, 0)).rollup(grain=grain("hour", count=12)).execute().to_pandas()
+    )
+    assert runtime.statistics.events.get("local_execution_started", 0) > 0
+    assert retained["order_time"].tolist() == [
+        datetime(2026, 3, 8, 0, 0),
+        datetime(2026, 3, 8, 12, 0),
+        datetime(2026, 11, 1, 0, 0),
+    ]
+    assert retained["revenue"].tolist() == [3.0, 3.0, 9.0]
+
+    # The fold oracle itself, on the persisted naive coordinate, is the second
+    # owner of the same grid; assert it directly so a compensating change inside
+    # the source expression cannot hide a divergence here.
+    assert bucket_bounds(datetime(2026, 3, 8, 6, 0), grain("hour", count=12), None) == (
+        datetime(2026, 3, 8, 0, 0),
+        datetime(2026, 3, 8, 12, 0),
+    )
+    assert bucket_bounds(datetime(2026, 3, 8, 12, 0), grain("hour", count=12), None) == (
+        datetime(2026, 3, 8, 12, 0),
+        datetime(2026, 3, 9, 0, 0),
+    )
+    assert bucket_bounds(datetime(2026, 11, 1, 6, 0), grain("hour", count=12), None) == (
+        datetime(2026, 11, 1, 0, 0),
+        datetime(2026, 11, 1, 12, 0),
+    )
+    assert runtime.store.resources(runtime.session_ref) == ()

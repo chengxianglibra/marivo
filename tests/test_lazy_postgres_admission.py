@@ -12,13 +12,17 @@ from marivo.analysis.operators.registry import backend_execution, implementation
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.ir import CsvSourceIR, TableColumnBindingIR, TableSourceIR
 from marivo.refs import ref
-from marivo.semantic.ir import AggKind, StrptimeParse
+from marivo.semantic.ir import AggKind, HourPrefixParse, StrptimeParse, TimestampParse
 from marivo.semantic.validator import Registry
 from tests.lazy_observation_fixtures import NoIoActionPort, make_semantic_registry
 
 
 def _sources(
-    *, amount_type: str = "float64", aggregation: AggKind = "sum", parsed_time: bool = False
+    *,
+    amount_type: str = "float64",
+    aggregation: AggKind = "sum",
+    parsed_time: bool = False,
+    hour_prefix: bool = False,
 ) -> LazySources:
     original, sidecar = make_semantic_registry()
     registry = Registry(
@@ -53,6 +57,22 @@ def _sources(
     if parsed_time:
         registry.dimensions["sales.orders.order_time"] = replace(
             registry.dimensions["sales.orders.order_time"], parse=StrptimeParse("%Y-%m-%d")
+        )
+    if hour_prefix:
+        # The prefix must resolve to a timestamp axis, not the civil date the
+        # composite hour contract requires, so admission keeps refusing it.
+        registry.dimensions["sales.orders.order_time"] = replace(
+            registry.dimensions["sales.orders.order_time"],
+            granularity="second",
+            parse=TimestampParse(),
+        )
+        registry.dimensions["sales.orders.hour"] = replace(
+            registry.dimensions["sales.orders.order_time"],
+            semantic_id="sales.orders.hour",
+            name="hour",
+            granularity="hour",
+            parse=HourPrefixParse("sales.orders.order_time"),
+            source_column="order_id",
         )
     registry.freeze()
     return make_lazy_sources(
@@ -142,10 +162,16 @@ def test_decimal_128_bounds_are_supported() -> None:
 
 
 def test_metric_slice_cannot_hide_unsupported_time_parse() -> None:
-    sources = _sources(parsed_time=True)
+    """A slice condition must not smuggle in a parse this backend still refuses.
+
+    StrptimeParse is admitted since C3b, so the specimen is a composite hour
+    axis whose prefix column is a timestamp rather than the civil date the
+    hour-prefix contract requires.
+    """
+    sources = _sources(parsed_time=False, hour_prefix=True)
     metric = rm.slice(
         ref.metric("sales.revenue"),
-        by={ref.time_dimension("sales.orders.order_time"): "2026-02-01"},
+        by={ref.time_dimension("sales.orders.hour"): "2026-02-01"},
         label="selected_revenue",
     )
     dataset = sources.observe(metric).aggregate()

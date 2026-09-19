@@ -75,6 +75,7 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
             sqlite_localize,
             sqlite_render,
             sqlite_shift,
+            sqlite_strptime,
             sqlite_truncate,
         )
 
@@ -83,6 +84,7 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
             ("_marivo_render", sqlite_render),
             ("_marivo_truncate", sqlite_truncate),
             ("_marivo_shift", sqlite_shift),
+            ("_marivo_strptime", sqlite_strptime),
         ):
             self._sqlite.con.create_function(name, 2, function, deterministic=True)
 

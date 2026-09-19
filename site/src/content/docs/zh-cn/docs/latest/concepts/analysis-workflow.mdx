@@ -123,10 +123,10 @@ rollup 从保留的 sum/count 状态重新计算均值，不对分组均值直�
 比较与归因使用完整的非 Entity 保留轴；Forecast、Kendall 和时间发现方法在源端完整
 聚合后于调用进程执行。冷读与保留结果折叠不需要原始数据源。
 
-字符串时间解析、多单位或语义日历桶、累计/status-time 折叠、
-线性 Metric 图以及未确定结果精度的 Decimal 组合仍不支持。
-采样、隐藏轴展开归因、Entity correlation、exact distinct/quantile 私有状态、
-Entity candidates、源端 driver screening 和 Event/Lifecycle 不随此扩展启用。
+语义日历桶、累计/status-time 折叠、线性 Metric 图以及未确定结果精度的
+Decimal 组合仍不支持。采样、隐藏轴展开归因、Entity correlation、
+exact distinct/quantile 私有状态、Entity candidates、源端 driver screening 和
+Event/Lifecycle 不随此扩展启用。字符串时间解析与多单位桶按后端逐步启用，限制见下节。
 不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。
 
 ### 原生 timestamp 时间分析
@@ -146,8 +146,21 @@ aware 声明保留 instant。ClickHouse timestamp 执行要求已验证的 UTC r
 范围先按 instant 做半开比较，再生成报告时区 civil 桶。naive gap/fold 时间拒绝；
 两个已知 instant 落在重复的报告小时内时归入同一 civil 桶。naive 谓词字面量比较
 civil 字段，aware 字面量比较 instant，混用拒绝。微秒 SQL 边界、Arrow/Parquet 和
-源离线冷读必须保真；小时到日续算复用保存的时间事实。远程字符串/epoch 解析、
-多单位桶、新 timestamp 版本选择、日历与累计扩展仍未启用。
+源离线冷读必须保真；小时到日续算复用保存的时间事实。远程 epoch 解析、
+新 timestamp 版本选择、日历与累计扩展仍未启用。
+
+### 字符串时间解析与多单位桶
+
+用显式 parser 声明的时间维度（`ms.strptime(...)`）在 DuckDB、SQLite、MySQL、
+PostgreSQL 与 ClickHouse 上于源端执行，包含复合小时前缀轴。Trino 尚无执行证据。
+声明格式读不出的单元格在 SQLite、MySQL 与 ClickHouse 上于发布前拒绝；DuckDB 与
+PostgreSQL 暴露引擎自身的解析错误，其中 PostgreSQL 的 `TO_TIMESTAMP` 对格式不匹配
+的文本较宽松，格式看错但形状合法的单元格可能得到错误 instant。
+
+多单位桶（`mv.grain(unit, count=...)` 且 `count > 1`）以该 civil 日本地午夜为锚点，
+且只准入宽整除以一个 civil 日的 count；`mv.grain("hour", count=7)` 直接失败而不是
+任选一个起点。由于锚点是 civil 边界，跨春季 gap 的 6 小时桶实际为 5 小时、跨秋季
+fold 的为 7 小时，而 DST 当天本身仍从本地午夜起算。
 
 ```python
 import marivo.analysis as mv
@@ -190,9 +203,8 @@ top_channels.show()
 
 所有必要源列必须使用 Boolean、string、有符号整数、float32、float64、date、
 精度为 0–6 的 timestamp/timestamptz 或 Decimal。PostgreSQL CHAR 因尾空格语义不同而拒绝，text/varchar 保持支持。Decimal 精度最大为 38，scale 从零到精度；
-未指定精度的 Decimal 声明仍需通过实际元数据校验。字符串时间解析、带时区的
-字符串解析、采样、组合 Metric 和
-私有状态方法不在此子集内。
+未指定精度的 Decimal 声明仍需通过实际元数据校验。带时区的字符串解析、采样、
+组合 Metric 和私有状态方法不在此子集内。
 
 使用没有写入、CREATE、TEMP 权限的 PostgreSQL 只读账户。查询通过明确管理的
 服务端游标分批传输，不创建临时表、不上传数据、不创建 UDF。验证与结果查询可能

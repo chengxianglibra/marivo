@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
 
 import pandas as pd
@@ -49,7 +49,14 @@ def bucket_bounds(
     grain: Grain,
     snapshot: PeriodCalendarSnapshotV1 | None,
 ) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """Use the admitted DuckDB calendar anchoring without consulting a backend."""
+    """Resolve one bucket's exact bounds without consulting a backend.
+
+    Multi-unit builtin widths use the same civil-midnight anchor as the compiled
+    source expression, so retained folds group rows identically to the source
+    grid.  The width divides one civil day; a bucket spanning a DST transition
+    therefore keeps its civil endpoints (five hours across a spring gap, seven
+    across a fall fold).
+    """
     stamp = _timestamp(value)
     if grain.kind == "semantic":
         if snapshot is None or snapshot.calendar_ref != grain.calendar:
@@ -77,11 +84,74 @@ def bucket_bounds(
     if unit not in BUILTIN_GRAIN_SECONDS:
         raise compilation_error("an admitted builtin grain", "unsupported fold grain")
     width_seconds = BUILTIN_GRAIN_SECONDS[unit] * count
-    # DuckDB time_bucket anchors sub-month intervals at Monday 2000-01-03.
-    origin = pd.Timestamp("2000-01-03", tz=stamp.tz)
-    index = int((stamp - origin).total_seconds() // width_seconds)
-    start = origin + timedelta(seconds=index * width_seconds)
-    return start, start + timedelta(seconds=width_seconds)
+    if width_seconds <= 0:
+        raise compilation_error("one positive builtin fold width", "invalid fold width")
+    if unit in ("second", "minute", "hour"):
+        if 86400 % width_seconds != 0:
+            raise compilation_error(
+                "a builtin sub-day bucket width dividing 24 hours",
+                f"{grain.to_token()} has no civil-midnight anchor",
+            )
+        offset = (stamp.hour * 3600 + stamp.minute * 60 + stamp.second) // width_seconds
+        return (
+            _civil_start(stamp, offset * width_seconds),
+            _civil_start(stamp, (offset + 1) * width_seconds),
+        )
+    # Day and week are civil units of their own: midnight and Monday midnight.
+    # Both are reached from the stamp's own civil date, and the end is the next
+    # civil day or week start rather than the start shifted by real seconds.
+    days = stamp.weekday() if unit == "week" else 0
+    base = -days * 86400
+    return _civil_start(stamp, base), _civil_start(stamp, base + width_seconds)
+
+
+def _civil_start(value: pd.Timestamp, seconds: int) -> pd.Timestamp:
+    """Floor to a civil-midnight grid offset, then resolve the label once.
+
+    All arithmetic runs on the wall clock, matching the compiled source
+    expression exactly; only the final label is resolved against the zone.  That
+    keeps the grid on civil fields even when a transition lands on midnight
+    (Havana, Santiago), and it avoids ``normalize()``'s unguarded re-localization,
+    which leaks a raw ``pytz`` exception for those zones.  A repeated midnight
+    keeps its first occurrence, matching the governed ``boundary_instant``
+    convention; a skipped one resolves to the instant the clock jumps past it.
+    """
+    wall = value.tz_localize(None).normalize() + timedelta(seconds=seconds)
+    if value.tzinfo is None:
+        return wall
+    zone = value.tzinfo
+    resolved = wall.tz_localize(zone, ambiguous=True, nonexistent="shift_forward")
+    if resolved.tz_localize(None) == wall:
+        return resolved
+    return _reached_bound(wall, zone)
+
+
+def _reached_bound(wall: pd.Timestamp, zone: tzinfo) -> pd.Timestamp:
+    """Resolve a skipped wall clock to the first instant that reaches it.
+
+    ``shift_forward`` is unreliable on a gap: for a width wider than one hour
+    (Antarctica/Troll) it rounds the label backward onto an earlier instant,
+    and for an hour-wide gap it can overshoot the whole gap (America/Adak,
+    Australia/Lord_Howe, Pacific/Chatham).  Both leave an instant outside the
+    bucket its own wall clock names, so the grid stops partitioning.
+
+    The governed bound is the smallest instant whose wall clock is at or past
+    the label, which is the transition itself for every skipped label.  A local
+    wall clock is non-decreasing in the instant, so that bound is found by
+    bisecting a bracket that is provably before and after it: three days either
+    side of the label clears every offset in the tz database.
+    """
+    anchor = wall.replace(tzinfo=timezone.utc)
+    low, high = anchor - timedelta(days=3), anchor + timedelta(days=3)
+    while high.tz_convert(zone).tz_localize(None) < wall:
+        high += timedelta(days=3)
+    while high.value - low.value > 1:
+        middle = low + pd.Timedelta((high.value - low.value) // 2, unit="ns")
+        if middle.tz_convert(zone).tz_localize(None) >= wall:
+            high = middle
+        else:
+            low = middle
+    return high.tz_convert(zone)
 
 
 def _merge(values: list[object], merge: str, state: str) -> object:

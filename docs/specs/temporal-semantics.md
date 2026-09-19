@@ -281,6 +281,14 @@ by that unit fails at construction. Bare strings, token strings such as
 `"5minute"`, aliases, tuples, dicts, and direct `Grain(...)` construction are not
 accepted by any public grain-bearing parameter.
 
+`count` above one is a sub-day width: `second`, `minute` and `hour` accept any
+positive count, while `day` and the calendar-variable units require one. Bucketing
+a sub-day count additionally requires its width to divide one civil day, because a
+multi-unit bucket is anchored on the civil midnight of its own day; a count that
+cannot tile a civil day has no single defensible anchor and is refused rather than
+assigned an arbitrary origin. A count of one keeps the plain civil-unit truncate
+grid that every backend already shares.
+
 Reusable semantic model code cannot assume a loaded catalog, so semantic
 authoring has one constructor for the semantic variant:
 

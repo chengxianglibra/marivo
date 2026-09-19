@@ -62,12 +62,14 @@ methods. Forecast, Kendall and time discovery consume complete source-aggregated
 inputs in the caller; they do not collect raw semantic Entity rows.
 
 The following remain explicitly unsupported on these new backends: linear or
-cumulative Metric graphs, status-time folds, semantic calendars, multi-unit buckets,
-string-parser time axes, hidden-axis expanded
-attribution, sampling, Entity correlation preparation, exact distinct membership,
-quantile/distribution state, Entity candidates, source driver screening and
-Event/Lifecycle. These need their own numerical, private-state, temporal or
-single-evaluation implementations. Remote retained import stays disabled. No
+cumulative Metric graphs, status-time folds, semantic calendars, hidden-axis
+expanded attribution, sampling, Entity correlation preparation, exact distinct
+membership, quantile/distribution state, Entity candidates, source driver
+screening and Event/Lifecycle. These need their own numerical, private-state,
+temporal or single-evaluation implementations. Remote retained import stays
+disabled. Multi-unit buckets and string-parser time axes were activated by C3b
+(see the C3b acceptance record for the per-backend and per-format limits); Trino
+carries no execution evidence yet for either. No
 private state is uploaded or moved to a different executor to bypass rejection.
 
 ### Native timestamp analysis
@@ -97,9 +99,12 @@ interpretation. Two known instants in a repeated report hour share its civil buc
 Naive predicate literals compare civil fields; aware literals compare instant
 fields. Mixing these kinds fails. Milliseconds/microseconds remain exact through
 SQL literals, Arrow, Parquet and source-offline cold recovery. Hour-to-day retained
-folds reuse the persisted temporal facts. String/epoch parsing, multi-unit buckets,
-new timestamp version selection and semantic calendar/cumulative extensions are
-not enabled on remote backends.
+folds reuse the persisted temporal facts. String parsing and multi-unit buckets are
+enabled per backend by C3b: a multi-unit bucket is anchored on the civil midnight of
+its own day and only counts whose width divides one civil day are admitted, so a
+six-hour bucket spanning a spring-forward gap is five hours and one spanning a
+fall-back gap is seven. Epoch parsing, new timestamp version selection and semantic
+calendar/cumulative extensions are not enabled on remote backends.
 
 ```python
 import marivo.analysis as mv
