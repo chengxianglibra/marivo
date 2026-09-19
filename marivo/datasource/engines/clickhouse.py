@@ -19,12 +19,12 @@ from marivo.datasource.engines.base import (
     QuantileCapability,
     TableRefRequest,
     decode_cursor_frame,
-    identity_str,
     quote_identifier,
     require_field,
     structured_exception_chain,
 )
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
+from marivo.datasource.strptime import python_to_mysql_strptime
 
 if TYPE_CHECKING:
     from marivo.datasource.metadata import (
@@ -776,7 +776,7 @@ PROFILE = EngineProfile(
         timeout_enforced=True,
         byte_estimate_supported=True,
     ),
-    translate_strptime_format=identity_str,
+    translate_strptime_format=python_to_mysql_strptime,
     postprocess_sql=postprocess_sql,
     datetime_decode_policy="utc_naive_instant",
     quantile=QuantileCapability(mode="approximate", method="reservoir_sampling"),

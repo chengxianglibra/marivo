@@ -292,8 +292,10 @@ class ScalarExecutionAdapter(ObservedExecution):
         execute: bool = False,
     ) -> ScalarStatement:
         self._check()
+        from marivo.analysis.compiler.source_time import NATIVE_PARSE_OPERATIONS
+
         if any(
-            not governed_temporal_operation(node)
+            not governed_temporal_operation(node) and not isinstance(node, NATIVE_PARSE_OPERATIONS)
             for node in expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF))
         ):
             raise self.error(

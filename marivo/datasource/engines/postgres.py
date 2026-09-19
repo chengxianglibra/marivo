@@ -20,6 +20,7 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.strptime import python_to_postgres_strptime
 
 if TYPE_CHECKING:
     from marivo.datasource.metadata import TableMetadata
@@ -318,7 +319,7 @@ PROFILE = EngineProfile(
         timeout_enforced=True,
         byte_estimate_supported=True,
     ),
-    translate_strptime_format=identity_str,
+    translate_strptime_format=python_to_postgres_strptime,
     postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,

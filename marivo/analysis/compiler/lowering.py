@@ -41,7 +41,12 @@ from marivo.analysis.compiler.private_parts import (
     selected_private_parts,
 )
 from marivo.analysis.compiler.source_dependencies import SourceDependencies
-from marivo.analysis.compiler.source_time import boundary_instant, source_time
+from marivo.analysis.compiler.source_time import (
+    boundary_instant,
+    entity_engine,
+    malformed_strptime_rows,
+    source_time,
+)
 from marivo.analysis.compiler.temporal import bucket, bucket_end, cumulative_start
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
@@ -131,6 +136,7 @@ from marivo.analysis.operators.driver_contracts import (
 from marivo.refs import SemanticKind
 from marivo.semantic.ir import (
     HourPrefixParse,
+    StrptimeParse,
     TargetDimensionContract,
     TargetEntityContract,
     TargetSnapshotSelection,
@@ -231,6 +237,50 @@ def _and(predicates: list[ir.BooleanValue]) -> ir.BooleanValue:
     for predicate in predicates[1:]:
         result = result & predicate
     return result
+
+
+_HOUR_LITERAL = r"^([01]?[0-9]|2[0-3])$"
+_HOUR_PADDING = r"\s"
+
+
+def _hour_range_violations(table: ir.Table, name: str) -> ir.Table:
+    """Select cells outside the declared 0-23 integer-literal hour contract.
+
+    The verdict is made on the raw cell, so string and integer hour columns
+    share one value domain: implicit casts differ per engine and would turn
+    malformed cells into legal hours instead of a diagnosable rejection.
+
+    Branches are ordered most-specific-first, because the value classes are not
+    disjoint: ``BooleanValue`` and ``GeoSpatialValue`` both subclass
+    ``NumericValue`` while comparing them against an integer is undefined.
+    Types outside these branches are judged through their text rendering.
+    """
+    column = table[name]
+    if isinstance(column, ir.BooleanValue) or column.type().is_geospatial():
+        # A flag or geometry is an admissible declared type but not a 0-23
+        # integer literal, so the returned relation keeps every row: all cells
+        # violate the contract. Accepting one would publish an implicit
+        # true/false -> 1/0 hour or an opaque value.
+        return table
+    if isinstance(column, ir.NumericValue) and not isinstance(column, ir.IntegerValue):
+        # Compared on the raw cell: a cast here would raise an engine-specific
+        # conversion error for values no destination type can represent.
+        return table.filter(column.isnull() | (column < 0) | (column > 23) | (column % 1 != 0))
+    if isinstance(column, ir.IntegerValue):
+        return table.filter(column.isnull() | (column < 0) | (column > 23))
+    text = column if isinstance(column, ir.StringValue) else column.cast("string")
+    if not isinstance(text, ir.StringValue):
+        raise compilation_error("a string hour representation", "invalid hour representation")
+    # The pattern is the whole value domain (0-23 as one or two digits), so no
+    # engine cast participates: `^([01]?[0-9]|2[0-3])$` accepts exactly those
+    # literals. A standalone `\s` test rejects padded and trailing-newline cells
+    # that some engines' line-anchored regexes would otherwise accept.
+    # `isnull()` is load-bearing: the pattern test alone is NULL-valued for a
+    # missing cell, and a top-level NULL predicate silently drops the row
+    # instead of failing the check.
+    return table.filter(
+        text.isnull() | text.re_search(_HOUR_PADDING) | ~text.re_search(_HOUR_LITERAL)
+    )
 
 
 def _hidden(metric: TargetMetricContract, node_id: str, state: str) -> str:
@@ -686,43 +736,113 @@ class _Compiler:
             self.tables[entity.ref.path] = table
             self._validate_source(entity, table)
         validated_axes: set[str] = set()
+
+        def validate(axis: TargetDimensionContract | None, zone: str | None = None) -> None:
+            if axis is None or not axis.is_time_dimension or axis.ref.path in validated_axes:
+                return
+            self._validate_temporal_axis(axis, zone)
+            validated_axes.add(axis.ref.path)
+
         for root in logical_roots(dataset):
             payload = root.payload
-            if isinstance(payload, PopulationPayload) and payload.reference_axis is not None:
-                if payload.reference_axis.ref.path not in validated_axes:
-                    self._validate_temporal_axis(payload.reference_axis)
-                    validated_axes.add(payload.reference_axis.ref.path)
+            if isinstance(payload, PopulationPayload):
+                validate(payload.reference_axis)
+                for axis, zone in self._version_time_axes(payload.entity):
+                    validate(axis, zone)
             elif isinstance(payload, MetricPayload):
-                for axis in (
-                    payload.definition.reference_axis,
-                    payload.definition.time_axis,
-                    *payload.definition.dimensions,
-                ):
-                    if (
-                        axis is not None
-                        and axis.is_time_dimension
-                        and axis.ref.path not in validated_axes
-                    ):
-                        self._validate_temporal_axis(axis)
-                        validated_axes.add(axis.ref.path)
+                definition = payload.definition
+                validate(definition.reference_axis)
+                validate(definition.time_axis)
+                for axis in definition.dimensions:
+                    validate(axis)
+                for axis, zone in self._version_time_axes(definition.entity):
+                    validate(axis, zone)
 
-    def _validate_temporal_axis(self, axis: TargetDimensionContract) -> None:
+    def _version_time_axes(
+        self, entity: TargetEntityContract
+    ) -> tuple[tuple[TargetDimensionContract, str | None], ...]:
+        """Resolve one Entity's own version coordinates and their read boundary zone.
+
+        No payload field names these axes, yet the population version filter
+        reads each one through :meth:`_time_column`, so they carry the same
+        gap/fold duty.  Each is resolved here with the exact zone its lowering
+        site passes, so the guard registers the same authority the read will
+        reuse instead of a second, possibly disagreeing one.
+        """
+        version = entity.version
+        if version is None:
+            return ()
+        if isinstance(version, TargetSnapshotVersion):
+            zone = version.timezone or self.read_timezone or self.owner.report_time.timezone
+            axis = normalize_target_dimension(self.registry, version.coordinate_ref.path)
+            return ((axis, zone),)
+        return tuple(
+            (normalize_target_dimension(self.registry, ref.path), "UTC")
+            for ref in (version.valid_from_ref, version.valid_to_ref)
+        )
+
+    def _validate_temporal_axis(
+        self, axis: TargetDimensionContract, zone: str | None = None
+    ) -> None:
         table = self.tables[axis.entity_ref.path]
-        self._time_column(table, axis.source_column, axis)
-        value = table[axis.source_column]
-        if isinstance(value, ir.TimestampValue) and value.type().timezone is None:
-            if value.type().scale is not None and value.type().scale > 6:
-                # source_time already rejects conversions at this precision;
-                # its exact fixed-zone path needs no lossy round-trip probe.
-                return
-            from marivo.analysis.compiler.source_time import local_time_invalid
+        walls: dict[str, ir.TimestampValue] = {}
+        self._time_column(table, axis.source_column, axis, zone, wall=walls)
+        self._validate_strptime_cells(axis, table)
+        # The gap/fold guard reads the wall clock the axis contributes, which
+        # every naive time-bearing parse produces; gating it on the physical
+        # column would let a parsed axis publish a gap or a repeated hour.
+        key = (axis.ref.path, zone or self.owner.report_time.timezone)
+        wall = walls.get(axis.ref.path)
+        authority = self.time_authorities.get(key)
+        if wall is None or authority is None or authority.read_timezone is None:
+            return
+        from marivo.analysis.compiler.source_time import local_time_invalid
 
-            authority = self.time_authorities.get((axis.ref.path, self.owner.report_time.timezone))
-            if authority is not None and authority.read_timezone is not None:
-                self._count(
-                    "temporal.local_time." + axis.ref.path,
-                    table.filter(local_time_invalid(value, authority.read_timezone)),
-                )
+        self._count(
+            "temporal.local_time." + axis.ref.path,
+            table.filter(local_time_invalid(wall, authority.read_timezone)),
+        )
+
+    def _validate_strptime_cells(self, axis: TargetDimensionContract, table: ir.Table) -> None:
+        """Fail on unparseable cells where the engine answers them with NULL.
+
+        SQLite, MySQL and ClickHouse return NULL for a cell the declared format
+        cannot read. Without this assertion the row would silently leave the
+        time axis; the count turns that into a structured failure before
+        publication instead.
+        """
+        parse = axis.parse
+        if not isinstance(parse, StrptimeParse):
+            return
+        malformed = malformed_strptime_rows(
+            self._axis_engine(axis), table[axis.source_column], parse
+        )
+        if malformed is None:
+            return
+        self._count(
+            "temporal.strptime_format." + axis.ref.path,
+            malformed,
+            expected=(
+                "every non-null string cell parses under the declared strptime "
+                f"format {parse.format[:80]!r}"
+            ),
+            repair=(
+                f"Correct the physical cells behind {axis.ref.path} (declared on "
+                f"{axis.entity_ref.path}) to match {parse.format[:80]!r}, or "
+                "redeclare the axis with the format the stored text actually uses."
+            ),
+        )
+
+    def _axis_engine(self, axis: TargetDimensionContract) -> str:
+        """Resolve the engine owning *axis*, which may differ from the Metric root."""
+        entity = next(
+            (item for item in self.entities if item.ref.path == axis.entity_ref.path), None
+        )
+        if entity is None:
+            raise compilation_error(
+                "a declared Entity for every governed time axis", "unresolved time axis entity"
+            )
+        return entity_engine(self.registry, entity)
 
     def _axis_value(
         self,
@@ -730,18 +850,25 @@ class _Compiler:
         axis: TargetDimensionContract,
         zone: str | None = None,
         prefix: ir.Value | None = None,
+        *,
+        wall: dict[str, ir.TimestampValue] | None = None,
     ) -> ir.Value:
         if not axis.is_time_dimension:
             return value
-        result, authority = source_time(
+        result, authority, resolved = source_time(
             value,
             axis,
             boundary_timezone=zone or self.owner.report_time.timezone,
             read_timezone=self.read_timezone,
+            engine=self._axis_engine(axis),
             read_source=self.read_timezone_source,
             prefix=prefix,
         )
         self.time_authorities[(axis.ref.path, authority.boundary_timezone)] = authority
+        if wall is not None and resolved is not None:
+            # The gap/fold guard judges the same wall clock this call resolved,
+            # whatever physical representation the axis reads it from.
+            wall[axis.ref.path] = resolved
         return result
 
     def _prefix_axis(self, axis: TargetDimensionContract) -> TargetDimensionContract | None:
@@ -762,7 +889,13 @@ class _Compiler:
         return prefix
 
     def _time_column(
-        self, table: ir.Table, name: str, axis: TargetDimensionContract, zone: str | None = None
+        self,
+        table: ir.Table,
+        name: str,
+        axis: TargetDimensionContract,
+        zone: str | None = None,
+        *,
+        wall: dict[str, ir.TimestampValue] | None = None,
     ) -> ir.Value:
         prefix_axis = self._prefix_axis(axis)
         prefix = None
@@ -775,9 +908,15 @@ class _Compiler:
             prefix = self._axis_value(table[prefix_name], prefix_axis, zone)
             self._count(
                 "temporal.hour_range",
-                table.filter((table[name].cast("int64") < 0) | (table[name].cast("int64") > 23)),
+                _hour_range_violations(table, name),
+                expected="one non-null 0-23 integer hour literal per hour-prefix cell",
+                repair=(
+                    f"Correct the physical cell behind {axis.ref.path} (declared on "
+                    f"{axis.entity_ref.path}) to a plain 0-23 hour value: unpadded "
+                    "one- or two-digit text or an integer in range, with no nulls."
+                ),
             )
-        return self._axis_value(table[name], axis, zone, prefix)
+        return self._axis_value(table[name], axis, zone, prefix, wall=wall)
 
     def _zone(self, definition: MetricDefinition) -> str:
         return (
@@ -837,12 +976,23 @@ class _Compiler:
         )
         return instant_end, None if lower is None else self._instant(lower, definition, axis)
 
-    def _count(self, name: str, table: ir.Table) -> None:
+    def _count(
+        self,
+        name: str,
+        table: ir.Table,
+        *,
+        expected: str | None = None,
+        repair: str | None = None,
+    ) -> None:
         occurrence = self.validation_occurrences.get(name, 0)
         self.validation_occurrences[name] = occurrence + 1
         if occurrence:
             name = f"{name}.occurrence.{occurrence}"
-        self.validations.append(CompiledValidation(name, table.aggregate(violations=table.count())))
+        self.validations.append(
+            CompiledValidation(
+                name, table.aggregate(violations=table.count()), expected=expected, repair=repair
+            )
+        )
 
     def _unique(self, name: str, table: ir.Table, keys: tuple[str, ...]) -> None:
         grouped = table.group_by(list(keys)).aggregate(__mv_count=table.count())

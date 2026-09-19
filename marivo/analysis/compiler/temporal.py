@@ -5,7 +5,12 @@ from __future__ import annotations
 import ibis
 import ibis.expr.types as ir
 
-from marivo._temporal import Grain, PeriodCalendarSnapshotV1, builtin_grain
+from marivo._temporal import (
+    Grain,
+    PeriodCalendarSnapshotV1,
+    builtin_grain,
+    civil_midnight_width_seconds,
+)
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.predicates import _boolean
 from marivo.analysis.compiler.source_time import localize, render, timestamp
@@ -53,12 +58,38 @@ def bucket(
         if isinstance(value, ir.DateValue) and grain.unit in ("second", "minute", "hour"):
             return value.cast("timestamp").truncate(units[grain.unit])
         return value.truncate(units[grain.unit])
-    timestamp = value.cast("timestamp")
-    if not isinstance(timestamp, ir.TimestampValue):
+    bucket_start = _civil_midnight_bucket(value, _civil_midnight_width(grain))
+    return bucket_start.cast("date") if isinstance(value, ir.DateValue) else bucket_start
+
+
+def _civil_midnight_width(grain: Grain) -> int:
+    """Resolve the admitted civil-midnight width or fail closed on a non-divisor."""
+    width = civil_midnight_width_seconds(grain)
+    if width is None:
+        raise compilation_error(
+            "a builtin sub-day bucket width dividing 24 hours",
+            f"{grain.to_token()} has no civil-midnight anchor",
+        )
+    return width
+
+
+def _civil_midnight_bucket(value: ir.Value, width: int) -> ir.TimestampValue:
+    """Floor to the grid that restarts at the local midnight of the value's own day.
+
+    The width divides one civil day, so only civil field arithmetic and one civil
+    midnight addition are needed: no engine bucket primitive and no offset
+    constant are involved, so every backend produces the same grid.
+    """
+    stamp = value.cast("timestamp")
+    if not isinstance(stamp, ir.TimestampValue):
         raise compilation_error("timestamp bucket input", "invalid time representation")
-    interval = ibis.interval(**{grain.unit + "s": grain.count})
-    bucket = timestamp.bucket(interval)
-    return bucket.cast("date") if isinstance(value, ir.DateValue) else bucket
+    seconds_of_day = (
+        stamp.hour().cast("int64") * 3600
+        + stamp.minute().cast("int64") * 60
+        + stamp.second().cast("int64")
+    )
+    offset = ((seconds_of_day // width) * width).cast("int64")
+    return stamp.truncate("D") + offset.as_interval("s")
 
 
 def bucket_end(

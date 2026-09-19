@@ -317,10 +317,14 @@ hh = ms.time_dimension_column(
 #### Format specifiers: Python strptime vs MySQL
 
 `parse` formats are authored as **Python strptime** (`%`-prefixed) and validated
-at authoring time. At SQL-emission time Marivo translates them to the MySQL form
-for MySQL-family backends (Trino `date_parse`, MySQL `STR_TO_DATE`) via
-`python_to_mysql_strptime`, so one authored format works on every backend. DuckDB
-receives Python strptime unchanged; Postgres uses ibis's own pattern translation.
+at authoring time. At SQL-emission time Marivo translates them to the native form
+of the target engine, so one authored format works on every backend. Each engine
+consumes its own translation: MySQL (`STR_TO_DATE`) and Trino (`DATE_PARSE`) take
+the MySQL form via `python_to_mysql_strptime`, PostgreSQL (`TO_TIMESTAMP`) takes a
+template pattern via `python_to_postgres_strptime`, ClickHouse
+(`parseDateTimeOrNull`) takes the MySQL form only when the format is exactly
+expressible there, SQLite parses in a connection-local deterministic scalar, and
+DuckDB receives Python strptime unchanged.
 
 The critical divergence is `%M`:
 
@@ -332,8 +336,10 @@ The critical divergence is `%M`:
 Authors always write `%M` for minutes; Marivo maps `%M`→`%i` for Trino/MySQL. Do
 not author `%i` — it is not valid Python strptime and is rejected. Directives
 whose meanings diverge without a safe mapping (`%W`, `%u`, `%Z`, `%c`, …) raise a
-`WindowInvalidError` at SQL-emission time, pointing to a supported directive or a
-native temporal column.
+`DatasetCompilationError` at SQL-emission time, pointing to a supported directive
+or a native temporal column. ClickHouse additionally refuses a set of directives
+whose native parser would silently shift the parsed value or lose sub-second
+precision rather than fail; those refusals name the directive and the reason.
 
 ## Metric
 
