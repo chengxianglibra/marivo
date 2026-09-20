@@ -144,13 +144,12 @@ def test_group_a(tmp_path: Path, source_table: str, kind: str) -> None:
     assert runtime.store.resources(runtime.session_ref) == ()
 
 
-@pytest.mark.parametrize("invalid", ["duplicate", "null", "collation", "engine", "unsigned"])
+@pytest.mark.parametrize("invalid", ["duplicate", "null", "collation", "unsigned"])
 def test_invalid_source(tmp_path: Path, source_table: str, invalid: str) -> None:
     statements = {
         "duplicate": f"INSERT INTO {source_table}(id) VALUES (1)",
         "null": f"INSERT INTO {source_table}(id) VALUES (NULL)",
         "collation": f"ALTER TABLE {source_table} MODIFY channel TEXT COLLATE utf8mb4_0900_ai_ci",
-        "engine": f"ALTER TABLE {source_table} ENGINE=MyISAM",
         "unsigned": f"ALTER TABLE {source_table} MODIFY id BIGINT UNSIGNED",
     }
     with mysql.connection(admin=True) as con, con.cursor() as cur:
@@ -168,6 +167,101 @@ def test_invalid_source(tmp_path: Path, source_table: str, invalid: str) -> None
         target.execute()
     assert counts(runtime)["dataset_artifacts"] == 0
     assert runtime.store.resources(runtime.session_ref) == ()
+
+
+def test_myisam_source_journey(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A MyISAM source admits and executes because Dataset execution is read-only."""
+    monkeypatch.setenv("MARIVO_TEST_MYSQL_PASSWORD", mysql.password())
+    table = "dataset_" + uuid4().hex
+    with mysql.connection(admin=True) as con, con.cursor() as cur:
+        try:
+            cur.execute(
+                f"CREATE TABLE {table}(id BIGINT, tenant TEXT, customer_id BIGINT, order_id BIGINT, amount DOUBLE, weight DOUBLE, region TEXT, channel TEXT, day DATE, start DATE, `end` DATE) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"
+            )
+            cur.executemany(
+                f"INSERT INTO {table}(id,amount,channel,day) VALUES (%s,%s,%s,%s)",
+                [
+                    (1, 10.25, "a", "2026-02-02"),
+                    (2, 20.5, "a", "2026-02-03"),
+                    (3, 30.75, "b", "2026-02-04"),
+                    (4, None, "b", "2026-02-05"),
+                    (5, -2.0, "c", "2026-02-06"),
+                    (6, 999.0, "outside", "2026-03-01"),
+                ],
+            )
+            cur.execute(
+                f"SELECT ENGINE, TABLE_TYPE FROM information_schema.tables "
+                f"WHERE table_schema='analysis' AND table_name='{table}'"
+            )
+            assert cur.fetchone() == ("MyISAM", "BASE TABLE")
+            registry, sidecar = registry_for(tmp_path / "unused", engine="mysql", table=table)
+            runtime = DatasetRuntime.create(tmp_path, "myisam")
+            grouped = (
+                runtime.sources(semantic_registry=registry, sidecar=sidecar)
+                .observe(REVENUE, time_scope=time_scope(start="2026-02-01", end="2026-03-01"))
+                .with_dimensions(CHANNEL)
+                .aggregate()
+            )
+            frame = grouped.rank(grouped.fields.metric(REVENUE)).limit(2).execute().to_pandas()
+            assert list(zip(frame.revenue, frame.channel, strict=True)) == [
+                (30.75, "a"),
+                (30.75, "b"),
+            ]
+            assert runtime.statistics.primary_queries == 1
+            assert runtime.statistics.transferred_rows == 2
+        finally:
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+def test_view_source_journey(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A MySQL view admits with ENGINE=NULL and executes the ordinary journey."""
+    monkeypatch.setenv("MARIVO_TEST_MYSQL_PASSWORD", mysql.password())
+    table = "dataset_" + uuid4().hex
+    view = table + "_view"
+    with mysql.connection(admin=True) as con, con.cursor() as cur:
+        try:
+            cur.execute(
+                f"CREATE TABLE {table}(id BIGINT, tenant TEXT, customer_id BIGINT, order_id BIGINT, amount DOUBLE, weight DOUBLE, region TEXT, channel TEXT, day DATE, start DATE, `end` DATE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"
+            )
+            cur.executemany(
+                f"INSERT INTO {table}(id,amount,channel,day) VALUES (%s,%s,%s,%s)",
+                [
+                    (1, 10.25, "a", "2026-02-02"),
+                    (2, 20.5, "a", "2026-02-03"),
+                    (3, 30.75, "b", "2026-02-04"),
+                    (4, None, "b", "2026-02-05"),
+                    (5, -2.0, "c", "2026-02-06"),
+                    (6, 999.0, "outside", "2026-03-01"),
+                ],
+            )
+            cur.execute(f"CREATE VIEW {view} AS SELECT * FROM {table}")
+            cur.execute(
+                f"SELECT ENGINE, TABLE_TYPE FROM information_schema.tables "
+                f"WHERE table_schema='analysis' AND table_name='{view}'"
+            )
+            assert cur.fetchone() == (None, "VIEW")
+            registry, sidecar = registry_for(tmp_path / "unused", engine="mysql", table=view)
+            runtime = DatasetRuntime.create(tmp_path, "mysql-view")
+            grouped = (
+                runtime.sources(semantic_registry=registry, sidecar=sidecar)
+                .observe(REVENUE, time_scope=time_scope(start="2026-02-01", end="2026-03-01"))
+                .with_dimensions(CHANNEL)
+                .aggregate()
+            )
+            frame = (
+                grouped.rank(grouped.fields.metric(REVENUE))
+                .limit(2)
+                .metric(REVENUE)
+                .execute()
+                .to_pandas()
+            )
+            assert frame.revenue.tolist() == [30.75, 30.75]
+            assert frame.channel.tolist() == ["a", "b"]
+            assert runtime.statistics.primary_queries == 1
+            assert runtime.statistics.transferred_rows == 2
+        finally:
+            cur.execute(f"DROP VIEW IF EXISTS {view}")
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
 
 
 def test_large_source_collation_and_small_output(

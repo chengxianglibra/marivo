@@ -33,8 +33,9 @@ execution does not fetch comments or infer business semantics from them.
 Datasource connectivity and semantic readiness do not establish support for a
 particular method or input shape. Read the logical Dataset contract and the
 structured rejection for the selected invocation. Remote sources require read-only
-accounts; retained import and uploads remain unsupported. Trino qualification is
-limited to Iceberg and ClickHouse to ordinary local MergeTree tables. Installed
+accounts; retained import and uploads remain unsupported. Source relations are not
+restricted by table form: views and every engine or connector type enter, and Trino
+rejects only `$`-suffixed internal tables. Installed
 package acceptance is recorded separately from source-tree Runtime evidence.
 
 ### Relational and native-date methods
@@ -43,8 +44,8 @@ PostgreSQL, MySQL, SQLite, Trino and ClickHouse use exact per-backend admission
 for direct-column mean, weighted mean and ratio in addition to Group A. The
 complete dependency graph is checked, including predicates and projected-away
 components. Same-source relationship paths retain identity, missing-coordinate
-and fanout assertions. Each participating table must meet its backend's existing
-physical table and type restrictions.
+and fanout assertions. Each participating relation must meet its backend's existing
+physical type restrictions.
 
 Native civil-date axes support single-unit day, week, month, quarter and year
 buckets. Snapshot and validity membership retain required exact-period,
@@ -182,7 +183,7 @@ All dependencies must be admitted, including projected-away Metrics. Neither
 backend imports retained Artifacts or enables sampling or source-private methods.
 The relational/date extension above owns additional method admission.
 
-MySQL requires InnoDB and a SELECT-only account. Inputs include signed and unsigned
+MySQL admits tables and views with a SELECT-only account. Inputs include signed and unsigned
 integers, float32/64, native DATE, `utf8mb4_0900_bin` VARCHAR/TEXT and explicit
 Decimal precision up to 38. Explicit Boolean bindings accept TINYINT(1) only after
 necessary-column 0/1/NULL checks; integer bindings remain integers. DATETIME(0–6)
@@ -192,7 +193,7 @@ Zero/invalid dates and timestamps fail before publication. Integer SUM is decode
 exactly from Decimal; the current result is int64, so values beyond its range fail.
 Floating SUM overflow raises the original database exception.
 
-SQLite accepts persistent ordinary main-database tables. INTEGER/INT/BIGINT,
+SQLite accepts persistent ordinary main-database tables and views. INTEGER/INT/BIGINT,
 TINYINT/SMALLINT/MEDIUMINT/INT2/INT8 map to int64; REAL/DOUBLE/DOUBLE PRECISION/FLOAT
 to float64; TEXT/CLOB/CHAR/VARCHAR (including declared lengths) to string with
 BINARY collation and actual text storage. DATE requires valid canonical YYYY-MM-DD
@@ -225,22 +226,23 @@ remote termination. Original failures survive cleanup errors, partial output is
 never published, and locally safe recovery remains possible with unknown remote
 status. Cold Artifact reads and exact binding hits do not access the source.
 
-### Trino Iceberg scalar Metrics
+### Trino scalar Metrics
 
-Trino Group A supports one datasource and one unversioned ordinary Iceberg base
-table, with direct-column `sum`, `count`, `min` and `max`, Population filtering,
-native-date scopes, same-Entity dimensions, aggregation, projection, rank and limit.
-Use the existing catalog/schema/table declaration; both tuple and dotted
-catalog/schema overrides are resolved consistently for metadata and executed SQL.
-The adapter verifies connector identity and base-table metadata at execution;
-a catalog merely named `iceberg` is not sufficient.
+Trino Group A supports one datasource and one unversioned ordinary relation —
+table or view — with direct-column `sum`, `count`, `min` and `max`, Population
+filtering, native-date scopes, same-Entity dimensions, aggregation, projection,
+rank and limit. Use the existing catalog/schema/table declaration; both tuple and
+dotted catalog/schema overrides are resolved consistently for metadata and
+executed SQL. The connector name and relation form are observation receipts, not
+gates: any connector's ordinary relations enter, and only `$`-suffixed internal
+tables are rejected.
 
-Declared physical inputs are signed integers supported by Iceberg, float32/64,
+Declared physical inputs are signed integers, float32/64,
 VARCHAR, BOOLEAN, timestamp(0–6) without time zone, DATE and explicit Decimal
-precision/scale up to 38. The qualified Iceberg connector exposes timestamp DDL
+precision/scale up to 38. The observed Iceberg connector exposes timestamp DDL
 with precision 0 or 3 as timestamp(6); bindings must match this observed precision. CHAR, generic Decimal source declarations, timezone-bearing
-timestamps, precision above microseconds, nested values and other
-connectors are excluded. Declared floating columns must contain finite values or
+timestamps, precision above microseconds and nested values
+are excluded. Declared floating columns must contain finite values or
 NULL; source checks reject NaN/infinity even for empty output, and non-finite
 aggregate results fail before publication. Decimal and integer identities retain
 exact values. Ranking preserves explicit NULL order and deterministic ties.
@@ -398,13 +400,17 @@ not the agent's narrative conclusion. Custom work through `to_pandas()` or
   describes staged backend qualification. It does not enable additional source
   execution backends or change the current contracts above.
 
-### ClickHouse MergeTree scalar Metrics
+### ClickHouse scalar Metrics
 
-ClickHouse Group A admits one datasource and one unversioned ordinary local
-MergeTree table: direct-column sum/count/min/max, Population filters, native-date
-scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
-limit. Sampling, retained import and source-private advanced methods remain unavailable.
-The relational/native-date extension owns additional method admission.
+ClickHouse Group A admits one datasource and one unversioned ordinary relation —
+table or view — under any engine: direct-column sum/count/min/max, Population
+filters, native-date scopes, same-Entity dimensions, aggregation, projection,
+deterministic rank and limit. Distributed and multi-shard relations are accepted,
+as are unstable reads: engines whose reads depend on background merge state (for
+example ReplacingMergeTree) can return different rows between runs as merges
+progress; replay of a committed snapshot is unaffected. Sampling, retained import
+and source-private advanced methods remain unavailable. The relational/native-date
+extension owns additional method admission.
 
 Physical inputs include Int8/16/32/64, UInt8/16/32/64, Bool, Float32/64, String,
 Date and explicit Decimal precision up to 38, with legal Nullable wrappers.
@@ -412,8 +418,8 @@ LowCardinality(String) and LowCardinality(Nullable(String)) retain string semant
 DateTime('UTC') and DateTime with verified UTC engine timezone preserve seconds.
 DateTime64 through microseconds and aware non-UTC bindings are admitted by the
 native timestamp extension. FixedString, Date32, Int128/256, UInt128/256, Enum
-and nested values remain excluded. Distributed, Replicated, specialized engines
-and views are not enabled by this scalar-type extension.
+and nested values remain excluded. Engine form is not restricted by this
+scalar-type extension.
 
 Use a SELECT-only account configured with effective `join_use_nulls=1`.
 Metadata, required assertions and output run separately; empty output never

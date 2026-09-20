@@ -546,43 +546,55 @@ def test_trino_native_transfer_composite_identity_and_large_cell() -> None:
         adapter.disconnect()
 
 
-@pytest.mark.parametrize("kind", ["view", "connector"])
-def test_unqualified_physical_sources_fail(tmp_path: Path, source_table: str, kind: str) -> None:
+def test_view_source_journey(tmp_path: Path, source_table: str) -> None:
+    view = source_table + "_view"
+    with trino.connection(admin=True) as con:
+        cur = con.cursor()
+        try:
+            cur.execute(f"CREATE VIEW {view} AS SELECT * FROM {source_table}").fetchall()
+            registry, sidecar = registry_for(tmp_path / "unused", engine="trino", table=view)
+            runtime = DatasetRuntime.create(tmp_path, "view")
+            frame = (
+                runtime.sources(semantic_registry=registry, sidecar=sidecar)
+                .observe(REVENUE)
+                .aggregate()
+                .execute()
+                .to_pandas()
+            )
+            assert frame.revenue.tolist() == [1058.5]
+            assert runtime.statistics.primary_queries == 1
+        finally:
+            cur.execute(f"DROP VIEW IF EXISTS {view}").fetchall()
+            cur.close()
+
+
+def test_catalog_relation_schema_admits_varchar_columns() -> None:
+    """system.metadata.catalogs is an ordinary relation: varchar columns validate."""
     import ibis
 
     from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
 
-    if kind == "view":
-        view = source_table + "_view"
-        with trino.connection(admin=True) as con:
-            cur = con.cursor()
-            try:
-                cur.execute(f"CREATE VIEW {view} AS SELECT * FROM {source_table}").fetchall()
-                registry, sidecar = registry_for(tmp_path / "unused", engine="trino", table=view)
-                runtime = DatasetRuntime.create(tmp_path, "view")
-                with pytest.raises(MaterializationError, match="base table"):
-                    runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(
-                        REVENUE
-                    ).aggregate().execute()
-                assert counts(runtime)["dataset_artifacts"] == 0
-            finally:
-                cur.execute(f"DROP VIEW IF EXISTS {view}").fetchall()
-                cur.close()
-    else:
-        backend = ibis.trino.connect(
-            host="127.0.0.1",
-            port=18080,
-            user="analysis_reader",
-            database="iceberg",
-            schema="analysis",
-            timezone="UTC",
-        )
-        adapter = TrinoExecutionAdapter(backend)
-        try:
-            with pytest.raises(MaterializationError, match="requires Iceberg"):
-                adapter.get_schema("catalogs", catalog="system", database="metadata")
-        finally:
-            adapter.finish()
+    backend = ibis.trino.connect(
+        host="127.0.0.1",
+        port=18080,
+        user="analysis_reader",
+        database="iceberg",
+        schema="analysis",
+        timezone="UTC",
+    )
+    adapter = TrinoExecutionAdapter(backend)
+    try:
+        schema = adapter.get_schema("catalogs", catalog="system", database="metadata")
+        assert {
+            name: str(dtype) for name, dtype in zip(schema.names, schema.types, strict=True)
+        } == {
+            "catalog_name": "string",
+            "connector_id": "string",
+            "connector_name": "string",
+            "state": "string",
+        }
+    finally:
+        adapter.finish()
 
 
 def test_partial_live_stream_cancel_targets_owned_query(monkeypatch: pytest.MonkeyPatch) -> None:

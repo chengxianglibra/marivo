@@ -875,8 +875,10 @@ def test_execute_help_discloses_qualified_source_boundaries(
     for fact in (
         "read-only accounts",
         "remote retained import and uploads are unsupported",
-        "Iceberg tables",
-        "ordinary local MergeTree tables",
+        "not restricted by table form",
+        "`$`-suffixed internal tables",
+        "ReplacingMergeTree",
+        "replay of a committed snapshot is unaffected",
         "semantic readiness do not prove method support",
     ):
         assert fact in text

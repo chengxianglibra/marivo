@@ -1,4 +1,4 @@
-"""MySQL read-only InnoDB scalar method execution using unbuffered driver cursors."""
+"""MySQL read-only scalar method execution using unbuffered driver cursors."""
 
 from __future__ import annotations
 
@@ -169,16 +169,21 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
         namespace = database or str(
             self.read_scalar(self.statement("SELECT DATABASE()", role="source_schema"))
         )
-        engine = self.read_scalar(
+        # Views report ENGINE=NULL, so a missing relation must ride on the row
+        # itself; the engine and table_type values become observation receipts.
+        relation = self.submit(
             self.statement(
-                "SELECT ENGINE FROM information_schema.tables WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
+                "SELECT ENGINE,TABLE_TYPE FROM information_schema.tables "
+                "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
                 parameters=(namespace, name),
                 role="source_schema",
-            ),
-        )
-        if engine != "InnoDB":
+            )
+        ).fetchone()
+        if relation is None:
             raise self.unsupported(
-                f"MySQL table engine {engine!r}; scalar execution requires InnoDB"
+                f"an existing MySQL relation {namespace}.{name}; "
+                "no information_schema.tables row was returned; "
+                "verify the schema and table names on this MySQL server."
             )
         query = (
             "SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLLATION_NAME FROM information_schema.columns "
@@ -332,6 +337,6 @@ def admit_dataset(dataset: LogicalDataset) -> None:
         raise MaterializationError(
             expected="an individually qualified MySQL scalar method closure",
             received=reason,
-            repair="Use qualified scalar methods, native civil-date axes and declared InnoDB sources.",
+            repair="Use qualified scalar methods, native civil-date axes and declared MySQL sources.",
             stage="implementation_registration",
         )

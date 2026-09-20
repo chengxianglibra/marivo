@@ -103,13 +103,13 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
             raise self.unsupported("SQLite source outside the declared main database")
         definition = self.read_scalar(
             self.statement(
-                "SELECT sql FROM main.sqlite_schema WHERE type='table' AND name=?",
+                "SELECT sql FROM main.sqlite_schema WHERE type IN ('table','view') AND name=?",
                 parameters=(name,),
                 role="source_schema",
             ),
         )
         if not isinstance(definition, str):
-            raise self.unsupported("missing ordinary SQLite table definition")
+            raise self.unsupported("missing ordinary SQLite table or view definition")
         parsed_definition = sqlglot.parse_one(definition, read="sqlite")
         if not isinstance(parsed_definition, sge.Create) or parsed_definition.find(
             sge.VirtualProperty

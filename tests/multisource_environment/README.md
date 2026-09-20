@@ -423,3 +423,42 @@ script to discover the same execution guidance as Python:
 Cold receipts record each binding hit and retained rollup separately because
 Runtime statistics reset per action. Local retained primary statements and Arrow
 rows/bytes are included; the source factory remains forbidden throughout.
+
+## C5 ClickHouse cluster and Trino non-Iceberg fixtures
+
+The `clickhouse-cluster` profile adds a real two-shard, one-replica-per-shard
+qualification cluster. Both containers reuse the pinned single-node image with
+separate named volumes, share `clickhouse-cluster/topology.xml` (static
+`remote_servers` for `marivo_multisource`, including the cluster secret), and
+differ only in `shard-a.xml` / `shard-b.xml` HTTP listener ports. Nodes keep the
+default internal native port 9000 inside the Compose network so they can reach
+each other; only the HTTP listeners move. Loopback endpoints:
+shard A `18201`, shard B `18203` (host published HTTP only). The cluster secret
+(`marivo-multisource-cluster`) is disposable test configuration.
+
+The pinned image has no Keeper configuration, so Distributed DDL (`ON CLUSTER`)
+and replicated engines are unavailable by design. Setup therefore creates the
+fixture database, local tables, and users per node directly over each loopback
+port; `clickhouse_analysis.py` provides `setup_cluster`,
+`create_cluster_tables`, and `drop_cluster_tables` for that journey. The memory
+connector-backed `noniceberg` Trino catalog (`trino/catalog-noniceberg.properties`,
+mounted as `/etc/trino/catalog/noniceberg.properties`) carries the generic
+metadata-path sample table with varchar, bigint, double, date, and decimal
+columns. Trino matches catalog rules full-string, so the `analysis_reader`
+read-only rule explicitly lists `noniceberg` in `trino/access-rules.json`; a
+reader read of the sample table is verified by `trino_analysis.setup_non_iceberg`.
+Memory-connector tables and rows do not survive a Trino restart, so every
+Trino session must rerun `setup_non_iceberg()` before reader journeys.
+
+```bash
+bash tests/multisource_environment/manage.sh start clickhouse-cluster
+.venv/bin/python -c 'from tests.multisource_environment import clickhouse_analysis as cha; print(cha.setup_cluster())'
+bash tests/multisource_environment/manage.sh stop clickhouse-cluster
+```
+
+Exclusivity is asymmetric across the three mutually exclusive groups: starting
+any of trino, clickhouse, or clickhouse-cluster stops the other two, while
+`stop` only stops the group named in the command. Stop each remaining group
+explicitly; starting another group also stops the rest. Task 5's opt-in tests
+(`MARIVO_CLICKHOUSE_CLUSTER_TEST`, `MARIVO_TRINO_NON_ICEBERG_TEST`) consume
+these fixtures; no default gate starts any of these services.

@@ -1,4 +1,4 @@
-"""Read-only MergeTree execution with owned Native streams."""
+"""Read-only ClickHouse execution with owned Native streams."""
 
 from __future__ import annotations
 
@@ -173,9 +173,11 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 role="source_schema",
             ),
         )
-        if kind != "MergeTree":
+        if not isinstance(kind, str) or not kind:
             raise self.unsupported(
-                f"ClickHouse engine {kind!r}; qualified methods require ordinary MergeTree"
+                f"an existing ClickHouse relation {database}.{name}; "
+                f"no system.tables engine value {kind!r} was returned; "
+                "verify the database and table names on this ClickHouse server."
             )
         query = f"DESCRIBE TABLE {_identifier(database)}.{_identifier(name)}"
         rows = self.submit(self.statement(query, role="source_schema"))
@@ -326,6 +328,6 @@ def admit_dataset(dataset: LogicalDataset) -> None:
         raise MaterializationError(
             expected="an individually qualified ClickHouse scalar method closure",
             received=reason,
-            repair="Use qualified scalar methods, native civil-date axes and declared MergeTree sources.",
+            repair="Use qualified scalar methods, native civil-date axes and declared ClickHouse sources.",
             stage="implementation_registration",
         )

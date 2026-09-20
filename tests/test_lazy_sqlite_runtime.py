@@ -9,6 +9,8 @@ from marivo.analysis import time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
+from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.validator import Registry
 from tests.lazy_scalar_source_fixtures import (
     capture_receipt,
     capture_submissions,
@@ -247,3 +249,66 @@ def test_undeclared_physical_columns_do_not_expand_admission(
         runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(REVENUE).aggregate()
     )
     assert target.execute().to_pandas().revenue.tolist() == [1058.5]
+
+
+def _registry_pointed_at_view(
+    source_database: Path, view: str
+) -> tuple[Registry, CompiledExpressionSidecar]:
+    from dataclasses import replace
+
+    from marivo.datasource.ir import TableSourceIR
+
+    registry, sidecar = registry_for(source_database)
+    entities = dict(registry.entities)
+    entity = entities["sales.orders"]
+    assert isinstance(entity.source, TableSourceIR)
+    entities["sales.orders"] = replace(entity, source=replace(entity.source, table=view))
+    registry = replace(registry, entities=entities)
+    registry.freeze()
+    return registry, sidecar
+
+
+def test_view_source_journey(tmp_path: Path, source_database: Path) -> None:
+    with sqlite3.connect(source_database) as con:
+        con.execute("CREATE VIEW orders_view AS SELECT * FROM orders")
+    registry, sidecar = _registry_pointed_at_view(source_database, "orders_view")
+    runtime = DatasetRuntime.create(tmp_path / "view", "view")
+    grouped = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(REVENUE, time_scope=time_scope(start="2026-02-01", end="2026-03-01"))
+        .with_dimensions(CHANNEL)
+        .aggregate()
+        .where(gt(REVENUE, 0))
+    )
+    frame = (
+        grouped.rank(grouped.fields.metric(REVENUE)).limit(2).metric(REVENUE).execute().to_pandas()
+    )
+    assert frame["revenue"].tolist() == [30.75, 30.75]
+    assert frame["channel"].tolist() == ["a", "b"]
+    assert runtime.statistics.primary_queries == 1
+    assert runtime.statistics.transferred_rows == 2
+
+
+def test_expression_view_column_rejected_as_unsupported_physical_type(
+    tmp_path: Path, source_database: Path
+) -> None:
+    from marivo.analysis.materialization.errors import SourceSchemaError
+    from tests.lazy_acceptance_capture import counts
+
+    with sqlite3.connect(source_database) as con:
+        con.execute(
+            "CREATE VIEW expr_view AS SELECT id, amount+1 AS amount, channel, day FROM orders"
+        )
+    registry, sidecar = _registry_pointed_at_view(source_database, "expr_view")
+    runtime = DatasetRuntime.create(tmp_path / "expr-view", "expr-view")
+    target = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(REVENUE).aggregate()
+    )
+    with pytest.raises(SourceSchemaError) as caught:
+        target.execute()
+    assert caught.value.reason == "unsupported_physical_type"
+    assert caught.value.physical_column == "amount"
+    # pragma_table_info reports '' for an expression column; the error renders it as <missing>.
+    assert caught.value.actual_type == ""
+    assert counts(runtime)["dataset_artifacts"] == 0
+    assert runtime.store.resources(runtime.session_ref) == ()

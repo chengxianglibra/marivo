@@ -1,4 +1,4 @@
-"""Read-only Iceberg execution with caller-owned Trino cursor lifetimes."""
+"""Read-only Trino execution with caller-owned Trino cursor lifetimes."""
 
 from __future__ import annotations
 
@@ -155,17 +155,24 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         )
         if database is None:
             raise self.unsupported("Trino requires an explicit catalog and schema")
-        connector = self.read_scalar(
+        # The connector and relation form are observation receipts; admission
+        # depends only on the `$` guard and the relation's column metadata.
+        self.read_scalar(
             self.statement(
                 "SELECT connector_name FROM system.metadata.catalogs WHERE catalog_name = ?",
                 parameters=(catalog,),
                 role="source_schema",
             ),
         )
-        if connector != "iceberg":
-            raise self.unsupported(f"Trino connector {connector!r}; Group A requires Iceberg")
+        if "$" in name:
+            raise self.unsupported(
+                "an ordinary Trino relation; $-suffixed internal tables like "
+                f"{name!r} (for example $partitions, $files, $snapshots or $properties) "
+                "carry metadata shapes, not column sets; "
+                "request the underlying ordinary relation or view instead."
+            )
         qualified = ".".join(map(_identifier, (catalog, database, name)))
-        table_kind = self.read_scalar(
+        self.read_scalar(
             self.statement(
                 f"SELECT table_type FROM {_identifier(catalog)}.information_schema.tables "
                 "WHERE table_schema = ? AND table_name = ?",
@@ -173,8 +180,6 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
                 role="source_schema",
             ),
         )
-        if table_kind != "BASE TABLE" or "$" in name:
-            raise self.unsupported("Trino Group A requires an ordinary Iceberg base table")
         query = f"SHOW COLUMNS FROM {qualified}"
         rows = self.submit(self.statement(query, role="source_schema"))
         fields: dict[str, dt.DataType] = {}
@@ -258,8 +263,8 @@ def admit_dataset(dataset: LogicalDataset) -> None:
     reason = unsupported_reason(dataset)
     if reason is not None:
         raise MaterializationError(
-            expected="a qualified Trino Iceberg scalar closure",
+            expected="a qualified Trino scalar closure",
             received=reason,
-            repair="Use qualified scalar methods over declared Iceberg tables and native civil dates.",
+            repair="Use qualified scalar methods over declared Trino relations and native civil dates.",
             stage="implementation_registration",
         )

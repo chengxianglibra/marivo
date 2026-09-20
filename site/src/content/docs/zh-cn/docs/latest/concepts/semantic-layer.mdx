@@ -1407,4 +1407,4 @@ result.show()
 其他方法，也不会失败后更换算法重试。通过 `marivo.help("semantic.quantile_metric")`
 发现完整输入契约。
 
-ClickHouse Dataset 仅支持普通本地 MergeTree 表的已验证标量类型，且要求只读账户具有有效的 `join_use_nulls=1`；详细范围见分析工作流。
+ClickHouse Dataset 执行支持任意引擎下的表和视图，要求已验证标量类型，且只读账户须具有有效的 `join_use_nulls=1`；详细范围见分析工作流。

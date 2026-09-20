@@ -229,13 +229,13 @@ by_channel = session.observe(revenue).with_dimensions(
 by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute().show()
 ```
 
-MySQL 限定 InnoDB、只读账户与 utf8mb4_0900_bin 文本，支持 signed/unsigned 整数、
+MySQL 支持表和视图，要求只读账户，文本限定 utf8mb4_0900_bin，支持 signed/unsigned 整数、
 浮点、DATE、明确精度不超过 38 的 Decimal，以及 DATETIME(0–6)。TIMESTAMP(0–6)
 还需验证 UTC 会话。显式 Boolean 声明仅兼容 TINYINT(1)，必要列必须为 0/1/NULL；
 普通整数声明仍保持整数。CHAR、BIT、ENUM/SET、嵌套类型及通用 Decimal 源声明不准入。
 非法日期/时间在发布前失败；整数 SUM 精确解码为现有 int64 结果，越界失败。
 
-SQLite 主库普通表支持整数声明别名（统一 int64）、REAL/DOUBLE/FLOAT（float64）、
+SQLite 主库普通表和视图支持整数声明别名（统一 int64）、REAL/DOUBLE/FLOAT（float64）、
 BINARY 排序的 TEXT/CLOB/CHAR/VARCHAR（string），以及规范 DATE。BOOL/BOOLEAN
 必须实际存储整数 0/1/NULL；DATETIME/TIMESTAMP 必须为固定宽度、无偏移的
 `YYYY-MM-DD HH:MM:SS.ffffff` 文本，年份 0001–9999 且日期时间合法。即使输出为空也检查
@@ -249,17 +249,17 @@ SQLite 原生游标逐步读取，但引擎内部仍可能物化排序或聚合�
 单个值仍会完整解码。SQLite 执行启用 query-only。校验与输出查询可能观察到不同源状态，结果仍原子发布。
 保留结果使用 Parquet 和现有读取器，不上传到来源。关系与组合指标的扩展见上文；采样和源端私有状态高级方法仍未启用。
 
-### Trino Iceberg 标量 Metric
+### Trino 标量 Metric
 
-Trino Group A 支持单个数据源、单张未版本化的普通 Iceberg 基表，以及直接列上的
+Trino Group A 支持单个数据源、单个未版本化的普通关系——表或视图——以及直接列上的
 `sum`、`count`、`min`、`max`、Population 过滤、原生日期范围、同 Entity 维度、聚合、
 投影、排名与 limit。沿用现有 catalog/schema/table 声明；元数据和执行 SQL 都解析
-元组及 `catalog.schema` 字符串覆盖。执行时验证真实 connector 身份和基表类型，
-不能仅凭 catalog 名为 `iceberg` 判定支持。
+元组及 `catalog.schema` 字符串覆盖。connector 身份和关系形式只是观测回执，不是门禁：
+任何 connector 的普通关系都准入，仅 `$` 内部表被拒绝。
 
-物理输入限定为 Iceberg 支持的有符号整数、float32/64、VARCHAR、DATE，以及明确
-精度和小数位且精度不超过 38 的 Decimal，并支持 Boolean 和无时区 timestamp(0–6)。当前验收的 Iceberg connector 将精度 0 或 3 的建表声明暴露为 timestamp(6)，绑定必须匹配实际元数据精度。
-CHAR、通用 Decimal 源声明、带时区或超微秒时间戳、嵌套值及其他 connector 均不支持。声明的浮点列只接受有限值或 NULL；
+物理输入为有符号整数、float32/64、VARCHAR、DATE，以及明确
+精度和小数位且精度不超过 38 的 Decimal，并支持 Boolean 和无时区 timestamp(0–6)。当前观测到的 Iceberg connector 将精度 0 或 3 的建表声明暴露为 timestamp(6)，绑定必须匹配实际元数据精度。
+CHAR、通用 Decimal 源声明、带时区或超微秒时间戳、嵌套值均不支持。声明的浮点列只接受有限值或 NULL；
 即使输出为空，源检查也拒绝 NaN/Infinity，非有限聚合结果不得发布。Decimal 与整数
 身份保持精确值，排名保留明确的 NULL 顺序和确定性的并列处理。
 
@@ -268,19 +268,21 @@ CHAR、通用 Decimal 源声明、带时区或超微秒时间戳、嵌套值及�
 外部限制。提交前登记活跃 cursor；取消或关闭失败如实报告远程状态未知，但不阻塞
 安全的本地恢复。校验和输出可观察不同源状态。关系与组合 Metric 的扩展见上文；采样、retained 导入及源端私有状态高级方法仍未启用。
 
-上述标量工作流示例也适用于已建模的 Trino Iceberg Metric。
+上述标量工作流示例也适用于已建模的 Trino Metric。
 
-### ClickHouse MergeTree 标量 Metric
+### ClickHouse 标量 Metric
 
-ClickHouse Group A 支持单数据源、单张未版本化的普通本地 MergeTree 表：
+ClickHouse Group A 支持单数据源、单个未版本化的普通关系——表或视图——且不限制引擎：
 直接列 sum/count/min/max、Population 过滤、原生日期范围、同 Entity 维度、
-聚合、投影、确定性排名与 limit。关系与版本的扩展范围见上文；采样、retained import 和源端私有状态高级方法仍未启用。
+聚合、投影、确定性排名与 limit。Distributed 与多分片关系均准入；不稳定读取属于已接受语义：
+读取依赖后台 merge 进度的引擎（例如 ReplacingMergeTree）可能随 merge 推进而返回不同行，
+但已提交快照的重放不受影响。关系与版本的扩展范围见上文；采样、retained import 和源端私有状态高级方法仍未启用。
 
 物理类型包括 Int8/16/32/64、UInt8/16/32/64、Bool、Float32/64、String、Date、
 精度不超过 38 的 Decimal 及合法 Nullable 包装。LowCardinality(String) 和
 LowCardinality(Nullable(String)) 保留字符串语义。DateTime('UTC') 以及已验证引擎时区为
 UTC 的 DateTime 保留秒精度。原生时间契约还支持微秒以内 DateTime64 和带实际时区的绑定。FixedString、Date32、
-Int128/256、UInt128/256、Enum、嵌套类型及其他表引擎仍不准入。
+Int128/256、UInt128/256、Enum、嵌套类型仍不准入；本标量类型扩展不限制表引擎形式。
 
 只读账户须配置有效的 `join_use_nulls=1`。元数据、必要断言与输出分别执行，
 输出为空也必须完成校验。浮点输入必须为有限值或 NULL；整数与 Decimal SUM
