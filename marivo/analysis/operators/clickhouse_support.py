@@ -15,7 +15,13 @@ def supported_type(value: str) -> bool:
 
 
 def unsupported_reason(dataset: LogicalDataset) -> str | None:
-    """Describe an unqualified source closure without source work."""
+    """Describe an unqualified source closure without source work.
+
+    Row expressions and Linear graphs are qualified. Only the ``linear``
+    decimal unit resolves: ClickHouse decimal division truncates scale and AVG
+    returns Float64, so the wider internal accumulation is never claimed as a
+    wider public precision and ``div``/``mean`` stay rejected.
+    """
     return scalar_reason(
         dataset,
         supported_type,
@@ -26,4 +32,7 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         parsed_time_axes=True,
         explicit_decimal_sources=True,
         closed_open_null_validity=True,
+        row_expressions=True,
+        linear_graphs=True,
+        resolved_decimal_units=frozenset({"linear"}),
     )

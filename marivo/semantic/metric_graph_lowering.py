@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import decimal
 import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -10,20 +11,38 @@ from typing import Literal, NoReturn, cast
 
 import ibis
 import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
+import ibis.expr.types as ir
 
 from marivo._temporal import Grain as TemporalGrain
-from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind, SemanticKindTag, _create_ref
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.refs import (
+    EntityKind,
+    MetricKind,
+    Ref,
+    RefPayloadV1,
+    SemanticKind,
+    SemanticKindTag,
+    _create_ref,
+    _decode_ref_payload,
+)
+from marivo.semantic._expression_binding import (
+    CompiledExpressionSidecar,
+    ExpressionBody,
+    evaluate_expression_body,
+)
 from marivo.semantic._metric_resolution import (
     fold_ir_to_input,
     resolve_metric_temporal_contract,
 )
+from marivo.semantic.decimal_precision import DecimalType, add_sub, multiply
 from marivo.semantic.errors import SemanticLoadError, repair
 from marivo.semantic.ir import (
     CumulativeComposition,
     LinearComposition,
+    MeasureIR,
     RatioComposition,
     SemiAdditive,
+    TargetEntityContract,
     WhereValue,
 )
 from marivo.semantic.metric_graph import (
@@ -61,7 +80,11 @@ from marivo.semantic.metric_graph_canonical import (
 )
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.unit_algebra import linear_unit, linear_units_conflict, ratio_unit
-from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
+from marivo.semantic.validator import (
+    Registry,
+    normalize_target_dimension,
+    normalize_target_entity,
+)
 
 
 class MetricGraphLoweringError(ValueError):
@@ -998,6 +1021,235 @@ def _validate_component_slice(
             )
 
 
+# Smallest decimal that holds every int64 value; used to promote integer
+# operands of row arithmetic so the decimal rule table stays authoritative.
+_INTEGER_PROMOTION = DecimalType(19, 0)
+
+
+def _fail_undeclared_column(metric_id: str, measure_path: str, column: str) -> NoReturn:
+    _measure_step_error(
+        metric_id,
+        measure_path,
+        "columns declared on the owning entity source",
+        f"the body references undeclared column {column!r}",
+        action=(
+            f"Declare column {column!r} on the entity source schema, or reference only "
+            "columns the entity already declares."
+        ),
+    )
+
+
+def _measure_step_error(
+    metric_id: str,
+    measure_path: str,
+    expected: str,
+    received: str,
+    *,
+    action: str,
+) -> NoReturn:
+    raise SemanticLoadError(
+        kind="invalid_target_metric",
+        message=f"Computed measure {measure_path!r} cannot supply a private lazy "
+        "computation contract.",
+        refs=(metric_id, measure_path),
+        expected=expected,
+        received=received,
+        hint=action,
+        repair=repair(kind="reauthor", canonical_id="metric", action=action),
+    )
+
+
+def _decimal_literal_type(value: object) -> DecimalType | None:
+    """Resolve the decimal derivation type of one ibis literal operand."""
+    if type(value) is bool:
+        return None
+    if type(value) is int:
+        return DecimalType(1, 0)
+    if type(value) is float:
+        return None
+    if isinstance(value, decimal.Decimal):
+        digits, exponent = value.as_tuple()[1:]
+        if isinstance(exponent, str):
+            return None
+        scale = -exponent
+        if scale < 0:
+            return DecimalType(max(len(digits), -scale), 0)
+        return DecimalType(max(len(digits), scale + 1), scale)
+    return None
+
+
+def _derive_measure_result_type(op: ops.Node) -> str:
+    """Derive one row expression's result type from the declared field facts.
+
+    Decimal results follow the decimal precision rules; any other result type
+    is reported as its ibis-inferred type string. Owner facts in reported
+    errors stay empty outside an active measure normalization.
+    """
+    return _derive_expression_type(op, {}, _EMPTY_MEASURE_FACTS)
+
+
+def _derive_expression_type(
+    op: ops.Node,
+    decimal_fields: Mapping[ops.Node, DecimalType],
+    facts: _MeasureFacts,
+) -> str:
+    """Walk the op tree once, deriving decimal results by rule and rejecting the rest."""
+    if isinstance(op, ops.Field):
+        field_type = decimal_fields.get(op)
+        if field_type is not None:
+            return str(field_type)
+        return str(op.to_expr().type())
+    if isinstance(op, ops.Literal):
+        literal_type = _decimal_literal_type(op.value)
+        if literal_type is not None:
+            return str(literal_type)
+        return str(op.to_expr().type())
+    if isinstance(op, ops.Cast):
+        arg_type = _derive_expression_type(op.arg, decimal_fields, facts)
+        target = op.to
+        if not isinstance(target, dt.Decimal):
+            # Non-decimal cast targets keep their declared ibis type.
+            return str(target)
+        if target.precision is None:
+            _fail_unresolved_step(op, arg_type, facts)
+        scale = target.scale or 0
+        try:
+            derived = DecimalType(target.precision, scale)
+        except ValueError as exc:
+            # Out-of-bound cast targets (over 38 digits, scale above
+            # precision) are an authoring rejection, never a crash, and the
+            # same rejection for decimal and integer source operands.
+            _measure_step_error(
+                facts.metric_id,
+                facts.measure_path,
+                "a cast target within the 38-digit decimal bound",
+                f"cast target {target} over {arg_type}: {exc}",
+                action=(
+                    "Declare the cast with an explicit resolved target of at most 38 "
+                    "digits and scale not exceeding precision, for example decimal(38,4)."
+                ),
+            )
+        return str(derived)
+    if isinstance(op, ops.Negate):
+        return _derive_expression_type(op.arg, decimal_fields, facts)
+    if isinstance(op, ops.Add | ops.Subtract | ops.Multiply):
+        left = _derive_expression_type(op.left, decimal_fields, facts)
+        right = _derive_expression_type(op.right, decimal_fields, facts)
+        left_decimal = dt.dtype(left)
+        right_decimal = dt.dtype(right)
+        if not (left_decimal.is_decimal() or right_decimal.is_decimal()):
+            # No decimal operand: integer arithmetic keeps the ibis-inferred
+            # integer result; floating or other operands stay unresolvable.
+            if left_decimal.is_integer() and right_decimal.is_integer():
+                return str(op.to_expr().type())
+            _fail_unresolved_step(
+                op,
+                f"{left} {type(op).__name__.lower()} {right}",
+                facts,
+            )
+        if not (left_decimal.is_decimal() or left_decimal.is_integer()) or not (
+            right_decimal.is_decimal() or right_decimal.is_integer()
+        ):
+            _fail_unresolved_step(
+                op,
+                f"{left} {type(op).__name__.lower()} {right}",
+                facts,
+            )
+        # A decimal operand without resolved precision and scale (for example
+        # a bare "decimal" declared column) cannot enter the rule table.
+        for operand_dtype, operand_text in ((left_decimal, left), (right_decimal, right)):
+            if operand_dtype.is_decimal() and (
+                operand_dtype.precision is None or operand_dtype.scale is None
+            ):
+                _measure_step_error(
+                    facts.metric_id,
+                    facts.measure_path,
+                    "a decimal operand with resolved precision and scale",
+                    f"decimal operand {operand_text} on "
+                    f"{type(op).__name__.lower()} with unresolved precision or scale",
+                    action=(
+                        "Declare the source column with explicit precision and scale, for "
+                        "example decimal(12,2), so the decimal rule table can derive the "
+                        "step's result type."
+                    ),
+                )
+        # The rule table covers decimal operands. Integer operands promote to
+        # the smallest decimal that holds every int64 value, matching engine
+        # promotion (for example DuckDB: dec(12,2) * int64 -> DECIMAL(31,2)).
+        left_type = (
+            DecimalType(left_decimal.precision, left_decimal.scale)
+            if left_decimal.is_decimal()
+            else _INTEGER_PROMOTION
+        )
+        right_type = (
+            DecimalType(right_decimal.precision, right_decimal.scale)
+            if right_decimal.is_decimal()
+            else _INTEGER_PROMOTION
+        )
+        result = (
+            add_sub(left_type, right_type)
+            if isinstance(op, ops.Add | ops.Subtract)
+            else multiply(left_type, right_type)
+        )
+        if result is None:
+            _measure_step_error(
+                facts.metric_id,
+                facts.measure_path,
+                (
+                    f"a decimal {type(op).__name__.lower()} whose derived precision stays "
+                    "within 38 digits"
+                ),
+                f"decimal step {left} {type(op).__name__.lower()} {right} exceeds 38 digits",
+                action=(
+                    "Narrow the measure's declared decimal types, or split the row expression "
+                    "so each step stays within the 38-digit bound. Derivation overflow is "
+                    "rejected before publication; it is never silently truncated."
+                ),
+            )
+        return str(result)
+    if isinstance(op, ops.Reduction):
+        _measure_step_error(
+            facts.metric_id,
+            facts.measure_path,
+            "row-level arithmetic over declared columns of exactly one entity",
+            "a cross-row aggregation inside the measure body",
+            action=(
+                "Return a row expression from the measure body. Move the aggregation into a "
+                "Metric that aggregates this measure (for example ms.aggregate(..., agg='sum'))."
+            ),
+        )
+    if isinstance(op, ops.WindowFunction):
+        _measure_step_error(
+            facts.metric_id,
+            facts.measure_path,
+            "row-level arithmetic over declared columns of exactly one entity",
+            "a window function inside the measure body",
+            action=(
+                "Remove the window call from the measure body. Window semantics belong to "
+                "analysis operators, not to row-level measure expressions."
+            ),
+        )
+    _fail_unresolved_step(op, None, facts)
+    raise AssertionError("unreachable")
+
+
+def _fail_unresolved_step(op: ops.Node, received: str | None, facts: _MeasureFacts) -> NoReturn:
+    detail = type(op).__name__
+    received_text = f"{detail} over {received}" if received is not None else detail
+    _measure_step_error(
+        facts.metric_id,
+        facts.measure_path,
+        "row-level arithmetic, explicit cast, conditional, or null handling over the "
+        "declared columns of exactly one entity",
+        f"a {received_text} step whose result type cannot be derived",
+        action=(
+            "Restrict the measure body to +, -, *, explicit casts over declared numeric "
+            "columns of one entity, and keep every operand on the same resolved decimal "
+            "or integer types."
+        ),
+    )
+
+
 def _target_measure_type(
     registry: Registry,
     path: str,
@@ -1009,18 +1261,105 @@ def _target_measure_type(
     body = (
         sidecar.bodies.get(_create_ref(SemanticKind.MEASURE, path)) if sidecar is not None else None
     )
-    if measure is None or body is None or body.source_column is None:
+    if measure is None or body is None:
         _target_metric_error(
             metric_id,
-            "a loaded measure with direct-column expression type facts",
-            "missing declared measure column facts",
+            "a loaded measure with declared expression type facts",
+            "missing declared measure facts",
+        )
+    declared_sidecar = sidecar
+    if declared_sidecar is None:
+        _target_metric_error(
+            metric_id,
+            "a compiled measure expression sidecar",
+            "missing expression sidecar",
         )
     entity = normalize_target_entity(registry, measure.entity)
-    data_type = dict(entity.columns).get(body.source_column)
-    if data_type is None:
-        _target_metric_error(
-            metric_id, "a declared source type for the measure column", "missing source-column type"
+    if body.source_column is not None:
+        data_type = dict(entity.columns).get(body.source_column)
+        if data_type is None:
+            _target_metric_error(
+                metric_id,
+                "a declared source type for the measure column",
+                "missing source-column type",
+            )
+        return data_type, measure.unit, entity.ref
+    return _computed_measure_type(path, declared_sidecar, measure, body, entity, metric_id)
+
+
+@dataclass(frozen=True)
+class _MeasureFacts:
+    """Owner facts reported by derivation failures for the active measure."""
+
+    metric_id: str
+    measure_path: str
+
+
+_EMPTY_MEASURE_FACTS = _MeasureFacts(metric_id="", measure_path="")
+
+
+def _computed_measure_type(
+    path: str,
+    sidecar: CompiledExpressionSidecar,
+    measure: MeasureIR,
+    body: ExpressionBody,
+    entity: TargetEntityContract,
+    metric_id: str,
+) -> tuple[str, str | None, RefPayloadV1]:
+    """Derive one computed measure's type facts through its declared row expression."""
+    entity_ref = cast("Ref[EntityKind]", _decode_ref_payload(entity.ref))
+    columns = dict(entity.columns)
+    for body_column in body.source_columns:
+        if body_column not in columns:
+            _fail_undeclared_column(metric_id, path, body_column)
+    # The placeholder deliberately carries every entity-declared column, not
+    # only body.source_columns, so bind-captured column references resolve.
+    placeholder = ibis.table(columns, name=path)
+    measure_ref = _create_ref(SemanticKind.MEASURE, path)
+    result = evaluate_expression_body(
+        catalog_definition_fingerprint=path,
+        expression_sidecar=sidecar,
+        owning_ref=measure_ref,
+        body=body,
+        entity_refs=(entity_ref,),
+        aliases=(placeholder,),
+    )
+    if isinstance(result, ir.Table):
+        _measure_step_error(
+            metric_id,
+            path,
+            "one scalar value expression",
+            "a table expression",
+            action="Return one column-level value expression from the measure body.",
         )
+    expression_op = result.op()
+    placeholder_op = placeholder.op()
+    tables = expression_op.find(ops.PhysicalTable)
+    foreign = sorted({table.name for table in tables if table is not placeholder_op})
+    if foreign:
+        _measure_step_error(
+            metric_id,
+            path,
+            "column references on the single owning entity alias",
+            f"references to other ibis tables: {', '.join(foreign)}",
+            action=(
+                "Reference only the declared columns of the measure's one entity parameter. "
+                "Cross-entity dependencies belong in governed Metric compositions, not in a "
+                "measure body."
+            ),
+        )
+    facts = _MeasureFacts(metric_id=metric_id, measure_path=path)
+    for field_op in expression_op.find(ops.Field):
+        if field_op.name not in columns:
+            _fail_undeclared_column(metric_id, path, field_op.name)
+    decimal_fields = {
+        field_op: DecimalType(field_type.precision, field_type.scale)
+        for field_op in expression_op.find(ops.Field)
+        if isinstance(field_type := dt.dtype(columns.get(field_op.name, "")), dt.Decimal)
+        and field_type.precision is not None
+        and field_type.scale is not None
+    }
+    data_type = _derive_expression_type(expression_op, decimal_fields, facts)
     return data_type, measure.unit, entity.ref
 
 
@@ -1379,7 +1718,10 @@ def _normalize_target_graph(
                 name="_target_linear_type_facts",
             )
             values = tuple(
-                typed[f"term_{index}"] * term.coefficient for index, term in enumerate(node.terms)
+                typed[f"term_{index}"] * int(term.coefficient)
+                if float(term.coefficient).is_integer()
+                else typed[f"term_{index}"] * term.coefficient
+                for index, term in enumerate(node.terms)
             )
             expression = values[0]
             for value in values[1:]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
 import ibis
@@ -18,7 +18,12 @@ from marivo.analysis.materialization.errors import (
     source_type_errors,
     unsupported_source_type,
 )
-from marivo.analysis.materialization.scalar_sql_execution import Cursor, ScalarExecutionAdapter
+from marivo.analysis.materialization.execution import Parameter
+from marivo.analysis.materialization.scalar_sql_execution import (
+    Cursor,
+    ScalarExecutionAdapter,
+    ScalarStatement,
+)
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 if TYPE_CHECKING:
@@ -31,6 +36,63 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
     def __init__(self, backend: Backend, *, run_ref: str | None = None) -> None:
         super().__init__(backend, run_ref=run_ref)
         self._mysql = backend
+        self._div_precision_increment: int | None = None
+
+    def _div_precision(self) -> int:
+        """Read the server's decimal division scale increment once per adapter.
+
+        The exact composed decimal scale contract (mean ``s+4``, division
+        ``s1+4``) holds only when the increment equals 4; a different server
+        value makes the declared publication scales wrong.
+        """
+        if self._div_precision_increment is None:
+            received = self.read_scalar(
+                self.statement(
+                    "SELECT @@div_precision_increment",
+                    role="engine_check.mysql_div_precision",
+                )
+            )
+            if not isinstance(received, int):
+                raise self.error(
+                    "an integer MySQL div_precision_increment",
+                    f"non-integer server value {received!r}",
+                    "Verify the MySQL server version; the scalar decimal contract assumes MySQL 8.",
+                    stage="output_validation",
+                )
+            self._div_precision_increment = received
+        return self._div_precision_increment
+
+    def require_div_precision_increment(self) -> None:
+        """Refuse decimal mean/div results when the server increment is not 4."""
+        value = self._div_precision()
+        if value == 4:
+            return
+        raise self.error(
+            "MySQL div_precision_increment=4 for exact decimal mean and division scales",
+            f"the server reports div_precision_increment={value}",
+            (
+                "Set the server (or session) variable to 4, for example "
+                "SET SESSION div_precision_increment=4, or use a backend whose decimal "
+                "scale contract is public without this setting."
+            ),
+            stage="output_validation",
+        )
+
+    def _prepare(
+        self,
+        expression: ir.Expr,
+        *,
+        role: str,
+        params: Mapping[str, Parameter] | None = None,
+        execute: bool = False,
+    ) -> ScalarStatement:
+        if any(
+            isinstance(node, ops.Divide)
+            and (node.left.dtype.is_decimal() or node.right.dtype.is_decimal())
+            for node in expression.op().find(ops.Divide)
+        ):
+            self.require_div_precision_increment()
+        return super()._prepare(expression, role=role, params=params, execute=execute)
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
         from marivo.analysis.materialization.temporal_sql import lower_temporal

@@ -10,7 +10,12 @@ def supported_type(value: str) -> bool:
 
 
 def unsupported_reason(dataset: LogicalDataset) -> str | None:
-    """Describe an unqualified source closure without source work."""
+    """Describe an unqualified source closure without source work.
+
+    Row expressions and Linear graphs are qualified over the declared
+    int64/float64/string inputs; SQLite has no decimal storage, so no composed
+    decimal unit is resolved.
+    """
     return scalar_reason(
         dataset,
         supported_type,
@@ -20,4 +25,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         timestamp_buckets=True,
         parsed_time_axes=True,
         closed_open_null_validity=True,
+        row_expressions=True,
+        linear_graphs=True,
     )

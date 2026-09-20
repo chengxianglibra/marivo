@@ -181,6 +181,13 @@ def _number(value: object) -> float | int | Decimal | None:
     return value
 
 
+def _add_exact(left: float | int | Decimal, right: float | int | Decimal) -> float | int | Decimal:
+    """Add two exact-kind terms, promoting Decimal or int operands on float."""
+    if isinstance(left, float) or isinstance(right, float):
+        return float(left) + float(right)
+    return left + right
+
+
 def _component_value(
     component: FoldComponentV1, state: dict[str, object]
 ) -> float | int | Decimal | None:
@@ -231,11 +238,34 @@ def _value(
         values = [evaluate(child) for child in node.children]
         if any(value is None for value in values):
             return None
-        return sum(
-            float(value) * coefficient
-            for value, coefficient in zip(values, node.coefficients, strict=True)
-            if value is not None
-        )
+        total: float | int | Decimal | None = None
+        for value, coefficient in zip(values, node.coefficients, strict=True):
+            # Integral coefficients multiply as int literals (matching the
+            # compiler's ``_linear_coefficient``): an int64 term stays int64 and
+            # a Decimal term stays Decimal. A float term promotes the running
+            # total to float, matching the engine's own mixed-sum promotion
+            # instead of degrading exact terms silently.
+            assert value is not None  # excluded by the None guard above
+            factor: int | float = (
+                int(coefficient) if float(coefficient).is_integer() else coefficient
+            )
+            if isinstance(factor, float):
+                # A non-integral coefficient (no persistence path today) keeps
+                # the historical float tolerance instead of raising.
+                term: float | int | Decimal = float(value) * factor
+            else:
+                term = value * factor
+            if isinstance(term, float):
+                if total is not None and not isinstance(total, float):
+                    total = float(total)
+            elif isinstance(total, float):
+                term = float(term)
+            total = term if total is None else _add_exact(total, term)
+        if total is None:
+            raise compilation_error(
+                "non-None Linear children at evaluation", "unreachable all-None Linear fold"
+            )
+        return total
 
     return evaluate(authority.root_id)
 

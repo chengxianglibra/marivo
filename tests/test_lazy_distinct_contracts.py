@@ -282,7 +282,7 @@ def test_arbitrary_validation_error_values_and_causes_remain_private(
     assert "count_distinct" in (caught.value.hint or "")
 
 
-@pytest.mark.parametrize("missing", ("sidecar", "body", "direct_column"))
+@pytest.mark.parametrize("missing", ("sidecar", "body"))
 def test_missing_distinct_source_facts_keep_the_semantic_typed_repair(missing: str) -> None:
     registry, sidecar = make_distinct_registry()
     metric = normalize_target_metric(registry, DISTINCT_BUYERS.path, sidecar=sidecar)
@@ -292,16 +292,24 @@ def test_missing_distinct_source_facts_keep_the_semantic_typed_repair(missing: s
         broken = replace(
             sidecar, bodies={key: body for key, body in sidecar.bodies.items() if key != target}
         )
-    elif missing == "direct_column":
-        broken = replace(
-            sidecar,
-            bodies={**sidecar.bodies, target: replace(sidecar.bodies[target], source_column=None)},
-        )
     with pytest.raises(SemanticLoadError) as caught:
         make_distinct_membership(metric, registry, broken)
-    assert caught.value.received == "missing declared measure column facts"
-    assert caught.value.expected == "a loaded measure with direct-column expression type facts"
+    assert caught.value.received == "missing declared measure facts"
+    assert caught.value.expected == "a loaded measure with declared expression type facts"
     assert caught.value.repair is not None
+
+
+def test_computed_distinct_key_declines_membership_authority_without_error() -> None:
+    registry, sidecar = make_distinct_registry()
+    metric = normalize_target_metric(registry, DISTINCT_BUYERS.path, sidecar=sidecar)
+    target = ref.measure("sales.orders.buyer_key")
+    broken = replace(
+        sidecar,
+        bodies={**sidecar.bodies, target: replace(sidecar.bodies[target], source_column=None)},
+    )
+    # A computed measure has no single physical key column; membership authority
+    # declines instead of raising, so the aggregate stays a typed derived fact.
+    assert make_distinct_membership(metric, registry, broken) is None
 
 
 @pytest.mark.parametrize("family", ("metric", "delta"))

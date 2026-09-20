@@ -123,8 +123,11 @@ rollup 从保留的 sum/count 状态重新计算均值，不对分组均值直�
 比较与归因使用完整的非 Entity 保留轴；Forecast、Kendall 和时间发现方法在源端完整
 聚合后于调用进程执行。冷读与保留结果折叠不需要原始数据源。
 
-语义日历桶、累计/status-time 折叠、线性 Metric 图以及未确定结果精度的
-Decimal 组合仍不支持。采样、隐藏轴展开归因、Entity correlation、
+线性 Metric 图与计算型 Measure（对单一 Entity 已声明列的行级表达式）已在六个后端
+启用；组合 Decimal 结果按发布单元逐个判定：Decimal 线性结果在后端 scale 契约公开时
+逐值精确，Decimal 分量上的 mean/div 仍不支持并给出具体引擎原因（逐后端矩阵见所属
+设计规范）。语义日历桶、累计/status-time 折叠以及未确定精度的 Decimal mean/div
+结果仍不支持。采样、隐藏轴展开归因、Entity correlation、
 exact distinct/quantile 私有状态、Entity candidates、源端 driver screening 和
 Event/Lifecycle 不随此扩展启用。字符串时间解析与多单位桶按后端逐步启用，限制见下节。
 不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。

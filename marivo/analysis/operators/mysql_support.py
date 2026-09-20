@@ -15,7 +15,20 @@ def supported_type(value: str) -> bool:
 
 
 def unsupported_reason(dataset: LogicalDataset) -> str | None:
-    """Describe an unqualified source closure without source work."""
+    """Describe an unqualified source closure without source work.
+
+    Row expressions and Linear graphs are qualified, including the sum-level
+    ``linear`` decimal cell. The ``mean`` and ``div`` decimal cells stay
+    rejected even though the live MySQL probe measured engine AVG as exact at
+    the declared ``s+4`` scale with ROUND_HALF_UP (the decimal-exact 5-tie
+    0.3128125 returned 0.312813): the mean pipeline still publishes
+    ``sum/count`` through a float-labeled division that the value-exact
+    transport rule refuses, and the mandated bit-exact ROUND_HALF_EVEN
+    quantization is unmeetable because the engine rounds half-up. No
+    decimal-rooted ratio is constructible while engine division inference
+    labels results float64. Both cells open only when the mean equation
+    publishes exact values end to end under the declared rounding contract.
+    """
     return scalar_reason(
         dataset,
         supported_type,
@@ -26,4 +39,7 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         parsed_time_axes=True,
         explicit_decimal_sources=True,
         closed_open_null_validity=True,
+        row_expressions=True,
+        linear_graphs=True,
+        resolved_decimal_units=frozenset({"linear"}),
     )

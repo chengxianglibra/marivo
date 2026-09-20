@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from typing import Literal, cast
+
+import ibis
 
 from marivo._temporal import Grain, civil_midnight_width_seconds
 from marivo.analysis.compiler.normalize import (
@@ -18,10 +21,22 @@ from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity
 from marivo.analysis.observation.contracts import (
     MetricDefinition,
     MetricPayload,
+    ObservationOwner,
     PopulationPayload,
     source_owner_of,
 )
-from marivo.refs import RefPayloadV1
+from marivo.refs import (
+    EntityKind,
+    Ref,
+    RefPayloadV1,
+    SemanticKind,
+    _create_ref,
+)
+from marivo.semantic._expression_binding import (
+    CompiledExpressionSidecar,
+    evaluate_expression_body,
+)
+from marivo.semantic.decimal_precision import DecimalPrecision, DecimalType, sum_of
 from marivo.semantic.ir import (
     DateParse,
     DatetimeParse,
@@ -38,9 +53,13 @@ from marivo.semantic.metric_graph import (
     LinearNodeV1,
     RatioNodeV1,
     SliceNodeV1,
+    TargetMetricContract,
     WeightedMeanAggregateNodeV1,
 )
-from marivo.semantic.validator import Registry, normalize_target_dimension
+from marivo.semantic.metric_graph_lowering import _derive_measure_result_type
+from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
+
+ResolvedDecimalUnit = Literal["linear", "mean", "div"]
 
 _METHODS = frozenset(
     {
@@ -129,6 +148,138 @@ def _admitted_bucket(definition: MetricDefinition, grain: Grain) -> bool:
     return civil_midnight_width_seconds(grain) is not None
 
 
+_DECIMAL_MEAN_MAX_SCALE = 30
+_MYSQL_MEAN_SCALE_INCREMENT = 4
+_PLACEHOLDER_TABLE = "__mv_admission_decimal_facts"
+
+
+def _decimal_facts(value: str) -> DecimalType | None:
+    """Parse one resolved decimal(p, s) type string, or return None."""
+    try:
+        parsed = DecimalPrecision.from_string(value)
+    except ValueError:
+        return None
+    return DecimalType(parsed.precision, parsed.scale)
+
+
+def _measure_input_facts(
+    node: AggregateNodeV1, owner: ObservationOwner, sidecar: CompiledExpressionSidecar
+) -> DecimalType | None:
+    """Derive one aggregate's decimal measure-input facts from declared types.
+
+    Only a Measure target qualifies. A computed row-expression body is
+    evaluated on an ibis placeholder typed by the owner's declared columns and
+    walked through the semantic derivation owner — the same rule table
+    normalization applies at load. Every other shape returns ``None``.
+    """
+    if node.target_ref.kind is not SemanticKind.MEASURE:
+        return None
+    registry = owner.semantic_registry
+    measure = registry.measures.get(node.target_ref.path)
+    body = sidecar.bodies.get(_create_ref(SemanticKind.MEASURE, node.target_ref.path))
+    if measure is None or body is None:
+        return None
+    entity = normalize_target_entity(registry, measure.entity)
+    if body.source_column is not None:
+        return _decimal_facts(dict(entity.columns).get(body.source_column, ""))
+    placeholder = ibis.table(dict(entity.columns), name=_PLACEHOLDER_TABLE)
+    entity_ref = cast("Ref[EntityKind]", _create_ref(SemanticKind.ENTITY, entity.ref.path))
+    expression = evaluate_expression_body(
+        catalog_definition_fingerprint=node.target_ref.path,
+        expression_sidecar=sidecar,
+        owning_ref=_create_ref(SemanticKind.MEASURE, node.target_ref.path),
+        body=body,
+        entity_refs=(entity_ref,),
+        aliases=(placeholder,),
+    )
+    return _decimal_facts(_derive_measure_result_type(expression.op()))
+
+
+def _decimal_unit(
+    metric: TargetMetricContract,
+    owner: ObservationOwner,
+    sidecar: CompiledExpressionSidecar,
+    units: frozenset[ResolvedDecimalUnit],
+) -> str | None:
+    """Return the unresolvable composed-decimal unit's diagnostic, or None.
+
+    The metric's declared logical type carries no resolved (p, s), so each
+    leaf's facts come from its declared owner column types through the shared
+    semantic rule table. Only the metric's published root units are gated: a
+    composing linear or mean node keeps the engine's own float/decimal
+    contracts, and a decimal ratio publishes float64 through the engine's own
+    division inference, so the div unit is reachable only when a decimal-rooted
+    ratio exists. A leaf whose facts cannot be derived keeps its rejection with
+    the unresolvable unit named.
+    """
+    nodes = {record.node_id: record.node for record in metric.graph.nodes}
+    roots = set(metric.graph.roots)
+
+    def leaf_facts(node_id: str) -> DecimalType | None:
+        node = nodes[node_id]
+        if isinstance(node, SliceNodeV1):
+            return leaf_facts(node.child_id)
+        if isinstance(node, AggregateNodeV1):
+            facts = _measure_input_facts(node, owner, sidecar)
+            if facts is None:
+                return None
+            # A sum leaf publishes dec(38, s); min/max publish the input type.
+            return sum_of(facts) if node.agg == "sum" else facts
+        return None
+
+    def linear_unit(node: LinearNodeV1, is_root: bool) -> str | None:
+        for term in node.terms:
+            if leaf_facts(term.child_id) is None:
+                return "linear over decimal components with unresolvable facts"
+        # Sum-level decimal linear keeps the metric decimal and is engine-exact
+        # on the qualifying backends (sum publishes dec(38, s); the add/sub
+        # rule-table bound stays the semantic layer's rejection owner for
+        # shapes it cannot resolve at load). The unit gate applies only when
+        # the linear node publishes the metric's decimal root.
+        if not is_root:
+            return None
+        return None if "linear" in units else "linear over Decimal components"
+
+    def mean_unit(node: AggregateNodeV1, is_root: bool) -> str | None:
+        facts = _measure_input_facts(node, owner, sidecar)
+        if facts is None:
+            return None if not is_root else "Decimal mean with unresolvable input facts"
+        if not is_root:
+            return None
+        if "mean" not in units:
+            return "Decimal mean requires a backend whose AVG scale is a public contract"
+        if facts.scale + _MYSQL_MEAN_SCALE_INCREMENT > _DECIMAL_MEAN_MAX_SCALE:
+            return (
+                f"Decimal mean scale {facts.scale}+{_MYSQL_MEAN_SCALE_INCREMENT} exceeds the "
+                f"{_DECIMAL_MEAN_MAX_SCALE}-scale publication bound"
+            )
+        return None
+
+    def div_unit(node: RatioNodeV1) -> str | None:
+        numerator = leaf_facts(node.numerator_id)
+        denominator = leaf_facts(node.denominator_id)
+        if numerator is None or denominator is None:
+            return "Decimal ratio with unresolvable component facts"
+        return None
+
+    for record in metric.graph.nodes:
+        node = record.node
+        is_root = record.node_id in roots
+        if isinstance(node, LinearNodeV1):
+            reason = linear_unit(node, is_root)
+        elif isinstance(node, AggregateNodeV1) and node.agg == "mean":
+            reason = mean_unit(node, is_root)
+        elif isinstance(node, RatioNodeV1):
+            reason = div_unit(node)
+        elif isinstance(node, WeightedMeanAggregateNodeV1):
+            reason = "Decimal weighted mean stays a float contract" if is_root else None
+        else:
+            continue
+        if reason is not None:
+            return f"{reason}: Metric {metric.key}"
+    return None
+
+
 def unsupported_reason(
     dataset: LogicalDataset,
     supported_type: Callable[[str], bool],
@@ -140,8 +291,20 @@ def unsupported_reason(
     parsed_time_axes: bool = False,
     explicit_decimal_sources: bool = False,
     closed_open_null_validity: bool = False,
+    row_expressions: bool = False,
+    linear_graphs: bool = False,
+    resolved_decimal_units: frozenset[ResolvedDecimalUnit] = frozenset(),
 ) -> str | None:
-    """Check methods/types without I/O; placement.source_binding owns exact source identity."""
+    """Check methods/types without I/O; placement.source_binding owns exact source identity.
+
+    The backend-qualification parameters extend the pure closure check:
+    ``row_expressions`` admits computed Measure bodies (``source_column is
+    None``) whose structure semantic load already verified, ``linear_graphs``
+    admits ``LinearNodeV1`` in the computation whitelist, and
+    ``resolved_decimal_units`` replaces the composed-Decimal blanket rejection
+    with a per-published-unit decision through the derived precision facts.
+    An empty unit set keeps the historical blanket rejection verbatim.
+    """
     if artifact_inputs(dataset):
         return "remote retained import is not supported"
     roots = tuple(logical_roots(dataset))
@@ -281,12 +444,20 @@ def unsupported_reason(
         if definition.temporal_snapshot is not None:
             return "semantic calendar buckets are not qualified for this backend"
         for metric in definition.metrics:
-            if metric.logical_type == "decimal" and any(
+            composed = metric.logical_type == "decimal" and any(
                 isinstance(record.node, (RatioNodeV1, LinearNodeV1, WeightedMeanAggregateNodeV1))
                 or (isinstance(record.node, AggregateNodeV1) and record.node.agg == "mean")
                 for record in metric.graph.nodes
-            ):
+            )
+            if composed and not resolved_decimal_units:
                 return "composed Decimal results require resolved precision and scale"
+            if composed and resolved_decimal_units:
+                unresolvable = _decimal_unit(metric, owner, owner.sidecar, resolved_decimal_units)
+                if unresolvable is not None:
+                    return (
+                        "composed Decimal results require resolvable precision and scale: "
+                        f"{unresolvable}"
+                    )
             if metric.cumulative or metric.source_requirements or metric.requires_source_recompute:
                 return "this Metric requires unqualified cumulative or source-private state"
             if not supported_type(metric.logical_type):
@@ -302,6 +473,8 @@ def unsupported_reason(
                 node = record.node
                 if isinstance(node, RatioNodeV1):
                     continue
+                if linear_graphs and isinstance(node, LinearNodeV1):
+                    continue
                 if not isinstance(
                     node, (AggregateNodeV1, WeightedMeanAggregateNodeV1, SliceNodeV1)
                 ):
@@ -316,7 +489,7 @@ def unsupported_reason(
                     for condition in conditions
                 ):
                     return "a Metric slice requires an unsupported dimension or time parser"
-                if isinstance(node, SliceNodeV1):
+                if isinstance(node, (SliceNodeV1, LinearNodeV1)):
                     continue
                 references: tuple[RefPayloadV1, ...]
                 if isinstance(node, AggregateNodeV1):
@@ -332,7 +505,10 @@ def unsupported_reason(
                     if target.kind.value == "measure" and not any(
                         reference.path == target.path
                         and reference.kind == target.kind
-                        and body.source_column is not None
+                        and (
+                            body.source_column is not None
+                            or (row_expressions and body.source_column is None)
+                        )
                         for reference, body in owner.sidecar.bodies.items()
                     ):
                         return "only direct-column measures are qualified for this backend"
