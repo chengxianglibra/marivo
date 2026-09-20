@@ -1,0 +1,5 @@
+<clickhouse>
+    <!-- Node-unique HTTP listener for the local two-shard qualification cluster;
+         the native inter-node port stays at the default 9000 inside the network. -->
+    <http_port>18203</http_port>
+</clickhouse>

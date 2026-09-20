@@ -153,27 +153,33 @@ Failed cursor close remains owned until final cleanup. Original execution errors
 survive cancellation/close failures and Runtime reports unknown remote read status.
 Safe local recovery remains independent of remote termination confirmation.
 
-Execution uses ordinary Iceberg scans, separate semantic checks, native driver
-page fetching and typed scalar-to-Arrow identity reconstruction. No source snapshot,
-shared observation, execution budget or compile-count requirement is introduced.
-Driver capability probes and prepared statements are additional operations, not
-Dataset primary queries. Read-only metadata access to `system.metadata.catalogs`
-and the selected catalog's information schema is required. Local publication,
+Execution uses ordinary Trino relation scans, separate semantic checks, native
+driver page fetching and typed scalar-to-Arrow identity reconstruction. The
+connector name and relation form are observation receipts, not gates. No source
+snapshot, shared observation, execution budget or compile-count requirement is
+introduced. Driver capability probes and prepared statements are additional
+operations, not Dataset primary queries. Read-only metadata access to
+`system.metadata.catalogs` and the selected catalog's information schema is
+required. Local publication,
 writer ownership and cold source-free Artifact/binding reuse retain existing rules.
 
-### ClickHouse MergeTree scalar Metrics
+### ClickHouse scalar Metrics
 
-ClickHouse Group A admits one datasource and one unversioned ordinary local
-MergeTree table: direct-column sum/count/min/max, Population filters, native-date
-scopes, same-Entity dimensions, aggregation, projection, deterministic rank and
-limit. Sampling, retained import and source-private advanced methods remain unavailable.
-The relational/native-date extension owns additional method admission.
+ClickHouse Group A admits one datasource and one unversioned ordinary relation —
+table or view — under any engine: direct-column sum/count/min/max, Population
+filters, native-date scopes, same-Entity dimensions, aggregation, projection,
+deterministic rank and limit. Distributed and multi-shard relations are accepted,
+as are unstable reads: engines whose reads depend on background merge state (for
+example ReplacingMergeTree) can return different rows between runs as merges
+progress; replay of a committed snapshot is unaffected. Sampling, retained import
+and source-private advanced methods remain unavailable. The relational/native-date
+extension owns additional method admission.
 
 Physical inputs are Int8/16/32/64, Float32/64, String, Date and explicit Decimal
 precision up to 38, optionally Nullable. Unsigned inputs, Int128/256, Enum,
 LowCardinality, FixedString, Date32, timestamp/timezone and nested values are not
-admitted. Distributed, Replicated, specialized MergeTree engines and views are
-excluded. Timestamp conversion is not qualified by this slice.
+admitted. Engine form is not restricted by this scalar-type extension.
+Timestamp conversion is not qualified by this slice.
 
 Use a SELECT-only account configured with effective `join_use_nulls=1`.
 Metadata, required assertions and output run separately; empty output never

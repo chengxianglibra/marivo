@@ -10,9 +10,10 @@ from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.normalize import required_source_dependencies
 from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
 from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
-from marivo.analysis.materialization.errors import SourceSchemaError
+from marivo.analysis.materialization.errors import MaterializationError, SourceSchemaError
 from marivo.analysis.materialization.mysql_execution import MySQLExecutionAdapter
 from marivo.analysis.materialization.postgres_execution import PostgresExecutionAdapter
+from marivo.analysis.materialization.scalar_sql_execution import ScalarExecutionAdapter
 from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
 from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
 from marivo.analysis.session._lazy_sources import make_lazy_sources
@@ -100,19 +101,20 @@ def test_mapper_sees_only_requested_relation_columns(
         if "connector_name" in sql:
             return "iceberg"
         if "table_type" in sql:
-            return "BASE TABLE"
-        if "ENGINE" in sql:
-            return "InnoDB"
+            return "VIEW"
         if "SELECT engine" in sql:
             return "MergeTree"
         if "DATABASE()" in sql:
             return "main"
         return 0
 
+    def submit(sql: str) -> SimpleNamespace:
+        if "ENGINE,TABLE_TYPE" in sql:
+            return SimpleNamespace(fetchone=lambda: ("InnoDB", "BASE TABLE"))
+        return SimpleNamespace(fetchone=lambda: next(iterator, None))
+
     monkeypatch.setattr(adapter, "statement", statement)
-    monkeypatch.setattr(
-        adapter, "submit", lambda sql: SimpleNamespace(fetchone=lambda: next(iterator, None))
-    )
+    monkeypatch.setattr(adapter, "submit", submit)
     monkeypatch.setattr(adapter, "read_scalar", scalar)
     if invalid:
         with pytest.raises(SourceSchemaError) as caught:
@@ -126,3 +128,176 @@ def test_mapper_sees_only_requested_relation_columns(
     assert "unparseable_unused" not in parsed
     with pytest.raises(DatasetCompilationError, match="schema request mismatch"):
         adapter.get_schema("another_relation", dependency=dependency)
+
+
+class _MappingMapper:
+    """Native type mapper stand-in for the physical names the stub tests use."""
+
+    @staticmethod
+    def from_string(value: str, *, nullable: bool = True) -> dt.DataType:
+        mapping: dict[str, dt.DataType] = {
+            "BIGINT": dt.int64,
+            "Int64": dt.int64,
+            "DOUBLE": dt.float64,
+            "Float64": dt.float64,
+        }
+        return mapping[value].copy(nullable=nullable)
+
+
+def _stub_adapter(
+    adapter_type: type, native: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> ScalarExecutionAdapter:
+    adapter: ScalarExecutionAdapter = object.__new__(adapter_type)
+    for attribute in ("_backend", "_mysql", "_clickhouse", "_trino"):
+        monkeypatch.setattr(adapter, attribute, native, raising=False)
+    monkeypatch.setattr(adapter, "_run_ref", None, raising=False)
+    return adapter
+
+
+def _stub_statements(
+    monkeypatch: pytest.MonkeyPatch,
+    adapter: ScalarExecutionAdapter,
+    scalars: dict[str, object],
+    rows: list[tuple[object, ...]],
+    *,
+    metadata_row: tuple[object, ...] | None = None,
+) -> None:
+    """Attach statement/submit/read_scalar stubs keyed on SQL substrings."""
+
+    iterator = iter(rows)
+
+    def statement(sql: str, **kwargs: object) -> str:
+        return sql
+
+    def scalar(sql: str, **kwargs: object) -> object:
+        for fragment, value in scalars.items():
+            if fragment in sql:
+                return value
+        raise AssertionError(f"unexpected scalar probe: {sql}")
+
+    def submit(sql: str) -> SimpleNamespace:
+        if "ENGINE,TABLE_TYPE" in sql:
+            return SimpleNamespace(fetchone=lambda: metadata_row)
+        return SimpleNamespace(fetchone=lambda: next(iterator, None))
+
+    monkeypatch.setattr(adapter, "statement", statement)
+    monkeypatch.setattr(adapter, "submit", submit)
+    monkeypatch.setattr(adapter, "read_scalar", scalar)
+
+
+@pytest.mark.parametrize("engine", ["Distributed(cluster, db, orders, rand())", "View"])
+def test_clickhouse_accepts_any_engine_form(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    native = SimpleNamespace(
+        compiler=SimpleNamespace(type_mapper=_MappingMapper()),
+        con=SimpleNamespace(database="analytics", catalog=None, schema=None),
+    )
+    adapter = _stub_adapter(ClickHouseExecutionAdapter, native, monkeypatch)
+    _stub_statements(
+        monkeypatch,
+        adapter,
+        {"join_use_nulls": "1", "SELECT engine": engine, "count": 0},
+        [("id", "Int64"), ("amount", "Float64")],
+    )
+    schema = adapter.get_schema("orders", database="analytics")
+    assert set(schema.names) == {"id", "amount"}
+
+
+def test_clickhouse_rejects_missing_relation_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = SimpleNamespace(
+        compiler=SimpleNamespace(type_mapper=_MappingMapper()),
+        con=SimpleNamespace(database="analytics", catalog=None, schema=None),
+    )
+    adapter = _stub_adapter(ClickHouseExecutionAdapter, native, monkeypatch)
+    _stub_statements(
+        monkeypatch,
+        adapter,
+        {"join_use_nulls": "1", "SELECT engine": None, "count": 0},
+        [],
+    )
+    with pytest.raises(MaterializationError, match=r"no system\.tables engine value"):
+        adapter.get_schema("orders", database="analytics")
+
+
+def test_trino_accepts_view_on_non_iceberg_connector(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = SimpleNamespace(
+        compiler=SimpleNamespace(type_mapper=_MappingMapper()),
+        con=SimpleNamespace(database=None, catalog="tpch", schema="analysis"),
+    )
+    adapter = _stub_adapter(TrinoExecutionAdapter, native, monkeypatch)
+    _stub_statements(
+        monkeypatch,
+        adapter,
+        {"connector_name": "tpch", "table_type": "VIEW", "count": 0},
+        [("id", "BIGINT"), ("amount", "DOUBLE")],
+    )
+    schema = adapter.get_schema("orders", database="analysis")
+    assert set(schema.names) == {"id", "amount"}
+
+
+def test_trino_rejects_dollar_internal_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = SimpleNamespace(
+        compiler=SimpleNamespace(type_mapper=_MappingMapper()),
+        con=SimpleNamespace(database=None, catalog="iceberg", schema="analysis"),
+    )
+    adapter = _stub_adapter(TrinoExecutionAdapter, native, monkeypatch)
+    _stub_statements(
+        monkeypatch,
+        adapter,
+        {"connector_name": "iceberg", "table_type": "VIEW", "count": 0},
+        [],
+    )
+    with pytest.raises(MaterializationError, match=r"\$-suffixed internal"):
+        adapter.get_schema("orders$partitions", database="analysis")
+
+
+def test_mysql_accepts_view_without_innodb_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = SimpleNamespace(
+        compiler=SimpleNamespace(type_mapper=_MappingMapper()),
+        con=SimpleNamespace(database=None, catalog=None, schema=None),
+    )
+    adapter = _stub_adapter(MySQLExecutionAdapter, native, monkeypatch)
+    _stub_statements(
+        monkeypatch,
+        adapter,
+        {"DATABASE()": "main", "count": 0},
+        [("id", "BIGINT", "YES", None), ("amount", "DOUBLE", "YES", None)],
+        metadata_row=(None, "VIEW"),
+    )
+    schema = adapter.get_schema("orders")
+    assert set(schema.names) == {"id", "amount"}
+
+
+def test_mysql_rejects_missing_relation_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = SimpleNamespace(
+        compiler=SimpleNamespace(type_mapper=_MappingMapper()),
+        con=SimpleNamespace(database=None, catalog=None, schema=None),
+    )
+    adapter = _stub_adapter(MySQLExecutionAdapter, native, monkeypatch)
+    _stub_statements(
+        monkeypatch,
+        adapter,
+        {"DATABASE()": "main", "count": 0},
+        [],
+        metadata_row=None,
+    )
+    with pytest.raises(MaterializationError, match=r"no information_schema\.tables row"):
+        adapter.get_schema("orders")
+
+
+def test_sqlite_accepts_view_definition(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = SimpleNamespace(
+        compiler=SimpleNamespace(type_mapper=_MappingMapper()),
+        con=SimpleNamespace(database="main", catalog=None, schema=None),
+    )
+    adapter = _stub_adapter(SQLiteExecutionAdapter, native, monkeypatch)
+    _stub_statements(
+        monkeypatch,
+        adapter,
+        {
+            "type IN ('table','view')": "CREATE VIEW orders AS SELECT id, amount FROM base_orders",
+            "count": 0,
+        },
+        [("id", "BIGINT"), ("amount", "DOUBLE")],
+    )
+    schema = adapter.get_schema("orders")
+    assert set(schema.names) == {"id", "amount"}

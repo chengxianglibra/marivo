@@ -388,25 +388,32 @@ def test_incompatible_physical_types(tmp_path: Path, source_table: str, physical
     assert runtime.statistics.primary_queries == 0
 
 
-def test_view_and_effective_join_nulls(tmp_path: Path, source_table: str) -> None:
+def test_effective_join_nulls() -> None:
     with clickhouse.connection() as con:
         rows = con.query(
             "SELECT b.value FROM (SELECT 1 AS id) a LEFT JOIN (SELECT 2 AS id, 7 AS value) b ON a.id=b.id"
         ).result_rows
         assert rows == [(None,)]
+
+
+def test_view_source_journey(tmp_path: Path, source_table: str) -> None:
     view = source_table + "_view"
     with clickhouse.connection(admin=True) as con:
         con.command(f"CREATE VIEW {view} AS SELECT * FROM {source_table}")
         try:
             registry, sidecar = registry_for(tmp_path / "unused", engine="clickhouse", table=view)
             runtime = DatasetRuntime.create(tmp_path, "view")
-            with pytest.raises(MaterializationError):
-                runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(
-                    REVENUE
-                ).aggregate().execute()
-            assert runtime.statistics.primary_queries == 0
+            frame = (
+                runtime.sources(semantic_registry=registry, sidecar=sidecar)
+                .observe(REVENUE)
+                .aggregate()
+                .execute()
+                .to_pandas()
+            )
+            assert frame.revenue.tolist() == [1058.5]
+            assert runtime.statistics.primary_queries == 1
         finally:
-            con.command(f"DROP VIEW {view}")
+            con.command(f"DROP VIEW IF EXISTS {view}")
 
 
 def test_between_checks_and_output_update(

@@ -1567,4 +1567,4 @@ Cold projection and downstream analysis preserve the method; execution never
 changes it automatically or retries with another method. Discover the exact
 contract through `marivo.help("semantic.quantile_metric")`.
 
-ClickHouse Dataset execution requires an ordinary local MergeTree table, qualified scalar types and effective `join_use_nulls=1` on the read-only account; see the analysis workflow for the exact scope.
+ClickHouse Dataset execution accepts tables and views under any engine, requires qualified scalar types and effective `join_use_nulls=1` on the read-only account; see the analysis workflow for the exact scope.

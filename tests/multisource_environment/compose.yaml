@@ -38,6 +38,7 @@ services:
       - ./trino/config.properties:/etc/trino/config.properties:ro
       - ./trino/jvm.config:/etc/trino/jvm.config:ro
       - ./trino/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
+      - ./trino/catalog-noniceberg.properties:/etc/trino/catalog/noniceberg.properties:ro
       - ./trino/access-control.properties:/etc/trino/access-control.properties:ro
       - ./trino/access-rules.json:/etc/trino/access-rules.json:ro
       - warehouse:/warehouse
@@ -103,7 +104,46 @@ services:
       - clickhouse:/var/lib/clickhouse
       - ./clickhouse.xml:/etc/clickhouse-server/config.d/qualification.xml:ro
     logging: *logging
+  clickhouse-shard-a: &clickhouse-shard
+    image: clickhouse/clickhouse-server@sha256:d283856e8da15163f250f683ee9a7ad8876111094ef4d4caf9bcc3d9843db5d7
+    platform: linux/arm64
+    profiles: [clickhouse-cluster]
+    mem_limit: 1536m
+    cpus: 1
+    environment:
+      CLICKHOUSE_DB: qualification
+      CLICKHOUSE_USER: qualifier
+      CLICKHOUSE_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports: [127.0.0.1:18201:18201]
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'clickhouse-client --host 127.0.0.1 --user "$${CLICKHOUSE_USER}" --password "$${CLICKHOUSE_PASSWORD}" --query "SELECT 1"',
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-shard-a:/var/lib/clickhouse
+      - ./clickhouse-cluster/topology.xml:/etc/clickhouse-server/config.d/qualification.xml:ro
+      - ./clickhouse-cluster/shard-a.xml:/etc/clickhouse-server/config.d/cluster-ports.xml:ro
+    logging: *logging
+  clickhouse-shard-b:
+    <<: *clickhouse-shard
+    ports: [127.0.0.1:18203:18203]
+    volumes:
+      - clickhouse-shard-b:/var/lib/clickhouse
+      - ./clickhouse-cluster/topology.xml:/etc/clickhouse-server/config.d/qualification.xml:ro
+      - ./clickhouse-cluster/shard-b.xml:/etc/clickhouse-server/config.d/cluster-ports.xml:ro
 volumes:
+  clickhouse-shard-a:
+  clickhouse-shard-b:
   mysql-analysis:
   postgres-analysis:
   catalog:
