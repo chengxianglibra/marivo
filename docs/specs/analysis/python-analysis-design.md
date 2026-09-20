@@ -54,20 +54,43 @@ admit closed-open validity with NULL open ends only. Version diagnostics still
 never gate execution or domain equality.
 
 Mean, weighted mean and ratio preserve sufficient components through atomic
-primary/parts publication and immutable retained rollup. A generic Decimal-valued
-composed result remains unsupported when its exact precision/scale is unresolved;
-a Decimal input with an already resolved floating result is a separate case.
+primary/parts publication and immutable retained rollup. Composed Decimal
+results decide per published unit through the semantic layer's derived
+precision facts instead of one blanket rejection: a decimal linear unit
+publishes exact dec(38, s) sum-leaf add/sub results where the resolved unit is
+admitted, while mean/div units stay backend-rejected — the live MySQL probe
+measured engine AVG rounding at ROUND_HALF_UP (a 5-tie 0.3128125 returned
+0.312813, so the declared HALF_EVEN quantization cannot be bit-exact),
+PostgreSQL and Trino numeric/AVG scales are not a public contract, ClickHouse
+decimal division truncates scale and AVG returns Float64, and DuckDB decimal
+division and AVG return DOUBLE. A Decimal input with an already resolved
+floating result — ratio and weighted mean over Decimal components — remains
+the existing float64 contract and is not part of this per-unit resolution.
 Comparison and attribution use the existing complete non-Entity retained-axis
 methods. Forecast, Kendall and time discovery consume complete source-aggregated
 inputs in the caller; they do not collect raw semantic Entity rows.
 
-The following remain explicitly unsupported on these new backends: linear or
-cumulative Metric graphs, status-time folds, semantic calendars, hidden-axis
-expanded attribution, sampling, Entity correlation preparation, exact distinct
+Computed Measures (row expressions) aggregate on these backends. A
+`@ms.measure(...)` body returns one row-level ibis expression over the owning
+Entity's declared columns — add/subtract/multiply arithmetic, unary negation,
+explicit casts and typed literals. Cross-row aggregations, window functions,
+division, conditional or null-handling calls, references outside the owning
+Entity, undeclared columns and float operands in arithmetic fail at semantic
+load with structured errors before execution. All six backends admit these
+bodies on their declared table sources.
+
+The following remain explicitly unsupported on these new backends: cumulative
+Metric graphs, status-time folds, semantic calendars, hidden-axis expanded
+attribution, sampling, Entity correlation preparation, exact distinct
 membership, quantile/distribution state, Entity candidates, source driver
 screening and Event/Lifecycle. These need their own numerical, private-state,
 temporal or single-evaluation implementations. Remote retained import stays
-disabled. Multi-unit buckets and string-parser time axes were activated by C3b
+disabled. Linear Metric graphs and computed Measures were activated by C4 on
+all six backends; the composed-Decimal unit matrix above names each backend
+whose linear decimal cell resolves exactly (PostgreSQL, MySQL, ClickHouse) and
+the ones that keep the conservative rejection (Trino's lossy AVG probe, SQLite's
+missing Decimal storage). Multi-unit buckets and string-parser time axes were
+activated by C3b
 (see the C3b acceptance record for the per-backend and per-format limits); Trino
 carries no execution evidence yet for either. No
 private state is uploaded or moved to a different executor to bypass rejection.

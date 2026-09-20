@@ -510,6 +510,11 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
                 or not math.isfinite(float(coefficient))
             ):
                 _invalid(f"{context}.terms[{index}].coefficient must be finite")
+            if float(coefficient) not in (1.0, -1.0):
+                _invalid(
+                    f"{context}.terms[{index}].coefficient must be +1 or -1; "
+                    f"received {coefficient!r}"
+                )
             terms.append(
                 LinearTermV1(
                     child_id=_required_string(

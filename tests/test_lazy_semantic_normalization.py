@@ -389,7 +389,7 @@ def test_weighted_mean_and_different_root_ratio_retain_intrinsic_component_state
 def test_metric_missing_type_facts_fail_and_quantiles_require_source() -> None:
     registry = _registry()
     registry.metrics["sales.value"] = _metric("value")
-    with pytest.raises(SemanticLoadError, match="direct-column"):
+    with pytest.raises(SemanticLoadError, match="missing declared measure facts"):
         normalize_target_metric(registry, "sales.value")
     registry.metrics["sales.value"] = _metric("value", agg="median")
     normalized = normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))

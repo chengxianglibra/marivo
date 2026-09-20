@@ -448,7 +448,15 @@ def provider(
         value = getattr(runtime_metric, name)
         target = "runtime_metric." + name
         members.append(target)
-        guidance = "Use exact semantic refs or closed Runtime Metric expressions, typed slice mappings and an explicit label; no SQL or arbitrary expressions."
+        guidance = (
+            "Use exact semantic refs or closed Runtime Metric expressions with ±1 "
+            "coefficients and an explicit label; admitted linear shapes execute on all "
+            "six backends and stay value-exact (integer and Decimal sum terms keep "
+            "their types, mixed terms follow the engine's float promotion); no SQL or "
+            "arbitrary expressions."
+            if name == "linear"
+            else "Use exact semantic refs or closed Runtime Metric expressions, typed slice mappings and an explicit label; no SQL or arbitrary expressions."
+        )
         descriptors.append(
             operation(
                 target,

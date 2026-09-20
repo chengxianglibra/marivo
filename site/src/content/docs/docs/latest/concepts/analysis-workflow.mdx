@@ -191,8 +191,13 @@ group means. Comparison and attribution use complete non-Entity retained axes.
 Forecast, Kendall and time discovery run locally on complete source-aggregated
 inputs. Cold retained reads and folds do not need the original source.
 
-Semantic-calendar buckets, cumulative/status-time folds, linear Metric graphs and
-unresolved Decimal result precision remain unsupported. Sampling, hidden-axis
+Linear Metric graphs and computed Measures (row expressions over one Entity's
+declared columns) are enabled on all six backends, and composed Decimal results
+decide per published unit: a decimal linear result is value-exact where the
+backend's scale contract is public, while mean/div over Decimal components stay
+unsupported with a concrete engine reason (the owning design spec carries the
+per-backend matrix). Semantic-calendar buckets, cumulative/status-time folds and
+unresolved-Decimal mean/div results remain unsupported. Sampling, hidden-axis
 expanded attribution, Entity correlation, exact distinct/quantile private state,
 Entity candidates, source driver screening and Event/Lifecycle are not enabled by
 this extension. String-parser time axes and multi-unit buckets are enabled per

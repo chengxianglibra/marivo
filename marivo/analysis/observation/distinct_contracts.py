@@ -111,7 +111,9 @@ def make_distinct_membership(
         from marivo.refs import _create_ref
 
         body = sidecar.bodies[_create_ref(SemanticKind.MEASURE, node.target_ref.path)]
-        assert body.source_column is not None
+        if body.source_column is None:
+            # Computed measures have no single physical key column to offer.
+            return None
         source_column = body.source_column
         logical_type = str(dt.dtype(logical_type))
         target_kind = "measure"

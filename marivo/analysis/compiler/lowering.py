@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, cast
 from zoneinfo import ZoneInfo
 
 import ibis
@@ -133,8 +133,14 @@ from marivo.analysis.operators.driver_contracts import (
     DriverCandidateDefinition,
     DriverCandidatePayload,
 )
-from marivo.refs import SemanticKind
+from marivo.refs import EntityKind, Ref, SemanticKind, _create_ref, _decode_ref_payload
+from marivo.semantic._expression_binding import (
+    ExpressionBody,
+    evaluate_expression_body,
+)
+from marivo.semantic.decimal_precision import DecimalPrecision, DecimalType, min_max, sum_of
 from marivo.semantic.ir import (
+    AggKind,
     HourPrefixParse,
     StrptimeParse,
     TargetDimensionContract,
@@ -157,7 +163,12 @@ from marivo.semantic.metric_graph import (
     component_node,
     component_predicate,
 )
-from marivo.semantic.validator import normalize_target_dimension, normalize_target_version_selection
+from marivo.semantic.metric_graph_lowering import _derive_measure_result_type
+from marivo.semantic.validator import (
+    normalize_target_dimension,
+    normalize_target_entity,
+    normalize_target_version_selection,
+)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -221,6 +232,15 @@ def _numeric(value: ir.Value) -> ir.NumericValue:
     if not isinstance(value, ir.NumericValue):
         raise compilation_error("numeric sufficient state", "unexpected expression type")
     return value
+
+
+def _linear_coefficient(coefficient: float) -> int | float:
+    """Return one linear term's coefficient without degrading typed terms.
+
+    Integral coefficients become ``int`` literals so an int64 term stays int64
+    and a Decimal term stays Decimal; non-integral coefficients stay float.
+    """
+    return int(coefficient) if float(coefficient).is_integer() else coefficient
 
 
 def _identity(table: ir.Table, entity: TargetEntityContract) -> ir.StructValue:
@@ -361,19 +381,64 @@ def _state_projection(row: DatasetRowContract) -> tuple[str, ...]:
     )
 
 
-def _declared_cast(value: ir.Value, logical_type: str) -> ir.Value:
+def _declared_cast(
+    value: ir.Value, logical_type: str, declared_decimal: DecimalPrecision | None = None
+) -> ir.Value:
+    """Cast one metric/measure result to its declared publication type.
+
+    Decimal results carry exact precision and scale: either the resolved
+    physical type (direct-column measures, already type-verified against the
+    declared source) or the rule-derived ``(p, s)`` passed by the caller for
+    ibis-misinferred computed row expressions. A resolved physical decimal
+    normalizes to the declared target through the one-step value-exact rule:
+    scale must not narrow, and the physical integer positions (precision minus
+    scale) must not narrow — precision may only shrink by trimming high-order
+    positions that cannot carry a value digit. An integral physical value
+    embeds exactly into a declared scale-0 decimal. Every other shape is a
+    structured failure, never a silent reinterpretation.
+    """
     target = dt.dtype(logical_type)
     if logical_type == "decimal":
         physical = value.type()
-        if (
-            not isinstance(physical, dt.Decimal)
-            or physical.precision is None
-            or physical.scale is None
-        ):
-            raise compilation_error(
-                "resolved exact Decimal precision and scale", "unknown Decimal physical type"
-            )
-        target = physical
+        if declared_decimal is not None:
+            exact_integral = physical.is_integer() and declared_decimal.scale == 0
+            if not exact_integral:
+                if (
+                    not isinstance(physical, dt.Decimal)
+                    or physical.precision is None
+                    or physical.scale is None
+                ):
+                    raise compilation_error(
+                        "resolved exact Decimal precision and scale",
+                        "unknown Decimal physical type",
+                    )
+                if (
+                    physical.scale > declared_decimal.scale
+                    or physical.precision - physical.scale
+                    > declared_decimal.precision - declared_decimal.scale
+                ):
+                    raise compilation_error(
+                        (
+                            "a Decimal physical type that normalizes to the declared "
+                            f"({declared_decimal.precision}, {declared_decimal.scale}) "
+                            "through the value-exact rule"
+                        ),
+                        (
+                            f"Decimal({physical.precision}, {physical.scale}) narrows the "
+                            "declared scale or integer digit positions"
+                        ),
+                    )
+            target = dt.Decimal(declared_decimal.precision, declared_decimal.scale)
+        else:
+            if (
+                not isinstance(physical, dt.Decimal)
+                or physical.precision is None
+                or physical.scale is None
+            ):
+                raise compilation_error(
+                    "resolved exact Decimal precision and scale", "unknown Decimal physical type"
+                )
+            target = physical
     return ops.Cast(value, to=target).to_expr()
 
 
@@ -443,9 +508,9 @@ def _fold_value(table: ir.Table, authority: MetricFoldAuthorityV1) -> ir.Value:
             return value(node.children[0])
         if node.kind == "ratio":
             return _numeric(value(node.children[0])) / _numeric(value(node.children[1])).nullif(0)
-        result = _numeric(value(node.children[0])) * node.coefficients[0]
+        result = _numeric(value(node.children[0])) * _linear_coefficient(node.coefficients[0])
         for child, coefficient in zip(node.children[1:], node.coefficients[1:], strict=True):
-            result = result + _numeric(value(child)) * coefficient
+            result = result + _numeric(value(child)) * _linear_coefficient(coefficient)
         return result
 
     return value(authority.root_id)
@@ -1289,15 +1354,48 @@ class _Compiler:
         self.preparations.extend(self.validations[self.prepared_validation_count :])
         self.prepared_validation_count = len(self.validations)
 
-    def _measure_column(self, reference_path: str) -> str:
+    def _measure_expression(self, reference_path: str) -> ExpressionBody:
+        """Resolve one Measure reference to its normalized expression body.
+
+        Direct-column measures carry their physical column on
+        ``body.source_column``; computed measures carry the full row-expression
+        body. Callers evaluate computed bodies on the owning entity's table in
+        the same scan that feeds the aggregate.
+        """
         for reference, body in self.owner.sidecar.bodies.items():
-            if (
-                reference.kind is SemanticKind.MEASURE
-                and reference.path == reference_path
-                and body.source_column is not None
-            ):
-                return body.source_column
-        raise compilation_error("normalized direct-column Measure", "missing expression binding")
+            if reference.kind is SemanticKind.MEASURE and reference.path == reference_path:
+                return body
+        raise compilation_error("a normalized Measure", "missing expression binding")
+
+    def _measure_column(self, reference_path: str) -> ir.Value:
+        """Evaluate one Measure reference on the computation root's table.
+
+        Direct-column measures return the physical column expression; computed
+        measures evaluate their row-expression body on the measure's owning
+        entity table at this lowering point, inside the current scan. The
+        required entity table is already present because normalization
+        collected the measure's source columns.
+        """
+        body = self._measure_expression(reference_path)
+        measure = self.registry.measures.get(reference_path)
+        if measure is None:
+            raise compilation_error("a loaded Measure", f"unknown Measure {reference_path!r}")
+        entity_path = measure.entity
+        table = self.tables[entity_path]
+        if body.source_column is not None:
+            return table[body.source_column]
+        entity_ref = cast(
+            "Ref[EntityKind]",
+            _decode_ref_payload(normalize_target_entity(self.registry, entity_path).ref),
+        )
+        return evaluate_expression_body(
+            catalog_definition_fingerprint=reference_path,
+            expression_sidecar=self.owner.sidecar,
+            owning_ref=_create_ref(SemanticKind.MEASURE, reference_path),
+            body=body,
+            entity_refs=(entity_ref,),
+            aliases=(table,),
+        )
 
     def _resolve_coordinate_path(
         self, definition: MetricDefinition, source: str, axis: TargetDimensionContract
@@ -1556,6 +1654,48 @@ class _Compiler:
             }
         )
 
+    def _measure_decimal_facts(self, path: str, agg: AggKind) -> DecimalPrecision | None:
+        """Derive one computed measure's declared decimal aggregate type.
+
+        The row-expression's decimal type follows the semantic rule-table walk
+        over the entity's declared column types (engine ibis inference is
+        unreliable for computed decimal expressions), and the aggregate type
+        follows the same aggregation rules normalization applies. Non-decimal
+        results return ``None`` and keep the physical cast path.
+        """
+        body = self._measure_expression(path)
+        if body.source_column is not None:
+            return None
+        measure = self.registry.measures.get(path)
+        if measure is None:
+            raise compilation_error("a loaded Measure", f"unknown Measure {path!r}")
+        entity = normalize_target_entity(self.registry, measure.entity)
+        columns = dict(entity.columns)
+        placeholder = ibis.table(columns, name=path)
+        expression = evaluate_expression_body(
+            catalog_definition_fingerprint=path,
+            expression_sidecar=self.owner.sidecar,
+            owning_ref=_create_ref(SemanticKind.MEASURE, path),
+            body=body,
+            entity_refs=(cast("Ref[EntityKind]", _decode_ref_payload(entity.ref)),),
+            aliases=(placeholder,),
+        )
+        derived = _derive_measure_result_type(expression.op())
+        try:
+            row_type = DecimalPrecision.from_string(derived)
+        except ValueError:
+            # The walk reports non-decimal results (for example int64 minus
+            # int64) as their ibis-inferred type; they keep the physical cast.
+            return None
+        bounded = DecimalType(row_type.precision, row_type.scale)
+        if agg == "sum":
+            summed = sum_of(bounded)
+            return DecimalPrecision(summed.precision, summed.scale)
+        if agg in ("min", "max"):
+            extreme = min_max(bounded)
+            return DecimalPrecision(extreme.precision, extreme.scale)
+        return None
+
     def _component(
         self,
         metric: TargetMetricContract,
@@ -1677,7 +1817,7 @@ class _Compiler:
         states: dict[str, ir.Value] = {"row_count": table.count()}
         if isinstance(node, AggregateNodeV1):
             value = (
-                table[self._measure_column(node.target_ref.path)]
+                self._measure_column(node.target_ref.path)
                 if node.target_ref.kind is SemanticKind.MEASURE
                 else None
             )
@@ -1729,8 +1869,8 @@ class _Compiler:
                         )
                 states["non_null_count"] = value.count()
         else:
-            value = _numeric(table[self._measure_column(node.value_ref.path)])
-            weight = _numeric(table[self._measure_column(node.weight_ref.path)])
+            value = _numeric(self._measure_column(node.value_ref.path))
+            weight = _numeric(self._measure_column(node.weight_ref.path))
             pairs = value.notnull() & weight.notnull()
             states["weighted_numerator"] = (value * weight).sum(where=pairs)
             states["weight_sum"] = weight.sum(where=pairs)
@@ -1911,7 +2051,8 @@ class _Compiler:
                     return numerator / denominator.nullif(0)
                 if isinstance(node, LinearNodeV1):
                     terms = [
-                        _numeric(value(term.child_id)) * term.coefficient for term in node.terms
+                        _numeric(value(term.child_id)) * _linear_coefficient(term.coefficient)
+                        for term in node.terms
                     ]
                     result = terms[0]
                     for term in terms[1:]:
@@ -1925,7 +2066,17 @@ class _Compiler:
                     "closed aggregate/weighted/ratio graph", "unsupported graph node"
                 )
 
-            output[field.name] = _declared_cast(value(metric.graph.roots[0]), metric.logical_type)
+            root = component_node(metric.graph, metric.components[0].node_id)
+            declared_decimal = (
+                self._measure_decimal_facts(root.target_ref.path, root.agg)
+                if isinstance(root, AggregateNodeV1)
+                and root.target_ref.kind is SemanticKind.MEASURE
+                and metric.components[0].node_id == metric.graph.roots[0]
+                else None
+            )
+            output[field.name] = _declared_cast(
+                value(metric.graph.roots[0]), metric.logical_type, declared_decimal
+            )
         return table.mutate(**output)
 
     def _evaluate(
