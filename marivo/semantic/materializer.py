@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import ibis
 import ibis.expr.types as ir
-from ibis.expr.operations.relations import SQLQueryResult
+from ibis.expr.operations.relations import Relation, SQLQueryResult
 
 from marivo._compat import UTC
 from marivo.datasource import credentials as cr
@@ -34,6 +34,7 @@ from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
     AggKind,
     CsvSourceIR,
+    EntityIR,
     EntityProvenance,
     EntitySourceIR,
     JsonSourceIR,
@@ -60,6 +61,40 @@ class EntityRuntimeMetadata:
     entity_provenance: EntityProvenance
     raw_sql_snippet: str | None
     detected_at: datetime
+
+
+def _relations_outside_boundary(op: object, boundary: object) -> list[object]:
+    """Return the relation leaves an expression reaches around the boundary.
+
+    Traverses the op tree from ``op`` downward and stops at the boundary
+    node: the boundary and everything beneath it belong to the injected
+    Source and is trusted. A relation leaf reached on a path that never
+    passes through the boundary is reported, which covers captured
+    memtables, detached tables, file readers, and op-level navigation that
+    re-emerges above the boundary (for example ``raw.op().parent``).
+    Derived non-leaf relation nodes (joins, aggregations, unions) are
+    traversed, so same-source branches stay allowed.
+    """
+    relation_type = Relation
+    outside: list[object] = []
+    seen: set[int] = set()
+    stack: list[object] = [op]
+    while stack:
+        node = stack.pop()
+        node_id = id(node)
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        if node is boundary:
+            continue
+        children = list(getattr(node, "__children__", ()))
+        if relation_type in type(node).__mro__ and not any(
+            relation_type in type(child).__mro__ for child in children
+        ):
+            outside.append(node)
+            continue
+        stack.extend(children)
+    return outside
 
 
 class Materializer:
@@ -122,6 +157,8 @@ class Materializer:
         owning_ref: Ref[SemanticKindTag],
         entity_refs: tuple[Ref[EntityKind], ...],
         aliases: tuple[ibis.Table, ...],
+        *,
+        table_result: bool = False,
     ) -> ir.Value:
         """Evaluate one compiled body through the task-local binding runtime."""
         _, sidecar = self._get_registry_and_sidecar()
@@ -143,6 +180,7 @@ class Materializer:
             body=body,
             entity_refs=entity_refs,
             aliases=aliases,
+            table_result=table_result,
         )
 
     @staticmethod
@@ -154,7 +192,14 @@ class Materializer:
     # -- entity --------------------------------------------------------------
 
     def entity(self, semantic_id: str) -> ibis.Table:
-        """Materialize an entity, returning an ibis Table expression."""
+        """Materialize an entity through the shared output-relation boundary.
+
+        Resolves the declared physical Source, applies an explicitly requested
+        input scope over Source-exposed columns, evaluates the expression
+        body once (identity for direct declarations), verifies the single
+        Source boundary, and then applies output row budgets to the Entity
+        relation.
+        """
         if semantic_id in self._entity_cache:
             return self._entity_cache[semantic_id]
 
@@ -172,7 +217,7 @@ class Materializer:
         backend = self._get_backend(ds_ir.datasource)
 
         try:
-            table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
+            source_table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
         except DatasourceError:
             raise
         except SemanticRuntimeError:
@@ -192,32 +237,165 @@ class Materializer:
                     raise error from None
                 raise
 
+        # Explicit physical input scope over Source-exposed columns, before
+        # any authored Entity body. Its row budget stays with the scope.
+        source_table = self._apply_input_scope(semantic_id, source_table)
+
+        table = self._materialize_entity_output(semantic_id, ds_ir, source_table)
+
+        # Row budgets bound Entity output, after the authored relation, so a
+        # full aggregate or deduplication completes before truncation.
         scope = self._entity_scopes.get(semantic_id)
         if scope is not None:
-            if isinstance(scope, PartitionScope):
-                if scope._time_range is not None:
-                    predicate = scope._time_range
-                    table = table.filter(
-                        (table[predicate.column] >= predicate.start)
-                        & (table[predicate.column] < predicate.end)
-                    )
-                else:
-                    for column, value in scope.values:
-                        table = table.filter(table[column] == value)
             # Preview needs one extra row to distinguish an exhaustive scope
             # from a bounded sample without performing another query.
             table = table.limit(scope.max_rows + 1)
-
-        # Apply pre-aggregate row limit when sample_size is set
         if self._sample_size is not None:
             table = table.limit(self._sample_size)
 
         # Cache the result
         self._entity_cache[semantic_id] = table
 
-        self._detect_and_store_provenance(semantic_id, ds_ir.source, table)
+        self._detect_and_store_provenance(semantic_id, ds_ir.source, source_table)
 
         return table
+
+    def _apply_input_scope(self, semantic_id: str, source_table: ibis.Table) -> ibis.Table:
+        """Filter the physical Source by an explicitly requested input scope."""
+        scope = self._entity_scopes.get(semantic_id)
+        if scope is None or not isinstance(scope, PartitionScope):
+            return source_table
+        if scope._time_range is not None:
+            predicate = scope._time_range
+            return source_table.filter(
+                (source_table[predicate.column] >= predicate.start)
+                & (source_table[predicate.column] < predicate.end)
+            )
+        filtered = source_table
+        for column, value in scope.values:
+            filtered = filtered.filter(filtered[column] == value)
+        return filtered
+
+    def _materialize_entity_output(
+        self,
+        semantic_id: str,
+        ds_ir: EntityIR,
+        source_table: ibis.Table,
+    ) -> ibis.Table:
+        """Evaluate the Entity body once, or keep identity for direct forms."""
+        _registry, sidecar = self._get_registry_and_sidecar()
+        body = sidecar.bodies.get(ref_factory.entity(semantic_id))
+        if body is None:
+            return source_table
+        result = self._evaluate_expression(
+            cast("Ref[SemanticKindTag]", ref_factory.entity(semantic_id)),
+            (ref_factory.entity(ds_ir.semantic_id),),
+            (source_table,),
+            table_result=True,
+        )
+        if not isinstance(result, ibis.Table):
+            _raise(
+                ErrorKind.BINDING_RESULT_INVALID,
+                f"Entity {semantic_id!r} body did not return an Ibis Table relation.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+                expected="ibis.expr.types.Table",
+                received=type(result).__name__,
+            )
+        self._require_single_source_boundary(
+            semantic_id=semantic_id,
+            source_table=source_table,
+            result=result,
+        )
+        self._require_output_keys(semantic_id=semantic_id, ds_ir=ds_ir, result=result)
+        return result
+
+    @staticmethod
+    def _require_output_keys(
+        *,
+        semantic_id: str,
+        ds_ir: EntityIR,
+        result: ibis.Table,
+    ) -> None:
+        """Require declared primary-key components on the output schema.
+
+        The output schema is authoritative for downstream consumers: keys,
+        versioning axes, and fields must resolve against it, not against the
+        physical Source schema. The check reports the declared keys and the
+        bounded actual output columns so the author can either expose the
+        missing key or update the declaration to the intended grain.
+        """
+        if not ds_ir.primary_key:
+            return
+        output_columns = tuple(result.schema().names)
+        missing = tuple(key for key in ds_ir.primary_key if key not in output_columns)
+        if not missing:
+            return
+        display_limit = 8
+        rendered_keys = ", ".join(repr(key) for key in missing)
+        rendered_columns = ", ".join(repr(column) for column in output_columns[:display_limit])
+        omitted = len(output_columns) - min(len(output_columns), display_limit)
+        if omitted > 0:
+            rendered_columns += f", ... (+{omitted} more)"
+        _raise(
+            ErrorKind.BINDING_RESULT_INVALID,
+            (
+                f"Entity {semantic_id!r} output is missing declared primary_key "
+                f"component(s) {rendered_keys}. The output schema is authoritative "
+                f"for downstream keys and fields."
+            ),
+            cls=SemanticRuntimeError,
+            refs=(semantic_id, *(f"{semantic_id}.{key}" for key in missing)),
+            expected=f"primary_key {rendered_keys} present on the Entity output schema",
+            received=f"output columns: {rendered_columns}",
+            hint=(
+                "Expose the declared key column(s) in the Entity body output, or "
+                "update primary_key to columns that identify the transformed grain."
+            ),
+        )
+
+    def _require_single_source_boundary(
+        self,
+        *,
+        semantic_id: str,
+        source_table: ibis.Table,
+        result: ibis.Table,
+    ) -> None:
+        """Verify the output derives only from the injected Source boundary.
+
+        The injected Source relation is the trusted, opaque boundary of the
+        traversal: every relation leaf the output reaches must be reached
+        through that node, so same-source branches, self-joins, and unions
+        stay allowed while captured, detached, or additional relation roots
+        are rejected even when their names or schemas coincide. Walking above
+        the boundary (for example ``raw.op().parent``) would expose the
+        unscoped physical relation beneath an explicit input scope and is
+        rejected the same way. Internal nodes of the datasource-owned Source
+        preparation (typed projections, file readers) are encapsulated by the
+        boundary and never inspected separately.
+        """
+        boundary = source_table.op()
+        foreign = _relations_outside_boundary(result.op(), boundary)
+        if foreign:
+            _raise(
+                ErrorKind.SQL_ESCAPE_HATCH,
+                (
+                    f"Entity {semantic_id!r} body returned a relation reaching "
+                    f"{len(foreign)} relation node(s) outside the injected Source "
+                    f"boundary ({', '.join(sorted({type(leaf).__name__ for leaf in foreign}))}). "
+                    "Derive the Entity output from the single injected Source parameter."
+                ),
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+                expected="one relation derived only through the injected Source boundary",
+                received=", ".join(sorted({type(leaf).__name__ for leaf in foreign})),
+                hint=(
+                    "Replace captured Tables, ibis.table(...), ibis.memtable(...), file "
+                    "readers, and op-level navigation such as raw.op().parent with "
+                    "expressions over the injected parameter; same-source branches and "
+                    "self-joins remain allowed."
+                ),
+            )
 
     def _materialize_dataset_source(
         self,
@@ -298,10 +476,15 @@ class Materializer:
         self,
         semantic_id: str,
         source: EntitySourceIR,
-        table: ibis.Table,
+        source_table: ibis.Table,
     ) -> None:
-        """Classify source-aware runtime provenance and store metadata."""
-        op = table.op()
+        """Classify physical-Source provenance and store metadata.
+
+        Provenance describes the declared physical origin, not the authored
+        Entity transformation: an expression Entity over a plain table keeps
+        the table classification even though its output relation is derived.
+        """
+        op = source_table.op()
         sql_nodes = op.find(lambda n: isinstance(n, SQLQueryResult))
 
         if isinstance(source, TableSourceIR) and source.columns:
