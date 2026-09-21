@@ -1013,7 +1013,7 @@ the ref immediately. Ordinary preview creates no authoring checkpoint and does
 not affect readiness.
 
 The preview `limit` controls how many result rows are displayed. Metric previews
-use a separate safety bound: they aggregate at most 10,000 scoped input rows.
+use a separate safety bound: they aggregate at most 10,000 Entity output rows after the Entity relation.
 Their result card shows `sample_policy=pre_aggregate_limit(limit=10000)` and an
 `approximate_preview` warning, so even exhaustive scope coverage must
 not be read as proof that the displayed metric value is exact.

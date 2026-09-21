@@ -12,7 +12,7 @@ import ast
 import hashlib
 import inspect
 import textwrap
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -1643,11 +1643,32 @@ def _validate_cumulative_metric(
 _PROJECTED_ALIAS_DISPLAY_LIMIT = 8
 
 
+def _expression_entity_ids(
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar | None,
+) -> frozenset[str]:
+    """Return entity ids that own a compiled Table expression body."""
+    if sidecar is None:
+        return frozenset()
+    return frozenset(
+        ref.path
+        for ref in sidecar.bodies
+        if ref.kind is SemanticKind.ENTITY and ref.path in registry.entities
+    )
+
+
 def _validate_projected_source_aliases(
     registry: Registry,
     sidecar: CompiledExpressionSidecar | None,
 ) -> list[SemanticError]:
-    """Validate direct semantic column references against projected aliases."""
+    """Validate direct semantic column references against projected aliases.
+
+    Only direct Entity declarations carry the projected-alias contract: their
+    output schema is the Source schema. Expression Entities own a transformed
+    output schema, so their downstream references are validated against the
+    body output by ``_validate_expression_entity_output`` instead.
+    """
+    expression_entities = _expression_entity_ids(registry, sidecar)
     missing_by_entity: dict[str, list[dict[str, object]]] = {}
 
     def record(
@@ -1655,6 +1676,8 @@ def _validate_projected_source_aliases(
     ) -> None:
         source = entity.source
         if not isinstance(source, TableSourceIR) or not source.columns:
+            return
+        if entity.semantic_id in expression_entities:
             return
         aliases = {output_name for output_name, _binding in source.columns}
         if column in aliases:
@@ -1745,6 +1768,273 @@ def _validate_projected_source_aliases(
     return errors
 
 
+_OUTPUT_COLUMN_DISPLAY_LIMIT = 8
+
+
+def _render_column_list(columns: Sequence[str]) -> str:
+    """Render up to eight columns with an omitted-count suffix."""
+    visible = columns[:_OUTPUT_COLUMN_DISPLAY_LIMIT]
+    rendered = ", ".join(repr(column) for column in visible)
+    omitted = len(columns) - len(visible)
+    if omitted > 0:
+        rendered += f", ... (+{omitted} more)"
+    return rendered
+
+
+def _validate_expression_entity_output(
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar | None,
+) -> list[SemanticError]:
+    """Validate expression Entity bodies against unbound declared input schema.
+
+    For every expression Entity whose declared Source is a projected
+    ``md.table(columns=...)`` — a declared typed input interface — build an
+    equivalent unbound Ibis Table, evaluate the body once without executing
+    rows, and require an Ibis Table result. Declared primary-key components
+    and downstream ``column=`` references must exist on the returned output
+    schema. Unprojected Sources carry no declared input metadata, so their
+    schema-dependent checks stay deferred to runtime validation, preview, or
+    first use, and are not reported as already passed here.
+    """
+    if sidecar is None:
+        return []
+    errors: list[SemanticError] = []
+    for entity_id in sorted(_expression_entity_ids(registry, sidecar)):
+        entity = registry.entities[entity_id]
+        source = entity.source
+        if not isinstance(source, TableSourceIR) or not source.columns:
+            continue
+        body = sidecar.bodies.get(ref_factory.entity(entity_id))
+        if body is None:
+            continue
+        input_columns = {output_name: binding.data_type for output_name, binding in source.columns}
+        unbound = _ibis_table_from_declared_columns(
+            input_columns, table_name=f"marivo_unbound_{entity_id}"
+        )
+        result, error = _expression_entity_output_result(
+            entity=entity,
+            body=body,
+            unbound=unbound,
+            input_columns=tuple(input_columns),
+        )
+        if error is not None:
+            errors.append(error)
+            continue
+        if result is None:
+            # Deferred to runtime validation: no static verdict, never read
+            # the absent result.
+            continue
+        output_columns = tuple(result.schema().names)
+        errors.extend(
+            _expression_entity_output_schema_errors(
+                registry=registry,
+                sidecar=sidecar,
+                entity=entity,
+                output_columns=output_columns,
+            )
+        )
+    return errors
+
+
+def _ibis_table_from_declared_columns(
+    columns: Mapping[str, str],
+    *,
+    table_name: str,
+) -> Any:
+    """Build one unbound Ibis Table from declared projected output aliases.
+
+    Data types are the canonical Ibis type strings already validated by
+    ``TableColumnBindingIR``. Construction is deferred to call time so module
+    import stays Ibis-light.
+    """
+    import ibis
+
+    return ibis.table(dict(columns), name=table_name)
+
+
+def _is_ibis_table(value: object) -> bool:
+    """Check one value against the Ibis Table class without importing eagerly."""
+    import ibis
+
+    return isinstance(value, ibis.Table)
+
+
+def _expression_entity_output_result(
+    *,
+    entity: EntityIR,
+    body: Any,
+    unbound: Any,
+    input_columns: Sequence[str],
+) -> tuple[Any, SemanticError | None]:
+    """Evaluate one Entity body over the unbound input, or classify the failure.
+
+    Returns exactly one of: ``(result, None)`` for a successful Table
+    result, ``(None, error)`` for a classified assembly error, or
+    ``(None, None)`` when the failure is deferred to runtime validation.
+    Callers must treat ``(None, None)`` as "no static verdict" and never
+    read the result.
+    """
+    entity_id = entity.semantic_id
+    try:
+        result = cast("Any", body.callable(unbound))
+    except Exception as exc:
+        missing = tuple(
+            column for column in body.source_columns if column not in set(input_columns)
+        )
+        if missing:
+            return None, SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPONENT_BODY,
+                message=(
+                    f"Entity {entity_id!r} body references input column(s) "
+                    f"{_render_column_list(missing)} that the declared Source does not "
+                    "expose. Correct the Entity expression or the Source column bindings."
+                ),
+                refs=(entity_id,),
+                expected="input columns declared by md.table(columns=...)",
+                received=_render_column_list(missing),
+                hint="Expose the column(s) in md.table(columns=...) or read an exposed alias.",
+                location=entity.location,
+                constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
+                details={
+                    "entity": entity_id,
+                    "missing_input_columns": list(missing),
+                    "available_input_columns": list(input_columns),
+                    "build_error": str(exc),
+                },
+            )
+        return None, None
+    if not _is_ibis_table(result):
+        return None, SemanticLoadError(
+            kind=ErrorKind.BINDING_RESULT_INVALID,
+            message=(
+                f"Entity {entity_id!r} body must return one Ibis Table relation derived "
+                "from its declared Source."
+            ),
+            refs=(entity_id,),
+            expected="ibis.expr.types.Table",
+            received=type(result).__name__,
+            location=entity.location,
+            constraint_id=ConstraintId.REF_SHAPE,
+            details={"entity": entity_id},
+        )
+    return result, None
+
+
+def _expression_entity_output_schema_errors(
+    *,
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar | None,
+    entity: EntityIR,
+    output_columns: tuple[str, ...],
+) -> list[SemanticError]:
+    """Check declared keys and downstream column refs against the output schema.
+
+    Missing input columns are Entity-definition failures; missing output
+    columns referenced by a downstream field are downstream-definition
+    failures. Repairs name the bounded actual output columns.
+    """
+    errors: list[SemanticError] = []
+    entity_id = entity.semantic_id
+    output_set = set(output_columns)
+    missing_keys = tuple(key for key in entity.primary_key if key not in output_set)
+    if missing_keys:
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_REF,
+                message=(
+                    f"Entity {entity_id!r} output is missing declared primary_key "
+                    f"component(s) {_render_column_list(missing_keys)}. The output schema "
+                    "is authoritative for downstream keys and fields."
+                ),
+                refs=(entity_id,),
+                expected=f"primary_key {_render_column_list(missing_keys)} on the Entity output",
+                received=f"output columns: {_render_column_list(output_columns)}",
+                hint=(
+                    "Expose the declared key column(s) in the Entity body output, or "
+                    "update primary_key to columns that identify the transformed grain."
+                ),
+                location=entity.location,
+                constraint_id=ConstraintId.REF_SHAPE,
+                details={
+                    "entity": entity_id,
+                    "missing_references": [
+                        {
+                            "object": entity_id,
+                            "field": "primary_key",
+                            "received_column": key,
+                        }
+                        for key in missing_keys
+                    ],
+                    "omitted_missing_reference_count": 0,
+                    "available_output_columns": list(output_columns),
+                },
+            )
+        )
+    downstream_missing: list[dict[str, object]] = []
+    for dimension in registry.dimensions.values():
+        if dimension.entity != entity_id or dimension.source_column is None:
+            continue
+        if dimension.source_column not in output_set:
+            downstream_missing.append(
+                {
+                    "object": dimension.semantic_id,
+                    "field": "column",
+                    "received_column": dimension.source_column,
+                    "location": {"file": dimension.location.file, "line": dimension.location.line},
+                }
+            )
+    if sidecar is not None:
+        for measure in registry.measures.values():
+            body = sidecar.bodies.get(ref_factory.measure(measure.semantic_id))
+            if measure.entity != entity_id or body is None or body.source_column is None:
+                continue
+            if body.source_column not in output_set:
+                downstream_missing.append(
+                    {
+                        "object": measure.semantic_id,
+                        "field": "column",
+                        "received_column": body.source_column,
+                        "location": {
+                            "file": measure.location.file,
+                            "line": measure.location.line,
+                        },
+                    }
+                )
+    if downstream_missing:
+        visible = downstream_missing[:_OUTPUT_COLUMN_DISPLAY_LIMIT]
+        rendered = ", ".join(
+            f"{item['object']}.{item['field']}={item['received_column']!r}" for item in visible
+        )
+        omitted = len(downstream_missing) - len(visible)
+        if omitted > 0:
+            rendered += f", ... (+{omitted} more)"
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_REF,
+                message=(
+                    f"Entity {entity_id!r} output is missing column(s) required by "
+                    f"semantic references: {rendered}."
+                ),
+                refs=(entity_id, *(str(item["object"]) for item in downstream_missing)),
+                expected="columns exposed by the Entity body output",
+                received=", ".join(str(item["received_column"]) for item in visible),
+                hint=(
+                    "Expose every missing column in the Entity body output, or change each "
+                    "semantic column= to a column the transformed output provides."
+                ),
+                location=entity.location,
+                constraint_id=ConstraintId.REF_SHAPE,
+                details={
+                    "entity": entity_id,
+                    "missing_references": downstream_missing,
+                    "omitted_missing_reference_count": omitted,
+                    "available_output_columns": list(output_columns),
+                },
+            )
+        )
+    return errors
+
+
 def assembly_validate(
     registry: Registry,
     sidecar: CompiledExpressionSidecar | None = None,
@@ -1764,6 +2054,7 @@ def assembly_validate(
     warnings: list[StructuredWarning] = []
 
     errors.extend(_validate_projected_source_aliases(registry, sidecar))
+    errors.extend(_validate_expression_entity_output(registry, sidecar))
 
     # -- Validate datasource refs on entities --------------------------------
     for ds_id, ds_ir in registry.entities.items():

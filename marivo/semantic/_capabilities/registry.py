@@ -2987,7 +2987,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic.catalog.SemanticCatalog.preview",
             (
                 "Run one scoped data preview for a current catalog entry or exact ref. "
-                "Metric previews aggregate at most 10,000 scoped input rows and report "
+                "Metric previews aggregate at most 10,000 Entity output rows and report "
                 "an approximate result; period calendars, temporal sets, and work "
                 "schedules publish their dedicated certified artifacts."
             ),
@@ -3022,7 +3022,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic.catalog.SemanticCatalog.preview_many",
             (
                 "Run scoped data previews for a non-empty entry/ref sequence. Metric "
-                "previews aggregate at most 10,000 scoped input rows and report an "
+                "previews aggregate at most 10,000 Entity output rows and report an "
                 "approximate result."
             ),
             kind="method",
