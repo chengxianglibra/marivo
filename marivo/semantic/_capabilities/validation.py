@@ -157,7 +157,9 @@ def _annotation_output_family(
     )
     if descriptor.invocation_shape == "decorator":
         ref_products = re.findall(r"Ref\[[A-Za-z_][A-Za-z0-9_]*\]", text)
-        assert len(ref_products) == 1, (
+        # A direct/decorator dispatch exposes the same Ref product twice: once
+        # as the direct return and once inside the decorator's return callable.
+        assert len(ref_products) >= 1 and len(set(ref_products)) == 1, (
             f"{descriptor.canonical_id} decorator return does not expose one Ref product: {text}"
         )
         text = ref_products[0]

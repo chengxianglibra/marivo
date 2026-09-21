@@ -7,7 +7,7 @@ Internal module: public symbols are re-exported from
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import Any, Literal, overload
 
 from marivo.refs import (
     DatasourceKind,
@@ -76,46 +76,21 @@ from marivo.semantic.typing import AiContextValue
 from marivo.semantic.validator import validate_event_body_ast
 
 
-def entity(
+def _register_entity_ir(
     *,
+    semantic_id: str,
+    domain: str,
     name: str,
+    python_symbol: str,
     datasource: Ref[DatasourceKind],
     source: EntitySourceIR,
-    primary_key: list[str] | None = None,
-    versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
-    domain: Ref[DomainKind] | None = None,
-    ai_context: AiContextValue | None = None,
+    primary_key: tuple[str, ...],
+    versioning: SnapshotVersioningIR | ValidityVersioningIR | None,
+    ai_context: AiContextValue | None,
+    expression_body: ExpressionBody | None = None,
 ) -> Ref[EntityKind]:
-    """Declare an entity over a structured physical source.
-
-    Args:
-        name: Entity name.
-        datasource: Datasource ref returned by ``ms.ref.datasource(...)``.
-        source: Structured physical source, usually ``md.table(...)``,
-            ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
-        primary_key: Optional list of column names forming the primary key.
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
-            by ``ms.domain(...)``. Defaults to the file's default domain.
-        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
-
-    Returns:
-        An ``Ref[entity]`` usable by ``@ms.dimension`` and ``@ms.metric``.
-
-    Raises:
-        SemanticDecoratorError: ``datasource`` is not a datasource ref, ``name``
-            collides with another object, or ``source`` is not an entity source.
-
-    Example:
-        >>> orders = ms.entity(
-        ...     name="orders",
-        ...     datasource=ms.ref.datasource("warehouse"),
-        ...     source=md.table("orders", database="sales_mart"),
-        ... )
-    """
+    """Validate one Entity declaration and push its IR into the loader context."""
     ctx = _require_ctx()
-    resolved_domain = _resolve_domain(domain, ctx)
-    semantic_id = f"{resolved_domain}.{name}"
-    ref = ref_factory.entity(semantic_id)
     _check_duplicate(ctx, semantic_id, EntityIR)
     if not isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         _raise(
@@ -127,25 +102,146 @@ def entity(
         )
 
     ds_ref = _resolve_datasource_ref(datasource)
-    pk = tuple(primary_key) if primary_key else ()
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
 
     ir = EntityIR(
         semantic_id=semantic_id,
-        domain=resolved_domain,
+        domain=domain,
         name=name,
         datasource=ds_ref,
         source=source,
-        primary_key=pk,
+        primary_key=primary_key,
         ai_context=ai_ctx,
-        python_symbol=name,
+        python_symbol=python_symbol,
         location=location,
         versioning=versioning,
     )
-    _push_ir(ctx, ref, ir, None)
+    ref = ref_factory.entity(semantic_id)
+    _push_ir(ctx, ref, ir, expression_body)
 
     return ref
+
+
+@overload
+def entity(
+    *,
+    name: str,
+    datasource: Ref[DatasourceKind],
+    source: EntitySourceIR,
+    primary_key: list[str] | None = ...,
+    versioning: SnapshotVersioningIR | ValidityVersioningIR | None = ...,
+    domain: Ref[DomainKind] | None = ...,
+    ai_context: AiContextValue | None = ...,
+) -> Ref[EntityKind]: ...
+
+
+@overload
+def entity(
+    *,
+    name: None = None,
+    datasource: Ref[DatasourceKind],
+    source: EntitySourceIR,
+    primary_key: list[str] | None = ...,
+    versioning: SnapshotVersioningIR | ValidityVersioningIR | None = ...,
+    domain: Ref[DomainKind] | None = ...,
+    ai_context: AiContextValue | None = ...,
+) -> Callable[[Callable[..., Any]], Ref[EntityKind]]: ...
+
+
+def entity(
+    *,
+    name: str | None = None,
+    datasource: Ref[DatasourceKind],
+    source: EntitySourceIR,
+    primary_key: list[str] | None = None,
+    versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
+    domain: Ref[DomainKind] | None = None,
+    ai_context: AiContextValue | None = None,
+) -> Ref[EntityKind] | Callable[[Callable[..., Any]], Ref[EntityKind]]:
+    """Declare an entity directly or over one Table expression of its source.
+
+    With an explicit ``name`` this declares the entity immediately and returns
+    its ``Ref[entity]``. With ``name`` omitted the call returns a decorator:
+    the decorated function must take exactly one Table parameter and return
+    exactly one Ibis Table expression derived from that parameter. The Entity
+    name comes from the function name. The Entity output schema is the
+    returned Table schema for the expression form and the source schema for
+    the direct form.
+
+    Args:
+        name: Entity name for the direct form. Omit to declare through a
+            decorator whose function name becomes the Entity name.
+        datasource: Datasource ref returned by ``ms.ref.datasource(...)``.
+        source: Structured physical source, usually ``md.table(...)``,
+            ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
+        primary_key: Optional list of output column names forming the primary key.
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
+            by ``ms.domain(...)``. Defaults to the file's default domain.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
+
+    Returns:
+        A ``Ref[entity]`` for the direct form, or a decorator returning one for
+        the expression form. Both return values join the same Ref family.
+
+    Raises:
+        SemanticDecoratorError: ``datasource`` is not a datasource ref, the
+            resolved name collides with another object, or ``source`` is not
+            an entity source. SemanticLoadError: the decorated body violates
+            the single-expression Table contract.
+
+    Example:
+        >>> orders = ms.entity(
+        ...     name="orders",
+        ...     datasource=ms.ref.datasource("warehouse"),
+        ...     source=md.table("orders", database="sales_mart"),
+        ... )
+        >>> @ms.entity(
+        ...     datasource=ms.ref.datasource("warehouse"),
+        ...     source=md.table("order_changes"),
+        ...     primary_key=["dt", "order_id"],
+        ... )
+        ... def daily_orders(raw):
+        ...     '''One latest non-deleted order per day and order ID.'''
+        ...     return raw.filter(~raw["is_deleted"])
+    """
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+    if name is not None:
+        semantic_id = f"{resolved_domain}.{name}"
+        return _register_entity_ir(
+            semantic_id=semantic_id,
+            domain=resolved_domain,
+            name=name,
+            python_symbol=name,
+            datasource=datasource,
+            source=source,
+            primary_key=tuple(primary_key) if primary_key else (),
+            versioning=versioning,
+            ai_context=ai_context,
+        )
+
+    def decorator(fn: Callable[..., Any]) -> Ref[EntityKind]:
+        obj_name = fn.__name__
+        semantic_id = f"{resolved_domain}.{obj_name}"
+        return _register_entity_ir(
+            semantic_id=semantic_id,
+            domain=resolved_domain,
+            name=obj_name,
+            python_symbol=fn.__name__,
+            datasource=datasource,
+            source=source,
+            primary_key=tuple(primary_key) if primary_key else (),
+            versioning=versioning,
+            ai_context=ai_context,
+            expression_body=compile_expression_body(
+                fn,
+                owning_ref=ref_factory.entity(semantic_id),
+                body_kind="entity_table",
+            ),
+        )
+
+    return decorator
 
 
 def event(

@@ -319,7 +319,11 @@ def _entry_for(
         entity = registry.entities[semantic_id]
         return SemanticDependencyEntryV1(
             ref=_ref_payload("entity", semantic_id),
-            body_digest=None,
+            body_digest=(
+                body.body_ast_hash
+                if body is not None and body.parameter_count == 1 and not body.bindings
+                else None
+            ),
             fields=_fields(
                 datasource_ref=_ref_payload("datasource", entity.datasource),
                 source=entity.source.to_dict(),
