@@ -17,7 +17,10 @@ def supported_type(value: str) -> bool:
 def unsupported_reason(dataset: LogicalDataset) -> str | None:
     """Describe an unqualified source closure without source work.
 
-    Row expressions and Linear graphs are qualified. Decimal keeps the
+    Row expressions, Linear graphs, and every scalar status-time fold kind
+    (first/last/mean/min/max) are qualified: the engine registers no
+    arg_min/arg_max, but ibis compiles those folds to MIN_BY/MAX_BY and the
+    live probe executed both exactly beside native AVG/MIN/MAX. Decimal keeps the
     conservative rejection: the live Trino probe measured ``AVG(DECIMAL)``
     staying at the input scale and rounding (10.005 -> 10.01), so the mean
     result scale is lossy and no composed decimal unit is a public contract.
@@ -30,7 +33,7 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         date_buckets=True,
         timestamp_buckets=True,
         explicit_decimal_sources=True,
-        closed_open_null_validity=True,
         row_expressions=True,
         linear_graphs=True,
+        status_folds=frozenset({"first", "last", "mean", "min", "max"}),
     )

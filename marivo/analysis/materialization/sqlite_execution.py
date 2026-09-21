@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 import ibis
@@ -30,12 +31,23 @@ def _quote(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
+def _literal_moment(value: object) -> datetime:
+    """Normalize one date or timestamp literal to its exact civil datetime."""
+    if isinstance(value, datetime):
+        return value
+    assert isinstance(value, date)
+    return datetime.combine(value, datetime.min.time())
+
+
 class SQLiteExecutionAdapter(ScalarExecutionAdapter):
     engine = "sqlite"
 
     def __init__(self, backend: Backend, *, run_ref: str | None = None) -> None:
         super().__init__(backend, run_ref=run_ref)
         self._sqlite = backend
+        from marivo.analysis.materialization.temporal_sql import _sqlite_shift
+
+        self._marivo_shift = _sqlite_shift
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
         from marivo.analysis.materialization.temporal_sql import lower_temporal
@@ -43,17 +55,49 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
         expression = lower_temporal(expression, self.engine)
 
         def rewrite(
-            node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
+            node: ops.Node, _results: dict[ops.Node, ops.Node] | None = None, **kwargs: object
         ) -> ops.Node:
             value = node.copy(**kwargs)
             if (
                 isinstance(value, ops.Cast)
                 and isinstance(value.to, dt.Timestamp)
-                and isinstance(value.arg.dtype, dt.Timestamp)
-                and value.to.timezone == value.arg.dtype.timezone
-                and (value.to.scale is None or value.to.scale == value.arg.dtype.scale)
-            ):
+                and isinstance(value.arg.dtype, (dt.Timestamp, dt.Date))
+                and value.to.timezone == getattr(value.arg.dtype, "timezone", None)
+                and (
+                    value.to.scale is None
+                    or value.to.scale == getattr(value.arg.dtype, "scale", None)
+                )
+            ) and not isinstance(value.arg.dtype, dt.Date):
                 return value.arg
+            if (
+                isinstance(value, ops.Cast)
+                and isinstance(value.to, dt.Timestamp)
+                and isinstance(value.arg.dtype, dt.Date)
+            ):
+                # ibis renders a civil-date cast through
+                # STRFTIME('%Y-%m-%d %H:%M:%f', ..), whose %f is three digits;
+                # the transport contract needs the canonical six-digit text,
+                # which only the registered deterministic shift scalar renders.
+                return self._marivo_shift(value.arg.to_expr().cast("timestamp").op(), 0)
+            if (
+                isinstance(value, ops.Cast)
+                and isinstance(value.to, dt.Timestamp)
+                and isinstance(value.arg, ops.Literal)
+                and isinstance(value.arg.value, (datetime, date))
+            ):
+                # Same three-digit strftime gap for a temporal literal bound.
+                moment = _literal_moment(value.arg.value)
+                return self._marivo_shift(
+                    ibis.literal(moment.isoformat(sep=" ", timespec="microseconds"))
+                    .cast("timestamp")
+                    .op(),
+                    0,
+                )
+            if isinstance(value, ops.Literal) and isinstance(value.dtype, dt.Timestamp):
+                # A bare timestamp literal renders without the canonical
+                # six-digit fraction, and SQLite MIN/MAX compare the texts
+                # lexically, so the unshifted bound would leak into a cell.
+                return self._marivo_shift(value.copy(**kwargs), 0)
             if isinstance(value, ops.IsNan):
                 # Stored NaN is unavailable in this engine's admitted scalar inputs.
                 return ibis.literal(False).op()

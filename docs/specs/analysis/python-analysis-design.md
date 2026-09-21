@@ -49,10 +49,9 @@ physical type restrictions.
 
 Native civil-date axes support single-unit day, week, month, quarter and year
 buckets. Snapshot and validity membership retain required exact-period,
-non-overlap and selected-identity assertions. PostgreSQL admits both authored
-validity interval closures and configured open-end sentinels. Other backends
-admit closed-open validity with NULL open ends only. Version diagnostics still
-never gate execution or domain equality.
+non-overlap and selected-identity assertions. All five remote backends admit
+both authored validity interval closures and configured open-end sentinels.
+Version diagnostics still never gate execution or domain equality.
 
 Mean, weighted mean and ratio preserve sufficient components through atomic
 primary/parts publication and immutable retained rollup. Composed Decimal
@@ -67,6 +66,17 @@ decimal division truncates scale and AVG returns Float64, and DuckDB decimal
 division and AVG return DOUBLE. A Decimal input with an already resolved
 floating result — ratio and weighted mean over Decimal components — remains
 the existing float64 contract and is not part of this per-unit resolution.
+
+Status-time folds were qualified per backend by C6 on live probe evidence:
+PostgreSQL (ARRAY_AGG argmin/argmax), SQLite (JSON_EXTRACT over MIN/MAX text
+argmax), Trino (MIN_BY/MAX_BY) and ClickHouse (native argMin/argMax) admit
+first, last, mean, min and max folds; MySQL admits mean, min and max, while
+its first and last folds stay rejected because ibis has no ArgMin/ArgMax
+compile rule for MySQL. Percentile/quantile folds remain rejected on every
+backend. Admission is probe-then-open per backend and fold kind: the
+status-time component and the node-level fold override consult the same
+per-backend qualified kind set.
+
 Comparison and attribution use the existing complete non-Entity retained-axis
 methods. Forecast, Kendall and time discovery consume complete source-aggregated
 inputs in the caller; they do not collect raw semantic Entity rows.
@@ -80,13 +90,22 @@ Entity, undeclared columns and float operands in arithmetic fail at semantic
 load with structured errors before execution. All six backends admit these
 bodies on their declared table sources.
 
-The following remain explicitly unsupported on these new backends: cumulative
-Metric graphs, status-time folds, semantic calendars, hidden-axis expanded
-attribution, sampling, Entity correlation preparation, exact distinct
+The following remain explicitly unsupported on these new backends: hidden-axis
+expanded attribution, sampling, Entity correlation preparation, exact distinct
 membership, quantile/distribution state, Entity candidates, source driver
 screening and Event/Lifecycle. These need their own numerical, private-state,
 temporal or single-evaluation implementations. Remote retained import stays
-disabled. Linear Metric graphs and computed Measures were activated by C4 on
+disabled. Cumulative Metric graphs and semantic calendar buckets were
+activated by C6 on all five remote backends — calendar buckets over native
+civil-date axes with a matching certified calendar snapshot, cumulative
+Metric graphs through the shared endpoint-window lowering with time_scope
+clipping and retained continuation — while any other source requirement
+beyond that lowering stays rejected. Every admitted cumulative anchor shape
+is admitted on every backend, including the fiscal composite
+``ms.cumulative(anchor=ms.grain_to_date(grain=<certified calendar grain>))``;
+a DuckDB oracle journey executes that fiscal-grain composite (fiscal-month
+endpoints and the axis-less scalar path), while its five remote backends'
+execution evidence is scheduled with the C7/C8 calendar work. Linear Metric graphs and computed Measures were activated by C4 on
 all six backends; the composed-Decimal unit matrix above names each backend
 whose linear decimal cell resolves exactly (PostgreSQL, MySQL, ClickHouse) and
 the ones that keep the conservative rejection (Trino's lossy AVG probe, SQLite's
@@ -127,8 +146,13 @@ folds reuse the persisted temporal facts. String parsing and multi-unit buckets 
 enabled per backend by C3b: a multi-unit bucket is anchored on the civil midnight of
 its own day and only counts whose width divides one civil day are admitted, so a
 six-hour bucket spanning a spring-forward gap is five hours and one spanning a
-fall-back gap is seven. Epoch parsing, new timestamp version selection and semantic
-calendar/cumulative extensions are not enabled on remote backends.
+fall-back gap is seven. Semantic calendar buckets and cumulative Metric
+extensions are enabled on all five remote backends by C6 — calendar buckets
+over native civil-date axes with a matching certified calendar snapshot
+(admitting only its published levels), cumulative Metric graphs through the
+shared endpoint-window lowering with any other source requirement rejected.
+Epoch parsing and new timestamp version selection remain
+unsupported on remote backends.
 
 ```python
 import marivo.analysis as mv

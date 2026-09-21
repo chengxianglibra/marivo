@@ -100,7 +100,7 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
         expression = lower_temporal(expression, self.engine)
 
         def rewrite(
-            node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
+            node: ops.Node, _results: dict[ops.Node, ops.Node] | None = None, **kwargs: object
         ) -> ops.Node:
             value = node.copy(**kwargs)
             if (

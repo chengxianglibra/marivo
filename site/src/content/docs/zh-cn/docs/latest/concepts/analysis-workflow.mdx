@@ -105,8 +105,7 @@ Candidate 实现；临时资源、宏和注册由具体适配器负责。远程�
 
 在各后端已支持的表和物理类型范围内，还可以使用直接列上的 mean、weighted mean、
 ratio、同源关系、原生日期桶（单单位 day/week/month/quarter/year）以及 snapshot/validity
-成员选择。PostgreSQL 支持两种 validity 区间闭合方式及已配置的开放端哨兵；
-MySQL、SQLite、Trino、ClickHouse 支持左闭右开区间及 NULL 开放端。
+成员选择。五个远程后端都支持两种 validity 区间闭合方式及已配置的开放端哨兵。
 所有关系与版本选择仍执行必要的身份和 fanout 校验。
 
 对于已声明的均值 Metric，先保留充分组成状态，再进行 rollup：
@@ -126,8 +125,14 @@ rollup 从保留的 sum/count 状态重新计算均值，不对分组均值直�
 线性 Metric 图与计算型 Measure（对单一 Entity 已声明列的行级表达式）已在六个后端
 启用；组合 Decimal 结果按发布单元逐个判定：Decimal 线性结果在后端 scale 契约公开时
 逐值精确，Decimal 分量上的 mean/div 仍不支持并给出具体引擎原因（逐后端矩阵见所属
-设计规范）。语义日历桶、累计/status-time 折叠以及未确定精度的 Decimal mean/div
-结果仍不支持。采样、隐藏轴展开归因、Entity correlation、
+设计规范）。语义日历桶与累计 Metric 图已在五个远程后端启用，运行在原生 civil-date
+轴且日历快照一致时；其余任何 source requirement 仍然拒绝。所有已准入的累计
+anchor 形态都在每个后端准入，包括财政复合形
+`ms.cumulative(anchor=ms.grain_to_date(grain=<认证日历粒度>))`；该复合形当前由
+DuckDB oracle 旅程执行，五个远程后端的执行证据随 C7/C8 日历工作排期。status-time 折叠按后端
+准入：PostgreSQL、SQLite、Trino 与 ClickHouse 支持 first/last/mean/min/max，MySQL
+支持 mean/min/max，first/last 等待引擎 argmin/argmax 支持，percentile 折叠在所有
+后端仍拒绝。未确定精度的 Decimal mean/div 结果仍不支持。采样、隐藏轴展开归因、Entity correlation、
 exact distinct/quantile 私有状态、Entity candidates、源端 driver screening 和
 Event/Lifecycle 不随此扩展启用。字符串时间解析与多单位桶按后端逐步启用，限制见下节。
 不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。
@@ -149,8 +154,8 @@ aware 声明保留 instant。ClickHouse timestamp 执行要求已验证的 UTC r
 范围先按 instant 做半开比较，再生成报告时区 civil 桶。naive gap/fold 时间拒绝；
 两个已知 instant 落在重复的报告小时内时归入同一 civil 桶。naive 谓词字面量比较
 civil 字段，aware 字面量比较 instant，混用拒绝。微秒 SQL 边界、Arrow/Parquet 和
-源离线冷读必须保真；小时到日续算复用保存的时间事实。远程 epoch 解析、
-新 timestamp 版本选择、日历与累计扩展仍未启用。
+源离线冷读必须保真；小时到日续算复用保存的时间事实。远程 epoch 解析与
+新 timestamp 版本选择仍不受支持。
 
 ### 字符串时间解析与多单位桶
 

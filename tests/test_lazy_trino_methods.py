@@ -20,7 +20,7 @@ from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 from tests.lazy_acceptance_capture import counts
-from tests.lazy_scalar_source_fixtures import registry_for
+from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 from tests.multisource_environment import trino_analysis as trino
 
 pytestmark = [
@@ -159,6 +159,129 @@ def test_grouped_compare_and_attribution(
     frame = result.to_pandas()
     assert frame.contribution.tolist() == pytest.approx([0.0, 0.0])
     assert runtime.statistics.primary_queries == 1
+
+
+def _fold_registry(
+    table: str,
+    fold: Literal["first", "last", "mean", "min", "max"],
+) -> tuple[Registry, CompiledExpressionSidecar]:
+    """Bind the orders measure to a sampled status axis with the given fold."""
+    from tests.lazy_scalar_source_fixtures import fold_registry
+
+    registry, sidecar = registry_for(Path("unused"), engine="trino", table=table)
+    return fold_registry(registry, sidecar, TimeFoldIR(fold))
+
+
+@pytest.fixture
+def fold_table() -> Iterator[str]:
+    """Admin-created timestamp inventory fixture; every status sits inside one snapshot day."""
+    name = "fold_" + uuid4().hex
+    with _admin() as admin:
+        admin.execute(
+            f"CREATE TABLE {name} (id BIGINT, tenant VARCHAR, customer_id BIGINT, order_id BIGINT, "
+            "amount DOUBLE PRECISION, weight DOUBLE PRECISION, region VARCHAR, channel VARCHAR, "
+            'day TIMESTAMP(6), start DATE, "end" DATE)'
+        ).fetchall()
+        for row in (
+            (1, 1, 10, "a", "2026-02-02 09:00:00"),
+            (2, 1, 30, "a", "2026-02-02 17:00:00"),
+            (3, 2, 100, "b", "2026-02-03 12:00:00"),
+            (4, 2, 40, "b", "2026-02-03 14:30:00"),
+        ):
+            admin.execute(
+                f"INSERT INTO {name} (id, customer_id, amount, channel, day, start) VALUES "
+                f"({row[0]}, {row[1]}, {row[2]}, '{row[3]}', TIMESTAMP '{row[4]}', DATE '2026-02-04')"
+            ).fetchall()
+        try:
+            yield name
+        finally:
+            admin.execute(f"DROP TABLE IF EXISTS {name}").fetchall()
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("first", [10.0, 100.0]),
+        ("last", [30.0, 40.0]),
+        ("mean", [20.0, 70.0]),
+        ("min", [10.0, 40.0]),
+        ("max", [30.0, 100.0]),
+    ],
+)
+def test_status_fold_spatial_sums(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fold_table: str,
+    kind: str,
+    expected: list[float],
+) -> None:
+    """Live status-time folds lower through the shared fold with spatial sums."""
+    registry, sidecar = _fold_registry(fold_table, kind)
+    runtime = DatasetRuntime.create(tmp_path, f"trino-fold-{kind}")
+    logical = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
+        )
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    frame = logical.execute().to_pandas().sort_values("channel")
+    assert frame.revenue.astype(float).tolist() == pytest.approx(expected)
+    assert any(
+        role == "validation_batch" and "__mv_status" in statement
+        for role, statement in runtime.statistics.statements
+    )
+    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
+    assert len(primary) == 1 and "__mv_status" in primary[0]
+
+
+def test_status_fold_versioned_metric_composite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fold_table: str
+) -> None:
+    """A versioned Metric plus status-time fold stays on the shared lowering."""
+    from marivo.semantic.ir import AiContextIR, DateParse, DimensionKind, SnapshotVersioningIR
+
+    registry, sidecar = _fold_registry(fold_table, "last")
+    entities = dict(registry.entities)
+    entity = entities["sales.orders"]
+    assert isinstance(entity.source, TableSourceIR)
+    entities["sales.orders"] = replace(
+        entity,
+        versioning=SnapshotVersioningIR("snapshot", "sales.orders.snapshot_day", "day"),
+    )
+    dimensions = dict(registry.dimensions)
+    dimensions["sales.orders.snapshot_day"] = replace(
+        registry.dimensions["sales.orders.order_time"],
+        semantic_id="sales.orders.snapshot_day",
+        name="snapshot_day",
+        is_default=False,
+        kind=DimensionKind.TIME,
+        granularity="day",
+        parse=DateParse(),
+        source_column="start",
+        ai_context=AiContextIR(),
+    )
+    registry = replace(registry, entities=entities, dimensions=dimensions)
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path, "trino-fold-versioned")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    scope = time_scope(start="2026-02-01", end="2026-02-05")
+    population = sources.population(ref.entity("sales.orders"), time_scope=scope)
+    logical = (
+        sources.observe(ref.metric("sales.revenue"), population=population, time_scope=scope)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    frame = logical.execute().to_pandas().sort_values("channel")
+    assert frame.revenue.astype(float).tolist() == pytest.approx([30.0, 40.0])
+    assert any(
+        role == "validation_batch" and "__mv_status" in statement
+        for role, statement in runtime.statistics.statements
+    )
+    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
+    assert len(primary) == 1 and "__mv_status" in primary[0]
 
 
 def test_relationship_dimension_reads_same_source(
@@ -474,51 +597,83 @@ assert not any(item.domain == "source" for item in runtime.statistics.submission
     )
 
 
-@pytest.mark.parametrize("variant", ["closed_closed", "sentinel", "unresolved_decimal"])
-def test_unqualified_source_shape_rejected_before_connect(tmp_path: Path, variant: str) -> None:
+def test_unresolved_decimal_rejected_before_connect(tmp_path: Path) -> None:
     from marivo.analysis.compiler.errors import DatasetCompilationError
-    from marivo.semantic.ir import ValidityVersioningIR
 
     registry, sidecar = registry_for(tmp_path / "unused", engine="trino")
     entities = dict(registry.entities)
-    name = "sales.orders" if variant == "unresolved_decimal" else "sales.validity"
+    name = "sales.orders"
     entity = entities[name]
     assert isinstance(entity.source, TableSourceIR)
-    if variant == "unresolved_decimal":
-        entity = replace(
-            entity,
-            source=replace(
-                entity.source,
-                columns=tuple(
-                    (key, replace(value, data_type="decimal") if key == "amount" else value)
-                    for key, value in entity.source.columns
-                ),
+    entity = replace(
+        entity,
+        source=replace(
+            entity.source,
+            columns=tuple(
+                (key, replace(value, data_type="decimal") if key == "amount" else value)
+                for key, value in entity.source.columns
             ),
-        )
-    else:
-        assert isinstance(entity.versioning, ValidityVersioningIR)
-        version = (
-            replace(entity.versioning, interval="closed_closed")
-            if variant == "closed_closed"
-            else replace(entity.versioning, open_end=("9999-12-31",))
-        )
-        entity = replace(entity, versioning=version)
+        ),
+    )
     entities[name] = entity
     registry = replace(registry, entities=entities)
     registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path, "unqualified")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    runtime = DatasetRuntime.create(tmp_path, "unqualified-decimal")
     logical = (
-        sources.observe(ref.metric("sales.revenue")).aggregate()
-        if variant == "unresolved_decimal"
-        else sources.population(
-            ref.entity(name), time_scope=time_scope(start="2026-02-01", end="2026-03-01")
-        )
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(ref.metric("sales.revenue"))
+        .aggregate()
     )
-    with pytest.raises(DatasetCompilationError, match=r"Decimal|validity"):
+    with pytest.raises(DatasetCompilationError, match=r"Decimal"):
         logical.execute()
     assert runtime.statistics.events.get("backend_connect", 0) == 0
     assert runtime.statistics.primary_queries == 0
+
+
+@pytest.mark.parametrize("change", ["closed_closed", "sentinel"])
+def test_validity_selection_preserves_membership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str, change: str
+) -> None:
+    from marivo.semantic.ir import ValidityVersioningIR
+
+    registry, sidecar = _method_registry(method_table, monkeypatch)
+    entities = dict(registry.entities)
+    entity = entities["sales.validity"]
+    assert isinstance(entity.versioning, ValidityVersioningIR)
+    version = (
+        replace(entity.versioning, interval="closed_closed")
+        if change == "closed_closed"
+        else replace(entity.versioning, open_end=("9999-12-31",))
+    )
+    orders = entities["sales.orders"]
+    assert isinstance(orders.source, TableSourceIR)
+    entities["sales.validity"] = replace(
+        entity,
+        versioning=version,
+        source=replace(
+            orders.source, table=method_table, database="analysis", columns=orders.source.columns
+        ),
+    )
+    registry = replace(registry, entities=entities)
+    registry.freeze()
+    with _admin() as admin:
+        admin.execute(
+            f"UPDATE {method_table} SET customer_id = id, amount = 10, day = DATE '2026-02-28', "
+            "start = DATE '2026-02-01', \"end\" = NULL"
+        ).fetchall()
+        if change == "sentinel":
+            admin.execute(f"UPDATE {method_table} SET \"end\" = DATE '9999-12-31'").fetchall()
+    runtime = DatasetRuntime.create(tmp_path, "trino-validity-membership")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    logical = sources.population(
+        ref.entity("sales.validity"), time_scope=time_scope(start="2026-02-01", end="2026-03-01")
+    )
+    result = logical.execute()
+    assert sorted(result.to_pandas().entity_identity.tolist()) == [(1,), (2,), (3,), (4,), (5,)]
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert (
+        record is not None and record.descriptor.population_authority.version_selection is not None
+    )
 
 
 def test_retained_axis_attribution_without_source(tmp_path: Path, method_table: str) -> None:

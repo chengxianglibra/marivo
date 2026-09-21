@@ -19,6 +19,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
+from tests.lazy_scalar_source_fixtures import TimeFoldIR
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
 from tests.multisource_environment import mysql_analysis as mysql
 
@@ -106,6 +107,124 @@ def method_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         yield database
     finally:
         offline(database)
+
+
+def _fold_registry(
+    database: str,
+    fold: Literal["first", "last", "mean", "min", "max"],
+) -> tuple[Registry, CompiledExpressionSidecar]:
+    """Bind the orders measure to a sampled status axis with the given fold."""
+    from tests.lazy_scalar_source_fixtures import fold_registry
+
+    registry, sidecar = registry_for(database)
+    return fold_registry(registry, sidecar, TimeFoldIR(fold))
+
+
+@pytest.fixture
+def fold_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Timestamp inventory fixture; every status sits inside one snapshot day."""
+    monkeypatch.setenv("MARIVO_TEST_MYSQL_PASSWORD", mysql.password())
+    database = "fold_" + uuid4().hex + "_"
+    with mysql.connection(admin=True) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"CREATE TABLE {database}orders (id BIGINT, tenant TEXT, customer_id BIGINT, "
+            "order_id BIGINT, amount DOUBLE, weight DOUBLE, region TEXT, channel TEXT, "
+            "day TIMESTAMP(6), start DATE, `end` DATE) ENGINE=InnoDB "
+            "DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"
+        )
+        for row in (
+            (1, 1, 10, "a", "2026-02-02 09:00:00"),
+            (2, 1, 30, "a", "2026-02-02 17:00:00"),
+            (3, 2, 100, "b", "2026-02-03 12:00:00"),
+            (4, 2, 40, "b", "2026-02-03 14:30:00"),
+        ):
+            cursor.execute(
+                f"INSERT INTO {database}orders(id, customer_id, amount, channel, day, start) "
+                f"VALUES ({row[0]}, {row[1]}, {row[2]}, '{row[3]}', '{row[4]}', '2026-02-04')"
+            )
+    try:
+        yield database
+    finally:
+        with mysql.connection(admin=True) as connection, connection.cursor() as cursor:
+            cursor.execute(f"DROP TABLE IF EXISTS {database}orders")
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("mean", [20.0, 70.0]),
+        ("min", [10.0, 40.0]),
+        ("max", [30.0, 100.0]),
+    ],
+)
+def test_status_fold_spatial_sums(
+    tmp_path: Path, fold_database: str, kind: str, expected: list[float]
+) -> None:
+    """Live status-time folds lower through the shared fold with spatial sums."""
+    registry, sidecar = _fold_registry(fold_database, kind)
+    runtime = DatasetRuntime.create(tmp_path / "project", f"mysql-fold-{kind}")
+    logical = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
+        )
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    frame = logical.execute().to_pandas().sort_values("channel")
+    assert frame.revenue.astype(float).tolist() == pytest.approx(expected)
+    assert any(
+        role == "validation_batch" and "__mv_status" in statement
+        for role, statement in runtime.statistics.statements
+    )
+    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
+    assert len(primary) == 1 and "__mv_status" in primary[0]
+
+
+def test_status_fold_versioned_metric_composite(tmp_path: Path, fold_database: str) -> None:
+    """A versioned Metric plus status-time fold stays on the shared lowering."""
+    from marivo.semantic.ir import AiContextIR, DateParse, DimensionKind, SnapshotVersioningIR
+
+    registry, sidecar = _fold_registry(fold_database, "mean")
+    entities = dict(registry.entities)
+    entity = entities["sales.orders"]
+    assert isinstance(entity.source, TableSourceIR)
+    entities["sales.orders"] = replace(
+        entity,
+        versioning=SnapshotVersioningIR("snapshot", "sales.orders.snapshot_day", "day"),
+    )
+    dimensions = dict(registry.dimensions)
+    dimensions["sales.orders.snapshot_day"] = replace(
+        registry.dimensions["sales.orders.order_time"],
+        semantic_id="sales.orders.snapshot_day",
+        name="snapshot_day",
+        is_default=False,
+        kind=DimensionKind.TIME,
+        granularity="day",
+        parse=DateParse(),
+        source_column="start",
+        ai_context=AiContextIR(),
+    )
+    registry = replace(registry, entities=entities, dimensions=dimensions)
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path / "project", "mysql-fold-versioned")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    scope = time_scope(start="2026-02-01", end="2026-02-05")
+    population = sources.population(ref.entity("sales.orders"), time_scope=scope)
+    logical = (
+        sources.observe(ref.metric("sales.revenue"), population=population, time_scope=scope)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    frame = logical.execute().to_pandas().sort_values("channel")
+    assert frame.revenue.astype(float).tolist() == pytest.approx([20.0, 70.0])
+    assert any(
+        role == "validation_batch" and "__mv_status" in statement
+        for role, statement in runtime.statistics.statements
+    )
+    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
+    assert len(primary) == 1 and "__mv_status" in primary[0]
 
 
 @pytest.mark.parametrize(
@@ -463,32 +582,57 @@ def test_retained_axis_attribution(tmp_path: Path, method_database: str) -> None
     assert frame.overall_delta.tolist() == [20.0]
 
 
-@pytest.mark.parametrize("change", ["interval", "sentinel"])
-def test_unqualified_validity_is_rejected_before_source(
+@pytest.mark.parametrize("change", ["closed_closed", "sentinel"])
+def test_validity_selection_preserves_membership(
     tmp_path: Path, method_database: str, change: str
 ) -> None:
     from dataclasses import replace
 
-    from marivo.analysis.compiler.errors import DatasetCompilationError
     from marivo.semantic.ir import ValidityVersioningIR
 
     registry, sidecar = registry_for(method_database)
-    entity = registry.entities["sales.validity"]
+    entities = dict(registry.entities)
+    entity = entities["sales.validity"]
     assert isinstance(entity.versioning, ValidityVersioningIR)
     version = (
         replace(entity.versioning, interval="closed_closed")
-        if change == "interval"
+        if change == "closed_closed"
         else replace(entity.versioning, open_end=(None, "9999-12-31"))
     )
-    registry = replace(
-        registry,
-        entities={**registry.entities, "sales.validity": replace(entity, versioning=version)},
+    # Rebind the versioned entity onto the five-row orders fixture, then shape
+    # one non-overlapping validity interval per id, mirroring the PostgreSQL
+    # oracle journey.
+    orders = entities["sales.orders"]
+    assert isinstance(orders.source, TableSourceIR)
+    entities["sales.validity"] = replace(
+        entity,
+        versioning=version,
+        source=replace(
+            orders.source, table=method_database + "orders", columns=orders.source.columns
+        ),
     )
+    registry = replace(registry, entities=entities)
     registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path / "project", "unqualified-version")
+    with modify_source(method_database) as writer:
+        writer.execute(
+            "UPDATE orders SET customer_id = id, amount = 10, day = '2026-02-28', "
+            "start = '2026-02-01', `end` = NULL"
+        )
+        if change == "sentinel":
+            writer.execute("UPDATE orders SET `end` = '9999-12-31'")
+    runtime = DatasetRuntime.create(tmp_path / "project", "validity-membership")
     logical = runtime.sources(semantic_registry=registry, sidecar=sidecar).population(
         ref.entity("sales.validity"), time_scope=time_scope(start="2026-02-01", end="2026-03-01")
     )
-    with pytest.raises(DatasetCompilationError):
-        logical.execute()
-    assert not runtime.statistics.statements
+    result = logical.execute()
+    assert sorted(result.to_pandas().entity_identity.tolist()) == [
+        (1,),
+        (2,),
+        (3,),
+        (4,),
+        (5,),
+    ]
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert (
+        record is not None and record.descriptor.population_authority.version_selection is not None
+    )

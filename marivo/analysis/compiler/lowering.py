@@ -478,7 +478,11 @@ def _duration_seconds(start: ir.Value, end: ir.Value) -> ir.NumericValue:
     left, right = start.cast("timestamp"), end.cast("timestamp")
     if not isinstance(left, ir.TimestampValue) or not isinstance(right, ir.TimestampValue):
         raise compilation_error("exact retained interval endpoints", "invalid coverage interval")
-    return right.delta(left, unit="microsecond") / 1_000_000
+    # Ibis's TimestampDelta has no SQLite/MySQL rule, so the shared epoch-second
+    # difference is the one lowering every backend translates natively and
+    # exactly over the admitted whole-second civil timestamps; the fractional
+    # microseconds cancel because both endpoints are exact instant bounds.
+    return (right.epoch_seconds() - left.epoch_seconds()).cast("float64")
 
 
 def _fold_value(table: ir.Table, authority: MetricFoldAuthorityV1) -> ir.Value:
@@ -1971,6 +1975,12 @@ class _Compiler:
             if name != axis_name
         ]
         source_time = self._time_column(table, "__mv_cumulative_time", over, "UTC")
+        # The window bounds are exact timestamps on every axis; a civil-date
+        # axis must join through its exact midnight cast so engines that
+        # compare temporals as text (SQLite) cannot prefix-match the next
+        # bucket's date into this endpoint's window.
+        if isinstance(source_time, ir.DateValue):
+            source_time = source_time.cast("timestamp")
         end, lower = self._cumulative_bounds(
             bucket_end(start, grain, definition.temporal_snapshot),
             definition,

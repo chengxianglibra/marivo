@@ -11,8 +11,11 @@ import pytest
 from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.operators.forecast_contracts import naive, periods
+from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
-from tests.lazy_scalar_source_fixtures import registry_for
+from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.validator import Registry
+from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 
 pytestmark = pytest.mark.runtime
 CHANNEL = ref.dimension("sales.orders.channel")
@@ -82,6 +85,120 @@ def test_composed_state(
     assert result.rollup(drop_dimensions=(CHANNEL,)).execute().to_pandas()[
         name
     ].tolist() == pytest.approx([total])
+
+
+def _fold_registry(
+    database: Path,
+    fold: Literal["first", "last", "mean", "min", "max"],
+) -> tuple[Registry, CompiledExpressionSidecar]:
+    """Bind the orders measure to a sampled status axis with the given fold."""
+    from tests.lazy_scalar_source_fixtures import fold_registry
+
+    registry, sidecar = registry_for(database)
+    return fold_registry(registry, sidecar, TimeFoldIR(fold))
+
+
+@pytest.fixture
+def fold_database(tmp_path: Path) -> Path:
+    """Timestamp inventory fixture; every status sits inside one snapshot day."""
+    database = tmp_path / "fold.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE orders (id INTEGER, tenant TEXT, customer_id INTEGER, "
+            "order_id INTEGER, amount REAL, weight REAL, region TEXT, channel TEXT, "
+            'day TIMESTAMP, start DATE, "end" DATE)'
+        )
+        for row in (
+            (1, 1, 10, "a", "2026-02-02 09:00:00.000000"),
+            (2, 1, 30, "a", "2026-02-02 17:00:00.000000"),
+            (3, 2, 100, "b", "2026-02-03 12:00:00.000000"),
+            (4, 2, 40, "b", "2026-02-03 14:30:00.000000"),
+        ):
+            connection.execute(
+                f"INSERT INTO orders(id, customer_id, amount, channel, day, start) "
+                f"VALUES ({row[0]}, {row[1]}, {row[2]}, '{row[3]}', '{row[4]}', '2026-02-04')"
+            )
+    return database
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("first", [10.0, 100.0]),
+        ("last", [30.0, 40.0]),
+        ("mean", [20.0, 70.0]),
+        ("min", [10.0, 40.0]),
+        ("max", [30.0, 100.0]),
+    ],
+)
+def test_status_fold_spatial_sums(
+    tmp_path: Path, fold_database: Path, kind: str, expected: list[float]
+) -> None:
+    """Live status-time folds lower through the shared fold with spatial sums."""
+    registry, sidecar = _fold_registry(fold_database, kind)
+    runtime = DatasetRuntime.create(tmp_path / "project", f"sqlite-fold-{kind}")
+    logical = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
+        )
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    frame = logical.execute().to_pandas().sort_values("channel")
+    assert frame.revenue.astype(float).tolist() == pytest.approx(expected)
+    assert any(
+        role == "validation_batch" and "__mv_status" in statement
+        for role, statement in runtime.statistics.statements
+    )
+
+
+def test_status_fold_versioned_metric_composite(tmp_path: Path, fold_database: Path) -> None:
+    """A versioned Metric plus status-time fold stays on the shared lowering."""
+    from dataclasses import replace
+
+    from marivo.semantic.ir import AiContextIR, DateParse, DimensionKind, SnapshotVersioningIR
+
+    registry, sidecar = _fold_registry(fold_database, "last")
+    entities = dict(registry.entities)
+    entity = entities["sales.orders"]
+    assert isinstance(entity.source, TableSourceIR)
+    entities["sales.orders"] = replace(
+        entity,
+        versioning=SnapshotVersioningIR("snapshot", "sales.orders.snapshot_day", "day"),
+    )
+    dimensions = dict(registry.dimensions)
+    dimensions["sales.orders.snapshot_day"] = replace(
+        registry.dimensions[TIME.path],
+        semantic_id="sales.orders.snapshot_day",
+        name="snapshot_day",
+        is_default=False,
+        kind=DimensionKind.TIME,
+        granularity="day",
+        parse=DateParse(),
+        source_column="start",
+        ai_context=AiContextIR(),
+    )
+    registry = replace(registry, entities=entities, dimensions=dimensions)
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path / "project", "sqlite-fold-versioned")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    scope = time_scope(start="2026-02-01", end="2026-02-05")
+    population = sources.population(ref.entity("sales.orders"), time_scope=scope)
+    logical = (
+        sources.observe(ref.metric("sales.revenue"), population=population, time_scope=scope)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    frame = logical.execute().to_pandas().sort_values("channel")
+    assert frame.revenue.astype(float).tolist() == pytest.approx([30.0, 40.0])
+    assert any(
+        role == "validation_batch" and "__mv_status" in statement
+        for role, statement in runtime.statistics.statements
+    )
+    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
+    assert len(primary) == 1 and "__mv_status" in primary[0]
 
 
 def test_relationship(tmp_path: Path, method_database: Path) -> None:
@@ -397,32 +514,55 @@ def test_retained_axis_attribution(tmp_path: Path, method_database: Path) -> Non
     assert frame.overall_delta.tolist() == [20.0]
 
 
-@pytest.mark.parametrize("change", ["interval", "sentinel"])
-def test_unqualified_validity_is_rejected_before_source(
+@pytest.mark.parametrize("change", ["closed_closed", "sentinel"])
+def test_validity_selection_preserves_membership(
     tmp_path: Path, method_database: Path, change: str
 ) -> None:
     from dataclasses import replace
 
-    from marivo.analysis.compiler.errors import DatasetCompilationError
     from marivo.semantic.ir import ValidityVersioningIR
 
     registry, sidecar = registry_for(method_database)
-    entity = registry.entities["sales.validity"]
+    entities = dict(registry.entities)
+    entity = entities["sales.validity"]
     assert isinstance(entity.versioning, ValidityVersioningIR)
     version = (
         replace(entity.versioning, interval="closed_closed")
-        if change == "interval"
+        if change == "closed_closed"
         else replace(entity.versioning, open_end=(None, "9999-12-31"))
     )
-    registry = replace(
-        registry,
-        entities={**registry.entities, "sales.validity": replace(entity, versioning=version)},
+    # Rebind the versioned entity onto the five-row orders fixture, then shape
+    # one non-overlapping validity interval per id, mirroring the PostgreSQL
+    # oracle journey.
+    orders = entities["sales.orders"]
+    assert isinstance(orders.source, TableSourceIR)
+    entities["sales.validity"] = replace(
+        entity,
+        versioning=version,
+        source=replace(orders.source, table="orders", columns=orders.source.columns),
     )
+    registry = replace(registry, entities=entities)
     registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path / "project", "unqualified-version")
+    with sqlite3.connect(method_database) as connection:
+        connection.execute(
+            "UPDATE orders SET customer_id = id, amount = 10, day = '2026-02-28', "
+            "start = '2026-02-01', \"end\" = NULL"
+        )
+        if change == "sentinel":
+            connection.execute("UPDATE orders SET \"end\" = '9999-12-31'")
+    runtime = DatasetRuntime.create(tmp_path / "project", "validity-membership")
     logical = runtime.sources(semantic_registry=registry, sidecar=sidecar).population(
         ref.entity("sales.validity"), time_scope=time_scope(start="2026-02-01", end="2026-03-01")
     )
-    with pytest.raises(DatasetCompilationError):
-        logical.execute()
-    assert not runtime.statistics.statements
+    result = logical.execute()
+    assert sorted(result.to_pandas().entity_identity.tolist()) == [
+        (1,),
+        (2,),
+        (3,),
+        (4,),
+        (5,),
+    ]
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert (
+        record is not None and record.descriptor.population_authority.version_selection is not None
+    )

@@ -12,9 +12,13 @@ def supported_type(value: str) -> bool:
 def unsupported_reason(dataset: LogicalDataset) -> str | None:
     """Describe an unqualified source closure without source work.
 
-    Row expressions and Linear graphs are qualified over the declared
-    int64/float64/string inputs; SQLite has no decimal storage, so no composed
-    decimal unit is resolved.
+    Row expressions, Linear graphs, and every scalar status-time fold kind
+    (first/last/mean/min/max) are qualified: the live probe executed the
+    lowering's argmax lowering through SQLite's canonical-text
+    ``JSON_EXTRACT(JSON_ARRAY(value, MAX(status)), '$[0]')`` form exactly
+    beside native AVG/MIN/MAX. SQLite has no decimal storage, so no composed
+    decimal unit is resolved. Percentile-tuple folds stay rejected with every
+    backend until a quantile fold lowering is qualified.
     """
     return scalar_reason(
         dataset,
@@ -24,7 +28,7 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         date_buckets=True,
         timestamp_buckets=True,
         parsed_time_axes=True,
-        closed_open_null_validity=True,
         row_expressions=True,
         linear_graphs=True,
+        status_folds=frozenset({"first", "last", "mean", "min", "max"}),
     )

@@ -115,7 +115,9 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
 
         expression = lower_temporal(expression, self.engine)
 
-        def widen(node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object) -> ops.Node:
+        def widen(
+            node: ops.Node, _results: dict[ops.Node, ops.Node] | None = None, **kwargs: object
+        ) -> ops.Node:
             if (
                 isinstance(node, ops.Cast)
                 and isinstance(node.to, dt.Timestamp)
