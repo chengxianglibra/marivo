@@ -107,7 +107,7 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         expression = lower_temporal(expression, self.engine)
 
         def qualify(
-            node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object
+            node: ops.Node, _results: dict[ops.Node, ops.Node] | None = None, **kwargs: object
         ) -> ops.Node:
             if isinstance(node, ops.UnboundTable):
                 default_catalog: str = node.namespace.catalog or self._trino.con.catalog

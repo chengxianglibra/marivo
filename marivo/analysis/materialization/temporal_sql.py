@@ -129,9 +129,15 @@ def _sqlite_interval_seconds(interval: ops.Value) -> ir.IntegerValue | int | Non
 
 
 def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
-    """Replace only the compiler's closed native temporal operations."""
+    """Replace only the compiler's closed native temporal operations.
 
-    def rewrite(node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object) -> ops.Node:
+    The rewrite reads every child through ``kwargs`` because the calendar
+    bucket's ``SearchedCase`` node itself carries a ``results`` argument, so a
+    positional ``results`` parameter would collide with the traversal's own
+    keyword of the same name.
+    """
+
+    def rewrite(node: ops.Node, _results: object = None, **kwargs: object) -> ops.Node:
         value = node.copy(**kwargs)
         if (
             isinstance(value, ops.Literal)

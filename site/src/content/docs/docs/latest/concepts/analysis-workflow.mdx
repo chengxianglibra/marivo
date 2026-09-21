@@ -172,9 +172,9 @@ move source data to another engine. PostgreSQL, MySQL, SQLite, Trino and ClickHo
 Within each backend's table and physical type scope, you can also use direct-column
 mean, weighted mean and ratio, same-source relationships, native-date buckets
 (day/week/month/quarter/year, one unit), and snapshot/validity membership.
-PostgreSQL supports both validity interval closures and configured open-end sentinels;
-MySQL, SQLite, Trino and ClickHouse admit closed-open intervals with NULL open ends.
-All joins and version selections retain their required identity and fanout checks.
+All five remote backends admit both validity interval closures and configured
+open-end sentinels. All joins and version selections retain their required
+identity and fanout checks.
 
 For an authored mean Metric, retain its sufficient components before rolling up:
 
@@ -196,8 +196,19 @@ declared columns) are enabled on all six backends, and composed Decimal results
 decide per published unit: a decimal linear result is value-exact where the
 backend's scale contract is public, while mean/div over Decimal components stay
 unsupported with a concrete engine reason (the owning design spec carries the
-per-backend matrix). Semantic-calendar buckets, cumulative/status-time folds and
-unresolved-Decimal mean/div results remain unsupported. Sampling, hidden-axis
+per-backend matrix). Semantic-calendar buckets and cumulative Metric graphs are
+enabled on all five remote backends over native civil-date axes with a matching
+certified calendar snapshot, and any other source requirement stays rejected.
+Every admitted cumulative anchor shape is admitted on every backend, including
+the fiscal composite `ms.cumulative(anchor=ms.grain_to_date(grain=<certified
+calendar grain>))`; a DuckDB oracle journey executes that composite today, and
+the five remote backends' execution evidence is scheduled with the C7/C8
+calendar work.
+Status-time folds are qualified per backend: PostgreSQL, SQLite, Trino and
+ClickHouse admit first/last/mean/min/max, MySQL admits mean/min/max with
+first/last pending engine argmin/argmax support, and percentile folds stay
+rejected everywhere. Unresolved-Decimal mean/div results remain unsupported.
+Sampling, hidden-axis
 expanded attribution, Entity correlation, exact distinct/quantile private state,
 Entity candidates, source driver screening and Event/Lifecycle are not enabled by
 this extension. String-parser time axes and multi-unit buckets are enabled per
@@ -231,9 +242,8 @@ interpretation. Two known instants in a repeated report hour share its civil buc
 Naive predicate literals compare civil fields; aware literals compare instant
 fields. Mixing these kinds fails. Milliseconds/microseconds remain exact through
 SQL literals, Arrow, Parquet and source-offline cold recovery. Hour-to-day retained
-folds reuse the persisted temporal facts. Epoch parsing, new timestamp version
-selection and semantic calendar/cumulative extensions are not enabled on remote
-backends.
+folds reuse the persisted temporal facts. Epoch parsing and new timestamp version
+selection remain unsupported on remote backends.
 
 ### String time parsing and multi-unit buckets
 

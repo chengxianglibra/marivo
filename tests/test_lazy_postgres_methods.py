@@ -21,6 +21,7 @@ from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 from tests.lazy_acceptance_capture import counts
 from tests.lazy_postgres_fixtures import registry_for
+from tests.lazy_scalar_source_fixtures import TimeFoldIR
 from tests.multisource_environment import postgres_analysis as pg
 
 pytestmark = [
@@ -172,6 +173,137 @@ def test_grouped_compare_and_attribution(
     frame = result.to_pandas()
     assert frame.contribution.tolist() == pytest.approx([0.0, 0.0])
     assert runtime.statistics.primary_queries == 1
+
+
+def _fold_registry(
+    table: str,
+    monkeypatch: pytest.MonkeyPatch,
+    fold: Literal["first", "last", "mean", "min", "max"],
+) -> tuple[Registry, CompiledExpressionSidecar]:
+    """Bind the orders measure to a sampled status axis with the given fold."""
+    from tests.lazy_scalar_source_fixtures import fold_registry
+
+    registry, sidecar = registry_for(table, monkeypatch)
+    return fold_registry(registry, sidecar, TimeFoldIR(fold), amount_data_type="float64")
+
+
+@pytest.fixture
+def fold_table(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Admin-created timestamp inventory fixture; every status sits inside the window."""
+    name = "fold_" + uuid4().hex
+    with pg.connection(admin=True) as admin:
+        admin.execute(
+            sql.SQL(
+                "CREATE TABLE {} (id BIGINT, tenant TEXT, customer_id BIGINT, order_id BIGINT, "
+                "amount DOUBLE PRECISION, weight DOUBLE PRECISION, region TEXT, channel TEXT, "
+                'day TIMESTAMP, start DATE, "end" DATE)'
+            ).format(sql.Identifier(name))
+        )
+        admin.execute(
+            sql.SQL(
+                "INSERT INTO {} (id, customer_id, amount, channel, day) VALUES "
+                "(1, 1, 10, 'a', TIMESTAMP '2026-02-02 09:00:00'),"
+                "(2, 1, 30, 'a', TIMESTAMP '2026-02-02 17:00:00'),"
+                "(3, 2, 100, 'b', TIMESTAMP '2026-02-03 12:00:00'),"
+                "(4, 2, 40, 'b', TIMESTAMP '2026-02-03 14:30:00')"
+            ).format(sql.Identifier(name))
+        )
+        admin.execute(
+            sql.SQL("UPDATE {} SET start = DATE '2026-02-04'").format(sql.Identifier(name))
+        )
+        try:
+            yield name
+        finally:
+            admin.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(name)))
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("first", [10.0, 100.0]),
+        ("last", [30.0, 40.0]),
+        ("mean", [20.0, 70.0]),
+        ("min", [10.0, 40.0]),
+        ("max", [30.0, 100.0]),
+    ],
+)
+def test_status_fold_spatial_sums(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fold_table: str,
+    kind: str,
+    expected: list[float],
+) -> None:
+    """Live status-time folds lower through the shared fold with spatial sums."""
+    registry, sidecar = _fold_registry(fold_table, monkeypatch, kind)
+    runtime = DatasetRuntime.create(tmp_path, f"postgres-fold-{kind}")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    logical = (
+        sources.observe(
+            ref.metric("sales.revenue"),
+            time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
+        )
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    frame = logical.execute().to_pandas().sort_values("channel")
+    assert frame.revenue.astype(float).tolist() == pytest.approx(expected)
+    # The lowering's status gate executed as a source validation.
+    assert any(
+        role == "validation_batch" and "__mv_status" in statement
+        for role, statement in runtime.statistics.statements
+    )
+    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
+    assert len(primary) == 1 and "__mv_status" in primary[0]
+
+
+def test_status_fold_versioned_metric_composite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fold_table: str,
+) -> None:
+    """A versioned Metric plus status-time fold stays on the shared lowering."""
+    from marivo.semantic.ir import AiContextIR, DateParse, DimensionKind, SnapshotVersioningIR
+
+    registry, sidecar = _fold_registry(fold_table, monkeypatch, "last")
+    entities = dict(registry.entities)
+    entity = entities["sales.orders"]
+    assert isinstance(entity.source, TableSourceIR)
+    entities["sales.orders"] = replace(
+        entity,
+        versioning=SnapshotVersioningIR("snapshot", "sales.orders.snapshot_day", "day"),
+    )
+    dimensions = dict(registry.dimensions)
+    dimensions["sales.orders.snapshot_day"] = replace(
+        registry.dimensions["sales.orders.order_time"],
+        semantic_id="sales.orders.snapshot_day",
+        name="snapshot_day",
+        is_default=False,
+        kind=DimensionKind.TIME,
+        granularity="day",
+        parse=DateParse(),
+        source_column="start",
+        ai_context=AiContextIR(),
+    )
+    registry = replace(registry, entities=entities, dimensions=dimensions)
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path, "postgres-fold-versioned")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    scope = time_scope(start="2026-02-01", end="2026-02-05")
+    population = sources.population(ref.entity("sales.orders"), time_scope=scope)
+    logical = (
+        sources.observe(ref.metric("sales.revenue"), population=population, time_scope=scope)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    frame = logical.execute().to_pandas().sort_values("channel")
+    assert frame.revenue.astype(float).tolist() == pytest.approx([30.0, 40.0])
+    assert any(
+        role == "validation_batch" and "__mv_status" in statement
+        for role, statement in runtime.statistics.statements
+    )
+    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
+    assert len(primary) == 1 and "__mv_status" in primary[0]
 
 
 def test_relationship_dimension_reads_same_source(

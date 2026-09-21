@@ -45,11 +45,11 @@ from marivo.semantic.ir import (
     TableSourceIR,
     TargetDimensionContract,
     TargetSnapshotVersion,
-    TargetValidityVersion,
     TimestampParse,
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
+    CumulativeNodeV1,
     LinearNodeV1,
     RatioNodeV1,
     SliceNodeV1,
@@ -131,12 +131,26 @@ def _prefix_is_same_entity_civil_date(registry: Registry, axis: TargetDimensionC
 def _admitted_bucket(definition: MetricDefinition, grain: Grain) -> bool:
     """Admit exactly the bucket widths every backend now implements identically.
 
-    A sub-day count above one is admitted only on the civil-midnight grid, which
-    exists only when the width divides one civil day.  Calendar-variable units
-    (week, month, quarter, year) and the day unit keep their existing
-    ``count == 1`` contract, so any ``count > 1`` on them returns False.
+    A semantic grain is admitted only over a native civil-date axis whose
+    definition carries the certified snapshot of the grain's own calendar; the
+    compiler's CASE-over-date-literals branches then produce identical results
+    on every backend.  Parsed text axes keep the qualified-parser contract
+    without opening calendar buckets.  A sub-day count above one is admitted
+    only on the civil-midnight grid, which exists only when the width divides
+    one civil day.  Calendar-variable units (week, month, quarter, year) and
+    the day unit keep their existing ``count == 1`` contract, so any
+    ``count > 1`` on them returns False.
     """
-    if grain.kind != "builtin":
+    snapshot = definition.temporal_snapshot
+    if grain.kind == "semantic":
+        axis = definition.time_axis
+        native_date = (
+            axis is not None
+            and axis.logical_type == "date"
+            and (axis.parse is None or isinstance(axis.parse, DateParse))
+        )
+        return native_date and snapshot is not None and snapshot.calendar_ref == grain.calendar
+    if snapshot is not None:
         return False
     axis = definition.time_axis
     timestamp_axis = axis is not None and axis.logical_type == "timestamp"
@@ -151,6 +165,18 @@ def _admitted_bucket(definition: MetricDefinition, grain: Grain) -> bool:
 _DECIMAL_MEAN_MAX_SCALE = 30
 _MYSQL_MEAN_SCALE_INCREMENT = 4
 _PLACEHOLDER_TABLE = "__mv_admission_decimal_facts"
+# The one source requirement whose recomputation runs through the shared exact
+# cumulative endpoint-window lowering rather than private backend state.
+_CUMULATIVE_REQUIREMENT = "metric.source_cumulative@v1"
+# Source requirements whose recomputation runs through the shared status-time
+# fold lowering (its argmin/argmax/mean/min/max branches); percentile folds
+# stay source-private and rejected.
+_FOLD_REQUIREMENTS = frozenset(
+    {
+        "metric.source_temporal_fold@v1",
+        "metric.source_quantile@v1",
+    }
+)
 
 
 def _decimal_facts(value: str) -> DecimalType | None:
@@ -280,6 +306,13 @@ def _decimal_unit(
     return None
 
 
+def _fold_kind(fold: str | tuple[str, float]) -> str:
+    """Return the fold kind token for one canonical aggregate fold value."""
+    if isinstance(fold, tuple):
+        return fold[0]
+    return fold
+
+
 def unsupported_reason(
     dataset: LogicalDataset,
     supported_type: Callable[[str], bool],
@@ -290,10 +323,10 @@ def unsupported_reason(
     timestamp_buckets: bool = False,
     parsed_time_axes: bool = False,
     explicit_decimal_sources: bool = False,
-    closed_open_null_validity: bool = False,
     row_expressions: bool = False,
     linear_graphs: bool = False,
     resolved_decimal_units: frozenset[ResolvedDecimalUnit] = frozenset(),
+    status_folds: frozenset[str] = frozenset(),
 ) -> str | None:
     """Check methods/types without I/O; placement.source_binding owns exact source identity.
 
@@ -304,6 +337,13 @@ def unsupported_reason(
     ``resolved_decimal_units`` replaces the composed-Decimal blanket rejection
     with a per-published-unit decision through the derived precision facts.
     An empty unit set keeps the historical blanket rejection verbatim.
+    Cumulative Metric graphs execute through the shared exact endpoint-window
+    lowering, so only source-private requirements stay rejected here.
+    ``status_folds`` names the qualified status-time fold kinds from
+    ``{"first", "last", "mean", "min", "max"}``; an empty set keeps the
+    status-time fold rejection verbatim. Component and node fold checks share
+    this set. Percentile-tuple folds stay rejected on every backend until a
+    backend qualifies its quantile fold lowering.
     """
     if artifact_inputs(dataset):
         return "remote retained import is not supported"
@@ -441,8 +481,6 @@ def unsupported_reason(
                 or not _admitted_bucket(definition, grain)
             ):
                 return "this temporal type, parser or bucket is not qualified for this backend"
-        if definition.temporal_snapshot is not None:
-            return "semantic calendar buckets are not qualified for this backend"
         for metric in definition.metrics:
             composed = metric.logical_type == "decimal" and any(
                 isinstance(record.node, (RatioNodeV1, LinearNodeV1, WeightedMeanAggregateNodeV1))
@@ -458,20 +496,59 @@ def unsupported_reason(
                         "composed Decimal results require resolvable precision and scale: "
                         f"{unresolvable}"
                     )
-            if metric.cumulative or metric.source_requirements or metric.requires_source_recompute:
-                return "this Metric requires unqualified cumulative or source-private state"
+            if metric.cumulative:
+                # The shared exact cumulative endpoint-window lowering is not
+                # private state, but any other requirement on a cumulative
+                # Metric keeps the historical rejection: only non-cumulative
+                # graphs lower status-time folds through the shared fold
+                # branches.
+                exempt = {_CUMULATIVE_REQUIREMENT}
+            else:
+                exempt = {_CUMULATIVE_REQUIREMENT, *_FOLD_REQUIREMENTS}
+            if set(metric.source_requirements) - exempt:
+                # The shared exact cumulative and status-time fold lowerings are
+                # not private state; every other source requirement stays
+                # rejected, including on cumulative Metrics.
+                return "this Metric requires source-private state this backend has not qualified"
+            elif any(
+                component.time_fold is not None and isinstance(component.time_fold, tuple)
+                for component in metric.components
+            ):
+                # Percentile-tuple folds lower through backend quantile
+                # aggregates that no backend has qualified.
+                return "the aggregate requires unqualified private or temporal state"
+            elif any(component.time_fold is not None for component in metric.components) and not (
+                status_folds
+                and all(
+                    _fold_kind(component.time_fold) in status_folds
+                    for component in metric.components
+                    if component.time_fold is not None
+                )
+            ):
+                return "status-time folds require additional temporal-state qualification"
+            elif metric.requires_source_recompute and not (
+                metric.cumulative
+                or any(component.time_fold is not None for component in metric.components)
+            ):
+                return "this Metric requires source-private state this backend has not qualified"
             if not supported_type(metric.logical_type):
                 return "the Metric result type is not supported"
             for component in metric.components:
                 if component.computation_root.path not in entity_paths:
                     return "the Metric computation root is outside the declared source closure"
-                if component.status_time_dimension is not None or component.time_fold is not None:
+                if component.time_fold is not None and (
+                    not status_folds or _fold_kind(component.time_fold) not in status_folds
+                ):
                     return "status-time folds require additional temporal-state qualification"
-                if component.requires_source_recompute:
+                if component.status_time_dimension is not None and component.time_fold is None:
+                    return "status-time folds require additional temporal-state qualification"
+                if component.requires_source_recompute and not (
+                    metric.cumulative or component.time_fold is not None
+                ):
                     return "the Metric requires source-private recomputation"
             for record in metric.graph.nodes:
                 node = record.node
-                if isinstance(node, RatioNodeV1):
+                if isinstance(node, (RatioNodeV1, CumulativeNodeV1)):
                     continue
                 if linear_graphs and isinstance(node, LinearNodeV1):
                     continue
@@ -493,9 +570,12 @@ def unsupported_reason(
                     continue
                 references: tuple[RefPayloadV1, ...]
                 if isinstance(node, AggregateNodeV1):
-                    if (
-                        node.agg not in {"sum", "count", "min", "max", "mean"}
-                        or node.fold is not None
+                    if node.agg not in {"sum", "count", "min", "max", "mean"}:
+                        return "the aggregate requires unqualified private or temporal state"
+                    if isinstance(node.fold, tuple):
+                        return "the aggregate requires unqualified private or temporal state"
+                    if node.fold is not None and (
+                        not status_folds or node.fold not in status_folds
                     ):
                         return "the aggregate requires unqualified private or temporal state"
                     references = (node.target_ref,)
@@ -518,10 +598,4 @@ def unsupported_reason(
         for column in entry.columns
     ):
         return "Decimal source columns require explicit precision and scale"
-    if closed_open_null_validity and any(
-        isinstance(entity.version, TargetValidityVersion)
-        and (entity.version.interval != "closed_open" or entity.version.open_end != (None,))
-        for entity in entities
-    ):
-        return "validity selection is qualified only for closed_open intervals with NULL open ends"
     return None

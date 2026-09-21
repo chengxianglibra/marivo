@@ -52,7 +52,9 @@ def project(expression: ir.Expr, *, run_ref: str | None = None) -> ScalarProject
     """Flatten intermediate identities and retain an exact typed output reconstruction."""
     table = expression.as_table()
 
-    def rewrite(node: ops.Node, results: dict[ops.Node, ops.Node], **kwargs: object) -> ops.Node:
+    def rewrite(
+        node: ops.Node, _results: dict[ops.Node, ops.Node] | None = None, **kwargs: object
+    ) -> ops.Node:
         if isinstance(node, ops.Field) and node.dtype.is_struct():
             relation = kwargs["rel"]
             assert isinstance(relation, ops.Relation)

@@ -13,6 +13,13 @@ from marivo.analysis.materialization.execution import Parameter
 from marivo.analysis.materialization.scalar_sql_execution import Cursor, ScalarExecutionAdapter
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.ir import (
+    AggKind,
+    SampleIntervalIR,
+    SemiAdditive,
+    TimeFoldIR,
+    TimestampParse,
+)
 from marivo.semantic.validator import Registry
 from tests.lazy_execution_fixtures import make_execution_registry
 
@@ -73,6 +80,83 @@ def registry_for(
             name: replace(value, backend_type=engine, fields=fields, env_refs=env_refs)
             for name, value in original.datasources.items()
         },
+    )
+    registry.freeze()
+    return registry, sidecar
+
+
+def fold_registry(
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar,
+    fold: TimeFoldIR,
+    *,
+    amount_data_type: str | None = None,
+    sampled: bool = True,
+    aggregation: AggKind | None = None,
+) -> tuple[Registry, CompiledExpressionSidecar]:
+    """Bind the orders measure to a sampled status axis with the given fold.
+
+    Args:
+        registry: Frozen base registry from ``registry_for`` (any engine).
+        sidecar: Compiled expression sidecar returned with the base registry.
+        fold: Status-time fold kind to bind onto the orders amount measure.
+        amount_data_type: Optional physical amount rewrite (the PostgreSQL
+            declaration binds decimal, so its journeys ask for ``float64``).
+        sampled: Sampled five-minute status axis when True; day granularity
+            with the registry's own parse when False.
+        aggregation: Optional revenue metric aggregation rewrite for
+            admission journeys that aggregate through a non-sum fold kind.
+
+    Returns:
+        A frozen registry and its sidecar with the fold additivity bound.
+
+    Example:
+        >>> base, sidecar = registry_for(database)
+        >>> registry, sidecar = fold_registry(base, sidecar, TimeFoldIR("last"))
+        >>> runtime.sources(semantic_registry=registry, sidecar=sidecar)
+
+    Constraints:
+        The base registry must declare ``sales.orders`` with a ``day`` column
+        and the ``sales.orders.order_time`` status axis; callers keep their
+        engine-specific registry construction and table binding.
+    """
+    rewrites = {"day": "timestamp"}
+    if amount_data_type is not None:
+        rewrites["amount"] = amount_data_type
+    entities = dict(registry.entities)
+    entity = entities["sales.orders"]
+    assert isinstance(entity.source, TableSourceIR)
+    entities["sales.orders"] = replace(
+        entity,
+        source=replace(
+            entity.source,
+            columns=tuple(
+                (
+                    name,
+                    replace(binding, data_type=rewrites[name]) if name in rewrites else binding,
+                )
+                for name, binding in entity.source.columns
+            ),
+        ),
+    )
+    dimensions = dict(registry.dimensions)
+    dimensions["sales.orders.order_time"] = replace(
+        registry.dimensions["sales.orders.order_time"],
+        granularity="minute" if sampled else "day",
+        parse=TimestampParse(timezone="UTC", sample_interval=SampleIntervalIR(5, "minute"))
+        if sampled
+        else registry.dimensions["sales.orders.order_time"].parse,
+    )
+    measures = dict(registry.measures)
+    measures["sales.orders.amount"] = replace(
+        registry.measures["sales.orders.amount"],
+        additivity=SemiAdditive("sales.orders.order_time", fold),
+    )
+    metrics = dict(registry.metrics)
+    if aggregation is not None:
+        metrics["sales.revenue"] = replace(metrics["sales.revenue"], aggregation=aggregation)
+    registry = replace(
+        registry, entities=entities, dimensions=dimensions, measures=measures, metrics=metrics
     )
     registry.freeze()
     return registry, sidecar

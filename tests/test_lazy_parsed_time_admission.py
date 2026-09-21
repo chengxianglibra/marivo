@@ -201,7 +201,17 @@ def test_offset_and_zone_formats_stay_unconstructable(format: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_parsed_time_axes_do_not_open_cumulative_state(engine: WidenedEngine) -> None:
+def test_parsed_time_axes_open_cumulative_state_on_qualified_engines(
+    engine: WidenedEngine,
+) -> None:
+    """A civil-date strptime axis carries the exact cumulative lowering too.
+
+    Opening the cumulative gate must not depend on the axis representation: a
+    backend whose parser is qualified admits a cumulative Metric over the
+    parsed civil-date axis, while an unqualified parser keeps the parser
+    refusal on this same shape.
+    """
+
     def mutate(registry: Registry) -> Registry:
         metrics = {**registry.metrics}
         metrics["sales.running"] = replace(
@@ -218,10 +228,10 @@ def test_parsed_time_axes_do_not_open_cumulative_state(engine: WidenedEngine) ->
         time_scope=time_scope(start="2026-07-01", end="2026-07-03"),
     ).with_time_axis(ref.time_dimension(AXIS), grain=grain("day"))
     reason = source_unsupported_reason(observed.aggregate(), engine)
-    assert reason is not None
     if engine in OPEN_ENGINES:
-        # The parser is admitted here, so the surviving refusal is the payload's own.
-        assert "cumulative" in reason
+        assert reason is None
+    else:
+        assert reason == "a Metric dimension requires an unsupported type or parser"
 
 
 @pytest.mark.parametrize("engine", ENGINES)

@@ -18,7 +18,11 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     """Describe an unqualified source closure without source work.
 
     Row expressions and Linear graphs are qualified, including the sum-level
-    ``linear`` decimal cell. The ``mean`` and ``div`` decimal cells stay
+    ``linear`` decimal cell. The mean/min/max status-time folds are qualified
+    on native AVG/MIN/MAX; the first/last folds stay rejected because the live
+    probe measured ibis compiling MySQL ArgMin/ArgMax to nothing
+    (OperationNotDefinedError), and source-row-order emulation is not a
+    substitute for status-ordered argmin/argmax. The ``mean`` and ``div`` decimal cells stay
     rejected even though the live MySQL probe measured engine AVG as exact at
     the declared ``s+4`` scale with ROUND_HALF_UP (the decimal-exact 5-tie
     0.3128125 returned 0.312813): the mean pipeline still publishes
@@ -38,8 +42,8 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         timestamp_buckets=True,
         parsed_time_axes=True,
         explicit_decimal_sources=True,
-        closed_open_null_validity=True,
         row_expressions=True,
         linear_graphs=True,
         resolved_decimal_units=frozenset({"linear"}),
+        status_folds=frozenset({"mean", "min", "max"}),
     )
