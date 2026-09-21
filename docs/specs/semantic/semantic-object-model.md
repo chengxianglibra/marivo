@@ -113,10 +113,66 @@ orders = ms.entity(
   backend table/view; `md.parquet(...)` and `md.csv(...)` for DuckDB file
   sources; and `md.json(...)` for a DuckDB-backed JSON file or HTTP API source.
   CSV and JSON require typed physical `schema=` mappings.
-- Entities have no Python body and no inline SQL view. A persisted SQL view must
-  be exposed as a backend table via `source=md.table(...)`; one-off SQL
-  transforms are out of scope.
-- Do not push metric aggregation logic into an entity.
+
+### Expression entities: one output relation over one source
+
+Besides the direct form above, `ms.entity` accepts a decorator form when `name`
+is omitted. The decorated function name becomes the entity name, and its body
+must be one optional docstring plus exactly one `return <Ibis Table
+expression>` over exactly one injected positional parameter, which is the
+declared source resolved through the datasource. Assignments, helper calls,
+nested functions, lambdas, execution calls (`execute()`, `to_pandas()`), SQL
+escape hatches, additional parameters, defaults, and captured external tables
+fail at authoring or load time.
+
+```python
+@ms.entity(
+    datasource=warehouse,
+    source=md.table("order_changes"),
+    primary_key=["dt", "order_id"],
+)
+def daily_orders(raw):
+    """One latest, non-deleted order per day and order ID."""
+    return raw.filter(
+        ibis.row_number().over(
+            ibis.window(
+                group_by=[raw["dt"], raw["order_id"]],
+                order_by=[raw["updated_at"].desc(), raw["revision_id"].desc()],
+            )
+        )
+        == 0
+    ).filter(~raw["is_deleted"], ~raw["is_test"])
+```
+
+The expression entity's output schema is the returned Table schema; the direct
+form's output schema is the source schema. The output schema is authoritative
+for every downstream consumer: dimensions, time dimensions, measures, metrics,
+keys, versioning axes, and relationships read the output relation, not the
+physical columns. A derived or renamed output column is consumable; a dropped
+source column is not, even when it still exists physically. The declared
+`primary_key` and any `versioning` describe the output grain.
+
+Every relation in the body must derive from the injected source. Reusing the
+source (self-joins, unions of same-source branches) is allowed; captured
+tables, newly connected tables, and detached constants are rejected. There is
+no operation whitelist: projection, filtering, windows, aggregation, and
+deduplication are all permitted, and authored order is meaningful — Marivo does
+not rewrite or reorder the expression.
+
+Do not push metric-level business filters into an entity: the entity defines a
+reusable dataset and its grain; metric filters remain metric declarations.
+Metric aggregation logic over that grain still belongs to metrics; an entity
+count counts output rows, and exposing an underlying source-row count requires
+declaring it as a measure inside the body.
+
+Execution order is fixed: explicitly requested physical input scopes apply to
+the source before the body; semantic preview `max_rows` and metric-preview
+`sample_size` row budgets apply to the entity output after the body. A
+`LIMIT` is not a guarantee that only N physical rows are scanned, and
+`timeout_seconds` limits execution time, not rows, bytes, or cost. Entities
+never execute at load or definition-reading time; the body is compiled and
+fingerprinted, and its normalized display is available on entity details
+without execution.
 
 ### Versioning: snapshot and validity
 

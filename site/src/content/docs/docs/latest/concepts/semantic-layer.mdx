@@ -501,6 +501,51 @@ orders = ms.entity(
 )
 ```
 
+##### Expression entities
+
+Omitting `name=` selects the decorator form. The function name becomes the
+entity name, and the body must be one optional docstring plus exactly one
+`return <Ibis Table expression>` over exactly one injected positional
+parameter: the declared source. Assignments, helper calls, execution calls
+such as `execute()`, and captured external tables fail at authoring or load
+time.
+
+```python
+import ibis
+
+@ms.entity(
+    datasource=warehouse,
+    source=md.table("order_changes"),
+    primary_key=["dt", "order_id"],
+)
+def daily_orders(raw):
+    """One latest, non-deleted order per day and order ID."""
+    return raw.filter(
+        ibis.row_number().over(
+            ibis.window(
+                group_by=[raw["dt"], raw["order_id"]],
+                order_by=[raw["updated_at"].desc(), raw["revision_id"].desc()],
+            )
+        )
+        == 0
+    ).filter(~raw["is_deleted"], ~raw["is_test"])
+```
+
+The output schema is authoritative: for the decorator form it is the returned
+Table schema; for the direct form it is the source schema. Downstream
+dimensions, measures, keys, and versioning read that output schema — a derived
+or renamed output column is consumable, and a dropped source column is not.
+The body may aggregate, filter, or deduplicate freely, and the authored order
+is meaningful: Marivo never rewrites it. Explicitly requested physical scopes
+(such as `md.partition(...)`) apply to the source before the body; preview
+row budgets apply to the entity output after it.
+
+Row budgets measure different stages. A `LIMIT` never guarantees that only N
+physical rows are scanned, and `timeout_seconds` caps execution time, not rows,
+bytes, or cost. Metric previews aggregate at most 10,000 entity output rows
+after the entity relation and remain explicitly approximate; a complete entity
+aggregate before truncation does not make a truncated metric total complete.
+
 ##### Source builders
 
 | Builder | Required | Optional | Use for |

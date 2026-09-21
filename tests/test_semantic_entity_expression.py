@@ -9,6 +9,9 @@ Materialization of the compiled body is out of scope here (Phase 2).
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import ibis
 import pytest
 
@@ -509,3 +512,87 @@ def test_entity_body_hash_resolves_alias_identity_within_compile() -> None:
         _compile_entity_body(body_first).body_ast_hash
         == _compile_entity_body(body_second).body_ast_hash
     )
+
+
+def test_entity_card_discloses_expression_form_with_normalized_body(
+    semantic_project_factory: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An expression Entity card shows the form and normalized body text.
+
+    Reading the card never executes the body; details render from captured
+    display syntax only.
+    """
+    from marivo.semantic.catalog import SemanticCatalog
+
+    model = (
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n"
+        "\n"
+        "wh = ms.ref.datasource('wh')\n"
+        "\n"
+        "@ms.entity(datasource=wh, source=md.table('orders'))\n"
+        "def daily_totals(raw):\n"
+        "    '''One row per day.'''\n"
+        "    return raw.group_by('day').aggregate(total=raw['amount'].sum())\n"
+    )
+
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Mina Zhang', default=True)\n"
+            ),
+            "sales/model.py": model,
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+    catalog = SemanticCatalog(project)
+    entry = catalog.require(ref_factory.entity("sales.daily_totals"))
+    details = entry.details()
+    assert details.definition_form == "expression"
+    assert details.expression_display is not None
+    text = details.expression_display.text
+    assert "t1.group_by" in text
+    assert "'day'" not in text  # literals are redacted
+    rendered = entry.details().render()
+    assert "definition_form: expression" in rendered
+    assert "t1.group_by" in rendered
+    assert "output schema is the body's returned Table schema" in rendered
+
+
+def test_direct_entity_card_keeps_direct_form_disclosure(
+    semantic_project_factory: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A direct Entity card reports the direct form and source schema authority."""
+    from marivo.semantic.catalog import SemanticCatalog
+
+    model = (
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n"
+        "\n"
+        "wh = ms.ref.datasource('wh')\n"
+        "orders = ms.entity(name='orders', datasource=wh, source=md.table('orders'))\n"
+    )
+
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Mina Zhang', default=True)\n"
+            ),
+            "sales/model.py": model,
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+    catalog = SemanticCatalog(project)
+    entry = catalog.require(ref_factory.entity("sales.orders"))
+    details = entry.details()
+    assert details.definition_form == "direct"
+    assert details.expression_display is None
+    rendered = entry.details().render()
+    assert "definition_form: direct" in rendered
+    assert "output schema is the source schema" in rendered

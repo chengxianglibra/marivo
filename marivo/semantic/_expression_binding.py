@@ -1002,7 +1002,15 @@ def compile_expression_body(
             parameter_names=frozenset(parameter_positions),
             owning_key=owning.key,
         )
+        parameter = parameters[0].arg if parameters else ""
+        entities = {parameter: cast("Ref[EntityKind]", owning)} if parameter else {}
+        description = describe_expression(
+            function,
+            entities=entities,
+            bindings={},
+        )
         return ExpressionBody(
+            description=description,
             callable=fn,
             body_ast_hash=_normalized_body_hash(
                 function,

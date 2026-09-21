@@ -446,6 +446,46 @@ orders = ms.entity(
 )
 ```
 
+##### 表达式实体
+
+省略 `name=` 时进入装饰器形式：函数名成为实体名，函数体必须是一个可选
+docstring 加上恰好一条 `return <Ibis Table 表达式>`，且恰好接收一个注入的
+位置参数——即声明的来源表。赋值语句、辅助函数调用、`execute()` 之类的执行
+调用，以及捕获的外部表都会在编写或加载时报错。
+
+```python
+import ibis
+
+@ms.entity(
+    datasource=warehouse,
+    source=md.table("order_changes"),
+    primary_key=["dt", "order_id"],
+)
+def daily_orders(raw):
+    """每天、每个订单只保留最新且未删除的一行。"""
+    return raw.filter(
+        ibis.row_number().over(
+            ibis.window(
+                group_by=[raw["dt"], raw["order_id"]],
+                order_by=[raw["updated_at"].desc(), raw["revision_id"].desc()],
+            )
+        )
+        == 0
+    ).filter(~raw["is_deleted"], ~raw["is_test"])
+```
+
+输出模式是权威契约：装饰器形式的输出模式是函数返回的 Table 模式；直接形式
+的输出模式是来源模式。下游的维度、度量、键和版本轴都读取输出模式——派生或
+重命名的输出列可以使用，被丢弃的来源列不行。函数体可以自由地聚合、过滤或
+去重，且编写顺序有意义：Marivo 不会改写或重排表达式。显式请求的物理范围
+（如 `md.partition(...)`）在函数体之前作用于来源；预览行预算在函数体之后
+作用于实体输出。
+
+行预算衡量的是不同阶段。`LIMIT` 从不保证只扫描 N 个物理行；
+`timeout_seconds` 限制执行时间，而不是行数、字节或成本。指标预览在实体关系
+之后最多聚合 10,000 个实体输出行，结果保持明确的近似性；截断前实体聚合的
+完整性并不能使截断后的指标总数变得完整。
+
 ##### 来源构建器
 
 | 构建器 | 必填 | 可选 | 用于 |
@@ -907,8 +947,8 @@ if report.status == "blocked":
 这些运行时调用接受当前条目或它的精确引用，并立即归一化为引用。普通 preview
 不创建 authoring checkpoint，也不会影响 readiness。
 
-preview 的 `limit` 控制展示的结果行数。指标 preview 使用独立的安全上限：聚合前最多
-读取限定范围内的 10,000 行。结果卡片会显示
+preview 的 `limit` 控制展示的结果行数。指标 preview 使用独立的安全上限：在实体关系
+之后最多聚合 10,000 个实体输出行。结果卡片会显示
 `sample_policy=pre_aggregate_limit(limit=10000)` 和 `approximate_preview` 警告；因此，
 即使 scope 覆盖显示为 exhaustive，也不能据此将展示的指标值视为精确聚合。
 

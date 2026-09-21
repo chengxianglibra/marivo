@@ -409,10 +409,13 @@ def test_discovery_entity_details_render():
         source=TableSource(table="orders", database=None),
         primary_key=("order_id",),
         versioning=None,
+        definition_form="direct",
     )
     rendered = d.render()
     assert isinstance(rendered, str)
     assert "orders" in rendered
+    assert "definition_form: direct" in rendered
+    assert "output_schema_note: output schema is the source schema" in rendered
 
 
 def test_projected_entity_details_render_is_bounded_and_recoverable():
@@ -442,6 +445,7 @@ def test_projected_entity_details_render_is_bounded_and_recoverable():
         source=source,
         primary_key=("alias_000",),
         versioning=None,
+        definition_form="direct",
     )
 
     rendered = details.render(max_output_bytes=1500)

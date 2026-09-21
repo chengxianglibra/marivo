@@ -574,7 +574,10 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
         ),
         _object_contract(
             SemanticKind.ENTITY,
-            "Reusable business entity or fact-set identity backed by a source.",
+            (
+                "Reusable business entity or fact-set identity backed by one source; "
+                "an optional expression body owns its output relation and grain."
+            ),
             decisions=(
                 _business_decision(
                     "recordset_meaning",
@@ -602,7 +605,14 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 ),
                 _business_decision("domain_ownership", "Which Domain owns this Entity?", "entity"),
             ),
-            construction_modes=(_mode("Declare a datasource-backed Entity.", "default", "entity"),),
+            construction_modes=(
+                _mode(
+                    "Declare an Entity directly or as a one-return expression decorator "
+                    "over its source; an explicit name takes the direct form.",
+                    "default",
+                    "entity",
+                ),
+            ),
             relationships=(
                 _relationship("owned_by", "objects.domain", "Every Entity belongs to one Domain."),
                 _relationship(
@@ -2305,7 +2315,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "entity",
             "marivo.semantic._authoring_decorators.entity",
-            "Declare a semantic entity backed by a datasource table.",
+            (
+                "Declare a semantic entity backed by a datasource table, directly or as a "
+                "one-expression decorator over the declared source."
+            ),
             output="Ref[entity]",
             inputs=_inputs(
                 ("mapping_key", "EntityName"),
@@ -2315,8 +2328,13 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
             example=(
-                "warehouse = ms.ref.datasource('warehouse'); "
-                "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))"
+                "warehouse = ms.ref.datasource('warehouse')\n"
+                "# Decorator form: omitting name derives the entity name from the function;\n"
+                "# the body returns one Ibis Table expression over the injected source table.\n"
+                "@ms.entity(datasource=warehouse, source=md.table('orders'))\n"
+                "def orders(raw):\n"
+                "    '''One latest order per order ID.'''\n"
+                "    return raw.distinct()"
             ),
             invocation_shape="decorator",
         ),
@@ -3396,7 +3414,15 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         EntityDetails,
         "EntityDetails",
         (),
+        properties=("definition_form", "expression_display"),
         methods=show_render,
+        notes=(
+            "definition_form is direct or expression; expression_display carries the "
+            "captured normalized body text with alias-to-Ref bindings and redacted "
+            "literals, or None when the captured syntax has no display.",
+            "Reading Details never executes the Entity body or queries the source; the "
+            "display is not original source or a standalone runnable program.",
+        ),
     )
     add(
         DimensionEntry,

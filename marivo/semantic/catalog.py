@@ -111,6 +111,7 @@ from marivo.semantic.definition import (
     _Aggregate,
     _Column,
     _Cumulative,
+    _ExpressionDisplay,
     _Linear,
     _Ratio,
     _SupportedExpression,
@@ -728,6 +729,8 @@ class EntityDetails(_DetailsBase):
     source: DatasetSource
     primary_key: tuple[str, ...]
     versioning: EntityVersioning | None
+    definition_form: Literal["direct", "expression"]
+    expression_display: _ExpressionDisplay | None = None
 
     def _detail_sections(self) -> list[Section]:
         sections = _common_detail_sections(
@@ -744,6 +747,32 @@ class EntityDetails(_DetailsBase):
                 *_entity_source_sections(self.source),
                 FieldSection(label="primary_key", value=_format_tuple_values(self.primary_key)),
                 FieldSection(label="versioning", value=_versioning_text(self.versioning)),
+                FieldSection(label="definition_form", value=self.definition_form),
+            )
+        )
+        if self.definition_form == "expression":
+            if self.expression_display is not None:
+                bindings = ", ".join(
+                    f"{alias}={ref.key}" for alias, ref in self.expression_display.bindings
+                )
+                sections.append(
+                    FieldSection(
+                        label="expression",
+                        value=f"{self.expression_display.text} [{bindings}]",
+                    )
+                )
+            else:
+                sections.append(
+                    FieldSection(label="expression", value="(unavailable: see source_location)")
+                )
+        sections.append(
+            FieldSection(
+                label="output_schema_note",
+                value=(
+                    "output schema is the source schema"
+                    if self.definition_form == "direct"
+                    else "output schema is the body's returned Table schema, not the source schema"
+                ),
             )
         )
         return sections
@@ -3411,6 +3440,13 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         for model in reg.state_models.values()
         if model.subject == ds_ir.semantic_id
     )
+    sidecar = catalog._project._expression_sidecar
+    body = sidecar.bodies.get(ref) if sidecar is not None else None
+    expression_display = None
+    if body is not None and isinstance(
+        body.description, (_SupportedExpression, _UnsupportedExpression)
+    ):
+        expression_display = body.description.display
     details = EntityDetails(
         ref=ref,
         kind=SemanticKind.ENTITY,
@@ -3426,6 +3462,8 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         source=ds_ir.source,
         primary_key=ds_ir.primary_key,
         versioning=ds_ir.versioning,
+        definition_form="expression" if body is not None else "direct",
+        expression_display=expression_display,
     )
     return _object_from_details(EntityEntry, details, catalog)
 

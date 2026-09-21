@@ -378,7 +378,15 @@ cross-domain/cross-entity refs; an expression-bearing decorator with no explicit
 a derived metric that carries entity parameters, lacks composition components, or
 reads an entity table in its body; a decorator/metadata call executed outside a
 loader context; a metric body that violates the single-`return`-expression rule
-or calls a decorated metric function / an Ibis SQL escape hatch.
+or calls a decorated metric function / an Ibis SQL escape hatch; an expression
+entity whose decorator body violates the Table contract — one optional docstring
+plus exactly one `return <Ibis Table expression>` over exactly one positional
+parameter, no defaults, assignments, helper calls, nested functions, lambdas,
+execution/SQL attributes, `ms.bind`, or clock/random symbols. The compiled body
+is captured in the expression sidecar and its normalized digest participates in
+the entity's dependency fingerprint; a body-only edit invalidates downstream
+compatibility even when the output schema is unchanged. Direct declarations
+keep no sidecar entry, so their fingerprints are unchanged.
 
 ### Load / assembly-time
 
@@ -404,6 +412,17 @@ retain every alias, referencing object, field, and source location. Repair chang
 `column=` or adds the matching `md.source_column(...)` binding. This check is
 static: it does not connect or query. General expression decorators keep their
 existing runtime materialization boundary and do not gain inferred column typing.
+
+Expression entities split the same guarantee into input and output stages.
+Where the declared source carries projected types, assembly builds the body
+against an unbound input relation and validates without executing rows: a
+missing input column fails the entity definition with bounded actual input
+columns; a non-Table return, a missing `primary_key` component, and a
+downstream `column=` reference naming a dropped column fail with bounded actual
+output columns. Unprojected sources carry no declared input metadata, so
+schema-dependent checks defer to runtime validation, preview, or first use and
+are never reported as already passed. Downstream field references are checked
+against the entity output schema, never against physical input aliases.
 
 ClickHouse inspection augments catalog columns with safe adapter-only physical
 columns from active `system.parts_columns`. A projected binding found there must
