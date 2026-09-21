@@ -1542,7 +1542,15 @@ class AttributionFrame(BaseFrame):
         *,
         axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
     ) -> AttributionFrame:
-        """Select one exact ordered semantic-ref prefix without executing a query."""
+        """Select one exact ordered semantic-ref prefix without executing a query.
+
+        Args:
+            axes: Exact ordered dimension entries/refs selecting a retained hierarchy prefix.
+
+        Constraints:
+            Requires a complete generic hierarchy frame owned by the current session;
+            funnel loss-rate frames and already selected resolutions are rejected.
+        """
         if self.meta.semantic_kind == "funnel_loss_rate":
             raise AttributionResolutionError(
                 message="at_resolution requires generic hierarchy attribution",

@@ -88,6 +88,13 @@ They are review criteria and, increasingly, test-enforced contracts:
 - **Discovery is progressive and bounded.** `marivo.help()` is a short concept
   page that routes only to the authoring or analysis tree; detail is reached by
   drilling in, never by dumping a flat catalog.
+- **Exact leaves stay useful within their budgets.** Analysis callable pages
+  include parameter semantics, omission rules, validation boundaries, and one
+  minimal example. Public type pages include inherited public dataclass fields
+  and bounded consumption methods, with no constructor examples. Paging Help
+  exposes the cursor protocol; recovery Help identifies the exact required id.
+  Rendering checks line, codepoint, route, and example budgets after adding
+  imports. Required contracts are never silently truncated.
 - **Precise types over optional-field mega-classes.** The surface prefers one
   entry shape with closed, kind-dispatched variants (e.g. `MetricFrame[time_series]`)
   over a single class riddled with optional fields. Precise types fail loudly at

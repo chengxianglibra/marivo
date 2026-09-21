@@ -37,6 +37,15 @@ T = TypeVar("T")
 
 @dataclass(frozen=True, repr=False)
 class _BoundedPage(RenderableResult, Generic[T]):
+    """Immutable bounded page.
+
+    Guidance:
+        items contains this page only; limit is in [1, 100]. When has_more is
+        true, pass next_cursor to the same producer with the same filters.
+        When has_more is false, next_cursor is None. Iteration, indexing and
+        len(page) read only the current page; .show() prints bounded state.
+    """
+
     items: tuple[T, ...]
     limit: int
     has_more: bool

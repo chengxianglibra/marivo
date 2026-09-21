@@ -15,7 +15,7 @@ import builtins
 import inspect
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Literal, get_args
 
@@ -2500,6 +2500,13 @@ def _build_registry() -> CapabilityRegistry:
                     public_entrypoint=f"frame.{method_name}()",
                     help_target=f"{class_name}.{method_name}",
                     summary=f"Narrow {class_name} to its declared shape.",
+                    additional_examples=(
+                        HelpExample(
+                            label="Example (receiver must already have the selected shape)",
+                            code=f"view = frame.{method_name}()",
+                            requires=("frame",),
+                        ),
+                    ),
                     constraint_ids=("frame_kind_compatible",),
                     callable_path=_module_path_for(getattr(cls_obj, method_name)),
                     receiver_family=family,
@@ -2790,7 +2797,7 @@ def _build_registry() -> CapabilityRegistry:
         ),
         (
             "AbsoluteWindow",
-            "mv.time_scope(...)",
+            "mv.AbsoluteWindow(...)",
             "AbsoluteWindow",
             "Half-open time interval [start, end) with optional grain.",
             AbsoluteWindow,
@@ -3128,7 +3135,12 @@ def _build_registry() -> CapabilityRegistry:
                 summary=summary,
                 constraint_ids=(),
                 callable_path=f"marivo.analysis.session.core.Session.{method_name}",
-                identity_input="session_id_or_artifact_ref_or_run_id",
+                identity_input={
+                    "session.runs": "bound_session (no identity argument)",
+                    "session.get_run": "run_id within the bound Session",
+                    "session.artifact": "artifact_ref within the bound Session",
+                    "session.graph": "bound_session with optional artifact_ref",
+                }[cap_id],
                 restored_family=restored,
                 query_behavior="none",
             )
@@ -3305,6 +3317,105 @@ def _build_registry() -> CapabilityRegistry:
         ),
     )
     descriptors.extend(temporal_catalog_reads)
+
+    minimal_examples: dict[str, HelpExample] = {
+        "discover.point_anomalies": HelpExample(
+            label="Example",
+            code="candidates = session.discover.point_anomalies(source, threshold=3.0)",
+            requires=("source",),
+        ),
+        "discover.period_shifts": HelpExample(
+            label="Example",
+            code="candidates = session.discover.period_shifts(source, threshold=2.0)",
+            requires=("source",),
+        ),
+        "discover.interesting_windows": HelpExample(
+            label="Example",
+            code="candidates = session.discover.interesting_windows(source, limit=10)",
+            requires=("source",),
+        ),
+        "MetricFrame.components": HelpExample(
+            label="Example",
+            code="components = frame.components()",
+            requires=("frame",),
+        ),
+        "DeltaFrame.components": HelpExample(
+            label="Example",
+            code="components = frame.components()",
+            requires=("frame",),
+        ),
+        "DeltaFrame.predicted_attribution_shape": HelpExample(
+            label="Example",
+            code="shape = delta.predicted_attribution_shape()",
+            requires=("delta",),
+        ),
+        "BaseFrame.show": HelpExample(
+            label="Example",
+            code="frame.show()",
+            requires=("frame",),
+        ),
+        "Session.render": HelpExample(
+            label="Example",
+            code="text = session.render()",
+            requires=(),
+        ),
+        "Session.show": HelpExample(
+            label="Example",
+            code="session.show()",
+            requires=(),
+        ),
+        "boundary.to_pandas": HelpExample(
+            label="Example",
+            code="data = frame.to_pandas()",
+            requires=("frame",),
+        ),
+        "time_scope": HelpExample(
+            label="Example",
+            code='scope = mv.time_scope(start="2026-07-01", end="2026-08-01")',
+            requires=(),
+        ),
+        "AbsoluteWindow": HelpExample(
+            label="Example",
+            code='window = mv.AbsoluteWindow(start="2026-07-01", end="2026-08-01")',
+            requires=(),
+        ),
+        "SamplingPolicy": HelpExample(
+            label="Example",
+            code='sampling = mv.SamplingPolicy(pairing="segment_key", min_n=3)',
+            requires=(),
+        ),
+        "session.current": HelpExample(
+            label="Example",
+            code="session = mv.session.current()",
+            requires=(),
+        ),
+        "session.delete": HelpExample(
+            label="Example",
+            code="mv.session.delete(name)",
+            requires=("name",),
+        ),
+        "catalog.require": HelpExample(
+            label="Example",
+            code='catalog = session.catalog\nentry = catalog.require(ms.ref.metric("sales.revenue"))',
+            requires=(),
+        ),
+    }
+    descriptors = [
+        replace(descriptor, additional_examples=(minimal_examples[descriptor.id],))
+        if descriptor.id in minimal_examples
+        and isinstance(
+            descriptor,
+            (
+                OperatorCapability,
+                ConstructorCapability,
+                ReadCapability,
+                RecoveryCapability,
+                BoundaryCapability,
+            ),
+        )
+        else descriptor
+        for descriptor in descriptors
+    ]
 
     descriptors.extend(root_navigation_topics)
     descriptors.extend(slice2_navigation_topics)

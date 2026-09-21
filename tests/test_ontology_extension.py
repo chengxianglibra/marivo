@@ -406,6 +406,12 @@ def test_semantic_hypothesis_end_to_end_and_candidate_origin(tmp_path) -> None:
     candidates = session.discover.semantic_hypotheses(source)
     assert isinstance(candidates, CandidateSet)
     assert candidates.meta.shape == "semantic_hypothesis"
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    example = REGISTRY.by_id("CandidateSet.as_semantic_hypothesis").additional_examples[0]
+    namespace = {"frame": candidates}
+    exec(example.code, namespace)
+    assert namespace["view"] is candidates
     assert candidates.meta.resolution_summary.emitted_candidates == 1
     assert candidates.findings().items == ()
     row = candidates.to_pandas().iloc[0]

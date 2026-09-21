@@ -32,6 +32,30 @@ description: 以指标为主线，使用会话、类型化算子、产物与证�
 分析结束后，重点看三件事：结论是否回答了问题，重要判断是否有清楚的证据，已经说明的限制
 是否影响结论用于当前决策。需要检查或集成运行时的读者，可以继续查看下面的技术参考。
 
+## 查看精确接口契约
+
+从 `marivo.help("analysis")` 开始，沿输入入口、计算方法、参数构造、Artifact、Evidence
+或运行时入口逐层查看。具体接口页提供参数含义、省略规则、约束和一个最小调用示例：
+
+```python
+import marivo
+import marivo.analysis as mv
+
+marivo.help("analysis.observe")
+marivo.help("analysis.SamplingPolicy")
+marivo.help("analysis.FindingPage")
+marivo.help("analysis.session.get_run")
+
+scope = mv.time_scope(start="2026-07-01", end="2026-08-01")
+# Pass scope as observe(time_scope=scope), and grain separately as observe(grain=...).
+```
+
+`AbsoluteWindow` 有独立的构造契约，其可选字段不是 `mv.time_scope` 的参数。
+结果类型页列出公开字段和读取方法。`FindingPage` 与 `RunPage` 的 `items` 仅包含当前页；
+当 `has_more` 为真时，将 `next_cursor` 传回同一读取接口并保持筛选条件一致。
+`session.get_run` 接收 Run id，`session.artifact` 接收 Artifact ref；
+`session.runs` 使用已绑定的 Session，无须另外提供身份参数。
+
 ## 操作与分析产物参考
 
 每次 Marivo 分析都从受治理的语义输入开始，并按**写-运行-读**循环推进：

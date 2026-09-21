@@ -99,9 +99,22 @@ class RenderableResult:
         raise NotImplementedError
 
     def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+        """Return bounded inspection text without printing.
+
+        Args:
+            max_output_bytes: UTF-8 output budget; None disables the byte bound.
+
+        Returns:
+            Deterministic text for the current result.
+        """
         return self._card().render(max_output_bytes=max_output_bytes)
 
     def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        """Print bounded inspection text and return None.
+
+        Args:
+            max_output_bytes: UTF-8 output budget; None disables the byte bound.
+        """
         print(self.render(max_output_bytes=max_output_bytes))
 
     def __repr__(self) -> str:

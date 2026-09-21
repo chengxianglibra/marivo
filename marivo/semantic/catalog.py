@@ -1971,6 +1971,9 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
     def grain(self, level: str, /) -> Grain:
         """Return the common semantic Grain for one declared calendar level.
 
+        Args:
+            level: Exact declared calendar level name; unknown levels are rejected.
+
         Example:
             >>> calendar = catalog.period_calendars.get("sales.fiscal")
             >>> fiscal_week = calendar.grain("fiscal_week")
@@ -2022,6 +2025,10 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
     def period_on(self, level: str, value: date, /) -> TimeScope:
         """Return the exact certified scope containing one civil date.
 
+        Args:
+            level: Exact declared calendar level name.
+            value: Civil date contained in one certified period; missing coverage is rejected.
+
         Example:
             >>> from datetime import date
             >>> calendar = catalog.period_calendars.get("sales.fiscal")
@@ -2048,6 +2055,11 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         cursor: str | None = None,
     ) -> CalendarPeriodPage:
         """Return a bounded ordinal page of certified periods for one level.
+
+        Args:
+            level: Exact declared calendar level name.
+            limit: Integer page size in [1, 100].
+            cursor: Previous page.next_cursor for this same snapshot and level; omit for the first page.
 
         Example:
             >>> calendar = catalog.period_calendars.get("sales.fiscal")
@@ -2205,6 +2217,9 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
     def occurrence(self, key: str | int | float | bool, /) -> TimeScope:
         """Return the exact certified scope for one named occurrence.
 
+        Args:
+            key: Exact occurrence key in the current certified snapshot; unknown keys are rejected.
+
         Example:
             >>> temporal_set = catalog.temporal_sets.get("sales.campaigns")
             >>> scope = temporal_set.occurrence("spring_launch")
@@ -2229,6 +2244,13 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         cursor: str | None = None,
     ) -> TemporalOccurrencePage:
         """Return deterministic, bounded certified occurrence scopes.
+
+        Args:
+            start: Optional inclusive overlap filter with the snapshot's temporal type.
+            end: Optional exclusive overlap filter, compatible with start.
+            category: Exact non-empty category filter; None accepts every category.
+            limit: Integer page size in [1, 100].
+            cursor: Previous page.next_cursor for the same snapshot and filters; omit for the first page.
 
         Example:
             >>> temporal_set = catalog.temporal_sets.get("sales.campaigns")
@@ -5439,7 +5461,14 @@ class SemanticCatalog(RenderableResult):
         return self.items(kind)
 
     def require(self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
-        """Require exact membership of one typed ref in this compiled catalog."""
+        """Require exact membership of one typed ref in this compiled catalog.
+
+        Args:
+            ref: One exact typed semantic Ref. Strings are not accepted.
+
+        Returns:
+            The current catalog entry; missing membership raises a structured lookup error.
+        """
         exact_ref = _require_semantic_ref(ref, parameter="require(ref)")
         found = self._require_index().require(exact_ref)
         if found is not None:

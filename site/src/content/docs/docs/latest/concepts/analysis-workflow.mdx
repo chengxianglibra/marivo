@@ -41,6 +41,32 @@ claims have visible evidence, and the stated limitations do not make the
 conclusion unsuitable for the intended decision. The technical mechanics are
 documented below for readers who need to inspect or integrate the runtime.
 
+## Inspect one exact contract
+
+Start with `marivo.help("analysis")`, then follow its entry, method, input,
+artifact, evidence, or runtime routes. Focused pages include parameter meanings,
+omission rules, constraints, and one minimal callable example:
+
+```python
+import marivo
+import marivo.analysis as mv
+
+marivo.help("analysis.observe")
+marivo.help("analysis.SamplingPolicy")
+marivo.help("analysis.FindingPage")
+marivo.help("analysis.session.get_run")
+
+scope = mv.time_scope(start="2026-07-01", end="2026-08-01")
+# Pass scope as observe(time_scope=scope), and grain separately as observe(grain=...).
+```
+
+`AbsoluteWindow` has a separate constructor contract; its optional fields are
+not arguments to `mv.time_scope`. Result type pages expose public fields and read
+methods. `FindingPage` and `RunPage` contain only the current `items`; when
+`has_more` is true, pass `next_cursor` to the same producer with the same filters.
+`session.get_run` requires a Run id, `session.artifact` an Artifact ref, and
+`session.runs` uses its bound Session without a separate identity argument.
+
 ## Operator and artifact reference
 
 Every Marivo analysis starts from governed semantic inputs and runs as a
