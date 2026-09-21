@@ -348,12 +348,13 @@ def unsupported_reason(
     backend qualifies its quantile fold lowering.
     ``distinct_memberships`` names the qualified exact distinct-membership key
     shapes from ``{"measure", "entity"}``, judged per authority through its
-    ``target_kind``; an empty set keeps the membership rejection verbatim.
+    ``target_kind``; a definition qualifies only when every one of its own
+    authorities qualifies, and an empty set keeps the membership rejection.
     ``distributions`` names the qualified quantile interpretations; the
     ``linear_interpolation`` token admits only a ``linear_interpolation@v1``
-    authority. An empty set keeps the distribution rejection verbatim. Each
-    unqualified state shape carries its own diagnostic; with both parameters
-    empty the historical combined rejection stays verbatim.
+    authority. An empty set keeps the admission outcome rejected; the rejection
+    text is the shape-specific diagnostic. Each unqualified state shape carries
+    its own diagnostic.
     """
     if artifact_inputs(dataset):
         return "remote retained import is not supported"
@@ -468,18 +469,16 @@ def unsupported_reason(
                 return "the population reference axis is not qualified"
             continue
         definition = payload.definition
-        if definition.distinct_memberships:
-            membership_kind = (
-                "measure"
-                if definition.distinct_memberships[0].target_kind == "measure"
-                else "entity"
-            )
-            if membership_kind not in distinct_memberships:
-                return "distinct membership state requires an unqualified source-private implementation"
-        if definition.distributions:
-            method = definition.distributions[0].quantile.method
-            if method != "linear_interpolation@v1" or "linear_interpolation" not in distributions:
-                return "distribution state requires an unqualified source-private implementation"
+        if definition.distinct_memberships and not all(
+            item.target_kind in distinct_memberships for item in definition.distinct_memberships
+        ):
+            return "distinct membership state requires an unqualified source-private implementation"
+        if definition.distributions and not all(
+            item.quantile.method == "linear_interpolation@v1"
+            and "linear_interpolation" in distributions
+            for item in definition.distributions
+        ):
+            return "distribution state requires an unqualified source-private implementation"
         if not relationships and (
             any(definition.contribution_paths)
             or any(
@@ -607,14 +606,38 @@ def unsupported_reason(
                     continue
                 references: tuple[RefPayloadV1, ...]
                 if isinstance(node, AggregateNodeV1):
+                    # State-node admission mirrors the per-Metric authority yield:
+                    # an aggregate lowers through private-state qualification only
+                    # when its owning Metric carries the matching authority, so a
+                    # qualified sibling never admits an authority-less node.
                     if isinstance(node.agg, str):
                         admitted = (
                             node.agg in {"sum", "count", "min", "max", "mean"}
-                            or (node.agg == "count_distinct" and bool(distinct_memberships))
-                            or (node.agg == "median" and bool(distributions))
+                            or (
+                                node.agg == "count_distinct"
+                                and any(
+                                    item.metric_ref == metric.key
+                                    and item.target_kind in distinct_memberships
+                                    for item in definition.distinct_memberships
+                                )
+                            )
+                            or (
+                                node.agg == "median"
+                                and any(
+                                    item.metric_ref == metric.key
+                                    and item.quantile.method == "linear_interpolation@v1"
+                                    and "linear_interpolation" in distributions
+                                    for item in definition.distributions
+                                )
+                            )
                         )
                     else:
-                        admitted = bool(distributions)
+                        admitted = any(
+                            item.metric_ref == metric.key
+                            and item.quantile.method == "linear_interpolation@v1"
+                            and "linear_interpolation" in distributions
+                            for item in definition.distributions
+                        )
                     if not admitted:
                         return "the aggregate requires unqualified private or temporal state"
                     if isinstance(node.fold, tuple):
