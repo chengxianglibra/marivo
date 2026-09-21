@@ -1,6 +1,6 @@
 [
   {
-    "schema": "marivo.semantic_definition/v1",
+    "schema": "marivo.semantic_definition/v2",
     "ref": {
       "schema": "marivo.semantic_ref/v1",
       "kind": "metric",
@@ -52,7 +52,7 @@
     }
   },
   {
-    "schema": "marivo.semantic_definition/v1",
+    "schema": "marivo.semantic_definition/v2",
     "ref": {
       "schema": "marivo.semantic_ref/v1",
       "kind": "metric",
@@ -89,7 +89,7 @@
     }
   },
   {
-    "schema": "marivo.semantic_definition/v1",
+    "schema": "marivo.semantic_definition/v2",
     "ref": {
       "schema": "marivo.semantic_ref/v1",
       "kind": "measure",
@@ -130,7 +130,7 @@
     }
   },
   {
-    "schema": "marivo.semantic_definition/v1",
+    "schema": "marivo.semantic_definition/v2",
     "ref": {
       "schema": "marivo.semantic_ref/v1",
       "kind": "time_dimension",

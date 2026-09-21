@@ -34,8 +34,8 @@ def weight(t):
 @ms.measure(name='state', entity=rows, additivity=ms.semi_additive(over=time, fold=('percentile', 0.95)))
 def state(t):
     return t.state
-@ms.dimension(name='redacted', entity=rows)
-def redacted(t):
+@ms.dimension(name='literal_values', entity=rows)
+def literal_values(t):
     return (t.region == 'private-token-987').ifelse(73921, 0)
 @ms.dimension(name='unsupported', entity=rows)
 def unsupported(t):
@@ -94,7 +94,7 @@ def catalog(semantic_project_factory: Factory) -> ms.SemanticCatalog:
 def test_cumulative_chain_and_snapshot(catalog: ms.SemanticCatalog) -> None:
     definition = catalog.metrics.get("sales.retail").details().definition
     payload = definition.to_dict()
-    assert payload["schema"] == "marivo.semantic_definition/v1"
+    assert payload["schema"] == "marivo.semantic_definition/v2"
     assert payload["catalog_definition_fingerprint"] == catalog.definition_fingerprint
     node = payload["node"]
     assert isinstance(node, dict)
@@ -191,15 +191,17 @@ def test_anchor_variants_and_roles(catalog: ms.SemanticCatalog) -> None:
 
 
 def test_expression_disclosure_and_time_rules(catalog: ms.SemanticCatalog) -> None:
-    redacted = catalog.dimensions.get("sales.rows.redacted").details().definition
-    text = json.dumps(redacted.to_dict()) + redacted.render() + repr(redacted.node)
-    assert "private-token-987" not in text and "73921" not in text
-    assert "redacted" in text and "ifelse" in text
+    literal_values = catalog.dimensions.get("sales.rows.literal_values").details().definition
+    text = (
+        json.dumps(literal_values.to_dict()) + literal_values.render() + repr(literal_values.node)
+    )
+    assert "private-token-987" in text and "73921" in text
+    assert '"kind": "literal"' in text and "ifelse" in text
     unsupported = catalog.dimensions.get("sales.rows.unsupported").details().definition
     assert unsupported.node.kind == "expression" and unsupported.node.status == "unsupported"
     assert unsupported.source_location.line > 0
     bound = catalog.measures.get("sales.rows.bound").details().definition
-    assert "1234567" not in json.dumps(bound.to_dict())
+    assert "1234567" in json.dumps(bound.to_dict())
     assert "sales.rows.spend" in json.dumps(bound.to_dict())
     state = catalog.measures.get("sales.rows.state").details().definition.temporal
     assert state.declared is not None and state.declared.fold.q == 0.95
@@ -653,3 +655,27 @@ def test_unknown_loaded_composition_is_a_read_error(catalog: ms.SemanticCatalog)
     with pytest.raises(ms.SemanticDefinitionReadError) as exc:
         metric_node(malformed, registry)
     assert exc.value.received == "unknown metric composition"
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_expression_literal_fails_with_typed_error(
+    catalog: ms.SemanticCatalog, value: float
+) -> None:
+    definition = catalog.dimensions.get("sales.rows.literal_values").details().definition
+    assert definition.node.kind == "expression" and definition.node.status == "supported"
+    expression = definition.node.expression
+    assert expression.kind == "ifelse" and expression.when_true.kind == "literal"
+    bad = replace(
+        definition,
+        node=replace(
+            definition.node,
+            expression=replace(
+                expression, when_true=replace(expression.when_true, value_type="float", value=value)
+            ),
+        ),
+    )
+    with pytest.raises(ms.SemanticDefinitionReadError) as exc:
+        bad.to_dict()
+    assert exc.value.semantic_refs == (definition.ref.key,)
+    assert exc.value.repair is not None
+    assert exc.value.repair.kind == "reauthor"

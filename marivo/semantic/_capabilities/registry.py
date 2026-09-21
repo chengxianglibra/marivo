@@ -3343,11 +3343,11 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         notes=(
             "Read entry.details().definition on a loaded metric, measure, dimension or time dimension; no data access, source read, or expression execution.",
             "node.kind selects aggregate (operation, target, filter), weighted_mean (value, weight, filter), ratio (numerator, denominator), linear (ordered signed terms), cumulative (base, over, anchor), or expression (status).",
-            "to_dict() returns marivo.semantic_definition/v1 with exact RefPayloadV1 references; follow each direct Ref through the same catalog.require(ref). It does not export a closure.",
+            "to_dict() returns marivo.semantic_definition/v2 with exact RefPayloadV1 references; follow each direct Ref through the same catalog.require(ref). It does not export a closure.",
             "Cumulative over is explicit or default/context_required in the payload; default is preserved even when loading resolves an axis. Anchors retain all_history, grain_to_date (builtin or semantic calendar/level), or trailing count/unit.",
             "Expression status is supported or unsupported with a reason and source_location. Supported syntax: column, field binding, cast, overloaded operator tokens, comparisons, and ifelse. Maximum 256 nodes and depth 32.",
-            "Expression payloads can include display independently of structural support: normalized Ibis Python text, alias-to-Ref bindings, and redacted_literals. Consumers display this text directly; it is not original source or standalone executable code.",
-            "Expression literals are redacted to their type. Only column names and fixed cast type tokens are public structural strings. Unsupported syntax is never a guessed formula; TimeDimension parse remains on Details.",
+            "Expression payloads can include display independently of structural support: normalized Ibis Python text, alias-to-Ref bindings, and authored literal values. Consumers display this text directly; it is not original source or standalone executable code.",
+            "Expression literals preserve their authored values and scalar types. Unsupported syntax is never a guessed formula; TimeDimension parse remains on Details.",
             "temporal separates declared rules, metric override, and resolved effective rules with source and exact axis/fold. Ordinary aggregates and recursively additive linear inputs without folds use not_applicable; ratios, cumulative nodes, and other linear compositions use component_defined: follow node/component rules, with no inferred top-level fold or missing-context claim. Neither status licenses arbitrary reaggregation.",
             "Temporal classification reads loaded IR only, bounded by metric graph limits (10 levels, 256 occurrences); missing dependencies, cycles, unresolved status axes and inapplicable overrides fail closed. Cumulative default/context_required belongs to node.over, not the effective fold.",
             "The fingerprint identifies the existing compiled definition snapshot, not data freshness, readiness, or author approval. Declaration-only display metadata does not change calculation identity.",
@@ -3418,7 +3418,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
         notes=(
             "definition_form is direct or expression; expression_display carries the "
-            "captured normalized body text with alias-to-Ref bindings and redacted "
+            "captured normalized body text with alias-to-Ref bindings and authored "
             "literals, or None when the captured syntax has no display.",
             "Reading Details never executes the Entity body or queries the source; the "
             "display is not original source or a standalone runnable program.",

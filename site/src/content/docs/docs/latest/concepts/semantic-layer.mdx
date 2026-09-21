@@ -1722,14 +1722,14 @@ marivo.help("semantic.SemanticDefinition")
 ```
 
 Follow a direct input Ref through the same `catalog.require(ref)` to explain the
-next object. The payload uses `marivo.semantic_definition/v1` and existing
+next object. The payload uses `marivo.semantic_definition/v2` and existing
 `marivo.semantic_ref/v1` references. A semantic grain retains its calendar and
 level; it never assumes that a retail quarter is a Gregorian quarter. Omitted
 cumulative `over` remains marked as default selection, not an authored axis.
 
 Expression descriptions support columns, bound fields, fixed-type casts,
 authored binary/unary operator tokens, comparisons and `.ifelse()`. Function-body
-literals are hidden and unsupported syntax is explicitly marked. Tokens such as
+literals retain their values and types and unsupported syntax is explicitly marked. Tokens such as
 `+` and `&` remain syntax-level because their Ibis meaning depends on operand
 dtypes. Declaration filters retain their typed finite values; `ms.where` rejects
 NaN and infinity during authoring. A time dimension's source expression does not
@@ -1753,9 +1753,11 @@ trusted Python model loading retains its existing behavior.
 
 
 Expression payloads can also provide `payload["node"]["display"]` with
-normalized Ibis Python `text`, alias-to-Ref `bindings`, and `redacted_literals`.
+normalized Ibis Python `text` and alias-to-Ref `bindings`.
 Render the text directly in a code block. For example,
 `(t1["spend_cny"]).cast("float64")` uses an alias bound to the entity Ref.
 Display is independent of structural support, including calls like `.count()` and
 `.sum()`. It is normalized syntax, not original source or standalone executable code;
-constants remain hidden and unsupported expressions retain their reason.
+constants preserve their authored values and unsupported expressions retain their reason.
+For example, `t1["amount"] / 100` retains the unit conversion factor.
+Structured literals use `kind="literal"`, `value_type`, and `value` in the v2 schema.

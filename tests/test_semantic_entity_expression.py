@@ -555,7 +555,7 @@ def test_entity_card_discloses_expression_form_with_normalized_body(
     assert details.expression_display is not None
     text = details.expression_display.text
     assert "t1.group_by" in text
-    assert "'day'" not in text  # literals are redacted
+    assert "'day'" in text
     rendered = entry.details().render()
     assert "definition_form: expression" in rendered
     assert "t1.group_by" in rendered

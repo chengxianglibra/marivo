@@ -7,7 +7,7 @@ import pytest
 
 from marivo import semantic as ms
 from marivo.semantic._definition_expression import describe_expression
-from marivo.semantic.definition import _expression_display
+from marivo.semantic.definition import _expression, _expression_display
 
 
 def display(expression: str) -> dict[str, object]:
@@ -30,25 +30,33 @@ def test_cast_display_and_alias_identity() -> None:
         }
     ]
     assert result["form"] == "normalized_ibis"
-    assert result["redacted_literals"] is False
+    assert "redacted_literals" not in result
 
 
 @pytest.mark.parametrize(
-    "expression",
+    ("expression", "expected"),
     [
-        "rows.amount + rows.other * rows.amount",
-        "~((rows.amount >= 12345) & (rows.other != 56789))",
-        '(rows.amount > 0).ifelse("PRIVATE_TOKEN", None)',
-        "-rows.amount / +rows.other",
+        (
+            "rows.amount + rows.other * rows.amount",
+            "t1['amount'] + t1['other'] * t1['amount']",
+        ),
+        (
+            "~((rows.amount >= 12345) & (rows.other != 56789))",
+            "~((t1['amount'] >= 12345) & (t1['other'] != 56789))",
+        ),
+        (
+            '(rows.amount > 0).ifelse("PRIVATE_TOKEN", None)',
+            "(t1['amount'] > 0).ifelse('PRIVATE_TOKEN', None)",
+        ),
+        ("-rows.amount / +rows.other", "-t1['amount'] / +t1['other']"),
     ],
 )
-def test_precedence_redaction_and_valid_python_syntax(expression: str) -> None:
+def test_precedence_and_valid_python_syntax(expression: str, expected: str) -> None:
     result = display(expression)
     assert isinstance(result["text"], str)
-    ast.parse(result["text"], mode="eval")
-    encoded = json.dumps(result)
-    assert "PRIVATE_TOKEN" not in encoded
-    assert "12345" not in encoded and "56789" not in encoded
+    actual_tree = ast.parse(result["text"], mode="eval")
+    expected_tree = ast.parse(expected, mode="eval")
+    assert ast.dump(actual_tree) == ast.dump(expected_tree)
     assert isinstance(result["bindings"], list)
     assert len(result["bindings"]) == 1
 
@@ -66,7 +74,7 @@ def test_escaped_column_name_stays_a_string() -> None:
         ('rows.is_cancelled.cast("int64").sum()', "t1['is_cancelled'].cast('int64').sum()"),
         ("rows.count()", "t1.count()"),
         ("rows.amount.sum(where=rows.paid)", "t1['amount'].sum(where=t1['paid'])"),
-        ("rows.amount.fill_null(198765).mean()", "t1['amount'].fill_null(REDACTED_INT).mean()"),
+        ("rows.amount.fill_null(198765).mean()", "t1['amount'].fill_null(198765).mean()"),
     ],
 )
 def test_display_does_not_require_structural_support(expression: str, expected: str) -> None:
@@ -79,7 +87,6 @@ def test_display_does_not_require_structural_support(expression: str, expected: 
     assert node.status == "unsupported"
     assert node.display is not None and node.display.text == expected
     assert ast.dump(function, include_attributes=True) == original
-    assert "198765" not in node.display.text
 
 
 def test_display_text_limit_preserves_supported_structure() -> None:
@@ -109,3 +116,22 @@ def test_structural_depth_limit_preserves_available_display() -> None:
     assert node.reason == "limit_exceeded"
     assert node.display is not None
     assert node.display.text == "+" * 40 + "t1['amount']"
+
+
+@pytest.mark.parametrize(
+    "literal", ['"paid"', '"quote\\"line\\n"', "100", "0", "1.25", "True", "False", "None"]
+)
+def test_literal_values_preserve_scalar_types(literal: str) -> None:
+    function = ast.parse("def value(rows):\n    return " + literal).body[0]
+    assert isinstance(function, ast.FunctionDef)
+    node = describe_expression(function, entities={}, bindings={})
+    assert node.status == "supported"
+    payload = _expression(node.expression)
+    expected = ast.literal_eval(literal)
+    assert payload["kind"] == "literal"
+    assert payload["value"] == expected
+    assert type(payload["value"]) is type(expected)
+    assert payload["value_type"] == ("none" if expected is None else type(expected).__name__)
+    assert json.loads(json.dumps(payload, allow_nan=False)) == payload
+    assert node.display is not None
+    assert ast.literal_eval(node.display.text) == expected

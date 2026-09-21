@@ -16,9 +16,8 @@ def describe_display(
     entities: Mapping[str, Ref[EntityKind]],
     bindings: Mapping[int, tuple[Ref[FieldKind], Ref[EntityKind]]],
 ) -> _ExpressionDisplay:
-    """Normalize an existing expression AST; only redact values and bind aliases."""
+    """Normalize an existing expression AST; preserve constants and bind aliases."""
     aliases: dict[str, tuple[str, Ref[SemanticKindTag]]] = {}
-    redacted = False
     count = 0
     depth = 0
 
@@ -82,38 +81,6 @@ def describe_display(
             return self.generic_visit(node)
 
         def visit_Call(self, node: ast.Call) -> ast.AST:
-            # Fixed dtype tokens and column names are structural metadata.
-            if (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr == "cast"
-                and len(node.args) == 1
-                and not node.keywords
-                and isinstance(node.args[0], ast.Constant)
-                and node.args[0].value
-                in (
-                    "int8",
-                    "int16",
-                    "int32",
-                    "int64",
-                    "uint8",
-                    "uint16",
-                    "uint32",
-                    "uint64",
-                    "float32",
-                    "float64",
-                    "string",
-                    "boolean",
-                    "date",
-                    "timestamp",
-                )
-            ):
-                return ast.Call(
-                    func=ast.Attribute(
-                        value=self.expression(node.func.value), attr="cast", ctx=ast.Load()
-                    ),
-                    args=[ast.Constant(value=node.args[0].value)],
-                    keywords=[],
-                )
             if isinstance(node.func, ast.Attribute):
                 # A method name is not a column access (including table.count()).
                 return ast.Call(
@@ -128,13 +95,7 @@ def describe_display(
                 )
             return self.generic_visit(node)
 
-        def visit_Constant(self, node: ast.Constant) -> ast.Name:
-            nonlocal redacted
-            redacted = True
-            value_type = "none" if node.value is None else type(node.value).__name__
-            return ast.Name(id=f"REDACTED_{value_type.upper()}", ctx=ast.Load())
-
     text = ast.unparse(ast.fix_missing_locations(Display().visit(expression)))
     if len(text) > 16384:
         raise OverflowError
-    return _ExpressionDisplay(text, tuple(aliases.values()), redacted)
+    return _ExpressionDisplay(text, tuple(aliases.values()))
