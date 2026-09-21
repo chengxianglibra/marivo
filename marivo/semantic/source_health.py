@@ -594,13 +594,84 @@ def _materialized_field(
     return resolver.measure_on(cast("Ref[MeasureKind]", ref), table)
 
 
+def _input_column_names(inspection: SourceInspection) -> set[str]:
+    """Return the physical input column names from one inspection."""
+    return {column.name for column in inspection.schema}
+
+
+def _schema_repair(
+    *,
+    schema_status: SourceHealthStatus,
+    has_expression_body: bool,
+    output_columns: tuple[str, ...] | None,
+    output_reason: str | None,
+    missing_fields: tuple[Ref[SemanticKindTag], ...],
+    missing_keys: tuple[str, ...],
+) -> AuthoringRepair | None:
+    """Return the schema-check repair for one entity, or None when current.
+
+    Repair text follows the check classification: direct entities repair
+    against physical input columns; expression entities repair against the
+    established output, the failed expression build, or the undetermined
+    output schema.
+    """
+    if schema_status == "current":
+        return None
+    if schema_status == "unknown":
+        return repair(
+            kind="rescope",
+            canonical_id="source_health",
+            action="Run only the explicit scoped data checks needed to prove the declared-only source contract.",
+        )
+    if not has_expression_body:
+        return repair(
+            kind="reauthor",
+            canonical_id="source_health",
+            action="Restore the missing physical columns or update the affected semantic field bindings.",
+        )
+    if missing_keys:
+        return repair(
+            kind="reauthor",
+            canonical_id="source_health",
+            action=(
+                "Expose the missing primary_key column(s) "
+                f"{', '.join(repr(key) for key in missing_keys)} in the Entity body "
+                "output, or update primary_key to columns that identify the "
+                "transformed grain."
+            ),
+        )
+    if missing_fields:
+        return repair(
+            kind="reauthor",
+            canonical_id="source_health",
+            action=(
+                "Expose the missing column(s) in the Entity body output, or update the "
+                "affected semantic field bindings to columns the Entity output provides."
+            ),
+        )
+    if output_reason is not None:
+        return repair(
+            kind="reauthor",
+            canonical_id="source_health",
+            action=(
+                "The Entity output schema could not be established from the inspected "
+                "input, so output-field presence is undetermined. Correct the Entity "
+                "expression or the Source schema, then rerun source health."
+            ),
+        )
+    return repair(
+        kind="reauthor",
+        canonical_id="source_health",
+        action="Restore the missing physical columns or update the affected semantic field bindings.",
+    )
+
+
 def _schema_missing_fields(
     catalog: SemanticCatalog,
     *,
     entity_id: str,
-    inspection: SourceInspection,
+    available_columns: set[str],
 ) -> tuple[Ref[SemanticKindTag], ...]:
-    available_columns = {column.name for column in inspection.schema}
     missing: list[Ref[SemanticKindTag]] = []
     for field_ref, owner_ref in catalog._state.sidecar.field_owners.items():
         if owner_ref.path != entity_id:
@@ -611,6 +682,78 @@ def _schema_missing_fields(
         ):
             missing.append(cast("Ref[SemanticKindTag]", field_ref))
     return tuple(missing)
+
+
+_INPUT_TYPE_SYNONYMS: Mapping[str, str] = {
+    "TEXT": "string",
+    "CLOB": "string",
+    "REAL": "float64",
+    "DOUBLE": "float64",
+    "FLOAT": "float64",
+    "INTEGER": "int64",
+    "INT": "int64",
+    "BIGINT": "int64",
+    "SMALLINT": "int16",
+    "TINYINT": "int8",
+    "NUMERIC": "decimal(38, 9)",
+    "DECIMAL": "decimal(38, 9)",
+    "BOOLEAN": "boolean",
+    "BOOL": "boolean",
+    "DATETIME": "timestamp",
+    "BLOB": "binary",
+}
+
+
+def _input_ibis_type(type_name: str) -> str | None:
+    """Normalize one inspected type string to a canonical Ibis type name.
+
+    Returns None when the type cannot be represented, so the caller defers
+    output validation instead of guessing.
+    """
+    import ibis
+
+    try:
+        return str(ibis.dtype(type_name))
+    except (TypeError, ValueError, RuntimeError):
+        pass
+    return _INPUT_TYPE_SYNONYMS.get(type_name.upper())
+
+
+def _expression_entity_output_columns(
+    catalog: SemanticCatalog,
+    *,
+    entity_id: str,
+    inspection: SourceInspection,
+) -> tuple[tuple[str, ...] | None, str | None]:
+    """Build one expression Entity's output schema from inspected input columns.
+
+    Returns the output column names, or ``(None, reason)`` when the Entity
+    expression cannot be established from the inspected input. An unusable
+    inspected schema and an invalid expression are distinct reasons so health
+    evidence separates input drift from output failure.
+    """
+    import ibis
+
+    body = catalog._state.sidecar.bodies.get(ref_factory.entity(entity_id))
+    if body is None:
+        return None, "entity_expression_missing"
+    input_types: dict[str, str] = {}
+    for column in inspection.schema:
+        normalized = _input_ibis_type(str(column.type))
+        if normalized is None:
+            return None, "declared_input_types_unusable"
+        input_types[column.name] = normalized
+    try:
+        unbound = ibis.table(input_types, name=f"marivo_unbound_{entity_id}")
+    except Exception:
+        return None, "declared_input_types_unusable"
+    try:
+        result = body.callable(unbound)
+    except Exception:
+        return None, "entity_expression_invalid"
+    if not isinstance(result, ibis.Table):
+        return None, "entity_expression_invalid"
+    return tuple(result.schema().names), None
 
 
 def _field_frame(
@@ -1140,21 +1283,74 @@ def run_source_health(
                 )
                 continue
             inspections[entity_id] = inspection
-            missing_fields = _schema_missing_fields(
-                catalog,
-                entity_id=entity_id,
-                inspection=inspection,
-            )
+            has_expression_body = catalog._state.sidecar.bodies.get(entity_ref) is not None
+            output_columns: tuple[str, ...] | None = None
+            output_reason: str | None = None
+            if has_expression_body:
+                output_columns, output_reason = _expression_entity_output_columns(
+                    catalog,
+                    entity_id=entity_id,
+                    inspection=inspection,
+                )
+            if not has_expression_body:
+                # Direct entities: the Source schema is the output schema, so
+                # field bindings keep comparing against physical input.
+                missing_fields = _schema_missing_fields(
+                    catalog,
+                    entity_id=entity_id,
+                    available_columns=_input_column_names(inspection),
+                )
+            elif output_columns is not None:
+                missing_fields = _schema_missing_fields(
+                    catalog,
+                    entity_id=entity_id,
+                    available_columns=set(output_columns),
+                )
+            else:
+                # The expression Entity output schema is not established;
+                # neither input columns nor an empty relation can decide
+                # downstream output-field presence, so no field is reported
+                # missing.
+                missing_fields = ()
+            if output_columns is not None:
+                output_set = set(output_columns)
+                missing_keys = tuple(key for key in entity.primary_key if key not in output_set)
+            else:
+                missing_keys = ()
             declared_only = isinstance(entity.source, CsvSourceIR | JsonSourceIR) or any(
                 "declared" in warning.lower() or "metadata_unavailable" in warning.lower()
                 for warning in inspection.warnings
             )
             schema_status: SourceHealthStatus = (
-                "failed" if missing_fields else "unknown" if declared_only else "current"
+                "failed"
+                if missing_fields or output_reason is not None or missing_keys
+                else "unknown"
+                if declared_only
+                else "current"
             )
             schema_affected = (
-                _reverse_affected(catalog, missing_fields) if missing_fields else affected
+                _reverse_affected(
+                    catalog,
+                    (*missing_fields, entity_ref),
+                )
+                if missing_fields or missing_keys
+                else affected
             )
+            observed: dict[str, object] = {
+                "column_count": len(inspection.schema),
+                "missing_field_refs": [ref.key for ref in missing_fields],
+                "metadata_authority": "declared" if declared_only else "authoritative",
+                "metadata_warnings": list(inspection.warnings),
+                "execution_capabilities": asdict(inspection.execution_capabilities),
+            }
+            if has_expression_body:
+                observed["entity_output_established"] = output_reason is None
+                if output_columns is not None:
+                    observed["entity_output_columns"] = list(output_columns)
+                    if missing_keys:
+                        observed["missing_output_primary_key"] = list(missing_keys)
+                else:
+                    observed["reason"] = output_reason
             results.append(
                 _result(
                     kind="schema",
@@ -1165,29 +1361,14 @@ def run_source_health(
                     affected_refs=schema_affected,
                     checked_at=checked_at,
                     inspection=inspection,
-                    observed={
-                        "column_count": len(inspection.schema),
-                        "missing_field_refs": [ref.key for ref in missing_fields],
-                        "metadata_authority": "declared" if declared_only else "authoritative",
-                        "metadata_warnings": list(inspection.warnings),
-                        "execution_capabilities": asdict(inspection.execution_capabilities),
-                    },
-                    repair_value=(
-                        None
-                        if schema_status == "current"
-                        else (
-                            repair(
-                                kind="reauthor",
-                                canonical_id="source_health",
-                                action="Restore the missing physical columns or update the affected semantic field bindings.",
-                            )
-                            if schema_status == "failed"
-                            else repair(
-                                kind="rescope",
-                                canonical_id="source_health",
-                                action="Run only the explicit scoped data checks needed to prove the declared-only source contract.",
-                            )
-                        )
+                    observed=observed,
+                    repair_value=_schema_repair(
+                        schema_status=schema_status,
+                        has_expression_body=has_expression_body,
+                        output_columns=output_columns,
+                        output_reason=output_reason,
+                        missing_fields=missing_fields,
+                        missing_keys=missing_keys,
                     ),
                     user_data_queried=False,
                 )

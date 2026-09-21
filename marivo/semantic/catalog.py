@@ -245,8 +245,8 @@ def _metric_preview_warning() -> PreviewWarning:
     return PreviewWarning(
         kind="approximate_preview",
         message=(
-            f"metric preview aggregates at most {METRIC_PREVIEW_SAMPLE_SIZE:,} scoped input "
-            "rows; treat the result as approximate"
+            f"metric preview aggregates at most {METRIC_PREVIEW_SAMPLE_SIZE:,} Entity "
+            "output rows; treat the result as approximate"
         ),
     )
 
@@ -5891,7 +5891,7 @@ class SemanticCatalog(RenderableResult):
             The complete input sequence is normalized before any preview
             begins. Duplicate canonical refs are rejected. ``limit`` bounds
             returned rows per result; metric previews independently aggregate
-            at most 10,000 scoped input rows and must be treated as approximate.
+            at most 10,000 Entity output rows and must be treated as approximate.
         """
         normalized_refs = tuple(
             _normalize_semantic_input(

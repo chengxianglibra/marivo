@@ -112,7 +112,7 @@ def test_preview_result_renders_sample_policy_and_warnings() -> None:
             PreviewWarning(
                 kind="approximate_preview",
                 message=(
-                    "metric preview aggregates at most 10,000 scoped input rows; "
+                    "metric preview aggregates at most 10,000 Entity output rows; "
                     "treat the result as approximate"
                 ),
             ),
