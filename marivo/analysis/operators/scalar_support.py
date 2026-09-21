@@ -327,6 +327,8 @@ def unsupported_reason(
     linear_graphs: bool = False,
     resolved_decimal_units: frozenset[ResolvedDecimalUnit] = frozenset(),
     status_folds: frozenset[str] = frozenset(),
+    distinct_memberships: frozenset[Literal["measure", "entity"]] = frozenset(),
+    distributions: frozenset[Literal["linear_interpolation"]] = frozenset(),
 ) -> str | None:
     """Check methods/types without I/O; placement.source_binding owns exact source identity.
 
@@ -344,6 +346,14 @@ def unsupported_reason(
     status-time fold rejection verbatim. Component and node fold checks share
     this set. Percentile-tuple folds stay rejected on every backend until a
     backend qualifies its quantile fold lowering.
+    ``distinct_memberships`` names the qualified exact distinct-membership key
+    shapes from ``{"measure", "entity"}``, judged per authority through its
+    ``target_kind``; an empty set keeps the membership rejection verbatim.
+    ``distributions`` names the qualified quantile interpretations; the
+    ``linear_interpolation`` token admits only a ``linear_interpolation@v1``
+    authority. An empty set keeps the distribution rejection verbatim. Each
+    unqualified state shape carries its own diagnostic; with both parameters
+    empty the historical combined rejection stays verbatim.
     """
     if artifact_inputs(dataset):
         return "remote retained import is not supported"
@@ -458,8 +468,18 @@ def unsupported_reason(
                 return "the population reference axis is not qualified"
             continue
         definition = payload.definition
-        if definition.distinct_memberships or definition.distributions:
-            return "membership and distribution state require a source-private implementation"
+        if definition.distinct_memberships:
+            membership_kind = (
+                "measure"
+                if definition.distinct_memberships[0].target_kind == "measure"
+                else "entity"
+            )
+            if membership_kind not in distinct_memberships:
+                return "distinct membership state requires an unqualified source-private implementation"
+        if definition.distributions:
+            method = definition.distributions[0].quantile.method
+            if method != "linear_interpolation@v1" or "linear_interpolation" not in distributions:
+                return "distribution state requires an unqualified source-private implementation"
         if not relationships and (
             any(definition.contribution_paths)
             or any(
@@ -496,6 +516,20 @@ def unsupported_reason(
                         "composed Decimal results require resolvable precision and scale: "
                         f"{unresolvable}"
                     )
+            # The same qualification parameters yield the exact distinct and
+            # quantile requirements for this Metric's own authorities: both
+            # lower through the shared Observation lowerer beside the shared
+            # cumulative and status-time fold branches, so a qualified state
+            # keeps the Metric on the ordinary SourceStep execution path.
+            state_qualified = any(
+                item.metric_ref == metric.key and item.target_kind in distinct_memberships
+                for item in definition.distinct_memberships
+            ) or any(
+                item.metric_ref == metric.key
+                and item.quantile.method == "linear_interpolation@v1"
+                and "linear_interpolation" in distributions
+                for item in definition.distributions
+            )
             if metric.cumulative:
                 # The shared exact cumulative endpoint-window lowering is not
                 # private state, but any other requirement on a cumulative
@@ -505,6 +539,8 @@ def unsupported_reason(
                 exempt = {_CUMULATIVE_REQUIREMENT}
             else:
                 exempt = {_CUMULATIVE_REQUIREMENT, *_FOLD_REQUIREMENTS}
+            if state_qualified:
+                exempt = {*exempt, "metric.source_distinct@v1"}
             if set(metric.source_requirements) - exempt:
                 # The shared exact cumulative and status-time fold lowerings are
                 # not private state; every other source requirement stays
@@ -528,6 +564,7 @@ def unsupported_reason(
                 return "status-time folds require additional temporal-state qualification"
             elif metric.requires_source_recompute and not (
                 metric.cumulative
+                or state_qualified
                 or any(component.time_fold is not None for component in metric.components)
             ):
                 return "this Metric requires source-private state this backend has not qualified"
@@ -543,7 +580,7 @@ def unsupported_reason(
                 if component.status_time_dimension is not None and component.time_fold is None:
                     return "status-time folds require additional temporal-state qualification"
                 if component.requires_source_recompute and not (
-                    metric.cumulative or component.time_fold is not None
+                    metric.cumulative or state_qualified or component.time_fold is not None
                 ):
                     return "the Metric requires source-private recomputation"
             for record in metric.graph.nodes:
@@ -570,7 +607,15 @@ def unsupported_reason(
                     continue
                 references: tuple[RefPayloadV1, ...]
                 if isinstance(node, AggregateNodeV1):
-                    if node.agg not in {"sum", "count", "min", "max", "mean"}:
+                    if isinstance(node.agg, str):
+                        admitted = (
+                            node.agg in {"sum", "count", "min", "max", "mean"}
+                            or (node.agg == "count_distinct" and bool(distinct_memberships))
+                            or (node.agg == "median" and bool(distributions))
+                        )
+                    else:
+                        admitted = bool(distributions)
+                    if not admitted:
                         return "the aggregate requires unqualified private or temporal state"
                     if isinstance(node.fold, tuple):
                         return "the aggregate requires unqualified private or temporal state"

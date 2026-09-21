@@ -20,7 +20,9 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     cells: PostgreSQL numeric division and AVG scales are server-defined and
     not a public publication contract, so the ``div`` and ``mean`` decimal
     units keep their blanket rejection. Percentile-tuple folds stay rejected
-    with every backend until a quantile fold lowering is qualified.
+    with every backend until a quantile fold lowering is qualified. Exact
+    distinct-membership and distribution state keep their empty qualification
+    sets until a live probe evidence opens them.
     """
     return scalar_reason(
         dataset,
@@ -34,4 +36,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         linear_graphs=True,
         resolved_decimal_units=frozenset({"linear"}),
         status_folds=frozenset({"first", "last", "mean", "min", "max"}),
+        distinct_memberships=frozenset(),
+        distributions=frozenset(),
     )
