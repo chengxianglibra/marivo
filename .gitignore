@@ -90,6 +90,9 @@ models/
 # Plan
 plan/
 
+# Local review evidence (untracked working artifacts)
+evidence/
+
 # Archive
 docs/archive/
 

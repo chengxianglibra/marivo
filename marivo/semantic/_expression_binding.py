@@ -1131,13 +1131,24 @@ def _validate_body_result(
     result: object,
     *,
     owning_ref: Ref[SemanticKindTag],
+    table_result: bool = False,
 ) -> ir.Value:
     if not isinstance(result, ir.Value):
+        if table_result and isinstance(result, ibis.Table):
+            return cast("ir.Value", result)
         raise _binding_runtime_error(
             ErrorKind.BINDING_RESULT_INVALID,
             f"Expression body {owning_ref.key!r} must return one Ibis value.",
             refs=(owning_ref,),
-            expected="ibis.expr.types.Value",
+            expected="ibis.expr.types.Table" if table_result else "ibis.expr.types.Value",
+            received=type(result).__name__,
+        )
+    if table_result and not isinstance(result, ir.Table):
+        raise _binding_runtime_error(
+            ErrorKind.BINDING_RESULT_INVALID,
+            f"Expression body {owning_ref.key!r} must return one Ibis Table relation.",
+            refs=(owning_ref,),
+            expected="ibis.expr.types.Table",
             received=type(result).__name__,
         )
     return result
@@ -1148,6 +1159,7 @@ def _call_body(
     aliases: tuple[ir.Table, ...],
     *,
     owning_ref: Ref[SemanticKindTag],
+    table_result: bool = False,
 ) -> ir.Value:
     try:
         result = body.callable(*aliases)
@@ -1165,7 +1177,7 @@ def _call_body(
             refs=(owning_ref,),
             received=type(exc).__name__,
         ) from exc
-    return _validate_body_result(result, owning_ref=owning_ref)
+    return _validate_body_result(result, owning_ref=owning_ref, table_result=table_result)
 
 
 def evaluate_expression_body(
@@ -1176,8 +1188,14 @@ def evaluate_expression_body(
     body: ExpressionBody,
     entity_refs: tuple[Ref[EntityKind], ...],
     aliases: tuple[ir.Table, ...],
+    table_result: bool = False,
 ) -> ir.Value:
-    """Evaluate one root body inside a fresh task-local binding context."""
+    """Evaluate one root body inside a fresh task-local binding context.
+
+    With ``table_result`` the body must return one Ibis Table relation; the
+    default accepts any Ibis value (scalars and columns for fields and
+    metrics).
+    """
     owning = _require_exact_ref(owning_ref, parameter="owning_ref")
     if body.parameter_count != len(entity_refs) or len(entity_refs) != len(aliases):
         raise _binding_runtime_error(
@@ -1200,7 +1218,7 @@ def evaluate_expression_body(
     )
     token = _EXPRESSION_BINDING_CONTEXT.set(context)
     try:
-        return _call_body(body, aliases, owning_ref=owning)
+        return _call_body(body, aliases, owning_ref=owning, table_result=table_result)
     finally:
         _EXPRESSION_BINDING_CONTEXT.reset(token)
 
