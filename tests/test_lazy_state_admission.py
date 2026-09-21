@@ -1,9 +1,11 @@
 """Membership and distribution admission parameters with unchanged default behavior.
 
-The static guard proves the empty-parameter shape keeps every historical
-rejection verbatim while non-empty qualification sets admit exactly the
-authority shapes they name and keep every other shape rejected. Aggregate-node
-and fold admission boundaries stay pinned on both sides of the parameters.
+The static guard proves an empty qualification set keeps the admission outcome
+rejected, with the shape-specific diagnostic text, while non-empty sets admit
+exactly the authority shapes they name. A definition qualifies only when every
+one of its own authorities qualifies, and a Metric's state admission keys on
+that Metric's own authority. Aggregate-node and fold admission boundaries stay
+pinned on both sides of the parameters.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from marivo.analysis import time_scope
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import place
 from marivo.analysis.datasets.base import LogicalDataset
@@ -25,12 +28,14 @@ from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic._quantile import quantile_metric
-from marivo.semantic.ir import AggKind
+from marivo.semantic.errors import SemanticLoadError
+from marivo.semantic.ir import AggKind, CumulativeComposition, SemiAdditive, TimeFoldIR
 from marivo.semantic.validator import Registry
 from tests.lazy_distinct_fixtures import make_distinct_registry
 from tests.lazy_distribution_fixtures import make_distribution_registry
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_observation_fixtures import NoIoActionPort
+from tests.lazy_scalar_source_fixtures import registry_for
 
 ENGINES = ("postgres", "mysql", "sqlite", "trino", "clickhouse")
 
@@ -66,6 +71,41 @@ def _aggregation_registry(aggregation: AggKind) -> tuple[Registry, CompiledExpre
     registry = replace(registry, metrics=metrics)
     registry.freeze()
     return registry, sidecar
+
+
+def _mixed_method_registry() -> tuple[Registry, CompiledExpressionSidecar]:
+    """Add an approximate p90 Metric beside the exact linear-interpolation median."""
+    registry, sidecar = make_distribution_registry(Path("state-admission.duckdb"))
+    metrics = dict(registry.metrics)
+    metrics["sales.p90_amount"] = replace(
+        metrics["sales.revenue"],
+        semantic_id="sales.p90_amount",
+        name="p90_amount",
+        python_symbol="p90_amount",
+        aggregation=("percentile", 0.9),
+    )
+    registry = replace(registry, metrics=metrics)
+    registry.freeze()
+    return registry, sidecar
+
+
+def _observed_pair(
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar,
+    first: str,
+    second: str,
+) -> LogicalDataset:
+    """Observe two percentile Metrics with per-Metric quantile methods."""
+    methods = {
+        "sales.revenue": "linear_interpolation@v1",
+        "sales.p90_amount": "duckdb_tdigest@v1",
+    }
+    return _sources(registry, sidecar).observe(
+        [
+            quantile_metric(ref.metric(first), method=methods[first]),
+            quantile_metric(ref.metric(second), method=methods[second]),
+        ]
+    )
 
 
 def _scalar_reason(dataset: LogicalDataset) -> str | None:
@@ -219,3 +259,99 @@ def test_placement_still_rejects_unqualified_state_for_remote_backends() -> None
     )
     with pytest.raises(DatasetCompilationError):
         place(distinct)
+
+
+def test_definition_requires_every_distribution_authority_to_qualify() -> None:
+    """A duckdb_tdigest@v1 authority rejects its whole definition beside a linear one."""
+    registry, sidecar = _mixed_method_registry()
+    mixed = _observed_pair(registry, sidecar, "sales.revenue", "sales.p90_amount")
+    assert [
+        item.distribution.quantile.method
+        for _, item in distribution_part_authorities(mixed.row_contract)
+    ] == ["linear_interpolation@v1", "duckdb_tdigest@v1"]
+    assert (
+        scalar_reason(
+            mixed, supports_scalar_type, distributions=frozenset({"linear_interpolation"})
+        )
+        == "distribution state requires an unqualified source-private implementation"
+    )
+
+
+def test_definition_membership_gate_judges_every_authority() -> None:
+    """An unqualified entity-key authority rejects the definition in measure-first order."""
+    registry, sidecar = make_distinct_registry(Path("state-admission.duckdb"))
+    observed = _sources(registry, sidecar).observe(
+        [ref.metric("sales.distinct_buyers"), ref.metric("sales.distinct_orders")]
+    )
+    assert (
+        scalar_reason(observed, supports_scalar_type, distinct_memberships=frozenset({"measure"}))
+        == "distinct membership state requires an unqualified source-private implementation"
+    )
+    assert (
+        scalar_reason(
+            observed, supports_scalar_type, distinct_memberships=frozenset({"measure", "entity"})
+        )
+        is None
+    )
+
+
+def test_median_node_admission_keys_on_the_owning_metric_authority() -> None:
+    """A fold-time median Metric owns no distribution authority and stays rejected."""
+    registry, sidecar = registry_for(Path("state-admission.duckdb"))
+    metrics = dict(registry.metrics)
+    metrics["sales.revenue"] = replace(metrics["sales.revenue"], aggregation="median")
+    measures = dict(registry.measures)
+    measures["sales.orders.amount"] = replace(
+        measures["sales.orders.amount"],
+        additivity=SemiAdditive("sales.orders.order_time", TimeFoldIR("last")),
+    )
+    registry = replace(registry, metrics=metrics, measures=measures)
+    registry.freeze()
+    observed = _sources(registry, sidecar).observe(
+        ref.metric("sales.revenue"), time_scope=time_scope(start="2026-02-01", end="2026-02-05")
+    )
+    assert distribution_part_authorities(observed.row_contract) == ()
+    assert (
+        scalar_reason(
+            observed, supports_scalar_type, distributions=frozenset({"linear_interpolation"})
+        )
+        is not None
+    )
+    assert (
+        scalar_reason(observed, supports_scalar_type)
+        == "status-time folds require additional temporal-state qualification"
+    )
+
+
+def test_projection_of_approximate_percentile_metric_stays_rejected() -> None:
+    """The projected approximate Metric owns its own unqualified method authority."""
+    registry, sidecar = _mixed_method_registry()
+    mixed = _observed_pair(registry, sidecar, "sales.revenue", "sales.p90_amount")
+    projected = mixed.metric(ref.metric("sales.p90_amount"))
+    assert [
+        item.distribution.quantile.method
+        for _, item in distribution_part_authorities(projected.row_contract)
+    ] == ["duckdb_tdigest@v1"]
+    assert (
+        scalar_reason(
+            projected, supports_scalar_type, distributions=frozenset({"linear_interpolation"})
+        )
+        == "distribution state requires an unqualified source-private implementation"
+    )
+
+
+def test_cumulative_base_cannot_carry_a_percentile_method() -> None:
+    """The semantic loader pins the nearest constructible cumulative percentile shape."""
+    registry, sidecar = _mixed_method_registry()
+    metrics = dict(registry.metrics)
+    metrics["sales.cumulative_p90"] = replace(
+        metrics["sales.conversion_rate"],
+        semantic_id="sales.cumulative_p90",
+        name="cumulative_p90",
+        python_symbol="cumulative_p90",
+        composition=CumulativeComposition("sales.p90_amount", "sales.orders.order_time"),
+    )
+    registry = replace(registry, metrics=metrics)
+    registry.freeze()
+    with pytest.raises(SemanticLoadError, match="cumulative base"):
+        _sources(registry, sidecar).observe(ref.metric("sales.cumulative_p90"))
