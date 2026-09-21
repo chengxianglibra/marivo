@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import linecache
 from pathlib import Path
+from typing import Protocol
 from uuid import uuid4
 
 import duckdb
@@ -13,8 +14,15 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
+from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic.loader import LoaderContext, LoaderContextManager
+from marivo.semantic.reader import SemanticProject
+
+
+class _ProjectFactory(Protocol):
+    def __call__(self, files: dict[str, str], *, load: bool) -> SemanticProject: ...
+
 
 _DATASOURCE_EXAMPLES = tuple(
     (descriptor.canonical_id, descriptor.minimal_example)
@@ -235,7 +243,7 @@ def test_every_semantic_minimal_example_executes(
 
 
 def test_representative_source_authored_examples_load_from_real_project_files(
-    semantic_project_factory,
+    semantic_project_factory: _ProjectFactory,
 ) -> None:
     """Source examples must work through the real loader, not only a hidden context."""
 
@@ -290,3 +298,49 @@ def test_representative_source_authored_examples_load_from_real_project_files(
     assert "sales.orders.log_date" in result.registry.dimensions
     assert "sales.orders.amount" in result.registry.measures
     assert "sales.us_revenue" in result.registry.metrics
+
+
+def test_decorator_examples_register_and_execute_from_project_files(
+    authoring_evidence_project: Path,
+) -> None:
+    """A successful factory call alone does not prove a declaration exists."""
+    examples = dict(_SEMANTIC_EXAMPLES)
+    source = "\n".join(
+        [
+            "import marivo.datasource as md",
+            "import marivo.semantic as ms",
+            *(
+                examples[target]
+                for target in ("entity", "dimension", "time_dimension", "measure", "metric")
+            ),
+        ]
+    )
+    (authoring_evidence_project / "models/semantic/sales/models.py").write_text(source)
+    # Include an identical row and a distinct version of the same source identity.
+    with duckdb.connect(str(authoring_evidence_project / "warehouse.duckdb")) as connection:
+        connection.execute("DELETE FROM orders WHERE query_id = 4")
+        connection.execute("INSERT INTO orders SELECT * FROM orders WHERE query_id = 1")
+        connection.execute(
+            "INSERT INTO orders SELECT * REPLACE (10.0 AS amount) FROM orders WHERE query_id = 2"
+        )
+
+    catalog = ms.load(workspace_dir=authoring_evidence_project)
+    for ref in (
+        ms.ref.entity("sales.orders"),
+        ms.ref.dimension("sales.orders.region"),
+        ms.ref.time_dimension("sales.orders.log_date"),
+        ms.ref.measure("sales.orders.amount"),
+        ms.ref.metric("sales.revenue"),
+    ):
+        assert catalog.require(ref).ref == ref
+    assert (
+        catalog.time_dimensions.get("sales.orders.log_date").ref.kind is SemanticKind.TIME_DIMENSION
+    )
+    scope = md.unpruned(max_rows=100, timeout_seconds=30)
+    rows = catalog.preview(ms.ref.entity("sales.orders"), scope=scope).rows
+    assert len(rows) == 4
+    assert sum(row["query_id"] == 2 for row in rows) == 2
+    revenue = catalog.preview(ms.ref.metric("sales.revenue"), scope=scope)
+    assert revenue.rows == ({"value": 761.5},)
+    dates = catalog.preview(ms.ref.time_dimension("sales.orders.log_date"), scope=scope)
+    assert {row["log_date"] for row in dates.rows} == {"20410717", "20410718"}

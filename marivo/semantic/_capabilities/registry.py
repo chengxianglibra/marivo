@@ -302,6 +302,15 @@ _CERTIFYING_PREVIEW = _effects(
 )
 _PARITY = _effects("potentially_unbounded_read", "opens_connection")
 
+_ADDITIVITY_HELP = (
+    "\n  additivity: 'additive', 'non_additive', or ms.semi_additive(over=..., fold=...)."
+    "\n  unit=None leaves the declared unit unspecified."
+)
+_FOLD_HELP = (
+    "\n  fold: 'mean', 'min', 'max', 'first', 'last', or ('percentile', q), 0 < q < 1;"
+    " folds the governed status-time axis, not rows within a query group."
+)
+
 
 def _capability(
     canonical_id: str,
@@ -1357,8 +1366,10 @@ def _check_topic() -> SemanticCheckTopic:
             route(
                 "What does this entry produce under one explicit authoring scope?",
                 (_target("preview"), _target("preview_many")),
-                "A bounded current runtime observation for the exact requested scope.",
-                "Persistent certification or readiness mutation.",
+                "A bounded current runtime observation; period calendars, temporal sets, and "
+                "work schedules can also publish dedicated certified artifacts.",
+                "Ordinary previews do not persist certification or change readiness; "
+                "certified artifacts are inputs to a subsequent readiness check.",
             ),
             route(
                 "How do I declare an exact source expectation?",
@@ -2293,7 +2304,14 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "load",
             "marivo.semantic.catalog.load",
-            "Load the read-only semantic catalog.",
+            (
+                "Load the read-only semantic catalog.\n  workspace_dir is an exact project root;"
+                " when omitted: MARIVO_PROJECT_ROOT > nearest ancestor manifest > current directory."
+                "\n  Always loads the local models/ root; marivo.toml [semantic].layer_paths adds"
+                " external models/ roots containing datasources/ and semantic/."
+                "\n  domains=None loads all domains; a name or sequence filters domain directories."
+                " References to filtered-out domains produce warnings rather than errors."
+            ),
             output="SemanticCatalog",
             effects=_LOCAL,
             example="catalog = ms.load()\ncatalog.show()",
@@ -2333,7 +2351,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "# the body returns one Ibis Table expression over the injected source table.\n"
                 "@ms.entity(datasource=warehouse, source=md.table('orders'))\n"
                 "def orders(raw):\n"
-                "    '''One latest order per order ID.'''\n"
+                "    '''Remove duplicate whole rows from the source.'''\n"
                 "    return raw.distinct()"
             ),
             invocation_shape="decorator",
@@ -2349,7 +2367,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
-            example="ms.dimension(name='region', entity=orders)",
+            example=(
+                "@ms.dimension(name='region', entity=orders)\n"
+                "def region(row):\n"
+                "    return row.region"
+            ),
             invocation_shape="decorator",
         ),
         _capability(
@@ -2383,7 +2405,12 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_dimension_dtype_compat",
                 "time_granularity_parse_compatible",
             ),
-            example="ms.time_dimension(name='log_date', entity=orders, granularity='day')",
+            example=(
+                "@ms.time_dimension(name='log_date', entity=orders, granularity='day', "
+                "parse=ms.strptime('%Y%m%d'))\n"
+                "def log_date(row):\n"
+                "    return row.log_date"
+            ),
             invocation_shape="decorator",
         ),
         _capability(
@@ -2506,7 +2533,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "measure",
             "marivo.semantic._authoring_decorators.measure",
-            "Declare a calculated measure on an entity.",
+            "Declare a calculated measure on an entity." + _ADDITIVITY_HELP,
             output="Ref[measure]",
             inputs=_inputs(
                 ("mapping_key", "MeasureName"),
@@ -2515,13 +2542,17 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
-            example="ms.measure(name='amount', entity=orders, additivity='additive')",
+            example=(
+                "@ms.measure(name='amount', entity=orders, additivity='additive')\n"
+                "def amount(row):\n"
+                "    return row.amount"
+            ),
             invocation_shape="decorator",
         ),
         _capability(
             "measure_column",
             "marivo.semantic._authoring_decorators.measure_column",
-            "Declare a column-backed measure on an entity.",
+            "Declare a column-backed measure on an entity." + _ADDITIVITY_HELP,
             output="Ref[measure]",
             inputs=_inputs(
                 ("mapping_key", "MeasureName"),
@@ -2539,7 +2570,16 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "aggregate",
             "marivo.semantic._authoring_declarations.aggregate",
-            "Declare an aggregate metric from a measure.",
+            (
+                "Declare an aggregate metric from a measure."
+                "\n  agg: 'sum', 'count', 'count_distinct', 'min', 'max', 'mean', 'median',"
+                " or ('percentile', q), 0 < q < 1, across rows in each query group."
+                + _FOLD_HELP
+                + "\n  fold=None inherits the semi-additive measure's fold; an explicit fold"
+                " requires a semi-additive measure and overrides only its temporal fold."
+                "\n  unit=None inherits the measure's unit, except count/count_distinct derive none."
+                " filter=None includes all rows."
+            ),
             output="Ref[metric]",
             inputs=(
                 AuthoringInputRequirement(role="mapping_key", family="MetricName"),
@@ -2877,7 +2917,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "metric",
             "marivo.semantic._authoring_declarations.metric",
-            "Declare a base metric with an expression body.",
+            "Declare a base metric with an expression body." + _ADDITIVITY_HELP,
             output="Ref[metric]",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
@@ -2892,7 +2932,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "metric_entities_required",
                 "metric_additivity_required",
             ),
-            example="ms.metric(name='revenue', entities=[orders], additivity='additive')",
+            example=(
+                "@ms.metric(name='revenue', entities=[orders], additivity='additive')\n"
+                "def revenue(row):\n"
+                "    return ms.bind(amount, row).sum()"
+            ),
             invocation_shape="decorator",
         ),
         _capability(
@@ -2929,7 +2973,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "semi_additive",
             "marivo.semantic._authoring_values.semi_additive",
-            "Build a semi-additive additivity specification.",
+            (
+                "Build an additivity specification: additive off the over time axis."
+                " over requires a TimeDimension ref; fold is required." + _FOLD_HELP
+            ),
             output="Additivity",
             effects=_AUTHOR,
             example="ms.semi_additive(over=snapshot_date, fold='last')",
@@ -3041,7 +3088,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
             (
                 "Run scoped data previews for a non-empty entry/ref sequence. Metric "
                 "previews aggregate at most 10,000 Entity output rows and report an "
-                "approximate result."
+                "approximate result; period calendars, temporal sets, and work schedules "
+                "publish their dedicated certified artifacts."
             ),
             kind="method",
             output="PreviewBatchResult",

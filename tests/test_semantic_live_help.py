@@ -13,7 +13,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
-from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface, LiveHelpTarget
 from marivo.refs import SemanticKind
 from marivo.semantic.errors import SemanticLoadError, SemanticRuntimeError
 from tests.shared_fixtures import rendered_help
@@ -137,6 +137,7 @@ def test_every_object_page_renders_registered_decisions_once_without_leaf_expans
             if decision.does_not_establish is not None:
                 assert decision.does_not_establish in text
             if decision.encoding_status == "unsupported":
+                assert decision.unsupported_reason is not None
                 assert decision.unsupported_reason in text
 
 
@@ -178,7 +179,8 @@ def test_builder_and_check_navigation_route_by_need_without_signatures() -> None
 
 
 def test_every_rendered_descriptor_route_matches_registry_topology_and_resolves() -> None:
-    from marivo._help.route import NativeHelpRoute, route_help_target
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import route_help_target
     from marivo.semantic._capabilities.registry import REGISTRY
 
     for descriptor in REGISTRY.help_descriptors:
@@ -192,7 +194,8 @@ def test_every_rendered_descriptor_route_matches_registry_topology_and_resolves(
 
 
 def test_rendered_root_routes_match_registry_sections_and_resolve() -> None:
-    from marivo._help.route import NativeHelpRoute, route_help_target
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import route_help_target
     from marivo.semantic._capabilities.registry import REGISTRY
 
     registered = tuple(target for section in REGISTRY.root_sections for target in section.members)
@@ -228,6 +231,7 @@ def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges()
     )
 
     distances: dict[str, int] = {"global.authoring": 0}
+    targets: tuple[LiveHelpTarget, ...]
     queue = deque(("global.authoring",))
     while queue:
         node = queue.popleft()
@@ -269,12 +273,17 @@ def test_render_root_help_is_bounded_and_has_fingerprint() -> None:
     assert text.count("  Example:") <= budget.max_examples_or_snippets == 0
 
 
-def test_every_static_semantic_page_obeys_its_four_dimensional_budget() -> None:
+def test_every_static_semantic_page_obeys_its_four_dimensional_budget(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     from marivo._authoring.model import AuthoringCapability
     from marivo.semantic._capabilities.registry import REGISTRY
 
+    public_help = marivo.help
+    assert callable(public_help)
     for descriptor in REGISTRY.help_descriptors:
-        text = _text(descriptor.canonical_id)
+        public_help(f"semantic.{descriptor.canonical_id}")
+        text = capsys.readouterr().out
         budget = REGISTRY.render_budget(REGISTRY.render_class(descriptor.canonical_id))
         assert len(text.splitlines()) <= budget.max_lines
         assert len(text) <= budget.max_codepoints
@@ -284,6 +293,77 @@ def test_every_static_semantic_page_obeys_its_four_dimensional_budget() -> None:
         )
         assert text.count("  Example:") == expected_examples
         assert expected_examples <= budget.max_examples_or_snippets
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "load",
+        "entity",
+        "dimension",
+        "time_dimension",
+        "measure",
+        "measure_column",
+        "metric",
+        "aggregate",
+        "semi_additive",
+    ],
+)
+def test_repaired_contracts_match_callable_help(
+    target: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    public_help = marivo.help
+    assert callable(public_help)
+    public_help(f"semantic.{target}")
+    qualified = capsys.readouterr().out
+    public_help(getattr(ms, target))
+    assert capsys.readouterr().out == qualified
+
+
+def test_authoring_parameter_help_discloses_values_and_omission_semantics() -> None:
+    from typing import get_args
+
+    from marivo.semantic.ir import Additivity, AggKind, AggregateFoldValue
+
+    aggregate = _text("aggregate")
+    fold = _text("semi_additive")
+    for value in get_args(get_args(AggKind)[0]):
+        assert repr(value) in aggregate
+    for value in get_args(get_args(AggregateFoldValue)[0]):
+        assert repr(value) in aggregate
+        assert repr(value) in fold
+    for text in (aggregate, fold):
+        assert "('percentile', q)" in text
+        assert "0 < q < 1" in text
+    assert "fold=None inherits" in aggregate
+    assert "unit=None inherits" in aggregate
+    assert "count/count_distinct derive none" in aggregate
+    assert "filter=None includes all rows" in aggregate
+    for target in ("measure", "measure_column", "metric"):
+        text = _text(target)
+        for value in get_args(get_args(Additivity)[0]):
+            assert repr(value) in text
+        assert "ms.semi_additive(over=..., fold=...)" in text
+        assert "unit=None leaves the declared unit unspecified" in text
+
+
+def test_load_help_discloses_project_selection_and_filtered_reference_policy() -> None:
+    text = _text("load")
+    assert "workspace_dir is an exact project root" in text
+    assert "MARIVO_PROJECT_ROOT > nearest ancestor manifest > current directory" in text
+    assert "[semantic].layer_paths" in text
+    assert "domains=None loads all domains" in text
+    assert "filtered-out domains produce warnings rather than errors" in text
+
+
+def test_check_hub_preserves_temporal_preview_certification_exception() -> None:
+    for target in ("checks", "preview", "preview_many"):
+        text = _text(target)
+        for family in ("period calendars", "temporal sets", "work schedules"):
+            assert family in text
+        assert "certified artifacts" in text
+    assert "Ordinary previews do not persist certification" in _text("checks")
+    assert "subsequent readiness check" in _text("checks")
 
 
 def test_semantic_budget_overflow_fails_for_every_dimension() -> None:
@@ -385,10 +465,12 @@ def test_factory_page_routes_follow_descriptor_membership(
     retained_target: str,
     excluded_target: str,
 ) -> None:
+    from marivo._authoring.model import AuthoringCapability
     from marivo.semantic._capabilities.registry import REGISTRY
     from marivo.semantic._capabilities.render import _render_descriptor
 
     parent = REGISTRY.by_canonical_id(parent_id)
+    assert isinstance(parent, AuthoringCapability)
     narrowed = parent.model_copy(
         update={"see_also": (LiveHelpTarget(surface="semantic", canonical_id=retained_target),)}
     )
@@ -586,7 +668,7 @@ def test_temporal_catalog_error_instances_route_to_the_exact_next_help(
     raiser_name: str,
     ref: object,
     operation: str,
-    surface: str,
+    surface: HelpSurface,
     canonical_id: str,
 ) -> None:
     import marivo.semantic.catalog as catalog_module
