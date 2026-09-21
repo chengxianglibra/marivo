@@ -66,6 +66,33 @@ marivo.help("semantic.checks")     # what each inspection or check proves
 marivo.help(entry_or_error)         # current identity or structured repair
 ```
 
+Focused constructor Help includes allowed values and omission rules; use
+`semantic.aggregate` for row aggregation versus time folding and
+`semantic.semi_additive` for the governed time-axis contract. Decorator examples
+must include a function body, saved in the owning semantic module:
+
+```python
+# Inside models/semantic/<domain>/<module>.py, after declaring orders:
+@ms.dimension(name="region", entity=orders)
+def region(row):
+    return row.region
+```
+
+Calling `ms.dimension(...)` alone returns a decorator without registering a
+dimension. Similarly, an Entity expression using `raw.distinct()` removes
+duplicate whole rows; it does not select the latest record per business key.
+
+`ms.load(workspace_dir=...)` selects an exact project root. If omitted, the order
+is `MARIVO_PROJECT_ROOT`, nearest ancestor manifest, then current directory.
+The local `models/` is always included; `[semantic].layer_paths` in `marivo.toml`
+adds external roots. Filtering with `domains` leaves references to excluded
+domains as warnings, so successful filtered loading does not prove the entire
+project closure is ready.
+
+Ordinary preview is ephemeral. Period-calendar, temporal-set, and work-schedule
+previews can publish dedicated certified artifacts; run readiness afterward to
+evaluate the requested closure against those artifacts.
+
 Follow the fully qualified routes from the selected secondary root instead of
 depending on short-name disambiguation. Registered public type, error, and
 member targets remain available to focused help when already known or obtained

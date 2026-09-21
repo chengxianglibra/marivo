@@ -26,6 +26,13 @@ checkpoint rule, and no separate static verification result.
   choice, and residual-risk disclosure.
 - Current authority owns choices that change reusable business meaning.
 
+Focused Help includes legal parameter values and omission semantics, not only
+reflected type names. Aggregate row aggregation and status-time folding are
+separate contracts; their percentile forms require `0 < q < 1`. Declaration
+examples for decorators include the decorated function and its Ibis return
+expression: calling only the decorator factory does not register an object.
+These facts stay in the native registry within existing render budgets.
+
 ## Current flow
 
 ```text
@@ -50,6 +57,14 @@ import marivo.semantic as ms
 datasources = md.load()
 catalog = ms.load()
 ```
+
+An explicit `workspace_dir` selects the exact project root. When omitted,
+selection follows `MARIVO_PROJECT_ROOT`, the nearest ancestor manifest, then
+the current directory. The local `models/` root is always included; configured
+`marivo.toml [semantic].layer_paths` adds external roots. `domains` filters
+loaded domain directories; references to filtered-out domains produce warnings
+rather than errors. Inspect those warnings before treating a filtered load as
+evidence for a complete dependency closure.
 
 Environment fingerprinting and focused help remain available. Metadata
 inspection must not be blocked merely because an accountable owner has not yet
@@ -118,7 +133,7 @@ bindings, invalid decomposition, and cycles.
 After a successful load, confirm exact identity with ordinary catalog navigation:
 
 ```python
-catalog = ms.load(project_root)
+catalog = ms.load(workspace_dir=project_root)
 
 for ref in authored_roots:
     catalog.require(ref)
@@ -139,6 +154,11 @@ or dedicated artifact repair. Ordinary preview reads the current datasource and
 does not persist a check or change readiness. A successful project load proves
 static coherence, not current external source health or every possible
 downstream execution.
+
+Period-calendar, temporal-set, and work-schedule previews are the explicit
+exception: successful certification can publish their dedicated persistent
+artifacts. A subsequent readiness check consumes those artifacts; neither
+ordinary preview nor certification substitutes for that check.
 
 When current source or data drift matters, run
 `catalog.source_health(refs, checks=..., scope=...)` separately. Omitting

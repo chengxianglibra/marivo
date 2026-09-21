@@ -57,6 +57,28 @@ marivo.help("semantic.checks")     # 每项检查或校验证明什么
 marivo.help(entry_or_error)         # 当前身份或 structured repair
 ```
 
+构造器的 focused Help 会说明合法值和省略规则；通过 `semantic.aggregate` 区分行聚合与
+时间折叠，通过 `semantic.semi_additive` 查询受治理时间轴契约。装饰器示例必须包含
+函数体，并保存在所属语义模块中：
+
+```python
+# Inside models/semantic/<domain>/<module>.py, after declaring orders:
+@ms.dimension(name="region", entity=orders)
+def region(row):
+    return row.region
+```
+
+仅调用 `ms.dimension(...)` 会返回装饰器，不会注册维度。同样，Entity 表达式中的
+`raw.distinct()` 只去除完全重复的行，不会按业务主键选取最新记录。
+
+`ms.load(workspace_dir=...)` 指定精确的项目根目录。省略时依次使用
+`MARIVO_PROJECT_ROOT`、最近的祖先 manifest、当前目录。始终包含本地 `models/`；
+`marivo.toml` 的 `[semantic].layer_paths` 可添加外部根目录。使用 `domains` 过滤时，
+对被排除域的引用会保留为 warning，因此过滤加载成功不证明完整项目依赖闭包已就绪。
+
+普通 preview 不持久化认证。Period calendar、temporal set 和 work schedule 的 preview
+可以发布专用认证产物；之后应运行 readiness，依据这些产物检查所请求的依赖闭包。
+
 请沿所选次级根入口中的完整限定路径继续查询，不要依赖短名称自动消歧。已知或从
 live result 获得的 public type、error 和 member target 仍可查询 focused help；无需再
 提供单独的平铺清单。
