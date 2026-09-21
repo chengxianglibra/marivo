@@ -2224,6 +2224,7 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
 
 _OPTIONAL_PARAMETER_REQUIREMENTS = frozenset(
     {
+        ("entity", 0),
         ("dimension", 0),
         ("time_dimension", 0),
         ("measure", 0),
@@ -2317,6 +2318,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "warehouse = ms.ref.datasource('warehouse'); "
                 "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))"
             ),
+            invocation_shape="decorator",
         ),
         _capability(
             "dimension",

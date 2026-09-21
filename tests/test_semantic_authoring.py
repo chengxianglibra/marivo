@@ -284,11 +284,18 @@ def test_dataset_returns_ref() -> None:
         _exit_ctx()
 
 
-def test_dataset_requires_name_without_body() -> None:
+def test_dataset_without_name_returns_decorator() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        with pytest.raises(TypeError):
-            ms.entity(datasource=ms.ref.datasource("wh"), source=md.table("orders"))  # type: ignore[call-arg]
+        result = ms.entity(datasource=ms.ref.datasource("wh"), source=md.table("orders"))
+        assert callable(result)
+
+        @result
+        def orders(raw: object) -> object:
+            return raw
+
+        assert _is_ref(orders, ms.SemanticKind.ENTITY)
+        assert orders.path == "sales.orders"
     finally:
         _exit_ctx()
 

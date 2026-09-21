@@ -1024,6 +1024,109 @@ def validate_metric_body_ast(
     return body_hash
 
 
+def validate_entity_table_body_ast(fn: Callable[..., Any]) -> str:
+    """Layer 2: AST validation for one Entity Table-expression body.
+
+    The decorated function must take exactly one positional parameter and
+    contain one optional docstring plus one ``return`` of an Ibis expression
+    built from that parameter, supported Ibis expression symbols, and inline
+    literals. Assignments, helper/nested functions, lambdas, control flow,
+    SQL/execution escape hatches, and ``ms.bind`` are rejected. Returns the
+    body AST hash for the compiled-expression sidecar.
+
+    Raises SemanticLoadError on validation failures.
+    """
+    try:
+        source = textwrap.dedent(inspect.getsource(fn))
+        tree = ast.parse(source)
+    except (OSError, TypeError, IndentationError, SyntaxError) as exc:
+        raise SemanticLoadError(
+            kind=ErrorKind.COMPILE_ERROR,
+            message=f"Entity body {fn.__name__!r} source could not be inspected.",
+            refs=(fn.__name__,),
+            expected="inspectable Python source for the decorated function",
+            received=type(exc).__name__,
+        ) from exc
+    func_node = next(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == fn.__name__
+        ),
+        None,
+    )
+    if func_node is None:
+        raise SemanticLoadError(
+            kind=ErrorKind.COMPILE_ERROR,
+            message=f"Entity body {fn.__name__!r} has no function definition.",
+            refs=(fn.__name__,),
+            expected="one function with one return",
+            received="missing function",
+        )
+
+    # One positional parameter, no defaults, no variadic/keyword forms.
+    args = func_node.args
+    parameter_count = len(args.posonlyargs) + len(args.args)
+    shape_errors: list[str] = []
+    if parameter_count != 1:
+        shape_errors.append(f"found {parameter_count} positional parameters")
+    if args.vararg is not None or args.kwarg is not None:
+        shape_errors.append("variadic parameters are not allowed")
+    if args.kwonlyargs:
+        shape_errors.append("keyword-only parameters are not allowed")
+    if any(args.defaults) or any(args.kw_defaults):
+        shape_errors.append("parameter defaults are not allowed")
+    if shape_errors:
+        raise SemanticLoadError(
+            kind=ErrorKind.COMPILE_ERROR,
+            message=(
+                f"Entity body {fn.__name__!r} must take exactly one positional "
+                f"Table parameter: {'; '.join(shape_errors)}."
+            ),
+            refs=(fn.__name__,),
+            expected="def <name>(raw): return <one Ibis Table expression>",
+            received="; ".join(shape_errors),
+        )
+
+    base_validator = _BaseMetricASTValidator(fn.__name__, body_label="Entity body")
+    base_validator.visit(func_node)
+    if base_validator.errors:
+        raise base_validator.errors[0]
+
+    # Entity-specific expression nodes: assignment expressions (walrus) bind
+    # local names and comprehensions iterate or rebind inside the expression,
+    # so both violate the single-expression contract even though they are not
+    # statements the shared validator checks.
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.NamedExpr):
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPONENT_BODY,
+                message=(
+                    f"Entity body {fn.__name__!r} contains an assignment expression "
+                    f"({ast.unparse(node)}), which is not allowed. Inline the value or "
+                    "restructure as one expression."
+                ),
+                refs=(fn.__name__,),
+                expected="one return expression without name binding",
+                received=ast.unparse(node),
+                constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
+            )
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPONENT_BODY,
+                message=(
+                    f"Entity body {fn.__name__!r} contains a {type(node).__name__}, which "
+                    "is not allowed. Build the expression with Ibis methods over the "
+                    "injected parameter instead of iterating Python collections."
+                ),
+                refs=(fn.__name__,),
+                expected="one return expression without iteration",
+                received=ast.unparse(node),
+                constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
+            )
+    return _body_hash_without_docstring(func_node)
+
+
 # ---------------------------------------------------------------------------
 # Layer 3: assembly-time cross-object validation
 # ---------------------------------------------------------------------------

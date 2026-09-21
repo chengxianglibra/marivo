@@ -12,9 +12,10 @@ import textwrap
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from types import CellType, FunctionType, MappingProxyType
+from types import CellType, FunctionType, MappingProxyType, ModuleType
 from typing import Literal, TypeAlias, cast
 
+import ibis
 import ibis.expr.types as ir
 
 from marivo.refs import (
@@ -35,7 +36,11 @@ from marivo.semantic.errors import (
     SemanticLoadError,
     SemanticRuntimeError,
 )
-from marivo.semantic.validator import validate_event_body_ast, validate_metric_body_ast
+from marivo.semantic.validator import (
+    validate_entity_table_body_ast,
+    validate_event_body_ast,
+    validate_metric_body_ast,
+)
 
 _FIELD_KINDS = frozenset(
     {
@@ -504,11 +509,13 @@ class _NormalizedBody(ast.NodeTransformer):
         parameter_positions: Mapping[str, int],
         binding_indexes: Mapping[tuple[SemanticKind, str, int], int],
         constant_bindings: Mapping[str, EventConstant],
+        symbol_tokens: Mapping[str, str] | None = None,
     ) -> None:
         self._symbols = symbols
         self._parameter_positions = parameter_positions
         self._binding_indexes = binding_indexes
         self._constant_bindings = constant_bindings
+        self._symbol_tokens = symbol_tokens or {}
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
         node.name = "expression_body"
@@ -536,6 +543,14 @@ class _NormalizedBody(ast.NodeTransformer):
         position = self._parameter_positions.get(node.id)
         if position is not None:
             node.id = f"entity_{position}"
+        elif node.id in self._symbol_tokens:
+            # Encode the resolved Ibis symbol identity, not the alias spelling:
+            # two aliases for one symbol normalize alike, one alias rebound to a
+            # different Ibis symbol produces a different normalized body.
+            return ast.copy_location(
+                ast.Name(id=self._symbol_tokens[node.id], ctx=ast.Load()),
+                node,
+            )
         elif node.id in self._constant_bindings:
             return ast.copy_location(
                 ast.Constant(value=self._constant_bindings[node.id]),
@@ -576,6 +591,7 @@ def _normalized_body_hash(
     parameter_positions: Mapping[str, int],
     binding_indexes: Mapping[tuple[SemanticKind, str, int], int],
     constant_bindings: Mapping[str, EventConstant],
+    symbol_tokens: Mapping[str, str] | None = None,
 ) -> str:
     normalized = copy.deepcopy(function)
     transformed = _NormalizedBody(
@@ -583,6 +599,7 @@ def _normalized_body_hash(
         parameter_positions=parameter_positions,
         binding_indexes=binding_indexes,
         constant_bindings=constant_bindings,
+        symbol_tokens=symbol_tokens,
     ).visit(normalized)
     ast.fix_missing_locations(transformed)
     encoded = ast.dump(transformed, include_attributes=False).encode()
@@ -614,11 +631,329 @@ def _physical_source_columns(
     return tuple(columns)
 
 
+def _entity_table_source_columns(
+    function: ast.FunctionDef,
+    *,
+    parameter_positions: Mapping[str, int],
+) -> tuple[str, ...]:
+    """Capture column reads on the injected Entity parameter.
+
+    Method calls such as ``raw.filter(...)`` attribute the method name to the
+    parameter; only value reads (attribute/subscript outside a call-func
+    position) are source columns.
+    """
+    parameter_names = frozenset(parameter_positions)
+    call_func_nodes: set[int] = set()
+    for node in ast.walk(function):
+        if isinstance(node, ast.Call):
+            call_func_nodes.add(id(node.func))
+    columns: list[str] = []
+    for node in ast.walk(function):
+        if not (
+            isinstance(node, (ast.Attribute, ast.Subscript))
+            and isinstance(node.value, ast.Name)
+            and node.value.id in parameter_names
+        ):
+            continue
+        if id(node) in call_func_nodes:
+            continue
+        column: str | None = None
+        if isinstance(node, ast.Attribute):
+            column = node.attr
+        elif isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+            column = node.slice.value
+        if column is not None and column not in columns:
+            columns.append(column)
+    return tuple(columns)
+
+
+# Attribute access on the injected Table that materializes or compiles the
+# expression instead of building one. Rejected as an execution escape hatch.
+_ENTITY_EXECUTION_ATTRS: frozenset[str] = frozenset(
+    {
+        "compile",
+        "execute",
+        "sql",
+        "raw_sql",
+        "to_arrow",
+        "to_csv",
+        "to_delta",
+        "to_json",
+        "to_pandas",
+        "to_parquet",
+        "to_polars",
+        "to_pyarrow",
+        "to_torch",
+    }
+)
+
+# Ibis symbols whose value depends on execution time or backend state. The
+# design bans clock reads, random values, and hidden external data from an
+# Entity body; aliasing these names does not bypass the ban because the
+# check resolves symbol identity, not spelling.
+_ENTITY_NONDETERMINISTIC_IBIS_NAMES: frozenset[str] = frozenset(
+    {
+        "now",
+        "today",
+        "random",
+        "uuid",
+        "integer_range",
+    }
+)
+
+# Deferred instance names on the ibis module admitted in an Entity body.
+_ENTITY_DEFERRED_IBIS_NAMES: frozenset[str] = frozenset({"_", "t"})
+
+# Deterministic public Ibis expression symbols admitted in an Entity body:
+# the root module's __all__ minus the nondeterministic clock/random symbols.
+# Attributes outside __all__ (submodules, options, backends) are rejected so
+# body spelling cannot reach execution or connection surfaces.
+_ENTITY_IBIS_ADMITTED_NAMES: frozenset[str] = (
+    frozenset(getattr(ibis, "__all__", ())) - _ENTITY_NONDETERMINISTIC_IBIS_NAMES
+)
+
+
+def _is_admitted_ibis_symbol(value: object) -> bool:
+    """Check one resolved body name against the ibis module by identity.
+
+    A name is admitted when it is the ``ibis`` module itself, the deferred
+    ``_``/``t`` instances, or the exact attribute for one admitted public
+    Ibis symbol (``ibis.__all__`` minus clock/random names). This covers
+    author import aliases regardless of local spelling. Module
+    ``__getattr__`` is bypassed so lazy backend imports are never triggered
+    by validation. Captured Tables, helper callables, nondeterministic
+    clock/random symbols, and unrelated objects are rejected even when
+    their names or modules coincide with Ibis types.
+    """
+    if value is ibis:
+        return True
+    for name, attr in vars(ibis).items():
+        if attr is value:
+            return name in _ENTITY_IBIS_ADMITTED_NAMES or name in _ENTITY_DEFERRED_IBIS_NAMES
+    return False
+
+
+def _entity_body_symbol_name(value: object) -> str | None:
+    """Return the canonical ``ibis.<name>`` for one admitted symbol, else None.
+
+    Names resolve by identity against the ``ibis`` module attributes, so
+    author import aliases and ``ibis.<attr>`` spellings map to one canonical
+    identity. Deferred instances and the module itself admit no hash token.
+    """
+    if value is ibis:
+        return None
+    for name, attr in vars(ibis).items():
+        if attr is value:
+            return name if name in _ENTITY_IBIS_ADMITTED_NAMES else None
+    return None
+
+
+def _rejected_ibis_attribute_name(value: object) -> str | None:
+    """Return the ``ibis.<name>`` for one resolved-but-rejected ibis attribute.
+
+    Distinguishes a rejected Ibis module attribute (clock, random, internal
+    surfaces) from a captured non-Ibis value so the error can name the
+    banned symbol identity.
+    """
+    if value is ibis:
+        return None
+    for name, attr in vars(ibis).items():
+        if attr is value and name not in _ENTITY_DEFERRED_IBIS_NAMES:
+            return str(name)
+    return None
+
+
+def _validate_entity_table_closed_symbols(
+    function: ast.FunctionDef,
+    *,
+    symbols: Mapping[str, object],
+    parameter_names: frozenset[str],
+    owning_key: str,
+) -> dict[str, str]:
+    """Require every body ``Name`` to be the parameter or one admitted ibis symbol.
+
+    Parameter annotations are type metadata, not runtime expression values,
+    and are excluded from the closed-name check. Returns the mapping of body
+    local names to canonical ``ibis.<name>`` identity tokens for admitted
+    Ibis symbols, used to normalize the body hash by resolved identity.
+    """
+    symbol_tokens: dict[str, str] = {}
+    annotation_nodes: set[int] = {
+        id(parameter.annotation)
+        for parameter in (
+            *function.args.posonlyargs,
+            *function.args.args,
+            *function.args.kwonlyargs,
+        )
+        if parameter.annotation is not None
+    }
+    if function.returns is not None:
+        annotation_nodes.add(id(function.returns))
+    for node in ast.walk(_entity_table_body_nodes(function)):
+        if isinstance(node, ast.Call) and _is_bind_target(node.func, symbols):
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPONENT_BODY,
+                message=(
+                    f"Entity body {owning_key!r} calls ms.bind, which requires fields "
+                    "that do not exist as inputs to their own Entity relation."
+                ),
+                refs=(owning_key,),
+                expected="one Ibis Table expression over the injected Table parameter",
+                received=ast.dump(node.func, include_attributes=False),
+                hint="Read source columns from the injected parameter instead of ms.bind.",
+            )
+    import ibis
+
+    body_root = _entity_table_body_nodes(function)
+    for node in ast.walk(body_root):
+        # Attribute access on the ibis module (ibis.now(), ibis.random()) must
+        # resolve to one admitted expression symbol; alias spellings are checked
+        # at their Name nodes below.
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and type(symbols.get(node.value.id)) is ModuleType
+            and getattr(symbols.get(node.value.id), "__name__", None) == "ibis"
+        ):
+            attr_value = getattr(symbols[node.value.id], node.attr, None)
+            canonical = _entity_body_symbol_name(attr_value)
+            if canonical is None:
+                rejected = _rejected_ibis_attribute_name(attr_value)
+                raise SemanticLoadError(
+                    kind=ErrorKind.COMPILE_ERROR,
+                    message=(
+                        f"Entity body {owning_key!r} uses Ibis symbol "
+                        f"ibis.{rejected or node.attr}, which is not admitted. Clock "
+                        "reads, random values, generated identifiers, and non-expression "
+                        "module attributes are not allowed in an Entity body."
+                    ),
+                    refs=(owning_key,),
+                    expected=(
+                        "deterministic expression-building symbols such as ibis.literal, "
+                        "ibis.window, or ibis.row_number"
+                    ),
+                    received=f"ibis.{node.attr}",
+                    hint=(
+                        "Move the nondeterministic value into an explicit authored column "
+                        "or pass it as data, not as a body symbol."
+                    ),
+                )
+            symbol_tokens.setdefault(f"{node.value.id}.{node.attr}", f"ibis:{canonical}")
+    for node in ast.walk(body_root):
+        if not isinstance(node, ast.Name):
+            continue
+        if node.id in parameter_names or id(node) in annotation_nodes:
+            continue
+        value = symbols.get(node.id)
+        if _is_admitted_ibis_symbol(value):
+            # The ibis module may only be used for admitted attribute access;
+            # each attribute spelling is checked at its Attribute node above.
+            if value is ibis:
+                continue
+            canonical = _entity_body_symbol_name(value)
+            if canonical is not None:
+                symbol_tokens[node.id] = f"ibis:{canonical}"
+            continue
+        if value is None and node.id not in symbols:
+            raise SemanticLoadError(
+                kind=ErrorKind.COMPILE_ERROR,
+                message=(f"Entity body {owning_key!r} uses unresolved external name {node.id!r}."),
+                refs=(owning_key,),
+                expected=("the injected Table parameter, ibis module symbols, or inline literals"),
+                received=node.id,
+                hint=(
+                    "Derive the expression from the injected parameter and import "
+                    "ibis symbols in the defining module."
+                ),
+            )
+        rejected_ibis_name = _rejected_ibis_attribute_name(value)
+        if rejected_ibis_name is not None:
+            raise SemanticLoadError(
+                kind=ErrorKind.COMPILE_ERROR,
+                message=(
+                    f"Entity body {owning_key!r} uses Ibis symbol ibis.{rejected_ibis_name} "
+                    f"(bound as {node.id!r}), which is not admitted. Clock reads, random "
+                    "values, generated identifiers, and non-expression module attributes "
+                    "are not allowed in an Entity body."
+                ),
+                refs=(owning_key,),
+                expected=(
+                    "deterministic expression-building symbols such as ibis.literal, "
+                    "ibis.window, or ibis.row_number"
+                ),
+                received=f"ibis.{rejected_ibis_name}",
+                hint=(
+                    "Move the nondeterministic value into an explicit authored column or "
+                    "pass it as data, not as a body symbol."
+                ),
+            )
+        raise SemanticLoadError(
+            kind=ErrorKind.COMPILE_ERROR,
+            message=(
+                f"Entity body {owning_key!r} uses external value {node.id!r} of type "
+                f"{type(value).__name__}, which is not a supported Ibis expression symbol."
+            ),
+            refs=(owning_key,),
+            expected=("the injected Table parameter, ibis module symbols, or inline literals"),
+            received=f"{node.id}={type(value).__name__}",
+            hint=(
+                "Replace captured values or helper callables with an inline Ibis "
+                "expression over the injected parameter."
+            ),
+        )
+    return symbol_tokens
+
+
+def _entity_table_body_nodes(function: ast.FunctionDef) -> ast.AST:
+    """Return the single return expression with decorators and docstring excluded.
+
+    Falls back to the whole function when the return-count contract is not yet
+    established; shape validation then reports the structural failure.
+    """
+    returns = [node for node in ast.walk(function) if isinstance(node, ast.Return)]
+    if len(returns) == 1 and returns[0].value is not None:
+        return returns[0].value
+    return function
+
+
+def _validate_entity_table_no_execution(
+    function: ast.FunctionDef,
+    *,
+    owning_key: str,
+) -> None:
+    """Reject materialization or SQL escape attributes inside the Entity body."""
+    for node in ast.walk(_entity_table_body_nodes(function)):
+        if isinstance(node, ast.Attribute) and node.attr in _ENTITY_EXECUTION_ATTRS:
+            raise SemanticLoadError(
+                kind=ErrorKind.SQL_ESCAPE_HATCH,
+                message=(
+                    f"Entity body {owning_key!r} uses .{node.attr}, which materializes "
+                    "or rewrites the expression. Return the Ibis Table expression itself."
+                ),
+                refs=(owning_key,),
+                expected="one returned Ibis Table expression over the injected parameter",
+                received=f".{node.attr}",
+                hint=(
+                    "Marivo materializes the Entity relation through its resolver; "
+                    "remove the execution or SQL call from the body."
+                ),
+            )
+
+
 def compile_expression_body(
     fn: Callable[..., object],
     *,
     owning_ref: Ref[SemanticKindTag],
-    ordered_entity_refs: tuple[Ref[EntityKind], ...],
+    ordered_entity_refs: tuple[Ref[EntityKind], ...] = (),
+    body_kind: Literal[
+        "dimension",
+        "time_dimension",
+        "measure",
+        "metric",
+        "event",
+        "entity_table",
+    ]
+    | None = None,
 ) -> ExpressionBody:
     """Validate one decorator body and capture exact semantic field bindings."""
     owning = _require_exact_ref(owning_ref, parameter="owning_ref")
@@ -638,14 +973,51 @@ def compile_expression_body(
         SemanticKind.METRIC: "metric",
         SemanticKind.EVENT: "event",
     }
-    body_kind = body_kind_by_ref.get(owning.kind)
-    if body_kind is None:
+    resolved_kind = body_kind if body_kind is not None else body_kind_by_ref.get(owning.kind)
+    if resolved_kind is None or (
+        body_kind == "entity_table" and owning.kind is not SemanticKind.ENTITY
+    ):
         raise SemanticLoadError(
             kind=ErrorKind.INVALID_BINDING_REF,
             message=f"Ref {owning.key!r} cannot own an expression body.",
             refs=(owning.key,),
-            expected="dimension, time_dimension, measure, metric, or event",
+            expected=(
+                "dimension, time_dimension, measure, metric, or event"
+                if body_kind != "entity_table"
+                else "entity"
+            ),
             received=owning.kind.value,
+        )
+    body_kind = resolved_kind
+    if body_kind == "entity_table":
+        _, function = _load_function_ast(fn)
+        parameters = (*function.args.posonlyargs, *function.args.args)
+        parameter_positions = {parameter.arg: index for index, parameter in enumerate(parameters)}
+        symbols = _resolved_symbols(fn)
+        validate_entity_table_body_ast(fn)
+        _validate_entity_table_no_execution(function, owning_key=owning.key)
+        symbol_tokens = _validate_entity_table_closed_symbols(
+            function,
+            symbols=symbols,
+            parameter_names=frozenset(parameter_positions),
+            owning_key=owning.key,
+        )
+        return ExpressionBody(
+            callable=fn,
+            body_ast_hash=_normalized_body_hash(
+                function,
+                symbols=symbols,
+                parameter_positions=parameter_positions,
+                binding_indexes={},
+                constant_bindings={},
+                symbol_tokens=symbol_tokens,
+            ),
+            parameter_count=1,
+            bindings=(),
+            source_columns=_entity_table_source_columns(
+                function,
+                parameter_positions=parameter_positions,
+            ),
         )
     if body_kind == "event":
         validate_event_body_ast(fn)
