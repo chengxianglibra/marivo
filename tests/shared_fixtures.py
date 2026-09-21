@@ -6,19 +6,22 @@ import os
 import secrets
 import shutil
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import duckdb
 import ibis
 
 from marivo._compat import UTC
+from marivo.refs import EntityKind, Ref
 from marivo.refs import ref as ref_factory
 
 if TYPE_CHECKING:
     from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.loader import LoadResult
 
 # ---------------------------------------------------------------------------
 # Named DuckDB templates (versioned, cached in /tmp)
@@ -48,9 +51,9 @@ def rendered_help(target: object | None = None, *, owner: str | None = None) -> 
         return render_root_help()
     if owner is not None and isinstance(target, str):
         target = f"{owner}.{target}"
-    from marivo._help.render import render_help_text
+    from marivo._help.render import PublicHelpTarget, render_help_text
 
-    return render_help_text(target)[0]
+    return render_help_text(cast("PublicHelpTarget", target))[0]
 
 
 def fiscal_analysis_project_files() -> dict[str, str]:
@@ -220,7 +223,9 @@ def make_test_metric_contract(
     for key, axis in axes.items():
         if not isinstance(axis, dict):
             continue
-        role = "time_dimension" if axis.get("role") == "time" or key == "time" else "dimension"
+        role: Literal["dimension", "time_dimension"] = (
+            "time_dimension" if axis.get("role") == "time" or key == "time" else "dimension"
+        )
         short_path = str(
             axis.get("ref")
             or axis.get("time_dimension")
@@ -489,7 +494,9 @@ def make_test_component_contract(
     )
     axis_bindings: list[AxisBindingV1] = []
     for key, axis in axes.items():
-        role = "time_dimension" if axis.get("role") == "time" or key == "time" else "dimension"
+        role: Literal["dimension", "time_dimension"] = (
+            "time_dimension" if axis.get("role") == "time" or key == "time" else "dimension"
+        )
         short_path = str(
             axis.get("ref")
             or axis.get("time_dimension")
@@ -706,7 +713,7 @@ def make_metric_frame(
         ),
     )
     frame = MetricFrame(_df=df, meta=meta)
-    frame.meta = persist_frame(session, frame)
+    frame.meta = cast("MetricFrameMeta", persist_frame(session, frame))
     return frame
 
 
@@ -900,7 +907,7 @@ def connect_sales_orders() -> ibis.duckdb.DuckDBBackend:
     return con
 
 
-def sales_backends(con: ibis.duckdb.DuckDBBackend) -> dict:
+def sales_backends(con: ibis.duckdb.DuckDBBackend) -> dict[str, Any]:
     """Standard backends dict wrapping a DuckDB connection as 'warehouse'."""
     return {"warehouse": lambda: con}
 
@@ -988,13 +995,13 @@ def bootstrap_sales_project_from_template(tmp_path: Path, *, with_time: bool = T
 
 def seeded_time_series_metric_frame(
     *,
-    session,
+    session: Any,
     grain: str = "day",
     n_buckets: int = 30,
     segments: list[str] | None = None,
     value_pattern: str = "linear",
     seed: int = 42,
-):
+) -> Any:
     import numpy as np
     import pandas as pd
 
@@ -1016,6 +1023,7 @@ def seeded_time_series_metric_frame(
         raise ValueError(f"unsupported fixture value_pattern {value_pattern!r}")
 
     rows: list[dict[str, object]] = []
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     if segments is None:
         for idx, bucket in enumerate(times):
             rows.append({"time": bucket, "value": value_at(idx)})
@@ -1055,7 +1063,7 @@ def seeded_time_series_metric_frame(
 
 
 @contextmanager
-def authoring_session(*, domain: str):
+def authoring_session(*, domain: str) -> Iterator[Any]:
     """Context manager that enters a LoaderContext with a default domain.
 
     Exposes helpers for declaring measure dimensions and inspecting pending
@@ -1071,10 +1079,12 @@ def authoring_session(*, domain: str):
 
         class _Session:
             @staticmethod
-            def measure(*, entity: str, name: str, additivity: Any = None) -> Any:
+            def measure(*, entity: Ref[EntityKind], name: str, additivity: Any = None) -> Any:
                 """Declare a measure and return its exact measure ref."""
                 decorator = authoring.measure(
-                    entity=entity, name=name, additivity=additivity or "additive"
+                    entity=entity,
+                    name=name,
+                    additivity=additivity or "additive",
                 )
 
                 # Apply the decorator to a dummy function that returns an ibis-like expression.
@@ -1123,7 +1133,7 @@ def load_inline_semantic(
     *,
     domain: str = "test",
     expect_errors: bool = False,
-):
+) -> Iterator[LoadResult]:
     """Write an inline semantic source to a temp project and load it.
 
     Creates a minimal project with a single domain file containing *source*,
