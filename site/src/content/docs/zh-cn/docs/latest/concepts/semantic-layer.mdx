@@ -1553,12 +1553,12 @@ marivo.help("semantic.SemanticDefinition")
 ```
 
 通过同一 Catalog 的 `catalog.require(ref)` 沿直接输入 Ref 逐层解释。
-输出采用 `marivo.semantic_definition/v1`，引用复用 `marivo.semantic_ref/v1`。
+输出采用 `marivo.semantic_definition/v2`，引用复用 `marivo.semantic_ref/v1`。
 语义粒度保留日历与层级，不将零售季度推断为自然季度。累计指标省略 `over`
 时仍标记为默认选择，不冒充作者显式声明的时间轴。
 
 表达式说明支持列、绑定字段、固定类型转换、源码二元/一元运算符 token、比较及
-`.ifelse()`。函数体字面量隐藏，不支持的语法明确标注。`+` 与 `&` 等 token
+`.ifelse()`。函数体字面量保留实际值和类型，不支持的语法明确标注。`+` 与 `&` 等 token
 保持语法层含义，因为实际 Ibis 运算取决于操作数 dtype。声明式过滤保留类型化有限值，
 `ms.where` 在编写阶段拒绝 NaN 与无穷值。时间维度的源表达式不能替代其 parse、粒度
 和时区契约。
@@ -1576,6 +1576,8 @@ readiness 与数据新鲜度保持独立。Catalog 加载后的定义读取不�
 
 
 表达式可独立提供 `payload["node"]["display"]`，不受结构化解析支持范围限制（例如 `.count()`、`.sum()`），包含规范化 Ibis Python
-`text`、别名对应 Ref 的 `bindings` 和 `redacted_literals`。消费端直接用代码块展示文本，
+`text` 和别名对应 Ref 的 `bindings`。消费端直接用代码块展示文本，
 例如 `(t1["spend_cny"]).cast("float64")`，其中别名对应实体 Ref。
-该文本是规范化展示形式，不是原始源码或独立可执行代码；常量继续隐藏，不支持的表达式保留原因。
+该文本是规范化展示形式，不是原始源码或独立可执行代码；常量保留实际值，不支持的表达式保留原因。
+例如 `t1["amount"] / 100` 保留单位换算系数。v2 schema 中的结构化常量使用
+`kind="literal"`、`value_type` 和 `value`。

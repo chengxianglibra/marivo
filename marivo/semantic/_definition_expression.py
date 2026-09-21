@@ -34,7 +34,7 @@ def describe_expression(
     entities: Mapping[str, Ref[EntityKind]],
     bindings: Mapping[int, tuple[Ref[FieldKind], Ref[EntityKind]]],
 ) -> ExpressionDescription:
-    """Capture only known structural syntax; never resolve literal values or names."""
+    """Capture only known structural syntax; preserve literal values without resolving names."""
     count = 0
 
     def visit(node: ast.expr, depth: int = 0) -> ExpressionNode:
@@ -72,7 +72,7 @@ def describe_expression(
                 value_type = "str"
             else:
                 raise _UnsupportedError
-            return _Literal(value_type)
+            return _Literal(value_type, node.value)
         if isinstance(node, ast.Call):
             binding = bindings.get(id(node))
             if binding is not None:

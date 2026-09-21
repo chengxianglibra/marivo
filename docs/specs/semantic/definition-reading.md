@@ -1,6 +1,6 @@
 # Loaded semantic definition reading
 
-Status: implemented public contract, `marivo.semantic_definition/v1`.
+Status: implemented public contract, `marivo.semantic_definition/v2`.
 
 ## Entry point and identity
 
@@ -22,12 +22,13 @@ Metric, Measure, Dimension and TimeDimension Details expose `definition`.
 Other Details kinds have no computation definition; an expression entity's
 normalized body display is disclosed on its Details as bounded
 `definition_form`/`expression_display` fields with the same no-execution and
-redaction guarantees, not as a `definition` node. A definition is an immutable
+literal-preservation guarantees, not as a `definition` node. A definition is an
+immutable
 returned result containing `ref`, `catalog_definition_fingerprint`, `node`,
 `source_location`, and `temporal`. It follows the bounded repr/show/render family.
 `to_dict()` returns a fresh JSON-safe mapping, never a generic Details/IR export.
 
-The schema field is `marivo.semantic_definition/v1`. Ref objects use the existing
+The schema field is `marivo.semantic_definition/v2`. Ref objects use the existing
 `{"schema": "marivo.semantic_ref/v1", "kind": "metric", "path": "growth.campaign_spend"}`
 encoding. Nodes contain only direct dependencies: follow their typed Python Refs
 with `catalog.require(ref)` on the same Catalog. Linear occurrences are not
@@ -74,12 +75,13 @@ immutable expression sidecar. Reading does not inspect source or call the body.
 This describes syntax; it does not prove execution or data correctness.
 
 Serialized expression nodes independently expose `display` with `language="python"`,
-`form="normalized_ibis"`, `text`, `bindings` (alias plus exact Ref), and
-`redacted_literals`. Consumers display this text directly as code, without
+`form="normalized_ibis"`, `text` and `bindings` (alias plus exact Ref). Consumers
+display this text directly as code, without
 reconstructing syntax from `expression`. Entity aliases such as `t1` qualify
 columns; field aliases such as `f1` identify semantic field Refs. The text is
 normalized Ibis syntax, not original source or a standalone runnable program.
-Literal values remain hidden as `REDACTED_<TYPE>` identifiers. A structural `status=unsupported` does not prevent display of calls such as
+Literal values remain visible in normalized Python syntax. A structural
+`status=unsupported` does not prevent display of calls such as
 `.count()` or `.sum()`. Display capture bounds are 1,024 AST nodes, depth 64, and
 16,384 characters; unavailable or oversized syntax has no display text.
 Display failure does not change structural status or discard a supported tree;
@@ -95,7 +97,7 @@ change fingerprints or execute expressions.
 | `+`, `-`, `*`, `/`; unary `+`, `-`, `~` | Ordered binary/unary syntax with the authored operator token. |
 | `==`, `!=`, `<`, `<=`, `>`, `>=`; `&`, `|`, `^` | Comparisons and authored operator tokens. |
 | `condition.ifelse(a, b)` | Condition and ordered true/false branches. |
-| Literal string, integer, float, bool or None | `redacted` with `value_type`, never its value. |
+| Literal string, integer, float, bool or None | `literal` with `value_type` and the exact `value`. |
 
 Cast tokens are int8/16/32/64, uint8/16/32/64, float32/64, string, boolean,
 date and timestamp. Other calls, arbitrary type strings, external names, Python
@@ -111,9 +113,11 @@ differently by operand dtype, such as numeric addition versus string concatenati
 or boolean versus integer bitwise operations. Definition reading does not infer
 those operand types.
 
-Literal disclosure is separate from declared filter values. There is no disclosure
-switch. SQL provenance, source text, callable repr, credentials, and datasource
-configuration are never exported. Identifiers and business descriptions remain
+Expression literals and declared filter values are both visible. There is no disclosure
+switch. SQL provenance, original source text, callable repr, and datasource
+configuration are never exported. Authored expression constants are not scanned for secrets.
+Non-finite numeric values fail JSON projection with `SemanticDefinitionReadError`,
+as do other non-finite definition parameters. Identifiers and business descriptions remain
 untrusted text for consumers; this protocol performs no HTML execution. Original
 business context and guardrails remain on their owning Details, not merged into
 other objects. TimeDimension source expressions remain distinct from its parse,

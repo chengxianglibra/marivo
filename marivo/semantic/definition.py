@@ -53,7 +53,8 @@ class _Field(_Value):
 @dataclass(frozen=True, repr=False)
 class _Literal(_Value):
     value_type: Literal["str", "int", "float", "bool", "none"]
-    kind: Literal["redacted"] = "redacted"
+    value: str | int | float | bool | None
+    kind: Literal["literal"] = "literal"
 
 
 @dataclass(frozen=True, repr=False)
@@ -107,7 +108,6 @@ ExpressionNode: TypeAlias = _Column | _Field | _Literal | _Cast | _Unary | _Bina
 class _ExpressionDisplay(_Value):
     text: str
     bindings: tuple[tuple[str, Ref[SemanticKindTag]], ...]
-    redacted_literals: bool
 
 
 @dataclass(frozen=True, repr=False)
@@ -199,6 +199,7 @@ def _expression(value: ExpressionNode) -> dict[str, JsonValue]:
         result.update(ref=_ref(value.ref), entity=_ref(value.entity))
     elif isinstance(value, _Literal):
         result["value_type"] = value.value_type
+        result["value"] = value.value
     elif isinstance(value, _Cast):
         result.update(operand=_expression(value.operand), data_type=value.data_type)
     elif isinstance(value, _Unary):
@@ -222,7 +223,6 @@ def _expression_display(value: _ExpressionDisplay) -> dict[str, JsonValue]:
         "form": "normalized_ibis",
         "text": value.text,
         "bindings": [{"alias": alias, "ref": _ref(ref)} for alias, ref in value.bindings],
-        "redacted_literals": value.redacted_literals,
     }
 
 
@@ -295,7 +295,6 @@ def _node(value: DefinitionNode) -> dict[str, JsonValue]:
                 display = _ExpressionDisplay(
                     f"t1[{json.dumps(column.name, ensure_ascii=True)}]",
                     (("t1", column.entity),),
-                    False,
                 )
         if display is not None:
             result["display"] = _expression_display(display)
@@ -350,21 +349,22 @@ class SemanticDefinition(RenderableResult):
     def to_dict(self) -> dict[str, JsonValue]:
         """Return a fresh JSON-safe whitelist projection of this definition.
 
-        No parameters. Returns a ``marivo.semantic_definition/v1`` mapping with
+        No parameters. Returns a ``marivo.semantic_definition/v2`` mapping with
         exact RefPayloadV1 references and explicit availability states.
         Example: ``json.dumps(definition.to_dict(), allow_nan=False)``.
         Available expression displays include text in normalized Ibis syntax,
-        alias-to-Ref bindings, and a redacted_literals flag. This is not original
+        alias-to-Ref bindings, and authored literal values. This is not original
         source or standalone executable code.
         Effective temporal status is resolved, not_applicable, or
         component_defined. The latter follows node/component rules without an
         inferred top-level fold or a missing-context claim. These descriptive
         states do not grant permission to sum non-additive results.
-        Constraints: literals are redacted; no data, source text, SQL provenance,
-        credentials, or connection configuration is exported. This does not query.
+        Constraints: authored constants are visible; no query data, original source
+        text, SQL provenance, or connection configuration is exported. This does
+        not query.
         """
         result: dict[str, JsonValue] = {
-            "schema": "marivo.semantic_definition/v1",
+            "schema": "marivo.semantic_definition/v2",
             "ref": _ref(self.ref),
             "catalog_definition_fingerprint": self.catalog_definition_fingerprint,
             "source_location": {

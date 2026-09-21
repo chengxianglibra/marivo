@@ -50,7 +50,7 @@ catalog = ms.load()
 For a definition-explanation request, stay within the already loaded Catalog and
 follow `marivo.help("semantic.SemanticDefinition")`. Do not run preview or readiness
 solely to explain a declaration; distinguish author business context, supported
-structural descriptions, hidden literals, and unsupported expression explanations.
+structural descriptions, authored literal values, and unsupported expression explanations.
 
 Inspect current identities and definitions before mutation. Reuse matching refs,
 repair the smallest conflict, and author only genuine gaps. For a
