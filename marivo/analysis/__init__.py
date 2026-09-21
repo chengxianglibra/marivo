@@ -165,6 +165,17 @@ def time_scope(
     Calendar-period scopes come from certified catalog lookups; absolute
     callers should use this helper rather than constructing ``TimeScope``
     directly.
+
+    Args:
+        start: Inclusive ISO date/datetime string or normalized date/datetime.
+        end: Exclusive bound of the same representation and temporal type as start.
+
+    Constraints:
+        Bounds must be ordered and compatible; strings and normalized bounds cannot mix.
+        Pass observation grain to session.observe(grain=...), not to this helper.
+
+    Returns:
+        One validated immutable TimeScope.
     """
 
     return _time_scope(start=start, end=end)

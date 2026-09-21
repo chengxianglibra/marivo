@@ -387,8 +387,12 @@ def decode_alignment_policy(payload: Mapping[str, object]) -> AlignmentPolicy:
 class SamplingPolicy(BaseModel):
     """Call marivo.help(SamplingPolicy) for its public consumption contract.
 
-    Immutable policy controlling paired-sample extraction for compare,
-    correlate, and hypothesis_test.
+    Immutable policy controlling paired-sample extraction for hypothesis_test.
+
+    Guidance:
+        pairing="window_bucket" pairs temporal buckets; pairing="segment_key"
+        pairs segment keys. null_handling="drop_pair" removes a pair if either
+        value is null. min_n is the minimum usable paired sample count (at least 2).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

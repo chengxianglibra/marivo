@@ -11,7 +11,11 @@ from __future__ import annotations
 import ast
 import inspect
 import re
-from typing import TYPE_CHECKING
+from dataclasses import fields, is_dataclass
+from types import UnionType
+from typing import TYPE_CHECKING, Union, get_args, get_origin
+
+from pydantic import BaseModel
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
@@ -48,6 +52,7 @@ from marivo.introspection.live.reflect import import_registered_callable
 from marivo.introspection.live.render import render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 from marivo.refs import SemanticKind
+from marivo.render import RenderableResult
 from marivo.semantic._capabilities.catalog_members import (
     CATALOG_MEMBER_CONTRACTS,
     CatalogMemberContract,
@@ -212,6 +217,79 @@ def _extract_docstring_section(doc: str, section_name: str) -> str | None:
                 body.pop()
             return "\n".join(body) if body else None
     return None
+
+
+def _compact_section(doc: str, section_name: str) -> list[str]:
+    """Keep every section entry, folding only its continuation lines."""
+    raw = doc.splitlines()
+    for index, line in enumerate(raw):
+        if line.strip() != section_name:
+            continue
+        body: list[str] = []
+        for following in raw[index + 1 :]:
+            if following.strip() and not following[0].isspace():
+                break
+            if following.strip():
+                body.append(following)
+        if not body:
+            return []
+        indent = min(len(line) - len(line.lstrip()) for line in body)
+        entries: list[str] = []
+        for line in body:
+            if len(line) - len(line.lstrip()) == indent:
+                entries.append(line.strip())
+            else:
+                entries[-1] += " " + line.strip()
+        return entries
+    return []
+
+
+def _annotation_text(annotation: object) -> str:
+    """Format a public field type without object addresses or module noise."""
+    if isinstance(annotation, type):
+        return "None" if annotation is type(None) else annotation.__name__
+    if get_origin(annotation) in (Union, UnionType):
+        return " | ".join(_annotation_text(argument) for argument in get_args(annotation))
+    text = annotation if isinstance(annotation, str) else inspect.formatannotation(annotation)
+    return text.replace("typing.", "").replace("_SemanticInput", "SemanticInput")
+
+
+def _bound_field_annotation(type_obj: type, annotation: object) -> str:
+    """Substitute inherited generic field parameters with the concrete public binding."""
+    text = _annotation_text(annotation)
+    bases: tuple[object, ...] = getattr(type_obj, "__orig_bases__", ())
+    for base in bases:
+        origin: object = get_origin(base)
+        parameters: tuple[object, ...] = getattr(origin, "__parameters__", ())
+        for parameter, argument in zip(parameters, get_args(base), strict=False):
+            name: str | None = getattr(parameter, "__name__", None)
+            if name is not None:
+                text = re.sub(rf"\b{re.escape(name)}\b", _annotation_text(argument), text)
+    return text
+
+
+def _model_field_lines(model: type[BaseModel]) -> list[str]:
+    """Reflect public model fields and validation bounds, excluding execution state."""
+    result: list[str] = []
+    for name, field in model.model_fields.items():
+        if name.startswith("_") or field.exclude:
+            continue
+        details = [_annotation_text(field.annotation)]
+        if field.is_required():
+            details.append("required")
+        elif field.default_factory is not None:
+            details.append("created when omitted")
+        else:
+            details.append(f"default={field.default!r}")
+        for metadata in field.metadata:
+            for attribute, operator in (("ge", ">="), ("gt", ">"), ("le", "<="), ("lt", "<")):
+                bound = getattr(metadata, attribute, None)
+                if bound is not None:
+                    details.append(f"{operator} {bound}")
+        if field.description:
+            details.append(field.description)
+        result.append(f"    {name}: " + "; ".join(details))
+    return result
 
 
 def _extract_example(doc: str) -> str | None:
@@ -517,7 +595,14 @@ def _assigned_result_name(code: str, *, public_entrypoint: str) -> str | None:
 def _related_targets(desc: CapabilityDescriptor) -> list[str]:
     """Return only bounded registry-owned cross-links."""
     related: list[str] = []
-    seen: set[str] = set()
+    seen: set[str] = {
+        target.canonical_id
+        for contract in (
+            desc.parameter_help.values() if isinstance(desc, OperatorCapability) else ()
+        )
+        for target in contract.help_targets
+        if target.surface == "analysis" and target.canonical_id is not None
+    }
 
     def _add(target: str) -> None:
         if target != desc.help_target and target not in seen:
@@ -598,7 +683,7 @@ def _catalog_group_guidance() -> list[str]:
         "    " + ", ".join(properties[:midpoint]),
         "    " + ", ".join(properties[midpoint:]),
         "  Discovery rule: select only the collection relevant to the question.",
-        '  Focused collection contract: marivo.help("analysis.catalog.<family>").',
+        '  Example collection contract: marivo.help("analysis.catalog.metrics").',
     ]
 
 
@@ -912,7 +997,19 @@ def _render_descriptor_help(desc: AnalysisHelpDescriptor) -> str:
         lines.append(f"  Query behavior: {desc.query_behavior}")
 
     if callable_obj is not None:
-        guidance = _extract_guidance(inspect.getdoc(callable_obj) or "")
+        doc = inspect.getdoc(callable_obj) or ""
+        for section, title in (
+            ("Args:", "Parameters"),
+            ("Constraints:", "Input rules"),
+            ("Raises:", "Failures"),
+        ):
+            entries = _compact_section(doc, section)
+            if entries:
+                lines.extend(("", f"  {title}:"))
+                lines.extend(f"    {entry}" for entry in entries)
+        if isinstance(callable_obj, type) and issubclass(callable_obj, BaseModel):
+            lines.extend(("", "  Fields:", *_model_field_lines(callable_obj)))
+        guidance = _extract_guidance(doc)
         if guidance:
             lines.append("")
             lines.append("  Guidance:")
@@ -1301,19 +1398,23 @@ def _render_type_help(type_name: str) -> str:
         lines.append("    subject_identity: governed identity tuple")
         lines.append("")
 
-    model_fields = getattr(type_obj, "model_fields", None)
-    if isinstance(model_fields, dict) and model_fields:
-        lines.append("  Fields:")
-        for field_name in model_fields:
-            lines.append(f"    {field_name}")
-        lines.append("")
-    elif type_name == "FrameSummaryEntry":
-        from dataclasses import fields
-
+    if isinstance(type_obj, type) and issubclass(type_obj, BaseModel):
+        lines.extend(("  Fields:", *_model_field_lines(type_obj), ""))
+    elif is_dataclass(type_obj):
         lines.append("  Fields:")
         for field in fields(type_obj):
-            lines.append(f"    {field.name}")
+            if not field.name.startswith("_"):
+                lines.append(f"    {field.name}: {_bound_field_annotation(type_obj, field.type)}")
         lines.append("")
+
+    guidance = _extract_guidance(doc)
+    if isinstance(type_obj, type) and not guidance:
+        for base in type_obj.__mro__[1:]:
+            guidance = _extract_guidance(inspect.getdoc(base) or "")
+            if guidance:
+                break
+    if guidance:
+        lines.extend(("  Guidance:", *(f"    {line}" for line in guidance.splitlines()), ""))
 
     # Properties (from registry allowlist, including inherited BaseFrame
     # for frame subtypes only).
@@ -1333,6 +1434,8 @@ def _render_type_help(type_name: str) -> str:
     # Methods (from registry allowlist, including inherited BaseFrame
     # for frame subtypes only).
     methods = tuple(dict.fromkeys((*methods, *PUBLIC_FRAME_METHODS.get(type_name, ()))))
+    if isinstance(type_obj, type) and issubclass(type_obj, RenderableResult):
+        methods = tuple(dict.fromkeys((*methods, "show", "render")))
     if isinstance(type_obj, type) and type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
         base_methods = PUBLIC_FRAME_METHODS.get("BaseFrame", ())
         methods = tuple(dict.fromkeys((*methods, *base_methods)))
@@ -1353,6 +1456,12 @@ def _render_type_help(type_name: str) -> str:
                 producers.append(desc.help_target)
         if isinstance(desc, BoundaryCapability) and desc.output_family == type_name:
             producers.append(desc.help_target)
+        if (
+            isinstance(desc, (ReadCapability, ConstructorCapability))
+            and desc.output_type
+            and type_name in (part.strip() for part in desc.output_type.split("|"))
+        ):
+            producers.append(desc.help_target)
 
     if producers:
         lines.append("  Produced by:")
@@ -1363,7 +1472,9 @@ def _render_type_help(type_name: str) -> str:
     recovery_paths = [
         desc.help_target
         for desc in REGISTRY.descriptors
-        if isinstance(desc, RecoveryCapability) and desc.restored_family == type_name
+        if isinstance(desc, RecoveryCapability)
+        and desc.restored_family
+        and type_name in (part.strip() for part in desc.restored_family.split("|"))
     ]
     if recovery_paths:
         lines.append("  Acquired or recovered by:")
@@ -1378,7 +1489,7 @@ def _render_type_help(type_name: str) -> str:
             lines.append(f"    {c}")
         lines.append("")
 
-    lines.append(f'  Call marivo.help("analysis.{type_name}") for updates.')
+    # The current page is the complete static contract, not a self-referential route.
 
     text = "\n".join(lines)
     return enforce_budget(

@@ -152,8 +152,22 @@ The target progressive-disclosure topology for those layers is specified in
   Session-bound receiver acquisition (`session = mv.session.get_or_create(...)`,
   then `catalog = session.catalog`) so no page can imply a module-level
   `mv.catalog`. Focused `marivo.help("analysis.<target>")` owns
-  the live signature, exact inputs and outputs, constraints and effects, and at
-  most one minimal example. Frames and results own dynamic guidance:
+  the live signature, exact inputs and outputs, constraints and effects, and
+  exactly one minimal example for each callable. Parameter semantics and failure
+  conditions come from the owning callable's docstring; model fields also expose
+  their closed types, defaults, and validation bounds. Public result type pages
+  include inherited dataclass fields, consumption methods, and registered
+  acquisition paths. Paging types explain `items`, `limit`, `has_more`, and
+  `next_cursor`; a cursor continues the same producer and filters. Recovery
+  leaves distinguish bound Session context, Run ids, and Artifact refs.
+  `AbsoluteWindow` describes its own constructor, while ordinary analysis uses
+  `mv.time_scope(start=..., end=...)` and passes grain to `observe` separately.
+  These additions do not change the root topology or increase the four-dimensional
+  budgets: exact callable pages allow 104 lines, 9,000 codepoints, 10 outgoing
+  routes, and one example; public type pages allow 72 lines, 7,000 codepoints,
+  10 outgoing routes, and no examples. Budgets include the final imports and
+  environment header. Remove redundant guidance before adding necessary facts;
+  never truncate required contracts to fit. Frames and results own dynamic guidance:
   `show()` describes an artifact's current state and only state-dependent
   continuation hints; `contract()` describes the complete mechanically valid
   next actions from where it is now. Readable operation labels use registry-owned

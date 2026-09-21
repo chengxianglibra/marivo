@@ -2100,12 +2100,14 @@ def test_every_exact_callable_docstring_example_parses_and_binds_live_signature(
 
     for descriptor in REGISTRY.descriptors:
         callable_obj = _resolve_callable(descriptor)
-        if callable_obj is None:
+        if not callable(callable_obj):
             continue
         example = _extract_example(inspect.getdoc(callable_obj) or "")
-        if example is None:
-            continue
-        tree = ast.parse(clean(example))
+        examples = ([example] if example else []) + [
+            item.code for item in descriptor.additional_examples
+        ]
+        assert len(examples) == 1, descriptor.help_target
+        tree = ast.parse(clean(examples[0]))
         callable_name = getattr(callable_obj, "__name__", None)
         owned_calls = tuple(
             node

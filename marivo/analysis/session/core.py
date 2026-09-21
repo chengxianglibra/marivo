@@ -733,9 +733,12 @@ class Session(RenderableResult):
                 entries are rejected. Catalog and runtime roots may be
                 recursively composed, including nested catalog-derived metrics.
                 Temporal roots in one sequence must resolve to the same exact
-                time-dimension ref.
+                time-dimension ref. A selected OntologyMetricCandidate must be
+                passed alone; omit all scope/shape arguments, including explicit None.
             time_scope: One ``mv.time_scope(...)`` value (or exact catalog period scope).
                 The interval is half-open: start is inclusive and end is exclusive.
+                Required when grain or time_dimension is provided; otherwise omission
+                selects the unrestricted scope.
             grain: Optional unified ``mv.grain(...)`` or certified semantic grain. When
                 present, observe returns a time series or panel depending on ``dimensions``.
                 It must be no finer than the selected time dimension's declared
@@ -757,6 +760,7 @@ class Session(RenderableResult):
                 before any backend work when the prediction differs.
             cohort: Optional ready ``SubjectSet``. Membership is applied to every
                 metric leaf before aggregation through the governed subject path.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
 
         Raises:
             MetricNotFoundError: A catalog metric ref is unknown.
@@ -775,27 +779,16 @@ class Session(RenderableResult):
             >>> country = catalog.dimensions.get("sales.orders.country")
             >>> channel = catalog.dimensions.get("sales.orders.channel")
             >>> frame = session.observe(
-            ...     revenue,
+            ...     metrics=[revenue],
             ...     time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
-            ...     grain=mv.grain("day"),
-            ...     dimensions=[country],
-            ...     analysis_purpose="确认三季度按国家收入走势",
-            ... )
-            >>> frame.show()
-            >>> order_count = catalog.metrics.get("sales.order_count")
-            >>> report = session.observe(metrics=[revenue, order_count])
-            >>> report.show()
-            >>> # Filter to a subset before aggregation with slice_by:
-            >>> us_online_frame = session.observe(
-            ...     revenue,
-            ...     time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
-            ...     grain=mv.grain("day"),
+            ...     grain=mv.grain("day"), dimensions=[country],
             ...     slice_by={country: "US", channel: "online"},
             ... )
-            >>> us_online_frame.show()
-            >>> # Derived ratio division uses zero_division="null":
-            >>> # a present zero denominator/weight yields null (never +/-inf) and is
-            >>> # counted in frame.meta.quality_summary.zero_denominator_rows.
+
+        Guidance:
+            Derived ratio division uses zero_division="null": a present zero
+            denominator/weight yields null (never +/-inf), counted in
+            frame.meta.quality_summary.zero_denominator_rows.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.errors import (
@@ -993,6 +986,8 @@ class Session(RenderableResult):
                 schedule=..., unmatched=...)`` pairs working-day ordinals under
                 one certified schedule. Segmented frames continue to support only
                 ``window_bucket`` in v1.
+
+            analysis_purpose: Optional question-specific purpose persisted with the result.
 
         Guidance:
             Funnel comparison has one mechanically determined alignment:
@@ -1365,6 +1360,7 @@ class Session(RenderableResult):
             method: ``"pearson"``, ``"spearman"``, or ``"kendall"``.
             lag_range: Signed lags to explore for time-series or panel inputs
                 (e.g. ``range(-3, 4)``). Defaults to lag 0.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
 
         Raises:
             SemanticKindMismatchError: Inputs are not MetricFrames, or alignment
@@ -1460,6 +1456,7 @@ class Session(RenderableResult):
             interval_level: Confidence level for prediction intervals. Must be in (0, 1).
             measure_column: Public value column from ``history.value_columns``.
                 Defaults to the frame's unique metric value column.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
 
         Raises:
             ForecastShapeUnsupportedError: ``history`` is not a time_series / panel MetricFrame,
@@ -1572,6 +1569,7 @@ class Session(RenderableResult):
             alignment: Defaults to ``mv.window_bucket()``.
             sampling: Defaults to ``SamplingPolicy()`` (pairing inferred from shape).
             alpha: Significance level in (0, 0.5].
+            analysis_purpose: Optional question-specific purpose persisted with the result.
 
         Raises:
             SemanticKindMismatchError: Inputs are not MetricFrames, or differ in
@@ -2442,6 +2440,14 @@ class SessionDiscoverNamespace:
         default ``zscore`` uses a global mean/std baseline; ``seasonal_robust_zscore``
         uses a median/MAD baseline stratified by day-of-week, which resists an
         anomaly contaminating the baseline and avoids flagging weekly seasonality.
+
+        Args:
+            source: One single-metric time_series or panel MetricFrame.
+            value: Public numeric column to score; omit to use the default value column.
+            threshold: Absolute score cutoff; omit for the default in the Strategy section.
+            limit: Maximum retained candidates; None keeps all candidates.
+            strategy: Omit for zscore; seasonal_robust_zscore uses weekday median/MAD baselines.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover, validate_discover_admission
@@ -2497,6 +2503,13 @@ class SessionDiscoverNamespace:
         (|z| >= threshold); default 2.0. ``limit`` bounds the candidate count
         (top by |z|, default 50; ``None`` for unbounded); truncation is
         recorded in ``params``.
+
+        Args:
+            source: One time_series or panel DeltaFrame with at least four time buckets per eligible series.
+            value: Public numeric column to score; omit to use the default value column.
+            threshold: Absolute score cutoff; omit for the default in the Strategy section.
+            limit: Maximum retained candidates; None keeps all candidates.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover, validate_discover_admission
@@ -2556,6 +2569,13 @@ class SessionDiscoverNamespace:
             >>> country = session.catalog.dimensions.get("sales.orders.country")
             >>> candidates = session.discover.driver_axes(delta, search_space=[country])
             >>> candidates.show()
+
+        Args:
+            source: One DeltaFrame; missing search axes require exact replay under current semantic authority.
+            search_space: Explicit governed dimension entries/refs to examine.
+            value: Public numeric column to score; omit to use the default value column.
+            limit: Maximum retained candidates; None keeps all candidates.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import (
@@ -2631,6 +2651,14 @@ class SessionDiscoverNamespace:
             ...     frame, search_space=[country]
             ... )
             >>> candidates.show()
+
+        Args:
+            source: One DeltaFrame retaining governed dimensions for slice attribution.
+            search_space: Explicit governed dimension entries/refs to examine.
+            value: Public numeric column to score; omit to use the default value column.
+            threshold: Absolute score cutoff; omit for the default in the Strategy section.
+            limit: Maximum retained candidates; None keeps all candidates.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover, validate_discover_admission
@@ -2686,6 +2714,13 @@ class SessionDiscoverNamespace:
         ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 2.0.
         ``limit`` bounds the candidate count (top by |score|, default 50;
         ``None`` for unbounded); truncation is recorded in ``params``.
+
+        Args:
+            source: One time_series or panel MetricFrame or DeltaFrame.
+            value: Public numeric column to score; omit to use the default value column.
+            threshold: Absolute score cutoff; omit for the default in the Strategy section.
+            limit: Maximum retained candidates; None keeps all candidates.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover, validate_discover_admission
@@ -2747,6 +2782,14 @@ class SessionDiscoverNamespace:
             ...     frame, peer_scope=[region]
             ... )
             >>> candidates.show()
+
+        Args:
+            source: One segmented or panel MetricFrame.
+            peer_scope: Governed dimension entries/refs defining comparable peers; omit for all non-time axes.
+            value: Public numeric column to score; omit to use the default value column.
+            threshold: Absolute score cutoff; omit for the default in the Strategy section.
+            limit: Maximum retained candidates; None keeps all candidates.
+            analysis_purpose: Optional question-specific purpose persisted with the result.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover, validate_discover_admission

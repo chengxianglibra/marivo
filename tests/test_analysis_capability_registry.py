@@ -546,12 +546,21 @@ def test_registry_additional_examples_are_owned_by_bounded_capabilities_only() -
         for descriptor in REGISTRY.descriptors
         if descriptor.additional_examples
     }
-    assert tuple(owners) == (
+    from marivo.introspection.live.reflect import import_registered_callable
+
+    assert {
         "MetricFrame.coverage",
         "AttributionFrame.at_resolution",
-    )
-    assert len(owners["AttributionFrame.at_resolution"]) == 1
-    assert len(owners["MetricFrame.coverage"]) == 1
+        "SamplingPolicy",
+    } <= owners.keys()
+    for target, examples in owners.items():
+        assert len(examples) == 1, target
+        descriptor = REGISTRY.by_id(target)
+        assert descriptor.callable_path is not None
+        function = import_registered_callable(descriptor.callable_path)
+        assert callable(function), target
+        # Registry examples fill missing owner examples; they never duplicate one.
+        assert not re.search(r"^Example:$", inspect.getdoc(function) or "", re.MULTILINE), target
 
 
 def test_operator_capability_defaults() -> None:

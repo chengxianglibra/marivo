@@ -66,6 +66,12 @@ class AbsoluteWindow(BaseModel):
     dimension.  For date-only strings like ``"2026-07-31"``, the exclusive
     end means data from that date is **not** included.  To include all of
     July, use ``end="2026-08-01"``.
+
+    Guidance:
+        This is the AbsoluteWindow constructor, not mv.time_scope.
+        For ordinary analysis use mv.time_scope(start=..., end=...) and pass
+        grain separately to session.observe(grain=...). Execution-only snapshot
+        bindings are not authored inputs.
     """
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
