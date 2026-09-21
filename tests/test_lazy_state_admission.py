@@ -296,7 +296,12 @@ def test_definition_membership_gate_judges_every_authority() -> None:
 
 
 def test_median_node_admission_keys_on_the_owning_metric_authority() -> None:
-    """A fold-time median Metric owns no distribution authority and stays rejected."""
+    """A fold-time median Metric owns no distribution authority and stays rejected.
+
+    With qualified ``last`` folds the status-fold check passes, so the node
+    gate itself must reject the authority-less median aggregate; a per-any
+    distribution qualification alone must not admit it.
+    """
     registry, sidecar = registry_for(Path("state-admission.duckdb"))
     metrics = dict(registry.metrics)
     metrics["sales.revenue"] = replace(metrics["sales.revenue"], aggregation="median")
@@ -320,6 +325,15 @@ def test_median_node_admission_keys_on_the_owning_metric_authority() -> None:
     assert (
         scalar_reason(observed, supports_scalar_type)
         == "status-time folds require additional temporal-state qualification"
+    )
+    assert (
+        scalar_reason(
+            observed,
+            supports_scalar_type,
+            distributions=frozenset({"linear_interpolation"}),
+            status_folds=frozenset({"last"}),
+        )
+        is not None
     )
 
 
