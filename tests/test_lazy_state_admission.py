@@ -112,8 +112,8 @@ def _scalar_reason(dataset: LogicalDataset) -> str | None:
     return scalar_reason(dataset, supports_scalar_type)
 
 
-def test_empty_set_keeps_the_membership_rejection_verbatim() -> None:
-    """An empty qualification set keeps the historical membership rejection verbatim."""
+def test_empty_set_keeps_the_membership_rejection() -> None:
+    """An empty set keeps the outcome rejected; the text is the shape-specific diagnostic."""
     registry, sidecar = make_distinct_registry(Path("state-admission.duckdb"))
     observed = _sources(registry, sidecar).observe(ref.metric("sales.distinct_buyers"))
     assert membership_part_authorities(observed.row_contract)
@@ -122,8 +122,8 @@ def test_empty_set_keeps_the_membership_rejection_verbatim() -> None:
     )
 
 
-def test_empty_set_keeps_the_distribution_rejection_verbatim() -> None:
-    """An empty qualification set keeps the historical distribution rejection verbatim."""
+def test_empty_set_keeps_the_distribution_rejection() -> None:
+    """An empty set keeps the outcome rejected; the text is the shape-specific diagnostic."""
     registry, sidecar = make_distribution_registry(Path("state-admission.duckdb"))
     observed = _sources(registry, sidecar).observe(ref.metric("sales.revenue"))
     assert distribution_part_authorities(observed.row_contract)
