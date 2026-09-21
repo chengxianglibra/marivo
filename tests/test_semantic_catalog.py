@@ -233,6 +233,7 @@ def test_entity_details_fields():
         source=TableSource(table="orders", database=None),
         primary_key=("order_id",),
         versioning=None,
+        definition_form="direct",
     )
     assert d.datasource.path == "warehouse"
     assert d.datasource.name == "warehouse"

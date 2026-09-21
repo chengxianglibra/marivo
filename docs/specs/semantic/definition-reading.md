@@ -19,7 +19,10 @@ marivo.help("semantic.SemanticDefinition")
 ```
 
 Metric, Measure, Dimension and TimeDimension Details expose `definition`.
-Other Details kinds have no computation definition. A definition is an immutable
+Other Details kinds have no computation definition; an expression entity's
+normalized body display is disclosed on its Details as bounded
+`definition_form`/`expression_display` fields with the same no-execution and
+redaction guarantees, not as a `definition` node. A definition is an immutable
 returned result containing `ref`, `catalog_definition_fingerprint`, `node`,
 `source_location`, and `temporal`. It follows the bounded repr/show/render family.
 `to_dict()` returns a fresh JSON-safe mapping, never a generic Details/IR export.
