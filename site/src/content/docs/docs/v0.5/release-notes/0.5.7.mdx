@@ -1,0 +1,32 @@
+---
+slug: docs/v0.5/release-notes/0.5.7
+title: Marivo 0.5.7
+description: Release notes for Marivo 0.5.7.
+---
+
+Marivo 0.5.7 adds persistent semantic domain scopes for analysis Sessions and reduces semantic loading and local telemetry overhead.
+
+## Highlights
+
+- Create a scoped Session with `mv.session.get_or_create("sales-review", domains="sales")`, or pass a non-empty sequence of domain names.
+- Session reopening, resume, and cold artifact recovery reuse the saved domain scope. An explicitly different scope fails before activation and reports the existing and requested sets.
+- Semantic catalog name indexing now groups entries in one pass, avoiding repeated scans during loading.
+
+## Changed
+
+- Default local telemetry records selected operations and failures, reducing events from successful lightweight reads, declarations, and delegated calls.
+- Set `MARIVO_TELEMETRY=full` or `[telemetry].enabled = "full"` for broad diagnostic coverage. The existing `on` and `off` settings remain available.
+- New telemetry records use schema v3. Consumers of local event files should select the appropriate schema version; existing records are not migrated.
+- Sessions created without a domain scope continue to load all domains. Omit `domains` when reopening to retain the saved scope.
+
+## Documentation
+
+- English and Chinese analysis workflow and telemetry references describe Session scopes and the revised event modes.
+
+## Installation
+
+~~~bash
+pip install --upgrade marivo==0.5.7
+~~~
+
+Marivo 0.5.7 requires Python 3.10 or newer.

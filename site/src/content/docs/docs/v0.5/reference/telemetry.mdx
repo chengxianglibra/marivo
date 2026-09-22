@@ -1,0 +1,94 @@
+---
+slug: docs/v0.5/reference/telemetry
+title: Local telemetry
+description: Control the local usage records written by a Marivo project.
+---
+
+## Understand local telemetry
+
+Marivo writes OpenTelemetry-shaped JSONL events to UTC-dated files in the
+project state directory:
+
+```text
+.marivo/telemetry/events-2026-07-29.000.jsonl
+```
+
+The final three digits are a size segment. Marivo starts a new segment when the
+current file would grow beyond 128 MiB. The limit is approximate when multiple
+processes append concurrently.
+
+Marivo retains 14 UTC calendar days of managed event files. On the first write
+of each UTC day, it also removes the oldest historical segments until historical
+telemetry is at most 1 GiB. Files for the current UTC day are never removed by
+that cleanup. A legacy `.marivo/telemetry/events.jsonl` file from an earlier
+Marivo version is left untouched; archive or remove it explicitly after deciding
+whether its events are still needed.
+
+Telemetry schema v3 records selected public operations by default. The read-only
+`marivo doctor` command is deliberately not instrumented and never creates local
+state or telemetry. In the default `on` mode, semantic load, datasource connection
+and live reads, and analysis execution write a correlated pair:
+
+- `marivo.operation.started`
+- `marivo.operation.completed`
+
+The pair shares an operation ID. Session lifecycle changes, datasource
+registration/removal, and CLI init write only a completed event. Selected
+lightweight reads, Help, and authoring declarations write only on failure.
+Analysis constructors and semantic references are omitted even when they fail;
+successful catalog lookups and delegated calls are also omitted. Failed
+delegated calls link to a recorded parent when one exists.
+Completed events include status, duration, stable structured error and repair
+fields, or a bounded result summary. Expensive operations may also include
+validation, execution, persistence, and evidence phase durations.
+The `marivo.operation.origin` attribute distinguishes top-level `explicit`
+calls from `delegated` calls and declarations executed during `internal_load`.
+
+Session-bound events can include the persisted `session.question`. Analysis
+operations include `analysis_purpose` when supplied, and `md.raw_sql(...)`
+includes its required `reason`. Completed session acquisition events record
+whether the session was created and whether an explicit requested question was
+applied as the current value; omitting `question` preserves the persisted value.
+
+Input summaries can include canonical metric, dimension, datasource, semantic,
+and artifact identifiers together with counts, types, options, limits, and
+fingerprints. String collections that are not defined identifier collections,
+including guardrails and datasource client tags, include only count and item
+types. Recorded artifact reads such as `to_pandas()` include the receiver
+artifact/ref and producing job so consumers can connect a result to its later
+use. In the opt-in `full` mode, successful `show()` and `contract()` reads are
+also recorded. Result summaries can include artifact and job
+identifiers, content hash, result kind and status, row and issue counts, cache
+state, truncation, and evidence status. Marivo never writes credentials,
+resolved secrets, datasource hosts, DSNs, SQL text, filesystem paths, slice
+values, frame row values, free-text collection items, arbitrary object
+representations, or exception messages to telemetry.
+
+The legacy `events.jsonl` file can contain schema v1 lines after an upgrade.
+Marivo does not migrate that file or existing v2 records in dated files.
+Consumers reading retained history should scan the dated `events-*.jsonl`
+files and, when needed, read the legacy file separately. New records have
+`marivo.event.schema_version` equal to `3`.
+
+These events stay local. Marivo does not upload them. The raw session question,
+analysis purpose, and raw-SQL reason are stored in the local event file; review
+that file before sharing project state outside your environment.
+
+Disable local telemetry for one process:
+
+```bash
+MARIVO_TELEMETRY=off marivo init
+```
+
+Set a project default in `marivo.toml`:
+
+```toml
+[telemetry]
+enabled = "off" # "on", "off", or "full"
+```
+
+`MARIVO_TELEMETRY=on|off|full` overrides `[telemetry].enabled` for the current
+process. If neither is set, local telemetry defaults to `"on"`. Use `"full"`
+only for a bounded diagnostic run: it restores broad v2-style paired coverage,
+including successful lightweight calls, while writing v3 records. It can
+produce substantially more events.

@@ -122,6 +122,8 @@ alias. For every frame, `row_count == shape[0]`.
 
 ## Open a session
 
+Pass `domains="sales"` or `domains=["sales", "finance"]` to fix a new Session's semantic loading scope. Reopening without `domains`, resuming, and cold artifact recovery reuse the saved scope. An explicitly different set fails before activation and reports both sets. Sessions created without a scope load all domains.
+
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
