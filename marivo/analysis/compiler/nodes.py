@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Literal
 import ibis.expr.types as ir
 
 from marivo.analysis.datasets.handles import CanonicalValue
-from marivo.analysis.observation.sampling import EntitySamplingPolicy
 from marivo.analysis.observation.temporal import TemporalExecution
 from marivo.analysis.operators.candidate_contracts import CandidateDefinition
 from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
@@ -58,19 +57,6 @@ class RetainedRelationSpec:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class CompiledSampleFence:
-    """One predeclared, action-owned physical realization of eligible Entity rows."""
-
-    relation_name: str
-    expression: ir.Table
-    policy: EntitySamplingPolicy
-    population_definition_fingerprint: str
-    target_population_definition_fingerprint: str
-    identity_columns: tuple[str, ...]
-    root_identity: int
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class CompiledRelationFence:
     """One source-private realization shared by scoring and scalar validation."""
 
@@ -87,7 +73,7 @@ class CompiledDataset:
     validations: tuple[CompiledValidation, ...]
     primary_columns: tuple[str, ...]
     retained_parts: tuple[RetainedPartSpec | RetainedRelationSpec, ...]
-    preparations: tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...] = ()
+    preparations: tuple[CompiledValidation | CompiledRelationFence, ...] = ()
     attribution_proof: ir.Table | None = None
     numerical_input: Literal["distribution_coalitions"] | None = None
     association_proof: ir.Table | None = None

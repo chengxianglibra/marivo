@@ -14,7 +14,6 @@ import ibis.expr.types as ir
 import pyarrow as pa
 from sqlglot import expressions as sge
 
-from marivo.analysis.compiler.nodes import CompiledSampleFence
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
@@ -531,12 +530,6 @@ class PostgresExecutionAdapter(ObservedExecution):
         format: str,
     ) -> ir.Table:
         raise self._error("unsupported_operation", detail="read_json")
-
-    def sample_sql(self, fence: CompiledSampleFence) -> str:
-        raise self._error("unsupported_operation", detail="sample_sql")
-
-    def sample_validation_sql(self, fence: CompiledSampleFence) -> str:
-        raise self._error("unsupported_operation", detail="sample_validation_sql")
 
     def resolve_coverage(
         self,

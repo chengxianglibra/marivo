@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import replace
 
 from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
@@ -18,7 +17,6 @@ from marivo.analysis.materialization.contracts import (
     ComparisonInputAuthority,
     MaterializationContract,
     PopulationAuthority,
-    SamplingRealization,
     StorageReceipt,
     finding_extractor,
     finding_policy,
@@ -37,8 +35,6 @@ from marivo.analysis.observation.contracts import (
     scope_payload,
     semantic_dependency_digest,
 )
-from marivo.analysis.observation.population_sample import PopulationSamplePayload
-from marivo.analysis.observation.sampling import EntitySamplingPolicy
 
 
 def materialization_contract(
@@ -77,18 +73,7 @@ def materialization_contract(
         finding_extractor_version=1,
         validation_output_contract_ids=(registration.validation_id,),
         retained_private_state_contract_ids=required_retained_contracts(
-            dataset.row_contract,
-            registration.retained_contract_ids,
-            sampled=(inherited is not None and inherited.sampling_execution is not None)
-            or any(item.sampling_execution is not None for item in input_descriptors)
-            or any(
-                isinstance(item.payload, PopulationSamplePayload)
-                or (
-                    isinstance(item.payload, PopulationPayload)
-                    and item.payload.sampling is not None
-                )
-                for item in logical_roots(dataset)
-            ),
+            dataset.row_contract, registration.retained_contract_ids
         ),
         finding_policy_id=finding_policy(dataset.row_contract, registration.producer_id),
     )
@@ -99,11 +84,9 @@ def make_descriptor(
     materialization: MaterializationContract,
     storage: DatasetWriteResult[StorageReceipt],
     validations: tuple[tuple[str, int], ...],
-    sampling: tuple[SamplingRealization, ...] = (),
     *,
     inherited: ArtifactDescriptor | None = None,
     input_descriptors: tuple[ArtifactDescriptor, ...] = (),
-    sampling_by_root: Mapping[int, SamplingRealization] | None = None,
 ) -> ArtifactDescriptor:
     current_root = dataset._root
     if not isinstance(current_root, LogicalRootHandle):
@@ -128,10 +111,8 @@ def make_descriptor(
             materialization,
             storage,
             validations,
-            sampling,
             inherited=inherited,
             input_descriptors=input_descriptors,
-            sampling_by_root=sampling_by_root,
         )
         return replace(
             paired,
@@ -144,10 +125,8 @@ def make_descriptor(
             materialization,
             storage,
             validations,
-            sampling,
             inherited=inherited,
             input_descriptors=input_descriptors,
-            sampling_by_root=sampling_by_root,
         )
     from marivo.analysis.operators.contracts import comparison_basis
 
@@ -167,8 +146,6 @@ def make_descriptor(
         )
         else None
     )
-    retained_inputs = (inherited,) if inherited is not None else input_descriptors
-    _validate_sampling(roots, sampling, retained_inputs)
     if inherited is not None:
         population_definition = (
             dataset.definition_fingerprint
@@ -211,7 +188,7 @@ def make_descriptor(
                 definition_fingerprint=population_definition,
                 validation_results=validations,
             ),
-            sampling_execution=sampling or None,
+            sampling_execution=None,
             operator_implementation_versions=tuple(
                 dict.fromkeys(
                     (
@@ -252,7 +229,7 @@ def make_descriptor(
             bounded_lineage=dataset._lineage,
             semantic_dependency_digest=semantic_dependency_digest(dataset),
             population_authority=selection_authority,
-            sampling_execution=sampling or None,
+            sampling_execution=None,
             operator_implementation_versions=tuple(
                 (name, 1) for name in dict.fromkeys(root.operator_id for root in roots)
             ),
@@ -370,7 +347,7 @@ def make_descriptor(
             version_selection=_version_selection_payload(payload.version_selection),
             validation_results=validations,
         ),
-        sampling_execution=sampling or None,
+        sampling_execution=None,
         operator_implementation_versions=tuple(
             (name, 1) for name in dict.fromkeys(root.operator_id for root in roots)
         ),
@@ -385,63 +362,6 @@ def make_descriptor(
         ),
         comparison_basis=basis,
     )
-
-
-def _sample_policy(root: LogicalRootHandle) -> tuple[EntitySamplingPolicy, str] | None:
-    payload = root.payload
-    if isinstance(payload, PopulationSamplePayload):
-        return payload.policy, payload.target_population_definition_fingerprint
-    if (
-        isinstance(payload, PopulationPayload)
-        and payload.sampling is not None
-        and payload.target_population_definition_fingerprint is not None
-    ):
-        return payload.sampling, payload.target_population_definition_fingerprint
-    return None
-
-
-def _validate_sampling(
-    roots: tuple[LogicalRootHandle, ...],
-    sampling: tuple[SamplingRealization, ...],
-    retained_inputs: tuple[ArtifactDescriptor, ...],
-) -> None:
-    inherited = tuple(
-        receipt for item in retained_inputs for receipt in item.sampling_execution or ()
-    )
-    sampled_roots = tuple(root for root in roots if root.operator_id == "population.sample")
-    if inherited and sampled_roots:
-        raise MaterializationError(
-            expected="one sampling call on an unsampled Population",
-            received="a sampling request after retained sampling authority",
-            repair="Construct a new sample branch from the unsampled Population.",
-            stage="publication",
-        )
-    if sampling[: len(inherited)] != inherited or len(sampling) != len(inherited) + len(
-        sampled_roots
-    ):
-        raise MaterializationError(
-            expected="the exact inherited sampling receipts followed by each authored realization",
-            received="missing, altered or additional sampling execution facts",
-            repair="Execute the complete sampled Population through its registered physical fence.",
-            stage="publication",
-        )
-    for ordinal, (root, receipt) in enumerate(
-        zip(sampled_roots, sampling[len(inherited) :], strict=True), start=len(inherited)
-    ):
-        request = _sample_policy(root)
-        if request is None or (
-            receipt.ordinal != ordinal
-            or receipt.population_definition_fingerprint != root.definition_fingerprint
-            or receipt.target_population_definition_fingerprint != request[1]
-            or receipt.target_rows != request[0].target_rows
-            or receipt.seed != request[0].seed
-        ):
-            raise MaterializationError(
-                expected="one exact realized receipt for every authored sampling requirement",
-                received="inconsistent sampling execution facts",
-                repair="Execute the complete sampled Population through its registered physical fence.",
-                stage="publication",
-            )
 
 
 def _selection_population_authority(
@@ -505,11 +425,9 @@ def _delta_descriptor(
     materialization: MaterializationContract,
     storage: DatasetWriteResult[StorageReceipt],
     validations: tuple[tuple[str, int], ...],
-    sampling: tuple[SamplingRealization, ...],
     *,
     inherited: ArtifactDescriptor | None,
     input_descriptors: tuple[ArtifactDescriptor, ...],
-    sampling_by_root: Mapping[int, SamplingRealization] | None,
 ) -> ArtifactDescriptor:
     """Bind both operand authorities without borrowing the first input's meaning."""
     from marivo.analysis.domains.event_comparison import FunnelComparePayload
@@ -589,37 +507,12 @@ def _delta_descriptor(
         operands: list[ComparisonInputAuthority] = []
         for role, operand in zip(("current", "baseline"), comparison._inputs, strict=True):
             refs = tuple(item.state.artifact_ref.ref for item in artifact_inputs(operand))
-            sampled_roots = (
-                tuple(
-                    root
-                    for root in logical_roots(operand)
-                    if root.operator_id == "population.sample"
-                )
-                if isinstance(operand, LogicalDataset)
-                else ()
-            )
-            retained_sampling = tuple(
-                receipt for ref in refs for receipt in (selected[ref].sampling_execution or ())
-            )
-            logical_sampling: list[SamplingRealization] = []
-            for root in sampled_roots:
-                receipt = None if sampling_by_root is None else sampling_by_root.get(id(root))
-                if receipt is None:
-                    raise MaterializationError(
-                        expected="one exact realized receipt per sampled logical input identity",
-                        received="missing sampled comparison operand authority",
-                        repair="Bind both sampled branches to their realized execution receipts.",
-                        stage="publication",
-                    )
-                logical_sampling.append(receipt)
-            receipts = (*retained_sampling, *logical_sampling)
             operands.append(
                 ComparisonInputAuthority(
                     "current" if role == "current" else "baseline",
                     operand.definition_fingerprint,
                     authority(operand),
-                    tuple(replace(item, ordinal=index) for index, item in enumerate(receipts))
-                    or None,
+                    None,
                     refs,
                     comparison_basis(operand),
                 )
@@ -663,7 +556,7 @@ def _delta_descriptor(
         population_authority=replace(
             inputs[0].population_authority, validation_results=validations
         ),
-        sampling_execution=sampling or None,
+        sampling_execution=None,
         operator_implementation_versions=tuple(
             dict.fromkeys(
                 (

@@ -86,8 +86,6 @@ from marivo.analysis.observation.predicates import lt as lt
 from marivo.analysis.observation.predicates import lte as lte
 from marivo.analysis.observation.predicates import not_ as not_
 from marivo.analysis.observation.predicates import not_eq as not_eq
-from marivo.analysis.observation.sampling import EntitySamplingPolicy as EntitySamplingPolicy
-from marivo.analysis.observation.sampling import engine_sample as engine_sample
 from marivo.analysis.operators.association import (
     LogicalAssociationDataset as LogicalAssociationDataset,
 )
@@ -175,7 +173,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "LogicalLifecycleDataset",
     "MaterializedLifecycleDataset",
     "AnalysisPredicate",
-    "EntitySamplingPolicy",
     "ForecastHorizon",
     "ForecastModel",
     "WindowBucketAlignment",
@@ -216,7 +213,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "all_of",
     "any_of",
     "not_",
-    "engine_sample",
     "grain",
     "time_scope",
     "window_bucket",

@@ -214,43 +214,6 @@ def test_complete_players_and_other_survive_mapping_above_former_cap(
     assert sum(tuple(mask) == (True,) for mask in output.other_mask) == (0 if top_k is None else 1)
 
 
-@pytest.mark.parametrize("method", ["linear_interpolation@v1", "duckdb_tdigest@v1"])
-def test_shared_sampling_preserves_method_and_one_realization(
-    tmp_path: Path, method: QuantileMethod
-) -> None:
-    from marivo.analysis.observation.sampling import engine_sample
-    from marivo.refs import ref
-    from tests.lazy_distribution_fixtures import guard_distribution_transport
-
-    database = tmp_path / "warehouse.duckdb"
-    seed_distribution_database(database)
-    registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "sampling", target=LocalTarget())
-    source = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    population = source.population(ref.entity("sales.orders")).sample(
-        engine_sample(target_rows=7, seed=11)
-    )
-    metric = (
-        source.observe(quantile_metric(METRIC, method=method), population=population)
-        .with_dimensions(CHANNEL)
-        .aggregate()
-    )
-    with guard_distribution_transport():
-        result = metric.compare(metric).attribute(axes=(CHANNEL,)).execute()
-    assert result.to_pandas().contribution.sum() == pytest.approx(0.0)
-    record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.sampling_execution is not None
-    assert len(record.descriptor.sampling_execution) == 1
-    assert isinstance(record.descriptor.row_contract.family_semantics, AttributionSemantics)
-    assert record.descriptor.row_contract.family_semantics.approximation_class == (
-        "sampled_semantic_percentile" if method == "duckdb_tdigest@v1" else "sampled_population"
-    )
-    assert any(
-        name.startswith("attribution.distribution.coalitions")
-        for name, _ in record.descriptor.population_authority.validation_results
-    )
-
-
 @pytest.mark.parametrize("source_type", ["decimal", "float32"])
 @pytest.mark.parametrize("method", ["linear_interpolation@v1", "duckdb_tdigest@v1"])
 def test_numeric_source_types_replay_the_declared_float64_percentile(

@@ -40,7 +40,6 @@ from marivo.analysis.event import (
     step,
 )
 from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.ir import JsonSourceIR, SourceParamIR, TableColumnBindingIR, TableSourceIR
 from marivo.refs import ref
@@ -173,23 +172,6 @@ def test_shared_population_admission_preserves_exact_entity_and_metric_shape() -
             matching=first_per_subject(),
             population=foreign,
         )
-
-
-def test_sampling_authority_is_retained_and_not_reconstructed_from_occurrences() -> None:
-    sources = make_event_sources()
-    population = sources.population(ref.entity("sales.customers")).sample(
-        engine_sample(target_rows=2, seed=3)
-    )
-    dataset = sources.events.match(
-        pattern(),
-        cohort_window=WINDOW,
-        completion_through=THROUGH,
-        matching=first_per_subject(),
-        population=population,
-    )
-    assert payload(dataset).definition.sampling_authority == "sampled"
-    assert isinstance(dataset._root, LogicalRootHandle)
-    assert dataset._root.inputs[0].root is population._root
 
 
 def test_composite_subject_identity_preserves_key_order() -> None:

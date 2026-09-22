@@ -25,7 +25,6 @@ from marivo.analysis.event import first_per_subject, sequence, step
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     ArtifactRecord,
-    SamplingRealization,
     canonical_json,
     decode_descriptor,
     encode_descriptor,
@@ -33,7 +32,7 @@ from marivo.analysis.materialization.contracts import (
     parse_json,
     schema_fingerprint,
 )
-from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
+from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.event_publication import bind_event_summary
 from marivo.analysis.materialization.event_reducer_codec import (
     EventFunnelEvidenceSummary,
@@ -58,7 +57,6 @@ from marivo.analysis.materialization.storage import (
     write_local_dataset,
 )
 from marivo.analysis.observation.population import MaterializedPopulationDataset
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.subject import dropped_before
 from marivo.refs import ref
 from marivo.semantic.event import ParticipantRoleHandle
@@ -399,35 +397,6 @@ def test_selection_owns_complete_membership_and_rejects_uncertain_proof() -> Non
         action_port=NoIoActionPort(),
     )
     assert isinstance(recovered, MaterializedPopulationDataset)
-    for target, inherited in ((logical, None), (recovered, result)):
-        sampled = target.sample(engine_sample(target_rows=2, seed=17))
-        receipt = SamplingRealization(
-            0, sampled.definition_fingerprint, target.definition_fingerprint, 2, 17, 0, "a" * 64
-        )
-        contract = materialization_contract(sampled, inherited=inherited)
-        assert "population_sampling_state" in contract.retained_private_state_contract_ids
-        storage = DatasetWriteResult(result.storage_receipt, (), result.realized_schema, 0)
-        published = make_descriptor(sampled, contract, storage, (), (receipt,), inherited=inherited)
-        assert published.sampling_execution == (receipt,)
-        assert (
-            published.population_authority.definition_fingerprint == sampled.definition_fingerprint
-        )
-        assert (
-            published.population_authority.membership_scope
-            == result.population_authority.membership_scope
-        )
-        assert bind_selection_summary(published, summary).subject_selection_evidence == summary
-        for wrong in (
-            (),
-            (replace(receipt, target_rows=3),),
-            (
-                replace(
-                    receipt, target_population_definition_fingerprint=journey.definition_fingerprint
-                ),
-            ),
-        ):
-            with pytest.raises(MaterializationError):
-                make_descriptor(sampled, contract, storage, (), wrong, inherited=inherited)
     with pytest.raises(IntegrityError):
         selection_summary_from_proof(
             {**proof, "unknown_subject_count": 1},

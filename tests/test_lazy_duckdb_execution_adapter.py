@@ -307,7 +307,6 @@ def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
 ) -> None:
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.execution import Statement
-    from marivo.analysis.observation.sampling import engine_sample
     from marivo.refs import ref
     from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
@@ -316,9 +315,7 @@ def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
     registry, sidecar = make_execution_registry(database)
     runtime = DatasetRuntime.create(tmp_path, "exact-submissions")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    population = sources.population(ref.entity("sales.customers")).sample(
-        engine_sample(target_rows=3, seed=42)
-    )
+    population = sources.population(ref.entity("sales.customers"))
     logical = sources.observe(ref.metric("sales.revenue"), population=population).aggregate()
     original = DuckDBExecutionAdapter.submit
     submitted: list[tuple[str, str]] = []
@@ -335,8 +332,6 @@ def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
     assert sum(role == "primary" for role, _ in submitted) == 1
     assert {role for role, _ in submitted} >= {
         "primary",
-        "sampling_fence",
-        "sampling_validation",
         "validation_batch",
         "source_schema",
     }

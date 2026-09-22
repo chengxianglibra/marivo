@@ -36,7 +36,6 @@ from marivo.analysis.datasets.descriptors import (
     _StaticRowBound,
 )
 from marivo.analysis.domains.lifecycle_reducers import is_fragment_duration
-from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
     FileEntry,
     LocalReceipt,
@@ -100,24 +99,6 @@ class DatasetWriteResult(Generic[_ReceiptT]):
     retained_parts: tuple[RetainedPart, ...]
     realized_schema: DatasetSchema
     realized_row_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class SamplingStateRead:
-    sampling: tuple[codec.SamplingRealization, ...]
-    receipt: StorageReceipt
-
-
-def sampling_state_read(descriptor: codec.ArtifactDescriptor) -> SamplingStateRead | None:
-    """Select exact committed read authority without touching any Artifact backing."""
-    if descriptor.sampling_execution is None:
-        return None
-    selected = tuple(
-        part for part in descriptor.retained_parts if part.role == "population_sampling_state"
-    )
-    if len(selected) != 1:
-        _integrity("one retained sampling receipt binding", "missing sampling state")
-    return SamplingStateRead(descriptor.sampling_execution, selected[0].storage_receipt)
 
 
 def _fail(expected: str, received: str, *, stage: str = "output_validation") -> Never:
@@ -597,7 +578,6 @@ def write_local_dataset(
     row_set_contract: DatasetRowSetContract,
     parts: tuple[PartWriteSpec, ...] = (),
     independent_parts: tuple[IndependentPartWrite, ...] = (),
-    sampling: tuple[codec.SamplingRealization, ...] = (),
     source_key_validation: bool = False,
     event: Callable[[str], None],
     policy: StoragePolicy = _STORAGE_POLICY,
@@ -635,8 +615,6 @@ def write_local_dataset(
         not _ROLE.fullmatch(part.role) for part in parts
     ):
         _fail("unique bounded retained role names", "invalid retained role")
-    if sampling and any(part.role == "population_sampling_state" for part in parts):
-        _fail("one owned sampling-state role", "duplicate sampling state")
     validator = _RowValidator(
         row_contract, row_set_contract, source_key_validation=source_key_validation
     )
@@ -776,29 +754,6 @@ def write_local_dataset(
             directories += (directory,)
             row_counts += (part_count,)
             retained_specs += ((independent.role, independent_specs[independent.role], 1),)
-        if sampling:
-            directory = "parts/population_sampling_state"
-            target = staging / directory
-            _create_directory(target)
-            schema = pa.schema([pa.field("sampling_execution_digest", pa.string(), nullable=False)])
-            batch = pa.RecordBatch.from_arrays(
-                [pa.array([codec.digest(codec.sampling_payload(sampling))], type=pa.string())],
-                schema=schema,
-            )
-            sink = (target / "data.parquet").open("wb")
-            sinks.append(sink)
-            event("parquet_payload_create")
-            writer = pq.ParquetWriter(sink, schema, compression="zstd", write_page_checksum=True)
-            writers.append(writer)
-            writer.write_batch(batch)
-            writer.close()
-            writers.clear()
-            sink.close()
-            sinks.clear()
-            schemas.append(schema)
-            directories += (directory,)
-            row_counts += (1,)
-            retained_specs += (("population_sampling_state", "population_sampling_state", 1),)
         receipts: list[LocalReceipt] = []
         for index, (directory, schema, row_count) in enumerate(
             zip(directories, schemas, row_counts, strict=True)
@@ -863,58 +818,6 @@ def write_local_dataset(
         for sink in sinks:
             with suppress(BaseException):
                 sink.close()
-
-
-def validate_sampling_state(project_root: Path, state: SamplingStateRead | None) -> None:
-    """Verify the bounded retained receipt binding without source or membership reads."""
-    if state is None:
-        return
-    sampling = state.sampling
-    receipt = state.receipt
-    if not isinstance(receipt, LocalReceipt):
-        _integrity("the local sampling reader", "non-local sampling receipt")
-    root = _checked_path(project_root, Path(receipt.project_relative_path))
-    if len(receipt.file_manifest) != 1 or receipt.realized_row_count != 1:
-        _integrity("one bounded sampling state row", "invalid sampling state receipt")
-    entry = receipt.file_manifest[0]
-    if entry.relative_path != "data.parquet":
-        _integrity("the exact sampling state Parquet file", "invalid sampling backing")
-    data = _checked_path(project_root, root / "data.parquet")
-    manifest = _checked_path(project_root, root / "manifest.json")
-    schema = pa.schema([pa.field("sampling_execution_digest", pa.string(), nullable=False)])
-    try:
-        expected_manifest = _manifest_bytes(receipt.file_manifest)
-        if (
-            data.stat().st_size != entry.size_bytes
-            or manifest.stat().st_size != len(expected_manifest)
-            or manifest.read_bytes() != expected_manifest
-            or _hash_file(data) != receipt.bytes_hash
-            or entry.sha256 != receipt.bytes_hash
-            or receipt.schema_fingerprint
-            != hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
-            or receipt.realized_byte_count != entry.size_bytes + len(expected_manifest)
-        ):
-            _integrity(
-                "the exact retained sampling state receipt", "sampling state backing changed"
-            )
-        with pq.ParquetFile(data, page_checksum_verification=True) as parquet:
-            if (
-                parquet.metadata.num_rows != 1
-                or parquet.metadata.num_row_groups != 1
-                or not parquet.schema_arrow.equals(schema)
-            ):
-                _integrity("the bounded sampling state schema", "invalid sampling state rows")
-            value: object = parquet.read()["sampling_execution_digest"][0].as_py()
-            if value != codec.digest(codec.sampling_payload(sampling)):
-                _integrity(
-                    "sampling state bound to the exact execution receipt",
-                    "sampling receipt differs",
-                )
-    except (OSError, pa.ArrowException):
-        _integrity(
-            "accessible valid retained sampling state",
-            "sampling state backing is absent or corrupt",
-        )
 
 
 def _open_payload(

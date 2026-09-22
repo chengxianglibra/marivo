@@ -16,7 +16,6 @@ from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_local_fixtures import pandas_methods
@@ -34,68 +33,6 @@ def _show(dataset: MaterializedDataset) -> str:
     with redirect_stdout(io.StringIO()) as rendered:
         dataset.show()
     return rendered.getvalue()
-
-
-def test_sampled_membership_and_metric_checkpoints_keep_approximation_disclosure(
-    tmp_path: Path,
-) -> None:
-    fixture = setup_retained(tmp_path, "engine")
-    target = fixture.sources.population(CUSTOMERS)
-    sampled = target.sample(engine_sample(target_rows=3, seed=7))
-    # Sampling changes the definition and realization, not the meaning of one
-    # Entity row or the cardinality/ordering-only Core row-set descriptor.
-    assert sampled.row_contract == target.row_contract
-    assert sampled.row_set_contract == target.row_set_contract
-    assert sampled.definition_fingerprint != target.definition_fingerprint
-    membership = sampled.execute()
-    original = fixture.runtime.store.artifact(membership.state.artifact_ref.ref)
-    assert original is not None and original.descriptor.sampling_execution is not None
-    realization = original.descriptor.sampling_execution
-    assert realization[0].target_population_definition_fingerprint == target.definition_fingerprint
-    assert realization[0].realized_entity_count == 3
-    first = fixture.sources.observe(REVENUE, population=membership).execute()
-    first_record = fixture.runtime.store.artifact(first.state.artifact_ref.ref)
-    assert first_record is not None
-    assert first_record.descriptor.sampling_execution == realization
-    assert (
-        first_record.descriptor.population_authority.definition_fingerprint
-        == membership.definition_fingerprint
-    )
-    with duckdb.connect(str(fixture.database)) as backend:
-        backend.execute("DROP TABLE customers")
-    second = fixture.sources.observe(MEAN, population=first).execute()
-    second_record = fixture.runtime.store.artifact(second.state.artifact_ref.ref)
-    assert second_record is not None
-    assert second_record.descriptor.sampling_execution == realization
-    assert (
-        second_record.descriptor.population_authority.definition_fingerprint
-        == first.definition_fingerprint
-    )
-    assert fixture.runtime.statistics.sampling_fences == 0
-    assert not any('"customers"' in sql for _, sql in fixture.runtime.statistics.statements)
-    for dataset in (membership, first, second):
-        rendered = _show(dataset)
-        assert "Sampling: approximate Entity sample; realizations=1" in rendered
-        assert "target=3, realized=3, seeded=True" in rendered
-        assert "population inference" not in rendered
-        record = fixture.runtime.store.artifact(dataset.state.artifact_ref.ref)
-        assert record is not None
-        assert any(
-            part.role == "population_sampling_state" for part in record.descriptor.retained_parts
-        )
-    fixture.database.rename(tmp_path / "warehouse.offline")
-    reopened = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref)
-    before = snapshot(reopened)
-    recovered = reopened.artifact(second.state.artifact_ref)
-    recovered_record = reopened.store.artifact(second.state.artifact_ref.ref)
-    assert recovered_record is not None
-    assert recovered_record.descriptor.sampling_execution == realization
-    assert recovered.row_contract == second.row_contract
-    assert recovered.row_set_contract == second.row_set_contract
-    assert "Sampling: approximate Entity sample" in _show(recovered)
-    assert snapshot(reopened) == before
-    assert reopened.statistics.sampling_fences == reopened.statistics.primary_queries == 0
-    assert reopened.store.resources(reopened.session_ref) == ()
 
 
 def test_substantial_local_metric_checkpoint_folds_with_source_offline(

@@ -14,6 +14,23 @@ from marivo.analysis.operators.errors import CorrelationError
 from tests.lazy_correlation_fixtures import association_spec, reference
 
 
+@pytest.mark.parametrize("method", ["pearson", "spearman"])
+def test_explicit_source_correlation_matches_independent_reference(
+    method: CorrelationMethod,
+) -> None:
+    spec = association_spec(method, shape="entity")
+    left = [1.0, 2.0, 2.0, 5.0, 8.0]
+    right = [3.0, 1.0, 1.0, 4.0, 9.0]
+    backend = ibis.duckdb.connect()
+    try:
+        table = backend.create_table("source_pairs", {"revenue": left, "order_count": right})
+        result, _ = lower_correlate(table, spec, explicit_correlation=True)
+        frame = backend.to_pyarrow(result).to_pandas(types_mapper=pd.ArrowDtype)
+        assert frame.coefficient.iloc[0] == pytest.approx(reference(left, right, method))
+    finally:
+        backend.disconnect()
+
+
 @pytest.mark.parametrize("method", ["pearson", "spearman", "kendall"])
 def test_missing_buckets_are_not_row_offsets(method: CorrelationMethod) -> None:
     spec = association_spec(method, shape="time", lags=range(-2, 3))

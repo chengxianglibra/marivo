@@ -91,8 +91,6 @@ if TYPE_CHECKING:
     from marivo.analysis.observation.predicates import lte as lte
     from marivo.analysis.observation.predicates import not_ as not_
     from marivo.analysis.observation.predicates import not_eq as not_eq
-    from marivo.analysis.observation.sampling import EntitySamplingPolicy as EntitySamplingPolicy
-    from marivo.analysis.observation.sampling import engine_sample as engine_sample
     from marivo.analysis.operators.association import (
         LogicalAssociationDataset as LogicalAssociationDataset,
     )

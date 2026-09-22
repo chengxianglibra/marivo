@@ -12,7 +12,7 @@ from marivo.analysis.observation.population import LogicalPopulationDataset
 from marivo.semantic.state_model import ModelStateHandle
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_event_runtime_worker import assert_identity_private
-from tests.lazy_lifecycle_fixtures import END, MODEL, START, history, setup_lifecycle
+from tests.lazy_lifecycle_fixtures import END, MODEL, history, setup_lifecycle
 
 pytestmark = pytest.mark.runtime
 
@@ -86,19 +86,6 @@ def test_corrupt_required_part_is_not_reconstructed(tmp_path: Path, role: str) -
         logical.execute()
     assert "corrupt-private" not in str(caught.value)
     assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"]
-
-
-def test_complete_empty_selection_and_downstream_sample(tmp_path: Path) -> None:
-    from marivo.analysis.observation.sampling import engine_sample
-
-    runtime, sources, _ = setup_lifecycle(tmp_path, engine=True)
-    h = history(sources).execute()
-    selected = h.select_subjects(in_state(ModelStateHandle(MODEL, "done"), at=START)).execute()
-    assert selected.to_pandas().empty
-    sampled = selected.sample(engine_sample(target_rows=1, seed=42)).execute()
-    assert sampled.to_pandas().empty
-    record = runtime.store.artifact(sampled.state.artifact_ref.ref)
-    assert record is not None and record.evidence.finding_count == 0
 
 
 @pytest.mark.parametrize("method", ["distribution", "dwell", "selection"])

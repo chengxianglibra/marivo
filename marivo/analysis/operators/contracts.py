@@ -114,8 +114,6 @@ def comparison_basis(dataset: Dataset) -> str:
             else None
         )
         policies = () if inherited is None else inherited.sampling_definition
-        if payload.sampling is not None:
-            policies = (*policies, _canonical_digest(payload.sampling.identity_payload))
         return ComparisonBasisV1(
             membership_digest=dataset.definition_fingerprint, sampling_definition=policies
         ).to_json()

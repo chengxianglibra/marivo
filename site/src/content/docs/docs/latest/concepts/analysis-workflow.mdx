@@ -49,6 +49,7 @@ The example requires an authored, typed `sales.revenue` Metric and an admitted
 reference time axis. Windows are half-open: the end is excluded. `aggregate()`
 explicitly removes Entity identity; a time series also declares a time axis and
 grain. Population membership and observation windows are independent.
+Narrow Entity membership with `population.where(...)`; Analysis does not provide Entity sampling.
 
 ## Continue from exact meaning
 
@@ -160,7 +161,7 @@ server query stopped. Never automatically resubmit an ambiguously submitted acti
 ## Backend implementation boundaries
 
 Operators share one semantic contract and backend registration mechanism. DuckDB
-retains its existing sampling, Event/Lifecycle and Candidate implementations; its
+retains its existing Event/Lifecycle and Candidate implementations; its
 adapter owns temporary resources, macros and registration. Remote implementations
 must support read-only accounts and meet the same semantic requirements before
 activation. An unavailable implementation fails explicitly; it does not silently
@@ -213,7 +214,13 @@ MySQL, SQLite, Trino and ClickHouse. SQLite and MySQL deduplicate typed identity
 fields as scalar SQL columns and reconstruct the private Arrow struct. Exact
 linear-interpolation median and percentile are available on all five remote
 backends; remote `duckdb_tdigest@v1` and percentile status-time folds remain
-unqualified. Sampling, hidden-axis expanded attribution, Entity correlation,
+unqualified. Entity Pearson and Spearman correlation reduce complete private
+pairs on all five remote backends; Kendall uses its existing complete-input local
+continuation. Hidden-axis expanded additive and component attribution over
+complete non-Entity state is available on PostgreSQL, SQLite, Trino and
+ClickHouse. MySQL remains unqualified after its live composed query exceeded
+the qualification server's memory limit; expanded Top-K on Trino is also
+unqualified because its query exceeded the server stage limit. Sampling,
 Entity candidates, source driver screening and Event/Lifecycle remain unsupported.
 String-parser time axes and multi-unit buckets are enabled per
 backend, with the limits below. Unsupported shapes report a concrete reason; they
@@ -312,7 +319,7 @@ All required source columns must use Boolean, string, signed integers, float32,
 float64, date, timestamp/timestamptz (precision 0–6) or Decimal types. PostgreSQL CHAR is rejected
 because its trailing-space semantics differ from string; text/varchar remain supported. Decimal precision is at most 38,
 with scale from zero to precision; generic Decimal declarations also undergo
-physical metadata validation. String time parsing, sampling,
+physical metadata validation. String time parsing,
 composed Metrics and private-state methods are outside this subset.
 
 Use a read-only PostgreSQL account without write, CREATE or TEMP privileges.

@@ -31,7 +31,6 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.coordinates import functional_path, governed_path, path_entities
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
-from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
 from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
@@ -184,7 +183,6 @@ def _required_entities(
                 EventTimeToEventPayload,
                 EventSelectionPayload,
                 LifecycleSelectionPayload,
-                PopulationSamplePayload,
                 RetainedRowsPayload,
                 RetainedFoldPayload,
                 ComparePayload,

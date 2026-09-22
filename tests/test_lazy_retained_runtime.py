@@ -13,7 +13,6 @@ from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.predicates import gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators import registry as implementations
 from marivo.refs import ref
 from tests.lazy_retained_fixtures import setup_retained
@@ -94,27 +93,6 @@ def test_projection_does_not_read_unrelated_component_part(
     ]
     with pytest.raises(MaterializationError):
         checkpoint.metric(MEAN).aggregate().execute()
-    assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
-
-
-def test_sampled_engine_checkpoint_keeps_exact_realization_in_two_branches(tmp_path: Path) -> None:
-    fixture = setup_retained(tmp_path, "engine")
-    checkpoint = (
-        fixture.sources.population(CUSTOMERS).sample(engine_sample(target_rows=2, seed=3)).execute()
-    )
-    original = fixture.runtime.store.artifact(checkpoint.state.artifact_ref.ref)
-    assert original is not None and original.descriptor.sampling_execution is not None
-    identities = checkpoint.to_pandas()["entity_identity"].tolist()
-    with duckdb.connect(str(fixture.database)) as backend:
-        backend.execute("DROP TABLE customers")
-    for metric in (REVENUE, MEAN):
-        output = fixture.sources.observe(metric, population=checkpoint).execute()
-        record = fixture.runtime.store.artifact(output.state.artifact_ref.ref)
-        assert record is not None
-        assert record.descriptor.sampling_execution == original.descriptor.sampling_execution
-        assert output.to_pandas()["entity_identity"].tolist() == identities
-        assert fixture.runtime.statistics.sampling_fences == 0
-        assert not any('"customers"' in sql for _, sql in fixture.runtime.statistics.statements)
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 

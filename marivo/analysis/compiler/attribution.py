@@ -43,6 +43,11 @@ def _finite(value: ir.Value) -> ir.BooleanValue:
     )
 
 
+def _invalid_presence(presence: ir.BooleanValue, expected: ir.BooleanValue) -> ir.BooleanValue:
+    """Reject missing presence as well as unequal non-null Boolean flags."""
+    return presence.isnull() | expected.isnull() | (presence != expected).fill_null(False)
+
+
 def _close(left: ir.Value, right: ir.Value) -> ir.BooleanValue:
     a, b = _numeric(left.cast("float64")), _numeric(right.cast("float64"))
     tolerance = ibis.greatest(
@@ -245,7 +250,7 @@ def prepare_exact_partition(
         expected_presence = table.coordinate_presence != (
             "baseline_only" if side == "current" else "current_only"
         )
-        assertion(side + ".presence", table.filter(~presence.identical_to(expected_presence)))
+        assertion(side + ".presence", table.filter(_invalid_presence(presence, expected_presence)))
         for name, _, nullable in fold_state_columns(authority):
             column = table[delta_state_name(side, name)]
             invalid = ~presence & column.notnull()
@@ -372,7 +377,11 @@ def prepare_exact_partition(
 
 
 def lower_attribute(
-    table: ir.Table, spec: AttributeSpecV1, *, original: ir.Table | None = None
+    table: ir.Table,
+    spec: AttributeSpecV1,
+    *,
+    original: ir.Table | None = None,
+    scalar_masks: bool = False,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     """Compute every complete scope and resolution in the exact admitted engine."""
     prepared = prepare_exact_partition(table, spec, method=spec.method, original=original)
@@ -536,15 +545,27 @@ def lower_attribute(
                 for index, axis in enumerate(axes)
             }
         )
-        output["active_axis_mask"] = ibis.literal(
-            [index < size for index in range(len(axes))], type="array<boolean>"
-        )
-        output["other_mask"] = ibis.array(
-            [
-                result[masks[index]] if index < size else ibis.literal(False)
+        if scalar_masks:
+            output["active_axis_mask"] = ibis.literal(
+                "".join("1" if index < size else "0" for index in range(len(axes)))
+            )
+            other_bits = [
+                result[masks[index]].ifelse("1", "0") if index < size else ibis.literal("0")
                 for index in range(len(axes))
             ]
-        )
+            output["other_mask"] = other_bits[0]
+            for bit in other_bits[1:]:
+                output["other_mask"] = output["other_mask"] + bit
+        else:
+            output["active_axis_mask"] = ibis.literal(
+                [index < size for index in range(len(axes))], type="array<boolean>"
+            )
+            output["other_mask"] = ibis.array(
+                [
+                    result[masks[index]] if index < size else ibis.literal(False)
+                    for index in range(len(axes))
+                ]
+            )
         contribution_float = _numeric(result.contribution.cast("float64"))
         delta_float = _numeric(result.__mv_overall_delta.cast("float64"))
         output.update(
@@ -633,6 +654,8 @@ def prepare_expanded_attribute(
     current: ir.Table,
     baseline: ir.Table,
     spec: AttributeSpecV1 | DriverCandidateSpecV1,
+    *,
+    emulate_full_join: bool = False,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     """Keep original selected coordinates and original paired-time ordinal authority."""
     comparison, original_row = spec.expanded_compare, spec.original_input_row
@@ -642,7 +665,13 @@ def prepare_expanded_attribute(
         )
     current = _anchor_side(original, current, comparison.current_row, original_row, "current")
     baseline = _anchor_side(original, baseline, comparison.baseline_row, original_row, "baseline")
-    delta, compare_checks = lower_compare(current, baseline, comparison, ordinal_preassigned=True)
+    delta, compare_checks = lower_compare(
+        current,
+        baseline,
+        comparison,
+        ordinal_preassigned=True,
+        emulate_full_join=emulate_full_join,
+    )
     if "comparison_ordinal" in delta.columns:
         delta = delta.view()
         keys = tuple(
@@ -672,9 +701,17 @@ def prepare_expanded_attribute(
 
 
 def lower_expanded_attribute(
-    original: ir.Table, current: ir.Table, baseline: ir.Table, spec: AttributeSpecV1
+    original: ir.Table,
+    current: ir.Table,
+    baseline: ir.Table,
+    spec: AttributeSpecV1,
+    *,
+    emulate_full_join: bool = False,
+    scalar_masks: bool = False,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     """Apply additive/component attribution to its exact selected expanded Delta."""
-    delta, compare_checks = prepare_expanded_attribute(original, current, baseline, spec)
-    result, checks = lower_attribute(delta, spec, original=original)
+    delta, compare_checks = prepare_expanded_attribute(
+        original, current, baseline, spec, emulate_full_join=emulate_full_join
+    )
+    result, checks = lower_attribute(delta, spec, original=original, scalar_masks=scalar_masks)
     return result, (*compare_checks, *checks)

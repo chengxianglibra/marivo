@@ -506,68 +506,18 @@ class SamplingRealization:
 def sampling_payload(value: tuple[SamplingRealization, ...] | None) -> object:
     if value is None:
         return None
-    return {
-        "schema": "marivo.population_sampling_execution/v1",
-        "realizations": [
-            {
-                "ordinal": item.ordinal,
-                "population_definition_fingerprint": item.population_definition_fingerprint,
-                "target_population_definition_fingerprint": item.target_population_definition_fingerprint,
-                "target_rows": item.target_rows,
-                "seed": item.seed,
-                "realized_entity_count": item.realized_entity_count,
-                "membership_digest": item.membership_digest,
-                "implementation_id": item.implementation_id,
-            }
-            for item in value
-        ],
-    }
+    raise invalid("Entity sampling is no longer supported")
 
 
 def decode_sampling(value: object) -> tuple[SamplingRealization, ...] | None:
     if value is None:
         return None
-    obj = _obj(value, "schema realizations")
-    if obj["schema"] != "marivo.population_sampling_execution/v1":
-        raise invalid("unsupported sampling execution contract")
-    records = _array(obj["realizations"])
-    if not 1 <= len(records) <= _MAX_SAMPLING_REALIZATIONS:
-        raise invalid("invalid sampling realization count")
-    result = []
-    for ordinal, record in enumerate(records):
-        item = _obj(
-            record,
-            "ordinal population_definition_fingerprint target_population_definition_fingerprint target_rows seed realized_entity_count membership_digest implementation_id",
-        )
-        sampled = _text(item["population_definition_fingerprint"])
-        target = _text(item["target_population_definition_fingerprint"])
-        member_digest = _text(item["membership_digest"])
-        _hash(member_digest)
-        if any(re.fullmatch(r"ds_[0-9a-f]{64}", text) is None for text in (sampled, target)):
-            raise invalid("invalid sampling Population definition")
-        seed = None if item["seed"] is None else _int(item["seed"])
-        target_rows = _int(item["target_rows"], minimum=1)
-        count = _int(item["realized_entity_count"])
-        if (
-            _int(item["ordinal"]) != ordinal
-            or item["implementation_id"] != "duckdb.entity_reservoir@v1"
-            or (seed is not None and seed > 2**31 - 1)
-            or target_rows > 1_000_000_000
-            or count > target_rows
-            or sampled == target
-        ):
-            raise invalid("inconsistent sampled Entity realization")
-        result.append(
-            SamplingRealization(ordinal, sampled, target, target_rows, seed, count, member_digest)
-        )
-    return tuple(result)
+    raise invalid("Entity sampling is no longer supported")
 
 
 def required_retained_contracts(
     row: d.DatasetRowContract,
     registered: tuple[str, ...],
-    *,
-    sampled: bool,
 ) -> tuple[str, ...]:
     """Select required registered state from the exact row semantics and sampling authority."""
     from marivo.analysis.observation.contracts import (
@@ -583,9 +533,7 @@ def required_retained_contracts(
     if semantics.kind in ("delta/funnel@v1", "attribution/funnel-loss-rate@v1"):
         from marivo.analysis.domains.event_attribution import COMPONENT_CONTRACT
 
-        return (
-            (COMPONENT_CONTRACT,) if semantics.kind == "attribution/funnel-loss-rate@v1" else ()
-        ) + (("population_sampling_state",) if sampled else ())
+        return (COMPONENT_CONTRACT,) if semantics.kind == "attribution/funnel-loss-rate@v1" else ()
     component_state = isinstance(
         semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
     ) and any(binding[3] for binding in semantics.metric_bindings)
@@ -603,8 +551,6 @@ def required_retained_contracts(
         and (name not in DISTINCT_MEMBERSHIP_CONTRACT_IDS or membership_state)
         and (name not in DISTRIBUTION_CONTRACT_IDS or distribution_state)
     )
-    if sampled and "population_sampling_state" not in result:
-        result += ("population_sampling_state",)
     return result
 
 
@@ -1536,9 +1482,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         finding_extractor(row, registration.producer_id),
         1,
         (registration.validation_id,),
-        required_retained_contracts(
-            row, registration.retained_contract_ids, sampled=result.sampling_execution is not None
-        ),
+        required_retained_contracts(row, registration.retained_contract_ids),
         finding_policy(row, registration.producer_id),
     )
     if materialization_payload(contract) != materialization_payload(expected_contract):
@@ -1678,36 +1622,10 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         not any(item.contract_id == expected for item in parts) for expected in registered_parts
     ):
         raise invalid("retained contract set mismatch")
-    sampling_parts = tuple(
-        item for item in parts if item.contract_id == "population_sampling_state"
-    )
-    if result.sampling_execution is None:
-        if sampling_parts or contract.producer_id == "population.sample":
-            raise invalid("missing required sampling execution")
-    else:
-        if (
-            len(sampling_parts) != 1
-            or sampling_parts[0].role != "population_sampling_state"
-            or sampling_parts[0].contract_version != 1
-            or sampling_parts[0].storage_receipt.realized_row_count != 1
-            or ("population.sample", 1) not in result.operator_implementation_versions
-        ):
-            raise invalid("inconsistent retained sampling state")
-        if (
-            row.shape_id.family_id == "population"
-            and (
-                result.subject_selection_evidence is None
-                or contract.producer_id == "population.sample"
-            )
-            and (
-                len(result.sampling_execution) != 1
-                or result.sampling_execution[0].population_definition_fingerprint
-                != result.definition_fingerprint
-                or result.sampling_execution[0].realized_entity_count
-                != result.storage_receipt.realized_row_count
-            )
-        ):
-            raise invalid("sampled Population receipt mismatch")
+    if result.sampling_execution is not None or any(
+        item.contract_id == "population_sampling_state" for item in parts
+    ):
+        raise invalid("Entity sampling is no longer supported")
     if row.shape_id.family_id == "metric":
         from marivo.analysis.observation.contracts import (
             EntityPresentMetricSemantics,

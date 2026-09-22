@@ -83,11 +83,11 @@ def _run(arguments: tuple[str, ...]) -> dict[str, object]:
     return _object(json.loads(process.stdout))
 
 
-def test_source_algebra_and_sampling_survive_source_free_cold_reads(tmp_path: Path) -> None:
+def test_source_algebra_survives_source_free_cold_reads(tmp_path: Path) -> None:
     before = _manifest()
     produced = _run(("produce", str(tmp_path)))
     stats = _object(produced["statistics"])
-    assert stats["sampling_fences"] == stats["primary_queries"] == 1
+    assert stats["primary_queries"] == 1
     assert stats["transferred_rows"] == 1
     assert isinstance(stats["transferred_bytes"], int) and stats["transferred_bytes"] > 0
     assert stats["primary_stages"] == 1
@@ -108,16 +108,11 @@ def test_source_algebra_and_sampling_survive_source_free_cold_reads(tmp_path: Pa
     )
     assert recovered["pid"] != produced["pid"]
     assert recovered["before"] == recovered["after"] == produced["after"]
-    for field in ("rows", "artifact", "descriptor", "sampling_execution", "show"):
+    for field in ("rows", "artifact", "descriptor", "show"):
         assert recovered[field] == produced[field]
     assert not any(_object(recovered["forbidden_attempts"]).values())
     cold_stats = _object(recovered["statistics"])
-    assert (
-        cold_stats["sampling_fences"]
-        == cold_stats["primary_queries"]
-        == cold_stats["validation_queries"]
-        == 0
-    )
+    assert cold_stats["primary_queries"] == cold_stats["validation_queries"] == 0
     assert cold_stats["events"] == {} and cold_stats["statements"] == []
     after = _manifest()
     evidence = {
@@ -127,7 +122,7 @@ def test_source_algebra_and_sampling_survive_source_free_cold_reads(tmp_path: Pa
         "candidate_after": after,
         "candidate_stable": before == after,
         "backend": "declared DuckDB TableSource",
-        "storage": "immutable Parquet primary and bounded sampling state",
+        "storage": "immutable Parquet primary",
         "producer": produced,
         "cold_reader": recovered,
     }

@@ -15,7 +15,6 @@ from duckdb import DuckDBPyConnection, InvalidInputException
 from ibis.backends.duckdb import Backend
 from sqlglot import expressions as sge
 
-from marivo.analysis.compiler.nodes import CompiledSampleFence
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
@@ -426,16 +425,6 @@ class DuckDBExecutionAdapter(ObservedExecution):
         if any(isinstance(root.payload, DriverCandidatePayload) for root in logical_roots(dataset)):
             self.install_numeric()
 
-    def sample_sql(self, fence: CompiledSampleFence) -> str:
-        from marivo.analysis.materialization.duckdb_sampling import sample_sql
-
-        return sample_sql(self, fence)
-
-    def sample_validation_sql(self, fence: CompiledSampleFence) -> str:
-        from marivo.analysis.materialization.duckdb_statements import reservoir_validation
-
-        return reservoir_validation(fence.relation_name, fence.identity_columns)
-
     def install_numeric(self) -> None:
         from marivo.analysis.compiler.driver_numeric import DRIVER_NUMERIC_SETUP_SQL
 
@@ -512,14 +501,4 @@ def open_native_backend() -> Backend:
 
 
 def admit_dataset(dataset: LogicalDataset) -> None:
-    """Validate DuckDB physical sampling parameters before connection or Run creation."""
-    from marivo.analysis.compiler.normalize import logical_roots
-    from marivo.analysis.materialization.duckdb_sampling import admit_sampling
-    from marivo.analysis.observation.contracts import PopulationPayload
-    from marivo.analysis.observation.population_sample import PopulationSamplePayload
-
-    for root in logical_roots(dataset):
-        if isinstance(root.payload, PopulationPayload) and root.payload.sampling is not None:
-            admit_sampling(root.payload.sampling)
-        elif isinstance(root.payload, PopulationSamplePayload):
-            admit_sampling(root.payload.policy)
+    """Admit a DuckDB graph after registry validation."""

@@ -109,7 +109,6 @@ def test_stream_failure_updates_the_submitted_receipt(tmp_path: Path) -> None:
     "role,expected",
     [
         ("validation_batch", 1),
-        ("sampling_validation", 1),
         ("engine_check.temporal_rules", 1),
         ("source_schema", 0),
         ("source_timezone", 0),

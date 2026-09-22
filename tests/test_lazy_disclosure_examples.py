@@ -32,8 +32,6 @@ PURE_RESULTS = {
     "metric_dataset.aggregate": "metric",
     "metric_dataset.rollup": "metric",
     "metric_dataset.metric": "metric",
-    "population.sample": "population",
-    "engine_sample": "EntitySamplingPolicy",
     "grain": "Grain",
     "time_scope": "TimeScope",
     "datasets.where": "metric",

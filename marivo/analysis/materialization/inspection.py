@@ -9,8 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pyarrow as pa
-
 from marivo._compat import UTC
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization import storage
@@ -85,7 +83,6 @@ def _payload_check(
         audit=True,
     )
     seen = False
-    sampling_rows = 0
     try:
         for batch in stream:
             seen = True
@@ -110,31 +107,9 @@ def _payload_check(
                         raise StorageAccessError("mutated")
                     for _ in checked_component_batches((batch,), row, part.role):
                         pass
-                elif part is not None and part.role == "population_sampling_state":
-                    expected_schema = pa.schema(
-                        [pa.field("sampling_execution_digest", pa.string(), nullable=False)]
-                    )
-                    if (
-                        hashlib.sha256(expected_schema.serialize().to_pybytes()).hexdigest()
-                        != receipt.schema_fingerprint
-                    ):
-                        raise StorageAccessError("mutated")
-                    if batch.schema.names != [
-                        "sampling_execution_digest"
-                    ] or not pa.types.is_string(batch.schema.field(0).type):
-                        raise StorageAccessError("mutated")
-                    expected = codec.digest(
-                        codec.sampling_payload(descriptor.sampling_execution or ())
-                    )
-                    for value in batch.column(0):
-                        if value.as_py() != expected:
-                            raise StorageAccessError("mutated")
-                        sampling_rows += 1
                 else:
                     raise StorageAccessError("unknown")
-        if not seen or (
-            part is not None and part.role == "population_sampling_state" and sampling_rows != 1
-        ):
+        if not seen:
             raise StorageAccessError("mutated")
         if validator is not None:
             validator.finish()

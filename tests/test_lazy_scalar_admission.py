@@ -6,7 +6,6 @@ from typing import Literal
 
 import pytest
 
-from marivo.analysis import engine_sample
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import SourceStep, place
 from marivo.analysis.operators.registry import backend_execution, implementation
@@ -19,7 +18,7 @@ from tests.lazy_scalar_source_fixtures import registry_for
 @pytest.mark.parametrize("engine", ["mysql", "sqlite", "trino", "clickhouse"])
 @pytest.mark.parametrize(
     "unsupported",
-    [None, "mean", "projected_mean", "relationship", "timestamp", "decimal_generic", "sampling"],
+    [None, "mean", "projected_mean", "relationship", "timestamp", "decimal_generic"],
 )
 def test_complete_closure(
     engine: Literal["mysql", "sqlite", "trino", "clickhouse"], unsupported: str | None
@@ -55,10 +54,6 @@ def test_complete_closure(
             target = target.metric(revenue)
     elif unsupported == "relationship":
         target = sources.observe(revenue).with_dimensions(ref.dimension("sales.customers.region"))
-    elif unsupported == "sampling":
-        target = sources.population(ref.entity("sales.orders")).sample(
-            engine_sample(target_rows=2, seed=1)
-        )
     else:
         target = (
             sources.observe(revenue)

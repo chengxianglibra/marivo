@@ -34,7 +34,7 @@ C0 的当前能力、目标/排除、历史证据与本次只读环境探测见 
 | 时间语义 | 主要支持原生 date；未覆盖 timestamp/timezone/DST 时间轴、多单位桶和语义日历 | 订单时间、小时趋势、跨时区报表等受阻 |
 | 指标表达 | 直接列 measure 为主；Linear graph 和未解析精度的复合 Decimal 不支持 | 行级计算、组合指标和精确金额运算表达受限 |
 | 物理表范围 | MySQL InnoDB、Trino Iceberg、ClickHouse 普通本地 MergeTree、SQLite main 普通表 | 已有数据库中不少表不能直接使用 |
-| 高级方法 | exact distinct、分位数/分布、抽样、Entity 方法、Event/Lifecycle 等未实现远程路径 | 用户分析链在高级步骤中断 |
+| 高级方法 | exact distinct、分位数/分布、Entity 方法、Event/Lifecycle 等未实现远程路径 | 用户分析链在高级步骤中断 |
 | 执行域组合 | 不支持远程 retained import 或任意跨 datasource join | 不能将本地产物上传远程接续计算；不等于所有本地续算均不可用 |
 
 ## 2. 范围与不可改变的约束
@@ -139,10 +139,11 @@ C5 已锁定 ClickHouse Distributed 和 Trino 不按 catalog/connector 类型设
 | --- | --- | --- |
 | exact distinct | 源端精确 membership、重叠组 rollup、私有状态生命周期 | 仅返回 COUNT DISTINCT 并丢弃续算状态；改用近似计数 |
 | quantile/distribution | 既有精确定义、插值、分布状态和续算 | 用引擎默认近似分位数替换 |
-| sampling | 同一选择被主结果、断言及 parts 复用，满足原有抽样语义 | 每次查询重新随机；仅凭 CTE 认为单次求值成立 |
 | Entity correlation/candidate、driver screening | 私有身份、配对/筛选准备、精确数值及允许的状态流向 | 将原始身份和私有中间行转入本地绕过源端限制 |
 | 扩展归因 | 隐藏轴准备、完整对齐与贡献状态 | 根据可见 Top-N 或截断结果归因 |
 | Event/Lifecycle | 事件顺序、并列规则、匹配、状态重放与单次求值 | 用普通聚合近似事件过程 |
+
+Entity 抽样已从 Analysis 能力范围移除，包括 `population.sample` 和 `engine_sample`；C8 不再开展通用抽样后端适配。Datasource 的 `inspection.sample()` 是独立的作者检查能力，不受此决定影响。未来若需要利用物理 bucket 减少扫描，应另立可验证的源端能力契约，不复用已移除的 API。
 
 每组先建立最小后端实现和独立期望值，再逐后端复制验收。若只读能力不能满足必要的准备或求值约束，该后端保持拒绝并记录阻塞原因。不得因此开放远程写入、改变方法定义或宣称全功能对等。
 
@@ -185,7 +186,7 @@ C0 为后续阶段建立实施计划清单；每个阶段执行前须补齐该�
 | C5 常见表形态 | 按 3.5 节逐表引擎/connector 实施 | C0、所需类型已支持 | 真实只读账户、物理语义、失败路径和普通业务旅程验收 |
 | C6 完整时间状态 | 日历、累计、status-time fold、剩余 validity 形态 | C3、C4 所需状态 | 空桶、端点、重叠、跨期和 retained 续算满足原契约 |
 | C7 精确集合与分布 | exact distinct，随后 quantile/distribution | 所需类型及私有状态设计 | 源端实现、重叠组续算、隐私边界和独立数值全部通过 |
-| C8 抽样与 Entity 方法 | sampling、Entity correlation/candidate、driver、扩展归因逐方法实现 | 各自准备路径可行性已证明 | 单次求值、身份/对齐、私有状态和失败清理通过 |
+| C8 Entity 方法 | Entity correlation/candidate、driver、扩展归因逐方法实现 | 各自准备路径可行性已证明 | 身份/对齐、私有状态和失败清理通过 |
 | C9 Event/Lifecycle | 先事件匹配，再状态重放及后续分析 | 排序/时间/准备能力已实现 | 并列、乱序、重复、边界和完整重放验收 |
 | C10 安装包整体验收 | 最终 wheel 上验证已启用单元、冷进程和负向矩阵，汇总剩余缺口 | 本次约定交付阶段完成 | 安装来源/hash 可验证，真实旅程通过，无越界支持声明 |
 
@@ -218,7 +219,7 @@ C10 可用于第一批的有界验收，不能因此标记 C6–C9 完成。完�
 | schema 诊断与回执 | 缺列/错类型/不支持类型可区分且指明关系和列；真实 SQL 与记录逐条匹配；无查询不记成功、失败保留原始原因、不漏记或重复记账 |
 | 指标 | 条件和 NULL 行表达式、多组件 Linear、关系贡献粒度、显示结果投影后 components 仍可 rollup |
 | 物理表 | 实际 connector 身份、视图依赖、Replacing 重复行、Distributed 跨分片身份及聚合 |
-| 私有状态 | 重叠集合、相同分位数但不同分布、抽样复用、事件并列和重复、禁止私有身份导出 |
+| 私有状态 | 重叠集合、相同分位数但不同分布、事件并列和重复、禁止私有身份导出 |
 
 ### 6.3 命令与证据
 

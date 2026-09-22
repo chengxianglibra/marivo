@@ -16,6 +16,14 @@ import marivo.analysis as ma
 import marivo.datasource as md
 import marivo.semantic as ms
 
+
+def test_entity_sampling_is_absent_from_analysis_surface() -> None:
+    assert not hasattr(ma, "engine_sample")
+    assert not hasattr(ma, "EntitySamplingPolicy")
+    assert not hasattr(ma.LogicalPopulationDataset, "sample")
+    assert not hasattr(ma.MaterializedPopulationDataset, "sample")
+
+
 SEMANTIC_PUBLIC = {
     "AggregateFoldInput",
     "AggregateFoldValue",
@@ -175,7 +183,6 @@ ANALYSIS_PUBLIC = {
     "LogicalLifecycleDataset",
     "MaterializedLifecycleDataset",
     "AnalysisPredicate",
-    "EntitySamplingPolicy",
     "ForecastHorizon",
     "ForecastModel",
     "WindowBucketAlignment",
@@ -216,7 +223,6 @@ ANALYSIS_PUBLIC = {
     "all_of",
     "any_of",
     "not_",
-    "engine_sample",
     "grain",
     "time_scope",
     "window_bucket",
@@ -236,7 +242,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "97d411f381ebac91cc5547cedf09c9b3a463b07fb256f8b9320ff9a00f08f8b6"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "bd9135b8f33fc450f706499b3fc6bda94947ccdb29cc0bf328a53107aa16c9e3"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

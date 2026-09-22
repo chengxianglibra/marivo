@@ -2,11 +2,17 @@
 
 from dataclasses import replace
 
+import ibis
+import pyarrow as pa
 import pytest
 
+from marivo.analysis.compiler.attribution import _invalid_presence
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetRegistrationError
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
+from marivo.analysis.materialization.admission import _decode_scalar_masks
+from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.scalar_sql_execution import _cell
 from tests.lazy_dataset_fixtures import (
     TEST_IDS,
     make_logical_dataset,
@@ -62,6 +68,57 @@ def test_boolean_tuple_arity_refines_only_to_the_same_registered_physical_type()
     for invalid in ("bool_tuple:0", "bool_tuple:-1", "bool_tuple:02", "bool_tuple:two"):
         with pytest.raises(DatasetConstructionError):
             d._deferred_type(invalid, ids=ids)
+
+
+@pytest.mark.parametrize("invalid", ["1", "10x", "2", None])
+def test_scalar_source_mask_decode_rejects_wrong_width_or_bits(invalid: str | None) -> None:
+    batch = pa.record_batch(
+        [pa.array(["10"]), pa.array([invalid])],
+        names=["active_axis_mask", "other_mask"],
+    )
+    with pytest.raises(MaterializationError, match="source Attribution mask"):
+        tuple(_decode_scalar_masks((batch,), 2, "test-run"))
+
+
+def test_scalar_source_mask_decode_preserves_empty_schema() -> None:
+    batch = pa.record_batch(
+        [pa.array([], type=pa.string()), pa.array([], type=pa.string())],
+        names=["active_axis_mask", "other_mask"],
+    )
+    decoded = tuple(_decode_scalar_masks((batch,), 2, "test-run"))
+    assert len(decoded) == 1 and decoded[0].num_rows == 0
+    assert decoded[0].schema.field("active_axis_mask").type == pa.list_(pa.bool_())
+
+
+def test_source_boolean_array_accepts_only_exact_driver_bits() -> None:
+    dtype = pa.list_(pa.bool_())
+    assert _cell([1, 0, True], dtype) == [True, False, True]
+    with pytest.raises(MaterializationError, match="invalid Boolean representation"):
+        _cell([2], dtype)
+    with pytest.raises(MaterializationError, match="invalid array representation"):
+        _cell("10", dtype)
+
+
+def test_presence_validation_rejects_null_on_either_side() -> None:
+    source = ibis.memtable(
+        {
+            "presence": [None, True, False, True, False],
+            "expected": [True, None, False, False, True],
+        }
+    )
+    invalid = _invalid_presence(source.presence, source.expected)
+    backend = ibis.duckdb.connect()
+    try:
+        assert backend.execute(source.mutate(invalid=invalid)).invalid.tolist() == [
+            True,
+            True,
+            False,
+            True,
+            True,
+        ]
+    finally:
+        backend.disconnect()
+    assert "IS NULL" in ibis.to_sql(source.filter(invalid), dialect="trino").upper()
 
 
 def test_internal_operands_admit_only_the_shape_registered_for_their_role() -> None:

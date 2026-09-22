@@ -25,7 +25,6 @@ from marivo.analysis.materialization.event_reducer_codec import (
     EventTimeToEventEvidenceSummary,
 )
 from marivo.analysis.observation.predicates import eq, gte
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.subject import dropped_before
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
@@ -35,10 +34,7 @@ from tests.lazy_event_runtime_worker import assert_identity_private
 pytestmark = pytest.mark.runtime
 
 
-@pytest.mark.parametrize("downstream", ("sample", "metric"))
-def test_unknown_selection_cannot_disappear_through_downstream_action(
-    tmp_path: Path, downstream: str
-) -> None:
+def test_unknown_selection_cannot_disappear_through_downstream_action(tmp_path: Path) -> None:
     runtime, sources, _ = setup_event(tmp_path, engine=True)
     input = journey(sources, complete=False)
     meaning = input.row_contract.family_semantics
@@ -46,10 +42,7 @@ def test_unknown_selection_cannot_disappear_through_downstream_action(
     selection = input.select_subjects(dropped_before(step=meaning.pattern.steps[-1]))
     before = snapshot(runtime)
     with pytest.raises(MaterializationError) as caught:
-        if downstream == "sample":
-            selection.sample(engine_sample(target_rows=1)).execute()
-        else:
-            sources.observe(ref.metric("sales.revenue"), population=selection).execute()
+        sources.observe(ref.metric("sales.revenue"), population=selection).execute()
     assert "981730041" not in str(caught.value)
     after = snapshot(runtime)
     assert after["dataset_artifacts"] == before["dataset_artifacts"]
@@ -98,7 +91,8 @@ def test_retained_reducer_failure_cancellation_has_no_partial_authority(
     first, last = meaning.pattern.steps
     before = snapshot(runtime)
     armed = True
-    with pytest.raises(KeyboardInterrupt) as caught:
+    expected_error = KeyboardInterrupt if failure == "cancel" else OSError
+    with pytest.raises(expected_error) as caught:
         if shape == "funnel":
             receiver.funnel().execute()
         elif shape == "duration":
@@ -115,15 +109,11 @@ def test_retained_reducer_failure_cancellation_has_no_partial_authority(
     assert_identity_private(runtime)
 
 
-@pytest.mark.parametrize("sampled", (False, True))
 def test_local_result_filter_reads_only_retained_columns_after_source_removal(
     tmp_path: Path,
-    sampled: bool,
 ) -> None:
     runtime, sources, database = setup_event(tmp_path)
     population = sources.population(ref.entity("sales.customers"))
-    if sampled:
-        population = population.sample(engine_sample(target_rows=100, seed=42))
     input = journey(sources, population=population)
     meaning = input.row_contract.family_semantics
     assert isinstance(meaning, EventJourneySemantics)
@@ -156,12 +146,6 @@ def test_local_result_filter_reads_only_retained_columns_after_source_removal(
     assert complete_funnel.to_pandas().step_key.tolist() == ["start", "finish"]
     assert incomplete.to_pandas().entity_identity.tolist() == [(2,)]
     assert empty_attempts.to_pandas().empty
-    if sampled:
-        record = cold.store.artifact(incomplete.state.artifact_ref.ref)
-        assert record is not None and record.descriptor.sampling_execution is not None
-        assert tuple(part.role for part in record.descriptor.retained_parts) == (
-            "population_sampling_state",
-        )
     assert cold.store.resources(cold.session_ref) == ()
 
 

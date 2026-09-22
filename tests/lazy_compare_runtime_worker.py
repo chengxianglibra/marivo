@@ -26,7 +26,6 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.refs import ref
@@ -74,15 +73,6 @@ def _metric(sources: LazySources, *, current: bool) -> LogicalMetricDataset:
     )
 
 
-def _sampled(sources: LazySources) -> LogicalMetricDataset:
-    return sources.observe(
-        REVENUE,
-        population=sources.population(ref.entity("sales.orders")).sample(
-            engine_sample(target_rows=3)
-        ),
-    ).aggregate()
-
-
 def _forbidden(*args: object, **kwargs: object) -> None:
     raise AssertionError("Cold execution-key recovery attempted source or execution work")
 
@@ -118,31 +108,19 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         current = _metric(sources, current=True).execute()
         baseline = _metric(sources, current=False).execute()
         result = current.compare(baseline).execute()
-        independent = _sampled(sources).compare(_sampled(sources)).execute()
-        independent_fences = runtime.statistics.sampling_fences
-        shared = _sampled(sources)
-        shared_result = shared.compare(shared).execute()
-        shared_fences = runtime.statistics.sampling_fences
-        assert independent_fences == 2 and shared_fences == 1
-        assert shared_result.to_pandas()["delta"].tolist() == [0.0]
         assert result.findings().items
         result_refs = {
             "session": runtime.session_ref,
             "current": current.state.artifact_ref.ref,
             "baseline": baseline.state.artifact_ref.ref,
             "delta": result.state.artifact_ref.ref,
-            "independent": independent.state.artifact_ref.ref,
-            "shared": shared_result.state.artifact_ref.ref,
         }
         if kind == "engine":
             with duckdb.connect(str(database)) as connection:
                 connection.execute("DROP TABLE orders")
         else:
             database.rename(project / "warehouse.offline")
-        extra: dict[str, object] = {
-            "independent_fences": independent_fences,
-            "shared_fences": shared_fences,
-        }
+        extra: dict[str, object] = {}
     else:
         recovered = runtime.artifact(refs["delta"])
         assert isinstance(recovered, MaterializedDeltaDataset)
@@ -168,12 +146,6 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
                 assert (
                     retained_current.compare(retained_baseline).execute().state.artifact_ref.ref
                     == refs["delta"]
-                )
-                shared = _sampled(sources)
-                assert shared.compare(shared).execute().state.artifact_ref.ref == refs["shared"]
-                assert (
-                    _sampled(sources).compare(_sampled(sources)).execute().state.artifact_ref.ref
-                    == refs["independent"]
                 )
                 assert snapshot(runtime) == before
         result_refs = {**refs, "continued": continued.state.artifact_ref.ref}

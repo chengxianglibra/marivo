@@ -18,11 +18,9 @@ import pyarrow.parquet as pq
 from marivo.analysis.datasets.handles import MaterializedScanLeafHandle
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import encode_descriptor, sampling_payload
-from marivo.analysis.materialization.storage import sampling_state_read, validate_sampling_state
+from marivo.analysis.materialization.contracts import encode_descriptor
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import is_in
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
@@ -44,7 +42,7 @@ def _rows(frame: pd.DataFrame) -> list[dict[str, object]]:
 
 
 def _statistics(runtime: DatasetRuntime) -> dict[str, object]:
-    return {**statistics(runtime), "sampling_fences": runtime.statistics.sampling_fences}
+    return statistics(runtime)
 
 
 def produce(project: Path) -> dict[str, object]:
@@ -58,10 +56,9 @@ def produce(project: Path) -> dict[str, object]:
         connection.execute("INSERT INTO customers (id,region) VALUES (5,'excluded')")
         expected = connection.execute("""
             WITH eligible AS (SELECT * FROM customers WHERE region IN ('west','east')),
-            sampled AS MATERIALIZED (SELECT * FROM eligible USING SAMPLE reservoir(3 ROWS) REPEATABLE(42)),
             grouped AS (
                 SELECT c.region, sum(o.amount) AS revenue, count(o.amount) AS order_count
-                FROM sampled c LEFT JOIN orders o ON o.customer_id = c.id GROUP BY c.region
+                FROM eligible c LEFT JOIN orders o ON o.customer_id = c.id GROUP BY c.region
             )
             SELECT *, row_number() OVER (ORDER BY revenue DESC NULLS LAST, region ASC) AS rank
             FROM grouped ORDER BY rank, region LIMIT 1
@@ -70,10 +67,8 @@ def produce(project: Path) -> dict[str, object]:
     events: list[str] = []
     runtime = DatasetRuntime.create(project, "slice-3a-source", event=events.append)
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    population = (
-        sources.population(ref.entity("sales.customers"))
-        .where(is_in(ref.dimension("sales.customers.region"), ("west", "east")))
-        .sample(engine_sample(target_rows=3, seed=42))
+    population = sources.population(ref.entity("sales.customers")).where(
+        is_in(ref.dimension("sales.customers.region"), ("west", "east"))
     )
     observed = (
         sources.observe(
@@ -87,18 +82,16 @@ def produce(project: Path) -> dict[str, object]:
     construction = _statistics(runtime)
     assert construction["events"] == {} and construction["primary_queries"] == 0
     materialized = logical.execute()
-    assert runtime.statistics.sampling_fences == runtime.statistics.primary_queries == 1
+    assert runtime.statistics.primary_queries == 1
     frame = materialized.to_pandas()
     actual = tuple(frame.itertuples(index=False, name=None))
     assert actual == tuple(expected), (actual, expected)
     output = io.StringIO()
     with redirect_stdout(output):
         materialized.show()
-    assert "Sampling: approximate Entity sample" in output.getvalue()
     assert len(output.getvalue().encode("utf-8")) <= 8192
     record = runtime.store.artifact(materialized.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.sampling_execution is not None
-    assert record.descriptor.sampling_execution[0].realized_entity_count == 3
+    assert record is not None
     assert (
         "dataset.final_row_key_unique",
         0,
@@ -118,7 +111,6 @@ def produce(project: Path) -> dict[str, object]:
         "events": events,
         "artifact": record_evidence(record),
         "descriptor": json.loads(encode_descriptor(record.descriptor)),
-        "sampling_execution": sampling_payload(record.descriptor.sampling_execution),
         "rows": _rows(frame),
         "reference_rows": [list(row) for row in expected],
         "show": output.getvalue(),
@@ -170,8 +162,6 @@ def recover(project: Path, session_ref: str, artifact_ref: str) -> dict[str, obj
         with redirect_stdout(output):
             handle.show()
         frame = handle.to_pandas()
-        # An explicit sampling-state audit is separate from ordinary primary reads.
-        validate_sampling_state(project, sampling_state_read(record.descriptor))
         assert not any(attempts.values())
         assert snapshot(runtime) == before
         return {
@@ -186,10 +176,8 @@ def recover(project: Path, session_ref: str, artifact_ref: str) -> dict[str, obj
             "forbidden_attempts": attempts,
             "artifact": record_evidence(record),
             "descriptor": json.loads(encode_descriptor(record.descriptor)),
-            "sampling_execution": sampling_payload(record.descriptor.sampling_execution),
             "rows": _rows(frame),
             "show": output.getvalue(),
-            "sampling_state_audit": "passed",
         }
 
 

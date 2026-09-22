@@ -21,8 +21,6 @@ def _start(
     project: Path,
     point: str,
     occurrence: int = 1,
-    *,
-    sampled: bool = False,
 ) -> subprocess.Popen[str]:
     environment = {**os.environ, "MARIVO_TELEMETRY": "off"}
     return subprocess.Popen(
@@ -38,7 +36,6 @@ def _start(
             point,
             "--occurrence",
             str(occurrence),
-            *(["--sampled"] if sampled else []),
         ],
         env=environment,
         text=True,
@@ -87,16 +84,15 @@ def _evidence(
 
 
 @pytest.mark.parametrize(
-    ("kind", "point", "occurrence", "sampled"),
+    ("kind", "point", "occurrence"),
     [
-        ("engine", "output_reserved", 1, False),
-        ("engine", "parquet_payload_create", 1, False),
-        ("engine", "parquet_payload_create", 2, False),
-        ("engine", "before_rename", 1, False),
-        ("engine", "after_rename", 1, False),
-        ("engine", "sampling_validated", 1, True),
+        ("engine", "output_reserved", 1),
+        ("engine", "parquet_payload_create", 1),
+        ("engine", "parquet_payload_create", 2),
+        ("engine", "before_rename", 1),
+        ("engine", "after_rename", 1),
         *(
-            (kind, point, 1, False)
+            (kind, point, 1)
             for kind in ("engine",)
             for point in (
                 "insert_terminal",
@@ -112,10 +108,9 @@ def test_adapter_crash_reconciles_exact_uncommitted_outputs_or_preserves_commit(
     kind: str,
     point: str,
     occurrence: int,
-    sampled: bool,
 ) -> None:
     candidate_before = _manifest()
-    _finish(_start("produce", kind, tmp_path, point, occurrence, sampled=sampled), 73)
+    _finish(_start("produce", kind, tmp_path, point, occurrence), 73)
     producer: object = json.loads((tmp_path / "crash.json").read_text())
     assert isinstance(producer, dict)
     recovery = _recover(tmp_path, kind)
@@ -151,7 +146,7 @@ def test_adapter_crash_reconciles_exact_uncommitted_outputs_or_preserves_commit(
     assert stats["primary_queries"] == 0 and stats["local_executions"] == 0
     _evidence(
         tmp_path,
-        f"slice-4c-crash-{kind}-{point}-{occurrence}-{int(sampled)}",
+        f"slice-4c-crash-{kind}-{point}-{occurrence}",
         {"producer": producer, "recovery": recovery},
         candidate_before,
     )

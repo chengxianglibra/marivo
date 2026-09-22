@@ -11,12 +11,11 @@ from marivo.analysis import time_scope
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.base import _make_materialized_dataset
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.datasets.state import _materialized_state
 from marivo.analysis.domains.contracts import EventFunnelPayload
 from marivo.analysis.event import first_per_subject, sequence, step
 from marivo.analysis.observation.contracts import (
-    ObservationOwner,
     ObservationRuntimeOwner,
     ObservationSourceContext,
     PopulationPayload,
@@ -27,9 +26,7 @@ from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
 )
-from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.predicates import eq
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.analysis.subject import dropped_before
@@ -39,7 +36,7 @@ from marivo.semantic.ir import JoinKey
 from tests.lazy_event_fixtures import make_event_sources
 
 
-def _selection(sources: LazySources, *, sampled: bool = False) -> LogicalPopulationDataset:
+def _selection(sources: LazySources) -> LogicalPopulationDataset:
     pattern = sequence(
         *(
             step(
@@ -50,8 +47,6 @@ def _selection(sources: LazySources, *, sampled: bool = False) -> LogicalPopulat
         )
     )
     population = sources.population(ref.entity("sales.customers"))
-    if sampled:
-        population = population.sample(engine_sample(target_rows=2))
     journey = sources.events.match(
         pattern,
         population=population,
@@ -67,7 +62,6 @@ def _selection(sources: LazySources, *, sampled: bool = False) -> LogicalPopulat
 def _retained(
     dataset: LogicalPopulationDataset,
     *,
-    sampled: bool = False,
     context: ObservationSourceContext | None = None,
 ) -> MaterializedPopulationDataset:
     """Construct trusted test state without claiming persistence or source execution."""
@@ -101,7 +95,6 @@ def _retained(
         store_id=source_owner.store_id,
         action_port=source_owner.action_port,
         source_context=context,
-        sampling_authority_snapshot=sampled,
     )
     result = _make_materialized_dataset(
         owner=owner,
@@ -114,54 +107,6 @@ def _retained(
     )
     assert isinstance(result, MaterializedPopulationDataset)
     return result
-
-
-def test_selected_population_sample_is_source_free_and_fenced() -> None:
-    selected = _selection(make_event_sources())
-    sample = selected.sample(engine_sample(target_rows=2, seed=17))
-    assert isinstance(sample._root, LogicalRootHandle)
-    assert isinstance(sample._root.payload, PopulationSamplePayload)
-    assert (
-        sample._root.payload.target_population_definition_fingerprint
-        == selected.definition_fingerprint
-    )
-    assert sample._root.payload.policy.target_rows == 2
-    assert sample._root.has_realizations
-    assert sample._inputs == (selected,)
-    assert sample.row_contract == selected.row_contract
-    assert sample.row_set_contract == selected.row_set_contract
-    with pytest.raises(DatasetConstructionError, match="second sampling"):
-        sample.sample(engine_sample(target_rows=1))
-    with pytest.raises(DatasetConstructionError, match="where after"):
-        sample.where(eq(ref.dimension("sales.customers.region"), "EU"))
-    with pytest.raises(AssertionError, match="execution"):
-        sample.execute()
-
-
-def test_retained_population_sample_needs_no_catalog_context() -> None:
-    retained = _retained(_selection(make_event_sources()))
-    sample = retained.sample(engine_sample(target_rows=1))
-    assert not isinstance(owner_of(sample), ObservationOwner)
-    assert owner_of(sample).source_context is None
-    assert isinstance(sample._root, LogicalRootHandle)
-    assert isinstance(sample._root.payload, PopulationSamplePayload)
-    assert isinstance(sample._root.inputs[0].root, MaterializedScanLeafHandle)
-    assert sample._inputs == (retained,)
-    with pytest.raises(DatasetConstructionError, match="catalog-free"):
-        retained.where(eq(ref.dimension("sales.customers.region"), "EU"))
-
-
-def test_selection_inherits_no_resampling_boundary() -> None:
-    inherited = _selection(make_event_sources(), sampled=True)
-    with pytest.raises(DatasetConstructionError, match="second sampling"):
-        inherited.sample(engine_sample(target_rows=1))
-    with pytest.raises(DatasetConstructionError, match="where after"):
-        inherited.where(eq(ref.dimension("sales.customers.region"), "EU"))
-    retained = _retained(_selection(make_event_sources()), sampled=True)
-    with pytest.raises(DatasetConstructionError, match="second sampling"):
-        retained.sample(engine_sample(target_rows=1))
-    with pytest.raises(DatasetConstructionError, match="where after"):
-        retained.where(eq(ref.dimension("sales.customers.region"), "EU"))
 
 
 def test_current_enrichment_context_is_fixed_when_authored() -> None:
@@ -181,7 +126,6 @@ def test_current_enrichment_context_is_fixed_when_authored() -> None:
     assert filtered._owner is sources._owner
     with pytest.raises(DatasetConstructionError, match="catalog-free"):
         retained.where(eq(ref.dimension("sales.customers.region"), "EU"))
-    filtered.sample(engine_sample(target_rows=1))
 
 
 def test_event_axes_admit_temporal_intermediates_without_widening_shared_default() -> None:

@@ -66,34 +66,6 @@ def test_local_successors_share_frames_and_keep_training_through_empty_selection
     assert empty.evidence_digest.finding_count == 0 and empty.to_pandas().empty
 
 
-def test_sampling_disclosure_survives_forecast_and_selection(tmp_path: Path) -> None:
-    from marivo._temporal import builtin_grain, time_scope
-    from marivo.analysis.observation.sampling import engine_sample
-    from marivo.analysis.operators.forecast_contracts import ForecastSemantics
-    from marivo.refs import ref
-
-    runtime, source, _ = setup_forecast(tmp_path)
-    population = source.population(ref.entity("sales.orders")).sample(
-        engine_sample(target_rows=100, seed=1)
-    )
-    metric = (
-        source.observe(
-            ref.metric("sales.revenue"),
-            population=population,
-            time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
-        )
-        .with_time_axis(ref.time_dimension("sales.orders.order_time"), grain=builtin_grain("day"))
-        .aggregate()
-    )
-    logical = metric.forecast(horizon=periods(2))
-    meaning = logical.row_contract.family_semantics
-    assert isinstance(meaning, ForecastSemantics) and meaning.approximation == "sampled_population"
-    result = logical.execute()
-    selected = result.limit(1).execute()
-    assert "sampled_population" in selected.contract().render()
-    assert selected.evidence_digest.finding_count == 1
-
-
 def test_certified_custom_period_forecast_uses_retained_snapshot(tmp_path: Path) -> None:
     from dataclasses import replace
     from datetime import date

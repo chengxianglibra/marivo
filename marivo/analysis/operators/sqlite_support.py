@@ -1,6 +1,9 @@
 """Pure admission for the implemented sqlite scalar method closure."""
 
 from marivo.analysis.datasets.base import LogicalDataset
+from marivo.analysis.datasets.handles import LogicalRootHandle
+from marivo.analysis.operators.association_contracts import CorrelatePayload
+from marivo.analysis.operators.scalar_support import entity_correlation_reason
 from marivo.analysis.operators.scalar_support import unsupported_reason as scalar_reason
 
 
@@ -23,6 +26,9 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     qualified by live source-private execution. Entity membership uses typed
     scalar identity fields in SQL and rebuilds the private Arrow struct.
     """
+    root = dataset._root
+    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, CorrelatePayload):
+        return entity_correlation_reason(dataset)
     return scalar_reason(
         dataset,
         supported_type,
@@ -36,4 +42,5 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         status_folds=frozenset({"first", "last", "mean", "min", "max"}),
         distinct_memberships=frozenset({"measure", "entity"}),
         distributions=frozenset({"linear_interpolation"}),
+        expanded_attribution=True,
     )

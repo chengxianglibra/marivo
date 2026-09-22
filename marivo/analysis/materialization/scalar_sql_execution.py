@@ -14,7 +14,6 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
 
-from marivo.analysis.compiler.nodes import CompiledSampleFence
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
@@ -47,6 +46,16 @@ class ScalarStatement(Statement):
 def _cell(value: object, dtype: pa.DataType, *, run_ref: str | None = None) -> object:
     if value is None:
         return None
+    if isinstance(dtype, pa.ListType) and pa.types.is_boolean(dtype.value_type):
+        if not isinstance(value, (list, tuple)):
+            raise MaterializationError(
+                expected="a source Boolean array",
+                received="invalid array representation",
+                repair="Correct the source array transport before publication.",
+                stage="output_validation",
+                run_ref=run_ref,
+            )
+        return [_cell(item, dtype.value_type, run_ref=run_ref) for item in value]
     if pa.types.is_boolean(dtype):
         if type(value) is bool:
             return value
@@ -490,12 +499,6 @@ class ScalarExecutionAdapter(ObservedExecution):
         self, path: str, *, table_name: str, columns: Mapping[str, str], format: str
     ) -> ir.Table:
         raise self.unsupported("read_json")
-
-    def sample_sql(self, fence: CompiledSampleFence) -> str:
-        raise self.unsupported("sample_sql")
-
-    def sample_validation_sql(self, fence: CompiledSampleFence) -> str:
-        raise self.unsupported("sample_validation_sql")
 
     def resolve_coverage(
         self,

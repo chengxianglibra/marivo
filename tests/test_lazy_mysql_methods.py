@@ -14,6 +14,7 @@ import pytest
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.analysis.operators.forecast_contracts import naive, periods
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
@@ -39,6 +40,34 @@ pytestmark = [
 ]
 CHANNEL = ref.dimension("sales.orders.channel")
 TIME = ref.time_dimension("sales.orders.order_time")
+
+
+@pytest.mark.parametrize("method", ["pearson", "spearman"])
+def test_entity_correlation(
+    tmp_path: Path, method_database: str, method: CorrelationMethod
+) -> None:
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(tmp_path / "correlation-project", "mysql-correlation")
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe((ref.metric("sales.revenue"), ref.metric("sales.mean_amount")))
+        .correlate(method=method)
+        .execute()
+    )
+    assert result.to_pandas().coefficient.iloc[0] == pytest.approx(1.0)
+    assert runtime.statistics.primary_queries > 0
+
+
+def test_hidden_axis_attribution(tmp_path: Path, method_database: str) -> None:
+    from marivo.analysis.compiler.errors import DatasetCompilationError
+
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(tmp_path / "expanded-attribution", "mysql-expanded-attribution")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    metric = sources.observe(ref.metric("sales.revenue")).aggregate()
+    with pytest.raises(DatasetCompilationError, match="qualified MySQL resource limit"):
+        metric.compare(metric).attribute(axes=(CHANNEL,)).execute()
+    assert runtime.statistics.primary_queries == 0
 
 
 def registry_for(database: str) -> tuple[Registry, CompiledExpressionSidecar]:

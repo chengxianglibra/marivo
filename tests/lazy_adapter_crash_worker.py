@@ -29,7 +29,6 @@ from marivo.analysis.materialization.errors import RecoveryPendingError
 from marivo.analysis.materialization.object_termination import OBJECT_REQUEST_CAPABILITY
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 from tests.lazy_adapter_runtime_worker import snapshot
@@ -116,7 +115,6 @@ def run(
     project: Path,
     point: str,
     occurrence: int,
-    sampled: bool,
 ) -> dict[str, object]:
     original_client = object_storage.client
 
@@ -176,13 +174,7 @@ def run(
             # The parent forwards a real PUT and kills this process only after its
             # withheld remote response has been observed by the test server.
             (project / "proxy-ready").write_text("ready")
-        logical = (
-            fixture.sources.population(ref.entity("sales.customers")).sample(
-                engine_sample(target_rows=2, seed=3)
-            )
-            if sampled
-            else fixture.sources.observe(ref.metric("sales.mean_amount"))
-        )
+        logical = fixture.sources.observe(ref.metric("sales.mean_amount"))
         with (
             patch.object(SessionStore, "discharge", discharge),
         ):
@@ -244,10 +236,5 @@ if __name__ == "__main__":
     parser.add_argument("project", type=Path)
     parser.add_argument("--point", default="")
     parser.add_argument("--occurrence", type=int, default=1)
-    parser.add_argument("--sampled", action="store_true")
     args = parser.parse_args()
-    print(
-        json.dumps(
-            run(args.mode, args.kind, args.project, args.point, args.occurrence, args.sampled)
-        )
-    )
+    print(json.dumps(run(args.mode, args.kind, args.project, args.point, args.occurrence)))

@@ -442,7 +442,6 @@ def test_slice3_bounded_target_projections_resolve_independently() -> None:
         ("analysis.recovery", "analysis.runtime.runs"),
         ("analysis.session", "analysis.runtime.sessions"),
         ("analysis.boundary", "analysis.actions.to_pandas"),
-        ("analysis.SamplingPolicy", "analysis.engine_sample"),
     ),
 )
 def test_slice3_removed_qualified_navigation_targets_do_not_resolve(
@@ -455,6 +454,12 @@ def test_slice3_removed_qualified_navigation_targets_do_not_resolve(
     assert isinstance(route_help_target(replacement), NativeHelpRoute)
     for candidate in captured.value.candidates:
         route_help_target(candidate)
+
+
+@pytest.mark.parametrize("target", ("analysis.engine_sample", "analysis.population.sample"))
+def test_removed_entity_sampling_help_targets_do_not_resolve(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        route_help_target(target)
 
 
 def test_default_analysis_error_repairs_resolve_on_their_declared_surface() -> None:

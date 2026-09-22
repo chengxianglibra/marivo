@@ -224,6 +224,11 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     if isinstance(root.payload, ForecastPayload):
         return ImplementationRegistration(root.operator_id, roles, (), "metric.forecast")
     if isinstance(root.payload, CorrelatePayload):
+        remote = tuple(
+            BackendRegistration(name, source=True)
+            for name, reason in _source_admissions().items()
+            if reason(dataset) is None
+        )
         return ImplementationRegistration(
             root.operator_id,
             roles,
@@ -233,6 +238,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
                     source=root.payload.spec.semantics.method != "kendall",
                     preparation="correlation",
                 ),
+                *remote,
             ),
             "metric.correlate",
         )

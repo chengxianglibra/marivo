@@ -3,7 +3,7 @@
 ## Unified operator and execution ownership
 
 All backends use one operator contract and implementation-registration mechanism.
-The selected backend owns physical sampling eligibility, preparation, execution,
+The selected backend owns physical preparation, execution,
 retained import and resource lifetime. DuckDB's temporary objects, macros and
 registration hooks implement the same semantic requirements; they are not
 operator-level exceptions. Remote implementations must work with read-only
@@ -77,8 +77,17 @@ backend. Admission is probe-then-open per backend and fold kind: the
 status-time component and the node-level fold override consult the same
 per-backend qualified kind set.
 
-Comparison and attribution use the existing complete non-Entity retained-axis
-methods. Forecast, Kendall and time discovery consume complete source-aggregated
+Comparison and attribution use complete non-Entity axis state, including
+hidden-axis expansion on PostgreSQL, SQLite, Trino and ClickHouse for
+additive difference and component mix. SQLite encodes source masks as
+fixed-width bits and strictly restores boolean arrays before publication;
+PostgreSQL lowers null-safe full alignment through two one-sided joins.
+MySQL's scalar mask lowering is implemented, but expanded attribution stays
+rejected after the live composed query exhausted the qualification server's
+768 MiB memory limit. Trino's expanded Top-K form remains rejected: the live
+query exceeded the certified server's 150-stage limit without a read-only
+materialization path.
+Forecast, Kendall and time discovery consume complete source-aggregated
 inputs in the caller; they do not collect raw semantic Entity rows.
 
 Computed Measures (row expressions) aggregate on these backends. A
@@ -95,9 +104,10 @@ qualified on PostgreSQL, MySQL, SQLite, Trino and ClickHouse. SQLite and MySQL
 deduplicate typed Entity identity fields as scalar SQL columns and reconstruct
 the unchanged private Arrow struct. Exact linear-interpolation distribution
 state is qualified on all five remote backends. Percentile status-time folds
-and remote `duckdb_tdigest@v1` remain unqualified. Hidden-axis expanded attribution,
-sampling, Entity correlation preparation, Entity candidates, source driver
-screening and Event/Lifecycle also remain unsupported on these backends. Remote
+and remote `duckdb_tdigest@v1` remain unqualified. Entity Pearson and Spearman
+correlation now reduce complete source-private pairs on all five remote backends;
+Kendall remains a complete-input local continuation. Sampling, Entity candidates, source driver screening and
+Event/Lifecycle remain unsupported on these backends. Remote
 retained import stays disabled. Cumulative Metric graphs and semantic calendar buckets were
 activated by C6 on all five remote backends — calendar buckets over native
 civil-date axes with a matching certified calendar snapshot, cumulative
@@ -192,7 +202,7 @@ float64, date, timestamp/timestamptz (precision 0–6) or Decimal types. Postgre
 because its trailing-space semantics differ from string; text/varchar remain supported. Explicit Decimal precision is
 at most 38 and scale lies between zero and precision; a generic Decimal declaration
 still requires compatible physical metadata. Temporal scopes use native date
-columns. Parsed string time axes and sampling and source-private methods are not admitted by Group A. The relational/date extension above owns additional method admission. PostgreSQL receives
+columns. Parsed string time axes and source-private methods are not admitted by Group A. The relational/date extension above owns additional method admission. PostgreSQL receives
 no retained-import capability.
 
 The adapter uses read-only service-side cursor transactions and records actual
@@ -207,7 +217,7 @@ Both backends admit the same single-source, single-unversioned-table Group A
 closure: Population, scoped observations, direct-column sum/count/min/max,
 dimensions, aggregation, filtering, projection, deterministic ranking and Top-N.
 All dependencies must be admitted, including projected-away Metrics. Neither
-backend imports retained Artifacts or enables sampling or source-private methods.
+backend imports retained Artifacts or enables source-private methods.
 The relational/date extension above owns additional method admission.
 
 MySQL admits tables and views with a SELECT-only account. Inputs include signed and unsigned
@@ -280,10 +290,10 @@ are reconstructed from typed scalar columns. Batches are not byte or memory
 limits. Driver/server limits remain external. Active cursors are owned before
 submission; cancellation and close failures report unknown remote status without
 blocking safe local recovery. Validation and output can observe different source
-states. Sampling, retained imports and source-private advanced methods remain unavailable.
+states. Retained imports and source-private advanced methods remain unavailable.
 The relational/date extension above owns additional method admission.
 
-The original Slice 1d blanket restriction is superseded. Existing DuckDB sampling,
+The original Slice 1d blanket restriction is superseded. Existing DuckDB
 Event/Lifecycle, Candidate, JSON and retained-stream execution remain available.
 
 
@@ -341,7 +351,7 @@ another result with the same column name.
 
 Methods transform definitions and return Logical Datasets. Applying a method to
 a Materialized Dataset starts from its retained rows and private contribution
-state; it does not replay the origin. Projection, filtering, sampling, ranking
+state; it does not replay the origin. Projection, filtering, ranking
 and aggregation keep their distinct meanings. Native contract validation checks
 whether the requested transition is admitted before source work.
 

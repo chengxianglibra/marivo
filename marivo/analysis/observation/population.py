@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime, time
 from typing import TYPE_CHECKING, TypeGuard
 
@@ -15,11 +14,7 @@ from marivo.analysis.datasets.base import (
     _make_logical_dataset,
 )
 from marivo.analysis.datasets.descriptors import _CORE_TOKEN, _EntityFieldIdentity
-from marivo.analysis.datasets.handles import (
-    LogicalRootHandle,
-    RealizationHandle,
-    RealizationRequirement,
-)
+from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.observation.contracts import (
     DimensionInput,
@@ -42,13 +37,11 @@ from marivo.analysis.observation.coordinates import (
     path_entities,
     resolve_time_axis,
 )
-from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.predicates import (
     AnalysisPredicate,
     PredicateField,
     bind_predicates,
 )
-from marivo.analysis.observation.sampling import EntitySamplingPolicy
 from marivo.analysis.observation.temporal import time_zone
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import DimensionEntry, EntityEntry
@@ -80,15 +73,6 @@ class LogicalPopulationDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="po
         """
         return _where(self, predicates)
 
-    def sample(self, policy: EntitySamplingPolicy) -> LogicalPopulationDataset:
-        """Select an engine-chosen Entity sample after all membership predicates.
-
-        Args: policy: A helper-produced engine_sample request.
-        Returns: New Logical Population. Example: ``population.sample(engine_sample(target_rows=100))``.
-        Constraints: Sampling is final membership selection and executes once per action.
-        """
-        return _sample(self, policy)
-
     def execute(self) -> MaterializedPopulationDataset:
         """Delegate this definition to its required runtime owner.
 
@@ -104,15 +88,6 @@ class MaterializedPopulationDataset(
     """Exact retained identity rows, never an executable membership origin."""
 
     __slots__ = ()
-
-    def sample(self, policy: EntitySamplingPolicy) -> LogicalPopulationDataset:
-        """Request sampling from the retained Population when its scan route is registered.
-
-        Args: policy: A helper-produced engine_sample request.
-        Returns: Logical Population. Example: ``population.sample(engine_sample(target_rows=100))``.
-        Constraints: An admitted engine scan and unsampled membership are required.
-        """
-        return _sample(self, policy)
 
     def where(self, *predicates: AnalysisPredicate) -> LogicalPopulationDataset:
         """Filter retained membership through a current stable Dimension path.
@@ -237,12 +212,6 @@ def make_population(
 
 
 def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> LogicalPopulationDataset:
-    if _has_sampling(dataset):
-        raise construction_error(
-            "membership predicates before sampling",
-            "where after an Entity sampling request",
-            repair="Move where(...) before sample(...) on the unsampled Population.",
-        )
     owner = source_owner_of(dataset)
     identity = dataset.schema.columns[0].identity
     if not isinstance(identity, _EntityFieldIdentity):
@@ -315,54 +284,3 @@ def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> Logic
     if not isinstance(result, LogicalPopulationDataset):
         raise construction_error("paired Logical Population", "invalid family registration")
     return result
-
-
-def _sample(dataset: Dataset, policy: EntitySamplingPolicy) -> LogicalPopulationDataset:
-    if type(policy) is not EntitySamplingPolicy:
-        raise construction_error("helper-produced EntitySamplingPolicy", "invalid sampling policy")
-    root = dataset._root
-    if _has_sampling(dataset):
-        raise construction_error(
-            "one sampling call on an unsampled Population",
-            "a second sampling request",
-            repair="Construct a new sample branch from the unsampled Population.",
-        )
-    payload = (
-        replace(
-            root.payload,
-            _token=_CORE_TOKEN,
-            predicate=None,
-            sampling=policy,
-            target_population_definition_fingerprint=dataset.definition_fingerprint,
-        )
-        if isinstance(root, LogicalRootHandle) and isinstance(root.payload, PopulationPayload)
-        else PopulationSamplePayload(
-            _token=_CORE_TOKEN,
-            policy=policy,
-            target_population_definition_fingerprint=dataset.definition_fingerprint,
-        )
-    )
-    result = construct_operator(
-        owner=owner_of(dataset),
-        registry=dataset._registry,
-        operator_id="population.sample",
-        inputs=(dataset,),
-        row_contract=dataset.row_contract,
-        row_set_contract=dataset.row_set_contract,
-        payload=payload,
-        realizations=(RealizationRequirement("population_sample", RealizationHandle()),),
-        dependency_facts=(f"target_population:{dataset.definition_fingerprint}",),
-        contract_versions=producer_contract("population.sample").versions,
-    )
-    if not isinstance(result, LogicalPopulationDataset):
-        raise construction_error("paired Logical Population", "invalid family registration")
-    return result
-
-
-def _has_sampling(dataset: Dataset) -> bool:
-    root = dataset._root
-    return (
-        (isinstance(root, LogicalRootHandle) and root.has_realizations)
-        or owner_of(dataset).sampling_authority_snapshot
-        or any(_has_sampling(parent) for parent in dataset._inputs)
-    )
