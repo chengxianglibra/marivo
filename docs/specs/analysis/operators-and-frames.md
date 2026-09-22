@@ -627,6 +627,20 @@ Choose typed continuations when the next step computes supported analytical fact
 - `result.to_pandas()` — an isolated defensive DataFrame copy (tabular frames
   only). It is the only method that returns a mutable copy.
 
+Frame cards use aligned plain-text tables with preserved numeric precision and
+explicit cell escaping. The 50-row / 8-KiB bounds apply after formatting; row
+omission counts exclude the header. Unbounded rendering preserves every row.
+The fixed footer routes to `.contract().show()`, `.findings(...)`, and
+`.to_pandas()`; full mechanical continuations remain contract-owned.
+
+Evidence status and counts share one summary; findings, selection evidence,
+issues, and inference boundaries are retained without semantic deduplication.
+Delta cards omit execution-path and backend-optimization diagnostics. Attribution
+cards omit identity-persistence diagnostics. Forecast cards summarize per-group
+training counts as group count, minimum, and maximum, or explicitly report
+unavailable counts; this does not introduce a training-quality threshold.
+
+
 Terminal `RawSqlResult` supports bounded display cards and complete query-result
 row/column reads, but omits `contract()` because it has no typed continuation.
 

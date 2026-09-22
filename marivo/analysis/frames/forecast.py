@@ -59,12 +59,15 @@ class ForecastFrame(BaseFrame):
         )
         card.field("history_window", str(self.meta.history_window))
         card.field("forecast_window", str(self.meta.forecast_window))
+        counts = tuple(self.meta.train_row_count_per_segment.values())
+        training = (
+            f"groups={len(counts)} training_min={min(counts)} training_max={max(counts)}"
+            if counts
+            else "training_counts=unavailable"
+        )
         card.field(
             "segments",
-            (
-                f"dimensions={','.join(self.meta.segment_dimensions) or 'none'} "
-                f"training_counts={self.meta.train_row_count_per_segment}"
-            ),
+            (f"dimensions={','.join(self.meta.segment_dimensions) or 'none'} {training}"),
         )
         self._append_evidence_sections(card)
         return self._append_preview_table(card)

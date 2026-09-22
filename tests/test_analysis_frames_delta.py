@@ -170,4 +170,6 @@ def test_delta_render_surfaces_temporal_alignment_evidence():
 
     assert "temporal_alignment" in rendered
     assert "paired=1" in rendered
-    assert "path=local" in rendered
+    assert "path=" not in rendered
+    assert "backend_optimized=" not in rendered
+    assert frame.meta.temporal_contract.alignment_evidence.execution_path == "local"

@@ -1387,3 +1387,18 @@ source artifact contract for the exact current admission rules.
 | `ForecastFrame` | `forecast` |
 | `HypothesisTestResult` | `hypothesis_test` |
 | `CandidateSet` | `discover.*` |
+
+## Inspect Frame results
+
+`frame.show()` prints an aligned table with unchanged numeric precision, limited
+to 50 rows or 8 KiB. Wide tables may show fewer rows; explicit omission counts
+and recovery calls identify what is missing. Evidence summaries retain findings
+and interpretation boundaries. The fixed footer separates operation discovery,
+evidence detail, and complete rows:
+
+```python
+frame.show()
+frame.contract().show()  # Complete mechanical continuations
+frame.findings(limit=20).show()  # Detailed evidence and exact finding lookup
+rows = frame.to_pandas()  # Complete isolated data
+```

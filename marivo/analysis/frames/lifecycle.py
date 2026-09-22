@@ -520,8 +520,6 @@ class LifecycleFrame(BaseFrame):
 
     meta: LifecycleFrameMetaVariant
 
-    _AVAILABLE_ENTRIES = (".show()", ".contract()", ".to_pandas()")
-
     def __post_init__(self) -> None:
         self._restore_persisted_identity_columns()
         super().__post_init__()

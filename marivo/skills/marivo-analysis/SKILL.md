@@ -74,7 +74,9 @@ keeping any provisional result separate from canonical Evidence.
 
 Produce a bounded typed Artifact early. Inspect `.show()` when current state
 contributes evidence and use `.contract()` when the mechanically valid next
-actions are unknown. Route method discovery through
+actions are unknown. The fixed Frame footer provides discovery exits; body hints
+are not the complete operation set. Follow omission recovery when the preview
+or Evidence summary is insufficient for a claim. Route method discovery through
 `marivo.help("analysis.methods")`, but choose subsequent methods from the
 question and the Artifact in hand rather than from a fixed recipe.
 

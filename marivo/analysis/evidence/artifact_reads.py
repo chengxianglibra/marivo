@@ -77,6 +77,16 @@ class Finding(RenderableResult):
 class FindingPage(_BoundedPage[Finding]):
     """Immutable bounded Artifact-scoped Finding page."""
 
+    def _card(self) -> Card:
+        card = super()._card()
+        if self.items:
+            item = self.items[0]
+            card.field(
+                "finding lookup",
+                f"session.artifact({item.artifact_ref!r}).finding({item.finding_id!r}).show()",
+            )
+        return card
+
 
 def _ledger_path(artifact: BaseFrame) -> Path:
     return (

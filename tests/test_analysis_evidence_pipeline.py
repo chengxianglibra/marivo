@@ -270,7 +270,7 @@ def test_multi_metric_commit_persists_and_renders_metric_input_order(tmp_path: P
         assert result.evidence_digest.omissions.omitted_items == 3
         rendered = result.render(max_output_bytes=None)
         evidence_line = (
-            "evidence: items=5 omitted=3 selection=metric_input_order; "
+            "evidence: status=complete items=5 selection=metric_input_order omitted=3 "
             "recover=artifact.findings(limit=20)"
         )
         assert evidence_line in rendered

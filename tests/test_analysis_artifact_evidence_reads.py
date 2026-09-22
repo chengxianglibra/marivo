@@ -45,6 +45,10 @@ def test_artifact_findings_page_is_exact_bounded_and_carries_derivation(
         assert page.limit == 1
         finding = page.items[0]
         assert isinstance(finding, mv.Finding)
+        assert (
+            f"session.artifact({delta.ref!r}).finding({finding.finding_id!r}).show()"
+            in page.render()
+        )
         assert finding.artifact_ref == delta.ref
         assert finding.session_id == session.id
         assert finding.source_artifact_ref == delta.ref

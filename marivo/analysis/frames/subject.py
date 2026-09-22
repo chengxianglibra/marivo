@@ -141,8 +141,6 @@ class SubjectSet(BaseFrame):
 
     meta: SubjectSetMeta
 
-    _AVAILABLE_ENTRIES = (".show()", ".contract()", ".to_pandas()")
-
     def __post_init__(self) -> None:
         if "subject_identity" in self._df.columns:
             self._df["subject_identity"] = self._df["subject_identity"].map(_identity_tuple)

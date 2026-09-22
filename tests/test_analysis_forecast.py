@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 
 import ibis
@@ -51,6 +52,13 @@ def test_naive_time_series_constant(tmp_path):
     result = session.forecast(history, horizon=3, model="naive")
     df = result.to_pandas()
 
+    assert "groups=1 training_min=10 training_max=10" in result.render()
+    assert "training_counts={" not in result.render()
+    without_counts = replace(
+        result, meta=result.meta.model_copy(update={"train_row_count_per_segment": {}})
+    )
+    assert "training_counts=unavailable" in without_counts.render()
+    assert result.meta.train_row_count_per_segment
     assert result.meta.kind == "forecast_frame"
     assert df["predicted"].tolist() == [10.0, 10.0, 10.0]
     assert df["lower"].tolist() == [10.0, 10.0, 10.0]

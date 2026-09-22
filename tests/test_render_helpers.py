@@ -309,3 +309,107 @@ def test_derive_summaries_uses_docstring_topic_and_override() -> None:
     assert out["topic_a"] == "topic summary"
     assert out["aliased"] == "alias summary"
     assert out["novalue"] == ""
+
+
+@pytest.mark.parametrize("count", [0, 49, 50, 51])
+def test_aligned_table_bounds_and_lazy_reads(count: int) -> None:
+    read: list[int] = []
+
+    def rows() -> Iterator[tuple[str, str]]:
+        for index in range(count):
+            read.append(index)
+            yield (f"row-{index}", str(index))
+
+    card = Card(identity="Frame rows=" + str(count), available=(".contract().show()",))
+    card.lazy_table(
+        ("name", "value"),
+        rows,
+        count,
+        bounded_row_limit=50,
+        column_alignments=(False, True),
+        show_omission_counts=True,
+        recovery="session.artifact('frame').to_pandas()",
+    )
+    rendered = card.render()
+    assert read == list(range(min(count, 50)))
+    assert sum(line.startswith("row-") for line in rendered.splitlines()) == min(count, 50)
+    if count > 50:
+        assert "displayed=50 total=51 omitted=1" in rendered
+        assert "row-50" in card.render(max_output_bytes=None)
+    elif count == 0:
+        assert "preview: none" in rendered
+        assert "name | value" in rendered
+    else:
+        assert "omitted=" not in rendered
+
+
+def test_aligned_table_unicode_escaping_and_precision() -> None:
+    rows = (("华东", "0.12345678901234567"), ("e\u0301", "1e-300"), ("a|b\n\t\\", "None"))
+    card = Card(identity="Frame", available=(".contract().show()",)).lazy_table(
+        ("region", "value"),
+        lambda: iter(rows),
+        len(rows),
+        column_alignments=(False, True),
+    )
+    rendered = card.render()
+    assert "华东" in rendered and "e\u0301" in rendered
+    assert "a\\|b\\n\\t\\\\" in rendered
+    assert "0.12345678901234567" in rendered and "1e-300" in rendered
+    # The first two data cells terminate at the same display column despite CJK/combining text.
+    lines = rendered.splitlines()
+    east = next(line for line in lines if line.startswith("华东"))
+    combining = next(line for line in lines if line.startswith("e\u0301"))
+    assert east.index(" | ") + 2 == combining.index(" | ") - 1
+    assert len(lines) == 8
+
+
+def test_aligned_table_byte_budget_counts_only_complete_rows() -> None:
+    rows = tuple((f"row-{i}", "x" * 100) for i in range(51))
+    card = Card(identity="Frame", available=(".contract().show()",)).lazy_table(
+        ("name", "value"),
+        lambda: iter(rows),
+        len(rows),
+        column_alignments=(False, False),
+        bounded_row_limit=50,
+        show_omission_counts=True,
+        recovery="session.artifact('frame').to_pandas()",
+    )
+    rendered = card.render(max_output_bytes=700)
+    shown = [line for line in rendered.splitlines() if line.startswith("row-")]
+    assert len(rendered.encode()) <= 700
+    assert 0 < len(shown) < 50
+    assert all(line.endswith("x" * 100) for line in shown)
+    assert f"displayed={len(shown)} total=51 omitted={51 - len(shown)}" in rendered
+    assert "output truncated at 700 bytes" in rendered
+    assert "session.artifact('frame').to_pandas()" in rendered
+    assert rendered.endswith("- .contract().show()")
+    with pytest.raises(ValueError, match="too small"):
+        card.render(max_output_bytes=10)
+
+
+def test_aligned_table_preserves_trailing_cell_whitespace() -> None:
+    card = Card(identity="Frame", available=(".contract().show()",)).lazy_table(
+        ("value",),
+        lambda: iter((("tail  ",),)),
+        1,
+        column_alignments=(False,),
+    )
+    assert "tail  \n" in card.render()
+
+
+@pytest.mark.parametrize("alignments", [(), (True,), (True, False, True)])
+def test_aligned_table_rejects_mismatched_alignments_before_reading(
+    alignments: tuple[bool, ...],
+) -> None:
+    def rows() -> Iterator[tuple[str, str]]:
+        raise AssertionError("invalid layout must fail before reading rows")
+
+    card = Card(identity="Frame", available=(".contract().show()",)).lazy_table(
+        ("name", "value"),
+        rows,
+        1,
+        column_alignments=alignments,
+    )
+    for budget in (8192, None):
+        with pytest.raises(ValueError, match="one alignment per table column"):
+            card.render(max_output_bytes=budget)
