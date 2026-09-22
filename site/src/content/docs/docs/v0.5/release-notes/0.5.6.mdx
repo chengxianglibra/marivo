@@ -1,0 +1,75 @@
+---
+slug: docs/v0.5/release-notes/0.5.6
+title: Marivo 0.5.6
+description: Release notes for Marivo 0.5.6.
+---
+
+Marivo 0.5.6 adds expression-backed semantic Entities and tightens public
+inspection and Help contracts.
+
+## Highlights
+
+- `ms.entity(...)` now supports both direct declarations and a decorator form.
+  The decorator body returns one deterministic Ibis `Table` expression over its
+  injected source, and the returned output schema and primary key govern
+  downstream semantic execution.
+- Expression Entities use one shared output boundary for observation, grouping,
+  metric filters, relationships, event journeys, and lifecycle calculations.
+  Their body and output dependencies are included in semantic fingerprints.
+- Entity validation and source-health evidence distinguish physical
+  connectivity and schema failures from invalid expressions, missing output
+  fields, and missing output primary keys.
+- Semantic and analysis Help now expose executable examples, concrete result and
+  pagination fields, parameter semantics, and structured repair guidance within
+  their existing disclosure budgets.
+
+## Changed
+
+- Entity bodies are validated as closed, deterministic Ibis expressions. SQL or
+  execution escape hatches, external captured values, clock and random values,
+  assignments, comprehensions, and other unsupported shapes are rejected with
+  structured repairs.
+- Semantic definition displays preserve authored literal values and normalized
+  expression structure. Definition payloads now use the
+  `marivo.semantic_definition/v2` schema.
+- Frame inspection renders bounded previews and evidence summaries without
+  rounding values, while retaining stable contract, finding, and data exits.
+- English and Chinese semantic-layer, analysis-workflow, Help, and packaged
+  agent guidance now match the executable contracts.
+
+## Compatibility
+
+- Direct Entity declarations keep their existing source-schema behavior. The
+  expression form is opt-in and treats the returned Table schema as the
+  authoritative Entity output.
+- Consumers that persist or inspect semantic definition JSON should handle the
+  `marivo.semantic_definition/v2` schema and its authored literal values.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.5.6 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.5/installation/)
+- [Quick Start](/docs/v0.5/quick-start/)
+- [Semantic Layer](/docs/v0.5/concepts/semantic-layer/)
+- [Readiness](/docs/v0.5/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.5/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.5/concepts/evidence/)
