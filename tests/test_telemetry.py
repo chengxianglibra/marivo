@@ -1,4 +1,4 @@
-"""Tests for local loop-engineering telemetry v2."""
+"""Tests for local loop-engineering telemetry."""
 
 from __future__ import annotations
 
@@ -72,11 +72,11 @@ def _capability_records(path: Path, capability_id: str) -> list[dict[str, object
 def telemetry_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n', encoding="utf-8")
-    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+    monkeypatch.setenv("MARIVO_TELEMETRY", "full")
     yield tmp_path
 
 
-def test_track_operation_writes_correlated_v2_pair(telemetry_project: Path) -> None:
+def test_full_mode_track_operation_writes_correlated_v3_pair(telemetry_project: Path) -> None:
     from marivo.telemetry import track_operation
 
     session = SimpleNamespace(
@@ -98,13 +98,83 @@ def test_track_operation_writes_correlated_v2_pair(telemetry_project: Path) -> N
         {"stringValue": "marivo.operation.completed"},
     ]
     started, completed = map(_attrs, records)
-    assert started["marivo.event.schema_version"] == "2"
+    assert started["marivo.event.schema_version"] == "3"
     assert started["marivo.operation.id"] == completed["marivo.operation.id"]
     assert started["marivo.operation.status"] == "started"
     assert completed["marivo.operation.status"] == "ok"
     assert started["marivo.session.id"] == "sess_test"
     assert started["marivo.session.question"] == "Why did revenue fall?"
     assert started["marivo.project.instance_id"] == completed["marivo.project.instance_id"]
+
+
+def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.telemetry import tracked_capability
+
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+
+    @tracked_capability(surface="analysis", capability_id="grain", capability_kind="constructor")
+    def construct(*, project_root: Path) -> str:
+        return "grain"
+
+    @tracked_capability(surface="analysis", capability_id="catalog.require", capability_kind="read")
+    def read(*, project_root: Path, fail: bool = False) -> str:
+        if fail:
+            raise ValueError("private detail")
+        return "item"
+
+    assert construct(project_root=telemetry_project) == "grain"
+    assert read(project_root=telemetry_project) == "item"
+    assert not (telemetry_project / ".marivo" / "telemetry").exists()
+    with pytest.raises(ValueError, match="private detail"):
+        read(project_root=telemetry_project, fail=True)
+    path = _event_path(telemetry_project)
+    calls = [_attrs(record) for record in _capability_records(path, "catalog.require")]
+    assert len(calls) == 1
+    assert calls[0]["marivo.event.schema_version"] == "3"
+    assert calls[0]["marivo.operation.status"] == "error"
+    assert calls[0]["marivo.error.class"] == "ValueError"
+    assert "private detail" not in path.read_text(encoding="utf-8")
+
+
+def test_default_mode_short_and_long_operations_keep_only_actionable_events(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.telemetry import tracked_capability
+
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+
+    @tracked_capability(surface="analysis", capability_id="catalog.require", capability_kind="read")
+    def delegated(*, project_root: Path, fail: bool = False) -> str:
+        if fail:
+            raise ValueError("nested failure")
+        return "item"
+
+    @tracked_capability(surface="analysis", capability_id="observe", capability_kind="operator")
+    def execute(*, project_root: Path, fail: bool = False) -> str:
+        return delegated(project_root=project_root, fail=fail)
+
+    @tracked_capability(
+        surface="analysis", capability_id="session.resume", capability_kind="recovery"
+    )
+    def resume(*, project_root: Path) -> str:
+        return "resumed"
+
+    assert execute(project_root=telemetry_project) == "item"
+    assert resume(project_root=telemetry_project) == "resumed"
+    path = _event_path(telemetry_project)
+    assert len(_capability_records(path, "observe")) == 2
+    assert len(_capability_records(path, "session.resume")) == 1
+    assert _capability_records(path, "catalog.require") == []
+
+    with pytest.raises(ValueError, match="nested failure"):
+        execute(project_root=telemetry_project, fail=True)
+    child = _attrs(_capability_records(path, "catalog.require")[0])
+    parent = _attrs(_capability_records(path, "observe")[-1])
+    assert child["marivo.operation.status"] == "error"
+    assert child["marivo.operation.parent_id"] == parent["marivo.operation.id"]
+    assert parent["marivo.operation.status"] == "error"
 
 
 def test_metric_graph_telemetry_keeps_only_bounded_contract_facts(
@@ -1069,7 +1139,7 @@ def test_telemetry_enablement_precedence(
         monkeypatch.setenv("MARIVO_TELEMETRY", environment)
     with track_operation(
         "marivo.analysis.demo",
-        family="read",
+        family="operator",
         intent="demo",
         project_root=telemetry_project,
     ):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from marivo._compat import tomllib
 
@@ -43,6 +44,7 @@ class ProjectConfig:
         name: Project name.
         semantic_layer_paths: External authored ``models/`` roots.
         telemetry_enabled: Whether local telemetry is enabled by default.
+        telemetry_mode: Local telemetry detail level.
 
     Returns:
         ProjectConfig with project identity metadata.
@@ -60,6 +62,7 @@ class ProjectConfig:
     name: str
     semantic_layer_paths: tuple[Path, ...] = ()
     telemetry_enabled: bool = True
+    telemetry_mode: Literal["off", "on", "full"] = "on"
 
 
 def load_project_config(project_root: Path) -> ProjectConfig:
@@ -133,22 +136,27 @@ def load_project_config(project_root: Path) -> ProjectConfig:
 
     telemetry_table = data.get("telemetry")
     if telemetry_table is None:
-        telemetry_enabled = True
+        telemetry_mode: Literal["off", "on", "full"] = "on"
     elif not isinstance(telemetry_table, dict):
         raise ValueError("marivo.toml [telemetry] must be a table.")
     else:
         raw_enabled = telemetry_table.get("enabled")
         if raw_enabled is None:
-            telemetry_enabled = True
-        elif not isinstance(raw_enabled, str) or raw_enabled not in {"on", "off"}:
-            raise ValueError("marivo.toml [telemetry].enabled must be 'on' or 'off'.")
+            telemetry_mode = "on"
+        elif not isinstance(raw_enabled, str) or raw_enabled not in {"on", "off", "full"}:
+            raise ValueError("marivo.toml [telemetry].enabled must be 'on', 'off', or 'full'.")
+        elif raw_enabled == "off":
+            telemetry_mode = "off"
+        elif raw_enabled == "full":
+            telemetry_mode = "full"
         else:
-            telemetry_enabled = raw_enabled == "on"
+            telemetry_mode = "on"
 
     return ProjectConfig(
         name=name,
         semantic_layer_paths=semantic_layer_paths,
-        telemetry_enabled=telemetry_enabled,
+        telemetry_enabled=telemetry_mode != "off",
+        telemetry_mode=telemetry_mode,
     )
 
 
