@@ -137,7 +137,7 @@ DuckDB oracle 旅程执行，五个远程后端的执行证据随 C7/C8 日历�
 PostgreSQL、MySQL、SQLite、Trino 和 ClickHouse 启用；SQLite/MySQL 在 SQL 中逐列去重有类型的身份字段，
 私有 part 保持原有 Arrow struct。精确线性插值 median/percentile 已在五个远程后端启用。远程
 `duckdb_tdigest@v1` 以及 percentile status-time 折叠仍未准入。五个远程后端已支持在源端对完整私有配对做 Entity Pearson 和 Spearman 相关性归约；Kendall 继续使用完整输入的本地续算。
-PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。采样、Entity candidates、源端 driver screening 和 Event/Lifecycle 仍不支持。
+PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。PostgreSQL 还支持精确的两步或三步 `session.events.match(...)` 旅程（`first_per_subject()` 或 `every_start()`）；这些形态要求未版本化表源以及 `int64` 的主体和事件身份。只读源端查询在发布旅程前完成匹配与断言。PostgreSQL 的其他 Event 形状、Event 派生方法和 Lifecycle 回放仍不支持；SQLite、MySQL、Trino 和 ClickHouse 的 Event/Lifecycle 仍不支持。采样、Entity candidates 和源端 driver screening 仍不支持。
 字符串时间解析与多单位桶按后端逐步启用，限制见下节。
 不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。
 

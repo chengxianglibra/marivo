@@ -11,6 +11,7 @@ from marivo.analysis.datasets.base import Dataset, LogicalDataset
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.domains.contracts import (
+    EventDefinition,
     EventFunnelPayload,
     EventFunnelSemantics,
     EventJourneySemantics,
@@ -45,6 +46,7 @@ from marivo.analysis.operators.candidate_contracts import CandidatePayload, Cand
 from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
 from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload, ForecastSemantics
+from marivo.datasource.ir import TableSourceIR
 
 BackendName: TypeAlias = Literal["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"]
 PreparationKind: TypeAlias = Literal["correlation", "distribution"]
@@ -119,6 +121,30 @@ def supports_retained_import(backend: str) -> bool:
 _DUCKDB = (BackendRegistration("duckdb", source=True),)
 
 
+def _postgres_event_reason(definition: EventDefinition) -> str | None:
+    """Keep the first native Event bundle limited to its proven identity shape."""
+    if (
+        len(definition.steps) not in (2, 3)
+        or definition.sampling_authority != "exact"
+        or definition.entity.version is not None
+        or not isinstance(definition.entity.source, TableSourceIR)
+        or any(logical != "int64" for _, logical in definition.entity.identity_signature)
+        or any(
+            step.source.version is not None
+            or not isinstance(step.source.source, TableSourceIR)
+            or any(axis.logical_type != "int64" for axis in step.identity)
+            for step in definition.steps
+        )
+    ):
+        return (
+            "PostgreSQL Event matching currently requires two or three steps with "
+            "first-per-subject or every-start matching; "
+            "all shapes require exact int64 subject and occurrence identities and "
+            "unversioned table sources"
+        )
+    return None
+
+
 def _source_admissions() -> dict[BackendName, Callable[[LogicalDataset], str | None]]:
     """Keep eligibility and diagnostics on the same concrete backend owner."""
     from marivo.analysis.operators.clickhouse_support import unsupported_reason as clickhouse_reason
@@ -141,6 +167,36 @@ def source_unsupported_reason(dataset: LogicalDataset, backend: str) -> str | No
     execution = backend_execution(backend)
     if execution is None:
         return None
+    root = dataset._root
+    if execution.backend != "duckdb" and isinstance(root, LogicalRootHandle):
+        if isinstance(root.payload, EventPayload):
+            if execution.backend == "postgres":
+                return _postgres_event_reason(root.payload.definition)
+            return (
+                "Event matching requires source-side occurrence identity, governed-order "
+                "assignment, and complete assertions; this backend has no validated "
+                "matching lowering"
+            )
+        if isinstance(root.payload, LifecyclePayload):
+            return (
+                "Lifecycle replay requires validated source-side recursive replay and "
+                "equal-time confluence proof; this "
+                "read-only backend has no admitted implementation"
+            )
+        if isinstance(
+            root.payload,
+            (
+                EventFunnelPayload,
+                EventTimeToEventPayload,
+                EventSelectionPayload,
+                LifecycleReducerPayload,
+                LifecycleSelectionPayload,
+            ),
+        ):
+            return (
+                "this Event/Lifecycle continuation requires an admitted source-private "
+                "implementation or complete retained input authority"
+            )
     reason = _source_admissions().get(execution.backend)
     return None if reason is None else reason(dataset)
 
@@ -181,13 +237,21 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     if root.contract_versions != registration.versions:
         raise compilation_error("exact registered contract versions", "method version mismatch")
     roles = tuple(item.role for item in root.inputs)
+    if isinstance(root.payload, EventPayload):
+        postgres_event: tuple[BackendRegistration, ...] = (
+            (BackendRegistration("postgres", source=True),)
+            if _postgres_event_reason(root.payload.definition) is None
+            else ()
+        )
+        return ImplementationRegistration(
+            root.operator_id, roles, (*_DUCKDB, *postgres_event), None
+        )
     if isinstance(
         root.payload,
         (
             LifecyclePayload,
             LifecycleReducerPayload,
             LifecycleSelectionPayload,
-            EventPayload,
             EventFunnelPayload,
             EventTimeToEventPayload,
             EventSelectionPayload,

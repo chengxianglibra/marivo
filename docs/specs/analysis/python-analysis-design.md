@@ -7,7 +7,7 @@ The selected backend owns physical preparation, execution,
 retained import and resource lifetime. DuckDB's temporary objects, macros and
 registration hooks implement the same semantic requirements; they are not
 operator-level exceptions. Remote implementations must work with read-only
-accounts and prove equivalent single evaluation, numerical behavior and required
+accounts and prove equivalent semantics, numerical behavior and required
 assertions before registration. No implicit alternate route or new cross-engine
 private-state transfer is introduced. DuckDB analysis and the PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar subsets and the individually qualified relational/date methods below are enabled.
 
@@ -106,8 +106,15 @@ the unchanged private Arrow struct. Exact linear-interpolation distribution
 state is qualified on all five remote backends. Percentile status-time folds
 and remote `duckdb_tdigest@v1` remain unqualified. Entity Pearson and Spearman
 correlation now reduce complete source-private pairs on all five remote backends;
-Kendall remains a complete-input local continuation. Sampling, Entity candidates, source driver screening and
-Event/Lifecycle remain unsupported on these backends. Remote
+Kendall remains a complete-input local continuation. PostgreSQL also admits an
+exact two- or three-step first-per-subject or every-start Event journeys, with
+unversioned table sources, int64 subject and
+occurrence identities, and exact sampling. One read-only
+statement materializes the source-private relations and carries validation,
+proof, and ordered journey packets. Other Event shapes, Event-derived methods,
+and Lifecycle replay remain closed on PostgreSQL. Event/Lifecycle remain closed
+on MySQL, SQLite, Trino and ClickHouse. Sampling, Entity candidates, and source
+driver screening remain unsupported on these backends. Remote
 retained import stays disabled. Cumulative Metric graphs and semantic calendar buckets were
 activated by C6 on all five remote backends — calendar buckets over native
 civil-date axes with a matching certified calendar snapshot, cumulative
@@ -375,7 +382,10 @@ Source assertions, primary output and required part reads need not observe the
 same source state. Each query uses its backend's current observation; successful
 checks do not certify later reads. Marivo neither opens a shared consistency
 transaction nor rejects or retries solely because intervening updates occurred.
-Required validations and method-owned single-evaluation fences still apply;
+Required validations still apply; Event/Lifecycle may re-evaluate deterministic
+source relations, including across concurrent writes. Assertions certifying an
+output must observe that output's source version; earlier checks alone cannot
+certify later rows. Independent output queries may observe different versions;
 atomic publication does not certify a common source snapshot.
 
 One admitted execution creates a Run. Publication commits the primary result,

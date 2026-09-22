@@ -221,7 +221,13 @@ complete non-Entity state is available on PostgreSQL, SQLite, Trino and
 ClickHouse. MySQL remains unqualified after its live composed query exceeded
 the qualification server's memory limit; expanded Top-K on Trino is also
 unqualified because its query exceeded the server stage limit. Sampling,
-Entity candidates, source driver screening and Event/Lifecycle remain unsupported.
+Entity candidates and source driver screening remain unsupported. PostgreSQL
+admits exact two- or three-step `session.events.match(...)` journeys with
+`first_per_subject()` or `every_start()` matching. These shapes require unversioned table sources
+and `int64` subject and occurrence identities. The read-only source query carries complete matching
+and validation before the journey is published. Other Event shapes, Event
+reducers and selections, and Lifecycle replay remain unsupported on PostgreSQL;
+Event/Lifecycle remain unsupported on SQLite, MySQL, Trino and ClickHouse.
 String-parser time axes and multi-unit buckets are enabled per
 backend, with the limits below. Unsupported shapes report a concrete reason; they
 do not trigger raw source collection or remote retained uploads.
