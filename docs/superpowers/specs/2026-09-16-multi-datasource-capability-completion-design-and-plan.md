@@ -2,7 +2,7 @@
 
 日期：2026-09-16
 
-状态：C0 与 C1 已完成；C1 的六后端列依赖、schema 诊断及列 comment 证据见 [C1 验收](2026-09-16-multisource-capability-c1-acceptance.md)。C2 已实现并通过六后端标量验收，见 [C2 验收](2026-09-16-multisource-capability-c2-acceptance.md)；普通 timestamp 时间谓词按用户确认归 C3a。C3–C10 未开始，后续能力仍须独立实施及验收。
+状态：C0–C8 的具体交付边界以各阶段独立验收记录为准；C9 已开放一个精确的 PostgreSQL Event journey 单元，Lifecycle 与其他远程单元仍待实施及验收，见 [C9 实施计划](2026-09-22-multisource-capability-c9-implementation-plan.md)与[C9 当前验收](2026-09-22-multisource-capability-c9-acceptance.md)。C10 仍须独立实施及验收。
 
 C0 的当前能力、目标/排除、历史证据与本次只读环境探测见 [C0 验收](2026-09-16-multisource-capability-c0-acceptance.md)；后续各阶段的 owner、fixture、验证入口及进入条件见 [C0 实施计划清单](2026-09-16-multisource-capability-c0-implementation-plan.md)。
 
@@ -48,7 +48,7 @@ C0 的当前能力、目标/排除、历史证据与本次只读环境探测见 
 3. 统一算子、注册和确定性选择机制；物理差异由具体 adapter 承担。不得增加独立的能力注册中心或渲染层支持清单。
 4. 远程账户只读，不依赖临时表、上传、UDF、宏或清理 DDL。DuckDB 已有本地临时资源能力保留。
 5. 失败不触发替代后端、隐式本地回退、近似、截断或重复提交。已有本地方法可以按原契约接收完整、允许转移的输入。
-6. 保留身份、关系 fanout、版本、数值、单次求值及私有状态约束；即使主结果为空，必要断言也不得省略。
+6. 保留身份、关系 fanout、版本、数值及私有状态约束；即使主结果为空，必要断言也不得省略。Event/Lifecycle 的确定性事件关系允许重新求值；并发写入造成的独立查询间版本差异可接受，但影响某个输出有效性的断言必须验证该输出所依据的源版本。
 7. primary、parts、Evidence、Findings 原子发布；冷读、精确命中、失败恢复和私有状态边界保持不变。
 8. 不增加跨查询共同快照、引擎版本认证、远程终止证明或 Marivo 执行预算；外部系统限制及原始错误正常传播。
 
@@ -141,11 +141,11 @@ C5 已锁定 ClickHouse Distributed 和 Trino 不按 catalog/connector 类型设
 | quantile/distribution | 既有精确定义、插值、分布状态和续算 | 用引擎默认近似分位数替换 |
 | Entity correlation/candidate、driver screening | 私有身份、配对/筛选准备、精确数值及允许的状态流向 | 将原始身份和私有中间行转入本地绕过源端限制 |
 | 扩展归因 | 隐藏轴准备、完整对齐与贡献状态 | 根据可见 Top-N 或截断结果归因 |
-| Event/Lifecycle | 事件顺序、并列规则、匹配、状态重放与单次求值 | 用普通聚合近似事件过程 |
+| Event/Lifecycle | 事件顺序、并列规则、匹配、状态重放及完整断言 | 用普通聚合近似事件过程 |
 
 Entity 抽样已从 Analysis 能力范围移除，包括 `population.sample` 和 `engine_sample`；C8 不再开展通用抽样后端适配。Datasource 的 `inspection.sample()` 是独立的作者检查能力，不受此决定影响。未来若需要利用物理 bucket 减少扫描，应另立可验证的源端能力契约，不复用已移除的 API。
 
-每组先建立最小后端实现和独立期望值，再逐后端复制验收。若只读能力不能满足必要的准备或求值约束，该后端保持拒绝并记录阻塞原因。不得因此开放远程写入、改变方法定义或宣称全功能对等。
+每组先建立最小后端实现和独立期望值，再逐后端复制验收。Event/Lifecycle 不以无法物化或无法保证跨查询单次求值为拒绝理由；必要断言须与其认证的输出关联，不能用更早查询的结果认证之后可能变化的数据。若只读能力不能满足事件语义、必要断言或私有状态约束，该后端保持拒绝并记录阻塞原因。不得因此开放远程写入、改变方法定义或宣称全功能对等。
 
 ### 3.7 统一实际执行记录
 

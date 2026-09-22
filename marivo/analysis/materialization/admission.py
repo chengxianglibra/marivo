@@ -1071,9 +1071,17 @@ class DatasetRuntime:
 
                             if proof_recipe.event_coverage is None:
                                 raise _error("output_validation", run.run_ref)
-                            checked_event = proof_backend.read_table(
-                                proof_backend.prepare(
-                                    proof_recipe.event_proof, role="event.journey_summary"
+                            from marivo.analysis.materialization.postgres_execution import (
+                                PostgresExecutionAdapter,
+                            )
+
+                            checked_event = (
+                                proof_backend.event_bundle_proof()
+                                if isinstance(proof_backend, PostgresExecutionAdapter)
+                                else proof_backend.read_table(
+                                    proof_backend.prepare(
+                                        proof_recipe.event_proof, role="event.journey_summary"
+                                    )
                                 )
                             )
                             if checked_event.num_rows != 1:
@@ -2232,6 +2240,46 @@ class DatasetRuntime:
                     if recipe.preparations
                     else (),
                 )
+            root = source_step.dataset._root
+            if (
+                selected.backend == "postgres"
+                and isinstance(root, LogicalRootHandle)
+                and isinstance(root.payload, EventPayload)
+            ):
+                from marivo.analysis.materialization.postgres_execution import (
+                    PostgresExecutionAdapter,
+                )
+
+                if not isinstance(backend, PostgresExecutionAdapter):
+                    raise _error("implementation_registration", run_ref)
+                for entity in entities:
+                    if (
+                        isinstance(entity.source, TableSourceIR)
+                        and entity.ref.path not in checked_schemas
+                    ):
+                        self._validate_source_schema(
+                            backend, entity, dependency=dependencies.for_entity(entity)
+                        )
+                if isinstance(source_step.binding, SourceBinding):
+                    from marivo.analysis.materialization.temporal_validation import (
+                        validate_temporal_rules,
+                    )
+
+                    validate_temporal_rules(
+                        backend,
+                        recipe.temporal_execution,
+                        tables,
+                        source_step.binding.owner.semantic_registry,
+                        run_ref=run_ref,
+                    )
+                validations.extend(
+                    backend.open_event_bundle(
+                        recipe,
+                        step_keys=tuple(step.step.key for step in root.payload.definition.steps),
+                    )
+                )
+                yield backend, recipe, tables
+                return
             self._event("backend_compile")
             backend.compile(recipe.expression)
             preparations = compile_preparations(

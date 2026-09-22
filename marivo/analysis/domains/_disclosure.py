@@ -123,7 +123,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalEventDataset",
             "result = session.events.match(pattern, cohort_window=window, completion_through=end, matching=first_per_subject(), completeness=event_completeness)",
             ("session", "pattern", "window", "end", "first_per_subject", "event_completeness"),
-            "Matching policy, anchor scope, follow-up and coverage authority are separate choices.",
+            "Matching policy, anchor scope, follow-up and coverage authority are separate choices. PostgreSQL source execution admits exact two- or three-step first-per-subject and every-start journeys with unversioned tables and int64 identities.",
             ("session.events.match",),
         ),
         (

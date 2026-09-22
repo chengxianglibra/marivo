@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, suppress
+from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
@@ -24,6 +27,7 @@ from marivo.analysis.materialization.errors import (
     unsupported_source_type,
 )
 from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
+from marivo.analysis.materialization.postgres_event_sql import EventBundleSQL, compile_event_bundle
 from marivo.analysis.materialization.submissions import ObservedExecution
 from marivo.analysis.materialization.temporal_sql import governed_temporal_operation
 from marivo.analysis.operators.postgres_support import supported_type
@@ -32,9 +36,12 @@ from marivo.datasource.timezone import DatasourceEngineTimezone
 if TYPE_CHECKING:
     from ibis.backends.postgres import Backend
 
+    from marivo.analysis.compiler.nodes import CompiledDataset
+
 
 _FailureReason = Literal[
     "closed_context",
+    "execution_boundary",
     "closed_stream",
     "foreign_statement",
     "preparation",
@@ -58,6 +65,12 @@ def _invalid(
     run_ref: str | None = None,
 ) -> MaterializationError:
     failures: dict[_FailureReason, tuple[str, str, str, str]] = {
+        "execution_boundary": (
+            "execution_boundary",
+            "one owned Event source bundle in an open PostgreSQL action",
+            "Event bundle access outside its execution lifetime",
+            "Retry the exact registered Event action in a fresh execution context.",
+        ),
         "closed_context": (
             "execution_boundary",
             "an open action-owned PostgreSQL connection",
@@ -262,6 +275,129 @@ class PostgresBatchStream:
                 self._adapter._streams.discard(self)
 
 
+def _event_json_value(field: pa.Field, value: object) -> object:
+    if value is None:
+        return None
+    if pa.types.is_struct(field.type):
+        if not isinstance(value, dict):
+            raise ValueError(f"invalid Event identity field: {field.name}")
+        children = tuple(field.type)
+        expected = {f"f{index}" for index in range(1, len(children) + 1)}
+        if set(value) != expected:
+            raise ValueError(f"invalid Event identity components: {field.name}")
+        return {
+            child.name: _event_json_value(child, value[f"f{index}"])
+            for index, child in enumerate(children, start=1)
+        }
+    if pa.types.is_timestamp(field.type):
+        if not isinstance(value, str):
+            raise ValueError(f"invalid Event timestamp: {field.name}")
+        return datetime.fromisoformat(value)
+    if pa.types.is_integer(field.type) and isinstance(value, Decimal):
+        if value != value.to_integral_value():
+            raise ValueError(f"non-integral Event count: {field.name}")
+        return int(value)
+    return value
+
+
+def _event_json_record(payload: object, schema: pa.Schema) -> dict[str, object]:
+    if not isinstance(payload, str):
+        raise ValueError("missing Event bundle payload")
+    raw: object = json.loads(payload, parse_float=Decimal)
+    if not isinstance(raw, dict) or set(raw) != set(schema.names):
+        raise ValueError("Event bundle payload differs from its declared schema")
+    return {field.name: _event_json_value(field, raw[field.name]) for field in schema}
+
+
+class PostgresEventBundleStream:
+    """Consume one read-only source statement before exposing validated journey rows."""
+
+    def __init__(
+        self, adapter: PostgresExecutionAdapter, bundle: EventBundleSQL, chunk_size: int
+    ) -> None:
+        self._adapter = adapter
+        self._schema = bundle.primary_schema
+        self._chunk_size = chunk_size
+        self._stack = ExitStack()
+        self._closed = False
+        self.validations: tuple[tuple[str, int], ...] = ()
+        try:
+            self._stack.enter_context(adapter._backend.con.transaction())
+            self._cursor = self._stack.enter_context(
+                adapter._backend.con.cursor(name="marivo_" + uuid4().hex, binary=True)
+            )
+            with adapter.submission("event_bundle", bundle.sql) as receipt:
+                self._receipt = receipt
+                self._cursor.execute(bundle.sql)
+            accepted: list[tuple[str, int]] = []
+            for index, check in enumerate(bundle.validations):
+                row = self._cursor.fetchone()
+                if (
+                    row is None
+                    or len(row) != 4
+                    or row[0] != 0
+                    or row[1] != index
+                    or type(row[2]) is not int
+                    or row[2] != 0
+                ):
+                    raise MaterializationError(
+                        expected=check.expected or "zero Event source violations",
+                        received=f"Event validation failed: {check.name}",
+                        repair=check.repair or "Repair the governed Event source rows.",
+                        stage="output_validation",
+                        run_ref=adapter._run_ref,
+                    )
+                accepted.append((check.name, 0))
+            proof = self._cursor.fetchone()
+            if proof is None or len(proof) != 4 or proof[:3] != (1, 0, None):
+                raise ValueError("missing Event source proof packet")
+            proof_row = _event_json_record(proof[3], bundle.proof_schema)
+            if proof_row.get("violations") != 0:
+                raise ValueError("Event source output proof failed")
+            self._proof = pa.Table.from_pylist([proof_row], schema=bundle.proof_schema)
+            self.validations = (*accepted, ("event.journey.output", 0))
+        except BaseException as error:
+            if hasattr(self, "_receipt"):
+                self._receipt.fail(error)
+            with suppress(BaseException):
+                self._stack.close()
+            raise
+
+    @property
+    def schema(self) -> pa.Schema:
+        return self._schema
+
+    @property
+    def proof(self) -> pa.Table:
+        return self._proof
+
+    def __iter__(self) -> Iterator[pa.RecordBatch]:
+        if self._closed:
+            raise self._adapter._error("closed_stream")
+        try:
+            while packets := self._cursor.fetchmany(self._chunk_size):
+                rows: list[dict[str, object]] = []
+                for packet in packets:
+                    if len(packet) != 4 or packet[0] != 2 or packet[2] is not None:
+                        raise ValueError("invalid Event primary packet")
+                    rows.append(_event_json_record(packet[3], self._schema))
+                yield pa.RecordBatch.from_pylist(rows, schema=self._schema)
+        except BaseException as error:
+            self._receipt.fail(error)
+            with suppress(BaseException):
+                self.close()
+            raise
+        self.close()
+
+    def close(self) -> None:
+        if not self._closed:
+            self._closed = True
+            try:
+                self._stack.close()
+            finally:
+                self._adapter._streams.discard(self)
+
+
 class PostgresExecutionAdapter(ObservedExecution):
     """One real connection; assertions and output use independent read lifetimes."""
 
@@ -271,7 +407,28 @@ class PostgresExecutionAdapter(ObservedExecution):
         self._run_ref = run_ref
         self._context = ExecutionContext()
         self._closed = False
-        self._streams: set[PostgresBatchStream] = set()
+        self._streams: set[PostgresBatchStream | PostgresEventBundleStream] = set()
+        self._event_bundle: PostgresEventBundleStream | None = None
+        self._event_primary: ops.Node | None = None
+
+    def open_event_bundle(
+        self, recipe: CompiledDataset, *, step_keys: tuple[str, ...]
+    ) -> tuple[tuple[str, int], ...]:
+        """Submit one Event source query and validate its controls before transfer."""
+        if self._event_bundle is not None or self._closed:
+            raise self._error("execution_boundary")
+        bundle = compile_event_bundle(recipe, step_keys=step_keys)
+        stream = PostgresEventBundleStream(self, bundle, 1024)
+        self._streams.add(stream)
+        self._event_bundle = stream
+        self._event_primary = recipe.expression.op()
+        return stream.validations
+
+    def event_bundle_proof(self) -> pa.Table:
+        """Read the proof packet from the already submitted Event query."""
+        if self._event_bundle is None:
+            raise self._error("execution_boundary")
+        return self._event_bundle.proof
 
     def _error(self, reason: _FailureReason, *, detail: str | None = None) -> MaterializationError:
         return _invalid(reason, detail=detail, run_ref=self._run_ref)
@@ -332,7 +489,15 @@ class PostgresExecutionAdapter(ObservedExecution):
         chunk_size: int,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-    ) -> PostgresBatchStream:
+    ) -> PostgresBatchStream | PostgresEventBundleStream:
+        if (
+            isinstance(value, ir.Expr)
+            and self._event_bundle is not None
+            and value.op() is self._event_primary
+            and role == "primary"
+            and params is None
+        ):
+            return self._event_bundle
         if isinstance(value, ir.Expr):
             self._expression(value)
             self._backend._run_pre_execute_hooks(value)
@@ -540,7 +705,16 @@ class PostgresExecutionAdapter(ObservedExecution):
         execution_domain_id: str,
         require_source_origin: bool,
     ) -> EventCoverageResolution:
-        raise self._error("unsupported_operation", detail="resolve_coverage")
+        if provider is not None:
+            raise self._error("unsupported_operation", detail="PostgreSQL Event coverage provider")
+        from marivo.analysis.domains.completeness import resolve_event_coverage
+
+        return resolve_event_coverage(
+            definition,
+            source_binding_fingerprint=source_binding_fingerprint,
+            execution_domain_id=execution_domain_id,
+            require_source_origin=require_source_origin,
+        )
 
 
 def bind_postgres(
