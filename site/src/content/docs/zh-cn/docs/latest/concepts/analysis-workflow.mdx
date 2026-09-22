@@ -125,7 +125,9 @@ scoped readiness。只有具体运行时风险或当前 readiness repair 要求�
 ## 打开会话
 
 ```python
-session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
+session = mv.session.get_or_create(
+    name="revenue-investigation", question="Why did Q4 drop?", domains="sales"
+)
 catalog = session.catalog
 revenue = catalog.metrics.get("sales.revenue")
 region = catalog.dimensions.get("sales.orders.region")
@@ -139,6 +141,11 @@ region.details().show()
 引导问题；有意省略时则保留已保存的值。会话的精简 API 为 `get_or_create`、
 `resume(identity)`、`current()`、`abandon_run(session_id=..., run_id=...)`、
 `recent()`、`inspect(name)` 和 `delete(name)`。
+
+新建会话时可传 `domains="sales"` 或 `domains=["sales", "finance"]`，只加载这些
+语义 domain。再次打开时省略 `domains` 会沿用已保存的范围；显式传入不同集合会在激活前
+报错，并列出已有和请求的集合，提示使用新会话名称。未传 `domains` 创建的会话以及旧会话
+仍加载全部 domain。`resume()`、`current()` 和冷恢复会自动沿用已保存的范围。
 
 `resume(identity)` 接受精确的稳定 session name 或不可变 session id。它只恢复已有
 状态：未知或有歧义的 identity 会直接失败，不会创建 session，也不会改变 name、

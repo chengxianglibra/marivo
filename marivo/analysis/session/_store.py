@@ -346,6 +346,7 @@ class SessionStore:
         name: str,
         question: str | None,
         cwd: Path,
+        domains: tuple[str, ...] | None = None,
     ) -> sqlite3.Row:
         """Return the existing session row for *name*, or insert a new one.
 
@@ -359,6 +360,7 @@ class SessionStore:
             name: Unique session name.
             question: The analysis question. Preserved on re-insert.
             cwd: Working directory at session creation time.
+            domains: Fixed semantic domain scope for a new session. ``None`` means all.
 
         Returns:
             The session row (as :class:`sqlite3.Row`).
@@ -383,9 +385,47 @@ class SessionStore:
                 if row is None:
                     raise
                 return row
+            if domains is not None:
+                conn.execute(
+                    "INSERT INTO runtime_state (key, value) VALUES (?, ?)",
+                    (f"session_domains:{sid}", json.dumps(domains)),
+                )
             inserted = self._fetchone(conn, "SELECT * FROM sessions WHERE id = ?", (sid,))
             assert inserted is not None  # just inserted the row, must exist
             return inserted
+
+    def get_session_domains(self, session_id: str) -> tuple[str, ...] | None:
+        """Return the fixed domain scope; absent state denotes all domains."""
+        with self._connect() as conn:
+            row = self._fetchone(
+                conn,
+                "SELECT value FROM runtime_state WHERE key = ?",
+                (f"session_domains:{session_id}",),
+            )
+        if row is None:
+            return None
+        try:
+            value: object = json.loads(row["value"])
+        except (TypeError, ValueError):
+            value = None
+        if (
+            type(value) is not list
+            or not value
+            or any(type(item) is not str or not item for item in value)
+            or value != sorted(set(value))
+        ):
+            raise SessionStateError(
+                message="stored session domain scope is invalid",
+                expected="a non-empty, sorted JSON list of unique domain names",
+                received=f"session_domains:{session_id}={str(row['value'])[:160]!r}",
+                location=str(self.db_path),
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action="Restore the session's canonical domain scope from a known-good Session Store copy before resuming it.",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.sessions"),
+                ),
+            )
+        return tuple(value)
 
     @contextmanager
     def activate_session(
@@ -640,6 +680,7 @@ class SessionStore:
             # Explicit child-table deletes before parent; CASCADE is defense-in-depth.
             conn.execute("DELETE FROM runs WHERE session_id = ?", (sid,))
             conn.execute("DELETE FROM artifacts WHERE session_id = ?", (sid,))
+            conn.execute("DELETE FROM runtime_state WHERE key = ?", (f"session_domains:{sid}",))
             conn.execute("DELETE FROM sessions WHERE id = ?", (sid,))
             return row
 

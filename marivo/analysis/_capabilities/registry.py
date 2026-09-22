@@ -3022,7 +3022,7 @@ def _build_registry() -> CapabilityRegistry:
             "session.get_or_create",
             "mv.session.get_or_create(...)",
             "session.get_or_create",
-            "Create or reuse a named session and apply an explicit current question; credential injection: datasource.credential_scope.",
+            "Create or reuse a named session and apply an explicit current question; optional domains fixes a new session's semantic scope, while omission reuses an existing scope; credential injection: datasource.credential_scope.",
             "recovery",
             "Session",
             "session_name",

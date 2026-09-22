@@ -68,11 +68,17 @@ are gone):
   abandonment is a no-op. It does not stop a running process and rejects
   succeeded Runs, Runs failed for another reason, and outputs referenced by any
   downstream Run.
-- `mv.session.get_or_create(name, question=None, *, report_timezone=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
+- `mv.session.get_or_create(name, question=None, *, report_timezone=None, backends=None, backend_factory=None, use_datasources=True, domains=None) -> Session`
   — the default entry. The first call with a name creates the session; later calls
   attach to the same immutable session id. An explicit string becomes the current
   guiding question, while omitting `question` preserves the persisted value.
-  Either way the named session becomes current.
+  Either way the named session becomes current. An optional domain name or
+  non-empty sequence fixes the new session's semantic loading scope. Omission
+  (including explicit `None`) on an existing session reuses its saved scope;
+  an explicitly different set fails before activation and reports both the
+  existing and requested sets. Existing sessions without a stored scope load
+  all domains. `resume()`, `current()`, and cold artifact recovery reuse the
+  saved scope without changing their public signatures.
 - `mv.session.resume(identity, *, by=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
   — explicitly resume one current-project session by its exact stable name or
   immutable `sess_...` id. Unknown and ambiguous identities fail without
