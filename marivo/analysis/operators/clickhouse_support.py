@@ -23,8 +23,9 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     decimal unit resolves: ClickHouse decimal division truncates scale and AVG
     returns Float64, so the wider internal accumulation is never claimed as a
     wider public precision and ``div``/``mean`` stay rejected. Exact
-    distinct-membership and distribution state keep their empty qualification
-    sets until a live probe evidence opens them.
+    direct-measure and Entity-key membership and exact linear-interpolation
+    distribution are qualified by live source-private execution. Window
+    aggregate casts are lowered outside ClickHouse window functions.
     """
     return scalar_reason(
         dataset,
@@ -39,6 +40,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         linear_graphs=True,
         resolved_decimal_units=frozenset({"linear"}),
         status_folds=frozenset({"first", "last", "mean", "min", "max"}),
-        distinct_memberships=frozenset(),
-        distributions=frozenset(),
+        distinct_memberships=frozenset({"measure", "entity"}),
+        distributions=frozenset({"linear_interpolation"}),
     )

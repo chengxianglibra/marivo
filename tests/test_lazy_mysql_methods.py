@@ -19,6 +19,14 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
+from tests.lazy_distinct_fixtures import (
+    DISTINCT_BUYERS,
+    DISTINCT_ORDER_VALUES,
+    assert_no_raw_keys,
+    make_distinct_registry,
+)
+from tests.lazy_distribution_fixtures import VALUES, make_distribution_registry
+from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
 from tests.multisource_environment import mysql_analysis as mysql
@@ -72,6 +80,104 @@ def offline(database: str) -> None:
     with mysql.connection(admin=True) as connection, connection.cursor() as cursor:
         for name in ("orders", "customers", "lines", "snapshots", "validity"):
             cursor.execute(f"DROP TABLE IF EXISTS {database}{name}")
+
+
+@pytest.mark.parametrize("shape", ["distinct", "entity", "distribution"])
+def test_exact_private_state(
+    tmp_path: Path, method_database: str, monkeypatch: pytest.MonkeyPatch, shape: str
+) -> None:
+    if shape in {"distinct", "entity"}:
+        authored, sidecar = make_distinct_registry()
+        rows = DISTINCT_ORDER_VALUES
+        metric = DISTINCT_BUYERS if shape == "distinct" else ref.metric("sales.distinct_orders")
+        expected = [3.0, 2.0, 1.0] if shape == "distinct" else [4.0, 4.0, 3.0]
+        columns = "id, tenant, customer_id, channel, day"
+    else:
+        authored, sidecar = make_distribution_registry()
+        rows = VALUES
+        metric = ref.metric("sales.revenue")
+        expected = [4.5, 1.5]
+        columns = "id, customer_id, channel, amount, day"
+    with mysql.connection(admin=True) as connection, connection.cursor() as cursor:
+        cursor.execute(f"DELETE FROM {method_database}orders")
+        cursor.executemany(
+            f"INSERT INTO {method_database}orders ({columns}) VALUES (%s,%s,%s,%s,%s)",
+            rows,
+        )
+    mysql_registry, _ = registry_for(method_database)
+    registry = replace(
+        authored,
+        entities={**authored.entities, "sales.orders": mysql_registry.entities["sales.orders"]},
+        datasources=mysql_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path, "mysql-private-state")
+    private_batches = guard_private_batches(runtime, monkeypatch)
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(metric)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+        .execute()
+    )
+    frame = result.to_pandas().sort_values("channel", na_position="last")
+    assert frame[metric.path.rsplit(".", 1)[-1]].tolist() == pytest.approx(expected)
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None and record.descriptor.retained_parts
+    assert private_batches
+    if shape == "distinct":
+        assert_no_raw_keys(frame.to_dict("records"))
+        assert_no_raw_keys(record.descriptor)
+        assert_no_raw_keys(runtime.statistics.statements)
+    if shape == "entity":
+        offline(method_database)
+        monkeypatch.delenv("MARIVO_TEST_MYSQL_PASSWORD")
+        cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
+        recovered = cold.artifact(result.state.artifact_ref)
+        assert recovered.to_pandas().equals(result.to_pandas())
+        rolled = recovered.rollup(drop_dimensions=(CHANNEL,)).execute().to_pandas()
+        assert rolled["distinct_orders"].tolist() == [11]
+
+
+def test_exact_composite_entity_membership(tmp_path: Path, method_database: str) -> None:
+    composite_table = method_database + "composite"
+    with mysql.connection(admin=True) as connection, connection.cursor() as cursor:
+        cursor.execute(f"CREATE TABLE {composite_table} LIKE {method_database}orders")
+    try:
+        with mysql.connection(admin=True) as connection, connection.cursor() as cursor:
+            cursor.executemany(
+                f"INSERT INTO {composite_table}(id, tenant) VALUES (%s, %s)",
+                ((1, "A"), (1, "a"), (2, "a"), (3, "a ")),
+            )
+        mysql_registry, _ = registry_for(method_database)
+        authored, sidecar = make_distinct_registry()
+        source = mysql_registry.entities["sales.orders"].source
+        assert isinstance(source, TableSourceIR)
+        registry = replace(
+            authored,
+            entities={
+                **authored.entities,
+                "sales.composite": replace(
+                    authored.entities["sales.composite"],
+                    source=replace(source, table=composite_table),
+                ),
+            },
+            datasources=mysql_registry.datasources,
+        )
+        registry.freeze()
+        runtime = DatasetRuntime.create(tmp_path, "mysql-composite")
+        result = (
+            runtime.sources(semantic_registry=registry, sidecar=sidecar)
+            .observe(ref.metric("sales.distinct_composite"))
+            .aggregate()
+            .execute()
+        )
+        assert result.to_pandas()["distinct_composite"].tolist() == [4]
+        record = runtime.store.artifact(result.state.artifact_ref.ref)
+        assert record is not None and record.descriptor.retained_parts
+    finally:
+        with mysql.connection(admin=True) as connection, connection.cursor() as cursor:
+            cursor.execute(f"DROP TABLE IF EXISTS {composite_table}")
 
 
 @pytest.fixture

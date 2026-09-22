@@ -178,12 +178,11 @@ def test_metric_slice_cannot_hide_unsupported_time_parse() -> None:
     assert implementation(dataset).for_backend("postgres") is None
 
 
-def test_unsupported_median_reports_postgres_placement_without_source_io(
+def test_median_qualifies_postgres_placement_without_source_io(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from pathlib import Path
 
-    from marivo.analysis.compiler.errors import DatasetCompilationError
     from marivo.analysis.compiler.placement import place
     from tests.lazy_execution_fixtures import make_execution_registry
 
@@ -219,13 +218,6 @@ def test_unsupported_median_reports_postgres_placement_without_source_io(
         "marivo.analysis.materialization.admission._build_backend_from_effective", forbidden
     )
     dataset = sources.observe(ref.metric("sales.mean_amount"))
-    with pytest.raises(DatasetCompilationError) as raised:
-        place(dataset)
-    error = raised.value
-    assert error.expected
-    assert error.received is not None
-    assert "backend=postgres" in error.received
-    assert "session.observe" in error.received
-    assert "shape=metric/entity@v1" in error.received
-    assert error.repair is not None and "duckdb" in error.repair.action
+    graph = place(dataset)
+    assert graph.steps[0].implementation.backend == "postgres"
     assert attempts == []

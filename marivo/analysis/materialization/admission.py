@@ -2226,6 +2226,8 @@ class DatasetRuntime:
                     if read_time is None
                     else read_time.read_tz_resolution,
                     event_coverages=event_coverages,
+                    replay_exact_quantile=source_step.binding.adapter != "duckdb",
+                    scalar_identity_distinct=source_step.binding.adapter in {"sqlite", "mysql"},
                 )
             if source_step.operation == "correlation":
                 from marivo.analysis.compiler.correlation import prepare_pairs

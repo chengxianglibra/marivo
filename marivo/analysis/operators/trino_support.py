@@ -24,8 +24,9 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     conservative rejection: the live Trino probe measured ``AVG(DECIMAL)``
     staying at the input scale and rounding (10.005 -> 10.01), so the mean
     result scale is lossy and no composed decimal unit is a public contract.
-    Exact distinct-membership and distribution state keep their empty
-    qualification sets until a live probe evidence opens them.
+    Direct-measure membership and exact linear-interpolation distribution are
+    qualified by live source-private execution. Native ROW identity keys are
+    also qualified for exact Entity membership.
     """
     return scalar_reason(
         dataset,
@@ -38,6 +39,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         row_expressions=True,
         linear_graphs=True,
         status_folds=frozenset({"first", "last", "mean", "min", "max"}),
-        distinct_memberships=frozenset(),
-        distributions=frozenset(),
+        distinct_memberships=frozenset({"measure", "entity"}),
+        distributions=frozenset({"linear_interpolation"}),
     )

@@ -8,11 +8,14 @@ from pathlib import Path
 
 import ibis
 import pytest
+from ibis.backends.mysql import Backend as MySQLBackend
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.compiler import compile_dataset
+from marivo.analysis.compiler.distinct import membership_validations
 from marivo.analysis.compiler.nodes import RetainedRelationSpec
 from marivo.analysis.datasets.base import LogicalDataset
+from marivo.analysis.materialization.scalar_projection import project
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.refs import ref
@@ -117,6 +120,39 @@ def test_composite_entity_distinct_retains_complete_struct_identity_in_source(
             field.name for field in metric.schema.columns if field.role_id == "metric"
         )
         assert result[metric_name].to_pylist() == [3]
+
+
+@pytest.mark.parametrize("composite", [False, True])
+def test_scalar_identity_membership_compiles_without_mysql_struct_rule(
+    tmp_path: Path, composite: bool
+) -> None:
+    with _fixture(tmp_path) as fixture:
+        observed = fixture.sources.observe(
+            ref.metric("sales.distinct_composite" if composite else "sales.distinct_orders")
+        )
+        metric = (
+            observed.aggregate() if composite else observed.with_dimensions(CHANNEL).aggregate()
+        )
+        compiled = compile_dataset(metric, fixture.tables(metric), scalar_identity_distinct=True)
+        part = next(
+            item for item in compiled.retained_parts if isinstance(item, RetainedRelationSpec)
+        )
+        expressions = (
+            compiled.expression,
+            part.expression,
+            *(
+                check.expression
+                for check in membership_validations(
+                    metric.row_contract,
+                    compiled.expression,
+                    {part.role: part.expression},
+                )
+            ),
+        )
+        backend = MySQLBackend()
+        for expression in expressions:
+            sql = backend.compile(project(expression).expression)
+            assert "STRUCT(" not in sql.upper()
 
 
 def test_distinct_logical_selection_then_axis_expansion_keeps_selected_support(

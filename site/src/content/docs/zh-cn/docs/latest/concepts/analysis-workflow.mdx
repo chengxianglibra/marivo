@@ -132,9 +132,12 @@ anchor 形态都在每个后端准入，包括财政复合形
 DuckDB oracle 旅程执行，五个远程后端的执行证据随 C7/C8 日历工作排期。status-time 折叠按后端
 准入：PostgreSQL、SQLite、Trino 与 ClickHouse 支持 first/last/mean/min/max，MySQL
 支持 mean/min/max，first/last 等待引擎 argmin/argmax 支持，percentile 折叠在所有
-后端仍拒绝。未确定精度的 Decimal mean/div 结果仍不支持。采样、隐藏轴展开归因、Entity correlation、
-exact distinct/quantile 私有状态、Entity candidates、源端 driver screening 和
-Event/Lifecycle 不随此扩展启用。字符串时间解析与多单位桶按后端逐步启用，限制见下节。
+后端仍拒绝。未确定精度的 Decimal mean/div 结果仍不支持。直接 Measure 键及 Entity 身份键的精确去重已在
+PostgreSQL、MySQL、SQLite、Trino 和 ClickHouse 启用；SQLite/MySQL 在 SQL 中逐列去重有类型的身份字段，
+私有 part 保持原有 Arrow struct。精确线性插值 median/percentile 已在五个远程后端启用。远程
+`duckdb_tdigest@v1` 以及 percentile status-time 折叠仍未准入。采样、隐藏轴展开归因、
+Entity correlation、Entity candidates、源端 driver screening 和 Event/Lifecycle 仍不支持。
+字符串时间解析与多单位桶按后端逐步启用，限制见下节。
 不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。
 
 ### 原生 timestamp 时间分析

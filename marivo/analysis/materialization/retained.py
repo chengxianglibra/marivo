@@ -240,28 +240,51 @@ def validate_source_private_relation(
         ).schema,
     )
     authority = next(item for name, item in membership_part_authorities(row) if name == role)
-    endpoint = membership_endpoint_name(row, role)
-
     assert authority.membership is not None
-    sql = membership_integrity_sql(
-        backend.compile(table),
-        backend.compile(primary),
-        keys,
-        endpoint,
-        authority.membership.identity_signature,
-    )
-    violations: object = backend.read_scalar(
-        backend.statement(
-            sql,
-            role="engine_check.membership_integrity",
-            inputs=(backend.prepare(table), backend.prepare(primary)),
+    from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
+
+    if isinstance(backend, DuckDBExecutionAdapter):
+        sql = membership_integrity_sql(
+            backend.compile(table),
+            backend.compile(primary),
+            keys,
+            membership_endpoint_name(row, role),
+            authority.membership.identity_signature,
         )
-    )
-    if violations != 0:
-        _integrity(
-            "unique complete membership with exact primary endpoints",
-            "private membership support or endpoint mismatch",
+        violations = backend.read_scalar(
+            backend.statement(
+                sql,
+                role="engine_check.membership_integrity",
+                inputs=(backend.prepare(table), backend.prepare(primary)),
+            )
         )
+        if violations != 0:
+            _integrity(
+                "unique complete membership with exact primary endpoints",
+                "private membership support or endpoint mismatch",
+            )
+        return
+    from marivo.analysis.compiler.distinct import membership_validations
+
+    checks = membership_validations(row, primary, {role: table}, required=False)
+    for check in checks:
+        violations = backend.read_scalar(
+            backend.prepare(check.expression, role="engine_check." + check.name)
+        )
+        if violations != 0:
+            _integrity(
+                "unique complete membership with exact primary endpoints",
+                "private membership support or endpoint mismatch",
+            )
+    for name, _ in authority.membership.identity_signature:
+        violations = backend.read_scalar(
+            backend.prepare(
+                table.filter(table["__mv_distinct_key"][name].isnull()).count(),
+                role="engine_check.membership_identity_non_null",
+            )
+        )
+        if violations != 0:
+            _integrity("complete Entity identity", "private member identity contains null")
 
 
 def selected_parts(

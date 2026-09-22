@@ -66,6 +66,14 @@ def project(expression: ir.Expr, *, run_ref: str | None = None) -> ScalarProject
             arg = kwargs["arg"]
             if isinstance(arg, ops.StructColumn):
                 return arg.values[arg.names.index(node.field)]
+        if isinstance(node, (ops.IsNull, ops.NotNull)):
+            arg = kwargs["arg"]
+            if isinstance(arg, ops.StructColumn):
+                terms = [type(node)(value) for value in arg.values]
+                result = terms[0]
+                for term in terms[1:]:
+                    result = (ops.Or if isinstance(node, ops.IsNull) else ops.And)(result, term)
+                return result
         if isinstance(node, (ops.Project, ops.JoinChain)):
             values = kwargs["values"]
             assert isinstance(values, Mapping)

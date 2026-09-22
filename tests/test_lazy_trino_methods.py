@@ -20,6 +20,14 @@ from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 from tests.lazy_acceptance_capture import counts
+from tests.lazy_distinct_fixtures import (
+    DISTINCT_BUYERS,
+    DISTINCT_ORDER_VALUES,
+    assert_no_raw_keys,
+    make_distinct_registry,
+)
+from tests.lazy_distribution_fixtures import make_distribution_registry
+from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 from tests.multisource_environment import trino_analysis as trino
 
@@ -72,6 +80,70 @@ def method_table() -> Iterator[str]:
             yield name
         finally:
             admin.execute(f"DROP TABLE IF EXISTS {name}").fetchall()
+
+
+@pytest.mark.parametrize("shape", ["distinct", "entity", "distribution"])
+def test_exact_private_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str, shape: str
+) -> None:
+    def sql_text(value: str | None) -> str:
+        return "NULL" if value is None else "'" + value.replace("'", "''") + "'"
+
+    with _admin() as admin:
+        admin.execute(f"DELETE FROM {method_table}").fetchall()
+        if shape in {"distinct", "entity"}:
+            values = ",".join(
+                f"({order_id},{sql_text(tenant)},{customer_id},{sql_text(channel)},1.0,DATE '{day}')"
+                for order_id, tenant, customer_id, channel, day in DISTINCT_ORDER_VALUES
+            )
+        else:
+            values = (
+                "(1,'shared',1,'web',1.0,DATE '2026-01-02'),"
+                "(2,'shared',1,'web',1.0,DATE '2026-01-02'),"
+                "(3,'old',2,'store',5.0,DATE '2026-01-02'),"
+                "(4,'new',2,'store',9.0,DATE '2026-01-02')"
+            )
+        admin.execute(
+            f"INSERT INTO {method_table} (id,tenant,customer_id,channel,amount,day) VALUES {values}"
+        ).fetchall()
+    if shape in {"distinct", "entity"}:
+        authored, sidecar = make_distinct_registry()
+        metric = DISTINCT_BUYERS if shape == "distinct" else ref.metric("sales.distinct_orders")
+        expected = [3.0, 2.0, 1.0] if shape == "distinct" else [4.0, 4.0, 3.0]
+    else:
+        authored, sidecar = make_distribution_registry()
+        metric = ref.metric("sales.revenue")
+        expected = [7.0, 1.0]
+    trino_registry, _ = _method_registry(method_table, monkeypatch)
+    registry = replace(
+        authored,
+        entities={**authored.entities, "sales.orders": trino_registry.entities["sales.orders"]},
+        datasources=trino_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path, "trino-private-state")
+    private_batches = guard_private_batches(runtime, monkeypatch)
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(metric)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+        .execute()
+    )
+    frame = result.to_pandas().sort_values("channel", na_position="last")
+    assert frame[metric.path.rsplit(".", 1)[-1]].tolist() == pytest.approx(expected)
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None and record.descriptor.retained_parts
+    assert private_batches
+    if shape == "distinct":
+        assert_no_raw_keys(frame.to_dict("records"))
+        assert_no_raw_keys(record.descriptor)
+        assert_no_raw_keys(runtime.statistics.statements)
+    if shape == "entity":
+        with _admin() as admin:
+            admin.execute(f"DROP TABLE {method_table}").fetchall()
+        rolled = result.rollup(drop_dimensions=(CHANNEL,)).execute().to_pandas()
+        assert rolled["distinct_orders"].tolist() == [11]
 
 
 @pytest.mark.parametrize(

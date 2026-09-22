@@ -137,6 +137,21 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 scale = node.arg.dtype.scale if isinstance(node.arg.dtype, dt.Decimal) else 0
                 wide = node.copy(arg=ops.Cast(arg, dt.Decimal(76, scale)), where=kwargs["where"])
                 return ops.Cast(wide, node.dtype)
+            if isinstance(node, ops.WindowFunction):
+                function = kwargs["func"]
+                assert isinstance(function, ops.Value)
+                casts: list[dt.DataType] = []
+                while isinstance(function, ops.Cast):
+                    casts.append(function.to)
+                    function = function.arg
+                if casts:
+                    assert isinstance(function, (ops.Analytic, ops.Reduction))
+                    window: ops.Value = node.copy(
+                        func=function, **{k: v for k, v in kwargs.items() if k != "func"}
+                    )
+                    for dtype in reversed(casts):
+                        window = ops.Cast(window, dtype)
+                    return window
             return node.copy(**kwargs)
 
         return expression.op().map(widen)[expression.op()].to_expr()

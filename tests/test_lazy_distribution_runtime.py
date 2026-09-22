@@ -150,6 +150,10 @@ def test_retained_distribution_corruption_blocks_consumption_but_not_primary_rea
         for part in record.descriptor.retained_parts
         if part.role == "delta_distribution.baseline"
     )
+    from marivo.analysis.materialization.retained import guard_part_transfer
+
+    with pytest.raises(MaterializationError, match="source-native use"):
+        guard_part_transfer(part)
     assert isinstance(part.storage_receipt, LocalReceipt)
     path = tmp_path / part.storage_receipt.project_relative_path / "data.parquet"
     database.rename(tmp_path / "source.offline")

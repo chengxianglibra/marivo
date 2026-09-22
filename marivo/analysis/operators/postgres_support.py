@@ -21,8 +21,9 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     not a public publication contract, so the ``div`` and ``mean`` decimal
     units keep their blanket rejection. Percentile-tuple folds stay rejected
     with every backend until a quantile fold lowering is qualified. Exact
-    distinct-membership and distribution state keep their empty qualification
-    sets until a live probe evidence opens them.
+    direct-measure membership and exact linear-interpolation distribution are
+    qualified by live source-private execution. Entity-key membership is also
+    qualified through the native PostgreSQL struct key and retained rollup.
     """
     return scalar_reason(
         dataset,
@@ -36,6 +37,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         linear_graphs=True,
         resolved_decimal_units=frozenset({"linear"}),
         status_folds=frozenset({"first", "last", "mean", "min", "max"}),
-        distinct_memberships=frozenset(),
-        distributions=frozenset(),
+        distinct_memberships=frozenset({"measure", "entity"}),
+        distributions=frozenset({"linear_interpolation"}),
     )

@@ -19,8 +19,9 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     beside native AVG/MIN/MAX. SQLite has no decimal storage, so no composed
     decimal unit is resolved. Percentile-tuple folds stay rejected with every
     backend until a quantile fold lowering is qualified. Exact
-    distinct-membership and distribution state keep their empty qualification
-    sets until a live probe evidence opens them.
+    direct-measure membership and exact linear-interpolation distribution are
+    qualified by live source-private execution. Entity membership uses typed
+    scalar identity fields in SQL and rebuilds the private Arrow struct.
     """
     return scalar_reason(
         dataset,
@@ -33,6 +34,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         row_expressions=True,
         linear_graphs=True,
         status_folds=frozenset({"first", "last", "mean", "min", "max"}),
-        distinct_memberships=frozenset(),
-        distributions=frozenset(),
+        distinct_memberships=frozenset({"measure", "entity"}),
+        distributions=frozenset({"linear_interpolation"}),
     )
