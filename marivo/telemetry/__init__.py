@@ -422,10 +422,16 @@ def _project_root(arguments: Mapping[str, object]) -> Path:
     explicit = arguments.get("project_root")
     if isinstance(explicit, (str, Path)):
         return Path(explicit)
+    workspace = arguments.get("workspace_dir")
+    if isinstance(workspace, (str, Path)):
+        return Path(workspace)
     for value in arguments.values():
         root = _path_from_value(value)
         if root is not None:
             return root
+    active = _CURRENT_OPERATION.get()
+    if isinstance(active, _Operation):
+        return active.root
     return resolve_project_root()
 
 
@@ -895,7 +901,22 @@ def tracked_capability(
 
         @functools.wraps(func)
         def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+            if _setting_enabled(os.environ.get("MARIVO_TELEMETRY")) is False:
+                return func(*args, **kwargs)
             if _already_active(surface, capability_id):
+                return func(*args, **kwargs)
+            if (
+                surface == "semantic"
+                and capability_id.startswith("ref.")
+                and any(
+                    (active.surface == "semantic" and active.capability_id == "load")
+                    or (
+                        active.surface == "analysis"
+                        and active.capability_id in {"session.get_or_create", "session.resume"}
+                    )
+                    for active in _ACTIVE_OPERATIONS.get()
+                )
+            ):
                 return func(*args, **kwargs)
             arguments = _bind_arguments(
                 signature,

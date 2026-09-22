@@ -4867,14 +4867,13 @@ class _CatalogIndex:
         self.registry = registry
         objects = self._build_objects()
         self._by_ref = {obj.ref: obj for obj in objects}
-        self._by_name: dict[str, tuple[CatalogEntry[SemanticKindTag], ...]] = {}
-        for name in sorted({obj.name for obj in objects}):
-            self._by_name[name] = tuple(
-                sorted(
-                    (obj for obj in objects if obj.name == name),
-                    key=lambda obj: obj.key,
-                )
-            )
+        grouped_by_name: dict[str, list[CatalogEntry[SemanticKindTag]]] = {}
+        for obj in objects:
+            grouped_by_name.setdefault(obj.name, []).append(obj)
+        self._by_name = {
+            name: tuple(sorted(grouped_by_name[name], key=lambda obj: obj.key))
+            for name in sorted(grouped_by_name)
+        }
 
     def _build_objects(self) -> tuple[CatalogEntry[SemanticKindTag], ...]:
         reg = self.registry

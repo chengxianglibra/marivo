@@ -211,6 +211,36 @@ def test_nested_operations_link_parent_and_suppress_same_capability_delegate(
     assert len(_capability_records(path, "same")) == 2
 
 
+def test_load_tracks_project_root_without_internal_ref_events(
+    telemetry_project: Path,
+) -> None:
+    import marivo.semantic as ms
+    from marivo.telemetry import tracked_capability
+
+    @tracked_capability(surface="semantic", capability_id="load", capability_kind="callable")
+    def load(*, workspace_dir: Path) -> object:
+        return ms.ref.entity("sales.orders")
+
+    assert load(workspace_dir=telemetry_project) == ms.ref.entity("sales.orders")
+    path = _event_path(telemetry_project)
+    assert len(_capability_records(path, "load")) == 2
+    assert len(_capability_records(path, "ref.entity")) == 2
+
+
+def test_explicitly_disabled_telemetry_skips_wrapped_capabilities(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.telemetry import tracked_capability
+
+    @tracked_capability(surface="semantic", capability_id="load", capability_kind="callable")
+    def load(*, workspace_dir: Path) -> Path:
+        return workspace_dir
+
+    monkeypatch.setenv("MARIVO_TELEMETRY", "off")
+    assert load(workspace_dir=telemetry_project) == telemetry_project
+    assert not (telemetry_project / ".marivo" / "telemetry").exists()
+
+
 def test_restored_session_suppresses_successful_internal_load_declarations(
     telemetry_project: Path,
 ) -> None:
