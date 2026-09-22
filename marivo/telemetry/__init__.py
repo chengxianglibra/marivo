@@ -32,7 +32,7 @@ TelemetryValue = TelemetryScalar | tuple[str, ...]
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
 _STARTED_EVENT = "marivo.operation.started"
 _COMPLETED_EVENT = "marivo.operation.completed"
 _INSTALLATION_FILE = "project_instance_id"
@@ -44,6 +44,9 @@ _RETENTION_DAYS = 14
 _WRITE_LOCK = threading.Lock()
 _DROPPED_EVENTS = 0
 _LAST_PRUNED_DATE: dict[Path, date] = {}
+
+TelemetryMode = Literal["off", "on", "full"]
+CapturePolicy = Literal["none", "failure", "short", "long"]
 
 _SENSITIVE_PARAMETER_PARTS = (
     "credential",
@@ -138,6 +141,7 @@ class _ActiveOperation:
     surface: str
     capability_id: str
     operation_id: str
+    emitted: bool = True
     suppress_internal_load_success: bool = False
 
 
@@ -149,34 +153,40 @@ _CURRENT_OPERATION: ContextVar[object | None] = ContextVar(
 )
 
 
-def _setting_enabled(raw: object) -> bool | None:
+def _setting_mode(raw: object) -> TelemetryMode | None:
     if not isinstance(raw, str):
         return None
     value = raw.strip().lower()
     if value == "on":
-        return True
+        return "on"
     if value == "off":
-        return False
+        return "off"
+    if value == "full":
+        return "full"
     return None
 
 
-def _project_setting(root: Path) -> bool | None:
+def _project_setting(root: Path) -> TelemetryMode | None:
     try:
-        return load_project_config(root).telemetry_enabled
+        return load_project_config(root).telemetry_mode
     except Exception:
         # Telemetry must remain non-interfering. Project-loading surfaces and
         # doctor report explicit configuration errors through their own paths.
         return None
 
 
-def _enabled(root: Path) -> bool:
-    env_value = _setting_enabled(os.environ.get("MARIVO_TELEMETRY"))
+def _mode(root: Path) -> TelemetryMode:
+    env_value = _setting_mode(os.environ.get("MARIVO_TELEMETRY"))
     if env_value is not None:
         return env_value
     project_value = _project_setting(root)
     if project_value is not None:
         return project_value
-    return True
+    return "on"
+
+
+def _enabled(root: Path) -> bool:
+    return _mode(root) != "off"
 
 
 def _output_dir(root: Path) -> Path:
@@ -724,6 +734,46 @@ def _error_attributes(exc: BaseException) -> dict[str, TelemetryValue]:
     return attrs
 
 
+def _capture_policy(
+    surface: str,
+    capability_id: str,
+    capability_kind: str,
+    *,
+    default_stage: str | None = None,
+) -> CapturePolicy:
+    """Select durable events by effect, not by public discoverability."""
+    if surface == "cli":
+        return "short" if capability_id == "init" else "failure"
+    if surface == "help":
+        return "failure"
+    if surface == "analysis":
+        if capability_kind == "constructor":
+            return "none"
+        if capability_kind == "operator" or capability_id == "boundary.to_pandas":
+            return "long"
+        if capability_id in {
+            "session.get_or_create",
+            "session.resume",
+            "session.abandon_run",
+            "session.delete",
+        }:
+            return "short"
+        return "failure"
+    if surface == "semantic":
+        if capability_id.startswith("ref.") or capability_id == "ref":
+            return "none"
+        if capability_id == "load" or default_stage in {"connect", "execute"}:
+            return "long"
+        return "failure"
+    if surface == "datasource":
+        if capability_id in {"register", "remove"}:
+            return "short"
+        if default_stage in {"connect", "execute"}:
+            return "long"
+        return "failure"
+    return "failure"
+
+
 @dataclass
 class _Operation:
     surface: str
@@ -731,6 +781,8 @@ class _Operation:
     capability_kind: str
     root: Path
     attributes: dict[str, TelemetryValue]
+    capture: CapturePolicy = "long"
+    mode: TelemetryMode | None = None
     question_requested: bool | None = None
     defer_start_write: bool = False
     operation_id: str = field(default_factory=lambda: f"op_{uuid.uuid4().hex}")
@@ -745,22 +797,30 @@ class _Operation:
     failure_stage: str | None = None
     suppress_success: bool = False
     enabled: bool = False
+    emit_started: bool = False
 
     def __enter__(self) -> _Operation:
-        self.enabled = _enabled(self.root)
+        self.mode = _mode(self.root) if self.mode is None else self.mode
+        self.enabled = self.mode != "off" and (self.mode == "full" or self.capture != "none")
         if not self.enabled:
             return self
         stack = _ACTIVE_OPERATIONS.get()
-        self.parent_id = stack[-1].operation_id if stack else None
+        self.parent_id = next(
+            (active.operation_id for active in reversed(stack) if active.emitted), None
+        )
         self.origin = _operation_origin(self.surface, self.capability_id, stack)
         suppress_internal_load_success = any(
             active.suppress_internal_load_success for active in stack
         )
         self.suppress_success = self.origin == "internal_load" and suppress_internal_load_success
-        common = self._common_attributes(status="started")
-        self._start_entry = _log_entry(_STARTED_EVENT, status="started", attributes=common)
-        if not self.defer_start_write and not self.suppress_success:
-            _write_entry(self.root, self._start_entry)
+        if self.mode == "on" and self.origin != "explicit":
+            self.capture = "failure"
+        self.emit_started = self.mode == "full" or self.capture == "long"
+        if self.emit_started:
+            common = self._common_attributes(status="started")
+            self._start_entry = _log_entry(_STARTED_EVENT, status="started", attributes=common)
+            if not self.defer_start_write and not self.suppress_success:
+                _write_entry(self.root, self._start_entry)
         suppress_descendants = suppress_internal_load_success or (
             self.capability_id == "session.resume"
             or (
@@ -772,6 +832,7 @@ class _Operation:
             self.surface,
             self.capability_id,
             self.operation_id,
+            emitted=self.mode == "full" or self.capture in {"short", "long"},
             suppress_internal_load_success=suppress_descendants,
         )
         self._stack_token = _ACTIVE_OPERATIONS.set((*stack, active))
@@ -806,6 +867,12 @@ class _Operation:
             _CURRENT_OPERATION.reset(self._current_token)
         if self._stack_token is not None:
             _ACTIVE_OPERATIONS.reset(self._stack_token)
+        if (
+            self.mode == "on"
+            and (self.capture == "failure" or self.suppress_success)
+            and exc is None
+        ):
+            return False
         status = "error" if exc is not None else "ok"
         attrs = self._common_attributes(status=status)
         if self.question_requested is not None:
@@ -901,7 +968,7 @@ def tracked_capability(
 
         @functools.wraps(func)
         def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _R:
-            if _setting_enabled(os.environ.get("MARIVO_TELEMETRY")) is False:
+            if _setting_mode(os.environ.get("MARIVO_TELEMETRY")) == "off":
                 return func(*args, **kwargs)
             if _already_active(surface, capability_id):
                 return func(*args, **kwargs)
@@ -924,6 +991,12 @@ def tracked_capability(
                 cast("dict[str, object]", kwargs),
             )
             root = _project_root(arguments)
+            mode = _mode(root)
+            capture = _capture_policy(
+                surface, capability_id, capability_kind, default_stage=default_stage
+            )
+            if mode == "off" or (mode == "on" and capture == "none"):
+                return func(*args, **kwargs)
             attrs = _input_attributes(capability_id, arguments)
             attrs.update(_session_creation_attributes(root, capability_id, arguments))
             operation = _Operation(
@@ -932,6 +1005,8 @@ def tracked_capability(
                 capability_kind=capability_kind,
                 root=root,
                 attributes=attrs,
+                capture=capture,
+                mode=mode,
                 question_requested=(
                     arguments.get("question") is not None
                     if capability_id == "session.get_or_create"
@@ -1115,6 +1190,7 @@ def track_operation(
         capability_kind=family,
         root=root,
         attributes={**_session_attributes(arguments), **dict(attributes or {})},
+        capture=_capture_policy(surface, capability_id, family),
         defer_start_write=surface == "cli" and capability_id == "init",
     )
     with operation:

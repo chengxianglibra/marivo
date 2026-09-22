@@ -19,19 +19,18 @@ Marivo 保留 14 个 UTC 日历日内的受管事件文件。每个 UTC 日首�
 留下的 `.marivo/telemetry/events.jsonl` 不会被自动处理。确认其中的事件不再需要后，应
 显式归档或删除该文件。
 
-遥测结构 v2 覆盖 CLI init 和 help，以及显式调用的数据源、语义和分析公开操作。只读的
-`marivo doctor` 不接入遥测，也不会创建本地状态或遥测文件。每个接入遥测的操作会写入一对
-可关联事件：
+遥测结构 v3 默认只记录选定的公开操作。只读的 `marivo doctor` 不接入遥测，也不会
+创建本地状态或遥测文件。在默认 `on` 模式下，数据访问和分析执行会写入一对可关联事件：
 
 - `marivo.operation.started`
 - `marivo.operation.completed`
 
-两条事件共享操作 ID。嵌套的公开调用还会记录 parent 操作 ID；完成事件包含
-状态、总耗时、稳定的结构化错误与修复字段，或者有界的结果摘要。耗时较高的操作还可能
-记录验证、执行、持久化和证据阶段耗时。
-`marivo.operation.origin` 属性用于区分顶层 `explicit` 调用、`delegated` 委托调用和
-语义 `internal_load` 期间执行的声明。恢复已有分析会话并重新加载语义
-目录时，成功的内部声明不会重复写入；外层语义 `load` 和失败的声明仍会保留。
+两条事件共享操作 ID。会话生命周期变更、数据源注册或移除、CLI init 只写一条完成事件。
+选定的轻量读取、Help 和声明只在失败时写入；成功的纯构造、引用、目录查询和委托调用
+默认省略。若存在已记录的父操作，失败的委托调用仍会与之关联。完成事件包含状态、总耗时、稳定的结构化
+错误与修复字段，或者有界的结果摘要。耗时较高的操作还可能记录验证、执行、持久化和
+证据阶段耗时。`marivo.operation.origin` 属性用于区分顶层 `explicit` 调用、
+`delegated` 委托调用和语义 `internal_load` 期间执行的声明。
 
 带会话的事件可以包含持久化的 `session.question`。分析操作会在调用方传入时记录
 `analysis_purpose`，`md.raw_sql(...)` 会记录其必填的 `reason`。获取会话的完成事件还会
@@ -40,16 +39,17 @@ Marivo 保留 14 个 UTC 日历日内的受管事件文件。每个 UTC 日首�
 
 输入摘要可以包含规范化的指标、维度、数据源、语义和产物标识符，
 以及计数、类型、选项、限制和指纹。对于约束、数据源 client tags 等
-未定义为规范标识符集合的字符串集合，只记录数量和元素类型。`show()`、`contract()`、
-`to_pandas()` 等显式读取会记录 receiver 产物/引用和 producing job，用于把产物与后续
-消费关联起来。结果摘要可以包含产物/job 标识符、内容 hash、结果类型与状态、
+未定义为规范标识符集合的字符串集合，只记录数量和元素类型。默认记录的 `to_pandas()`
+等产物读取会包含 receiver 产物/引用和 producing job，用于把产物与后续消费关联起来。
+显式开启的 `full` 模式也会记录成功的 `show()` 和 `contract()` 读取。结果摘要可以包含
+产物/job 标识符、内容 hash、结果类型与状态、
 行数、问题数、缓存状态、截断状态和证据状态。遥测永远不会记录凭据、解析后
 的密钥、数据源主机、DSN、SQL 原文、文件路径、slice 实际值、frame 行值、自由文本
 集合元素、任意对象 repr 或异常消息。
 
-升级后，旧的 `events.jsonl` 中可能仍保留结构 v1 行，Marivo 不会迁移该文件。需要读取
-历史数据的消费者应扫描按日期命名的 `events-*.jsonl`，并在需要时单独读取旧文件；同时应
-筛选 `marivo.event.schema_version` 属性为 `2` 的记录。
+升级后，旧的 `events.jsonl` 中可能仍保留结构 v1 行；按日期命名的文件也可能包含 v2
+记录，Marivo 不会迁移它们。需要读取历史数据的消费者应扫描 `events-*.jsonl`，并在需要时
+单独读取旧文件。新记录的 `marivo.event.schema_version` 属性为 `3`。
 
 这些事件只保存在本地，Marivo 不会上传它们。会话问题、分析目的和原始-SQL reason
 会以原文保存在本地事件文件中；在把项目状态分享给其他环境之前应先检查该文件。
@@ -64,8 +64,10 @@ MARIVO_TELEMETRY=off marivo init
 
 ```toml
 [telemetry]
-enabled = "off" # "on" 或 "off"
+enabled = "off" # "on"、"off" 或 "full"
 ```
 
-`MARIVO_TELEMETRY=on|off` 会覆盖当前进程的 `[telemetry].enabled` 设置。两者均未设置时，
-本地遥测默认使用 `"on"`。
+`MARIVO_TELEMETRY=on|off|full` 会覆盖当前进程的 `[telemetry].enabled` 设置。两者均未
+设置时，本地遥测默认使用 `"on"`。只在有界的排障过程中使用 `"full"`：它会恢复 v2 风格的
+广泛成对覆盖，包括成功的轻量调用，但写入的仍是 v3 记录，事件量会
+明显增加。

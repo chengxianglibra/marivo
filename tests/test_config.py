@@ -58,6 +58,14 @@ def test_explicit_project_configuration_overrides_defaults(tmp_path: Path) -> No
         absolute,
     )
     assert config.telemetry_enabled is False
+    assert config.telemetry_mode == "off"
+
+
+def test_full_telemetry_mode_is_explicit(tmp_path: Path) -> None:
+    (tmp_path / "marivo.toml").write_text('[telemetry]\nenabled = "full"\n', encoding="utf-8")
+    config = load_project_config(tmp_path)
+    assert config.telemetry_enabled is True
+    assert config.telemetry_mode == "full"
 
 
 @pytest.mark.parametrize(
@@ -73,7 +81,7 @@ def test_explicit_project_configuration_overrides_defaults(tmp_path: Path) -> No
         ('telemetry = "on"\n', r"\[telemetry\] must be a table"),
         (
             "[telemetry]\nenabled = true\n",
-            r"\[telemetry\]\.enabled must be 'on' or 'off'",
+            r"\[telemetry\]\.enabled must be 'on', 'off', or 'full'",
         ),
     ],
 )
