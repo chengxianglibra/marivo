@@ -774,6 +774,38 @@ def _capture_policy(
     return "failure"
 
 
+@dataclass(frozen=True)
+class _EmissionDecision:
+    started: bool
+    defer_start: bool
+    success: bool
+    parent: bool
+
+
+def _resolve_emission(
+    mode: TelemetryMode,
+    capture: CapturePolicy,
+    origin: Literal["explicit", "delegated", "internal_load"],
+    *,
+    suppress_internal_success: bool,
+    defer_start_write: bool,
+) -> _EmissionDecision:
+    if mode == "full":
+        return _EmissionDecision(
+            started=True,
+            defer_start=defer_start_write or suppress_internal_success,
+            success=not suppress_internal_success,
+            parent=True,
+        )
+    success = origin == "explicit" and capture in {"short", "long"}
+    return _EmissionDecision(
+        started=success and capture == "long",
+        defer_start=False,
+        success=success,
+        parent=success,
+    )
+
+
 @dataclass
 class _Operation:
     surface: str
@@ -792,12 +824,11 @@ class _Operation:
     _stack_token: Token[tuple[_ActiveOperation, ...]] | None = None
     _current_token: Token[object | None] | None = None
     _start_entry: dict[str, object] | None = None
+    _decision: _EmissionDecision | None = None
     parent_id: str | None = None
     origin: Literal["explicit", "delegated", "internal_load"] = "explicit"
     failure_stage: str | None = None
-    suppress_success: bool = False
     enabled: bool = False
-    emit_started: bool = False
 
     def __enter__(self) -> _Operation:
         self.mode = _mode(self.root) if self.mode is None else self.mode
@@ -812,14 +843,19 @@ class _Operation:
         suppress_internal_load_success = any(
             active.suppress_internal_load_success for active in stack
         )
-        self.suppress_success = self.origin == "internal_load" and suppress_internal_load_success
-        if self.mode == "on" and self.origin != "explicit":
-            self.capture = "failure"
-        self.emit_started = self.mode == "full" or self.capture == "long"
-        if self.emit_started:
+        self._decision = _resolve_emission(
+            self.mode,
+            self.capture,
+            self.origin,
+            suppress_internal_success=(
+                self.origin == "internal_load" and suppress_internal_load_success
+            ),
+            defer_start_write=self.defer_start_write,
+        )
+        if self._decision.started:
             common = self._common_attributes(status="started")
             self._start_entry = _log_entry(_STARTED_EVENT, status="started", attributes=common)
-            if not self.defer_start_write and not self.suppress_success:
+            if not self._decision.defer_start:
                 _write_entry(self.root, self._start_entry)
         suppress_descendants = suppress_internal_load_success or (
             self.capability_id == "session.resume"
@@ -832,7 +868,7 @@ class _Operation:
             self.surface,
             self.capability_id,
             self.operation_id,
-            emitted=self.mode == "full" or self.capture in {"short", "long"},
+            emitted=self._decision.parent,
             suppress_internal_load_success=suppress_descendants,
         )
         self._stack_token = _ACTIVE_OPERATIONS.set((*stack, active))
@@ -867,11 +903,8 @@ class _Operation:
             _CURRENT_OPERATION.reset(self._current_token)
         if self._stack_token is not None:
             _ACTIVE_OPERATIONS.reset(self._stack_token)
-        if (
-            self.mode == "on"
-            and (self.capture == "failure" or self.suppress_success)
-            and exc is None
-        ):
+        decision = self._decision
+        if decision is None or (exc is None and not decision.success):
             return False
         status = "error" if exc is not None else "ok"
         attrs = self._common_attributes(status=status)
@@ -887,9 +920,7 @@ class _Operation:
         else:
             attrs.update(_result_attributes(self.result))
         completed = _log_entry(_COMPLETED_EVENT, status=status, attributes=attrs)
-        if self.suppress_success and exc is None:
-            return False
-        if (self.defer_start_write or self.suppress_success) and self._start_entry is not None:
+        if decision.defer_start and self._start_entry is not None:
             _write_entry(self.root, self._start_entry)
         _write_entry(self.root, completed)
         return False
@@ -961,7 +992,7 @@ def tracked_capability(
     capability_kind: str,
     default_stage: str | None = None,
 ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
-    """Decorate one public capability with v2 operation telemetry."""
+    """Decorate one public capability with mode-aware operation telemetry."""
 
     def decorate(func: Callable[_P, _R]) -> Callable[_P, _R]:
         signature = inspect.signature(func)
@@ -1141,7 +1172,7 @@ def track_event(
     error_type: str | None = None,
     attributes: Mapping[str, TelemetryValue] | None = None,
 ) -> None:
-    """Append one custom v2 event without changing caller behavior."""
+    """Append one custom v3 event without changing caller behavior."""
     try:
         arguments: dict[str, object] = {"session": session, "project_root": project_root}
         root = _project_root(arguments)
@@ -1176,7 +1207,7 @@ def track_operation(
     project_root: Path | None = None,
     attributes: Mapping[str, TelemetryValue] | None = None,
 ) -> Iterator[_Operation | None]:
-    """Record a v2 operation pair while preserving the legacy internal call shape."""
+    """Record a mode-selected operation while preserving the internal call shape."""
     surface, capability_id = _legacy_identity(event_name, intent)
     if _already_active(surface, capability_id):
         with telemetry_stage("execute"):
@@ -1191,7 +1222,6 @@ def track_operation(
         root=root,
         attributes={**_session_attributes(arguments), **dict(attributes or {})},
         capture=_capture_policy(surface, capability_id, family),
-        defer_start_write=surface == "cli" and capability_id == "init",
     )
     with operation:
         yield operation

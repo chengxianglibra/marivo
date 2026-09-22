@@ -115,8 +115,14 @@ def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
 
     @tracked_capability(surface="analysis", capability_id="grain", capability_kind="constructor")
-    def construct(*, project_root: Path) -> str:
+    def construct(*, project_root: Path, fail: bool = False) -> str:
+        if fail:
+            raise ValueError("constructor failure")
         return "grain"
+
+    @tracked_capability(surface="semantic", capability_id="ref.entity", capability_kind="method")
+    def reference(*, project_root: Path) -> str:
+        raise ValueError("reference failure")
 
     @tracked_capability(surface="analysis", capability_id="catalog.require", capability_kind="read")
     def read(*, project_root: Path, fail: bool = False) -> str:
@@ -126,6 +132,10 @@ def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
 
     assert construct(project_root=telemetry_project) == "grain"
     assert read(project_root=telemetry_project) == "item"
+    with pytest.raises(ValueError, match="constructor failure"):
+        construct(project_root=telemetry_project, fail=True)
+    with pytest.raises(ValueError, match="reference failure"):
+        reference(project_root=telemetry_project)
     assert not (telemetry_project / ".marivo" / "telemetry").exists()
     with pytest.raises(ValueError, match="private detail"):
         read(project_root=telemetry_project, fail=True)
@@ -175,6 +185,30 @@ def test_default_mode_short_and_long_operations_keep_only_actionable_events(
     assert child["marivo.operation.status"] == "error"
     assert child["marivo.operation.parent_id"] == parent["marivo.operation.id"]
     assert parent["marivo.operation.status"] == "error"
+
+
+def test_default_mode_records_datasource_connections_as_pairs(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.telemetry import tracked_capability
+
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+
+    @tracked_capability(
+        surface="datasource",
+        capability_id="test",
+        capability_kind="callable",
+        default_stage="connect",
+    )
+    def connection_test(*, project_root: Path) -> bool:
+        return True
+
+    assert connection_test(project_root=telemetry_project)
+    records = _capability_records(_event_path(telemetry_project), "test")
+    assert [_attrs(record)["marivo.operation.status"] for record in records] == [
+        "started",
+        "ok",
+    ]
 
 
 def test_metric_graph_telemetry_keeps_only_bounded_contract_facts(

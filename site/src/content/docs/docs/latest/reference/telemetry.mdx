@@ -25,17 +25,18 @@ whether its events are still needed.
 
 Telemetry schema v3 records selected public operations by default. The read-only
 `marivo doctor` command is deliberately not instrumented and never creates local
-state or telemetry. In the default `on` mode, data access and analysis execution
-write a correlated pair:
+state or telemetry. In the default `on` mode, semantic load, datasource connection
+and live reads, and analysis execution write a correlated pair:
 
 - `marivo.operation.started`
 - `marivo.operation.completed`
 
 The pair shares an operation ID. Session lifecycle changes, datasource
 registration/removal, and CLI init write only a completed event. Selected
-lightweight reads, Help, and authoring declarations write only on failure;
-successful constructors, references, catalog lookups, and delegated calls are
-omitted. Failed delegated calls link to a recorded parent when one exists.
+lightweight reads, Help, and authoring declarations write only on failure.
+Analysis constructors and semantic references are omitted even when they fail;
+successful catalog lookups and delegated calls are also omitted. Failed
+delegated calls link to a recorded parent when one exists.
 Completed events include status, duration, stable structured error and repair
 fields, or a bounded result summary. Expensive operations may also include
 validation, execution, persistence, and evidence phase durations.
