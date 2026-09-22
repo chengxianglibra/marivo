@@ -1218,3 +1218,16 @@ paid_at_end = session.select_subjects(
 | `ForecastFrame` | `forecast` |
 | `HypothesisTestResult` | `hypothesis_test` |
 | `CandidateSet` | `discover.*` |
+
+## 检查 Frame 结果
+
+`frame.show()` 展示对齐的表格，保留数值精度，默认最多 50 行或 8 KiB。
+宽表可能不足 50 行；省略统计和恢复调用会明确说明缺失内容。Evidence 摘要
+保留分析发现和解释边界。固定 footer 提供操作发现、证据明细及完整数据入口：
+
+```python
+frame.show()
+frame.contract().show()  # Complete mechanical continuations
+frame.findings(limit=20).show()  # Detailed evidence and exact finding lookup
+rows = frame.to_pandas()  # Complete isolated data
+```

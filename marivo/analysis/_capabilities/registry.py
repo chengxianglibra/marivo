@@ -2537,7 +2537,7 @@ def _build_registry() -> CapabilityRegistry:
             id="BaseFrame.show",
             public_entrypoint="frame.show()",
             help_target="BaseFrame.show",
-            summary="Bounded inspection of the artifact.",
+            summary="Inspect aligned artifact rows and evidence; use contract() for next operations.",
             constraint_ids=("frame_read_bounds",),
             callable_path="marivo.analysis.frames.base.BaseFrame.show",
             receiver_family="BaseFrame",

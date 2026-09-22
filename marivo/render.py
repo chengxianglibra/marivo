@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import islice
 from typing import Protocol, runtime_checkable
+from unicodedata import category, combining, east_asian_width
 
 _DEFAULT_MAX_OUTPUT_BYTES = 8192
 _OMISSION_RECOVERY = "pass max_output_bytes=None for full output"
@@ -41,6 +42,7 @@ class TableSection:
     bounded_row_count: int | None = None
     bounded_label: str | None = None
     recovery: str | None = None
+    column_alignments: tuple[bool, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +184,7 @@ class Card:
         bounded_row_count: int | None = None,
         bounded_label: str | None = None,
         recovery: str | None = None,
+        column_alignments: tuple[bool, ...] | None = None,
     ) -> Card:
         self._sections.append(
             TableSection(
@@ -196,6 +199,7 @@ class Card:
                 bounded_row_count=bounded_row_count,
                 bounded_label=bounded_label,
                 recovery=recovery,
+                column_alignments=column_alignments,
             )
         )
         return self
@@ -440,6 +444,9 @@ def _section_text_line_items(
     bounded: bool,
 ) -> Iterator[tuple[str, bool]]:
     if isinstance(section, TableSection):
+        if section.column_alignments is not None:
+            yield from _aligned_table_lines(section, bounded=bounded)
+            return
         yield f"columns: {' | '.join(section.columns)}", False
         iterator = _table_rows(section, bounded=bounded)
         first = next(iterator, None)
@@ -476,6 +483,58 @@ def _table_rows(section: TableSection, *, bounded: bool) -> Iterator[tuple[str, 
         rows = islice(rows, section.bounded_row_limit)
     for row in rows:
         yield tuple(str(value) for value in row)
+
+
+def _escape_table_cell(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace("|", "\\|")
+    )
+
+
+def _display_width(value: str) -> int:
+    return sum(
+        0
+        if combining(char) or category(char) in {"Cf", "Mn", "Me"}
+        else 2
+        if east_asian_width(char) in {"W", "F"}
+        else 1
+        for char in value
+    )
+
+
+def _aligned_table_lines(section: TableSection, *, bounded: bool) -> Iterator[tuple[str, bool]]:
+    alignments = section.column_alignments
+    if alignments is None or len(alignments) != len(section.columns):
+        raise ValueError("column_alignments must provide one alignment per table column")
+    columns = tuple(_escape_table_cell(value) for value in section.columns)
+    rows = [
+        tuple(_escape_table_cell(value) for value in row)
+        for row in _table_rows(section, bounded=bounded)
+    ]
+    widths = [
+        max((_display_width(row[index]) for row in rows), default=0)
+        for index in range(len(columns))
+    ]
+    widths = [
+        max(width, _display_width(column)) for width, column in zip(widths, columns, strict=True)
+    ]
+
+    def format_row(row: tuple[str, ...]) -> str:
+        cells = []
+        for index, value in enumerate(row):
+            padding = " " * (widths[index] - _display_width(value))
+            cells.append(padding + value if alignments[index] else value + padding)
+        return " | ".join(cells)
+
+    label = section.bounded_label if bounded and section.bounded_label else section.label
+    yield f"{label}:" if rows else f"{label}: none", False
+    yield format_row(columns), False
+    for row in rows:
+        yield format_row(row), True
 
 
 def _format_row(row: Sequence[str]) -> str:

@@ -834,10 +834,8 @@ class BaseFrame(RenderableResult):
 
     _NEXT_INTENTS: tuple[str, ...] = ()
     _AVAILABLE_ENTRIES: tuple[str, ...] = (
-        ".show()",
-        ".contract()",
+        ".contract().show()",
         ".findings(...)",
-        ".finding(finding_id)",
         ".to_pandas()",
     )
 
@@ -1250,21 +1248,15 @@ class BaseFrame(RenderableResult):
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} ref={self.meta.ref} rows={self.meta.row_count}"
 
-    def _evidence_status_token(self) -> str | None:
-        digest_unavailable = any(
-            issue.kind == "evidence_digest_unavailable" for issue in self.meta.issues
-        )
+    def _evidence_status_token(self, *, digest_unavailable: bool) -> str | None:
         if digest_unavailable:
-            return f"evidence={self.meta.evidence_status} digest=unavailable"
-        if self.meta.evidence_digest is not None:
-            return f"evidence={self.meta.evidence_status}"
-        if self.meta.evidence_status in {"partial", "unavailable"}:
-            return f"evidence={self.meta.evidence_status}"
+            return f"status={self.meta.evidence_status} digest=unavailable"
+        if self.meta.evidence_digest is not None or self.meta.evidence_status in {
+            "partial",
+            "unavailable",
+        }:
+            return f"status={self.meta.evidence_status}"
         return None
-
-    def _render_status(self) -> str | None:
-        evidence = self._evidence_status_token()
-        return evidence
 
     def _repr_html_(self) -> None:
         return None
@@ -1292,37 +1284,33 @@ class BaseFrame(RenderableResult):
                 ),
             )
         digest = self.meta.evidence_digest
+        digest_unavailable = any(
+            issue.kind == "evidence_digest_unavailable" for issue in self.meta.issues
+        )
+        status = self._evidence_status_token(digest_unavailable=digest_unavailable)
+        summary = [status] if status else []
         if digest is not None:
-            if not digest.items:
-                card.field("evidence", "no evidence findings emitted")
-            else:
-                omitted_items = digest.omissions.omitted_items
-                from marivo.analysis.evidence.summary import render_digest_selection
+            from marivo.analysis.evidence.summary import render_digest_item, render_digest_selection
 
-                selection = render_digest_selection(digest)
-                selection_token = f" selection={selection}" if selection is not None else ""
-                recovery = "; recover=artifact.findings(limit=20)" if omitted_items else ""
-                card.field(
-                    "evidence",
-                    (
-                        f"items={len(digest.items)} omitted={omitted_items}"
-                        f"{selection_token}{recovery}"
-                    ),
-                )
-                if include_digest_items:
-                    from marivo.analysis.evidence.summary import render_digest_item
-
-                    card.listing(
-                        "evidence items",
-                        (render_digest_item(item) for item in digest.items),
-                    )
+            summary.append(
+                f"items={len(digest.items)}" if digest.items else "no evidence findings emitted"
+            )
+            selection = render_digest_selection(digest)
+            if selection is not None:
+                summary.append(f"selection={selection}")
+            if digest.omissions.omitted_items:
+                summary.append(f"omitted={digest.omissions.omitted_items}")
+        if digest_unavailable or (digest is not None and digest.omissions.omitted_items):
+            summary.append("recover=artifact.findings(limit=20)")
+        if summary:
+            card.field("evidence", " ".join(summary))
+        if digest is not None:
+            if include_digest_items and digest.items:
+                card.listing("evidence items", (render_digest_item(item) for item in digest.items))
             if digest.boundaries:
                 card.listing(
-                    "inference boundaries",
-                    (boundary.kind for boundary in digest.boundaries),
+                    "inference boundaries", (boundary.kind for boundary in digest.boundaries)
                 )
-        if any(issue.kind == "evidence_digest_unavailable" for issue in self.meta.issues):
-            card.field("evidence recovery", "inspect canonical records with artifact.findings()")
         return card
 
     def _base_card(self) -> Card:
@@ -1334,9 +1322,8 @@ class BaseFrame(RenderableResult):
     def _header_card(self, status_prefix: str | None = None) -> Card:
         """Build identity, state, and purpose before family-specific context."""
         card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
-        status_parts = [part for part in (status_prefix, self._render_status()) if part]
-        if status_parts:
-            card.status(" ".join(status_parts))
+        if status_prefix:
+            card.status(status_prefix)
         if self.meta.analysis_purpose:
             card.field("analysis_purpose", self.meta.analysis_purpose)
         return card
@@ -1353,5 +1340,12 @@ class BaseFrame(RenderableResult):
             label=label,
             show_omission_counts=True,
             bounded_row_limit=_DEFAULT_FRAME_PREVIEW_ROWS,
+            column_alignments=tuple(
+                (pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype))
+                or _is_decimal_column(self._df.iloc[:_DEFAULT_FRAME_PREVIEW_ROWS, index])
+                for index, dtype in enumerate(
+                    self._df.dtypes.iloc[: len(self._public_column_names())]
+                )
+            ),
             recovery=f"session.artifact('{self.meta.ref}').to_pandas()",
         )

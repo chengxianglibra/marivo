@@ -305,3 +305,25 @@ def test_attribution_frame_as_sum_rejects_mismatch():
     frame = AttributionFrame(_df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=meta)
     with pytest.raises(SemanticKindMismatchError):
         frame.as_sum()
+
+
+def test_pretty_preview_preserves_other_projection_and_rows() -> None:
+    data = pd.DataFrame(
+        {
+            "region": [None],
+            "attribution_other_mask": [1],
+            "contribution": [8.0],
+            "share_of_total_delta": [1.0],
+            "share_of_positive_pool": [1.0],
+            "share_of_negative_pool": [None],
+            "rank": [1],
+        }
+    )
+    frame = AttributionFrame(_df=data, meta=_meta())
+    original = frame.to_pandas()
+    assert "Other" in frame.render()
+    assert "reconciliation:" in frame.render()
+    assert frame.render().endswith(
+        "available:\n- .contract().show()\n- .findings(...)\n- .to_pandas()"
+    )
+    pd.testing.assert_frame_equal(frame.to_pandas(), original)

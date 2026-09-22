@@ -166,5 +166,5 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
 
     association_text = loaded.render(max_output_bytes=None)
     assert "method=pearson" in association_text
-    assert "evidence=complete" in association_text
+    assert "evidence: status=complete" in association_text
     assert association_text.index("evidence:") < association_text.index("preview:")

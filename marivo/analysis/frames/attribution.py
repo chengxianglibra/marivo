@@ -1377,10 +1377,7 @@ class AttributionFrame(BaseFrame):
             if evidence.kind == "distinct_membership":
                 card.field(
                     "method_evidence",
-                    (
-                        f"allocation={evidence.allocation} "
-                        f"identities_persisted={str(evidence.identities_persisted).lower()}"
-                    ),
+                    (f"allocation={evidence.allocation}"),
                 )
             elif isinstance(evidence, QuantileReplacementEvidenceV1):
                 card.field(

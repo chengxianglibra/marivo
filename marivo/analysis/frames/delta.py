@@ -713,9 +713,7 @@ class DeltaFrame(BaseFrame):
                     f"current_only={evidence.current_only_points} "
                     f"baseline_only={evidence.baseline_only_points} "
                     f"unmatched={evidence.unmatched_points} "
-                    f"dropped={evidence.dropped_points} "
-                    f"path={evidence.execution_path} "
-                    f"backend_optimized={str(evidence.backend_optimized).lower()}"
+                    f"dropped={evidence.dropped_points}"
                     f"{dropped}"
                 ),
             )

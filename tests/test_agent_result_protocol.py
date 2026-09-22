@@ -735,14 +735,26 @@ def _footer_entries(obj: object) -> tuple[str, ...]:
     return tuple(line.removeprefix("- ") for line in lines[index + 1 :] if line.startswith("- "))
 
 
-@pytest.mark.parametrize("builder", [*TERMINAL_BUILDERS, *CONTRACT_BUILDERS])
+@pytest.mark.parametrize(
+    "builder",
+    [
+        *TERMINAL_BUILDERS,
+        *CONTRACT_BUILDERS,
+        pytest.param(_metric_frame, id="MetricFrame"),
+        pytest.param(_artifact_digest, id="ArtifactDigest"),
+    ],
+)
 def test_available_footer_follows_two_exit_rule(builder: Callable[[], object]) -> None:
     obj = builder()
     entries = _footer_entries(obj)
-    assert ".show()" in entries, (type(obj).__name__, entries)
+    if isinstance(obj, BaseFrame):
+        assert entries == (".contract().show()", ".findings(...)", ".to_pandas()")
+    else:
+        assert ".show()" in entries, (type(obj).__name__, entries)
     assert not any(entry.startswith(".render") for entry in entries), (
         type(obj).__name__,
         entries,
     )
     if callable(getattr(obj, "contract", None)):
-        assert ".contract()" in entries, (type(obj).__name__, entries)
+        contract_entry = ".contract().show()" if isinstance(obj, BaseFrame) else ".contract()"
+        assert contract_entry in entries, (type(obj).__name__, entries)

@@ -154,6 +154,14 @@ row. Any omission reports `displayed`, `total`, and `omitted`, plus a copyable
 `session.artifact('<ref>').to_pandas()` recovery call; data is never silently
 omitted.
 
+Analysis Frame tables align numeric columns right and other columns left using
+Unicode display widths, preserve numeric precision, and escape line breaks, tabs,
+backslashes, and pipe delimiters without changing data. Only the first 50 rows
+are read for bounded layout; byte truncation drops complete rows. Other result
+types retain their existing table formatting. Evidence state and item counts
+share one summary, omit zero omission counts, and retain all existing findings,
+selection facts, issues, and inference boundaries.
+
 Analysis cards use the real table header as the sole column display. Complete
 ordered `output_columns` and direct semantic inputs — including role/path and a
 copyable `session.catalog.<collection>.get("<path>")` acquisition call — live
@@ -430,9 +438,11 @@ using registry-owned public calls such as `session.compare(...)` and
 `session.attribute(...)`. `contract().show()` is the single complete readable
 continuation surface.
 
-Card footers follow the same rule: every `available:` footer lists `.show()`, lists
-`.contract()` when the object has one, and never advertises `.render()` — it backs
-`show()` and stays off the taught path.
+Frame `available:` footers always list `.contract().show()`, `.findings(...)`,
+and `.to_pandas()`: complete operation discovery, evidence detail, and complete
+rows. Finding pages disclose an exact single-finding lookup when nonempty. Other
+result footers list `.show()` and `.contract()` when present. No footer advertises
+`.render()`; it backs `show()` and stays off the taught path.
 
 `RawSqlResult` exposes complete query-result `shape`, returned `row_count`, ordered
 columns, and isolated pandas export, but no `.contract()` or typed re-entry.

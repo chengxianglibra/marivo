@@ -281,6 +281,8 @@ def test_contract_is_the_only_structured_issue_path():
     rendered = frame.render()
     assert "evidence_digest_unavailable" in rendered
     assert "stage=digest" in rendered
+    assert "status=partial digest=unavailable" in rendered
+    assert rendered.count("recover=artifact.findings(limit=20)") == 1
 
 
 def test_affordance_preserves_compare_parameter_roles_without_call_planner():
@@ -388,7 +390,7 @@ def test_digest_is_session_local_for_content_identity_and_renders_before_preview
         ),
     )
     rendered = frame.render(max_output_bytes=None)
-    assert "evidence: no evidence findings emitted" in rendered
+    assert "evidence: status=complete no evidence findings emitted" in rendered
     assert rendered.index("evidence:") < rendered.index("preview:")
 
 
@@ -461,7 +463,9 @@ def test_show_points_to_full_rows_when_digest_items_are_omitted():
 
     rendered = frame.render(max_output_bytes=None)
 
-    assert ("evidence: items=1 omitted=3; recover=artifact.findings(limit=20)") in rendered
+    assert (
+        "evidence: status=complete items=1 omitted=3 recover=artifact.findings(limit=20)"
+    ) in rendered
     assert "subject=sales.revenue" in rendered
     assert "full_distribution_not_in_digest" in rendered
 
@@ -480,11 +484,11 @@ def test_frame_default_preview_caps_at_50_rows_with_exact_recovery() -> None:
 
     rendered = frame.render()
 
-    assert "\n49\n" in rendered
-    assert "\n50\n" not in rendered
+    assert "49" in [line.strip() for line in rendered.splitlines()]
+    assert "50" not in [line.strip() for line in rendered.splitlines()]
     assert "preview (displayed=50 total=53 omitted=3)" in rendered
     assert "session.artifact('frame_abc').to_pandas()" in rendered
-    assert "\n52\n" in frame.render(max_output_bytes=None)
+    assert "52" in [line.strip() for line in frame.render(max_output_bytes=None).splitlines()]
 
 
 def test_compute_quality_summary_coverage_canonicalizes_aware_scope(
@@ -623,3 +627,59 @@ def test_compute_quality_summary_matches_check_when_report_tz_differs_from_scope
     # buckets 06-30T00:00..23:00 cover 16 of the 24 buckets => 2/3.
     # Falling back to the expected side (+08:00) would report 1.0.
     assert qs.coverage == pytest.approx(2.0 / 3.0)
+
+
+def test_frame_pretty_display_preserves_data_and_discovery() -> None:
+    data = pd.DataFrame(
+        {
+            "region": ["华东", "a|b\n"],
+            "value": [1.2345678901234567, 1e-300],
+            "time": [pd.Timestamp("2026-09-21"), pd.NaT],
+        }
+    )
+    original = data.copy(deep=True)
+    frame = BaseFrame(_df=data, meta=_meta())
+    rendered = frame.render()
+    pd.testing.assert_frame_equal(frame.to_pandas(), original)
+    assert "1.2345678901234567" in rendered
+    assert "1e-300" in rendered
+    assert "2026-09-21T00:00:00" in rendered
+    assert "None" in rendered
+    assert "a\\|b\\n" in rendered
+    assert rendered.split("available:\n")[1].splitlines() == [
+        "- .contract().show()",
+        "- .findings(...)",
+        "- .to_pandas()",
+    ]
+    assert callable(frame.contract) and callable(frame.findings) and callable(frame.to_pandas)
+    assert frame.contract().render()
+
+
+@pytest.mark.parametrize("status", ["complete", "partial", "unavailable"])
+def test_frame_evidence_summary_is_single_and_does_not_mutate_digest(status) -> None:
+    digest = _digest()
+    frame = BaseFrame(
+        _df=pd.DataFrame({"value": [1, 2]}),
+        meta=_meta(
+            evidence_status=status,
+            evidence_digest=digest,
+        ),
+    )
+    before = frame.meta.model_dump()
+    rendered = frame.render()
+    assert rendered.count(f"status={status}") == 1
+    assert "no evidence findings emitted" in rendered
+    assert "omitted=0" not in rendered
+    assert frame.meta.model_dump() == before
+
+
+def test_decimal_preview_is_right_aligned_without_rounding() -> None:
+    values = [Decimal("0.12345678901234567890123456789"), Decimal("2.00")]
+    frame = BaseFrame(_df=pd.DataFrame({"value": values}), meta=_meta())
+    rendered = frame.render()
+    rows = rendered.split("preview:\n", 1)[1].split("\navailable:", 1)[0].splitlines()
+    assert rows[0].endswith("value")
+    assert rows[1] == str(values[0])
+    assert rows[2].endswith("2.00")
+    assert len(rows[0]) == len(rows[1]) == len(rows[2])
+    assert frame._df["value"].tolist() == values
