@@ -90,12 +90,15 @@ Entity, undeclared columns and float operands in arithmetic fail at semantic
 load with structured errors before execution. All six backends admit these
 bodies on their declared table sources.
 
-The following remain explicitly unsupported on these new backends: hidden-axis
-expanded attribution, sampling, Entity correlation preparation, exact distinct
-membership, quantile/distribution state, Entity candidates, source driver
-screening and Event/Lifecycle. These need their own numerical, private-state,
-temporal or single-evaluation implementations. Remote retained import stays
-disabled. Cumulative Metric graphs and semantic calendar buckets were
+Exact distinct membership for direct measure and Entity identity keys is
+qualified on PostgreSQL, MySQL, SQLite, Trino and ClickHouse. SQLite and MySQL
+deduplicate typed Entity identity fields as scalar SQL columns and reconstruct
+the unchanged private Arrow struct. Exact linear-interpolation distribution
+state is qualified on all five remote backends. Percentile status-time folds
+and remote `duckdb_tdigest@v1` remain unqualified. Hidden-axis expanded attribution,
+sampling, Entity correlation preparation, Entity candidates, source driver
+screening and Event/Lifecycle also remain unsupported on these backends. Remote
+retained import stays disabled. Cumulative Metric graphs and semantic calendar buckets were
 activated by C6 on all five remote backends — calendar buckets over native
 civil-date axes with a matching certified calendar snapshot, cumulative
 Metric graphs through the shared endpoint-window lowering with time_scope

@@ -15,7 +15,7 @@ import ibis.expr.types as ir
 
 from marivo.analysis.compiler.comparison import lower_compare
 from marivo.analysis.compiler.distinct_fold import fold_memberships
-from marivo.analysis.compiler.distribution import source_quantile
+from marivo.analysis.compiler.distribution import frequency_quantile, source_quantile
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.event_continuation import canonical_rows as canonical_event_rows
 from marivo.analysis.compiler.event_continuation import result_proof as event_result_proof
@@ -731,12 +731,16 @@ class _Compiler:
         read_timezone: str | None = None,
         read_timezone_source: Literal["engine", "system_fallback"] = "engine",
         dependencies: SourceDependencies | None = None,
+        replay_exact_quantile: bool = False,
+        scalar_identity_distinct: bool = False,
     ) -> None:
         self.dataset = dataset
         self.owner = source_owner_of(dataset) if source_owner is None else source_owner
         self.registry = self.owner.semantic_registry
         self.read_timezone = read_timezone
         self.read_timezone_source = read_timezone_source
+        self.replay_exact_quantile = replay_exact_quantile
+        self.scalar_identity_distinct = scalar_identity_distinct
         self.time_authorities: dict[tuple[str, str], SourceTimeAuthority] = {}
         self.version_selections: dict[str, CanonicalValue] = {}
         dependencies = (
@@ -1818,6 +1822,8 @@ class _Compiler:
         # bridge rows cannot multiply the same source representation in one tuple.
         table = table.distinct()
         private_relation: ir.Table | None = None
+        exact_distribution = None
+        distinct_members: ir.Table | None = None
         states: dict[str, ir.Value] = {"row_count": table.count()}
         if isinstance(node, AggregateNodeV1):
             value = (
@@ -1828,19 +1834,38 @@ class _Compiler:
             if node.agg == "count":
                 states["count"] = value.count() if value is not None else table.count()
             elif node.agg == "count_distinct":
-                value = (
-                    value
-                    if value is not None
-                    else _identity(
-                        table, next(item for item in self.entities if item.ref.path == root)
-                    )
-                )
-                states["value"] = value.nunique()
+                identity = None
+                if value is None:
+                    identity = next(item for item in self.entities if item.ref.path == root)
+                    value = _identity(table, identity)
+                if self.scalar_identity_distinct and identity is not None:
+                    fields = tuple(identity.primary_key)
+                    complete = table
+                    for name in fields:
+                        complete = complete.filter(complete[name].notnull())
+                    distinct_members = complete.select(
+                        *keys,
+                        **{
+                            f"__mv_member_{index}": complete[name]
+                            for index, name in enumerate(fields)
+                        },
+                    ).distinct()
+                    # The final endpoint comes from the same exact member set as the part.
+                    states["value"] = states["row_count"]
+                else:
+                    states["value"] = value.nunique()
                 if component.time_fold is None:
                     private_relation = table.select(*keys, **{DISTINCT_KEY: value})
-                    private_relation = private_relation.filter(
-                        private_relation[DISTINCT_KEY].notnull()
-                    ).distinct()
+                    if identity is not None:
+                        for name in identity.primary_key:
+                            private_relation = private_relation.filter(
+                                private_relation[DISTINCT_KEY][name].notnull()
+                            )
+                    else:
+                        private_relation = private_relation.filter(
+                            private_relation[DISTINCT_KEY].notnull()
+                        )
+                    private_relation = private_relation.distinct()
             else:
                 if value is None:
                     raise compilation_error("numeric Measure aggregate", "missing Measure")
@@ -1864,13 +1889,23 @@ class _Compiler:
                     states["value"] = (
                         numeric.quantile(quantile)
                         if basis is None
-                        else source_quantile(numeric, basis.quantile)
+                        else (
+                            numeric.max()
+                            if self.replay_exact_quantile
+                            and basis.quantile.method == "linear_interpolation@v1"
+                            else source_quantile(numeric, basis.quantile)
+                        )
                     )
                     if basis is not None:
                         values = table.select(*keys, **{VALUE: value}).filter(value.notnull())
                         private_relation = values.group_by([*keys, VALUE]).aggregate(
                             **{FREQUENCY: values.count()}
                         )
+                        if (
+                            self.replay_exact_quantile
+                            and basis.quantile.method == "linear_interpolation@v1"
+                        ):
+                            exact_distribution = basis.quantile
                 states["non_null_count"] = value.count()
         else:
             value = _numeric(self._measure_column(node.value_ref.path))
@@ -1880,6 +1915,44 @@ class _Compiler:
             states["weight_sum"] = weight.sum(where=pairs)
             states["non_null_pair_count"] = pairs.cast("int64").sum()
         grouped = table.group_by(keys).aggregate(**states) if keys else table.aggregate(**states)
+        if distinct_members is not None:
+            member_counts = (
+                distinct_members.group_by(keys).aggregate(value=distinct_members.count())
+                if keys
+                else distinct_members.aggregate(value=distinct_members.count())
+            ).view()
+            grouped = grouped.view()
+            joined = (
+                grouped.join(
+                    member_counts,
+                    [grouped[name].identical_to(member_counts[name]) for name in keys],
+                    how="left",
+                )
+                if keys
+                else grouped.cross_join(member_counts)
+            )
+            grouped = joined.select(
+                **{name: grouped[name] for name in grouped.columns if name != "value"},
+                value=member_counts.value.fill_null(0),
+            )
+        if exact_distribution is not None:
+            if private_relation is None:
+                raise compilation_error("exact distribution relation", "missing private relation")
+            endpoints = frequency_quantile(private_relation, tuple(keys), exact_distribution).view()
+            grouped = grouped.view()
+            joined = (
+                grouped.join(
+                    endpoints,
+                    [grouped[name].identical_to(endpoints[name]) for name in keys],
+                    how="left",
+                )
+                if keys
+                else grouped.cross_join(endpoints)
+            )
+            grouped = joined.select(
+                **{name: grouped[name] for name in grouped.columns if name != "value"},
+                value=endpoints["__mv_quantile"],
+            )
         if component.time_fold is not None:
             if isinstance(node, WeightedMeanAggregateNodeV1):
                 spatial = _numeric(grouped["weighted_numerator"]) / _numeric(
@@ -3038,6 +3111,8 @@ def compile_dataset(
     event_coverages: Mapping[str, EventCoverageResolution] | None = None,
     read_timezone: str | None = None,
     read_timezone_source: Literal["engine", "system_fallback"] = "engine",
+    replay_exact_quantile: bool = False,
+    scalar_identity_distinct: bool = False,
 ) -> CompiledDataset:
     """Lower a logical Dataset using exact source tables without executing or reading rows."""
     return _Compiler(
@@ -3049,6 +3124,8 @@ def compile_dataset(
         read_timezone,
         read_timezone_source,
         dependencies,
+        replay_exact_quantile,
+        scalar_identity_distinct,
     ).compile()
 
 

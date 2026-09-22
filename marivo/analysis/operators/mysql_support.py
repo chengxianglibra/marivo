@@ -32,8 +32,9 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     decimal-rooted ratio is constructible while engine division inference
     labels results float64. Both cells open only when the mean equation
     publishes exact values end to end under the declared rounding contract.
-    Exact distinct-membership and distribution state keep their empty
-    qualification sets until a live probe evidence opens them.
+    Direct-measure membership and exact linear-interpolation distribution are
+    qualified by live source-private execution. Entity membership lowers its
+    typed identity fields to scalar SQL and reconstructs the private Arrow struct.
     """
     return scalar_reason(
         dataset,
@@ -48,6 +49,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         linear_graphs=True,
         resolved_decimal_units=frozenset({"linear"}),
         status_folds=frozenset({"mean", "min", "max"}),
-        distinct_memberships=frozenset(),
-        distributions=frozenset(),
+        distinct_memberships=frozenset({"measure", "entity"}),
+        distributions=frozenset({"linear_interpolation"}),
     )

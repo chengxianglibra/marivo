@@ -1,6 +1,6 @@
 # C7：精确集合与分布（exact distinct，随后 quantile/distribution）实施计划
 
-日期：2026-09-21。状态：计划已落盘，未开始实施。依据 [总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md) §2/§3.6/§5、[C0 清单](2026-09-16-multisource-capability-c0-implementation-plan.md) C7 行、[C0 验收](2026-09-16-multisource-capability-c0-acceptance.md) §2.2、[C6 验收](2026-09-21-multisource-capability-c6-acceptance.md)。
+日期：2026-09-21。状态：已实施并验收；2026-09-22 的执行证据见 [C7 验收记录](2026-09-22-multisource-capability-c7-acceptance.md)。依据 [总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md) §2/§3.6/§5、[C0 清单](2026-09-16-multisource-capability-c0-implementation-plan.md) C7 行、[C0 验收](2026-09-16-multisource-capability-c0-acceptance.md) §2.2、[C6 验收](2026-09-21-multisource-capability-c6-acceptance.md)。
 
 计划落盘时 HEAD 为 `7fcdaf047`（分支 `lazy-dataset`，工作区两处与本阶段无关的未跟踪文件：`docs/specs/analysis/README.md`、`docs/specs/analysis/evidence-engine/`，保持不动），C6 已验收（验收链末位 `8946cd711`，已合并为 `7fcdaf047`）。本文件先落盘，再实现。DuckDB 是 exact distinct 与 quantile/distribution 私有状态的既有参照实现，本阶段不改 DuckDB；其既有旅程作为独立对照 oracle。
 

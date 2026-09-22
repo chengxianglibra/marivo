@@ -72,6 +72,10 @@ def test_membership_checkpoint_has_independent_count_and_native_cold_inspection(
         for part in record.descriptor.retained_parts
         if part.contract_id == "metric.distinct_membership"
     )
+    from marivo.analysis.materialization.retained import guard_part_transfer
+
+    with pytest.raises(MaterializationError, match="source-native use"):
+        guard_part_transfer(member)
     assert isinstance(member.storage_receipt, LocalReceipt)
     assert (
         member.storage_receipt.realized_row_count

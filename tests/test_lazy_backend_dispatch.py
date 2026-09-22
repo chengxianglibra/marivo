@@ -111,14 +111,11 @@ def test_closed_collection_selects_exact_backend_without_io(
 
 
 @pytest.mark.parametrize("backend", ["postgres", "mysql", "sqlite", "trino", "clickhouse"])
-def test_production_backend_rejects_unqualified_shape(backend: BackendName) -> None:
+def test_production_backend_places_qualified_median(backend: BackendName) -> None:
     logical = _sources(backend, aggregation="median").observe(REVENUE)
-    with pytest.raises(DatasetCompilationError) as caught:
-        place(logical)
-    error = caught.value
-    assert error.received is not None
-    assert f"session.observe; backend={backend}; shape=metric/entity@v1;" in error.received
-    assert error.repair is not None and "duckdb" in error.repair.action
+    graph = place(logical)
+    assert isinstance(graph.steps[0], SourceStep)
+    assert graph.steps[0].implementation.backend == backend
 
 
 def test_kendall_is_preparation_only_and_cannot_authorize_full_source() -> None:

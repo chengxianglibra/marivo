@@ -19,6 +19,14 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
+from tests.lazy_distinct_fixtures import (
+    DISTINCT_BUYERS,
+    DISTINCT_ORDER_VALUES,
+    assert_no_raw_keys,
+    make_distinct_registry,
+)
+from tests.lazy_distribution_fixtures import make_distribution_registry
+from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
 from tests.multisource_environment import clickhouse_analysis as clickhouse
@@ -81,6 +89,101 @@ def offline(database: str) -> None:
     with clickhouse.connection(admin=True) as connection:
         for name in ("orders", "customers", "lines", "snapshots", "validity"):
             connection.command(f"DROP TABLE IF EXISTS {database}{name} SYNC")
+
+
+@pytest.mark.parametrize("shape", ["measure", "entity"])
+def test_exact_distinct_membership(
+    tmp_path: Path, method_database: str, monkeypatch: pytest.MonkeyPatch, shape: str
+) -> None:
+    def sql_text(value: str | None) -> str:
+        return "NULL" if value is None else "'" + value.replace("'", "''") + "'"
+
+    values = ",".join(
+        f"({order_id},{sql_text(tenant)},{customer_id},{sql_text(channel)},1.0,'{day}')"
+        for order_id, tenant, customer_id, channel, day in DISTINCT_ORDER_VALUES
+    )
+    with clickhouse.connection(admin=True) as connection:
+        connection.command(f"TRUNCATE TABLE {method_database}orders")
+        connection.command(
+            f"INSERT INTO {method_database}orders (id,tenant,customer_id,channel,amount,day) VALUES "
+            + values
+        )
+    authored, sidecar = make_distinct_registry()
+    metric = DISTINCT_BUYERS if shape == "measure" else ref.metric("sales.distinct_orders")
+    expected = [3.0, 2.0, 1.0] if shape == "measure" else [4.0, 4.0, 3.0]
+    clickhouse_registry, _ = registry_for(method_database)
+    registry = replace(
+        authored,
+        entities={
+            **authored.entities,
+            "sales.orders": clickhouse_registry.entities["sales.orders"],
+        },
+        datasources=clickhouse_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path, "clickhouse-private-state")
+    private_batches = guard_private_batches(runtime, monkeypatch)
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(metric)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+        .execute()
+    )
+    frame = result.to_pandas().sort_values("channel", na_position="last")
+    assert frame[metric.path.rsplit(".", 1)[-1]].tolist() == pytest.approx(expected)
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None and record.descriptor.retained_parts
+    assert private_batches
+    if shape == "measure":
+        assert_no_raw_keys(frame.to_dict("records"))
+        assert_no_raw_keys(record.descriptor)
+        assert_no_raw_keys(runtime.statistics.statements)
+    if shape == "entity":
+        offline(method_database)
+        rolled = result.rollup(drop_dimensions=(CHANNEL,)).execute().to_pandas()
+        assert rolled["distinct_orders"].tolist() == [11]
+
+
+def test_exact_distribution(
+    tmp_path: Path, method_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with clickhouse.connection(admin=True) as connection:
+        connection.command(f"TRUNCATE TABLE {method_database}orders")
+        connection.command(
+            f"INSERT INTO {method_database}orders (id,tenant,customer_id,channel,amount,day) VALUES "
+            "(1,'shared',1,'web',1.0,'2026-01-02'),"
+            "(2,'shared',1,'web',1.0,'2026-01-02'),"
+            "(3,'old',2,'store',5.0,'2026-01-02'),"
+            "(4,'new',2,'store',9.0,'2026-01-02')"
+        )
+    authored, sidecar = make_distribution_registry()
+    clickhouse_registry, _ = registry_for(method_database)
+    registry = replace(
+        authored,
+        entities={
+            **authored.entities,
+            "sales.orders": clickhouse_registry.entities["sales.orders"],
+        },
+        datasources=clickhouse_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path, "clickhouse-distribution")
+    private_batches = guard_private_batches(runtime, monkeypatch)
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(ref.metric("sales.revenue"))
+        .with_dimensions(CHANNEL)
+        .aggregate()
+        .execute()
+    )
+    frame = result.to_pandas().sort_values("channel")
+    assert frame["revenue"].tolist() == pytest.approx([7.0, 1.0])
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None and any(
+        part.contract_id == "metric.distribution" for part in record.descriptor.retained_parts
+    )
+    assert private_batches
 
 
 @pytest.fixture

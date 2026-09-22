@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -15,6 +17,15 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
+from tests.lazy_distinct_fixtures import (
+    DISTINCT_BUYERS,
+    DISTINCT_ORDER_VALUES,
+    REGION,
+    assert_no_raw_keys,
+    make_distinct_registry,
+)
+from tests.lazy_distribution_fixtures import VALUES, make_distribution_registry
+from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 
 pytestmark = pytest.mark.runtime
@@ -51,6 +62,293 @@ def method_database(tmp_path: Path) -> Path:
             "INSERT INTO validity(id,start,\"end\") VALUES (1,'2026-01-01','2026-02-10'),(1,'2026-02-10',NULL),(2,'2026-02-15','2026-03-01')"
         )
     return database
+
+
+@pytest.mark.parametrize("shape", ["measure", "entity"])
+def test_exact_distinct_membership(
+    tmp_path: Path, method_database: Path, monkeypatch: pytest.MonkeyPatch, shape: str
+) -> None:
+    # web: {shared, new}; store: {shared, old, new}; NULL channel: {extra}.
+    with sqlite3.connect(method_database) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.executemany(
+            "INSERT INTO orders(id, tenant, customer_id, channel, day) VALUES (?,?,?,?,?)",
+            DISTINCT_ORDER_VALUES,
+        )
+        connection.execute("INSERT INTO customers(id, region) VALUES (3, NULL)")
+    sqlite_registry, _ = registry_for(method_database)
+    distinct_registry, sidecar = make_distinct_registry()
+    orders_source = sqlite_registry.entities["sales.orders"].source
+    assert isinstance(orders_source, TableSourceIR)
+    registry = replace(
+        distinct_registry,
+        entities={
+            **distinct_registry.entities,
+            "sales.orders": sqlite_registry.entities["sales.orders"],
+            "sales.customers": replace(
+                distinct_registry.entities["sales.customers"],
+                source=replace(orders_source, table="customers"),
+            ),
+        },
+        datasources=sqlite_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path / "distinct-project", "sqlite-distinct")
+    private_batches = guard_private_batches(runtime, monkeypatch)
+    metric = DISTINCT_BUYERS if shape == "measure" else ref.metric("sales.distinct_orders")
+    logical = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(metric)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    result = logical.execute()
+    frame = result.to_pandas().sort_values("channel", na_position="last")
+    assert frame[metric.path.rsplit(".", 1)[-1]].tolist() == (
+        [3, 2, 1] if shape == "measure" else [4, 4, 3]
+    )
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None
+    assert any(
+        part.contract_id == "metric.distinct_membership"
+        for part in record.descriptor.retained_parts
+    )
+    assert private_batches
+    assert_no_raw_keys(frame.to_dict("records"))
+    assert_no_raw_keys(record.descriptor)
+    assert_no_raw_keys(runtime.statistics.statements)
+    if shape == "measure":
+        sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        global_result = sources.observe(DISTINCT_BUYERS).aggregate().execute()
+        assert global_result.to_pandas()["distinct_buyers"].tolist() == [4]
+        regional = sources.observe(DISTINCT_BUYERS).with_dimensions(REGION).aggregate().execute()
+        regional_frame = regional.to_pandas().sort_values("region", na_position="last")
+        assert regional_frame["distinct_buyers"].tolist() == [3, 2, 1]
+        assert_no_raw_keys(regional_frame.to_dict("records"))
+    method_database.rename(tmp_path / "source.offline")
+    cold = DatasetRuntime.open(tmp_path / "distinct-project", runtime.session_ref)
+    recovered = cold.artifact(result.state.artifact_ref)
+    assert recovered.to_pandas().equals(result.to_pandas())
+    assert cold.revalidate(result.state.artifact_ref).artifact_integrity == "valid"
+    if shape == "entity":
+        rolled = recovered.rollup(drop_dimensions=(CHANNEL,)).execute().to_pandas()
+        assert rolled["distinct_orders"].tolist() == [11]
+
+
+def test_exact_composite_entity_membership(tmp_path: Path, method_database: Path) -> None:
+    with sqlite3.connect(method_database) as connection:
+        connection.execute("CREATE TABLE composite AS SELECT * FROM orders WHERE 0")
+        connection.executemany(
+            "INSERT INTO composite(id, tenant) VALUES (?, ?)",
+            ((1, "A"), (1, "a"), (2, "a"), (3, "a ")),
+        )
+    sqlite_registry, _ = registry_for(method_database)
+    authored, sidecar = make_distinct_registry()
+    source = sqlite_registry.entities["sales.orders"].source
+    assert isinstance(source, TableSourceIR)
+    registry = replace(
+        authored,
+        entities={
+            **authored.entities,
+            "sales.composite": replace(
+                authored.entities["sales.composite"], source=replace(source, table="composite")
+            ),
+        },
+        datasources=sqlite_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path / "composite-project", "sqlite-composite")
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(ref.metric("sales.distinct_composite"))
+        .aggregate()
+        .execute()
+    )
+    assert result.to_pandas()["distinct_composite"].tolist() == [4]
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None and record.descriptor.retained_parts
+
+
+def test_remote_membership_rejects_duplicate_pair_even_with_matching_endpoint(
+    tmp_path: Path, method_database: Path
+) -> None:
+    from unittest.mock import patch
+
+    import ibis
+
+    from marivo.analysis.compiler.distinct import membership_validations
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.materialization.retained import validate_source_private_relation
+    from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
+    from marivo.analysis.observation.distinct_contracts import (
+        DISTINCT_KEY_COLUMN,
+        membership_endpoint_name,
+        membership_part_authorities,
+    )
+
+    sqlite_registry, _ = registry_for(method_database)
+    distinct_registry, sidecar = make_distinct_registry()
+    registry = replace(
+        distinct_registry,
+        entities={
+            **distinct_registry.entities,
+            "sales.orders": sqlite_registry.entities["sales.orders"],
+        },
+        datasources=sqlite_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path / "integrity", "sqlite-duplicate-member")
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(DISTINCT_BUYERS)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+        .execute()
+    )
+    role = membership_part_authorities(result.row_contract)[0][0]
+    endpoint = membership_endpoint_name(result.row_contract, role)
+    with sqlite3.connect(method_database) as connection:
+        connection.execute(f'CREATE TABLE c7_primary (channel TEXT, "{endpoint}" INTEGER)')
+        connection.execute(f'CREATE TABLE c7_members (channel TEXT, "{DISTINCT_KEY_COLUMN}" TEXT)')
+        connection.execute("INSERT INTO c7_primary VALUES (?, ?)", ("web", 2))
+        connection.executemany(
+            "INSERT INTO c7_members VALUES (?, ?)", [("web", "shared"), ("web", "shared")]
+        )
+    source = ibis.sqlite.connect(str(method_database))
+    backend = SQLiteExecutionAdapter(source)
+    with pytest.raises(MaterializationError, match="private membership support"):
+        validate_source_private_relation(
+            backend,
+            source.table("c7_members"),
+            source.table("c7_primary"),
+            result.row_contract,
+            role,
+        )
+
+    def without_pair_uniqueness(*args: object, **kwargs: object) -> tuple[object, ...]:
+        return tuple(
+            check
+            for check in membership_validations(*args, **kwargs)
+            if not check.name.endswith(".pair_unique")
+        )
+
+    with patch(
+        "marivo.analysis.compiler.distinct.membership_validations",
+        side_effect=without_pair_uniqueness,
+    ):
+        validate_source_private_relation(
+            backend,
+            source.table("c7_members"),
+            source.table("c7_primary"),
+            result.row_contract,
+            role,
+        )
+
+
+@pytest.mark.parametrize(("q", "store"), [(0.25, 6.0), (0.5, 7.0), (0.9, 8.6)])
+def test_exact_distribution(
+    tmp_path: Path, method_database: Path, monkeypatch: pytest.MonkeyPatch, q: float, store: float
+) -> None:
+    # January web [1, 1] is always 1; store [5, 9] interpolates to 6/7/8.6.
+    with sqlite3.connect(method_database) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.executemany(
+            "INSERT INTO orders(id, customer_id, channel, amount, day) VALUES (?,?,?,?,?)",
+            VALUES,
+        )
+    sqlite_registry, _ = registry_for(method_database)
+    distribution_registry, sidecar = make_distribution_registry(q=q)
+    registry = replace(
+        distribution_registry,
+        entities={
+            **distribution_registry.entities,
+            "sales.orders": sqlite_registry.entities["sales.orders"],
+        },
+        datasources=sqlite_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path / "distribution-project", "sqlite-distribution")
+    private_batches = guard_private_batches(runtime, monkeypatch)
+    logical = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(
+            ref.metric("sales.revenue"), time_scope=time_scope(start="2026-01-01", end="2026-02-01")
+        )
+        .with_dimensions(CHANNEL)
+        .aggregate()
+    )
+    result = logical.execute()
+    frame = result.to_pandas().sort_values("channel")
+    assert frame["revenue"].tolist() == pytest.approx([store, 1.0])
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None
+    assert any(
+        part.contract_id == "metric.distribution" for part in record.descriptor.retained_parts
+    )
+    assert private_batches
+    current_ref = None
+    if q == 0.5:
+        current = (
+            runtime.sources(semantic_registry=registry, sidecar=sidecar)
+            .observe(
+                ref.metric("sales.revenue"),
+                time_scope=time_scope(start="2026-02-01", end="2026-03-01"),
+            )
+            .with_dimensions(CHANNEL)
+            .aggregate()
+            .execute()
+        )
+        current_ref = current.state.artifact_ref
+    method_database.rename(tmp_path / "source.offline")
+    cold = DatasetRuntime.open(tmp_path / "distribution-project", runtime.session_ref)
+    recovered = cold.artifact(result.state.artifact_ref)
+    assert recovered.to_pandas().equals(result.to_pandas())
+    assert cold.revalidate(result.state.artifact_ref).artifact_integrity == "valid"
+    if current_ref is not None:
+        current = cold.artifact(current_ref)
+        delta = current.compare(recovered).execute().to_pandas()
+        assert sorted(delta["delta"].tolist()) == pytest.approx([-3.0, 4.0])
+
+
+def test_distribution_raw_values_stay_in_private_part(
+    tmp_path: Path, method_database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw_values = (913001.125, 913007.375)
+    with sqlite3.connect(method_database) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.executemany(
+            "INSERT INTO orders(id, customer_id, channel, amount, day) VALUES (?,?,?,?,?)",
+            (
+                (1, 1, "web", raw_values[0], "2026-01-02"),
+                (2, 1, "web", raw_values[1], "2026-01-02"),
+            ),
+        )
+    sqlite_registry, _ = registry_for(method_database)
+    authored, sidecar = make_distribution_registry()
+    registry = replace(
+        authored,
+        entities={**authored.entities, "sales.orders": sqlite_registry.entities["sales.orders"]},
+        datasources=sqlite_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path / "private-values", "sqlite-private-values")
+    private_batches = guard_private_batches(runtime, monkeypatch)
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(ref.metric("sales.revenue"))
+        .with_dimensions(CHANNEL)
+        .aggregate()
+        .execute()
+    )
+    frame = result.to_pandas()
+    assert frame["revenue"].tolist() == [913004.25]
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None and private_batches
+    disclosed = json.dumps(
+        (frame.to_dict("records"), record.descriptor, runtime.statistics.statements),
+        default=str,
+    )
+    assert all(str(value) not in disclosed for value in raw_values)
 
 
 @pytest.mark.parametrize(

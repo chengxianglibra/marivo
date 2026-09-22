@@ -170,17 +170,17 @@ def test_qualified_distribution_admits_linear_interpolation_only() -> None:
 
 
 @pytest.mark.parametrize("backend", ENGINES)
-def test_empty_parameters_keep_every_state_registration_rejected(backend: str) -> None:
-    """The five remote backends receive empty sets, so state metrics stay rejected."""
-    registry, sidecar = make_distinct_registry()
+def test_backend_registration_admits_qualified_private_state(backend: str) -> None:
+    """Configured backends admit each qualified private-state shape."""
+    registry, sidecar = make_distinct_registry(Path("state-admission.duckdb"))
     distinct = (
         _sources(registry, sidecar)
         .observe(ref.metric("sales.distinct_buyers"))
         .with_dimensions(ref.dimension("sales.orders.channel"))
         .aggregate()
     )
-    assert source_unsupported_reason(distinct, backend) is not None
-    assert implementation(distinct).for_backend(backend) is None
+    assert source_unsupported_reason(distinct, backend) is None
+    assert implementation(distinct).for_backend(backend) is not None
 
     registry, sidecar = make_distribution_registry(Path("state-admission.duckdb"))
     distribution = (
@@ -189,8 +189,36 @@ def test_empty_parameters_keep_every_state_registration_rejected(backend: str) -
         .with_dimensions(ref.dimension("sales.orders.channel"))
         .aggregate()
     )
-    assert source_unsupported_reason(distribution, backend) is not None
-    assert implementation(distribution).for_backend(backend) is None
+    assert source_unsupported_reason(distribution, backend) is None
+    assert implementation(distribution).for_backend(backend) is not None
+
+
+@pytest.mark.parametrize("backend", ENGINES)
+def test_entity_membership_uses_backend_qualified_exact_identity(backend: str) -> None:
+    registry, sidecar = make_distinct_registry(Path("state-admission.duckdb"))
+    entity = (
+        _sources(registry, sidecar)
+        .observe(ref.metric("sales.distinct_orders"))
+        .with_dimensions(ref.dimension("sales.orders.channel"))
+        .aggregate()
+    )
+    assert source_unsupported_reason(entity, backend) is None
+    assert implementation(entity).for_backend(backend) is not None
+
+
+@pytest.mark.parametrize("backend", ENGINES)
+def test_remote_tdigest_method_remains_unqualified(backend: str) -> None:
+    registry, sidecar = make_distribution_registry(Path("state-admission.duckdb"))
+    approximate = (
+        _sources(registry, sidecar)
+        .observe(quantile_metric(ref.metric("sales.revenue"), method="duckdb_tdigest@v1"))
+        .with_dimensions(ref.dimension("sales.orders.channel"))
+        .aggregate()
+    )
+    assert source_unsupported_reason(approximate, backend) == (
+        "distribution state requires an unqualified source-private implementation"
+    )
+    assert implementation(approximate).for_backend(backend) is None
 
 
 @pytest.mark.parametrize("backend", ENGINES)
@@ -199,8 +227,10 @@ def test_empty_parameters_keep_every_state_registration_rejected(backend: str) -
     ["count_distinct", "median", ("percentile", 0.9)],
     ids=["count_distinct", "median", "percentile"],
 )
-def test_unqualified_aggregates_keep_their_rejections(backend: str, aggregation: AggKind) -> None:
-    """Node-level qualification opens nothing until a backend owns the parameters."""
+def test_aggregate_nodes_reject_empty_sets_and_accept_qualified_backends(
+    backend: str, aggregation: AggKind
+) -> None:
+    """Node-level qualification has both empty-set and registered outcomes."""
     registry, sidecar = _aggregation_registry(aggregation)
     aggregate = (
         _sources(registry, sidecar)
@@ -208,8 +238,14 @@ def test_unqualified_aggregates_keep_their_rejections(backend: str, aggregation:
         .with_dimensions(ref.dimension("sales.orders.channel"))
         .aggregate()
     )
-    assert source_unsupported_reason(aggregate, backend) is not None
-    assert implementation(aggregate).for_backend(backend) is None
+    expected = (
+        "distinct membership state requires an unqualified source-private implementation"
+        if aggregation == "count_distinct"
+        else "distribution state requires an unqualified source-private implementation"
+    )
+    assert scalar_reason(aggregate, supports_scalar_type) == expected
+    assert source_unsupported_reason(aggregate, backend) is None
+    assert implementation(aggregate).for_backend(backend) is not None
 
 
 def test_qualified_parameters_report_the_split_rejections() -> None:
@@ -249,8 +285,8 @@ def test_split_rejection_names_each_unqualified_state_shape() -> None:
     ) == ("distribution state requires an unqualified source-private implementation")
 
 
-def test_placement_still_rejects_unqualified_state_for_remote_backends() -> None:
-    """Placement keeps failing closed while every backend passes empty sets."""
+def test_placement_rejects_file_source_despite_qualified_state() -> None:
+    """A qualified state does not authorize remote execution of a CSV source."""
     distinct = (
         _remote_sources()
         .observe(ref.metric("sales.distinct_buyers"))

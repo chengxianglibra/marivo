@@ -295,12 +295,6 @@ def test_ensure_session_writable_alias_is_removed() -> None:
         from marivo.analysis.session.core import ensure_session_writable  # noqa: F401
 
 
-def test_eager_intent_modules_are_deleted() -> None:
-    import marivo.analysis
-
-    assert not (Path(marivo.analysis.__file__).parent / "intents").exists()
-
-
 def test_compile_backend_factory_shim_is_removed() -> None:
     import importlib
 

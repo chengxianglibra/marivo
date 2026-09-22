@@ -20,7 +20,15 @@ from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 from tests.lazy_acceptance_capture import counts
+from tests.lazy_distinct_fixtures import (
+    DISTINCT_BUYERS,
+    DISTINCT_ORDER_VALUES,
+    assert_no_raw_keys,
+    make_distinct_registry,
+)
+from tests.lazy_distribution_fixtures import VALUES, make_distribution_registry
 from tests.lazy_postgres_fixtures import registry_for
+from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR
 from tests.multisource_environment import postgres_analysis as pg
 
@@ -79,6 +87,73 @@ def method_table() -> Iterator[str]:
             yield name
         finally:
             admin.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(name)))
+
+
+@pytest.mark.parametrize("shape", ["distinct", "entity", "distribution"])
+def test_exact_private_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    method_table: str,
+    shape: str,
+) -> None:
+    if shape in {"distinct", "entity"}:
+        rows = DISTINCT_ORDER_VALUES
+        authored, sidecar = make_distinct_registry()
+        metric = DISTINCT_BUYERS if shape == "distinct" else ref.metric("sales.distinct_orders")
+        expected = [3.0, 2.0, 1.0] if shape == "distinct" else [4.0, 4.0, 3.0]
+        contract_id = "metric.distinct_membership"
+    else:
+        rows = VALUES
+        authored, sidecar = make_distribution_registry()
+        metric = ref.metric("sales.revenue")
+        expected = [4.5, 1.5]
+        contract_id = "metric.distribution"
+    with pg.connection(admin=True) as admin:
+        admin.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(method_table)))
+        if shape in {"distinct", "entity"}:
+            admin.cursor().executemany(
+                sql.SQL(
+                    "INSERT INTO {} (id, tenant, customer_id, channel, day) VALUES (%s,%s,%s,%s,%s)"
+                ).format(sql.Identifier(method_table)),
+                rows,
+            )
+        else:
+            admin.cursor().executemany(
+                sql.SQL(
+                    "INSERT INTO {} (id, customer_id, channel, amount, day) VALUES (%s,%s,%s,%s,%s)"
+                ).format(sql.Identifier(method_table)),
+                rows,
+            )
+    pg_registry, _ = _method_registry(method_table, monkeypatch)
+    registry = replace(
+        authored,
+        entities={**authored.entities, "sales.orders": pg_registry.entities["sales.orders"]},
+        datasources=pg_registry.datasources,
+    )
+    registry.freeze()
+    runtime = DatasetRuntime.create(tmp_path, "postgres-private-state")
+    private_batches = guard_private_batches(runtime, monkeypatch)
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe(metric)
+        .with_dimensions(CHANNEL)
+        .aggregate()
+        .execute()
+    )
+    frame = result.to_pandas().sort_values("channel", na_position="last")
+    assert frame[metric.path.rsplit(".", 1)[-1]].tolist() == pytest.approx(expected)
+    record = runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None
+    assert any(part.contract_id == contract_id for part in record.descriptor.retained_parts)
+    assert private_batches
+    if shape == "distinct":
+        assert_no_raw_keys(frame.to_dict("records"))
+        assert_no_raw_keys(record.descriptor)
+        assert_no_raw_keys(runtime.statistics.statements)
+    if shape == "entity":
+        monkeypatch.delenv("MARIVO_TEST_POSTGRES_PASSWORD")
+        rolled = result.rollup(drop_dimensions=(CHANNEL,)).execute().to_pandas()
+        assert rolled["distinct_orders"].tolist() == [11]
 
 
 @pytest.mark.parametrize(
