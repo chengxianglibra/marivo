@@ -23,12 +23,24 @@ def _finite(value: ir.Value) -> ir.BooleanValue:
     return valid
 
 
+def _full_join(
+    left: ir.Table, right: ir.Table, predicates: list[ir.BooleanValue], nonnull_left_column: str
+) -> ir.Table:
+    """Preserve null-safe FULL JOIN using a guaranteed non-null left column."""
+    matched_or_left = left.join(right, predicates, how="left")
+    right_only = left.join(right, predicates, how="right").filter(
+        lambda table: table[nonnull_left_column].isnull()
+    )
+    return matched_or_left.union(right_only)
+
+
 def lower_compare(
     current: ir.Table,
     baseline: ir.Table,
     spec: CompareSpecV1,
     *,
     ordinal_preassigned: bool = False,
+    emulate_full_join: bool = False,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     """Compose exact operands and own their output coordinates and paired times.
 
@@ -97,10 +109,15 @@ def lower_compare(
         baseline_counts = (
             baseline.group_by(list(dimensions)) if dimensions else baseline
         ).aggregate(__mv_baseline_count=baseline.count())
-        paired_counts = current_counts.join(
-            baseline_counts,
-            [current_counts[name].identical_to(baseline_counts[name]) for name in dimensions],
-            how="outer" if dimensions else "cross",
+        count_predicates = [
+            current_counts[name].identical_to(baseline_counts[name]) for name in dimensions
+        ]
+        paired_counts = (
+            _full_join(current_counts, baseline_counts, count_predicates, "__mv_current_count")
+            if dimensions and emulate_full_join
+            else current_counts.join(
+                baseline_counts, count_predicates, how="outer" if dimensions else "cross"
+            )
         )
         assertion(
             "compare.equal_time_bucket_counts",
@@ -134,13 +151,13 @@ def lower_compare(
     right = right.select(**{f"__mv_baseline_{name}": right[name] for name in right.columns}).mutate(
         __mv_baseline_present=True
     )
-    joined = left.join(
-        right,
-        [
-            left[f"__mv_current_{name}"].identical_to(right[f"__mv_baseline_{name}"])
-            for name in keys
-        ],
-        how="outer" if keys else "cross",
+    predicates = [
+        left[f"__mv_current_{name}"].identical_to(right[f"__mv_baseline_{name}"]) for name in keys
+    ]
+    joined = (
+        _full_join(left, right, predicates, "__mv_current_present")
+        if keys and emulate_full_join
+        else left.join(right, predicates, how="outer" if keys else "cross")
     )
     current_present = joined.__mv_current_present.fill_null(False)
     baseline_present = joined.__mv_baseline_present.fill_null(False)

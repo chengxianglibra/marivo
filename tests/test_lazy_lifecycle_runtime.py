@@ -165,7 +165,7 @@ def test_empty_history_retains_every_admitted_subject(tmp_path: Path, complete: 
     assert runtime.revalidate(result.state.artifact_ref).storage_authority == "readable"
 
 
-@pytest.mark.parametrize("mode", ["logical_metric", "retained_metric", "sampled"])
+@pytest.mark.parametrize("mode", ["logical_metric", "retained_metric"])
 def test_history_uses_exact_admitted_membership(tmp_path: Path, mode: str) -> None:
     import duckdb
     import pyarrow as pa
@@ -174,29 +174,23 @@ def test_history_uses_exact_admitted_membership(tmp_path: Path, mode: str) -> No
     from marivo.analysis.materialization.reads import payload_batches
     from marivo.analysis.materialization.storage import ReadPolicy
     from marivo.analysis.observation.predicates import gt
-    from marivo.analysis.observation.sampling import engine_sample
     from marivo.refs import ref
 
     runtime, sources, database = setup_lifecycle(tmp_path)
     population: PopulationInput
-    if mode == "sampled":
-        population = sources.population(ref.entity("sales.customers")).sample(
-            engine_sample(target_rows=2, seed=3)
-        )
-    else:
-        metric = sources.observe(
-            ref.metric("sales.revenue"),
-            population=sources.population(ref.entity("sales.customers")),
-        )
-        selected = metric.where(gt(metric.fields.metric(ref.metric("sales.revenue")), 50))
-        if mode == "retained_metric":
-            from marivo.analysis.materialization.targets import LocalTarget
+    metric = sources.observe(
+        ref.metric("sales.revenue"),
+        population=sources.population(ref.entity("sales.customers")),
+    )
+    selected = metric.where(gt(metric.fields.metric(ref.metric("sales.revenue")), 50))
+    if mode == "retained_metric":
+        from marivo.analysis.materialization.targets import LocalTarget
 
-            runtime.target = LocalTarget()
-            population = selected.execute()
-            runtime.target = LocalTarget()
-        else:
-            population = selected
+        runtime.target = LocalTarget()
+        population = selected.execute()
+        runtime.target = LocalTarget()
+    else:
+        population = selected
     if mode == "retained_metric":
         with duckdb.connect(str(database), config={"threads": 1}) as connection:
             connection.execute("DROP TABLE orders")
@@ -211,12 +205,7 @@ def test_history_uses_exact_admitted_membership(tmp_path: Path, mode: str) -> No
     rows = pa.Table.from_batches(
         list(payload_batches(tmp_path, ledger.storage_receipt, policy=ReadPolicy(), audit=True))
     ).to_pylist()
-    if mode == "sampled":
-        assert len(rows) == 2
-        assert record.descriptor.sampling_execution is not None
-        assert any(p.role == "population_sampling_state" for p in record.descriptor.retained_parts)
-    else:
-        assert [r["entity_identity"] for r in rows] == [{"id": 2}]
+    assert [r["entity_identity"] for r in rows] == [{"id": 2}]
     assert runtime.revalidate(result.state.artifact_ref).storage_authority == "readable"
 
 

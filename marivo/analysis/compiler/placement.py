@@ -27,7 +27,6 @@ from marivo.analysis.observation.contracts import (
     source_owner_of,
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
-from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
@@ -196,7 +195,6 @@ def place(
                         EventSelectionPayload,
                         LifecycleSelectionPayload,
                         LifecycleReducerPayload,
-                        PopulationSamplePayload,
                         RetainedRowsPayload,
                         RetainedFoldPayload,
                         ComparePayload,

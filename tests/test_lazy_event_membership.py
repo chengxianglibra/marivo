@@ -14,7 +14,6 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset, PopulationInput
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import eq, gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import forbidden
@@ -83,19 +82,3 @@ def test_selected_identity_authority_drives_events_without_origin_replay(
     assert runtime.statistics.local_handoffs == ()
     if retained and kind != "population":
         assert all('"orders"' not in sql for _, sql in runtime.statistics.statements)
-
-
-def test_empty_and_sampled_identity_keep_their_current_membership(tmp_path: Path) -> None:
-    runtime, sources, _ = setup_event(tmp_path, engine=True)
-    population = sources.population(ref.entity("sales.customers"))
-    empty = population.where(eq(ref.dimension("sales.customers.region"), "missing"))
-    assert journey(sources, population=empty).execute().to_pandas().empty
-    sampled = population.sample(engine_sample(target_rows=4, seed=42))
-    result = journey(sources, population=sampled).execute()
-    assert result.to_pandas().entity_identity.tolist() == [(1,), (1,), (2,), (2,)]
-    record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.sampling_execution is not None
-    assert record.descriptor.sampling_execution[0].realized_entity_count == 4
-    assert {part.role for part in record.descriptor.retained_parts} == {"population_sampling_state"}
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
-    assert cold.artifact(result.state.artifact_ref).to_pandas().equals(result.to_pandas())

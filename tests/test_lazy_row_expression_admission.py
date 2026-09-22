@@ -16,7 +16,6 @@ from typing import Literal
 
 import pytest
 
-from marivo.analysis import engine_sample
 from marivo.analysis import runtime_metric as rm
 from marivo.analysis.operators.clickhouse_support import (
     unsupported_reason as ch_reason,
@@ -344,27 +343,6 @@ def test_direct_column_decimal_measures_stay_admitted(
         ref.metric("sales.amount_sum")
     )
     assert REASONS[backend](observed.aggregate()) is None
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_sampling_stays_unqualified(
-    backend: Backends, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from tests.lazy_temporal_backend_fixtures import _declared_source
-
-    registry, sidecar = _declared_source(backend, tmp_path, monkeypatch, "c4_" + _unique())
-    sampled = (
-        make_lazy_sources(
-            semantic_registry=registry,
-            sidecar=sidecar,
-            action_port=NoIoActionPort(),
-            session_id=f"sampling-{backend}",
-            store_id=f"sampling-{backend}",
-        )
-        .population(ref.entity("sales.orders"))
-        .sample(engine_sample(target_rows=2, seed=1))
-    )
-    assert REASONS[backend](sampled) is not None
 
 
 def test_non_pm1_linear_coefficient_payloads_are_rejected_at_persistence() -> None:

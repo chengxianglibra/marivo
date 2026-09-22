@@ -82,7 +82,14 @@ def test_registered_local_method_does_not_require_a_failed_compile(
     def no_reduction(dataset: LogicalDataset) -> ImplementationRegistration:
         result = original(dataset)
         return (
-            replace(result, backends=tuple(replace(item, source=False) for item in result.backends))
+            replace(
+                result,
+                backends=tuple(
+                    replace(item, source=False)
+                    for item in result.backends
+                    if item.preparation is not None
+                ),
+            )
             if result.operator_id == "metric.correlate"
             else result
         )

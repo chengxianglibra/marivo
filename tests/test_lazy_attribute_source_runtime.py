@@ -13,7 +13,6 @@ from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
@@ -154,34 +153,6 @@ def test_all_logical_where_keeps_complete_unsliced_attribution_proof(tmp_path: P
             "selected_row_count": record.descriptor.storage_receipt.realized_row_count,
             "complete": proof.complete,
             "emitted_findings": 0,
-        },
-        kind="source",
-    )
-
-
-def test_logical_axis_expansion_reuses_one_sample_realization(tmp_path: Path) -> None:
-    candidate = _manifest()
-    runtime, sources = _setup(tmp_path)
-    before = snapshot(runtime)
-    population = sources.population(ref.entity("sales.orders")).sample(engine_sample(target_rows=3))
-    metric = sources.observe(ref.metric("sales.order_count"), population=population).aggregate()
-    result = metric.compare(metric).attribute(axes=(REGION,)).execute()
-    assert runtime.statistics.sampling_fences == 1
-    rows = result.to_pandas()
-    assert rows.current_value.sum() <= 3
-    assert rows.current_value.tolist() == rows.baseline_value.tolist()
-    assert rows.contribution.sum() == 0
-    record_evidence(
-        "source-shared-sampling-expansion",
-        candidate,
-        {
-            "before": before,
-            "after": snapshot(runtime),
-            "artifact_ref": result.state.artifact_ref.ref,
-            "sampling_fences": runtime.statistics.sampling_fences,
-            "current_total": int(rows.current_value.sum()),
-            "baseline_total": int(rows.baseline_value.sum()),
-            "contribution_total": int(rows.contribution.sum()),
         },
         kind="source",
     )

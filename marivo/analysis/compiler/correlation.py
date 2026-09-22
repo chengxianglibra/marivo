@@ -106,10 +106,10 @@ def prepare_pairs(
                 by=list(dims),
                 input_observation_count=paired.count().cast("int64"),
                 matched_observation_count=paired.__matched.fill_null(False)
-                .cast("int64")
+                .ifelse(1, 0)
                 .sum()
                 .fill_null(0),
-                complete_pair_count=good.cast("int64").sum().fill_null(0),
+                complete_pair_count=good.ifelse(1, 0).sum().fill_null(0),
             )
             summary = summary.mutate(
                 null_pair_count=summary.matched_observation_count - summary.complete_pair_count
@@ -151,7 +151,7 @@ def prepare_pairs(
 
 
 def lower_correlate(
-    table: ir.Table, spec: CorrelateSpecV1
+    table: ir.Table, spec: CorrelateSpecV1, *, explicit_correlation: bool = False
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     if spec.semantics.method == "kendall":
         raise compilation_error(
@@ -160,11 +160,28 @@ def lower_correlate(
     prepared, checks = prepare_pairs(table, spec)
     keys = [*spec.dimensions, "metric_key_a", "metric_key_b", "lag_offset"]
     complete = prepared.filter(prepared.complete_pair_count > 0)
-    numeric = complete.group_by(keys).aggregate(
-        __coefficient=complete.value_a.corr(complete.value_b, how="pop"),
-        __a_count=complete.value_a.nunique(),
-        __b_count=complete.value_b.nunique(),
-    )
+    if explicit_correlation:
+        window = ibis.window(group_by=keys)
+        centered = complete.mutate(
+            __center_a=complete.value_a - complete.value_a.mean().over(window),
+            __center_b=complete.value_b - complete.value_b.mean().over(window),
+        )
+        moments = centered.group_by(keys).aggregate(
+            __cross=(centered.__center_a * centered.__center_b).sum(),
+            __square_a=(centered.__center_a * centered.__center_a).sum(),
+            __square_b=(centered.__center_b * centered.__center_b).sum(),
+            __a_count=centered.value_a.nunique(),
+            __b_count=centered.value_b.nunique(),
+        )
+        numeric = moments.mutate(
+            __coefficient=moments.__cross / (moments.__square_a * moments.__square_b).sqrt()
+        )
+    else:
+        numeric = complete.group_by(keys).aggregate(
+            __coefficient=complete.value_a.corr(complete.value_b, how="pop"),
+            __a_count=complete.value_a.nunique(),
+            __b_count=complete.value_b.nunique(),
+        )
     metadata = prepared.select(*keys, *COUNT_NAMES).distinct()
     joined = metadata.left_join(numeric, [metadata[k].identical_to(numeric[k]) for k in keys])
     result = joined.select(
@@ -193,9 +210,7 @@ def lower_correlate(
     )
     groups = [*spec.dimensions, "metric_key_a", "metric_key_b"]
     valid = result.filter(result.status == "valid")
-    count = result.group_by(groups).aggregate(
-        __valid=(result.status == "valid").cast("int64").sum()
-    )
+    count = result.group_by(groups).aggregate(__valid=(result.status == "valid").ifelse(1, 0).sum())
     checks = (
         *checks,
         _check("correlate.valid_candidate", count.filter(count.__valid == 0)),

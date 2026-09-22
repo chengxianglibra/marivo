@@ -8,7 +8,6 @@ import ibis
 
 from marivo.analysis.compiler.nodes import (
     CompiledRelationFence,
-    CompiledSampleFence,
     CompiledValidation,
 )
 from marivo.analysis.materialization.errors import MaterializationError
@@ -23,11 +22,11 @@ class ValidationBatch:
 
 def compile_preparations(
     backend: ExecutionAdapter,
-    preparations: tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...],
+    preparations: tuple[CompiledValidation | CompiledRelationFence, ...],
     *,
     run_ref: str,
-) -> tuple[ValidationBatch | CompiledSampleFence | CompiledRelationFence, ...]:
-    result: list[ValidationBatch | CompiledSampleFence | CompiledRelationFence] = []
+) -> tuple[ValidationBatch | CompiledRelationFence, ...]:
+    result: list[ValidationBatch | CompiledRelationFence] = []
     pending: list[CompiledValidation] = []
 
     def flush() -> None:
@@ -57,10 +56,9 @@ def compile_preparations(
         pending.clear()
 
     for preparation in preparations:
-        if isinstance(preparation, (CompiledSampleFence, CompiledRelationFence)):
+        if isinstance(preparation, CompiledRelationFence):
             flush()
-            if isinstance(preparation, CompiledRelationFence):
-                backend.compile(preparation.expression)
+            backend.compile(preparation.expression)
             result.append(preparation)
         else:
             pending.append(preparation)

@@ -347,31 +347,3 @@ def _read_part_batches(
             if not field.nullable and batch.column(field.name).null_count:
                 _integrity("non-null required part fields", "null retained field")
         yield batch
-
-
-def validate_sampling_state(
-    project_root: Path,
-    state: storage.SamplingStateRead | None,
-    bindings: tuple[ObjectBinding, ...] = (),
-) -> None:
-    if state is None:
-        return
-    if isinstance(state.receipt, LocalReceipt):
-        storage.validate_sampling_state(project_root, state)
-        return
-    schema = pa.schema([pa.field("sampling_execution_digest", pa.string(), nullable=False)])
-    part = RetainedPart("population_sampling_state", "population_sampling_state", 1, state.receipt)
-    batches = tuple(
-        read_part_batches(
-            project_root,
-            part,
-            expected_schema=schema,
-            policy=ReadPolicy(),
-            bindings=bindings,
-        )
-    )
-    table = pa.Table.from_batches(batches)
-    if table.num_rows != 1 or table["sampling_execution_digest"][0].as_py() != codec.digest(
-        codec.sampling_payload(state.sampling)
-    ):
-        _integrity("the exact retained sampling receipt binding", "sampling state differs")

@@ -68,9 +68,7 @@ def descriptor(*, metric: bool = False, population: str = "customers") -> Artifa
         "none",
         1,
         (registration.validation_id,),
-        required_retained_contracts(
-            logical.row_contract, registration.retained_contract_ids, sampled=False
-        ),
+        required_retained_contracts(logical.row_contract, registration.retained_contract_ids),
         "zero_findings@v1",
     )
     file = FileEntry("data.parquet", 8, "a" * 64)

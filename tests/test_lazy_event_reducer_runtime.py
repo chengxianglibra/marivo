@@ -14,7 +14,6 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import eq, is_null
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.subject import dropped_before
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
@@ -23,7 +22,7 @@ from tests.lazy_event_runtime_fixtures import journey, setup_event
 pytestmark = pytest.mark.runtime
 
 
-@pytest.mark.parametrize("membership", ("logical", "retained", "sampled", "missing"))
+@pytest.mark.parametrize("membership", ("logical", "retained", "missing"))
 def test_selected_population_metric_enriches_current_subject_dimensions(
     tmp_path: Path, membership: str
 ) -> None:
@@ -39,8 +38,6 @@ def test_selected_population_metric_enriches_current_subject_dimensions(
             connection.execute("DROP TABLE finished_rows")
             if membership == "missing":
                 connection.execute("DELETE FROM customers WHERE id = 2")
-    if membership == "sampled":
-        population = population.sample(engine_sample(target_rows=100, seed=42))
     enriched = sources.observe(ref.metric("sales.revenue"), population=population).with_dimensions(
         ref.dimension("sales.customers.region")
     )
@@ -160,37 +157,3 @@ def test_nested_event_selection_keeps_each_inputs_coverage_authority(tmp_path: P
     assert after["dataset_artifacts"] == before["dataset_artifacts"]
     assert after["dataset_evidence"] == before["dataset_evidence"]
     assert runtime.store.resources(runtime.session_ref) == ()
-
-
-@pytest.mark.parametrize("retained", [False, True])
-def test_complete_selection_sampling_retains_membership_authority(
-    tmp_path: Path, retained: bool
-) -> None:
-    runtime, sources, database = setup_event(tmp_path, engine=True)
-    logical = journey(sources)
-    meaning = logical.row_contract.family_semantics
-    assert isinstance(meaning, EventJourneySemantics)
-    selected = logical.select_subjects(dropped_before(step=meaning.pattern.steps[-1]))
-    if retained:
-        materialized = selected.execute()
-        database.unlink()
-        cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
-        recovered = cold.artifact(materialized.state.artifact_ref)
-        assert isinstance(recovered, MaterializedPopulationDataset)
-        sampled = recovered.sample(engine_sample(target_rows=1, seed=42))
-        runtime = cold
-    else:
-        sampled = selected.sample(engine_sample(target_rows=1, seed=42))
-    result = sampled.execute()
-    assert result.to_pandas().entity_identity.tolist() == [(2,)]
-    record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None
-    assert (
-        record.descriptor.population_authority.definition_fingerprint
-        == sampled.definition_fingerprint
-    )
-    assert record.descriptor.subject_selection_evidence is not None
-    assert record.descriptor.sampling_execution is not None
-    assert record.descriptor.sampling_execution[0].target_population_definition_fingerprint == (
-        materialized.definition_fingerprint if retained else selected.definition_fingerprint
-    )

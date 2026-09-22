@@ -11,7 +11,6 @@ from marivo.analysis.datasets.base import Dataset
 from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.operators.candidate_contracts import (
-    CandidateEvaluationSummary,
     CandidateObjective,
 )
 from tests.lazy_candidate_fixtures import candidate_input, discover, setup_candidate
@@ -101,33 +100,3 @@ def test_direct_local_successors_and_empty_selection(
     assert f"discovery_output={evaluation.emitted_candidate_count}" in shown
     assert "CandidateEvaluationSummary(" not in shown
     assert len(shown.encode()) <= 2048
-
-
-def test_evaluated_empty_and_sampling_meaning(tmp_path: Path) -> None:
-    from marivo._temporal import builtin_grain, time_scope
-    from marivo.analysis.observation.sampling import engine_sample
-    from marivo.refs import ref
-
-    runtime, source, _ = setup_candidate(tmp_path)
-    population = source.population(ref.entity("sales.orders")).sample(
-        engine_sample(target_rows=100, seed=1)
-    )
-    metric = (
-        source.observe(
-            ref.metric("sales.revenue"),
-            population=population,
-            time_scope=time_scope(start="2026-02-01", end="2026-02-20"),
-        )
-        .with_time_axis(ref.time_dimension("sales.orders.order_time"), grain=builtin_grain("day"))
-        .aggregate()
-    )
-    result = metric.discover.point_anomalies(threshold=100.0).execute()
-    assert result.to_pandas().empty and result.evidence_digest.finding_count == 0
-    assert "sampled_population" in result.contract().render()
-    record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.candidate_evidence is not None
-    evaluation = record.descriptor.candidate_evidence.evaluation
-    assert isinstance(evaluation, CandidateEvaluationSummary)
-    assert evaluation.evaluated_series_count == 1 and evaluation.pre_limit_candidate_count == 0
-    selected = result.limit(1).execute()
-    assert selected.to_pandas().empty and "sampled_population" in selected.contract().render()

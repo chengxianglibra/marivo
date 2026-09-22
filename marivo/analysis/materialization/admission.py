@@ -22,7 +22,6 @@ from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
     CompiledDataset,
     CompiledRelationFence,
-    CompiledSampleFence,
     RetainedPartSpec,
 )
 from marivo.analysis.compiler.normalize import (
@@ -82,7 +81,6 @@ from marivo.analysis.materialization.contracts import (
     RunDatasetInput,
     RunFailure,
     RunRecord,
-    SamplingRealization,
     StorageReceipt,
     run_failure_phase,
 )
@@ -121,7 +119,6 @@ from marivo.analysis.materialization.publication import make_descriptor, materia
 from marivo.analysis.materialization.reads import (
     read_preview,
     read_primary,
-    validate_sampling_state,
 )
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.resources import (
@@ -129,16 +126,11 @@ from marivo.analysis.materialization.resources import (
     discharge_resources,
     reserve_output,
 )
-from marivo.analysis.materialization.sampling import (
-    execute_sample,
-    sample_statement,
-)
 from marivo.analysis.materialization.storage import (
     DatasetWriteResult,
     IndependentPartWrite,
     PartWriteSpec,
     ReadPolicy,
-    sampling_state_read,
     write_local_dataset,
 )
 from marivo.analysis.materialization.store import SessionStore
@@ -245,7 +237,6 @@ class ExecutionStatistics:
     primary_queries: int = 0
     validation_queries: int = 0
     source_fences: int = 0
-    sampling_fences: int = 0
     transferred_rows: int = 0
     transferred_bytes: int = 0
     events: dict[str, int] = field(default_factory=dict)
@@ -540,7 +531,6 @@ class DatasetRuntime:
             self.statistics.primary_queries += 1
         if receipt.role.startswith("engine_check.") or receipt.role in {
             "validation_batch",
-            "sampling_validation",
         }:
             self.statistics.validation_queries += 1
 
@@ -701,15 +691,6 @@ class DatasetRuntime:
                     f"Findings: eligible={evidence.eligible_finding_count}; emitted={evidence.emitted_finding_count}; truncated={evidence.finding_truncated}",
                     "Descriptive and exploratory; no significance or causal claim. Positive lag describes coordinate order only.",
                 ]
-        sampling = record.descriptor.sampling_execution
-        if sampling is not None:
-            facts = "; ".join(
-                f"target={item.target_rows}, realized={item.realized_entity_count}, seeded={item.seed is not None}"
-                for item in sampling[:3]
-            )
-            lines.insert(
-                1, f"Sampling: approximate Entity sample; realizations={len(sampling)}; {facts}"
-            )
         identities = {
             field.name for field in dataset.schema.columns if field.role_id == "entity_identity"
         }
@@ -1009,8 +990,6 @@ class DatasetRuntime:
                     dataset, {ref: record.descriptor for ref, record in records.items()}
                 )
                 validations: list[tuple[str, int]] = []
-                sampling: list[SamplingRealization] = []
-                sampling_by_root: dict[int, SamplingRealization] = {}
                 attribution_summary: AttributionSourceSummary | None = None
                 association_summary: AssociationSearchSummary | None = None
                 forecast_summary: ForecastTrainingSummary | None = None
@@ -1041,12 +1020,6 @@ class DatasetRuntime:
                             evidence.complete_pair_range,
                             evidence.null_pair_range,
                         )
-                    for realization in descriptor.sampling_execution or ():
-                        if realization not in sampling:
-                            sampling.append(realization)
-                    validate_sampling_state(
-                        self.store.project_root, sampling_state_read(descriptor), object_bindings
-                    )
                 with ExitStack() as source_contexts:
                     prepared: dict[
                         int, tuple[ExecutionAdapter, CompiledDataset, dict[str, ir.Table]]
@@ -1058,9 +1031,7 @@ class DatasetRuntime:
                                 run.run_ref,
                                 source_boundary,
                                 records,
-                                sampling,
                                 boundary_validations,
-                                sampling_by_root,
                             )
                         )
                         proof_backend, proof_recipe, _ = prepared[source_boundary.output]
@@ -1212,6 +1183,10 @@ class DatasetRuntime:
                         if (
                             proof_recipe.attribution_proof is not None
                             and source_boundary.dataset.kind == "attribution"
+                            and any(
+                                field.role_id == "entity_identity"
+                                for field in source_boundary.dataset.row_contract.schema.columns
+                            )
                         ):
                             attribution_summary = self._attribution_source_summary(
                                 proof_backend,
@@ -1335,6 +1310,20 @@ class DatasetRuntime:
                             recipe.expression,
                             1024,
                         )
+                        if dataset.kind == "attribution" and source_step.binding.adapter in {
+                            "sqlite",
+                            "mysql",
+                        }:
+                            from marivo.analysis.operators.attribution_contracts import (
+                                AttributionSemantics,
+                            )
+
+                            semantics = dataset.row_contract.family_semantics
+                            if not isinstance(semantics, AttributionSemantics):
+                                raise _error("implementation_registration", run.run_ref)
+                            incoming = _decode_scalar_masks(
+                                incoming, len(semantics.axis_field_ids), run.run_ref
+                            )
                         output_parts = tuple(
                             PartWriteSpec(
                                 part.role,
@@ -1352,7 +1341,6 @@ class DatasetRuntime:
                             run.run_ref,
                             parts=output_parts,
                             independent_parts=independent_parts,
-                            sampling=tuple(sampling),
                             source_key_validation=True,
                             target=target,
                             object_bindings=object_bindings,
@@ -1599,7 +1587,6 @@ class DatasetRuntime:
                             _local_output_batches(local_result.table),
                             run.run_ref,
                             parts=self._local_output_parts(local_result),
-                            sampling=tuple(sampling),
                             source_key_validation=True,
                             target=target,
                             object_bindings=object_bindings,
@@ -1636,9 +1623,7 @@ class DatasetRuntime:
                     contract,
                     storage,
                     tuple(validations),
-                    tuple(sampling),
                     inherited=inherited,
-                    sampling_by_root=sampling_by_root,
                     input_descriptors=tuple(
                         records[value.state.artifact_ref.ref].descriptor
                         for value in retained_inputs
@@ -1668,9 +1653,6 @@ class DatasetRuntime:
                 self._event("temporal_authority")
                 descriptor = replace(
                     descriptor, temporal_execution=tuple(temporal[key] for key in sorted(temporal))
-                )
-                validate_sampling_state(
-                    self.store.project_root, sampling_state_read(descriptor), object_bindings
                 )
                 findings: tuple[Finding, ...] = ()
                 if dataset.kind == "lifecycle" or (
@@ -1974,9 +1956,7 @@ class DatasetRuntime:
         run_ref: str,
         source_step: SourceStep,
         all_records: Mapping[str, ArtifactRecord],
-        sampling: list[SamplingRealization],
         validations: list[tuple[str, int]],
-        sampling_by_root: dict[int, SamplingRealization],
     ) -> Iterator[tuple[ExecutionAdapter, CompiledDataset, dict[str, ir.Table]]]:
         source_dataset: Dataset = source_step.dataset
         if source_step.operation == "correlation":
@@ -2228,6 +2208,10 @@ class DatasetRuntime:
                     event_coverages=event_coverages,
                     replay_exact_quantile=source_step.binding.adapter != "duckdb",
                     scalar_identity_distinct=source_step.binding.adapter in {"sqlite", "mysql"},
+                    explicit_correlation=source_step.binding.adapter
+                    in {"sqlite", "mysql", "clickhouse"},
+                    emulate_full_join=source_step.binding.adapter == "postgres",
+                    scalar_masks=source_step.binding.adapter in {"sqlite", "mysql"},
                 )
             if source_step.operation == "correlation":
                 from marivo.analysis.compiler.correlation import prepare_pairs
@@ -2259,15 +2243,6 @@ class DatasetRuntime:
                 )
                 for preparation in preparations
                 if isinstance(preparation, CompiledRelationFence)
-            }
-            sample_statements = {
-                preparation.relation_name: backend.statement(
-                    sample_statement(backend, preparation),
-                    role="sampling_fence",
-                    inputs=(backend.prepare(preparation.expression),),
-                )
-                for preparation in preparations
-                if isinstance(preparation, CompiledSampleFence)
             }
             from marivo.analysis.materialization.parquet_scan import validate_parquet_relation
 
@@ -2311,22 +2286,6 @@ class DatasetRuntime:
                     backend.submit(fence_statement)
                     self.statistics.source_fences += 1
                     continue
-                if isinstance(validation, CompiledSampleFence):
-                    reserve_preparation(validation.relation_name)
-                    self._event("sampling_reserved")
-                    sampling.append(
-                        execute_sample(
-                            backend,
-                            validation,
-                            statement=sample_statements[validation.relation_name],
-                            ordinal=len(sampling),
-                            event=self._event,
-                        )
-                    )
-                    sampling_by_root[validation.root_identity] = sampling[-1]
-                    self.statistics.sampling_fences += 1
-                    validations.append((f"sampling.{len(sampling) - 1}.identity", 0))
-                    continue
                 validations.extend(execute_batch(backend, validation, run_ref=run_ref))
             yield backend, recipe, tables
         finally:
@@ -2356,7 +2315,6 @@ class DatasetRuntime:
         *,
         parts: tuple[PartWriteSpec, ...] = (),
         independent_parts: tuple[IndependentPartWrite, ...] = (),
-        sampling: tuple[SamplingRealization, ...] = (),
         source_key_validation: bool,
         target: MaterializationTarget,
         object_bindings: tuple[ObjectBinding, ...],
@@ -2380,7 +2338,6 @@ class DatasetRuntime:
             row_set_contract=dataset.row_set_contract,
             parts=parts,
             independent_parts=independent_parts,
-            sampling=sampling,
             source_key_validation=source_key_validation,
             policy=target.policy,
             event=self._event,
@@ -2567,27 +2524,12 @@ class DatasetRuntime:
             selected_parts,
         )
 
-        selected = (
-            *selected_parts(descriptor, dataset, input_dataset=input_dataset),
-            *(
-                part
-                for part in descriptor.retained_parts
-                if part.role == "population_sampling_state"
-            ),
-        )
+        selected = selected_parts(descriptor, dataset, input_dataset=input_dataset)
         inputs: list[LocalPartInput] = []
         streams: list[Iterable[pa.RecordBatch]] = []
         for part in selected:
-            schema = (
-                pa.schema([pa.field("sampling_execution_digest", pa.string(), nullable=False)])
-                if part.role == "population_sampling_state"
-                else part_schema(self.store.project_root, part, bindings=object_bindings)
-            )
-            keys = (
-                ()
-                if part.role == "population_sampling_state"
-                else component_schema(descriptor.row_contract, part.role, schema)
-            )
+            schema = part_schema(self.store.project_root, part, bindings=object_bindings)
+            keys = component_schema(descriptor.row_contract, part.role, schema)
             receipt = part.storage_receipt
             inputs.append(
                 LocalPartInput(
@@ -2608,9 +2550,7 @@ class DatasetRuntime:
                     bindings=object_bindings,
                 )
                 streams.append(
-                    incoming
-                    if part.role == "population_sampling_state"
-                    else checked_component_batches(incoming, descriptor.row_contract, part.role)
+                    checked_component_batches(incoming, descriptor.row_contract, part.role)
                 )
         return tuple(inputs), tuple(streams)
 
@@ -2844,6 +2784,41 @@ class DatasetRuntime:
             except BaseException:
                 if not failed:
                     raise
+
+
+def _decode_scalar_masks(
+    batches: Iterable[pa.RecordBatch], arity: int, run_ref: str
+) -> Iterator[pa.RecordBatch]:
+    """Restore exact fixed-width source mask bits at the public storage boundary."""
+    for batch in batches:
+        arrays = []
+        fields = []
+        for schema_field, column in zip(batch.schema, batch.columns, strict=True):
+            if schema_field.name not in {"active_axis_mask", "other_mask"}:
+                arrays.append(column)
+                fields.append(schema_field)
+                continue
+            values = column.to_pylist()
+            if any(
+                not isinstance(value, str)
+                or len(value) != arity
+                or any(bit not in "01" for bit in value)
+                for value in values
+            ):
+                raise MaterializationError(
+                    expected=f"exact {arity}-bit source Attribution mask",
+                    received=f"invalid {schema_field.name} value",
+                    repair="Correct the source mask lowering before publication.",
+                    stage="storage_staging",
+                    run_ref=run_ref,
+                )
+            arrays.append(
+                pa.array(
+                    [[bit == "1" for bit in value] for value in values], type=pa.list_(pa.bool_())
+                )
+            )
+            fields.append(schema_field.with_type(pa.list_(pa.bool_())))
+        yield pa.RecordBatch.from_arrays(arrays, schema=pa.schema(fields))
 
 
 def producer_contract_versions(operator_id: str) -> tuple[tuple[str, str], ...]:

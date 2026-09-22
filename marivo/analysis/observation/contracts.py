@@ -57,7 +57,6 @@ from marivo.analysis.observation.fold_contracts import (
     make_fold_authority,
 )
 from marivo.analysis.observation.predicates import BoundPredicate, PredicateField
-from marivo.analysis.observation.sampling import EntitySamplingPolicy
 from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.datasource.ir import (
     CsvSourceIR,
@@ -199,8 +198,6 @@ class ObservationProducerContract:
             return ()
         if self.contract_stem.startswith(("association", "forecast")):
             return ()
-        if self.producer_id == "population.sample":
-            return ("population_sampling_state",)
         if self.contract_stem.startswith("attribution"):
             return ("attribution.reconciliation",)
         if self.producer_id == "metric.compare" or self.producer_id.startswith("delta."):
@@ -280,8 +277,6 @@ class ObservationProducerContract:
                 if comparison
                 else "metric.sufficient_components"
                 if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
-                else "population_sampling_state"
-                if self.producer_id == "population.sample"
                 else "population_identity",
                 "v1",
             ),
@@ -326,7 +321,6 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("candidate.limit", "candidate_limit"),
     ObservationProducerContract("session.population", "population_root"),
     ObservationProducerContract("population.where", "population_filter"),
-    ObservationProducerContract("population.sample", "population_sample"),
     ObservationProducerContract("session.observe", "metric_observation"),
     ObservationProducerContract("metric.where", "metric_filter"),
     ObservationProducerContract("metric.metric", "metric_projection"),
@@ -404,7 +398,6 @@ class ObservationRuntimeOwner(DatasetOwner):
 
     action_port: ObservationActionPort = field(kw_only=True)
     source_context: ObservationSourceContext | None = field(default=None, kw_only=True)
-    sampling_authority_snapshot: bool = field(default=False, kw_only=True)
     comparison_basis_snapshot: str | None = field(default=None, kw_only=True)
     candidate_definition_snapshot: CandidateDefinition | DriverCandidateDefinition | None = field(
         default=None, kw_only=True
@@ -767,8 +760,6 @@ class PopulationPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
     captures: tuple[BoundSourceParametersV1, ...]
     predicate: BoundPredicate | None = None
     dependency_fingerprint: str = ""
-    sampling: EntitySamplingPolicy | None = None
-    target_population_definition_fingerprint: str | None = None
     report_time: ReportTimeAuthority = field(default_factory=ReportTimeAuthority)
 
     @property
@@ -781,8 +772,6 @@ class PopulationPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
             tuple(item.identity_payload() for item in self.captures),
             None if self.predicate is None else self.predicate.identity_payload(),
             self.dependency_fingerprint,
-            None if self.sampling is None else self.sampling.identity_payload,
-            self.target_population_definition_fingerprint,
             self.report_time.model_dump_json(),
         )
 
@@ -1481,21 +1470,12 @@ def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
         return not any(field.role_id == "rank" for field in dataset.schema.columns)
     if consumer_id == "metric.limit":
         return dataset.row_set_contract.ordering.kind == "ordered"
-    if consumer_id in ("population.where", "population.sample"):
+    if consumer_id == "population.where":
         identity = dataset.schema.columns[0].identity
         if not isinstance(identity, _EntityFieldIdentity):
             return False
         from marivo.analysis.datasets.handles import LogicalRootHandle
-        from marivo.analysis.observation.population import _has_sampling
 
-        if _has_sampling(dataset):
-            return False
-        if consumer_id == "population.sample":
-            root = dataset._root
-            if not isinstance(root, LogicalRootHandle) or not isinstance(
-                root.payload, PopulationPayload
-            ):
-                return True
         try:
             owner = source_owner_of(dataset)
         except ObservationConstructionError:
@@ -1595,7 +1575,6 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
         LogicalPopulationDataset,
         MaterializedPopulationDataset,
     )
-    from marivo.analysis.observation.population_sample import PopulationSamplePayload
 
     registry = DatasetFamilyRegistry()
 
@@ -1621,17 +1600,6 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
                     (population_shape,),
                     ("population_membership_stable@v1",),
                 ),
-                ConsumerRegistration(
-                    "population.sample",
-                    ("input",),
-                    "population",
-                    (population_shape,),
-                    (
-                        "population.entity_sampling@v1",
-                        "population.sample_approximation@v1",
-                        "population.sample_selection_fence@v1",
-                    ),
-                ),
             ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=state_decoder,
@@ -1639,7 +1607,6 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
                 PopulationPayload,
                 EventSelectionPayload,
                 LifecycleSelectionPayload,
-                PopulationSamplePayload,
             ),
             consumer_admission=_consumer_admission,
             contract_facts=_contract_facts,
@@ -1798,7 +1765,6 @@ def semantic_dependency_digest(
         LifecycleReducerPayload,
         LifecycleSelectionPayload,
     )
-    from marivo.analysis.observation.population_sample import PopulationSamplePayload
     from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.candidate_contracts import CandidatePayload
@@ -1837,8 +1803,6 @@ def semantic_dependency_digest(
                 if payload.reference_axis is None
                 else dimension_payload(payload.reference_axis),
             )
-        elif isinstance(payload, PopulationSamplePayload):
-            semantic_facts = ("population_sample", payload.identity_payload)
         elif isinstance(payload, MetricPayload):
             definition = payload.definition
             semantic_facts = (

@@ -6,10 +6,11 @@ from typing import Literal
 
 import pytest
 
-from marivo.analysis import engine_sample, grain, time_scope
+from marivo.analysis import grain, time_scope
 from marivo.analysis import runtime_metric as rm
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import place, source_binding
+from marivo.analysis.operators.mysql_support import unsupported_reason as mysql_reason
 from marivo.analysis.operators.scalar_support import supports_scalar_type, unsupported_reason
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.ir import TableSourceIR
@@ -36,6 +37,14 @@ def test_composed_scalar_closure(metric: str) -> None:
     assert unsupported_reason(observed.aggregate(), supports_scalar_type) is None
 
 
+def test_mysql_expanded_attribution_reports_resource_rejection_without_source_io() -> None:
+    metric = _sources().observe(ref.metric("sales.revenue")).aggregate()
+    expanded = metric.compare(metric).attribute(axes=(ref.dimension("sales.orders.channel"),))
+    assert (
+        mysql_reason(expanded) == "expanded Attribution exceeds the qualified MySQL resource limit"
+    )
+
+
 def test_relationships_are_independently_qualified() -> None:
     observed = _sources().observe(ref.metric("sales.revenue"))
     related = observed.with_dimensions(ref.dimension("sales.customers.region")).aggregate()
@@ -55,20 +64,6 @@ def test_native_civil_buckets_require_qualification(
     )
     assert "temporal" in (unsupported_reason(observed, supports_scalar_type) or "")
     assert unsupported_reason(observed, supports_scalar_type, date_buckets=True) is None
-
-
-def test_source_sampling_is_not_admitted_by_relational_support() -> None:
-    sampled = (
-        _sources()
-        .population(ref.entity("sales.orders"))
-        .sample(engine_sample(target_rows=2, seed=1))
-    )
-    assert (
-        unsupported_reason(
-            sampled, supports_scalar_type, relationships=True, versions=True, date_buckets=True
-        )
-        is not None
-    )
 
 
 def test_versions_are_independently_qualified() -> None:

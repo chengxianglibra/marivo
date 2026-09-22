@@ -155,34 +155,3 @@ def membership_integrity_sql(
         f"WHERE p.{quote(endpoint)} IS NULL OR p.{quote(endpoint)} <> coalesce(m.__mv_members, 0))"
     )
     return sql
-
-
-def reservoir_statement(
-    source_sql: str, relation_name: str, target_rows: int, seed: int | None
-) -> str:
-    name = sge.to_identifier(relation_name, quoted=True).sql(dialect="duckdb")
-    sql = (
-        f"CREATE TEMPORARY TABLE {name} AS SELECT * FROM ({source_sql}) "
-        f"AS __mv_eligible USING SAMPLE reservoir({target_rows} ROWS)"
-    )
-    if seed is not None:
-        sql += f" REPEATABLE({seed})"
-    return sql
-
-
-def reservoir_validation(relation_name: str, identity_columns: tuple[str, ...]) -> str:
-    names = tuple(
-        sge.to_identifier(name, quoted=True).sql(dialect="duckdb") for name in identity_columns
-    )
-    relation = sge.to_identifier(relation_name, quoted=True).sql(dialect="duckdb")
-    identity = "struct_pack(" + ", ".join(f"{name} := {name}" for name in names) + ")"
-    nulls = " OR ".join(f"{name} IS NULL" for name in names)
-    order = ", ".join(names)
-    validation_sql = (
-        f"SELECT count(*) AS realized_entity_count, "
-        f"count(*) - count(DISTINCT {identity}) AS duplicate_keys, "
-        f"count(*) FILTER (WHERE {nulls}) AS null_keys, "
-        f"sha256(coalesce(string_agg(sha256(to_json({identity})), '' ORDER BY {order}), '')) "
-        f"AS membership_digest FROM {relation}"
-    )
-    return validation_sql

@@ -18,7 +18,6 @@ from marivo.analysis.materialization.errors import (
 from marivo.analysis.materialization.object_storage import _call, client, open_manifest
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.targets import S3Access
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import AdapterFixture, setup_adapter
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
@@ -162,22 +161,6 @@ def test_full_inspection_streams_above_the_primary_collection_row_limit(
     result = fixture.sources.population(ref.entity("sales.customers")).execute()
     assert result.state.realized_row_count == 100004
     result.to_pandas()
-    inspection = fixture.runtime.revalidate(result.state.artifact_ref)
-    assert inspection.storage_authority == "readable" and not inspection.issues
-
-
-@pytest.mark.parametrize("kind", ["local", "engine"])
-def test_full_inspection_checks_exact_sampling_state(
-    tmp_path: Path,
-    request: pytest.FixtureRequest,
-    kind: Literal["local", "engine"],
-) -> None:
-    fixture, _ = _setup(tmp_path, request, kind)
-    result = (
-        fixture.sources.population(ref.entity("sales.customers"))
-        .sample(engine_sample(target_rows=2, seed=3))
-        .execute()
-    )
     inspection = fixture.runtime.revalidate(result.state.artifact_ref)
     assert inspection.storage_authority == "readable" and not inspection.issues
 

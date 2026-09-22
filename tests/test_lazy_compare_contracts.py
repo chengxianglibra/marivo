@@ -16,7 +16,6 @@ from marivo.analysis.datasets.descriptors import (
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetOwnershipError
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.observation.predicates import eq, gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators.contracts import (
     ComparePayload,
     DeltaSemantics,
@@ -107,16 +106,6 @@ def test_only_metric_observation_windows_may_differ() -> None:
         sources.observe(REVENUE, population=january_membership).compare(
             sources.observe(REVENUE, population=february_membership)
         )
-    sampled = sources.population(ref.entity("sales.orders")).sample(
-        engine_sample(target_rows=3, seed=1)
-    )
-    changed = sources.population(ref.entity("sales.orders")).sample(
-        engine_sample(target_rows=4, seed=1)
-    )
-    with pytest.raises(DatasetConstructionError, match="comparison scope"):
-        sources.observe(REVENUE, population=sampled).compare(
-            sources.observe(REVENUE, population=changed)
-        )
 
 
 def test_metric_binding_and_shape_admission_teaches_exact_projection() -> None:
@@ -152,22 +141,6 @@ def test_scope_and_sampling_definition_do_not_enter_delta_row_semantics() -> Non
     assert basis.membership_digest and basis.reference_axis == "sales.orders.order_time"
     with pytest.raises(DatasetConstructionError, match="invalid authority"):
         decode_comparison_basis('{"secret":"must-not-render"}')
-
-
-@pytest.mark.parametrize("sampled_current", [False, True])
-def test_compare_rejects_sampling_on_only_one_side(sampled_current: bool) -> None:
-    sources = make_sources()
-    population = sources.population(ref.entity("sales.orders"))
-    exact = sources.observe(REVENUE, population=population).with_dimensions(REGION).aggregate()
-    sampled = (
-        sources.observe(REVENUE, population=population.sample(engine_sample(target_rows=3, seed=1)))
-        .with_dimensions(REGION)
-        .aggregate()
-    )
-    current, baseline = (sampled, exact) if sampled_current else (exact, sampled)
-    with pytest.raises(DatasetConstructionError, match="incompatible comparison scope") as error:
-        current.compare(baseline)
-    assert error.value.expected == "same Population membership, sampling and non-time selection"
 
 
 def test_delta_row_continuations_are_registered_and_scalar_rejected() -> None:

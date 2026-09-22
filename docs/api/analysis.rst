@@ -156,9 +156,6 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autoclass:: AnalysisPredicate
    :members:
 
-.. autoclass:: EntitySamplingPolicy
-   :members:
-
 .. autoclass:: ForecastHorizon
    :members:
 
@@ -266,8 +263,6 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autofunction:: any_of
 
 .. autofunction:: not_
-
-.. autofunction:: engine_sample
 
 .. autofunction:: grain
 

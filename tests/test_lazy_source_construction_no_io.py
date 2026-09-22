@@ -46,7 +46,6 @@ from marivo.analysis.observation.contracts import metric_definition
 from marivo.analysis.observation.predicates import (
     all_of, any_of, eq, gt, gte, is_in, is_not_null, is_null, lt, lte, not_, not_eq,
 )
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import CsvSourceIR
@@ -239,17 +238,8 @@ with ExitStack() as stack:
         eligible = sources.population(customers).where(any_of(
             is_in(region, [private, 'west']), is_null(region),
         ))
-        policy = engine_sample(target_rows=3, seed=631798245)
-        sampled = eligible.sample(policy)
-        assert sampled.definition_fingerprint == eligible.sample(
-            engine_sample(target_rows=3, seed=631798245),
-        ).definition_fingerprint
-        assert sampled.definition_fingerprint != eligible.sample(
-            engine_sample(target_rows=3, seed=631798246),
-        ).definition_fingerprint
-        assert sampled.row_set_contract == eligible.row_set_contract
-        sampled_metrics = sources.observe([revenue, weighted], population=sampled, time_scope=window)
-        reduced = sampled_metrics.with_dimensions(region).aggregate().metric(revenue)
+        selected_metrics = sources.observe([revenue, weighted], population=eligible, time_scope=window)
+        reduced = selected_metrics.with_dimensions(region).aggregate().metric(revenue)
 
         timed = sources_for(timestamp_registry).observe(revenue, time_scope=window)
         grain_results = tuple(timed.with_time_axis(order_time, grain=grain).aggregate()
@@ -302,9 +292,6 @@ with ExitStack() as stack:
             lambda: dimensional.where(gt(region, private)),
             lambda: dimensional.where(eq(metric, 1), gt(metric, 2)),
             lambda: original.where(eq(region, private)),
-            lambda: engine_sample(target_rows=True),
-            lambda: sampled.sample(policy),
-            lambda: sampled.where(eq(region, private)),
             lambda: original.with_time_axis(order_time, grain=builtin_grain('hour')),
             lambda: original.with_time_axis(order_time, grain=uncertified),
             lambda: original.limit(2),
@@ -316,7 +303,6 @@ with ExitStack() as stack:
             lambda: scalar_delta.rank(scalar_delta.fields.get('delta')),
             lambda: scalar_delta.limit(1),
             lambda: setattr(original, 'kind', 'changed'),
-            lambda: setattr(policy, 'target_rows', 4),
         ):
             try:
                 invalid()
@@ -329,8 +315,8 @@ with ExitStack() as stack:
             else:
                 raise AssertionError('Invalid source construction was admitted')
 
-        values = (original, dimensional, *filtered, canonical, eligible, sampled,
-                  sampled_metrics, reduced, *grain_results, *aggregate_results,
+        values = (original, dimensional, *filtered, canonical, eligible,
+                  selected_metrics, reduced, *grain_results, *aggregate_results,
                   folded, *ranked, *limited, *comparisons,
                   delta_filtered, delta_ranked, delta_limited, attributed, component_attributed,
                   expanded_attributed, attributed_selected)
@@ -341,8 +327,6 @@ with ExitStack() as stack:
                             parameters=repr(value._root.parameters))
             for name, visible in surfaces.items():
                 assert private not in visible, (index, name, 'predicate disclosure')
-                if name != 'parameters':
-                    assert '631798245' not in visible, (index, name, 'seed disclosure')
             assert len(repr(value)) <= 256
             assert len(value.contract().render().encode()) <= 8192
         assert not any(attempts.values()), attempts
@@ -373,9 +357,9 @@ def test_complete_source_construction_has_no_io() -> None:
     assert evidence["grains"] == 9
     assert evidence["aggregates"] == 8
     assert evidence["ties"] == 4
-    assert evidence["guarded_negative_failures"] == 19
+    assert evidence["guarded_negative_failures"] == 15
     assert evidence["guarded_entrypoints"] == 60
-    assert evidence["checked_definitions"] == 57
+    assert evidence["checked_definitions"] == 56
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "source",

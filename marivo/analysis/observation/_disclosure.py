@@ -31,7 +31,6 @@ from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
 )
-from marivo.analysis.observation.sampling import EntitySamplingPolicy, engine_sample
 from marivo.refs import SemanticKind
 
 METRIC = P(
@@ -253,35 +252,6 @@ def provider(
                 registration_ids=("metric." + name,),
             )
         )
-    pop = registry.get("population")
-    descriptors.append(
-        operation(
-            "population.sample",
-            "dataset.sample",
-            inspect.getattr_static(pop.logical_type, "sample"),
-            bindings=tuple(
-                bind(inspect.getattr_static(t, "sample"), t)
-                for t in (pop.logical_type, pop.materialized_type)
-            ),
-            summary="Apply a governed Entity sampling policy.",
-            discovery_group="inputs.population",
-            parameters=(P("policy", "Construct an engine sampling policy.", ("engine_sample",)),),
-            output="LogicalPopulationDataset",
-            constraints=(
-                "Sampling is source-owned; approximation and selection fences propagate to downstream observation.",
-            ),
-            effects=CONSTRUCTION_EFFECT,
-            failures=CONSTRUCTION_FAILURES,
-            example=ExampleInput(
-                "result = population.sample(engine_sample(target_rows=2, seed=7))",
-                ("population", "engine_sample"),
-                "result",
-                "LogicalPopulationDataset",
-            ),
-            registration_ids=("population.sample",),
-        )
-    )
-
     for name in (
         "eq",
         "not_eq",
@@ -363,13 +333,6 @@ def provider(
 
     constructors = (
         (
-            "engine_sample",
-            engine_sample,
-            "EntitySamplingPolicy",
-            "engine_sample(target_rows=2, seed=7)",
-            "Choose a positive Entity row sample and an explicit seed.",
-        ),
-        (
             "grain",
             grain,
             "Grain",
@@ -392,7 +355,7 @@ def provider(
                 "mv." + target,
                 value,
                 summary=guidance,
-                discovery_group="inputs.population" if target == "engine_sample" else "inputs.time",
+                discovery_group="inputs.time",
                 parameters=parameters,
                 output=output,
                 constraints=(guidance,),
@@ -404,7 +367,6 @@ def provider(
         exports.append(ExportInput(target, value, target))
     for type_value, target, producer in (
         (p.AnalysisPredicate, "AnalysisPredicate", "eq"),
-        (EntitySamplingPolicy, "EntitySamplingPolicy", "engine_sample"),
         (Grain, "Grain", "grain"),
         (TimeScope, "TimeScope", "time_scope"),
     ):

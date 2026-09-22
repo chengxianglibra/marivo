@@ -14,7 +14,6 @@ from marivo.analysis.materialization import reads
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 from tests.lazy_local_fixtures import REVENUE, setup_local
@@ -60,24 +59,6 @@ def test_only_selected_part_is_read_and_missing_required_part_fails(
                 bindings=(),
             )
         )
-
-
-@pytest.mark.parametrize("kind", ["engine"])
-def test_sampling_state_round_trip_is_atomic_with_primary(
-    tmp_path: Path,
-    request: pytest.FixtureRequest,
-    kind: Literal["engine", "object"],
-) -> None:
-    fixture = setup_adapter(tmp_path, kind)
-    logical = fixture.sources.population(ref.entity("sales.customers")).sample(
-        engine_sample(target_rows=2, seed=3)
-    )
-    result = logical.execute()
-    record = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.sampling_execution is not None
-    assert record.descriptor.retained_parts[0].role == "population_sampling_state"
-    assert len(result.to_pandas()) == 2
-    assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
 
 
 def test_source_rank_with_parts_preserves_primary_order(tmp_path: Path) -> None:

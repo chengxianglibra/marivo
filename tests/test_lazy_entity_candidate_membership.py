@@ -18,7 +18,6 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.contracts import metric_definition
 from marivo.analysis.observation.predicates import gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators.candidate_contracts import CandidateObjective
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
 from marivo.analysis.session._lazy_sources import make_lazy_sources
@@ -215,44 +214,4 @@ def test_candidate_identity_requires_registered_adapter_version_before_run(
     with pytest.raises(DatasetCompilationError, match="source-required"):
         observed.execute()
     assert snapshot(runtime) == before
-    assert runtime.store.resources(runtime.session_ref) == ()
-
-
-@pytest.mark.runtime
-def test_sampled_candidate_preserves_realization_through_selection_and_membership(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    runtime, sources, _ = setup_entity_candidate(tmp_path)
-    runtime.target = LocalTarget()
-    population = sources.population(ref.entity("sales.orders")).sample(
-        engine_sample(target_rows=100, seed=19)
-    )
-    candidate = sources.observe(REVENUE, population=population).discover.entity_outliers().execute()
-    original = runtime.store.artifact(candidate.state.artifact_ref.ref)
-    assert original is not None and original.descriptor.candidate_evidence is not None
-    receipts = original.descriptor.sampling_execution
-    assert receipts is not None and len(receipts) == 1
-    assert "sampled_population" in candidate.contract().render()
-    selected = candidate.where(gt(candidate.fields.get("score"), 3.5)).execute()
-    selection_record = runtime.store.artifact(selected.state.artifact_ref.ref)
-    assert (
-        selection_record is not None and selection_record.descriptor.candidate_evidence is not None
-    )
-    assert selection_record.descriptor.sampling_execution == receipts
-    assert (
-        selection_record.descriptor.candidate_evidence.evaluation
-        == original.descriptor.candidate_evidence.evaluation
-    )
-    result = sources.observe(LINE_REVENUE, population=selected).aggregate().execute()
-    assert result.to_pandas().line_revenue.tolist() == [40.0]
-    record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None
-    assert record.descriptor.sampling_execution == receipts
-    assert record.descriptor.candidate_evidence is None
-    assert (
-        record.descriptor.population_authority.definition_fingerprint
-        == selected.definition_fingerprint
-    )
-    result.show()
-    assert "Sampling: approximate Entity sample; realizations=1" in capsys.readouterr().out
     assert runtime.store.resources(runtime.session_ref) == ()

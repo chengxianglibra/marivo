@@ -14,6 +14,7 @@ import pytest
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.analysis.operators.forecast_contracts import naive, periods
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
@@ -39,6 +40,70 @@ pytestmark = [
 ]
 CHANNEL = ref.dimension("sales.orders.channel")
 TIME = ref.time_dimension("sales.orders.order_time")
+
+
+@pytest.mark.parametrize("method", ["pearson", "spearman"])
+def test_entity_correlation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str, method: CorrelationMethod
+) -> None:
+    registry, sidecar = _method_registry(method_table, monkeypatch)
+    runtime = DatasetRuntime.create(tmp_path / "correlation-project", "trino-correlation")
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe((ref.metric("sales.revenue"), ref.metric("sales.mean_amount")))
+        .correlate(method=method)
+        .execute()
+    )
+    assert result.to_pandas().coefficient.iloc[0] == pytest.approx(1.0)
+    assert runtime.statistics.primary_queries > 0
+
+
+@pytest.mark.parametrize("metric_name", ["sales.revenue", "sales.mean_amount"])
+def test_hidden_axis_attribution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str, metric_name: str
+) -> None:
+    registry, sidecar = _method_registry(method_table, monkeypatch)
+    runtime = DatasetRuntime.create(tmp_path / "expanded-attribution", "trino-expanded-attribution")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    metric = sources.observe(ref.metric(metric_name)).aggregate()
+    frame = metric.compare(metric).attribute(axes=(CHANNEL,)).execute().to_pandas()
+    assert frame.contribution.tolist() == pytest.approx([0.0, 0.0])
+    assert runtime.statistics.primary_queries > 0
+
+
+def test_hidden_axis_attribution_complete_contributions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str
+) -> None:
+    registry, sidecar = _method_registry(method_table, monkeypatch)
+    runtime = DatasetRuntime.create(tmp_path / "expanded-sides", "trino-expanded-sides")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    metric = ref.metric("sales.revenue")
+    before = sources.observe(
+        metric, time_scope=time_scope(start="2026-02-01", end="2026-02-04")
+    ).aggregate()
+    after = sources.observe(
+        metric, time_scope=time_scope(start="2026-02-02", end="2026-02-05")
+    ).aggregate()
+    frame = after.compare(before).attribute(axes=(CHANNEL,)).execute().to_pandas()
+    assert dict(zip(frame.channel, frame.contribution, strict=True)) == {
+        "a": pytest.approx(-10.0),
+        "b": pytest.approx(40.0),
+    }
+    assert frame.overall_delta.tolist() == pytest.approx([30.0, 30.0])
+
+
+def test_hidden_axis_top_k_rejected_before_source_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str
+) -> None:
+    from marivo.analysis.compiler.errors import DatasetCompilationError
+
+    registry, sidecar = _method_registry(method_table, monkeypatch)
+    runtime = DatasetRuntime.create(tmp_path / "expanded-top-k", "trino-expanded-top-k")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    metric = sources.observe(ref.metric("sales.revenue")).aggregate()
+    with pytest.raises(DatasetCompilationError, match="Top-K exceeds"):
+        metric.compare(metric).attribute(axes=(CHANNEL,), top_k=1).execute()
+    assert runtime.statistics.primary_queries == 0
 
 
 def _method_registry(

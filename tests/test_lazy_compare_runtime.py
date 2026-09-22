@@ -32,7 +32,6 @@ from marivo.analysis.materialization.local_execution import (
 from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.datasource.ir import TableSourceIR
@@ -273,51 +272,6 @@ def test_delta_row_operations_preserve_source_and_retained_numerical_results(
         f"row-operation-parity-{shape}",
         candidate,
         {"shape": shape, "selected_delta": 80.0, "selected_relative_delta": 4.0},
-    )
-
-
-def test_sampled_self_comparison_and_independent_branches_do_not_share_bindings(
-    tmp_path: Path,
-) -> None:
-    candidate = _manifest()
-    runtime, sources, _ = _setup(tmp_path)
-    population = sources.population(ref.entity("sales.orders"))
-
-    def sampled() -> LogicalMetricDataset:
-        return sources.observe(
-            REVENUE, population=population.sample(engine_sample(target_rows=3))
-        ).aggregate()
-
-    shared = sampled()
-    independent = sampled().compare(sampled())
-    shared_comparison = shared.compare(shared)
-    assert independent.definition_fingerprint != shared_comparison.definition_fingerprint
-    independent_result = independent.execute()
-    assert runtime.statistics.sampling_fences == 2
-    shared_result = shared_comparison.execute()
-    assert runtime.statistics.sampling_fences == 1
-    assert shared_result.state.artifact_ref != independent_result.state.artifact_ref
-    assert shared_result.to_pandas()["delta"].tolist() == [0.0]
-    after = snapshot(runtime)
-    reconstructed = sampled()
-    assert (
-        reconstructed.compare(reconstructed).execute().state.artifact_ref
-        == shared_result.state.artifact_ref
-    )
-    assert snapshot(runtime) == after and runtime.statistics.primary_queries == 0
-    _record(
-        "realization-sharing",
-        candidate,
-        {
-            "shared_definition": shared_comparison.definition_fingerprint,
-            "independent_definition": independent.definition_fingerprint,
-            "shared_artifact": shared_result.state.artifact_ref.ref,
-            "independent_artifact": independent_result.state.artifact_ref.ref,
-            "shared_fences": 1,
-            "independent_fences": 2,
-            "delta": 0.0,
-            "cold_hit_counts": after,
-        },
     )
 
 

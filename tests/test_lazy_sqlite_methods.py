@@ -12,6 +12,7 @@ import pytest
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.analysis.operators.forecast_contracts import naive, periods
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
@@ -31,6 +32,146 @@ from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 pytestmark = pytest.mark.runtime
 CHANNEL = ref.dimension("sales.orders.channel")
 TIME = ref.time_dimension("sales.orders.order_time")
+
+
+@pytest.mark.parametrize("method", ["pearson", "spearman"])
+def test_entity_correlation(
+    tmp_path: Path, method_database: Path, method: CorrelationMethod
+) -> None:
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(tmp_path / "correlation-project", "sqlite-correlation")
+    result = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe((ref.metric("sales.revenue"), ref.metric("sales.mean_amount")))
+        .correlate(method=method)
+        .execute()
+    )
+    frame = result.to_pandas()
+    assert frame.coefficient.iloc[0] == pytest.approx(1.0)
+    assert "entity_identity" not in frame.columns
+    assert runtime.statistics.primary_queries > 0
+    submitted = [item for item in runtime.statistics.submissions if item.domain == "source"]
+    assert any(
+        item.role == "validation_batch" and "SELECT" in item.sql.upper() for item in submitted
+    )
+    assert any(item.role == "primary" and "SELECT" in item.sql.upper() for item in submitted)
+    assert all(item.state == "succeeded" for item in submitted)
+
+
+@pytest.mark.parametrize("metric_name", ["sales.revenue", "sales.mean_amount"])
+def test_hidden_axis_attribution(tmp_path: Path, method_database: Path, metric_name: str) -> None:
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(
+        tmp_path / "expanded-attribution", "sqlite-expanded-attribution"
+    )
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    metric = sources.observe(ref.metric(metric_name)).aggregate()
+    frame = metric.compare(metric).attribute(axes=(CHANNEL,)).execute().to_pandas()
+    assert frame.contribution.tolist() == pytest.approx([0.0, 0.0])
+    assert all(tuple(mask) == (True,) for mask in frame.active_axis_mask)
+    assert runtime.statistics.primary_queries > 0
+
+
+@pytest.mark.parametrize("top_k", [None, 1])
+def test_hidden_axis_attribution_matches_complete_source_sides(
+    tmp_path: Path, method_database: Path, top_k: int | None
+) -> None:
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(tmp_path / "expanded-sides", "sqlite-expanded-sides")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    metric = ref.metric("sales.revenue")
+    before = sources.observe(
+        metric, time_scope=time_scope(start="2026-02-01", end="2026-02-04")
+    ).aggregate()
+    after = sources.observe(
+        metric, time_scope=time_scope(start="2026-02-02", end="2026-02-05")
+    ).aggregate()
+    frame = after.compare(before).attribute(axes=(CHANNEL,), top_k=top_k).execute().to_pandas()
+    if top_k is None:
+        assert dict(zip(frame.channel, frame.contribution, strict=True)) == {
+            "a": pytest.approx(-10.0),
+            "b": pytest.approx(40.0),
+        }
+    else:
+        assert frame.contribution.sum() == pytest.approx(30.0)
+        assert sum(any(mask) for mask in frame.other_mask) == 1
+    assert frame.overall_delta.tolist() == pytest.approx([30.0, 30.0])
+
+
+def test_hidden_axis_attribution_invalid_source_does_not_publish(
+    tmp_path: Path, method_database: Path
+) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+    from tests.lazy_acceptance_capture import counts
+
+    with sqlite3.connect(method_database) as connection:
+        connection.execute("UPDATE orders SET amount = ? WHERE id = 1", (float("inf"),))
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(tmp_path / "expanded-invalid", "sqlite-expanded-invalid")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    metric = sources.observe(ref.metric("sales.revenue")).aggregate()
+    with pytest.raises(MaterializationError):
+        metric.compare(metric).attribute(axes=(CHANNEL,)).execute()
+    assert counts(runtime)["dataset_artifacts"] == 0
+
+
+def test_hidden_axis_attribution_failure_after_source_preparation_cleans_up(
+    tmp_path: Path, method_database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.lazy_acceptance_capture import counts
+
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(tmp_path / "expanded-failure", "sqlite-expanded-failure")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    metric = sources.observe(ref.metric("sales.revenue")).aggregate()
+
+    def fail_write(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("injected write failure after source validation")
+
+    monkeypatch.setattr(runtime, "_write_output", fail_write)
+    with pytest.raises(RuntimeError, match="injected write failure"):
+        metric.compare(metric).attribute(axes=(CHANNEL,)).execute()
+    assert any(item.role == "validation_batch" for item in runtime.statistics.submissions)
+    assert counts(runtime)["dataset_artifacts"] == 0
+    assert runtime.store.resources(runtime.session_ref) == ()
+
+
+def test_entity_correlation_rejects_duplicate_identity(
+    tmp_path: Path, method_database: Path
+) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+
+    with sqlite3.connect(method_database) as connection:
+        connection.execute(
+            "INSERT INTO orders(id, amount, weight, channel, day) VALUES (1, 50, 1, 'a', '2026-02-05')"
+        )
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(tmp_path / "invalid-correlation", "sqlite-invalid-correlation")
+    logical = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe((ref.metric("sales.revenue"), ref.metric("sales.mean_amount")))
+        .correlate(method="pearson")
+    )
+    with pytest.raises(MaterializationError):
+        logical.execute()
+    assert runtime.statistics.primary_queries == 0
+
+
+def test_entity_correlation_constant_input(tmp_path: Path, method_database: Path) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+
+    registry, sidecar = registry_for(method_database)
+    runtime = DatasetRuntime.create(
+        tmp_path / "constant-correlation", "sqlite-constant-correlation"
+    )
+    logical = (
+        runtime.sources(semantic_registry=registry, sidecar=sidecar)
+        .observe((ref.metric("sales.revenue"), ref.metric("sales.order_count")))
+        .correlate(method="pearson")
+    )
+    with pytest.raises(MaterializationError, match=r"correlate\.valid_candidate"):
+        logical.execute()
+    assert runtime.statistics.primary_queries == 0
 
 
 @pytest.fixture

@@ -19,7 +19,6 @@ from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_execution_fixtures import make_execution_registry
@@ -40,7 +39,7 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
             population = sources.population(ref.entity("sales.customers"))
             result: MaterializedDataset
             if kind == "engine":
-                result = population.sample(engine_sample(target_rows=2, seed=3)).execute()
+                result = population.execute()
                 members = [
                     list(identity) for identity in result.to_pandas()["entity_identity"].tolist()
                 ]

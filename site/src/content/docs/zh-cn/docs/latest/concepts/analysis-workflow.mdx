@@ -38,6 +38,7 @@ change.show()
 ```
 
 示例要求项目已定义具有明确源类型和参考时间轴的 `sales.revenue` 指标。窗口为左闭右开，结束边界不包含在内。`aggregate()` 显式移除 Entity 身份轴；时间序列还需声明时间轴和粒度。Population 成员选择与指标观测窗口相互独立。
+可用 `population.where(...)` 缩小 Entity 成员范围；Analysis 不提供 Entity 抽样。
 
 ## 按确切语义继续分析
 
@@ -135,8 +136,8 @@ DuckDB oracle 旅程执行，五个远程后端的执行证据随 C7/C8 日历�
 后端仍拒绝。未确定精度的 Decimal mean/div 结果仍不支持。直接 Measure 键及 Entity 身份键的精确去重已在
 PostgreSQL、MySQL、SQLite、Trino 和 ClickHouse 启用；SQLite/MySQL 在 SQL 中逐列去重有类型的身份字段，
 私有 part 保持原有 Arrow struct。精确线性插值 median/percentile 已在五个远程后端启用。远程
-`duckdb_tdigest@v1` 以及 percentile status-time 折叠仍未准入。采样、隐藏轴展开归因、
-Entity correlation、Entity candidates、源端 driver screening 和 Event/Lifecycle 仍不支持。
+`duckdb_tdigest@v1` 以及 percentile status-time 折叠仍未准入。五个远程后端已支持在源端对完整私有配对做 Entity Pearson 和 Spearman 相关性归约；Kendall 继续使用完整输入的本地续算。
+PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。采样、Entity candidates、源端 driver screening 和 Event/Lifecycle 仍不支持。
 字符串时间解析与多单位桶按后端逐步启用，限制见下节。
 不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。
 

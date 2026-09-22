@@ -11,13 +11,11 @@ from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq, gt
-from marivo.analysis.observation.sampling import engine_sample
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
 from marivo.analysis.operators.driver_contracts import DriverCandidateEvaluationSummary
 from marivo.analysis.operators.errors import CandidateError
 from marivo.datasource.backends import BuiltDatasourceBackend, EffectiveDatasourceKwargs
 from marivo.datasource.ir import DatasourceIR
-from marivo.refs import ref
 from tests.lazy_compare_runtime_fixtures import independent_sources
 from tests.lazy_driver_runtime_fixtures import CHANNEL, driver_metric, setup_driver
 from tests.lazy_execution_fixtures import make_execution_registry
@@ -114,39 +112,6 @@ def test_missing_axis_expansion_preserves_selected_original_ordinal(tmp_path: Pa
     with pytest.raises(CandidateError, match=r"materializ|retained"):
         retained.discover.driver_axes(search_space=[CHANNEL])
     assert snapshot(fixture.runtime) == before
-
-
-def test_missing_axis_expansion_shares_and_retains_one_sample(tmp_path: Path) -> None:
-    fixture = setup_driver(tmp_path)
-    population = fixture.sources.population(ref.entity("sales.orders")).sample(
-        engine_sample(target_rows=3, seed=1)
-    )
-    metric = fixture.sources.observe(
-        ref.metric("sales.order_count"), population=population
-    ).aggregate()
-    result = metric.compare(metric).discover.driver_axes(search_space=[CHANNEL]).execute()
-    assert fixture.runtime.statistics.sampling_fences == 1
-    assert result.to_pandas().empty and result.findings().items == ()
-    assert "sampled_population" in result.contract().render()
-    original = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
-    assert original is not None and original.descriptor.candidate_evidence is not None
-    evaluation = original.descriptor.candidate_evidence.evaluation
-    assert isinstance(evaluation, DriverCandidateEvaluationSummary)
-    assert evaluation.evaluated_axis_count == evaluation.zero_contribution_axis_count == 1
-    assert original.descriptor.sampling_execution is not None
-    assert len(original.descriptor.sampling_execution) == 1
-    fixture.database.rename(tmp_path / "source.offline")
-    selected = (
-        result.where(gt(result.fields.get("score"), 0))
-        .rank(result.fields.get("score"))
-        .limit(1)
-        .execute()
-    )
-    assert selected.to_pandas().empty and "sampled_population" in selected.contract().render()
-    retained = fixture.runtime.store.artifact(selected.state.artifact_ref.ref)
-    assert retained is not None and retained.descriptor.candidate_evidence is not None
-    assert retained.descriptor.sampling_execution == original.descriptor.sampling_execution
-    assert retained.descriptor.candidate_evidence.evaluation == evaluation
 
 
 def test_independent_sources_use_exact_local_driver_frontier(tmp_path: Path) -> None:

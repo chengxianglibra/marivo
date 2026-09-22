@@ -5,7 +5,7 @@ from collections.abc import Iterator
 import ibis
 import pytest
 
-from marivo.analysis.compiler.nodes import CompiledSampleFence, CompiledValidation
+from marivo.analysis.compiler.nodes import CompiledValidation
 from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter as Backend
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.validation import (
@@ -13,7 +13,6 @@ from marivo.analysis.materialization.validation import (
     compile_preparations,
     execute_batch,
 )
-from marivo.analysis.observation.sampling import engine_sample
 
 
 @pytest.fixture
@@ -103,26 +102,3 @@ def test_batch_rejects_missing_or_duplicate_scalar_rows_at_the_owning_check(
     assert isinstance(batches[0], ValidationBatch)
     with pytest.raises(MaterializationError, match="source validation failed: malformed"):
         execute_batch(backend, batches[0], run_ref="run-test")
-
-
-def test_sampling_fence_splits_batches_without_creating_its_source(backend: Backend) -> None:
-    fence = CompiledSampleFence(
-        "mv_sample_0",
-        ibis.table({"id": "int64"}, name="orders"),
-        engine_sample(target_rows=1, seed=3),
-        "population",
-        "target",
-        ("id",),
-        1,
-    )
-    before = CompiledValidation("before", ibis.literal(0).name("violations").as_table())
-    after = CompiledValidation(
-        "after",
-        ibis.table({"id": "int64"}, name="mv_sample_0").aggregate(violations=ibis.literal(0)),
-    )
-    steps = compile_preparations(backend, (before, fence, after), run_ref="run-test")
-    assert len(steps) == 3 and steps[1] is fence
-    assert isinstance(steps[0], ValidationBatch) and steps[0].checks == (before,)
-    assert isinstance(steps[2], ValidationBatch) and steps[2].checks == (after,)
-    assert backend.read_table(backend.statement("SHOW TABLES")).num_rows == 0
-    assert execute_batch(backend, steps[0], run_ref="run-test") == (("before", 0),)

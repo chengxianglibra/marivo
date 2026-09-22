@@ -33,7 +33,6 @@ def recover_dataset(
         store_id=store_id,
         action_port=action_port,
         source_context=source_context,
-        sampling_authority_snapshot=descriptor.sampling_execution is not None,
         comparison_basis_snapshot=descriptor.comparison_basis,
         candidate_definition_snapshot=None
         if descriptor.candidate_evidence is None

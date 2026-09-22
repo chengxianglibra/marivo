@@ -23,7 +23,6 @@ from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
     CompiledDataset,
     CompiledRelationFence,
-    CompiledSampleFence,
     CompiledValidation,
     RetainedPartSpec,
 )
@@ -112,7 +111,6 @@ from marivo.analysis.observation.fold_contracts import (
     fold_part_role,
     fold_state_names,
 )
-from marivo.analysis.observation.population_sample import PopulationSamplePayload
 from marivo.analysis.observation.private_parts import source_private_part_authorities
 from marivo.analysis.observation.temporal import (
     SourceTimeAuthority,
@@ -202,10 +200,10 @@ def _authored_orders(
 
 def _named_validations(
     validations: tuple[CompiledValidation, ...],
-    preparations: tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...] = (),
+    preparations: tuple[CompiledValidation | CompiledRelationFence, ...] = (),
 ) -> tuple[
     tuple[CompiledValidation, ...],
-    tuple[CompiledValidation | CompiledSampleFence | CompiledRelationFence, ...],
+    tuple[CompiledValidation | CompiledRelationFence, ...],
 ]:
     """Give every executed assertion a stable distinct receipt name across shared branches."""
     counts: dict[str, int] = {}
@@ -733,6 +731,9 @@ class _Compiler:
         dependencies: SourceDependencies | None = None,
         replay_exact_quantile: bool = False,
         scalar_identity_distinct: bool = False,
+        explicit_correlation: bool = False,
+        emulate_full_join: bool = False,
+        scalar_masks: bool = False,
     ) -> None:
         self.dataset = dataset
         self.owner = source_owner_of(dataset) if source_owner is None else source_owner
@@ -741,6 +742,9 @@ class _Compiler:
         self.read_timezone_source = read_timezone_source
         self.replay_exact_quantile = replay_exact_quantile
         self.scalar_identity_distinct = scalar_identity_distinct
+        self.explicit_correlation = explicit_correlation
+        self.emulate_full_join = emulate_full_join
+        self.scalar_masks = scalar_masks
         self.time_authorities: dict[tuple[str, str], SourceTimeAuthority] = {}
         self.version_selections: dict[str, CanonicalValue] = {}
         dependencies = (
@@ -780,11 +784,8 @@ class _Compiler:
         self.selection_input_definition: str | None = None
         self.event_proofs: dict[int, ir.Table] = {}
         self.validation_occurrences: dict[str, int] = {}
-        self.preparations: list[
-            CompiledValidation | CompiledSampleFence | CompiledRelationFence
-        ] = []
+        self.preparations: list[CompiledValidation | CompiledRelationFence] = []
         self.prepared_validation_count = 0
-        self.samples: dict[int, ir.Table] = {}
         self.cache: dict[int, _Rows] = {}
         self.entities = required_entities(dataset, registry=self.registry)
         if set(tables) != {entity.ref.path for entity in self.entities}:
@@ -1323,39 +1324,6 @@ class _Compiler:
             )
         if payload.predicate is not None:
             table = table.filter(lower_bound_predicate(table, payload.predicate))
-        if root.operator_id == "population.sample":
-            policy = payload.sampling
-            if policy is None or len(root.realizations) != 1:
-                raise compilation_error(
-                    "one exact Entity sample realization", "missing sample policy"
-                )
-            handle_key = id(root.realizations[0].handle)
-            sampled = self.samples.get(handle_key)
-            if sampled is None:
-                if policy.target_rows > 1_000_000_000 or (
-                    policy.seed is not None and not 0 <= policy.seed <= 2**31 - 1
-                ):
-                    raise compilation_error(
-                        "DuckDB reservoir target at most 1000000000 and seed in [0, 2147483647]",
-                        "unsupported physical sampling request",
-                    )
-                name = f"__mv_sample_{len(self.samples)}"
-                self._flush_validations()
-                self.preparations.append(
-                    CompiledSampleFence(
-                        relation_name=name,
-                        expression=table,
-                        policy=policy,
-                        population_definition_fingerprint=root.definition_fingerprint,
-                        target_population_definition_fingerprint=payload.target_population_definition_fingerprint
-                        or "",
-                        identity_columns=entity.primary_key,
-                        root_identity=id(root),
-                    )
-                )
-                sampled = ibis.table(table.schema(), name=name)
-                self.samples[handle_key] = sampled
-            table = sampled
         return _Rows(table.select(entity_identity=_identity(table, entity)), table, entity)
 
     def _flush_validations(self) -> None:
@@ -2605,35 +2573,6 @@ class _Compiler:
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
-        elif isinstance(payload, PopulationSamplePayload):
-            previous = self._visit(root.inputs[0].root)
-            if len(root.realizations) != 1:
-                raise compilation_error("one sample realization", "missing sample handle")
-            self._flush_validations()
-            name = f"__mv_sample_{len(self.preparations)}"
-            identity = previous.expression.entity_identity
-            if not isinstance(identity, ir.StructValue):
-                raise compilation_error("complete selected identity tuple", "invalid sample input")
-            table = previous.expression.select(
-                **{key: identity[key] for key in previous.entity.primary_key}
-            )
-            self.preparations.append(
-                CompiledSampleFence(
-                    name,
-                    table,
-                    payload.policy,
-                    root.definition_fingerprint,
-                    payload.target_population_definition_fingerprint,
-                    previous.entity.primary_key,
-                    id(root),
-                )
-            )
-            sampled = ibis.table(table.schema(), name=name)
-            result = _Rows(
-                sampled.select(entity_identity=_identity(sampled, previous.entity)),
-                sampled,
-                previous.entity,
-            )
         elif isinstance(payload, (LifecycleReducerPayload, LifecycleSelectionPayload)):
             result = self._lifecycle_reducer(root, payload)
         elif isinstance(payload, LifecyclePayload):
@@ -2695,7 +2634,9 @@ class _Compiler:
             from marivo.analysis.compiler.correlation import lower_correlate
 
             previous = self._visit(root.inputs[0].root)
-            table, checks = lower_correlate(previous.expression, payload.spec)
+            table, checks = lower_correlate(
+                previous.expression, payload.spec, explicit_correlation=self.explicit_correlation
+            )
             self.association_proof = table
             self.validations.extend(checks)
             result = _Rows(table, previous.membership, previous.entity)
@@ -2722,7 +2663,10 @@ class _Compiler:
             current = self._visit(root.inputs[0].root)
             baseline = self._visit(root.inputs[1].root)
             table, validations = lower_compare(
-                current.expression, baseline.expression, payload.spec
+                current.expression,
+                baseline.expression,
+                payload.spec,
+                emulate_full_join=self.emulate_full_join,
             )
             self.validations.extend(validations)
             parts = comparison_private_parts(table, current.parts, baseline.parts, payload.spec)
@@ -2792,7 +2736,12 @@ class _Compiler:
                 current = self._visit(root.inputs[1].root)
                 baseline = self._visit(root.inputs[2].root)
                 table, validations = lower_expanded_attribute(
-                    previous.expression, current.expression, baseline.expression, payload.spec
+                    previous.expression,
+                    current.expression,
+                    baseline.expression,
+                    payload.spec,
+                    emulate_full_join=self.emulate_full_join,
+                    scalar_masks=self.scalar_masks,
                 )
             self.validations.extend(validations)
             result = _Rows(table, previous.membership, previous.entity)
@@ -3113,6 +3062,9 @@ def compile_dataset(
     read_timezone_source: Literal["engine", "system_fallback"] = "engine",
     replay_exact_quantile: bool = False,
     scalar_identity_distinct: bool = False,
+    explicit_correlation: bool = False,
+    emulate_full_join: bool = False,
+    scalar_masks: bool = False,
 ) -> CompiledDataset:
     """Lower a logical Dataset using exact source tables without executing or reading rows."""
     return _Compiler(
@@ -3126,6 +3078,9 @@ def compile_dataset(
         dependencies,
         replay_exact_quantile,
         scalar_identity_distinct,
+        explicit_correlation,
+        emulate_full_join,
+        scalar_masks,
     ).compile()
 
 
@@ -3259,7 +3214,7 @@ def compile_retained_rows(
     association_proof: ir.Table | None = None
     candidate_proof: ir.Table | None = None
     candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
-    preparations: list[CompiledValidation | CompiledSampleFence | CompiledRelationFence] = []
+    preparations: list[CompiledValidation | CompiledRelationFence] = []
     prepared_count = 0
     event_reducer_coverage: EventCoverageResolution | None = None
     lifecycle_reducer_coverage: EventCoverageResolution | None = None
@@ -3332,33 +3287,6 @@ def compile_retained_rows(
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
-        if isinstance(payload, PopulationSamplePayload):
-            previous = visit(value._inputs[0])
-            field_identity = value.schema.columns[0].identity
-            if not isinstance(field_identity, _EntityFieldIdentity):
-                raise compilation_error("complete Population identity", "invalid sample shape")
-            keys = tuple(key for key, _ in field_identity.identity_signature)
-            identity = previous.entity_identity
-            if not isinstance(identity, ir.StructValue):
-                raise compilation_error("complete selected identity tuple", "invalid sample input")
-            table_input = previous.select(**{key: identity[key] for key in keys})
-            preparations.extend(validations[prepared_count:])
-            prepared_count = len(validations)
-            name = f"__mv_sample_{len(preparations)}"
-            preparations.append(
-                CompiledSampleFence(
-                    name,
-                    table_input,
-                    payload.policy,
-                    value.definition_fingerprint,
-                    payload.target_population_definition_fingerprint,
-                    keys,
-                    id(value._root),
-                )
-            )
-            sampled = ibis.table(table_input.schema(), name=name)
-            private_parts[id(value)] = ()
-            return sampled.select(entity_identity=ibis.struct({key: sampled[key] for key in keys}))
         if isinstance(payload, (LifecycleReducerPayload, LifecycleSelectionPayload)):
             from marivo.analysis.compiler.lifecycle_reducers import reduce_lifecycle
 

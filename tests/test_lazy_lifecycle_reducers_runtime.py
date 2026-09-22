@@ -125,13 +125,10 @@ def test_metric_lifecycle_population_metric_and_event_loop(tmp_path: Path, retai
     assert set(continued_history.entity_identity) == {(1,)}
 
 
-@pytest.mark.parametrize(
-    "consumer", ["selection", "filter", "sample", "metric", "event", "lifecycle"]
-)
+@pytest.mark.parametrize("consumer", ["selection", "filter", "metric", "event", "lifecycle"])
 def test_unknown_member_blocks_every_continuation(tmp_path: Path, consumer: str) -> None:
     from marivo.analysis.materialization.errors import MaterializationError
     from marivo.analysis.observation.predicates import eq
-    from marivo.analysis.observation.sampling import engine_sample
     from marivo.refs import ref
     from tests.lazy_adapter_runtime_worker import snapshot
     from tests.lazy_event_runtime_fixtures import journey
@@ -143,8 +140,6 @@ def test_unknown_member_blocks_every_continuation(tmp_path: Path, consumer: str)
     with pytest.raises(MaterializationError):
         if consumer == "filter":
             selected.where(eq(ref.dimension("sales.customers.region"), "absent")).execute()
-        elif consumer == "sample":
-            selected.sample(engine_sample(target_rows=1, seed=42)).execute()
         elif consumer == "metric":
             sources.observe(ref.metric("sales.revenue"), population=selected).execute()
         elif consumer == "event":

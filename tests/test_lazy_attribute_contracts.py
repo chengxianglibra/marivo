@@ -172,31 +172,3 @@ def test_row_contract_rejects_inactive_axis_nullability_and_invalid_resolution()
             ),
             result.row_set_contract,
         )
-
-
-def test_sampling_class_is_row_meaning_but_sample_parameters_are_not() -> None:
-    from marivo.analysis.datasets.descriptors import _row_contract_fingerprint
-    from marivo.analysis.observation.sampling import engine_sample
-
-    sources = make_sources()
-
-    def build(target: int | None) -> LogicalAttributionDataset:
-        population = sources.population(ref.entity("sales.orders"))
-        if target is not None:
-            population = population.sample(engine_sample(target_rows=target, seed=1))
-        metric = (
-            sources.observe(ref.metric("sales.revenue"), population=population)
-            .with_dimensions(REGION)
-            .aggregate()
-        )
-        return metric.compare(metric).attribute(axes=(REGION,))
-
-    exact, first, second = build(None), build(2), build(3)
-    assert isinstance(first.row_contract.family_semantics, AttributionSemantics)
-    assert first.row_contract.family_semantics.approximation_class == "sampled_population"
-    assert _row_contract_fingerprint(first.row_contract) == _row_contract_fingerprint(
-        second.row_contract
-    )
-    assert _row_contract_fingerprint(exact.row_contract) != _row_contract_fingerprint(
-        first.row_contract
-    )
