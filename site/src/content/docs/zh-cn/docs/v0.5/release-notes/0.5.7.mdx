@@ -1,0 +1,32 @@
+---
+slug: zh-cn/docs/v0.5/release-notes/0.5.7
+title: Marivo 0.5.7
+description: Marivo 0.5.7 发布说明。
+---
+
+Marivo 0.5.7 为分析 Session 增加持久化语义域范围，并降低语义加载和本地遥测开销。
+
+## 亮点
+
+- 使用 `mv.session.get_or_create("sales-review", domains="sales")` 创建限定语义域的 Session，也可传入非空域名序列。
+- 重新打开、恢复 Session 和冷启动恢复产物时，复用已保存的域范围。显式指定不同范围会在激活前失败，并报告已有范围和请求范围。
+- 语义目录按名称建立索引时改为单次分组，避免加载时反复扫描条目。
+
+## 变更
+
+- 默认本地遥测记录选定操作和失败，减少成功的轻量读取、声明和委托调用产生的事件。
+- 使用 `MARIVO_TELEMETRY=full` 或 `[telemetry].enabled = "full"` 开启广泛诊断记录；原有 `on` 和 `off` 设置仍可使用。
+- 新遥测记录使用 v3 schema。读取本地事件文件时应区分 schema 版本；已有记录不会迁移。
+- 未限定域范围的 Session 仍加载全部域；重新打开时省略 `domains` 即可保留已保存的范围。
+
+## 文档
+
+- 中英文分析工作流和遥测参考已说明 Session 域范围及调整后的事件模式。
+
+## 安装
+
+~~~bash
+pip install --upgrade marivo==0.5.7
+~~~
+
+Marivo 0.5.7 要求 Python 3.10 或更新版本。
