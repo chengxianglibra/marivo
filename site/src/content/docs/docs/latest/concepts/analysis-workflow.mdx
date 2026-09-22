@@ -154,7 +154,9 @@ alias. For every frame, `row_count == shape[0]`.
 ## Open a session
 
 ```python
-session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
+session = mv.session.get_or_create(
+    name="revenue-investigation", question="Why did Q4 drop?", domains="sales"
+)
 catalog = session.catalog
 revenue = catalog.metrics.get("sales.revenue")
 region = catalog.dimensions.get("sales.orders.region")
@@ -167,7 +169,13 @@ Use one stable, distinguishable session name for each persistent analysis
 workspace. `get_or_create` creates that name once and later attaches to the same
 immutable session id. An explicit `question` becomes the session's current
 guiding question; deliberately omitting it preserves the persisted value. The
-narrow session API is `get_or_create`, `resume(identity)`, `current()`,
+optional `domains="sales"` or `domains=["sales", "finance"]` loads only those
+semantic domains for a new session. Later calls that omit `domains` reuse the
+saved scope; an explicit different set reports the existing scope and asks for
+a new session name. Sessions created without `domains` continue to load all
+domains, including sessions created before this option existed.
+
+The narrow session API is `get_or_create`, `resume(identity)`, `current()`,
 `abandon_run(session_id=..., run_id=...)`, `recent()`, `inspect(name)`, and
 `delete(name)`.
 

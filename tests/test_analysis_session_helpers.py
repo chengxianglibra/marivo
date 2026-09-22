@@ -7,6 +7,7 @@ from ``attach``, ``active``, or ``persistence``.
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
@@ -75,6 +76,17 @@ def test_current_returns_none_when_no_process_or_store_current(
 # ---------------------------------------------------------------------------
 
 
+def _write_domain_project(root: Path, *domains: str) -> None:
+    """Write minimal authored domains for Session scope tests."""
+    (root / "marivo.toml").write_text('[project]\nname = "test"\n')
+    for name in domains:
+        domain_dir = root / "models" / "semantic" / name
+        domain_dir.mkdir(parents=True)
+        (domain_dir / "_domain.py").write_text(
+            f"import marivo.semantic as ms\nms.domain(name={name!r}, owner='Owner')\n"
+        )
+
+
 def test_get_or_create_creates_and_marks_current(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -97,6 +109,129 @@ def test_get_or_create_resumes_same_id_and_marks_current(
     assert s1.id == s2.id
     assert mv.session.current() is not None
     assert mv.session.current().id == s1.id
+
+
+def test_session_domain_scope_survives_reopen_and_cold_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.session._resolve import resolve_frame_session
+    from marivo.analysis.session._runtime import reset_process_state
+
+    monkeypatch.chdir(tmp_path)
+    _write_domain_project(tmp_path, "sales", "finance")
+
+    session = mv.session.get_or_create("scoped", domains="sales", use_datasources=False)
+    assert {entry.name for entry in session.catalog.domains.items} == {"sales"}
+    assert mv.session.get_or_create("scoped", use_datasources=False).id == session.id
+    assert (
+        mv.session.get_or_create("scoped", domains=["sales"], use_datasources=False).id
+        == session.id
+    )
+    assert {
+        entry.name
+        for entry in mv.session.resume(session.id, use_datasources=False).catalog.domains.items
+    } == {"sales"}
+
+    reset_process_state()
+    cold = mv.session.current()
+    assert cold is not None
+    assert cold.id == session.id
+    assert {entry.name for entry in cold.catalog.domains.items} == {"sales"}
+
+    mv.session.get_or_create("other", use_datasources=False)
+    recovered = resolve_frame_session(session.id, str(tmp_path))
+    assert {entry.name for entry in recovered.catalog.domains.items} == {"sales"}
+
+
+def test_session_domain_conflict_discloses_existing_scope_without_activation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.errors import SessionStateError
+
+    monkeypatch.chdir(tmp_path)
+    _write_domain_project(tmp_path, "sales", "finance")
+    session = mv.session.get_or_create(
+        "scoped", question="original", domains=["sales", "finance"], use_datasources=False
+    )
+    assert (
+        mv.session.get_or_create(
+            "scoped", domains=["finance", "sales", "finance"], use_datasources=False
+        ).id
+        == session.id
+    )
+    active = mv.session.get_or_create("active", use_datasources=False)
+    before = mv.session.inspect("scoped").summary
+
+    with pytest.raises(SessionStateError) as captured:
+        mv.session.get_or_create(
+            "scoped", question="changed", domains="sales", use_datasources=False
+        )
+
+    error = captured.value
+    assert "finance" in error.message and "sales" in error.message
+    assert error.expected == "existing domains: ('finance', 'sales')"
+    assert error.received == "requested domains: ('sales',)"
+    assert mv.session.current() is not None
+    assert mv.session.current().id == active.id
+    after = mv.session.inspect("scoped").summary
+    assert after.question == before.question == "original"
+    assert after.updated_at == before.updated_at
+    assert session.id != active.id
+
+
+def test_existing_unfiltered_session_reports_all_domains_on_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.errors import SessionStateError
+
+    monkeypatch.chdir(tmp_path)
+    _write_domain_project(tmp_path, "sales")
+    mv.session.get_or_create("legacy", use_datasources=False)
+
+    with pytest.raises(SessionStateError) as captured:
+        mv.session.get_or_create("legacy", domains="sales", use_datasources=False)
+
+    assert "all domains" in captured.value.message
+    assert captured.value.expected == "existing domains: all domains"
+
+
+def test_invalid_requested_domains_has_structured_repair_before_store_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.errors import SessionStateError
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SessionStateError) as captured:
+        mv.session.get_or_create("invalid", domains=[], use_datasources=False)
+
+    assert captured.value.expected is not None
+    assert captured.value.received is not None
+    assert captured.value.location == "mv.session.get_or_create(domains=...)"
+    assert captured.value.repair is not None
+    assert not (tmp_path / ".marivo").exists()
+
+
+def test_corrupt_stored_domains_reports_store_location_and_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.errors import SessionStateError
+
+    monkeypatch.chdir(tmp_path)
+    _write_domain_project(tmp_path, "sales")
+    session = mv.session.get_or_create("scoped", domains="sales", use_datasources=False)
+    with sqlite3.connect(session._layout.store_db) as conn:
+        conn.execute(
+            "UPDATE runtime_state SET value = ? WHERE key = ?",
+            ("not JSON", f"session_domains:{session.id}"),
+        )
+
+    with pytest.raises(SessionStateError) as captured:
+        mv.session.get_or_create("scoped", use_datasources=False)
+
+    assert captured.value.expected is not None
+    assert "not JSON" in (captured.value.received or "")
+    assert captured.value.location == str(session._layout.store_db)
+    assert captured.value.repair is not None
 
 
 def test_explicit_question_updates_existing_session(

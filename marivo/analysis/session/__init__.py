@@ -28,7 +28,7 @@ import shutil
 import sys
 import threading
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -111,6 +111,35 @@ def _report_tz_fields(resolved: Any) -> dict[str, str | None]:
     }
 
 
+def _normalize_domains(domains: str | Sequence[str] | None) -> tuple[str, ...] | None:
+    """Canonicalize an optional fixed Session domain scope."""
+    if domains is None:
+        return None
+    names = (domains,) if isinstance(domains, str) else domains
+    if (
+        not isinstance(names, Sequence)
+        or not names
+        or any(not isinstance(name, str) or not name or name != name.strip() for name in names)
+    ):
+        from marivo.analysis.errors import AnalysisRepair, SessionStateError
+        from marivo.introspection.live.model import LiveHelpTarget
+
+        raise SessionStateError(
+            message="domains must be a non-empty domain name or sequence of names",
+            expected="a domain name or non-empty sequence of exact domain names",
+            received=repr(domains),
+            location="mv.session.get_or_create(domains=...)",
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Pass one exact domain name or a non-empty sequence of names.",
+                help_target=LiveHelpTarget(
+                    surface="analysis", canonical_id="session.get_or_create"
+                ),
+            ),
+        )
+    return tuple(sorted(set(names)))
+
+
 def _activate_session(
     *,
     store: Any,
@@ -118,11 +147,12 @@ def _activate_session(
     connection_runtime: Any,
     report_timezone: str | None,
     question_update: str | None = None,
+    requested_domains: tuple[str, ...] | None = None,
 ) -> Session:
     """Activate one persisted session row with a caller-owned connection runtime."""
     import json as _json
 
-    from marivo.analysis.errors import SessionTimezoneConflict
+    from marivo.analysis.errors import AnalysisRepair, SessionStateError, SessionTimezoneConflict
     from marivo.analysis.session._layout import _atomic_write_text
     from marivo.analysis.session._runtime import (
         _preflight_session as _preflight,
@@ -133,8 +163,35 @@ def _activate_session(
     from marivo.analysis.session._runtime import (
         set_process_current as _set_proc,
     )
+    from marivo.introspection.live.model import LiveHelpTarget
 
     with _SESSION_ACTIVATION_LOCK:
+        persisted_domains = store.get_session_domains(row["id"])
+        if requested_domains is not None and requested_domains != persisted_domains:
+            existing_label = (
+                repr(persisted_domains) if persisted_domains is not None else "all domains"
+            )
+            raise SessionStateError(
+                message=(
+                    f"session {row['name']!r} already has domain scope {existing_label}; "
+                    f"requested {requested_domains!r}"
+                ),
+                expected=f"existing domains: {existing_label}",
+                received=f"requested domains: {requested_domains!r}",
+                location="mv.session.get_or_create(domains=...)",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action="Reopen with the existing domain scope or create a new Session name.",
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id="session.get_or_create"
+                    ),
+                ),
+                context={
+                    "session": row["name"],
+                    "existing_domains": persisted_domains,
+                    "requested_domains": requested_domains,
+                },
+            )
         recovery_session = _from_row(store, row, connection_runtime)
         _preflight(recovery_session)
         layout = recovery_session._layout
@@ -211,6 +268,7 @@ def get_or_create(
     backends: dict[str, Callable[[], BaseBackend]] | None = None,
     backend_factory: Callable[[str], BaseBackend] | None = None,
     use_datasources: bool = True,
+    domains: str | Sequence[str] | None = None,
 ) -> Session:
     """Attach to an existing session or create a new one if it does not exist.
 
@@ -237,21 +295,29 @@ def get_or_create(
             an ibis backend for dynamic resolution.
         use_datasources: When True (default), auto-discovers datasource
             definitions from ``models/datasources/*.py``.
+        domains: Exact semantic domain name or non-empty sequence to load when
+            creating a Session. Omit to retain an existing Session's scope.
+            ``None`` selects all domains for a new Session. An explicit scope
+            on an existing Session must match its saved domain set.
 
     Raises:
         SessionStateError: Both ``backends`` and ``backend_factory`` were
             supplied.
         SessionTimezoneConflict: A ``report_timezone`` was requested that
             conflicts with the persisted report timezone.
+        SessionStateError: An explicit ``domains`` scope conflicts with the
+            existing Session's fixed scope; the error shows both sets.
 
     Example:
         >>> session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
+        >>> sales_session = mv.session.get_or_create("sales-review", domains="sales")
     """
     from marivo.analysis.session._runtime import (
         _build_connection_runtime,
     )
     from marivo.analysis.session._store import SessionStore as _Store
 
+    selected_domains = _normalize_domains(domains)
     store = _Store()
     connection_runtime = _build_connection_runtime(
         store.project_root,
@@ -264,6 +330,7 @@ def get_or_create(
         name=name,
         question=question,
         cwd=Path.cwd(),
+        domains=selected_domains,
     )
 
     return _activate_session(
@@ -272,6 +339,7 @@ def get_or_create(
         connection_runtime=connection_runtime,
         report_timezone=report_timezone,
         question_update=question,
+        requested_domains=selected_domains,
     )
 
 

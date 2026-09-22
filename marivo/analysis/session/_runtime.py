@@ -988,12 +988,12 @@ def _build_connection_runtime(
     )
 
 
-def _build_semantic_catalog(project_root: Path) -> Any:
+def _build_semantic_catalog(project_root: Path, domains: tuple[str, ...] | None = None) -> Any:
     """Build a SemanticCatalog from the project root, preserving not-ready state."""
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(workspace_dir=project_root)
-    project.load()
+    project.load(domains=domains)
     return project.catalog()
 
 
@@ -1028,14 +1028,16 @@ def _session_from_row(
     """Build a live ``Session`` from a store row and a runtime connection runtime.
 
     Only persisted metadata is used: id, name, question, cwd, created_at,
-    updated_at and report timezone from session meta.
+    updated_at, fixed domain scope, and report timezone from session meta.
     """
     # sqlite3.Row is not importable at type-check time; accept a duck-typed row.
     session_id = row["id"]
     store.validate_session_runtime_schema(str(session_id))
     project_root = store.project_root
     layout = PersistenceLayout(project_root=project_root, session_id=session_id)
-    semantic_catalog = _build_semantic_catalog(project_root)
+    semantic_catalog = _build_semantic_catalog(
+        project_root, store.get_session_domains(str(session_id))
+    )
     from marivo.ontology import OntologyCatalog
     from marivo.ontology import load as load_ontology
     from marivo.ontology.errors import OntologyLoadError
