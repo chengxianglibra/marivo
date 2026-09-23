@@ -145,14 +145,25 @@ class Registry:
         object.__setattr__(self, name, value)
 
 
-def _target_error(*, ref: str, expected: str, received: str, action: str) -> NoReturn:
+def _target_error(
+    *,
+    ref: str,
+    expected: str,
+    received: str,
+    action: str,
+    kind: ErrorKind | str = "invalid_target_semantics",
+    constraint_id: ConstraintId | None = None,
+    location: SourceLocation | None = None,
+) -> NoReturn:
     raise SemanticLoadError(
-        kind="invalid_target_semantics",
+        kind=kind,
         message="The declaration cannot supply the typed analysis semantic contract.",
         refs=(ref,),
+        location=location,
         expected=expected,
         received=received,
         hint=action,
+        constraint_id=constraint_id,
         repair=repair(kind="reauthor", canonical_id="entity", action=action),
     )
 
@@ -289,12 +300,47 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
     columns = _target_columns(entity)
     types = dict(columns)
     key = entity.primary_key
-    if len(set(key)) != len(key) or any(name not in types for name in key):
+    seen_keys: set[str] = set()
+    duplicate_keys: list[str] = []
+    for name in key:
+        if name in seen_keys and name not in duplicate_keys:
+            duplicate_keys.append(name)
+        seen_keys.add(name)
+    if duplicate_keys:
         _target_error(
             ref=entity_id,
-            expected="distinct identity keys with declared source types",
-            received="duplicate keys or missing type facts",
-            action="Declare each identity key once in the typed source schema.",
+            expected="each identity key listed once in primary_key",
+            received=f"duplicate identity keys {tuple(duplicate_keys)!r}",
+            action=f"Remove {tuple(duplicate_keys)!r} from repeated positions in primary_key.",
+            kind=ErrorKind.DUPLICATE_IDENTITY_KEY,
+            constraint_id=ConstraintId.ENTITY_IDENTITY_KEY_UNIQUE,
+            location=entity.location,
+        )
+    missing_types = tuple(name for name in key if name not in types)
+    if missing_types:
+        if isinstance(entity.source, TableSourceIR):
+            action = (
+                "Declare a complete md.table(columns={...}) typed interface containing every "
+                "identity key; md.inspect(...).source_column(name) can provide each binding."
+                if not entity.source.columns
+                else f"Add bindings for {missing_types!r} to md.table(columns=...); "
+                "md.inspect(...).source_column(name) can provide each binding."
+            )
+        elif isinstance(entity.source, CsvSourceIR | JsonSourceIR):
+            action = f"Declare types for {missing_types!r} in the source schema."
+        else:
+            action = (
+                "Use a source with authored type facts for versioned identity keys; "
+                "md.parquet(...) has no typed schema declaration."
+            )
+        _target_error(
+            ref=entity_id,
+            expected="declared source types for every identity key",
+            received=f"missing type facts for {missing_types!r}",
+            action=action,
+            kind=ErrorKind.MISSING_IDENTITY_KEY_TYPE,
+            constraint_id=ConstraintId.ENTITY_IDENTITY_KEY_TYPED,
+            location=entity.location,
         )
     signature = tuple((name, types[name]) for name in key)
     version: TargetSnapshotVersion | TargetValidityVersion | None = None
@@ -306,8 +352,13 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             _target_error(
                 ref=entity_id,
                 expected="stable identity K separate from snapshot coordinate",
-                received="snapshot coordinate included in K",
-                action="Declare stable identity keys without the version coordinate.",
+                received=(
+                    f"snapshot coordinate {axis.source_column!r} included in primary_key={key!r}"
+                ),
+                action=f"Remove {axis.source_column!r} from primary_key; keep it in versioning.",
+                kind=ErrorKind.IDENTITY_VERSION_OVERLAP,
+                constraint_id=ConstraintId.ENTITY_VERSION_KEY_SEPARATE,
+                location=entity.location,
             )
         version = TargetSnapshotVersion(
             axis.ref,
@@ -320,14 +371,25 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
     elif isinstance(authored, ValidityVersioningIR):
         start = _target_time_axis(registry, entity, authored.valid_from)
         end = _target_time_axis(registry, entity, authored.valid_to)
-        if start.source_column == end.source_column or any(
-            column in key for column in (start.source_column, end.source_column)
-        ):
+        if start.source_column == end.source_column:
             _target_error(
                 ref=entity_id,
                 expected="distinct validity bounds separate from K",
-                received="overlapping identity and version declarations",
-                action="Declare stable identity keys and two distinct validity axes.",
+                received=f"validity bounds share source column {start.source_column!r}",
+                action="Declare two distinct validity axes.",
+            )
+        overlapping = tuple(
+            column for column in (start.source_column, end.source_column) if column in key
+        )
+        if overlapping:
+            _target_error(
+                ref=entity_id,
+                expected="stable identity K separate from validity coordinates",
+                received=f"validity coordinates {overlapping!r} included in primary_key={key!r}",
+                action=f"Remove {overlapping!r} from primary_key; keep them in versioning.",
+                kind=ErrorKind.IDENTITY_VERSION_OVERLAP,
+                constraint_id=ConstraintId.ENTITY_VERSION_KEY_SEPARATE,
+                location=entity.location,
             )
         version = TargetValidityVersion(
             start.ref,

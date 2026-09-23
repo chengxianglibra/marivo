@@ -592,6 +592,10 @@ def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
         "invalid_project": "semantic.authoring",
         "domain_file_missing": "semantic.objects.domain",
         "domain_file_mismatch": "semantic.domain",
+        "entity_constructor_as_decorator": "semantic.entity",
+        "duplicate_identity_key": "semantic.entity",
+        "missing_identity_key_type": "semantic.entity",
+        "identity_version_overlap": "semantic.entity",
         "organization_error": "semantic.authoring",
     }
     actual = {

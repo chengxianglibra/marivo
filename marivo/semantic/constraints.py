@@ -31,6 +31,7 @@ class ConstraintId(StrEnum):
     ACTIVE_DOMAIN_REQUIRED = "active_domain_required"
     UNIQUE_SEMANTIC_NAME = "unique_semantic_name"
     REF_SHAPE = "ref_shape"
+    ENTITY_CONSTRUCTOR_ASSIGNMENT = "entity_constructor_assignment"
     FILTER_CONDITION_VALID = "filter_condition_valid"
     COMPOSITION_SHAPE = "composition_shape"
     CUMULATIVE_ANCHOR = "cumulative_anchor"
@@ -69,6 +70,9 @@ class ConstraintId(StrEnum):
     METRIC_FANOUT_POLICY_VALID = "metric_fanout_policy_valid"
     METRIC_FANOUT_POLICY_DERIVED = "metric_fanout_policy_derived"
     ENTITY_VERSIONING_VALID = "entity_versioning_valid"
+    ENTITY_IDENTITY_KEY_UNIQUE = "entity_identity_key_unique"
+    ENTITY_IDENTITY_KEY_TYPED = "entity_identity_key_typed"
+    ENTITY_VERSION_KEY_SEPARATE = "entity_version_key_separate"
     MATERIALIZE_EXECUTION = "materialize_execution"
     BACKEND_DIALECT_MATCH = "backend_dialect_match"
     COMPILE_EXPRESSION = "compile_expression"
@@ -165,6 +169,15 @@ def _constraint(
 
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
+    ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT: _constraint(
+        ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT,
+        "entity_constructor_as_decorator",
+        "decorator",
+        ("entity",),
+        "ms.entity(...) is an assignment-style constructor, not a decorator.",
+        "It returns a non-callable Ref[entity] when the declaration is evaluated.",
+        "Assign the result of ms.entity(...) to a name and remove the decorated function body.",
+    ),
     ConstraintId.ACTIVE_LOADER_CONTEXT: _constraint(
         ConstraintId.ACTIVE_LOADER_CONTEXT,
         "outside_loader_context",
@@ -661,6 +674,33 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Snapshot versioning coordinates must be separate from stable primary_key identity.",
         "The partition field determines which rows are used for latest snapshot joins.",
         "Keep stable identity columns in primary_key and declare the partition coordinate in versioning.",
+    ),
+    ConstraintId.ENTITY_IDENTITY_KEY_UNIQUE: _constraint(
+        ConstraintId.ENTITY_IDENTITY_KEY_UNIQUE,
+        "duplicate_identity_key",
+        "assembly",
+        ("entity",),
+        "Each stable Entity identity key appears once in primary_key.",
+        "A repeated name cannot define one ordered identity tuple.",
+        "Remove repeated names from primary_key.",
+    ),
+    ConstraintId.ENTITY_IDENTITY_KEY_TYPED: _constraint(
+        ConstraintId.ENTITY_IDENTITY_KEY_TYPED,
+        "missing_identity_key_type",
+        "assembly",
+        ("entity",),
+        "Every identity key has a declared type in the Entity source.",
+        "Static semantic validation does not infer types from live catalog metadata.",
+        "Declare each missing identity key in the complete typed source interface.",
+    ),
+    ConstraintId.ENTITY_VERSION_KEY_SEPARATE: _constraint(
+        ConstraintId.ENTITY_VERSION_KEY_SEPARATE,
+        "identity_version_overlap",
+        "assembly",
+        ("entity",),
+        "Stable identity keys exclude snapshot and validity row coordinates.",
+        "The source row key derives from identity and the independent version coordinate.",
+        "Remove version coordinates from primary_key and keep them in versioning.",
     ),
     ConstraintId.METRIC_EXISTS: _constraint(
         ConstraintId.METRIC_EXISTS,

@@ -107,6 +107,11 @@ Its ordered `primary_key` is the identity of one Entity instance, denoted `K`;
 it is not a copy of the source table's physical uniqueness constraint. Version
 coordinates belong to `versioning` and are not added to `K` merely to distinguish
 historical rows. The same `K` may appear in multiple historical versions.
+`ms.entity(...)` is an assignment-style constructor returning `Ref[entity]`;
+it cannot decorate a function. For versioned Entities, each identity key and
+version axis needs an authored source type even when `md.inspect(...)` can read
+the physical catalog. Loading checks duplicate keys, missing type facts, and
+identity/version overlap in that order, reporting the first defect for each Entity.
 
 ```python
 warehouse = ms.ref.datasource("warehouse")
@@ -150,7 +155,10 @@ snapshot period. The example is target-design authoring:
 user_profile_daily = ms.entity(
     name="user_profile_daily",
     datasource=warehouse,
-    source=md.table("user_profile_daily"),
+    source=md.table("user_profile_daily", columns={
+        "user_id": md.source_column("user_id", data_type="int64"),
+        "dt": md.source_column("dt", data_type="string"),
+    }),
     primary_key=["user_id"],
     versioning=ms.snapshot(
         partition_field=ms.ref.time_dimension("sales.user_profile_daily.dt"),
@@ -190,7 +198,11 @@ evidence before publication.
 user_history = ms.entity(
     name="user_history",
     datasource=warehouse,
-    source=md.table("user_history"),
+    source=md.table("user_history", columns={
+        "user_id": md.source_column("user_id", data_type="int64"),
+        "valid_from": md.source_column("valid_from", data_type="date"),
+        "valid_to": md.source_column("valid_to", data_type="date"),
+    }),
     primary_key=["user_id"],
     versioning=ms.validity(
         valid_from=valid_from,

@@ -278,6 +278,11 @@ fill omitted columns, and duplicate physical identifiers are rejected. The
 datasource adapter generates one identifier-only inner `SELECT` without a table
 alias and supplies the declared schema to the backend. The binding mapping remains
 part of source, snapshot, semantic dependency, cache, and lineage identity.
+For an inspected table, `inspection.source_column("physical_name")` returns a
+binding with the backend type normalized to an Ibis declaration type. The
+inspection card retains the physical type alongside the normalized type and a
+copyable binding. Unsupported or ambiguous types have no generated binding;
+the helper fails with a structured repair rather than guessing or casting.
 
 Backend-aware metadata normalizes SQLite integer aliases to int64 and text
 aliases to string. An explicit MySQL Boolean binding may use TINYINT(1); ordinary

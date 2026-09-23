@@ -430,6 +430,11 @@ Its reusable recordset meaning, authoritative source, row grain, identity,
 history model, and domain ownership must agree. Use
 `marivo.help("semantic.objects.entity")` for that checklist and
 `marivo.help("semantic.entity")` for the installed signature.
+`ms.entity(...)` returns a non-callable ref: assign it to a name rather than
+placing it above a function with `@`. For a versioned Entity, static loading
+requires declared types for every identity key and version axis. It reports
+duplicate keys, missing types, and version coordinates in `primary_key` as
+separate errors, one at a time in that order.
 
 ```python
 warehouse = ms.ref.datasource("warehouse")
@@ -478,6 +483,20 @@ preview, and then use zero-query readiness. Static loading and validation prove
 declaration coherence; preview is the runtime authority. The source is recorded
 as `TABLE_PROJECTION`, while its aliases remain bindings inside one physical
 table rather than becoming separate sources.
+
+For a table inspected through `md.inspect`, use the retained metadata to create
+a typed binding without guessing a backend-to-Ibis type mapping:
+
+```python
+inspection = md.inspect(warehouse, md.table("orders"))
+order_id = inspection.source_column("order_id")  # bigint metadata becomes int64
+orders_source = md.table("orders", columns={"order_id": order_id})
+```
+
+Include every output needed by the projected source. The inspection card shows
+both physical and Ibis types and a copyable binding; `inspection.schema` retains
+the physical type. `inspection.source_column(...)` reads no rows, performs no
+cast, and rejects types it cannot map safely.
 
 ### 3. Add fields
 
@@ -1389,7 +1408,8 @@ inapplicable event branch, an unknown value, or something else. Marivo neither
 labels a high null rate as a quality failure nor filters nulls automatically.
 
 Inspection cards include the exact source descriptor and real schema names and
-types. Partition cards report the requested ascending/descending physical-value
+types. For ordinary tables they also show normalized Ibis types and binding
+examples. Partition cards report the requested ascending/descending physical-value
 edge, value source, completeness, truncation, bounded values, and a scope
 template. String or numeric ordering is not automatically chronological. The
 default descending edge reuses captured metadata; another limit or order

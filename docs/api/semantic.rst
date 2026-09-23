@@ -22,6 +22,11 @@ case-insensitive filesystems.
 .. autofunction:: time_dimension
 .. autofunction:: domain
 
+``ms.entity(...)`` returns a non-callable Entity ref and must be assigned to a
+name. It is not a function decorator. Versioned Entity identity keys require
+declared source types, and snapshot or validity coordinates stay outside
+``primary_key``.
+
 Event helpers
 -------------
 

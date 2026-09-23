@@ -44,6 +44,7 @@ PUBLIC_CALLABLE_TARGETS = {
     "DatasourceCatalog.test",
     "DatasourceConnection.disconnect",
     "SourceInspection.partitions",
+    "SourceInspection.source_column",
     "SourceInspection.sample",
 }
 
@@ -123,6 +124,7 @@ EXPECTED_EFFECTS = {
     "SourceInspection.partitions": AuthoringEffects(
         data_access="live_metadata_read", connection="opens_connection"
     ),
+    "SourceInspection.source_column": AuthoringEffects(data_access="none", connection="none"),
     "SourceInspection.sample": AuthoringEffects(
         data_access="scoped_data_read",
         connection="opens_connection",
@@ -230,6 +232,7 @@ def test_registry_retains_direct_inspection_and_acquisition_facts() -> None:
 def test_type_contracts_list_registered_consumption_methods() -> None:
     assert tuple(target.canonical_id for target in TYPE_CONTRACTS[SourceInspection].consumers) == (
         "SourceInspection.partitions",
+        "SourceInspection.source_column",
         "SourceInspection.sample",
     )
     assert TYPE_CONTRACTS[DiscoverySnapshot].consumers == ()
@@ -241,6 +244,9 @@ def test_registry_resolves_functions_and_bound_methods() -> None:
     assert REGISTRY.by_callable(md.inspect) is REGISTRY.by_canonical_id("inspect")
     assert REGISTRY.by_callable(md.source_param) is REGISTRY.by_canonical_id("source_param")
     assert REGISTRY.by_callable(md.source_column) is REGISTRY.by_canonical_id("source_column")
+    assert REGISTRY.by_callable(SourceInspection.source_column) is REGISTRY.by_canonical_id(
+        "SourceInspection.source_column"
+    )
     assert REGISTRY.by_callable(md.load().list) is REGISTRY.by_canonical_id(
         "DatasourceCatalog.list"
     )
