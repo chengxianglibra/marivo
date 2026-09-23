@@ -17,6 +17,7 @@ import ibis.expr.types as ir
 import pyarrow as pa
 from sqlglot import expressions as sge
 
+from marivo.analysis.compiler.nodes import CompiledRelationFence, CompiledValidation
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
@@ -27,7 +28,11 @@ from marivo.analysis.materialization.errors import (
     unsupported_source_type,
 )
 from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
-from marivo.analysis.materialization.postgres_event_sql import EventBundleSQL, compile_event_bundle
+from marivo.analysis.materialization.postgres_event_sql import (
+    EventBundleSQL,
+    compile_event_bundle,
+    compile_event_expression,
+)
 from marivo.analysis.materialization.submissions import ObservedExecution
 from marivo.analysis.materialization.temporal_sql import governed_temporal_operation
 from marivo.analysis.operators.postgres_support import supported_type
@@ -410,6 +415,41 @@ class PostgresExecutionAdapter(ObservedExecution):
         self._streams: set[PostgresBatchStream | PostgresEventBundleStream] = set()
         self._event_bundle: PostgresEventBundleStream | None = None
         self._event_primary: ops.Node | None = None
+        self._event_relation_prefix: str | None = None
+        self._event_relation_scope = ExitStack()
+
+    def open_event_relations(self, recipe: CompiledDataset) -> tuple[tuple[str, int], ...]:
+        """Read complete replay and its parts under one read-only source snapshot."""
+        if self._event_relation_prefix is not None or self._closed:
+            raise self._error("execution_boundary")
+        self._event_relation_scope.enter_context(self._backend.con.transaction())
+        control = "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+        with self.submission("event_source.snapshot", control):
+            self._backend.con.execute(control)
+        preparations = recipe.preparations or recipe.validations
+        ctes = [
+            f"{sge.to_identifier(item.relation_name, quoted=True).sql(dialect='postgres')} "
+            f"AS MATERIALIZED ({compile_event_expression(item.expression)})"
+            for item in preparations
+            if isinstance(item, CompiledRelationFence)
+        ]
+        self._event_relation_prefix = "WITH " + ", ".join(ctes) + " "
+        accepted: list[tuple[str, int]] = []
+        for check in preparations:
+            if not isinstance(check, CompiledValidation):
+                continue
+            checked = self.read_table(self.prepare(check.expression, role=check.name))
+            violations = checked["violations"][0].as_py() if checked.num_rows == 1 else None
+            if type(violations) is not int or violations != 0:
+                raise MaterializationError(
+                    expected=check.expected or "zero Event/Lifecycle source violations",
+                    received=f"Event/Lifecycle validation failed: {check.name}",
+                    repair=check.repair or "Repair the governed Event/Lifecycle source rows.",
+                    stage="output_validation",
+                    run_ref=self._run_ref,
+                )
+            accepted.append((check.name, 0))
+        return tuple(accepted)
 
     def open_event_bundle(
         self, recipe: CompiledDataset, *, step_keys: tuple[str, ...]
@@ -436,16 +476,28 @@ class PostgresExecutionAdapter(ObservedExecution):
     def _expression(self, expression: ir.Expr) -> None:
         if self._closed:
             raise self._error("closed_context")
+        from marivo.analysis.compiler.event_time import _localize_utc
+
+        localize = type(_localize_utc("UTC", ibis.timestamp("2000-01-01")).op())
         if any(
             not governed_temporal_operation(node)
+            and not (self._event_relation_prefix is not None and isinstance(node, localize))
             for node in expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF))
         ):
             raise self._error("preparation")
 
     def prepare(self, expression: ir.Expr, *, role: str = "query") -> Statement:
         self._expression(expression)
+        sql = (
+            self._backend.compile(_postgres_expression(expression).as_table(), limit=None)
+            if self._event_relation_prefix is None
+            else self._event_relation_prefix
+            + "SELECT * FROM ("
+            + compile_event_expression(expression.as_table())
+            + ") AS _mv_result"
+        )
         return Statement(
-            self._backend.compile(_postgres_expression(expression).as_table(), limit=None),
+            sql,
             (),
             expression.as_table().schema().to_pyarrow(),
             role,
@@ -501,14 +553,18 @@ class PostgresExecutionAdapter(ObservedExecution):
         if isinstance(value, ir.Expr):
             self._expression(value)
             self._backend._run_pre_execute_hooks(value)
-            statement = Statement(
-                self._backend.compile(
-                    _postgres_expression(value).as_table(), params=params, limit=None
-                ),
-                (),
-                value.as_table().schema().to_pyarrow(),
-                role,
-                self._context,
+            statement = (
+                self.prepare(value, role=role)
+                if self._event_relation_prefix is not None and params is None
+                else Statement(
+                    self._backend.compile(
+                        _postgres_expression(value).as_table(), params=params, limit=None
+                    ),
+                    (),
+                    value.as_table().schema().to_pyarrow(),
+                    role,
+                    self._context,
+                )
             )
         else:
             if params is not None:
@@ -669,6 +725,7 @@ class PostgresExecutionAdapter(ObservedExecution):
         try:
             with ExitStack() as stack:
                 stack.callback(self._backend.disconnect)
+                stack.callback(self._event_relation_scope.close)
                 for stream in tuple(self._streams):
                     stack.callback(stream.close)
         finally:

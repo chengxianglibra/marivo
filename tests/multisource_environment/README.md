@@ -462,3 +462,26 @@ any of trino, clickhouse, or clickhouse-cluster stops the other two, while
 explicitly; starting another group also stops the rest. Task 5's opt-in tests
 (`MARIVO_CLICKHOUSE_CLUSTER_TEST`, `MARIVO_TRINO_NON_ICEBERG_TEST`) consume
 these fixtures; no default gate starts any of these services.
+
+## C9 Event reader settings
+
+ClickHouse Event matching uses `AS MATERIALIZED` with the query-local setting
+`enable_materialized_cte=1`. Without that setting ClickHouse 26.3 accepts the
+syntax but does not freeze the CTE. Fixture setup keeps the default at zero and
+grants it `CHANGEABLE_IN_READONLY`; `readonly=1`, `join_use_nulls=1` and
+`enable_shared_storage_snapshot_in_query=1` remain required. Event qualification
+currently covers MergeTree tables only. Experimental non-materialized Event
+reducers were withdrawn after planner/memory failures; their temporary permission
+to change query-plan optimization was removed.
+Scalar C8 queries keep their previous default.
+Trino Event tests use Iceberg under one explicit `REPEATABLE READ, READ ONLY`
+transaction. Independent output assertions return counts only; no stage-limit
+increase, temporary table or write privilege is used.
+
+Lifecycle qualification uses native array folds on Trino and ClickHouse, including
+histories and same-Event tied groups longer than ten occurrences. Trino retains
+the read-only snapshot for scalar assertions and all output parts. ClickHouse
+Lifecycle uses one ordered proof/history/parts statement with ordinary CTEs and
+`enable_shared_storage_snapshot_in_query=1`; it does not require materialized CTEs
+or permission to change query-plan optimization. Actual query-log/HTTP observation
+and source-offline cold continuation are separate acceptance checks.

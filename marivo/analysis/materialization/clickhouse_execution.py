@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from datetime import timedelta
 from itertools import islice
@@ -14,16 +14,30 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import pyarrow as pa
 
+from marivo.analysis.compiler.nodes import CompiledDataset
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
+from marivo.analysis.domains.completeness import (
+    EventCoverageProvider,
+    EventCoverageResolution,
+    resolve_event_coverage,
+)
+from marivo.analysis.domains.contracts import EventDefinition
+from marivo.analysis.domains.lifecycle import LifecycleSemantics
 from marivo.analysis.materialization.errors import (
     MaterializationError,
     source_type_errors,
     unsupported_source_type,
 )
-from marivo.analysis.materialization.execution import Parameter
-from marivo.analysis.materialization.scalar_sql_execution import ScalarExecutionAdapter
+from marivo.analysis.materialization.event_bundle import EventBundleStream
+from marivo.analysis.materialization.execution import BatchStream, Parameter, Statement
+from marivo.analysis.materialization.lifecycle_bundle import LifecycleBundle
+from marivo.analysis.materialization.scalar_sql_execution import (
+    ScalarExecutionAdapter,
+    ScalarStatement,
+)
 from marivo.analysis.operators.clickhouse_support import supported_type
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
@@ -103,6 +117,160 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         super().__init__(backend, run_ref=run_ref)
         self._clickhouse = backend
         self._cursors: set[ClickHouseCursor] = set()
+        self._event_bundle: EventBundleStream | None = None
+        self._event_primary: ops.Node | None = None
+        self._source_engines: set[str] = set()
+        self.lifecycle_bundle: LifecycleBundle | None = None
+        self._lifecycle_compiling = False
+
+    def open_event_bundle(
+        self, recipe: CompiledDataset, *, step_keys: tuple[str, ...]
+    ) -> tuple[tuple[str, int], ...]:
+        from marivo.analysis.materialization.clickhouse_event_sql import compile_event_bundle
+
+        self._check()
+        if self._event_bundle is not None:
+            raise self.unsupported("Event bundle already submitted")
+        if self._source_engines != {"MergeTree"}:
+            raise self.unsupported("Event snapshots require qualified MergeTree tables")
+        shared = self.read_scalar(
+            self.statement(
+                "SELECT getSetting('enable_shared_storage_snapshot_in_query')",
+                role="engine_check.event_snapshot",
+            )
+        )
+        if shared != 1:
+            raise self.unsupported(
+                "Event assertions require enable_shared_storage_snapshot_in_query=1"
+            )
+        materialized = self.read_scalar(
+            self.statement(
+                "SELECT getSetting('enable_materialized_cte') SETTINGS enable_materialized_cte=1",
+                role="engine_check.event_cte",
+            )
+        )
+        if materialized != 1:
+            raise self.error(
+                "ClickHouse Event reader with enable_materialized_cte=1",
+                "materialized CTE execution is disabled",
+                "Ask the datasource administrator to enable materialized CTEs in the read-only reader profile.",
+                stage="implementation_registration",
+            )
+        bundle = compile_event_bundle(recipe, step_keys=step_keys)
+        stream = EventBundleStream(self, bundle)
+        self._streams.add(stream)
+        self._event_bundle = stream
+        self._event_primary = recipe.expression.op()
+        return stream.validations
+
+    def open_lifecycle_bundle(
+        self, recipe: CompiledDataset, semantics: LifecycleSemantics
+    ) -> tuple[tuple[str, int], ...]:
+        self._check()
+        if self.lifecycle_bundle is not None or self._source_engines != {"MergeTree"}:
+            raise self.unsupported("Lifecycle requires an unopened qualified MergeTree source")
+        if (
+            self.read_scalar(
+                self.statement(
+                    "SELECT getSetting('enable_shared_storage_snapshot_in_query')",
+                    role="engine_check.lifecycle_snapshot",
+                )
+            )
+            != 1
+        ):
+            raise self.unsupported("Lifecycle requires shared storage snapshots within a query")
+        self._lifecycle_compiling = True
+        self.lifecycle_bundle = LifecycleBundle(self, recipe, semantics)
+        return self.lifecycle_bundle.validations
+
+    def _prepare(
+        self,
+        expression: ir.Expr,
+        *,
+        role: str,
+        params: Mapping[ir.Scalar, Parameter] | None = None,
+        execute: bool = False,
+    ) -> ScalarStatement:
+        if not self._lifecycle_compiling:
+            return super()._prepare(expression, role=role, params=params, execute=execute)
+        from marivo.analysis.compiler.event_time import _localize_utc
+
+        self._check()
+        localize = type(_localize_utc("UTC", ibis.timestamp("2000-01-01")).op())
+        if any(
+            not isinstance(node, localize)
+            for node in expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF))
+        ):
+            raise self.unsupported("Lifecycle uploads or ungoverned UDFs")
+        return ScalarStatement(
+            self._compile_sql(expression, params=params),
+            (),
+            expression.as_table().schema().to_pyarrow(),
+            role,
+            self._context,
+            native_structs=True,
+        )
+
+    def _compile_sql(
+        self, expression: ir.Expr, *, params: Mapping[ir.Scalar, Parameter] | None = None
+    ) -> str:
+        if self._lifecycle_compiling:
+            from marivo.analysis.materialization.clickhouse_event_sql import (
+                compile_event_expression,
+            )
+
+            if params is not None:
+                raise self.unsupported("parameterized Lifecycle relation")
+            return compile_event_expression(expression)
+        return super()._compile_sql(expression, params=params)
+
+    def event_bundle_proof(self) -> pa.Table:
+        self._check()
+        if self._event_bundle is None:
+            raise self.unsupported("Event bundle was not submitted")
+        return self._event_bundle.proof
+
+    def batches(
+        self,
+        value: Statement | ir.Expr,
+        *,
+        chunk_size: int,
+        params: Mapping[ir.Scalar, Parameter] | None = None,
+        role: str = "query",
+    ) -> BatchStream:
+        if (
+            isinstance(value, ir.Table)
+            and self.lifecycle_bundle is not None
+            and self.lifecycle_bundle.certifies(value)
+        ):
+            return self.lifecycle_bundle.stream(value)
+        if (
+            isinstance(value, ir.Expr)
+            and self._event_bundle is not None
+            and value.op() is self._event_primary
+            and role == "primary"
+            and params is None
+        ):
+            return self._event_bundle
+        return super().batches(value, chunk_size=chunk_size, params=params, role=role)
+
+    def resolve_coverage(
+        self,
+        definition: EventDefinition,
+        *,
+        provider: EventCoverageProvider | None,
+        source_binding_fingerprint: str,
+        execution_domain_id: str,
+        require_source_origin: bool,
+    ) -> EventCoverageResolution:
+        if provider is not None:
+            raise self.unsupported("ClickHouse Event coverage provider")
+        return resolve_event_coverage(
+            definition,
+            source_binding_fingerprint=source_binding_fingerprint,
+            execution_domain_id=execution_domain_id,
+            require_source_origin=require_source_origin,
+        )
 
     def cursor(self, *, stream: bool) -> ClickHouseCursor:
         self._check()
@@ -111,6 +279,8 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         return result
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
+        if self._lifecycle_compiling:
+            return expression
         from marivo.analysis.materialization.temporal_sql import lower_temporal
 
         expression = lower_temporal(expression, self.engine)
@@ -196,6 +366,7 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 f"no system.tables engine value {kind!r} was returned; "
                 "verify the database and table names on this ClickHouse server."
             )
+        self._source_engines.add(kind)
         query = f"DESCRIBE TABLE {_identifier(database)}.{_identifier(name)}"
         rows = self.submit(self.statement(query, role="source_schema"))
         fields: dict[str, dt.DataType] = {}
@@ -307,6 +478,8 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         try:
             with ExitStack() as stack:
                 stack.callback(self._clickhouse.disconnect)
+                if self.lifecycle_bundle is not None:
+                    stack.callback(self.lifecycle_bundle.close)
                 for cursor in tuple(self._cursors):
                     stack.callback(cursor.close)
                 for stream in tuple(self._streams):
@@ -338,13 +511,12 @@ def bind_clickhouse(
 
 
 def admit_dataset(dataset: LogicalDataset) -> None:
-    from marivo.analysis.operators.clickhouse_support import unsupported_reason
+    from marivo.analysis.operators.registry import implementation, source_unsupported_reason
 
-    reason = unsupported_reason(dataset)
-    if reason is not None:
+    if implementation(dataset).for_backend("clickhouse") is None:
         raise MaterializationError(
-            expected="an individually qualified ClickHouse scalar method closure",
-            received=reason,
-            repair="Use qualified scalar methods, native civil-date axes and declared ClickHouse sources.",
+            expected="an individually qualified ClickHouse method closure",
+            received=source_unsupported_reason(dataset, "clickhouse") or "unregistered method",
+            repair="Use an exact admitted method shape and declared ClickHouse sources.",
             stage="implementation_registration",
         )

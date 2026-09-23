@@ -4,94 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-import ibis.expr.types as ir
 from sqlglot import expressions as sge
 
 from marivo.analysis.datasets.descriptors import DatasetFieldId
-from marivo.analysis.domains.lifecycle import ROLES, LifecycleSemantics
 from marivo.analysis.materialization.duckdb_execution import quote
-from marivo.analysis.materialization.execution import ExecutionAdapter
-from marivo.analysis.materialization.lifecycle_codec import invalid
-
-
-def integrity_sql(
-    backend: ExecutionAdapter,
-    history: ir.Table,
-    parts: Mapping[str, ir.Table],
-    semantics: LifecycleSemantics,
-) -> str:
-    from marivo.analysis.compiler.lifecycle import literal
-
-    if set(parts) != set(ROLES):
-        raise invalid("missing required Lifecycle retained relation")
-    start = f"TIMESTAMPTZ {literal(semantics.source.cohort_start)}"
-    end = f"TIMESTAMPTZ {literal(semantics.source.cohort_end)}"
-    states = ", ".join(literal(x) for x in semantics.states)
-    events = ", ".join(literal(s.event.key) for s in semantics.source.pattern.steps)
-    rules = (
-        " OR ".join(
-            f"(t.from_model_state={literal(a)} AND t.to_model_state={literal(c)} AND t.trigger_event_ref={literal(next(s.event.key for s in semantics.source.pattern.steps if s.key == b))})"
-            for a, b, c in semantics.transitions
-        )
-        or "FALSE"
-    )
-    terms = [
-        f"SELECT count(*) FROM h WHERE entity_identity IS NULL OR model_state IS NULL OR interval_status IS NULL OR entered_by_event_ref IS NULL OR model_state NOT IN ({states}) OR valid_from IS NULL OR valid_to IS NULL OR valid_from >= valid_to OR valid_from < {start} OR valid_to > {end} OR interval_status NOT IN ('completed','right_censored','coverage_censored') OR entered_by_event_ref NOT IN ({events}) OR entered_by_event_identity IS NULL OR left_clipped IS NULL OR (left_clipped AND valid_from <> {start}) OR ((exited_by_event_ref IS NULL) <> (exited_by_event_identity IS NULL)) OR (interval_status='completed' AND exited_by_event_ref IS NULL) OR (interval_status='right_censored' AND valid_to <> {end})",
-        "SELECT count(*) FROM (SELECT *, lag(valid_to) OVER(PARTITION BY entity_identity ORDER BY valid_from) AS previous_end FROM h) WHERE previous_end > valid_from",
-        "SELECT count(*) FROM h ANTI JOIN c USING(entity_identity)",
-        "SELECT count(*) FROM t ANTI JOIN c USING(entity_identity)",
-        "SELECT count(*) FROM v ANTI JOIN c USING(entity_identity)",
-        f"SELECT count(*) FROM c WHERE entity_identity IS NULL OR classification IS NULL OR classification NOT IN ('seeded','not_incepted','coverage_censored') OR known_through > {end} OR (inception_at IS NOT NULL AND (known_through IS NULL OR inception_at >= known_through)) OR (classification='seeded' AND (inception_at IS NULL OR known_through IS DISTINCT FROM {end})) OR (classification='not_incepted' AND (inception_at IS NOT NULL OR known_through IS DISTINCT FROM {end})) OR (classification='coverage_censored' AND known_through IS NOT DISTINCT FROM {end})",
-        f"SELECT count(*) FROM t WHERE entity_identity IS NULL OR transition_ordinal IS NULL OR transition_ordinal < 1 OR occurred_at IS NULL OR occurred_at < {start} OR occurred_at >= {end} OR from_model_state IS NULL OR to_model_state IS NULL OR trigger_event_ref IS NULL OR trigger_event_identity IS NULL OR NOT ({rules})",
-        "SELECT count(*) FROM (SELECT transition_ordinal, row_number() OVER(PARTITION BY entity_identity ORDER BY transition_ordinal) AS n FROM t) WHERE transition_ordinal <> n",
-        "SELECT count(*) FROM (SELECT *, lag(occurred_at) OVER(PARTITION BY entity_identity ORDER BY transition_ordinal) AS previous_time, lag(to_model_state) OVER(PARTITION BY entity_identity ORDER BY transition_ordinal) AS previous_state FROM t) WHERE previous_time > occurred_at OR previous_state <> from_model_state",
-        f"SELECT count(*) FROM v WHERE entity_identity IS NULL OR trigger_event_ref IS NULL OR trigger_event_ref NOT IN ({events}) OR trigger_event_identity IS NULL OR occurred_at IS NULL OR occurred_at < {start} OR occurred_at >= {end} OR model_state_at_event IS NULL OR model_state_at_event NOT IN ({states}) OR violation_kind IS NULL OR violation_kind NOT IN ('illegal_transition','transition_from_terminal')",
-        "SELECT count(*) FROM h JOIN c USING(entity_identity) WHERE interval_status IN ('completed','right_censored') AND (known_through IS NULL OR valid_to > known_through)",
-        "SELECT count(*) FROM h WHERE interval_status='completed' AND NOT EXISTS (SELECT 1 FROM t WHERE t.entity_identity=h.entity_identity AND t.occurred_at=h.valid_to AND t.from_model_state=h.model_state AND t.trigger_event_ref=h.exited_by_event_ref AND t.trigger_event_identity=h.exited_by_event_identity)",
-        "SELECT count(*) FROM (SELECT entity_identity, valid_from FROM h GROUP BY ALL HAVING count(*) <> 1)",
-        "SELECT count(*) FROM (SELECT entity_identity FROM c GROUP BY ALL HAVING count(*) <> 1)",
-        "SELECT count(*) FROM (SELECT trigger_event_ref, trigger_event_identity FROM (SELECT trigger_event_ref, trigger_event_identity FROM t UNION ALL SELECT trigger_event_ref, trigger_event_identity FROM v) GROUP BY trigger_event_ref, trigger_event_identity HAVING count(*) > 1)",
-    ]
-    inception_events = ", ".join(
-        literal(step.event.key)
-        for step in semantics.source.pattern.steps
-        if step.key in semantics.inceptions
-    )
-    terms.extend(
-        (
-            "SELECT count(*) FROM h JOIN c USING(entity_identity) WHERE c.classification='not_incepted'",
-            f"SELECT count(*) FROM h WHERE NOT left_clipped AND NOT EXISTS (SELECT 1 FROM t WHERE t.entity_identity=h.entity_identity AND t.occurred_at=h.valid_from AND t.to_model_state=h.model_state AND t.trigger_event_ref=h.entered_by_event_ref AND t.trigger_event_identity=h.entered_by_event_identity) AND NOT (h.model_state={literal(semantics.initial)} AND h.entered_by_event_ref IN ({inception_events}))",
-            "SELECT count(*) FROM h JOIN t ON h.entity_identity=t.entity_identity AND h.entered_by_event_ref=t.trigger_event_ref AND h.entered_by_event_identity=t.trigger_event_identity WHERE NOT h.left_clipped AND (h.model_state<>t.to_model_state OR h.valid_from<>t.occurred_at)",
-            f"SELECT count(*) FROM c WHERE inception_at IS NOT NULL AND known_through > greatest({start},inception_at) AND coalesce((SELECT sum(greatest(0,epoch_us(least(h.valid_to,c.known_through))-epoch_us(greatest(h.valid_from,c.inception_at,{start})))) FROM h WHERE h.entity_identity=c.entity_identity),0) <> epoch_us(known_through)-epoch_us(greatest({start},inception_at))",
-        )
-    )
-    for name in ("h", "t", "c", "v"):
-        components = " OR ".join(
-            f"entity_identity.{sge.to_identifier(key, quoted=True).sql(dialect='duckdb')} IS NULL"
-            for key, _ in semantics.source.subject_identity_signature
-        )
-        terms.append(f"SELECT count(*) FROM {name} WHERE {components}")
-    for table, column, nullable in (
-        ("h", "entered_by_event_identity", False),
-        ("h", "exited_by_event_identity", True),
-        ("t", "trigger_event_identity", False),
-        ("v", "trigger_event_identity", False),
-    ):
-        components = " OR ".join(
-            f"{column}.k{i} IS NULL" for i in range(len(semantics.source.occurrence_identity_types))
-        )
-        terms.append(
-            f"SELECT count(*) FROM {table} WHERE "
-            + (f"{column} IS NOT NULL AND ({components})" if nullable else components)
-        )
-
-    ctes = ", ".join(
-        f"{name} AS ({backend.compile(table)})"
-        for name, table in zip(
-            ("h", "t", "c", "v"), (history, *(parts[r] for r in ROLES)), strict=True
-        )
-    )
-    return f"WITH {ctes} SELECT " + " + ".join(f"({term})" for term in terms) + " AS violations"
 
 
 def attribution_summary_sql(

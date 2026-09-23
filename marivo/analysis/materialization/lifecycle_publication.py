@@ -11,8 +11,8 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.nodes import CompiledDataset, RetainedRelationSpec
 from marivo.analysis.domains.lifecycle import PART_COLUMNS, PART_KEYS, ROLES, LifecycleSemantics
-from marivo.analysis.materialization.duckdb_statements import integrity_sql
 from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary, invalid
+from marivo.analysis.materialization.lifecycle_integrity import integrity_sql
 from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.materialization.targets import ObjectBinding
 
@@ -73,6 +73,14 @@ def validate_relation(
     role: str,
 ) -> None:
     part_schema(row, role, table.schema().to_pyarrow())
+    from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
+
+    if (
+        isinstance(backend, ClickHouseExecutionAdapter)
+        and backend.lifecycle_bundle is not None
+        and backend.lifecycle_bundle.certifies(table)
+    ):
+        return
     keys = PART_KEYS[ROLES.index(role)]
     query = table.group_by(*keys).aggregate(n=table.count())
     bad = query.filter(query.n != 1).count()
@@ -85,6 +93,14 @@ def native_summary(
     recipe: CompiledDataset,
     row: DatasetRowContract,
 ) -> LifecycleEvidenceSummary:
+    from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
+
+    if (
+        isinstance(backend, ClickHouseExecutionAdapter)
+        and backend.lifecycle_bundle is not None
+        and backend.lifecycle_bundle.certifies(recipe.expression)
+    ):
+        return backend.lifecycle_bundle.evidence
     parts = {
         p.role: p.expression for p in recipe.retained_parts if isinstance(p, RetainedRelationSpec)
     }
@@ -105,20 +121,38 @@ def native_summary(
     wrong_coverage = ledger.filter(~ledger.known_through.identical_to(boundary)).count()
     if backend.read_scalar(backend.prepare(wrong_coverage, role="lifecycle.coverage_ledger")) != 0:
         raise invalid("Lifecycle coverage ledger differs from its retained source-origin prefix")
-    proof = integrity_sql(backend, recipe.expression, parts, semantics)
-    if (
-        backend.read_scalar(
-            backend.statement(
-                proof,
-                role="lifecycle.history_integrity",
-                inputs=tuple(backend.prepare(t) for t in (recipe.expression, *parts.values())),
-            )
+    from marivo.analysis.materialization.lifecycle_integrity import integrity_queries
+    from marivo.analysis.materialization.postgres_execution import PostgresExecutionAdapter
+    from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
+
+    proofs = (
+        integrity_queries(backend, recipe.expression, parts, semantics)
+        if isinstance(backend, TrinoExecutionAdapter)
+        else (
+            integrity_sql(
+                backend,
+                recipe.expression,
+                parts,
+                semantics,
+                dialect="postgres" if isinstance(backend, PostgresExecutionAdapter) else "duckdb",
+            ),
         )
-        != 0
-    ):
-        raise invalid("canonical Lifecycle replay integrity failed")
-    h, t, c, v = recipe.expression, *(parts[r] for r in ROLES)
-    # Return one scalar row; source identity rows remain inside DuckDB.
+    )
+    for proof in proofs:
+        if (
+            backend.read_scalar(
+                backend.statement(
+                    proof,
+                    role="lifecycle.history_integrity",
+                    inputs=tuple(backend.prepare(t) for t in (recipe.expression, *parts.values())),
+                )
+            )
+            != 0
+        ):
+            raise invalid("canonical Lifecycle replay integrity failed")
+    h = recipe.expression
+    t, c, v = parts[ROLES[0]], parts[ROLES[1]], parts[ROLES[2]]
+    # Return one scalar row; source identity rows remain inside the source engine.
     statements = (
         h.count(),
         c.count(),
@@ -132,13 +166,20 @@ def native_summary(
     query = "SELECT " + ", ".join(
         f"({backend.compile(expr)}) AS n{i}" for i, expr in enumerate(statements)
     )
-    result = backend.submit(
-        backend.statement(
-            query,
-            role="lifecycle.summary",
-            inputs=tuple(backend.prepare(expr) for expr in statements),
+    result = (
+        tuple(
+            backend.read_scalar(backend.prepare(expr, role="lifecycle.summary"))
+            for expr in statements
         )
-    ).fetchone()
+        if isinstance(backend, TrinoExecutionAdapter)
+        else backend.submit(
+            backend.statement(
+                query,
+                role="lifecycle.summary",
+                inputs=tuple(backend.prepare(expr) for expr in statements),
+            )
+        ).fetchone()
+    )
     if result is None or len(result) != 8:
         raise invalid("invalid native Lifecycle scalar summary")
     counts: list[int] = []

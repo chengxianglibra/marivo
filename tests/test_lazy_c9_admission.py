@@ -55,14 +55,8 @@ def _sources(backend: BackendName, *, lifecycle: bool) -> LazySources:
 @pytest.mark.parametrize(
     ("backend", "lifecycle", "reason"),
     [
-        *(
-            (backend, False, "source-side occurrence identity")
-            for backend in ("sqlite", "mysql", "trino", "clickhouse")
-        ),
-        *(
-            (backend, True, "recursive replay")
-            for backend in ("sqlite", "mysql", "trino", "clickhouse")
-        ),
+        *((backend, False, "source-side occurrence identity") for backend in ("sqlite", "mysql")),
+        *((backend, True, "recursive replay") for backend in ("sqlite", "mysql")),
     ],
 )
 def test_remote_event_lifecycle_reject_before_source_access(
@@ -89,12 +83,17 @@ def test_postgres_every_start_is_placed_without_source_access() -> None:
     assert place(dataset).steps
 
 
-def test_postgres_lifecycle_rejects_before_source_access() -> None:
-    with pytest.raises(DatasetCompilationError, match="recursive replay"):
-        place(history(_sources("postgres", lifecycle=True)))
+@pytest.mark.parametrize("backend", ["postgres", "trino", "clickhouse"])
+def test_lifecycle_is_placed_without_source_access(backend: BackendName) -> None:
+    assert place(history(_sources(backend, lifecycle=True))).steps
 
 
-@pytest.mark.parametrize("backend", ["postgres", "sqlite", "mysql", "trino", "clickhouse"])
+@pytest.mark.parametrize("backend", ["clickhouse", "trino"])
+def test_remote_two_step_event_is_placed_without_source_access(backend: BackendName) -> None:
+    assert place(journey(_sources(backend, lifecycle=False))).steps
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "mysql", "trino", "clickhouse"])
 def test_derived_c9_cells_remain_closed_with_their_source(backend: BackendName) -> None:
     event = journey(_sources(backend, lifecycle=False))
     assert isinstance(event._root, LogicalRootHandle)
@@ -111,7 +110,8 @@ def test_derived_c9_cells_remain_closed_with_their_source(backend: BackendName) 
         lifecycle.violations(),
         lifecycle.select_subjects(in_state(ModelStateHandle(MODEL, "done"), at=END)),
     )
-    for dataset in derived:
+    closed = derived[3:] if backend == "trino" else derived
+    for dataset in closed:
         assert implementation(dataset).for_backend(backend) is None
         with pytest.raises(DatasetCompilationError, match="backend="):
             place(dataset)
@@ -167,3 +167,61 @@ def test_event_match_compiler_probe_requires_backend_work(
         assert backend.compile(checks[-1].expression)
     with pytest.raises(Exception, match=missing_lowering):
         backend.compile(rows)
+
+
+def test_trino_grouped_funnel_and_attribution_reject_before_source_access() -> None:
+    from marivo.analysis.funnel import funnel_loss_rate
+    from marivo.refs import ref
+
+    event = journey(_sources("trino", lifecycle=False))
+    assert isinstance(event._root, LogicalRootHandle)
+    assert isinstance(event._root.payload, EventPayload)
+    finish = event._root.payload.definition.pattern.steps[-1]
+    axis = ref.dimension("sales.customers.region")
+    funnel = event.funnel()
+    for dataset in (
+        event.funnel(axes=(axis,)),
+        funnel.compare(funnel).attribute(target=funnel_loss_rate(step=finish), axes=(axis,)),
+    ):
+        with pytest.raises(DatasetCompilationError, match="stage budget"):
+            place(dataset)
+
+
+def test_trino_direct_repeated_time_to_event_is_not_qualified() -> None:
+    event = journey(
+        _sources("trino", lifecycle=False),
+        matching=every_start(completion_assignment="exclusive"),
+    )
+    assert isinstance(event._root, LogicalRootHandle)
+    assert isinstance(event._root.payload, EventPayload)
+    start, finish = event._root.payload.definition.pattern.steps
+    with pytest.raises(DatasetCompilationError, match="first_per_subject"):
+        place(event.time_to_event(from_step=start, to_step=finish))
+
+
+@pytest.mark.parametrize("backend", ["trino", "clickhouse"])
+@pytest.mark.parametrize("identity", ["subject", "occurrence"])
+def test_remote_lifecycle_composite_identity_remains_unqualified(
+    backend: BackendName, identity: str
+) -> None:
+    from marivo.analysis.domains.lifecycle import LifecyclePayload
+    from marivo.analysis.operators.registry import _lifecycle_reason
+
+    dataset = history(_sources(backend, lifecycle=True))
+    assert isinstance(dataset._root, LogicalRootHandle)
+    assert isinstance(dataset._root.payload, LifecyclePayload)
+    definition = dataset._root.payload.definition
+    if identity == "subject":
+        definition = replace(
+            definition,
+            entity=replace(
+                definition.entity, identity_signature=(("id", "int64"), ("second_id", "int64"))
+            ),
+        )
+    else:
+        first, *rest = definition.steps
+        definition = replace(
+            definition, steps=(replace(first, identity=(*first.identity, *first.identity)), *rest)
+        )
+    reason = _lifecycle_reason(definition, backend)
+    assert reason is not None and "one int64 component" in reason

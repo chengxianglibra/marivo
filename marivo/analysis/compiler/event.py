@@ -139,7 +139,11 @@ def _input_checks(steps: tuple[EventStepRelation, ...]) -> tuple[CompiledValidat
 
 
 def _ordered_occurrences(
-    steps: tuple[EventStepRelation, ...], *, cohort_start: datetime, completion_through: datetime
+    steps: tuple[EventStepRelation, ...],
+    *,
+    cohort_start: datetime,
+    completion_through: datetime,
+    tagged_roles: bool = False,
 ) -> tuple[ir.Table, ...]:
     relations = tuple(
         step.expression.filter(
@@ -148,6 +152,28 @@ def _ordered_occurrences(
         ).select("entity_identity", "event_identity", "occurred_at")
         for step in steps
     )
+    if tagged_roles:
+        tagged = ibis.union(
+            *(
+                relation.mutate(__role=ibis.literal(index))
+                for index, relation in enumerate(relations)
+            )
+        )
+        tagged = tagged.mutate(
+            __order=ibis.dense_rank().over(
+                group_by=tagged.entity_identity,
+                order_by=(
+                    tagged.occurred_at,
+                    *(
+                        _struct(tagged.event_identity)[name]
+                        for name in _struct(tagged.event_identity).type().names
+                    ),
+                ),
+            )
+        )
+        return tuple(
+            tagged.filter(tagged.__role == index).drop("__role") for index in range(len(steps))
+        )
     keys = ibis.union(*relations, distinct=True)
     order = [
         keys.occurred_at,
@@ -183,6 +209,7 @@ def _attempts(
     cohort_end: datetime,
     matching: FirstPerSubject | EveryStart,
     inclusive_ties: bool,
+    ranked_successors: bool = False,
 ) -> ir.Table:
     """Walk earliest successors; reserve only the final role of exclusive attempts."""
     anchors = relations[0].filter(relations[0].occurred_at < ibis.literal(cohort_end))
@@ -219,11 +246,28 @@ def _attempts(
                 "__final_ordinal": ibis._.__final_ordinal,
             },
         )
-        joined = attempts.asof_join(
-            candidate,
-            on=attempts.__minimum_order <= candidate[f"__order_{index}"],
-            predicates=attempts.entity_identity == candidate.__subject,
-        ).drop("__subject", "__minimum_order")
+        if ranked_successors:
+            joined = attempts.left_join(
+                candidate,
+                (
+                    attempts.__minimum_order <= candidate[f"__order_{index}"],
+                    attempts.entity_identity == candidate.__subject,
+                ),
+            )
+            joined = joined.mutate(
+                __successor=ibis.row_number().over(
+                    group_by=(joined.entity_identity, joined.__attempt),
+                    order_by=joined[f"__order_{index}"].asc(nulls_first=False),
+                )
+            )
+            joined = joined.filter(joined.__successor == 0).drop("__successor")
+        else:
+            joined = attempts.asof_join(
+                candidate,
+                on=attempts.__minimum_order <= candidate[f"__order_{index}"],
+                predicates=attempts.entity_identity == candidate.__subject,
+            )
+        joined = joined.drop("__subject", "__minimum_order")
         # ASOF execution can retain a candidate for a null left ordering key.
         # Missing-step propagation remains an explicit domain condition.
         previous_present = joined[f"__order_{index - 1}"].notnull()
@@ -381,6 +425,7 @@ def compile_event_match(
     completion_through: datetime,
     definition_digest: str,
     coverage_complete: bool,
+    ranked_successors: bool = False,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...], ir.Table]:
     """Lower the frozen matching policy without reading or collecting occurrence rows."""
     if not steps or len({step.step_key for step in steps}) != len(steps):
@@ -396,15 +441,28 @@ def compile_event_match(
             "homogeneous governed identity structs", "incompatible Event identities"
         )
     relations = _ordered_occurrences(
-        steps, cohort_start=cohort_start, completion_through=completion_through
+        steps,
+        cohort_start=cohort_start,
+        completion_through=completion_through,
+        tagged_roles=ranked_successors,
     )
     strict = _attempts(
-        relations, steps, cohort_end=cohort_end, matching=matching, inclusive_ties=False
+        relations,
+        steps,
+        cohort_end=cohort_end,
+        matching=matching,
+        inclusive_ties=False,
+        ranked_successors=ranked_successors,
     )
     checks = _input_checks(steps)
     if len(steps) > 1 and len({step.event_ref for step in steps}) > 1:
         inclusive = _attempts(
-            relations, steps, cohort_end=cohort_end, matching=matching, inclusive_ties=True
+            relations,
+            steps,
+            cohort_end=cohort_end,
+            matching=matching,
+            inclusive_ties=True,
+            ranked_successors=ranked_successors,
         )
         checks += (_ambiguity_check(strict, inclusive, len(steps)),)
     rows = _dense_rows(

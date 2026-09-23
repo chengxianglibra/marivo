@@ -37,7 +37,10 @@ def setup() -> dict[str, object]:
         )
         con.command("REVOKE ALL ON *.* FROM analysis_reader")
         con.command("GRANT SELECT ON qualification.* TO analysis_reader")
-        con.command("ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1")
+        con.command(
+            "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
+            "enable_materialized_cte=0 CHANGEABLE_IN_READONLY"
+        )
         con.command(
             "CREATE TABLE IF NOT EXISTS permission_probe(id Int64) ENGINE=MergeTree ORDER BY id"
         )

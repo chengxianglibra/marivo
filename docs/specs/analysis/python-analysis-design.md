@@ -106,14 +106,43 @@ the unchanged private Arrow struct. Exact linear-interpolation distribution
 state is qualified on all five remote backends. Percentile status-time folds
 and remote `duckdb_tdigest@v1` remain unqualified. Entity Pearson and Spearman
 correlation now reduce complete source-private pairs on all five remote backends;
-Kendall remains a complete-input local continuation. PostgreSQL also admits an
-exact two- or three-step first-per-subject or every-start Event journeys, with
-unversioned table sources, int64 subject and
-occurrence identities, and exact sampling. One read-only
-statement materializes the source-private relations and carries validation,
-proof, and ordered journey packets. Other Event shapes, Event-derived methods,
-and Lifecycle replay remain closed on PostgreSQL. Event/Lifecycle remain closed
-on MySQL, SQLite, Trino and ClickHouse. Sampling, Entity candidates, and source
+Kendall remains a complete-input local continuation. PostgreSQL admits exact
+Event journeys with two or three steps, and Lifecycle replay with two trigger
+Events, over unversioned tables with int64 subject and occurrence identities.
+Direct PostgreSQL Event funnel, time-to-event and subject selection, and
+Lifecycle distribution, transitions, dwell, violations and subject selection
+are also admitted. Complete PostgreSQL funnel inputs can continue through the
+existing retained comparison and attribution path. PostgreSQL journey queries
+use one read-only materialized CTE bundle; replay and direct reducers execute
+source-side assertions and outputs in a read-only repeatable-read transaction.
+
+ClickHouse and Trino admit exact two-step Event journeys with first-per-subject
+or every-start shared/exclusive matching over the same identity/table shape.
+ClickHouse uses a single packet query with materialized CTEs; the reader must
+be allowed to set `enable_materialized_cte=1` while remaining read-only. Trino
+uses a read-only repeatable-read transaction and separate source count assertions
+to avoid duplicating the complete match beyond its stage budget. Its live
+acceptance uses Iceberg. Neither path transfers raw occurrences for local matching.
+Trino also admits direct ungrouped funnels, first-per-subject time-to-event and
+subject selection, plus complete ungrouped funnel comparison through the existing
+local continuation. Its grouped funnel reconciliation exceeds the 150-stage
+acceptance limit (306 stages), so grouped funnels and dependent attribution remain
+closed. Trino and ClickHouse also admit Lifecycle history with two trigger Events
+and one int64 component per subject/occurrence identity, under the same table restrictions (Iceberg and MergeTree,
+respectively). Native array folds replay every occurrence without a recursive
+query depth cap; source-side interleaving exploration proves equal-time
+confluence including per-occurrence violation outcomes. Trino keeps all assertions
+and parts inside its read-only snapshot. ClickHouse returns assertions, bounded
+Evidence, history and all three retained parts in one ordered packet statement
+under a shared storage snapshot, without requiring Lifecycle CTE materialization.
+Complete retained histories support the existing local distribution, transition,
+dwell, violation and subject-selection continuations, including cold recovery.
+Direct Trino/ClickHouse Lifecycle reducers and selection remain unqualified.
+ClickHouse direct Event reducers and selection remain closed after planner/memory qualification failures. SQLite
+and MySQL C9 methods remain closed. These are exact implementation qualifications, not claims
+that other engines cannot implement the underlying algorithms. Other Event and
+Lifecycle shapes reject through the method registry before source execution.
+Sampling, Entity candidates, and source
 driver screening remain unsupported on these backends. Remote
 retained import stays disabled. Cumulative Metric graphs and semantic calendar buckets were
 activated by C6 on all five remote backends — calendar buckets over native

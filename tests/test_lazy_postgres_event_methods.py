@@ -9,11 +9,9 @@ import sqlite3
 import subprocess
 import sys
 from collections.abc import Iterator
-from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Literal
-from uuid import uuid4
 
 import pytest
 from psycopg import sql
@@ -27,15 +25,15 @@ from marivo.analysis.domains.contracts import (
     journey_semantics,
 )
 from marivo.analysis.event import every_start, first_per_subject, sequence, step
+from marivo.analysis.funnel import funnel_loss_rate
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.datasource.ir import TableSourceIR
+from marivo.analysis.subject import dropped_before
 from marivo.refs import ref
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.event import participant_role
-from marivo.semantic.validator import Registry
-from tests.lazy_event_fixtures import make_event_registry
 from tests.lazy_event_runtime_fixtures import END, OCCURRENCE_CANARY, START, THROUGH, journey
+from tests.lazy_postgres_event_fixtures import event_registry as _registry
+from tests.lazy_postgres_event_fixtures import event_source_tables
 from tests.multisource_environment import postgres_analysis as pg
 
 pytestmark = [
@@ -49,97 +47,8 @@ pytestmark = [
 
 @pytest.fixture
 def event_tables() -> Iterator[dict[str, str]]:
-    names = {
-        logical: "c9_" + logical + "_" + uuid4().hex
-        for logical in ("customers", "started_rows", "finished_rows")
-    }
-    with pg.connection(admin=True) as admin:
-        try:
-            admin.execute(
-                sql.SQL("CREATE TABLE {} (id bigint, region text)").format(
-                    sql.Identifier(names["customers"])
-                )
-            )
-            for logical in ("started_rows", "finished_rows"):
-                admin.execute(
-                    sql.SQL(
-                        "CREATE TABLE {} (occurrence_id bigint, customer_id bigint, "
-                        "occurred_at timestamp)"
-                    ).format(sql.Identifier(names[logical]))
-                )
-            for name in names.values():
-                admin.execute(
-                    sql.SQL("GRANT SELECT ON {} TO analysis_reader").format(sql.Identifier(name))
-                )
-            admin.execute(
-                sql.SQL("INSERT INTO {} VALUES (1,'EU'),(2,'US'),(3,'EU')").format(
-                    sql.Identifier(names["customers"])
-                )
-            )
-            admin.execute(
-                sql.SQL("INSERT INTO {} VALUES (%s,2,%s),(%s,1,%s),(%s,3,%s)").format(
-                    sql.Identifier(names["started_rows"])
-                ),
-                (
-                    OCCURRENCE_CANARY + 1,
-                    START.replace(tzinfo=None),
-                    OCCURRENCE_CANARY,
-                    START.replace(tzinfo=None),
-                    OCCURRENCE_CANARY + 2,
-                    END.replace(tzinfo=None),
-                ),
-            )
-            admin.execute(
-                sql.SQL("INSERT INTO {} VALUES (%s,2,%s),(%s,1,%s)").format(
-                    sql.Identifier(names["finished_rows"])
-                ),
-                (
-                    OCCURRENCE_CANARY + 11,
-                    THROUGH.replace(tzinfo=None),
-                    OCCURRENCE_CANARY + 10,
-                    START.replace(tzinfo=None),
-                ),
-            )
-            yield names
-        finally:
-            for name in names.values():
-                admin.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(name)))
-
-
-def _registry(
-    names: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> tuple[Registry, CompiledExpressionSidecar]:
-    registry, sidecar = make_event_registry(Path("unused.duckdb"))
-    monkeypatch.setenv("MARIVO_TEST_POSTGRES_PASSWORD", pg.password())
-    entities = dict(registry.entities)
-    for logical, table in names.items():
-        path = "sales." + logical
-        entity = entities[path]
-        assert isinstance(entity.source, TableSourceIR)
-        entities[path] = replace(
-            entity,
-            source=replace(entity.source, table=table, database="public"),
-        )
-    registry = replace(
-        registry,
-        entities=entities,
-        datasources={
-            name: replace(
-                datasource,
-                backend_type="postgres",
-                fields={
-                    "host": pg.HOST,
-                    "port": pg.PORT,
-                    "database": pg.DATABASE,
-                    "user": pg.READER,
-                },
-                env_refs={"password": "MARIVO_TEST_POSTGRES_PASSWORD"},
-            )
-            for name, datasource in registry.datasources.items()
-        },
-    )
-    registry.freeze()
-    return registry, sidecar
+    with event_source_tables() as tables:
+        yield tables
 
 
 def test_event_journey_is_one_read_only_source_submission(
@@ -182,6 +91,73 @@ def test_event_journey_is_one_read_only_source_submission(
         for item in runtime.statistics.submissions
         if item.domain == "source"
     )
+
+
+@pytest.mark.parametrize(
+    "method", ["funnel", "grouped", "time_to_event", "selection", "compare", "attribute"]
+)
+def test_source_event_continuations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    event_tables: dict[str, str],
+    method: str,
+) -> None:
+    registry, sidecar = _registry(event_tables, monkeypatch)
+    runtime = DatasetRuntime.create(tmp_path / "continuation", "postgres-event")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    logical = journey(sources)
+    assert isinstance(logical._root, LogicalRootHandle)
+    assert isinstance(logical._root.payload, EventPayload)
+    start, finish = logical._root.payload.definition.pattern.steps
+    if method in ("funnel", "grouped"):
+        frame = (
+            logical.funnel(
+                axes=(ref.dimension("sales.customers.region"),) if method == "grouped" else ()
+            )
+            .execute()
+            .to_pandas()
+        )
+        assert frame.loc[frame.step_key == "start", "reached_count"].sum() == 2
+        assert frame.loc[frame.step_key == "finish", "reached_count"].sum() == 1
+    elif method == "time_to_event":
+        frame = logical.time_to_event(from_step=start, to_step=finish).execute().to_pandas()
+        assert len(frame) == 2
+    elif method == "selection":
+        frame = logical.select_subjects(dropped_before(step=finish)).execute().to_pandas()
+        assert frame.entity_identity.tolist() == [(2,)]
+    else:
+        funnel = logical.funnel(
+            axes=(ref.dimension("sales.customers.region"),) if method == "compare" else ()
+        )
+        baseline = sources.events.match(
+            logical._root.payload.definition.pattern,
+            cohort_window=time_scope(start=END, end=THROUGH),
+            completion_through=THROUGH + timedelta(days=1),
+            matching=first_per_subject(),
+            completeness=(
+                BoundedCompletenessDeclarationV1(
+                    inputs=(ref.event("sales.started"), ref.event("sales.finished")),
+                    complete_from=START,
+                    complete_through=THROUGH + timedelta(days=1),
+                    rationale="Complete shifted-cohort fixture coverage.",
+                ),
+            ),
+        ).funnel(axes=(ref.dimension("sales.customers.region"),) if method == "compare" else ())
+        compared = funnel.compare(baseline)
+        result = (
+            compared.execute()
+            if method == "compare"
+            else compared.attribute(
+                axes=(ref.dimension("sales.customers.region"),),
+                target=funnel_loss_rate(step=finish),
+            ).execute()
+        )
+        frame = result.to_pandas()
+        if method == "compare":
+            complete = frame.loc[(frame.step_key == "finish") & (frame.calculation_status == "ok")]
+            assert complete.loss_rate_delta.tolist() == [-1.0]
+        else:
+            assert frame.contribution.sum() == pytest.approx(-0.5)
 
 
 def test_every_start_exclusive_assigns_distinct_completions(

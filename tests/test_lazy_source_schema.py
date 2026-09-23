@@ -35,7 +35,9 @@ from tests.lazy_observation_fixtures import NoIoActionPort
 )
 @pytest.mark.parametrize("invalid", [False, True])
 def test_mapper_sees_only_requested_relation_columns(
-    adapter_type: type, invalid: bool, monkeypatch: pytest.MonkeyPatch
+    adapter_type: type[DuckDBExecutionAdapter | PostgresExecutionAdapter | ScalarExecutionAdapter],
+    invalid: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     registry, sidecar = make_execution_registry(Path("must-not-open"))
     sources = make_lazy_sources(
@@ -62,8 +64,11 @@ def test_mapper_sees_only_requested_relation_columns(
         con=SimpleNamespace(database="main", catalog="iceberg", schema="analysis"),
     )
     adapter = object.__new__(adapter_type)
+    for attribute in ("_source_connectors", "_source_kinds", "_source_engines"):
+        monkeypatch.setattr(adapter, attribute, set[str](), raising=False)
     for attribute in ("_backend", "_mysql", "_clickhouse", "_trino"):
         monkeypatch.setattr(adapter, attribute, native, raising=False)
+    rows: list[tuple[str | bool | None, ...]]
     if adapter_type is PostgresExecutionAdapter:
         rows = [
             ("id", "BIGINT", True),
@@ -148,6 +153,8 @@ def _stub_adapter(
     adapter_type: type, native: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> ScalarExecutionAdapter:
     adapter: ScalarExecutionAdapter = object.__new__(adapter_type)
+    for attribute in ("_source_connectors", "_source_kinds", "_source_engines"):
+        monkeypatch.setattr(adapter, attribute, set[str](), raising=False)
     for attribute in ("_backend", "_mysql", "_clickhouse", "_trino"):
         monkeypatch.setattr(adapter, attribute, native, raising=False)
     monkeypatch.setattr(adapter, "_run_ref", None, raising=False)

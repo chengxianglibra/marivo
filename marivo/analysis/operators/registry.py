@@ -31,6 +31,7 @@ from marivo.analysis.domains.lifecycle_reducers import (
     LifecycleReducerPayload,
     LifecycleSelectionPayload,
 )
+from marivo.analysis.event import FirstPerSubject
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -145,6 +146,73 @@ def _postgres_event_reason(definition: EventDefinition) -> str | None:
     return None
 
 
+def _clickhouse_event_reason(definition: EventDefinition) -> str | None:
+    if len(definition.steps) != 2 or _postgres_event_reason(definition) is not None:
+        return (
+            "ClickHouse Event matching currently requires two steps with exact int64 "
+            "subject and occurrence identities and unversioned table sources"
+        )
+    return None
+
+
+def _trino_event_reason(definition: EventDefinition) -> str | None:
+    if len(definition.steps) != 2 or _postgres_event_reason(definition) is not None:
+        return (
+            "Trino Event matching currently requires two steps with exact int64 "
+            "subject and occurrence identities and unversioned table sources"
+        )
+    return None
+
+
+def _lifecycle_reason(definition: EventDefinition, backend: BackendName = "postgres") -> str | None:
+    if len(definition.steps) != 2 or _postgres_event_reason(definition) is not None:
+        return (
+            f"{backend} Lifecycle replay currently requires two trigger Events with exact "
+            "int64 subject and occurrence identities and unversioned table sources"
+        )
+    if backend in ("trino", "clickhouse") and (
+        len(definition.entity.identity_signature) != 1
+        or any(len(step.identity) != 1 for step in definition.steps)
+    ):
+        return f"{backend} Lifecycle currently qualifies one int64 component per subject and occurrence identity"
+    return None
+
+
+def _postgres_continuation_reason(dataset: LogicalDataset) -> str | None:
+    if len(dataset._inputs) == 1:
+        incoming = dataset._inputs[0]
+        if isinstance(incoming, LogicalDataset) and isinstance(incoming._root, LogicalRootHandle):
+            payload = incoming._root.payload
+            if isinstance(payload, EventPayload):
+                return _postgres_event_reason(payload.definition)
+            if isinstance(payload, LifecyclePayload):
+                return _lifecycle_reason(payload.definition)
+    return "this PostgreSQL continuation requires one directly admitted Event or Lifecycle source"
+
+
+def _trino_continuation_reason(dataset: LogicalDataset) -> str | None:
+    root = dataset._root
+    if (
+        isinstance(root, LogicalRootHandle)
+        and isinstance(root.payload, EventFunnelPayload)
+        and root.payload.axes
+    ):
+        return "Trino grouped Event funnel reconciliation exceeds the qualified stage budget"
+    if len(dataset._inputs) == 1:
+        incoming = dataset._inputs[0]
+        if isinstance(incoming, LogicalDataset) and isinstance(incoming._root, LogicalRootHandle):
+            payload = incoming._root.payload
+            if isinstance(payload, EventPayload):
+                if (
+                    isinstance(root, LogicalRootHandle)
+                    and isinstance(root.payload, EventTimeToEventPayload)
+                    and not isinstance(payload.definition.matching, FirstPerSubject)
+                ):
+                    return "direct Trino time-to-event currently requires first_per_subject"
+                return _trino_event_reason(payload.definition)
+    return "this Trino continuation requires one directly admitted Event source"
+
+
 def _source_admissions() -> dict[BackendName, Callable[[LogicalDataset], str | None]]:
     """Keep eligibility and diagnostics on the same concrete backend owner."""
     from marivo.analysis.operators.clickhouse_support import unsupported_reason as clickhouse_reason
@@ -172,12 +240,18 @@ def source_unsupported_reason(dataset: LogicalDataset, backend: str) -> str | No
         if isinstance(root.payload, EventPayload):
             if execution.backend == "postgres":
                 return _postgres_event_reason(root.payload.definition)
+            if execution.backend == "clickhouse":
+                return _clickhouse_event_reason(root.payload.definition)
+            if execution.backend == "trino":
+                return _trino_event_reason(root.payload.definition)
             return (
                 "Event matching requires source-side occurrence identity, governed-order "
                 "assignment, and complete assertions; this backend has no validated "
                 "matching lowering"
             )
         if isinstance(root.payload, LifecyclePayload):
+            if execution.backend in ("postgres", "trino", "clickhouse"):
+                return _lifecycle_reason(root.payload.definition, execution.backend)
             return (
                 "Lifecycle replay requires validated source-side recursive replay and "
                 "equal-time confluence proof; this "
@@ -193,6 +267,12 @@ def source_unsupported_reason(dataset: LogicalDataset, backend: str) -> str | No
                 LifecycleSelectionPayload,
             ),
         ):
+            if execution.backend == "postgres":
+                return _postgres_continuation_reason(dataset)
+            if execution.backend == "trino" and isinstance(
+                root.payload, (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload)
+            ):
+                return _trino_continuation_reason(dataset)
             return (
                 "this Event/Lifecycle continuation requires an admitted source-private "
                 "implementation or complete retained input authority"
@@ -243,8 +323,30 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
             if _postgres_event_reason(root.payload.definition) is None
             else ()
         )
+        clickhouse_event: tuple[BackendRegistration, ...] = (
+            (BackendRegistration("clickhouse", source=True),)
+            if _clickhouse_event_reason(root.payload.definition) is None
+            else ()
+        )
+        trino_event: tuple[BackendRegistration, ...] = (
+            (BackendRegistration("trino", source=True),)
+            if _trino_event_reason(root.payload.definition) is None
+            else ()
+        )
         return ImplementationRegistration(
-            root.operator_id, roles, (*_DUCKDB, *postgres_event), None
+            root.operator_id,
+            roles,
+            (*_DUCKDB, *postgres_event, *clickhouse_event, *trino_event),
+            None,
+        )
+    if isinstance(root.payload, LifecyclePayload):
+        source_lifecycle = tuple(
+            BackendRegistration(backend, source=True)
+            for backend in ("postgres", "trino", "clickhouse")
+            if _lifecycle_reason(root.payload.definition, backend) is None
+        )
+        return ImplementationRegistration(
+            root.operator_id, roles, (*_DUCKDB, *source_lifecycle), None
         )
     if isinstance(
         root.payload,
@@ -257,7 +359,25 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
             EventSelectionPayload,
         ),
     ):
-        return ImplementationRegistration(root.operator_id, roles, _DUCKDB, None)
+        postgres_continuation: tuple[BackendRegistration, ...] = (
+            (BackendRegistration("postgres", source=True),)
+            if _postgres_continuation_reason(dataset) is None
+            else ()
+        )
+        trino_continuation: tuple[BackendRegistration, ...] = (
+            (BackendRegistration("trino", source=True),)
+            if isinstance(
+                root.payload, (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload)
+            )
+            and _trino_continuation_reason(dataset) is None
+            else ()
+        )
+        return ImplementationRegistration(
+            root.operator_id,
+            roles,
+            (*_DUCKDB, *postgres_continuation, *trino_continuation),
+            None,
+        )
     if dataset._inputs and root.operator_id.startswith(
         (
             "event.",

@@ -80,6 +80,39 @@ def _violations(backend: Backend, expression: ir.Table) -> int:
 
 
 @pytest.mark.parametrize(
+    ("matching", "expected"),
+    [
+        (FirstPerSubject(), [1, 11]),
+        (EveryStart(completion_assignment="shared"), [1, 11, 2, 11]),
+        (EveryStart(completion_assignment="exclusive"), [1, 11, 2, 12]),
+    ],
+)
+def test_ranked_successors_preserve_exact_assignment(
+    matching: FirstPerSubject | EveryStart,
+    expected: list[int],
+) -> None:
+    backend = ibis.duckdb.connect()
+    try:
+        steps = _relations(backend, (((1, 0), (2, 1)), ((11, 2), (12, 3))))
+        rows, checks, _ = compile_event_match(
+            steps,
+            matching=matching,
+            cohort_start=_BASE,
+            cohort_end=_BASE + timedelta(seconds=10),
+            completion_through=_BASE + timedelta(seconds=20),
+            definition_digest=_DIGEST,
+            coverage_complete=True,
+            ranked_successors=True,
+        )
+        result = backend.to_pyarrow(rows).to_pylist()
+        assert [row["event_identity"]["k0"] for row in result] == expected
+        assert all(row["completion_status"] == "complete" for row in result)
+        assert all(_violations(backend, check.expression) == 0 for check in checks)
+    finally:
+        backend.disconnect()
+
+
+@pytest.mark.parametrize(
     "matching",
     [
         FirstPerSubject(),

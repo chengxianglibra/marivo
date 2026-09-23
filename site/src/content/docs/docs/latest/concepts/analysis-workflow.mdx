@@ -222,12 +222,51 @@ ClickHouse. MySQL remains unqualified after its live composed query exceeded
 the qualification server's memory limit; expanded Top-K on Trino is also
 unqualified because its query exceeded the server stage limit. Sampling,
 Entity candidates and source driver screening remain unsupported. PostgreSQL
-admits exact two- or three-step `session.events.match(...)` journeys with
-`first_per_subject()` or `every_start()` matching. These shapes require unversioned table sources
-and `int64` subject and occurrence identities. The read-only source query carries complete matching
-and validation before the journey is published. Other Event shapes, Event
-reducers and selections, and Lifecycle replay remain unsupported on PostgreSQL;
-Event/Lifecycle remain unsupported on SQLite, MySQL, Trino and ClickHouse.
+admits exact two- or three-step `session.events.match(...)` journeys and
+`session.lifecycle.replay(...)` histories with two trigger Events. These shapes
+require unversioned table sources and `int64` subject and occurrence identities.
+Direct Event funnel, time-to-event and subject selection, and Lifecycle
+distribution, transitions, dwell, violations and subject selection are qualified.
+Complete PostgreSQL funnels support retained comparison and attribution.
+ClickHouse and Trino admit two-step journeys with `first_per_subject()` or
+`every_start()` (shared/exclusive), with the same table and identity requirements.
+Trino was tested on Iceberg. ClickHouse requires a read-only reader permitted to
+set `enable_materialized_cte=1`. Source-side assertions run even for empty output;
+only complete admitted results can enter the existing local continuations.
+Trino also supports direct ungrouped funnels, first-per-subject time-to-event,
+subject selection and complete ungrouped funnel comparison. Grouped Trino funnels
+and dependent attribution remain unsupported because reconciliation exceeds the
+qualification server's stage limit. ClickHouse direct Event reducers and selection remain unsupported after
+planner/memory qualification failures.
+Trino (Iceberg) and ClickHouse (MergeTree) also support two-trigger Lifecycle
+history with these table requirements and one `int64` component per subject
+and occurrence identity. They replay complete sequences
+with native array folds and verify same-time order ambiguity in the source.
+Execute history first to use its complete retained distribution, transition,
+dwell, violation and subject-selection continuations. Direct source Lifecycle
+reducers on these two backends remain unsupported. SQLite and MySQL
+Event/Lifecycle remain unsupported.
+
+For a qualified PostgreSQL, Trino or ClickHouse model, materialize history before
+continuing:
+
+```python
+history = session.lifecycle.replay(
+    model,
+    window=window,
+    seed=mv.from_inception(),
+    completeness=lifecycle_completeness,
+)
+retained_history = history.execute()
+transitions = retained_history.transitions().execute()
+transitions.show()
+```
+
+Here `model` is a governed two-trigger StateModel, `window` is an aware time scope,
+and `lifecycle_completeness` contains source-origin coverage declarations. The
+source replays the complete history; the published result retains the parts needed
+for cold-process continuation.
+
 String-parser time axes and multi-unit buckets are enabled per
 backend, with the limits below. Unsupported shapes report a concrete reason; they
 do not trigger raw source collection or remote retained uploads.

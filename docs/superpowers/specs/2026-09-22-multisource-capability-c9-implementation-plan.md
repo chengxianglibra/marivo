@@ -4,7 +4,7 @@ Date: 2026-09-22. Baseline: `lazy-dataset` after the local C8 commit; the worktr
 
 ## Exact target and admission order
 
-Attempt PostgreSQL first, then SQLite, MySQL, Trino, and ClickHouse. For each backend, qualify Event journey matching before Lifecycle history, then Event funnel, time-to-event, selection, Lifecycle distribution/transition/dwell/violation reducers and selection, and complete retained funnel comparison/attribution. The DuckDB implementation is a regression oracle, not a substitute for independent expected rows. Open only an exact method/backend/shape cell with real read-only source execution and a complete proof. A failed or unavailable cell remains rejected before source I/O.
+The original order is PostgreSQL, SQLite, MySQL, Trino, and ClickHouse. The subsequent user instruction excludes further MySQL work; the current continuation preserves that exclusion. For each backend, qualify Event journey matching before Lifecycle history, then Event funnel, time-to-event, selection, Lifecycle distribution/transition/dwell/violation reducers and selection, and complete retained funnel comparison/attribution. The DuckDB implementation is a regression oracle, not a substitute for independent expected rows. Open only an exact method/backend/shape cell with real read-only source execution and a complete proof. A failed or unavailable cell remains rejected before source I/O.
 
 No new public methods, result shapes, Store revision, cross-source join, remote retained upload, approximate match, temporary source table, installed UDF, or source account write permission belongs to C9. Packaged skills require separate explicit approval before editing.
 
@@ -40,3 +40,46 @@ git diff --check
 ```
 
 Run live service groups only when their existing opt-in readers are available, and run Trino and ClickHouse serially. Align the current Analysis spec, native Help and dynamic contract guidance, examples, and both latest site languages for every newly opened cell. No push or publication is part of this phase.
+
+## Current continuation design
+
+The continuation starts from commit `0ba8e4514b`, preserving the C8 baseline.
+PostgreSQL ports recursive replay and confluence using arrays and JSONB and runs
+replay/reducer assertions and outputs inside one read-only repeatable-read
+transaction. ClickHouse uses an explicitly enabled materialized-CTE packet
+statement. Trino uses ranked successor joins, native ROW/JSON/SHA-256,
+exact microsecond arithmetic and a read-only Iceberg snapshot. Its independent
+output checks can be submitted separately as scalar counts within that snapshot;
+this keeps raw matching in the source without increasing the stage limit.
+
+The original Lifecycle port gate required complete replay and confluence, not a
+blind substitution of recursive SQL: a reader probe on Trino 483 rejects an 11-step
+recursion with its default depth limit of 10. SQLite 3.53.1 accepts native JSON
+objects but reports `no such function: sha256`; installing a new UDF remains
+outside the adopted boundary. These observations motivated the native array-fold continuation below;
+they do not establish general impossibility.
+
+## 2026-09-23 Trino and ClickHouse Lifecycle continuation
+
+Implement full per-subject replay with native array folds instead of recursive
+queries. Encode modeled states and evaluation kinds as finite integer values,
+retain every occurrence's before/after outcome, and project the existing history,
+ledger, transitions and violations without changing their schemas. Equal-time
+confluence enumerates compatible within-Event-order interleavings inside the
+source; compare both terminal state and per-occurrence violation outcomes. No
+fixed event-count or recursion-depth truncation is permitted.
+
+Qualify Trino first using its existing read-only snapshot, then ClickHouse using
+statement-local shared snapshots and proof packets. Keep each backend closed
+until complete replay, all retained parts, output integrity, empty-input checks,
+late failure and cold recovery pass. Exercise histories longer than the former
+Trino depth limit, illegal/terminal transitions, compatible/divergent ties and
+microsecond boundaries. Reuse fixture model definitions and independently
+calculate expected outputs. Derivatives are admitted separately after history.
+
+The qualified Lifecycle history paths now use source-native folds. Trino executes
+independent integrity counts in its read-only snapshot. ClickHouse uses ordinary
+CTEs in one shared-snapshot proof/output packet statement: nested materialized
+CTEs hit an observed engine error, and no materialization is required for this
+implementation. Direct source Lifecycle reducers remain a separate qualification
+step; complete retained continuations are tested with the source tables removed.
