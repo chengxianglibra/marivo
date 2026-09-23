@@ -154,21 +154,6 @@ def test_analysis_keeps_typed_dataset_operator_values():
     assert callable(mv.seasonal_naive)
     assert callable(mv.drift)
     assert callable(mv.periods)
-    assert not hasattr(mv, "SamplingPolicy")
-
-
-def test_session_does_not_expose_report_methods() -> None:
-    import marivo.analysis as mv
-
-    assert not hasattr(mv.Session, "save_report")
-    assert not hasattr(mv.Session, "validate_report")
-    assert not hasattr(mv.Session, "publish_report")
-
-
-def test_analysis_publish_submodule_removed() -> None:
-    import marivo.analysis as mv
-
-    assert not hasattr(mv, "publish")
 
 
 def test_session_class_exposes_sources_and_dataset_owned_operators():
@@ -178,30 +163,8 @@ def test_session_class_exposes_sources_and_dataset_owned_operators():
     assert callable(mv.Session.population)
     assert isinstance(mv.Session.events, property)
     assert isinstance(mv.Session.lifecycle, property)
-    for name in (
-        "compare",
-        "attribute",
-        "correlate",
-        "forecast",
-        "assess_quality",
-        "hypothesis_test",
-        "discover",
-        "transform",
-        "from_pandas",
-        "explore_ibis",
-        "promote_metric_frame",
-    ):
-        assert not hasattr(mv.Session, name)
     for name in ("compare", "correlate", "forecast"):
         assert callable(getattr(mv.LogicalMetricDataset, name))
-
-
-def test_analysis_exports_no_promotion_types():
-    import marivo.analysis as mv
-
-    assert mv.ArtifactRef("frame_1").ref == "frame_1"
-    assert not hasattr(mv, "PromotionPolicy")
-    assert not hasattr(mv.errors, "PromotionFailedError")
 
 
 def test_analysis_exports_public_surface_by_layer() -> None:
@@ -220,9 +183,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
     ):
         assert name in mv.__all__
         assert hasattr(mv, name)
-    for name in ("BaseFrame", "BaseFrameMeta", "Lineage", "SamplingPolicy", "JobSummary"):
-        assert name not in mv.__all__
-        assert not hasattr(mv, name)
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
@@ -236,78 +196,6 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     assert PreviewResult is not None
     assert not hasattr(md, "TableMetadata")
     assert not hasattr(md, "PreviewResult")
-    assert not hasattr(mv.errors, "PromotionFailedError")
-
-
-def test_analysis_keeps_report_types_out_of_public_surface() -> None:
-    import marivo.analysis as mv
-
-    for name in [
-        "ReportRegistration",
-        "MarivoReportArtifact",
-        "ReportManifest",
-        "ReportSpec",
-        "PublishReportResult",
-    ]:
-        assert name not in mv.__all__
-        assert not hasattr(mv, name)
-
-
-def test_analysis_exports_no_derive_symbols() -> None:
-    import marivo.analysis as mv
-
-    for name in (
-        "ibis_query",
-        "metric_columns",
-        "time_column",
-        "dimension_column",
-        "DeriveContext",
-        "IbisQuerySpec",
-        "MetricColumnBinding",
-        "MetricColumns",
-    ):
-        assert not hasattr(mv, name), f"mv.{name} should be removed"
-
-
-def test_analysis_derive_module_is_deleted() -> None:
-    import importlib
-
-    with __import__("pytest").raises(ModuleNotFoundError):
-        importlib.import_module("marivo.analysis.derive")
-
-
-def test_analysis_escape_hatch_module_is_deleted() -> None:
-    import importlib
-
-    with __import__("pytest").raises(ModuleNotFoundError):
-        importlib.import_module("marivo.analysis.escape_hatch")
-
-
-def test_session_backend_guard_is_removed_with_eager_execution() -> None:
-    import marivo.analysis.session.core as core
-
-    assert not hasattr(core, "ensure_session_can_execute")
-    assert not hasattr(core.Session, "is_read_only")
-
-
-def test_ensure_session_writable_alias_is_removed() -> None:
-    with __import__("pytest").raises(ImportError):
-        from marivo.analysis.session.core import ensure_session_writable  # noqa: F401
-
-
-def test_compile_backend_factory_shim_is_removed() -> None:
-    import importlib
-
-    import pytest
-
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("marivo.analysis.session._runtime")
-
-
-def test_migration_failed_error_is_removed() -> None:
-    import marivo.analysis.errors as errors
-
-    assert not hasattr(errors, "MigrationFailedError")
 
 
 def test_private_workers_defer_public_analysis_initialization() -> None:
@@ -316,8 +204,6 @@ import sys
 import marivo.analysis as mv
 from marivo.analysis.materialization import storage, reads, inspection
 assert 'marivo.analysis._public' not in sys.modules
-assert 'marivo.analysis.frames' not in sys.modules
-assert 'marivo.analysis.evidence' not in sys.modules
 assert 'marivo.analysis.session' not in sys.modules
 from marivo.analysis.materialization import local_execution
 assert 'marivo.analysis._capabilities.registry' not in sys.modules

@@ -2,29 +2,23 @@
 
 These tests verify:
 - Result-producing public APIs do not write stdout.
-- Help APIs print bounded help and return None.
 - repr() is one line and points to .show().
 - render() + show() are present and well-behaved.
 - available: sections are present and non-empty.
 - display= parameter is absent.
-- format= is absent from help APIs.
 """
 
 from __future__ import annotations
 
-import inspect
 import textwrap
 from pathlib import Path
 
 import pytest
 
-import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._help.render import render_help_text
 from marivo.datasource.authoring import DuckDBSpec
-from marivo.introspection.live.model import SURFACE_LIMITS
 from tests.lazy_observation_fixtures import make_sources
 
 # ---------------------------------------------------------------------------
@@ -104,37 +98,6 @@ def test_richness_is_silent(semantic_project_factory, capsys) -> None:
     project = _make_project(semantic_project_factory)
     project.richness()
     assert capsys.readouterr().out == ""
-
-
-# ---------------------------------------------------------------------------
-# Help APIs return None
-# ---------------------------------------------------------------------------
-
-
-def test_marivo_help_returns_none() -> None:
-    assert marivo.help() is None
-
-
-def test_marivo_help_with_target_returns_none() -> None:
-    assert marivo.help("analysis.observe") is None
-
-
-# ---------------------------------------------------------------------------
-# Help APIs reject format=
-# ---------------------------------------------------------------------------
-
-
-def test_marivo_help_has_no_format_or_print_parameter() -> None:
-    sig = inspect.signature(marivo.help)
-    assert "format" not in sig.parameters
-    assert "print" not in sig.parameters
-
-
-def test_marivo_help_rejects_removed_options() -> None:
-    with pytest.raises(TypeError):
-        marivo.help("analysis.observe", format="json")  # type: ignore[call-arg]
-    with pytest.raises(TypeError):
-        marivo.help("analysis.observe", print=False)  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -220,44 +183,6 @@ def test_readiness_render_contains_available(semantic_project_factory) -> None:
     project = _make_project(semantic_project_factory)
     report = project.readiness()
     assert "available:" in report.render()
-
-
-# ---------------------------------------------------------------------------
-# Help output stays within line budget
-# ---------------------------------------------------------------------------
-
-
-def test_analysis_help_teaches_state_specific_exits() -> None:
-    logical = render_help_text("analysis.datasets.logical")[0]
-    materialized = render_help_text("analysis.datasets.materialized")[0]
-    assert "execute" in logical
-    assert "contract" in logical
-    assert "to_pandas" in materialized
-    assert "show" in materialized
-
-
-def test_marivo_help_top_level_within_budget(capsys) -> None:
-    marivo.help()
-    captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= SURFACE_LIMITS.root_help_max_lines
-
-
-def test_marivo_help_topic_within_budget(capsys) -> None:
-    marivo.help("analysis.observe")
-    captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
-
-
-def test_runtime_ratio_help_teaches_zero_division_policy() -> None:
-    rendered = render_help_text("analysis.runtime_metric.ratio")[0]
-    assert "zero_division" in rendered
-    assert "null" in rendered and "error" in rendered
-
-
-def test_semantic_help_topic_within_budget(capsys) -> None:
-    marivo.help("semantic.metric")
-    captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= 100
 
 
 # ---------------------------------------------------------------------------

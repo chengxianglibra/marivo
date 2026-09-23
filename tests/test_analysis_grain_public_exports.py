@@ -5,20 +5,17 @@ import marivo.semantic as ms
 from marivo.refs import ref
 
 
-def test_public_grain_is_distinct_from_legacy_window_normalization_surface():
+def test_public_grain_value_and_factory() -> None:
     import marivo.analysis as ma
 
     assert "Grain" in ma.__all__
     assert "grain" in ma.__all__
-    assert "GrainInput" not in ma.__all__
     assert hasattr(ma, "Grain")
-    assert not hasattr(ma, "GrainInput")
     assert ma.grain("month").kind == "builtin"
     with pytest.raises(TypeError, match="direct construction is not supported"):
         ma.Grain(unit="day")
     g = ma.grain("minute", count=5)
     assert g.to_token() == "5minute"
-    assert not hasattr(ma, "AbsoluteWindow")
 
 
 def test_public_grain_constructors_share_one_value_type():

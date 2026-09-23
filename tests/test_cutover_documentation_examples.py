@@ -1,6 +1,5 @@
 """Execute current bilingual workflow and evidence examples against public APIs."""
 
-import ast
 import re
 from pathlib import Path
 
@@ -30,25 +29,6 @@ def _blocks(language: str, page: str) -> tuple[str, ...]:
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count
     assert _blocks("en", page) == _blocks("zh", page)
-
-
-def test_semantic_tutorial_uses_current_observation_and_alignment_contracts() -> None:
-    for code in _blocks("en", "semantic-layer"):
-        tree = ast.parse(code)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                if node.func.attr == "observe":
-                    assert not {"grain", "dimensions"} & {kw.arg for kw in node.keywords}
-                assert node.func.attr not in {"occurrence_progress", "working_day_progress"}
-    for prefix in ("docs", "zh-cn/docs"):
-        pages = ROOT / f"site/src/content/docs/{prefix}/latest"
-        for path in pages.rglob("*.mdx"):
-            if "release-notes" in path.parts:
-                continue
-            text = path.read_text()
-            assert "mv.occurrence_progress" not in text, path
-            assert "mv.working_day_progress" not in text, path
-            assert "meta.zero_denominator_rows" not in text, path
 
 
 @pytest.mark.runtime
@@ -154,15 +134,3 @@ def test_workflow_evidence_and_cold_recovery_examples(
     assert isinstance(recovered, mv.MaterializedDeltaDataset)
     assert recovered.to_pandas()["delta"].tolist() == [18.0]
     assert not resumed._runtime.statistics.statements
-
-
-def test_bilingual_workflow_preserves_temporal_exclusions() -> None:
-    for prefix, storage, strings in (
-        ("docs", "native aware SQLite storage", "String time parsing"),
-        ("zh-cn/docs", "SQLite 原生 aware 时间存储", "字符串解析"),
-    ):
-        text = (
-            ROOT / f"site/src/content/docs/{prefix}/latest/concepts/analysis-workflow.mdx"
-        ).read_text()
-        assert storage in text
-        assert strings in text

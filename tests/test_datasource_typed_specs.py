@@ -27,7 +27,6 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 from tests.result_protocol_helpers import assert_conforms
-from tests.shared_fixtures import rendered_help
 
 
 def _ir(
@@ -141,7 +140,7 @@ def test_sqlite_spec_maps_path_read_only_and_type_map() -> None:
         ("1warehouse", "ds_1warehouse"),
     ],
 )
-def test_datasource_name_grammar_rejects_legacy_shapes_with_valid_rename(
+def test_datasource_name_grammar_rejects_invalid_shapes_with_valid_rename(
     name: str,
     suggested: str,
 ) -> None:
@@ -318,19 +317,6 @@ def test_extra_rejects_non_json_values() -> None:
     assert exc_info.value.location.endswith("field 'custom_option'")
 
 
-def test_datasource_specs_do_not_accept_description() -> None:
-    with pytest.raises(TypeError, match="description"):
-        DuckDBSpec(name="local", description="Local warehouse")  # type: ignore[call-arg]
-
-
-def test_datasource_helpers_do_not_accept_description() -> None:
-    for helper in (md.duckdb, md.sqlite, md.trino, md.mysql, md.postgres, md.clickhouse):
-        assert "description" not in inspect.signature(helper).parameters
-
-    with pytest.raises(TypeError, match="description"):
-        md.duckdb(name="warehouse", description="Local warehouse")  # type: ignore[call-arg]
-
-
 def test_datasource_helper_returns_public_spec_and_ref() -> None:
     spec = md.duckdb(name="warehouse", path="warehouse.duckdb")
 
@@ -355,42 +341,31 @@ def test_spec_ai_context_maps_to_ir() -> None:
     assert ir.ai_context.guardrails == ("Do not use for production freshness checks.",)
 
 
-# -- Help surface tests (public convenience functions) --
+# -- Public convenience function signatures --
 
 
-def test_trino_help_has_signature_without_description() -> None:
+def test_trino_helper_signature_has_current_fields() -> None:
     signature = inspect.signature(md.trino)
-    result = rendered_help("trino", owner="datasource")
 
     assert "host" in signature.parameters
     assert "catalog" in signature.parameters
     assert "description" not in signature.parameters
     assert "ai_context" in signature.parameters
-    assert "trino" in result
-    assert "Signature:" in result
 
 
-def test_duckdb_help_has_signature_without_description() -> None:
+def test_duckdb_helper_signature_has_current_fields() -> None:
     signature = inspect.signature(md.duckdb)
-    result = rendered_help("duckdb", owner="datasource")
 
     assert "name" in signature.parameters
     assert "path" in signature.parameters
     assert "description" not in signature.parameters
     assert "ai_context" in signature.parameters
-    assert "duckdb" in result
-    assert "Signature:" in result
 
 
-def test_sqlite_help_exposes_typed_connection_fields() -> None:
+def test_sqlite_helper_signature_exposes_typed_connection_fields() -> None:
     signature = inspect.signature(md.sqlite)
-    result = rendered_help("sqlite", owner="datasource")
 
     assert {"name", "path", "read_only", "type_map", "ai_context"} <= set(signature.parameters)
-    assert "SQLite" in result
-    assert "percentile" in result
-    assert "strptime" in result
-    assert "Signature:" in result
 
 
 # -- Store persistence tests --

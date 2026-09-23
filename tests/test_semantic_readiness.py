@@ -7,7 +7,6 @@ import textwrap
 from dataclasses import fields
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import get_args
 
 import ibis
 
@@ -19,7 +18,6 @@ from marivo._compat import UTC
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
-    ReadinessIssueKind,
     ReadinessReport,
 )
 
@@ -347,20 +345,3 @@ def test_cross_datasource_metric_remains_blocked(semantic_project_factory, tmp_p
     issue = next(issue for issue in report.blockers if issue.kind == "cross_datasource_unfederated")
     assert issue.repair is not None
     assert issue.repair.help_target.canonical_id == "objects.metric"
-
-
-def test_issue_vocabulary_has_artifacts_and_no_removed_history_or_richness_names() -> None:
-    kinds = set(get_args(ReadinessIssueKind))
-    assert {
-        "period_calendar_artifact_missing",
-        "period_calendar_artifact_stale",
-        "period_calendar_artifact_invalid",
-        "temporal_set_artifact_missing",
-        "work_schedule_artifact_missing",
-    } <= kinds
-    assert {
-        "snapshot_missing",
-        "runtime_preview_missing",
-        "missing_business_definition",
-        "missing_guardrails",
-    }.isdisjoint(kinds)

@@ -30,6 +30,22 @@ from tests.lazy_distribution_fixtures import VALUES, make_distribution_registry
 from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
+from tests.lazy_shared_assertions import (
+    assert_cross_root_ratio,
+    assert_date_bucket_values,
+    assert_dimension_comparison,
+    assert_forecast_history,
+    assert_kendall_source_reduction,
+    assert_missing_relationship_values,
+    assert_no_dataset_artifacts,
+    assert_primary_status_gate,
+    assert_relationship_values,
+    assert_retained_axis_attribution,
+    assert_status_fold_values,
+    assert_time_discovery,
+    assert_version_identities,
+    assert_weighted_mean_values,
+)
 from tests.multisource_environment import mysql_analysis as mysql
 
 pytestmark = [
@@ -308,13 +324,10 @@ def test_status_fold_spatial_sums(
         .aggregate()
     )
     frame = logical.execute().to_pandas().sort_values("channel")
-    assert frame.revenue.astype(float).tolist() == pytest.approx(expected)
-    assert any(
-        role == "validation_batch" and "__mv_status" in statement
-        for role, statement in runtime.statistics.statements
+    assert_status_fold_values(
+        frame.revenue.astype(float).tolist(), expected, runtime.statistics.statements
     )
-    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
-    assert len(primary) == 1 and "__mv_status" in primary[0]
+    assert_primary_status_gate(runtime.statistics.statements)
 
 
 def test_status_fold_versioned_metric_composite(tmp_path: Path, fold_database: str) -> None:
@@ -353,13 +366,10 @@ def test_status_fold_versioned_metric_composite(tmp_path: Path, fold_database: s
         .aggregate()
     )
     frame = logical.execute().to_pandas().sort_values("channel")
-    assert frame.revenue.astype(float).tolist() == pytest.approx([20.0, 70.0])
-    assert any(
-        role == "validation_batch" and "__mv_status" in statement
-        for role, statement in runtime.statistics.statements
+    assert_status_fold_values(
+        frame.revenue.astype(float).tolist(), [20.0, 70.0], runtime.statistics.statements
     )
-    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
-    assert len(primary) == 1 and "__mv_status" in primary[0]
+    assert_primary_status_gate(runtime.statistics.statements)
 
 
 @pytest.mark.parametrize(
@@ -407,8 +417,7 @@ def test_relationship(tmp_path: Path, method_database: str) -> None:
         .execute()
     )
     frame = result.to_pandas().sort_values("region")
-    assert frame.region.tolist() == ["EU", "US"]
-    assert frame.mean_amount.tolist() == [15.0, 35.0]
+    assert_relationship_values(frame.region.tolist(), frame.mean_amount.tolist())
 
 
 @pytest.mark.parametrize("unit", ["day", "week", "month", "quarter", "year"])
@@ -426,20 +435,10 @@ def test_date_buckets(
         .aggregate()
     )
     frame = logical.execute().to_pandas()
-    expected = {
-        "day": [
-            ("2026-02-01", 10.0),
-            ("2026-02-02", 20.0),
-            ("2026-02-03", 30.0),
-            ("2026-02-04", 40.0),
-        ],
-        "week": [("2026-01-26", 10.0), ("2026-02-02", 90.0)],
-        "month": [("2026-02-01", 100.0)],
-        "quarter": [("2026-01-01", 100.0)],
-        "year": [("2026-01-01", 100.0)],
-    }
     frame = frame.sort_values("order_time")
-    assert list(zip(frame.order_time.astype(str), frame.revenue, strict=True)) == expected[unit]
+    assert_date_bucket_values(
+        unit, list(zip(frame.order_time.astype(str), frame.revenue, strict=True))
+    )
 
 
 @pytest.mark.parametrize("entity", ["snapshots", "validity"])
@@ -455,7 +454,7 @@ def test_versions(tmp_path: Path, method_database: str, entity: str) -> None:
         .execute()
         .to_pandas()
     )
-    assert sorted(frame.entity_identity) == [(1,), (2,)]
+    assert_version_identities(list(frame.entity_identity))
 
 
 def test_forecast_complete_history(tmp_path: Path, method_database: str) -> None:
@@ -470,9 +469,11 @@ def test_forecast_complete_history(tmp_path: Path, method_database: str) -> None
         .aggregate()
     )
     frame = history.forecast(horizon=periods(2), model=naive()).execute().to_pandas()
-    assert frame.forecast_value.tolist() == [40.0, 40.0]
-    assert frame.training_row_count.tolist() == [4, 4]
-    assert runtime.statistics.transferred_rows == 4
+    assert_forecast_history(
+        frame.forecast_value.tolist(),
+        frame.training_row_count.tolist(),
+        runtime.statistics.transferred_rows,
+    )
 
 
 def test_kendall_source_reduction(tmp_path: Path, method_database: str) -> None:
@@ -488,9 +489,11 @@ def test_kendall_source_reduction(tmp_path: Path, method_database: str) -> None:
         .aggregate()
     )
     frame = history.correlate(method="kendall").execute().to_pandas()
-    assert frame.coefficient.tolist() == [1.0]
-    assert runtime.statistics.transferred_rows == 4
-    assert runtime.statistics.events.get("local_execution_started", 0) > 0
+    assert_kendall_source_reduction(
+        frame.coefficient.tolist(),
+        runtime.statistics.transferred_rows,
+        runtime.statistics.events.get("local_execution_started", 0),
+    )
 
 
 @pytest.mark.parametrize(
@@ -516,7 +519,7 @@ def test_version_failures_do_not_publish(
     )
     with pytest.raises(MaterializationError):
         logical.execute()
-    assert counts(runtime)["dataset_artifacts"] == 0
+    assert_no_dataset_artifacts(counts(runtime)["dataset_artifacts"])
 
 
 def test_retained_mean_in_fresh_process(tmp_path: Path, method_database: str) -> None:
@@ -589,8 +592,7 @@ def test_time_discovery(tmp_path: Path, method_database: str) -> None:
         .aggregate()
     )
     result = history.discover.point_anomalies(threshold=1.0).execute()
-    assert len(result.to_pandas()) == 2
-    assert runtime.statistics.transferred_rows == 4
+    assert_time_discovery(len(result.to_pandas()), runtime.statistics.transferred_rows)
 
 
 def test_dimension_comparison_alignment(tmp_path: Path, method_database: str) -> None:
@@ -610,10 +612,12 @@ def test_dimension_comparison_alignment(tmp_path: Path, method_database: str) ->
     )
     result = after.compare(before).execute()
     frame = result.to_pandas().sort_values("channel")
-    assert frame.channel.tolist() == ["a", "b"]
-    assert frame.baseline_value.iloc[0] == 15.0
-    assert frame.current_value.iloc[1] == 35.0
-    assert frame.delta.isna().all()
+    assert_dimension_comparison(
+        frame.channel.tolist(),
+        frame.baseline_value.iloc[0],
+        frame.current_value.iloc[1],
+        frame.delta.isna().all(),
+    )
 
 
 def test_cross_root_ratio_keeps_contribution_grain(tmp_path: Path, method_database: str) -> None:
@@ -629,9 +633,9 @@ def test_cross_root_ratio_keeps_contribution_grain(tmp_path: Path, method_databa
         population=sources.population(ref.entity("sales.customers")),
     ).aggregate()
     frame = logical.execute().to_pandas()
-    assert frame.revenue.tolist() == [100.0]
-    assert frame.line_revenue.tolist() == [65.0]
-    assert frame.cross_root_ratio.tolist() == [0.65]
+    assert_cross_root_ratio(
+        frame.revenue.tolist(), frame.line_revenue.tolist(), frame.cross_root_ratio.tolist()
+    )
 
 
 @pytest.mark.parametrize("missing", [True, False])
@@ -655,12 +659,14 @@ def test_relationship_target_integrity(tmp_path: Path, method_database: str, mis
     )
     if missing:
         frame = logical.execute().to_pandas()
-        assert frame.loc[frame.region.isna(), "revenue"].tolist() == [70.0]
-        assert frame.loc[frame.region == "EU", "revenue"].tolist() == [30.0]
+        assert_missing_relationship_values(
+            frame.loc[frame.region.isna(), "revenue"].tolist(),
+            frame.loc[frame.region == "EU", "revenue"].tolist(),
+        )
     else:
         with pytest.raises(MaterializationError):
             logical.execute()
-        assert counts(runtime)["dataset_artifacts"] == 0
+        assert_no_dataset_artifacts(counts(runtime)["dataset_artifacts"])
 
 
 @pytest.mark.parametrize(
@@ -686,10 +692,9 @@ def test_weight_pairs_and_zero_denominator(
         .execute()
         .to_pandas()
     )
-    if expected is None:
-        assert frame.weighted_amount.isna().all()
-    else:
-        assert frame.weighted_amount.tolist() == [expected]
+    assert_weighted_mean_values(
+        frame.weighted_amount.tolist(), frame.weighted_amount.isna().all(), expected
+    )
 
 
 def test_retained_axis_attribution(tmp_path: Path, method_database: str) -> None:
@@ -713,8 +718,7 @@ def test_retained_axis_attribution(tmp_path: Path, method_database: str) -> None
     )
     offline(method_database)
     frame = after.compare(before).attribute(axes=(CHANNEL,)).execute().to_pandas()
-    assert frame.contribution.tolist() == [20.0]
-    assert frame.overall_delta.tolist() == [20.0]
+    assert_retained_axis_attribution(frame.contribution.tolist(), frame.overall_delta.tolist())
 
 
 @pytest.mark.parametrize("change", ["closed_closed", "sentinel"])

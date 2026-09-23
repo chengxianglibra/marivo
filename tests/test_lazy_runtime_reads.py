@@ -201,11 +201,10 @@ def test_failure_codec_rejects_unregistered_failures(field: str, unregistered: s
 @pytest.mark.parametrize(
     "shape",
     [
-        "population/entity-membership@v1",
         {"family_id": "unknown", "local_shape_id": "unknown", "semantic_version": 1},
     ],
 )
-def test_run_input_codec_rejects_legacy_and_unregistered_shapes(shape: object) -> None:
+def test_run_input_codec_rejects_unregistered_shapes(shape: object) -> None:
     from marivo.analysis.materialization.contracts import decode_run_input, run_input_payload
 
     payload = run_input_payload(input_value())

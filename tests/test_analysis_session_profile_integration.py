@@ -35,16 +35,6 @@ def test_missing_datasource_is_named_when_sources_are_requested(
     assert session.runs().items == ()
 
 
-@pytest.mark.parametrize(
-    "kwargs", [{"backends": {}}, {"backend_factory": None}, {"use_datasources": False}]
-)
-def test_session_rejects_removed_backend_override_parameters(tmp_path, monkeypatch, kwargs):
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(TypeError):
-        mv.session.get_or_create("override", **kwargs)
-    assert not (tmp_path / ".marivo").exists()
-
-
 @pytest.mark.runtime
 def test_observe_uses_registered_global_datasource(
     authoring_evidence_project: Path, tmp_path: Path, monkeypatch

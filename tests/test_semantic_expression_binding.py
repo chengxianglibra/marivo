@@ -75,10 +75,6 @@ def _metric_ref_call(orders):
     return bind(REVENUE, orders)  # type: ignore[arg-type]
 
 
-def _legacy_field_call(orders):
-    return AMOUNT(orders).sum()  # type: ignore[operator]
-
-
 def _sidecar(
     *,
     amount_body: ExpressionBody | None = None,
@@ -175,17 +171,6 @@ def test_compile_rejects_metric_ref_call_as_invalid_binding() -> None:
         )
     assert exc_info.value.kind == ErrorKind.INVALID_BINDING_REF
     assert exc_info.value.semantic_refs == (REVENUE.key, REVENUE.key)
-
-
-def test_compile_rejects_legacy_callable_ref_with_bind_repair() -> None:
-    with pytest.raises(SemanticLoadError) as exc_info:
-        compile_expression_body(
-            _legacy_field_call,
-            owning_ref=REVENUE,
-            ordered_entity_refs=(ORDERS,),
-        )
-    assert exc_info.value.kind == ErrorKind.INVALID_BINDING_REF
-    assert exc_info.value.expected == "ms.bind(field_ref, entity_parameter)"
 
 
 def test_root_and_nested_evaluation_use_compiled_sidecar() -> None:

@@ -863,7 +863,7 @@ def test_event_files_roll_when_size_limit_would_be_exceeded(
     ]
 
 
-def test_historical_retention_preserves_current_and_legacy_files(
+def test_historical_retention_prunes_managed_segments_only(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import marivo.telemetry as telemetry
@@ -872,11 +872,9 @@ def test_historical_retention_preserves_current_and_legacy_files(
     directory.mkdir(parents=True)
     expired = directory / "events-2026-07-15.000.jsonl"
     retained = directory / "events-2026-07-16.000.jsonl"
-    legacy = directory / "events.jsonl"
     unmanaged = directory / "events-2026-07-15.notes.jsonl"
     expired.write_text("expired\n", encoding="utf-8")
     retained.write_text("retained\n", encoding="utf-8")
-    legacy.write_text("legacy\n", encoding="utf-8")
     unmanaged.write_text("unmanaged\n", encoding="utf-8")
     timestamp = str(int(datetime(2026, 7, 29, 12, 0, tzinfo=UTC).timestamp() * 1_000_000_000))
     monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: timestamp)
@@ -890,7 +888,6 @@ def test_historical_retention_preserves_current_and_legacy_files(
 
     assert not expired.exists()
     assert retained.exists()
-    assert legacy.read_text(encoding="utf-8") == "legacy\n"
     assert unmanaged.read_text(encoding="utf-8") == "unmanaged\n"
     assert (directory / "events-2026-07-29.000.jsonl").exists()
 

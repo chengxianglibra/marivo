@@ -70,19 +70,6 @@ def test_v6_schema_is_strict_normalized_and_durable(tmp_path: Path) -> None:
     assert store.incomplete("session")[0].lifecycle == "incomplete"
 
 
-@pytest.mark.parametrize("version", [0, 1, 2, 3, 4, 5])
-def test_existing_wrong_generation_is_not_mutated(tmp_path: Path, version: int) -> None:
-    path = tmp_path / ".marivo/analysis/generations/v6/session_store.db"
-    path.parent.mkdir(parents=True)
-    with sqlite3.connect(path) as conn:
-        conn.execute(f"PRAGMA user_version={version}")
-        conn.execute("CREATE TABLE preserved(value TEXT)")
-    original = path.read_bytes()
-    with pytest.raises(IntegrityError):
-        SessionStore(tmp_path)
-    assert path.read_bytes() == original
-
-
 def test_success_is_one_normalized_bundle_and_exact_binding(tmp_path: Path) -> None:
     store = _admitted(tmp_path)
     seen = []

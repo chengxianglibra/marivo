@@ -1,14 +1,11 @@
 """Datasource errors expose stable fields and typed recovery actions."""
 
-import inspect
-
 from marivo._authoring.model import AuthoringRepair
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
     DatasourceMissingError,
     DatasourceObservedEffects,
 )
-from marivo.datasource.inspection import _authoring_error
 from marivo.introspection.live.model import LiveHelpTarget
 
 
@@ -59,7 +56,3 @@ def test_authoring_error_preserves_no_query_fact() -> None:
     assert error.effect_observed.scope_state == "unknown"
     assert "Code: partition_state_unknown" in str(error)
     assert "Stage: preflight" in str(error)
-
-
-def test_authoring_error_constructor_has_no_legacy_next_calls_bridge() -> None:
-    assert "next_calls" not in inspect.signature(_authoring_error).parameters

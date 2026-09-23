@@ -47,7 +47,7 @@ def test_failed_run_with_persisted_output_is_rejected_before_projection(tmp_path
 
 
 @pytest.mark.parametrize("severity", ["warning", "blocking"])
-def test_exact_issue_severity_roundtrips_and_legacy_nonempty_shape_is_rejected(
+def test_exact_issue_severity_roundtrips_and_missing_member_is_rejected(
     severity: Literal["warning", "blocking"],
 ) -> None:
     value = replace(

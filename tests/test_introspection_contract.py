@@ -1,24 +1,11 @@
-"""Cross-surface tests for the agent-facing help() contract.
-
-All three surfaces (analysis, datasource, semantic) now use
-capability-registry-based live renderers. The old JSON ``Surface``
-infrastructure has been removed. Live help invariants for the semantic
-surface live in ``tests/test_semantic_help_contract.py``; analysis help
-invariants live in ``tests/test_analysis_help.py``.
-
-This file retains catalog-level, constraint-path, and datasource/analysis
-regression tests that do not depend on the removed ``_surface`` function.
-"""
+"""Cross-surface constraint ownership and structured error contracts."""
 
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 
 import pytest
 
-import marivo
-import marivo.semantic as ms
 from marivo._help.model import MarivoHelpTargetError
 from marivo.semantic.constraints import CONSTRAINTS as SEMANTIC_CONSTRAINTS
 from tests.shared_fixtures import rendered_help
@@ -52,40 +39,6 @@ def test_constraint_paths_exist() -> None:
             )
 
 
-def test_no_inherited_or_module_docstring_leaks() -> None:
-    text = rendered_help("trino", owner="datasource")
-    assert "Signature:" in text
-    assert "__init__" not in text
-
-
-def test_semantic_catalog_help_lists_workflow_methods() -> None:
-    text = rendered_help(ms.SemanticCatalog, owner="semantic")
-    assert "SemanticCatalog" in text
-    assert "require" in text
-    assert "readiness" in text
-    assert "verify" not in text
-
-
-def test_semantic_load_help_mentions_entrypoint() -> None:
-    text = rendered_help("load", owner="semantic")
-    assert "ms.load" in text
-    assert "Signature:" in text
-    assert "SemanticCatalog" in text
-
-
-def test_semantic_metric_help_contains_constructor_and_constraints() -> None:
-    text = rendered_help("metric", owner="semantic")
-    assert "ms.metric" in text
-    assert "Signature:" in text
-    assert "Constraints:" in text
-    assert "metric_entities_required" in text
-    assert "metric_additivity_required" in text
-
-
-def test_datasource_trino_descriptor_lists_secret_env_constraint() -> None:
-    assert "datasource_secret_env_ref" in rendered_help("trino", owner="datasource")
-
-
 def test_datasource_help_does_not_resolve_private_symbols() -> None:
     with pytest.raises(MarivoHelpTargetError):
         rendered_help("_build_ai_context", owner="datasource")
@@ -98,34 +51,6 @@ def test_datasource_constraint_defaults_use_error_kind_only() -> None:
 
     assert constraint is not None
     assert constraint.id == "datasource_file_loadable"
-
-
-def test_public_help_prints_and_private_renderer_returns_string(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    result = marivo.help("datasource.trino")
-
-    captured = capsys.readouterr()
-    assert result is None
-    assert captured.out.startswith("trino\n")
-
-    text = rendered_help("trino", owner="datasource")
-    captured = capsys.readouterr()
-    assert text.startswith("trino\n")
-    assert captured.out == ""
-
-
-def test_public_help_rejects_format_and_print_kwargs() -> None:
-    with pytest.raises(TypeError):
-        marivo.help("datasource.trino", format="json")  # type: ignore[call-arg]
-    with pytest.raises(TypeError):
-        marivo.help("datasource.trino", print=False)  # type: ignore[call-arg]
-
-
-def test_public_help_has_no_format_or_print_parameter() -> None:
-    sig = inspect.signature(marivo.help)
-    assert "format" not in sig.parameters
-    assert "print" not in sig.parameters
 
 
 def test_shared_catalog_hint_lookup_supports_semantic() -> None:

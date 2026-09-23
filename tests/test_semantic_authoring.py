@@ -195,15 +195,6 @@ def test_model_default_false_does_not_set_context() -> None:
         _exit_ctx()
 
 
-def test_model_requires_keyword_args() -> None:
-    _enter_ctx()
-    try:
-        with pytest.raises(TypeError):
-            ms.domain("sales")  # type: ignore[misc]
-    finally:
-        _exit_ctx()
-
-
 def test_model_requires_owner_keyword() -> None:
     _enter_ctx()
     try:
@@ -213,24 +204,12 @@ def test_model_requires_owner_keyword() -> None:
         _exit_ctx()
 
 
-@pytest.mark.parametrize("owner", [42, None])
-def test_model_owner_must_be_string(owner: object) -> None:
+@pytest.mark.parametrize("owner", [42, None, "", "   "])
+def test_model_owner_must_be_non_empty_string(owner: object) -> None:
     _enter_ctx()
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.domain(name="sales", owner=owner)  # type: ignore[arg-type]
-        assert exc_info.value.kind == ErrorKind.INVALID_DOMAIN_OWNER
-        assert "owner must be a non-empty string" in str(exc_info.value)
-    finally:
-        _exit_ctx()
-
-
-@pytest.mark.parametrize("owner", ["", "   "])
-def test_model_owner_must_be_non_empty(owner: str) -> None:
-    _enter_ctx()
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.domain(name="sales", owner=owner)
         assert exc_info.value.kind == ErrorKind.INVALID_DOMAIN_OWNER
         assert "owner must be a non-empty string" in str(exc_info.value)
     finally:
@@ -2640,11 +2619,6 @@ def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
         assert exc_info.value.kind == "invalid_ref"
     finally:
         _exit_ctx()
-
-
-def test_date_parse_no_longer_exported() -> None:
-    # ms.date() has been removed — native temporal columns don't need parse
-    assert not hasattr(ms, "date")
 
 
 def test_date_only_strptime_rejects_timezone() -> None:

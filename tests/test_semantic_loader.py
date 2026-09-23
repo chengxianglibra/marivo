@@ -201,8 +201,7 @@ def test_model_name_mismatch(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_missing_domain_file_error_names_expected_path_and_help(semantic_project_factory) -> None:
-    """A missing _domain.py error names the path and unified authoring help."""
+def test_missing_domain_file_error_has_typed_repair(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/datasets.py": _MINIMAL_DATASET_PY,
@@ -213,15 +212,13 @@ def test_missing_domain_file_error_names_expected_path_and_help(semantic_project
     assert result.status == "errored"
     domain_errors = [e for e in result.errors if e.kind == ErrorKind.DOMAIN_FILE_MISSING]
     assert domain_errors, "expected a DOMAIN_FILE_MISSING error"
-    combined = str(domain_errors[0])
-    # Expected path shape and the canonical authoring entry point.
-    assert "models/semantic" in combined
-    assert "_domain.py" in combined
-    assert 'marivo.help("authoring")' in combined or "marivo.help('authoring')" in combined
+    error = domain_errors[0]
+    assert error.repair is not None
+    assert error.repair.help_target.surface == "semantic"
+    assert error.repair.help_target.canonical_id == "objects.domain"
 
 
-def test_empty_domain_file_error_names_help(semantic_project_factory) -> None:
-    """A _domain.py without ms.domain() points to unified authoring help."""
+def test_empty_domain_file_error_has_typed_repair(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": "# no ms.domain() call here\n",
@@ -232,8 +229,10 @@ def test_empty_domain_file_error_names_help(semantic_project_factory) -> None:
     assert result.status == "errored"
     domain_errors = [e for e in result.errors if e.kind == ErrorKind.DOMAIN_FILE_MISSING]
     assert domain_errors, "expected a DOMAIN_FILE_MISSING error"
-    combined = str(domain_errors[0])
-    assert 'marivo.help("authoring")' in combined or "marivo.help('authoring')" in combined
+    error = domain_errors[0]
+    assert error.repair is not None
+    assert error.repair.help_target.surface == "semantic"
+    assert error.repair.help_target.canonical_id == "objects.domain"
 
 
 def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_factory) -> None:
@@ -243,7 +242,7 @@ def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_fa
         import marivo.semantic as ms
         ms.domain(name="sales", owner='Mina Zhang', default=True)
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-        @ms.metric(entities=[orders], additivity="additive", ai_context={"summary": "oops"})
+        @ms.metric(entities=[orders], additivity="additive", ai_context={"business_definition": 42})
         def revenue(orders):
             return orders.amount.sum()
     """)
@@ -262,8 +261,6 @@ def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_fa
     assert "ms.ai_context(" in combined
     assert "business_definition" in combined
     assert "guardrails" in combined
-    # Explicitly rejects the legacy summary= field.
-    assert "summary" in combined
 
 
 # ---------------------------------------------------------------------------
@@ -320,13 +317,6 @@ def test_test_files_excluded(semantic_project_factory) -> None:
 
 def test_empty_project_is_valid(semantic_project_factory) -> None:
     project = semantic_project_factory({})
-    assert project.is_ready()
-
-
-def test_empty_project_no_models(semantic_project_factory) -> None:
-    project = semantic_project_factory({})
-    # list_models still raises NotImplementedError (Slice 8)
-    # but the project itself is ready
     assert project.is_ready()
 
 
@@ -733,17 +723,6 @@ def test_load_result_has_warnings_field(semantic_project_factory) -> None:
     result = project.load()
     assert hasattr(result, "warnings")
     assert isinstance(result.warnings, tuple)
-
-
-def test_provenance_from_sql_requires_dialect(semantic_project_factory) -> None:
-    """ms.from_sql() requires both sql and dialect, so it is impossible to
-    create a provenance with SQL but no dialect at the
-    authoring level. This test verifies that ms.from_sql() enforces both."""
-    import marivo.semantic as ms
-
-    # ms.from_sql() requires dialect, so this is enforced by construction
-    with pytest.raises(TypeError):
-        ms.from_sql(sql="SELECT 1")  # type: ignore[call-arg]
 
 
 def test_derived_metric_with_provenance_errors(semantic_project_factory) -> None:

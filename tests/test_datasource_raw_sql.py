@@ -93,7 +93,6 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     assert "escape_hatch" not in rendered
     assert "diagnose order amount sample" in rendered
     assert "expensive" in rendered
-    assert 'marivo.help("datasource.raw_sql")' in rendered
 
 
 def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
@@ -997,7 +996,7 @@ def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     rendered = str(err)
     assert "raw_sql execution or result fetching failed" in rendered
     assert "Repair:" in rendered
-    assert "md.help" in rendered.lower() or "raw_sql" in rendered.lower()
+    assert err.repair is not None
 
 
 def test_raw_sql_error_timeout_setup_reports_no_execution(

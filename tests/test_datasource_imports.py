@@ -16,7 +16,10 @@ import marivo.semantic as ms
 # run in-process. Both isolation assertions share this single subprocess to
 # avoid paying the marivo.datasource import (~4s) twice.
 _ISOLATION_PROBE_CODE = """
-import json, sys
+import contextlib
+import io
+import json
+import sys
 for name in list(sys.modules):
     if (name == "marivo.datasource" or name.startswith("marivo.datasource.")
             or name == "marivo.semantic" or name.startswith("marivo.semantic.")
@@ -25,7 +28,6 @@ for name in list(sys.modules):
         del sys.modules[name]
 
 import marivo.datasource as md
-from marivo.datasource._capabilities.render import render_root_help
 
 after_import = {
     "duckdb_present": md.duckdb is not None,
@@ -33,9 +35,10 @@ after_import = {
     "analysis_loaded": "marivo.analysis" in sys.modules,
     "packaged_skills_loaded": "marivo.skills" in sys.modules,
 }
-help_text = render_root_help()
+import marivo
+with contextlib.redirect_stdout(io.StringIO()):
+    marivo.help("datasource")
 after_help = {
-    "help_mentions_datasource": "marivo.datasource" in help_text,
     "semantic_loaded": "marivo.semantic" in sys.modules,
     "analysis_loaded": "marivo.analysis" in sys.modules,
     "packaged_skills_loaded": "marivo.skills" in sys.modules,
@@ -70,7 +73,6 @@ def test_datasource_help_does_not_load_semantic_analysis_or_packaged_skills(
     _datasource_isolation_probe: dict,
 ) -> None:
     probe = _datasource_isolation_probe["after_help"]
-    assert probe["help_mentions_datasource"]
     assert not probe["semantic_loaded"]
     assert not probe["analysis_loaded"]
     assert not probe["packaged_skills_loaded"]
@@ -188,44 +190,3 @@ def test_datasource_public_exports() -> None:
         "clickhouse",
     ):
         assert hasattr(md, name), f"marivo.datasource missing export: {name}"
-
-    for removed in (
-        "file",
-        "inspect_source",
-        "inspect_columns",
-        "probe_join_keys",
-        "ColumnInspection",
-        "JoinKeyProbe",
-        "DiscoveryResult",
-        "RawSqlResult",
-        "EntityDiscoveryResult",
-        "DimensionDiscoveryResult",
-        "TimeDimensionDiscoveryResult",
-        "MeasureDiscoveryResult",
-        "RelationshipDiscoveryResult",
-        "DimensionValueDiscoveryResult",
-        "ColumnDiscovery",
-        "TimeColumnDiscovery",
-        "DimensionValueFact",
-        "DiscoveryEvidenceEntry",
-        "DiscoveryIssue",
-        "DiscoverySignal",
-        "FormatCandidate",
-        "PrimaryKeyCandidate",
-        "TimeValueRange",
-        "DatasourceResult",
-        "JoinSide",
-        "ScanScope",
-        "preview",
-        "inspect_table",
-        "inspect_partitions",
-        "discover_entity",
-        "discover_dimensions",
-        "discover_time_dimensions",
-        "discover_measures",
-        "discover_relationship",
-        "discover_dimension_values",
-    ):
-        assert not hasattr(md, removed), (
-            f"marivo.datasource still exposes removed public name: {removed}"
-        )

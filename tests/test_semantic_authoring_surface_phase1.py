@@ -1,13 +1,4 @@
-"""Tests for Phase 1: typed datasource source variants and semantic IR value objects.
-
-Phase 1a tests verify that the generic FileSourceIR has been replaced with typed
-ParquetSourceIR and CsvSourceIR dataclasses, with dedicated constructors on
-both the md and ms modules, and that the legacy file() builder is removed.
-
-Phase 1b tests verify the semantic IR value objects: Ref[measure], MeasureIR,
-parse variants, SqlProvenance, JoinKey, ValidityVersioningIR.open_end, and
-the DimensionKind categorical/time-only enum.
-"""
+"""Typed datasource source variants and semantic IR value objects."""
 
 from __future__ import annotations
 
@@ -136,12 +127,6 @@ def test_source_builders_reject_invalid_payloads() -> None:
         md.json("/tmp/events.json", schema={"event_id": "string"}, format="ndjson")  # type: ignore[arg-type]
 
 
-def test_semantic_source_builders_are_removed() -> None:
-    for name in ("table", "parquet", "csv", "json"):
-        assert name not in ms.__all__
-        assert not hasattr(ms, name)
-
-
 def test_source_from_dict_reads_typed_file_variants() -> None:
     assert source_from_dict({"kind": "parquet", "path": "/tmp/orders.parquet"}).to_dict() == {
         "kind": "parquet",
@@ -195,15 +180,6 @@ def test_source_from_dict_reads_json_variant() -> None:
         "body": None,
         "body_params": [],
     }
-
-
-def test_file_source_builder_is_removed_from_public_surface() -> None:
-    assert not hasattr(ms, "file")
-    assert not hasattr(md, "file")
-    with pytest.raises(AttributeError):
-        _ = ms.file
-    with pytest.raises(AttributeError):
-        _ = md.file
 
 
 # ---------------------------------------------------------------------------
@@ -462,16 +438,6 @@ def test_datetime_and_timestamp_accept_optional_timezone() -> None:
     assert ms.timestamp().timezone is None
     assert ms.datetime(timezone="UTC").timezone == "UTC"
     assert ms.timestamp(timezone="UTC").timezone == "UTC"
-
-
-def test_time_dimension_parse_invalid_combinations_are_unconstructable() -> None:
-    # data_type is no longer a parameter on strptime or hour_prefix
-    with pytest.raises(TypeError):
-        ms.strptime(data_type="string")
-    with pytest.raises(TypeError):
-        ms.hour_prefix("dt", data_type="date")
-    # ms.date has been removed — native temporal columns don't need parse
-    assert not hasattr(ms, "date")
 
 
 def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:

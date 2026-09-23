@@ -92,7 +92,6 @@ def test_inspect_exposes_cost_partition_and_capabilities_without_data_query(
     assert ".partitions()" in rendered
     assert ".sample(...)" in rendered
     assert "source descriptor:" in rendered
-    assert 'focused acquisition help: marivo.help("datasource.SourceInspection.sample")' in rendered
     assert '"kind":"table"' in rendered
     assert '"table":"orders"' in rendered
     assert "schema:" in rendered

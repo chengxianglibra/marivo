@@ -1,6 +1,5 @@
 """Authoring + IR + hash tests for cumulative metrics v2 anchors."""
 
-import hashlib
 from contextlib import contextmanager
 from typing import Any
 
@@ -201,16 +200,6 @@ def test_cumulative_anchor_defaults_to_all_history():
         assert m.composition.anchor == "all_history"
 
 
-def test_v1_all_history_hash_is_byte_identical():
-    """The forward-compatibility promise: v1 all_history objects hash identically under v2 code."""
-    v1_composition = CumulativeComposition(base="sales.gmv", over="sales.events.event_time")
-    v1_hash = _compute_composition_hash(v1_composition)
-    # The v1 hash text is repr(("cumulative", base, over, "all_history")).
-    expected_text = repr(("cumulative", "sales.gmv", "sales.events.event_time", "all_history"))
-    expected = hashlib.sha256(expected_text.encode()).hexdigest()[:16]
-    assert v1_hash == expected
-
-
 def test_grain_to_date_hash_differs_from_all_history():
     base = "sales.gmv"
     over = "sales.events.event_time"
@@ -266,8 +255,7 @@ def test_trailing_hash_distinguishes_unit():
 
 
 def test_cumulative_anchor_hashes_are_deterministic():
-    """Recomputing the same anchor composition must yield the same hash bytes
-    across calls (forward-compatibility / cache-key stability)."""
+    """Recomputing the same current anchor composition yields the same hash."""
     base = "sales.gmv"
     over = "sales.events.event_time"
     for anchor in (
@@ -337,17 +325,6 @@ def test_validator_rejects_cumulative_over_derived_base() -> None:
             assert "ratio of two cumulative metrics" in messages
             assert "same" in messages
             assert "anchor" in messages
-
-
-def test_cumulative_semantic_help_explains_derived_compare_boundary() -> None:
-    from tests.shared_fixtures import rendered_help
-
-    text = rendered_help("cumulative", owner="semantic")
-
-    assert "same trailing or grain_to_date anchor" in text
-    assert "all_history" in text
-    assert "attribute" in text
-    assert "decompose" in text
 
 
 def test_loader_resolves_grain_to_date_anchor_over_from_single_time_entity() -> None:

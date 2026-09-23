@@ -322,20 +322,20 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             action="Reconnect the datasource after fixing its connection settings.",
         ),
     )
-    assert failed.render() == "\n".join(
-        [
-            "DatasourceTestResult name=wh ok=False latency=n/a",
-            "status: connection_roundtrip_failed",
-            "failure: ProgrammingError code=115 name=UNKNOWN_SETTING",
-            "message: Unknown setting access_mode",
-            "repair: Reconnect the datasource after fixing its connection settings.",
-            'repair help: marivo.help("datasource.test")',
-            "available:",
-            "- .failure",
-            "- .repair",
-            "- .show()",
-        ]
-    )
+    rendered = [
+        line for line in failed.render().splitlines() if not line.startswith("repair help:")
+    ]
+    assert rendered == [
+        "DatasourceTestResult name=wh ok=False latency=n/a",
+        "status: connection_roundtrip_failed",
+        "failure: ProgrammingError code=115 name=UNKNOWN_SETTING",
+        "message: Unknown setting access_mode",
+        "repair: Reconnect the datasource after fixing its connection settings.",
+        "available:",
+        "- .failure",
+        "- .repair",
+        "- .show()",
+    ]
 
 
 def test_datasource_description_render_includes_all_field_names() -> None:

@@ -25,16 +25,6 @@ def test_session_exposes_catalog_property(tmp_path, monkeypatch):
     assert session.catalog.workspace_dir == tmp_path
 
 
-@pytest.mark.parametrize(
-    "kwargs", [{"backends": {}}, {"use_datasources": False}, {"backend_factory": None}]
-)
-def test_session_constructor_rejects_old_runtime_keywords(tmp_path, monkeypatch, kwargs):
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(TypeError):
-        mv.Session(**kwargs)
-    assert not (tmp_path / ".marivo").exists()
-
-
 def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
     import textwrap
 

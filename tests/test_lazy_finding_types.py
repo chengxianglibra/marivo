@@ -263,8 +263,7 @@ def test_coordinate_scalar_type_and_value_are_lossless(scalar: t.Scalar) -> None
 @pytest.mark.parametrize(
     "member,unexpected",
     [
-        ("compatibility", {}),
-        ("source_artifact_ref", "legacy"),
+        ("unexpected_member", {}),
         ("session_id", "forged"),
         ("committed_at", "2026-09-09"),
     ],

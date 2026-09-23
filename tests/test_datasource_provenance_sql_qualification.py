@@ -69,17 +69,6 @@ def test_qualify_multi_part_database() -> None:
     assert "orders" in result
 
 
-def test_qualify_tuple_database_parity() -> None:
-    """When database is a tuple like ('catalog', 'schema'), the joined
-    qualifier produces a 3-part name that qualify_provenance_sql handles."""
-    sql = "SELECT SUM(amount) FROM orders"
-    # Simulates the f"{'.'.join(db)}.{table}" path from parity.py
-    result = qualify_provenance_sql(sql, {"orders": "catalog.schema.orders"})
-    assert "catalog" in result
-    assert "schema" in result
-    assert "orders" in result
-
-
 # ---------------------------------------------------------------------------
 # Parity integration helpers
 # ---------------------------------------------------------------------------
