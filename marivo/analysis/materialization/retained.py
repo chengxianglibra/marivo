@@ -241,9 +241,7 @@ def validate_source_private_relation(
     )
     authority = next(item for name, item in membership_part_authorities(row) if name == role)
     assert authority.membership is not None
-    from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
-
-    if isinstance(backend, DuckDBExecutionAdapter):
+    if backend.engine == "duckdb":
         sql = membership_integrity_sql(
             backend.compile(table),
             backend.compile(primary),

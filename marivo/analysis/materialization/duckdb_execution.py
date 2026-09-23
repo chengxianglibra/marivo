@@ -24,7 +24,8 @@ from marivo.analysis.materialization.errors import (
     source_type_errors,
 )
 from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
-from marivo.analysis.materialization.submissions import ObservedExecution, Submission
+from marivo.analysis.materialization.ibis_batches import IbisBatchStream as DuckDBBatchStream
+from marivo.analysis.materialization.submissions import ObservedExecution
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
 
@@ -42,40 +43,10 @@ def quote(name: str) -> str:
     return sge.to_identifier(name, quoted=True).sql(dialect="duckdb")
 
 
-class DuckDBBatchStream:
-    """Close the driver reader even if iteration never starts or stops early."""
-
-    def __init__(
-        self, native: pa.RecordBatchReader, schema: pa.Schema, receipt: Submission | None = None
-    ) -> None:
-        self._receipt = receipt
-        self._native = native
-        self._reader = pa.RecordBatchReader.from_batches(schema, native)
-
-    @property
-    def schema(self) -> pa.Schema:
-        return self._reader.schema
-
-    def __iter__(self) -> Iterator[pa.RecordBatch]:
-        try:
-            yield from self._reader
-        except BaseException as error:
-            if self._receipt is not None:
-                self._receipt.fail(error)
-            raise
-
-    def close(self) -> None:
-        try:
-            self._reader.close()
-        except BaseException:
-            with suppress(BaseException):
-                self._native.close()
-            raise
-        self._native.close()
-
-
 class DuckDBExecutionAdapter(ObservedExecution):
     """One action-local connection for normal Ibis execution and explicit driver SQL."""
+
+    engine = "duckdb"
 
     def __init__(self, backend: Backend, *, reserve: Callable[[str], None] | None = None) -> None:
         super().__init__()
@@ -289,11 +260,11 @@ class DuckDBExecutionAdapter(ObservedExecution):
         role: str = "query",
     ) -> DuckDBBatchStream:
         if isinstance(value, ir.Expr):
+            schema = value.as_table().schema().to_pyarrow()
             with self._ibis_execution(value, role=role):
                 native = self._backend.to_pyarrow_batches(
                     value, params=params, limit=None, chunk_size=chunk_size
                 )
-            schema = value.as_table().schema().to_pyarrow()
         else:
             if params is not None:
                 raise _invalid("execution_boundary")

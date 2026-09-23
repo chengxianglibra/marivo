@@ -189,10 +189,9 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         *,
         role: str,
         params: Mapping[ir.Scalar, Parameter] | None = None,
-        execute: bool = False,
     ) -> ScalarStatement:
         if not self._lifecycle_compiling:
-            return super()._prepare(expression, role=role, params=params, execute=execute)
+            return super()._prepare(expression, role=role, params=params)
         from marivo.analysis.compiler.event_time import _localize_utc
 
         self._check()
