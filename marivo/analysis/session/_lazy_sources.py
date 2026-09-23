@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
+from marivo.analysis.compiler.source_admission import source_admission_fact
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.domains.event import LogicalEventDataset, make_match
@@ -19,6 +20,7 @@ from marivo.analysis.observation.contracts import (
     ObservationActionPort,
     ObservationOwner,
     TimeDimensionInput,
+    _install_source_admission_reader,
     construction_error,
     make_family_registry,
     make_ids,
@@ -37,6 +39,7 @@ from marivo.semantic.catalog import SemanticCatalog, StateModelEntry
 from marivo.semantic.validator import Registry
 
 _DEFAULT_REPORT_TIME = ReportTimeAuthority()
+_install_source_admission_reader(source_admission_fact)
 
 
 @dataclass(frozen=True, slots=True, repr=False)

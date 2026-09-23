@@ -54,7 +54,7 @@ Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一�
 
 ## 检查证据与恢复
 
-`contract()` 描述机械上合法的继续操作；Materialized Dataset 的 `show()` 提供有界结果检查。通过所属 Session 读取确切 Finding 或恢复 Artifact。展示少量行不代表计算可以省略其他输入。参见[证据](/zh-cn/docs/latest/concepts/evidence/)。
+对于源端 Metric 和 Population 图，`contract()` 会展示所选后端的静态源准入结果：`rejected` 包含拒绝原因，`static_pass` 只表示纯静态检查通过；含 retained Artifact 输入的图显示 `not_checked`。最终 placement 仍由 `execute()` 决定。contract 也描述机械上合法的继续操作；Materialized Dataset 的 `show()` 提供有界结果检查。通过所属 Session 读取确切 Finding 或恢复 Artifact。展示少量行不代表计算可以省略其他输入。参见[证据](/zh-cn/docs/latest/concepts/evidence/)。
 预览中的时长列会明确标注微秒单位；`to_pandas()` 会将这些列转换为 timedelta。
 
 本地 Parquet 结果存储不需要配置。只有明确需要其他位置时，才在 `marivo.toml` 配置对象存储。执行不使用数据库结果存储，也不在失败后切换目标或执行器。冷恢复保留确切存储和时间语义；旧 Store 代际被拒绝，原文件不会被改写。

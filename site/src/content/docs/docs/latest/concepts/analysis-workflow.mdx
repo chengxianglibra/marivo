@@ -80,8 +80,12 @@ dependency fails with a structured repair before a source connection opens.
 
 ## Inspect evidence and recover
 
-`contract()` describes mechanical continuations; a Materialized Dataset's `show()`
-provides bounded retained inspection. Read exact Findings or recover an Artifact
+For source-bound Metric and Population graphs, `contract()` reports the selected
+backend's static source admission. `rejected` includes its reason; `static_pass`
+only means the pure check passed, while graphs with retained Artifact inputs show
+`not_checked`. `execute()` still decides final placement. The contract also
+describes mechanical continuations; a Materialized Dataset's `show()` provides
+bounded retained inspection. Read exact Findings or recover an Artifact
 through its owning Session. A small preview is not permission to omit rows from
 computation. See [Evidence](/docs/latest/concepts/evidence/) for the read contract.
 Duration columns in the preview are explicitly labeled in microseconds;

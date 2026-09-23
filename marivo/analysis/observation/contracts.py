@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast
 
 from marivo._temporal import Grain, PeriodCalendarSnapshotV1, TimeScope
-from marivo.analysis.datasets.base import Dataset, DatasetOwner, MaterializedDataset, _dataset_repr
+from marivo.analysis.datasets.base import (
+    Dataset,
+    DatasetOwner,
+    LogicalDataset,
+    MaterializedDataset,
+    _dataset_repr,
+)
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
     DatasetFamilyRowSemantics,
@@ -1521,16 +1527,39 @@ def _consumer_admission(dataset: Dataset, consumer_id: str) -> bool:
     return True
 
 
+_source_admission_reader: Callable[[LogicalDataset], tuple[str, str]] | None = None
+
+
+def _install_source_admission_reader(
+    reader: Callable[[LogicalDataset], tuple[str, str]],
+) -> None:
+    """Receive the pure source decision from analysis assembly."""
+    global _source_admission_reader
+    _source_admission_reader = reader
+
+
 def _contract_facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
     from marivo.analysis.datasets.handles import LogicalRootHandle
 
     root = dataset._root
-    facts: list[tuple[str, str]] = [
+    source_candidate = isinstance(root, LogicalRootHandle) and isinstance(
+        root.payload, (MetricPayload, PopulationPayload)
+    )
+    facts: list[tuple[str, str]] = []
+    if source_candidate and isinstance(dataset, LogicalDataset):
+        facts.append(
+            _source_admission_reader(dataset)
+            if _source_admission_reader is not None
+            else ("source_admission", "not_checked: static admission reader unavailable")
+        )
+    facts.append(
         (
             "source_checks",
-            "Identity, branch reconciliation and source capability remain action-time requirements.",
+            "Identity and branch reconciliation remain action-time requirements."
+            if source_candidate
+            else "Identity, branch reconciliation and source capability remain action-time requirements.",
         )
-    ]
+    )
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, MetricPayload):
         definition = root.payload.definition
         facts.extend(
