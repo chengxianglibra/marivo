@@ -44,16 +44,13 @@ ENGINES: tuple[WidenedEngine, ...] = (
     "trino",
 )
 
-# Backends whose parsing gate is open.  This list is updated in the same commit
-# as the matching ``*_support.py`` flag, so an engine that appears here has live
-# execution evidence; an engine that does not stays refused below.
-#
-# Trino stays closed because no reachable service exists to execute against.
+# Backends whose parsing gate is open. Each backend here needs live execution
+# evidence for both strptime and composite hour-prefix axes.
 # PostgreSQL is open at the same standard as the already live DuckDB path: a
 # cell the declared format cannot read surfaces as the driver's own error on
 # both engines, and PostgreSQL's leniency toward format-mismatched text remains
 # a recorded limitation rather than a guard.
-OPEN_ENGINES: tuple[WidenedEngine, ...] = ("sqlite", "mysql", "clickhouse", "postgres")
+OPEN_ENGINES: tuple[WidenedEngine, ...] = ENGINES
 
 Mutate = Callable[[Registry], Registry]
 
@@ -137,26 +134,6 @@ def test_open_backend_admits_parsed_time_axes(
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.parametrize(
-    "label,mutate,axis,unit",
-    [
-        ("civil-date", _strptime("%Y-%m-%d"), AXIS, "day"),
-        ("time-bearing", _strptime("%Y-%m-%d %H:%M:%S", "UTC"), AXIS, "day"),
-        ("composite-hour", _hour_prefix(), HOUR_AXIS, "hour"),
-    ],
-)
-def test_gate_is_opt_in_per_backend(
-    engine: WidenedEngine, label: str, mutate: Mutate, axis: str, unit: str
-) -> None:
-    """A backend that has not qualified its parser keeps the exact refusal."""
-    if engine in OPEN_ENGINES:
-        pytest.skip(f"{engine} has an open parsing gate")
-    assert _reason(engine, mutate, axis, unit) == (
-        "a Metric dimension requires an unsupported type or parser"
-    ), label
-
-
-@pytest.mark.parametrize("engine", ENGINES)
 def test_parsed_time_axes_do_not_open_epoch_representations(engine: WidenedEngine) -> None:
     """Integer epoch parsing is outside this stage's contract.
 
@@ -228,10 +205,7 @@ def test_parsed_time_axes_open_cumulative_state_on_qualified_engines(
         time_scope=time_scope(start="2026-07-01", end="2026-07-03"),
     ).with_time_axis(ref.time_dimension(AXIS), grain=grain("day"))
     reason = source_unsupported_reason(observed.aggregate(), engine)
-    if engine in OPEN_ENGINES:
-        assert reason is None
-    else:
-        assert reason == "a Metric dimension requires an unsupported type or parser"
+    assert reason is None
 
 
 @pytest.mark.parametrize("engine", ENGINES)

@@ -184,10 +184,11 @@ civil 字段，aware 字面量比较 instant，混用拒绝。微秒 SQL 边界�
 ### 字符串时间解析与多单位桶
 
 用显式 parser 声明的时间维度（`ms.strptime(...)`）在 DuckDB、SQLite、MySQL、
-PostgreSQL 与 ClickHouse 上于源端执行，包含复合小时前缀轴。Trino 尚无执行证据。
-声明格式读不出的单元格在 SQLite、MySQL 与 ClickHouse 上于发布前拒绝；DuckDB 与
-PostgreSQL 暴露引擎自身的解析错误，其中 PostgreSQL 的 `TO_TIMESTAMP` 对格式不匹配
-的文本较宽松，格式看错但形状合法的单元格可能得到错误 instant。
+PostgreSQL、ClickHouse 与 Trino 上于源端执行，包含复合小时前缀轴。声明格式读不出
+的单元格在 SQLite、MySQL 与 ClickHouse 上于发布前拒绝；DuckDB 与 Trino 在自身解析器
+拒绝单元格时暴露引擎错误。PostgreSQL 的 `TO_TIMESTAMP` 对格式不匹配的文本较宽松，
+格式看错但形状合法的单元格可能得到错误 instant。Trino 接受 `%f`，结果遵循 `date_parse`
+原生的毫秒精度；六位小数秒的后三位可能丢失。
 
 多单位桶（`mv.grain(unit, count=...)` 且 `count > 1`）以该 civil 日本地午夜为锚点，
 且只准入宽整除以一个 civil 日的 count；`mv.grain("hour", count=7)` 直接失败而不是

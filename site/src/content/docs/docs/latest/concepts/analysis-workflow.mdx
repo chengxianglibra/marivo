@@ -304,12 +304,13 @@ selection remain unsupported on remote backends.
 ### String time parsing and multi-unit buckets
 
 A time dimension authored with an explicit parser (`ms.strptime(...)`) executes on
-the source for DuckDB, SQLite, MySQL, PostgreSQL and ClickHouse, including
-composite hour-prefix axes. Trino has no execution evidence for these yet. A cell
-the declared format cannot read is rejected before publication on SQLite, MySQL and
-ClickHouse; DuckDB and PostgreSQL surface the engine's own parse error, and
-PostgreSQL's `TO_TIMESTAMP` is lenient toward format-mismatched text, so a
-well-formed cell that its format merely misreads can produce a wrong instant there.
+the source for DuckDB, SQLite, MySQL, PostgreSQL, ClickHouse and Trino, including
+composite hour-prefix axes. A cell the declared format cannot read is rejected
+before publication on SQLite, MySQL and ClickHouse; DuckDB and Trino surface the
+engine's own error when their parsers reject a cell. PostgreSQL's `TO_TIMESTAMP`
+is lenient toward format-mismatched text. A well-formed cell that its format
+misreads can produce a wrong instant there. Trino accepts `%f` with `date_parse`'s native
+millisecond result precision; a six-digit fraction can lose its final three digits.
 
 A multi-unit bucket (`mv.grain(unit, count=...)` with `count > 1`) is anchored on
 the civil midnight of its own day, and only counts whose width divides one civil

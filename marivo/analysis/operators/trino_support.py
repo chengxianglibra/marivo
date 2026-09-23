@@ -45,6 +45,7 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         versions=True,
         date_buckets=True,
         timestamp_buckets=True,
+        parsed_time_axes=True,
         explicit_decimal_sources=True,
         row_expressions=True,
         linear_graphs=True,

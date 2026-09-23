@@ -29,9 +29,9 @@ from marivo.semantic.validator import Registry
 # of an error. Marivo asserts the parse explicitly for exactly these engines so
 # a malformed cell fails before publication.
 #
-# The remaining two engines are not equivalent to each other:
-# - DuckDB raises on the same input, which the execution adapter already
-#   converts to a structured failure, so no separate assertion is needed.
+# The remaining engines are not equivalent to each other:
+# - DuckDB and Trino raise on malformed input, so no separate NULL assertion
+#   is needed.
 # - PostgreSQL ``TO_TIMESTAMP`` is *lenient*: a cell it cannot read in full can
 #   become a wrong non-NULL instant instead of an error. ``to_timestamp(
 #   '2026-07-01 15:59:00', 'YYYYMMDD')`` is 2026-01-07, a short cell is filled

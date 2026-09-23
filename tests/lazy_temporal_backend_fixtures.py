@@ -95,14 +95,14 @@ def _written_source(
             execute(f"DROP TABLE IF EXISTS {name}")
 
 
-def _row_text(value: str | int | None, engine: Engine) -> str:
+def _row_text(value: str | int | None, engine: Engine, *, date_literal: bool = False) -> str:
     """Render one text, integer or date cell as a driver literal for *engine*."""
     if value is None:
         return "NULL"
     if not isinstance(value, str):
         return str(value)
     literal = repr(value)
-    return "DATE " + literal if engine == "trino" else literal
+    return "DATE " + literal if engine == "trino" and date_literal else literal
 
 
 @contextmanager
@@ -237,7 +237,7 @@ def hour_prefix_source(
     )
     registry.freeze()
     rows = tuple(
-        f"({index},{_row_text(prefix, engine)},{_row_text(value, engine)},{index + 1})"
+        f"({index},{_row_text(prefix, engine, date_literal=True)},{_row_text(value, engine)},{index + 1})"
         for index, (prefix, value) in enumerate(
             zip(prefix_values, hour_values, strict=True), start=1
         )
