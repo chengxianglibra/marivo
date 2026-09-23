@@ -7,19 +7,12 @@ import contextlib
 import io
 import json
 import os
-from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 from unittest.mock import patch
 
-from marivo.analysis.materialization import admission, object_storage
+from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import (
-    LocalTarget,
-    ObjectTarget,
-    S3Access,
-)
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.session._lazy_read_model import FailedRun, SessionGraph, SucceededRun
@@ -29,41 +22,13 @@ from tests.lazy_local_fixtures import pandas_methods
 from tests.lazy_materialization_crash_worker import snapshot, statistics, versions
 from tests.lazy_retained_fixtures import setup_retained
 
-if TYPE_CHECKING:
-    from mypy_boto3_s3 import S3Client
-
-Kind = Literal["local", "engine", "object"]
+Kind = Literal["local", "engine"]
 REVENUE = ref.metric("sales.revenue")
 MEAN = ref.metric("sales.mean_amount")
 
 
-def _access(kind: Kind) -> tuple[S3Access, ...]:
-    return (
-        (
-            S3Access(
-                "fixture",
-                os.environ["MARIVO_TEST_S3_ENDPOINT"],
-                os.environ["MARIVO_TEST_S3_BUCKET"],
-                "minioadmin",
-                "minioadmin",
-            ),
-        )
-        if kind == "object"
-        else ()
-    )
-
-
 def _open(project: Path, session: str, kind: Kind) -> DatasetRuntime:
-    return DatasetRuntime.open(
-        project,
-        session,
-        target=LocalTarget()
-        if kind == "engine"
-        else ObjectTarget("fixture")
-        if kind == "object"
-        else LocalTarget(),
-        object_bindings=_access(kind),
-    )
+    return DatasetRuntime.open(project, session)
 
 
 def _continuation(retained: MaterializedMetricDataset, threshold: int) -> LogicalMetricDataset:
@@ -152,22 +117,8 @@ def _read(
 
 def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
     state_path = project / "read-journey.json"
-    requests: list[dict[str, object]] = []
-    base_client = object_storage.client
-
-    def observed(params: dict[str, object], **kwargs: object) -> None:
-        requests.append({"version_pinned": isinstance(params.get("VersionId"), str)})
-
-    @contextlib.contextmanager
-    def traced_client(access: S3Access) -> Iterator[S3Client]:
-        with base_client(access) as client:
-            client.meta.events.register("before-parameter-build.s3.GetObject", observed)
-            yield client
-
-    object_storage.client = traced_client
     if mode == "produce":
-        bindings = _access(kind)
-        fixture = setup_retained(project, kind, access=bindings[0] if bindings else None)
+        fixture = setup_retained(project, kind)
         runtime = fixture.runtime
         checkpoint = fixture.sources.observe(
             (REVENUE, MEAN), population=fixture.sources.population(ref.entity("sales.customers"))
@@ -184,15 +135,13 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
             project,
             runtime.session_ref,
             event=fail_before_commit,
-            target=runtime.target,
-            object_bindings=bindings,
         )
         retained = failing.artifact(artifact)
         assert isinstance(retained, MaterializedMetricDataset)
         try:
             _continuation(retained, 0).execute()
-        except MaterializationError as error:
-            assert error.run_ref == failing.last_run_ref
+        except RuntimeError as error:
+            assert str(error) == "controlled unpublished output failure"
         else:
             raise AssertionError("The admitted failure was not raised")
         assert failing.last_run_ref is not None
@@ -222,9 +171,7 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
             with patch.object(admission, "_build_backend_from_effective", forbidden):
                 continued = _continuation(retained, 10).execute()
             continuation_statistics = _statistics(runtime)
-            consumer = DatasetRuntime.create(
-                project, "foreign-consumer", target=runtime.target, object_bindings=_access(kind)
-            )
+            consumer = DatasetRuntime.create(project, "foreign-consumer")
             before_foreign = snapshot(consumer)
             foreign = consumer.artifact(artifact)
             assert isinstance(foreign, MaterializedMetricDataset)
@@ -268,7 +215,6 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
             origin = DatasetRuntime.inspect(project, "retained", run_limit=1)
             assert origin.summary.id == runtime.session_ref and origin.summary.run_count == 3
             assert origin.runs.has_more
-            object_read_count = len(requests)
             with contextlib.ExitStack() as guards:
                 for name in ("place", "_build_backend_from_effective", "execute_local"):
                     guards.enter_context(patch.object(admission, name, forbidden))
@@ -276,7 +222,6 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
                     (runtime, 10, str(state["output"])),
                     (consumer, 50, str(state["consumed"])),
                 ):
-                    selected.target, selected.object_bindings = ObjectTarget("unconfigured"), ()
                     bound_input = selected.artifact(artifact)
                     assert isinstance(bound_input, MaterializedMetricDataset)
                     recovered = _continuation(bound_input, threshold).execute()
@@ -285,7 +230,6 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
                     assert selected.statistics.events.get("local_execution_started", 0) == 0
                     assert selected.statistics.events == {"reconciliation": 1}
             assert snapshot(runtime) == before
-            assert len(requests) == object_read_count
             result = {
                 **state,
                 **reads,
@@ -293,16 +237,15 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
                 "after": snapshot(runtime),
                 "binding_statistics": _statistics(runtime),
                 "consumer_binding_statistics": _statistics(consumer),
-                "binding_object_requests": len(requests) - object_read_count,
                 "session_ids": [sessions[0].id, older[0].id],
             }
-    return {**result, "pid": os.getpid(), "object_requests": requests, "versions": versions()}
+    return {**result, "pid": os.getpid(), "versions": versions()}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("produce", "continue", "cold"))
-    parser.add_argument("kind", choices=("local", "engine", "object"))
+    parser.add_argument("kind", choices=("local", "engine"))
     parser.add_argument("project", type=Path)
     args = parser.parse_args()
     with pandas_methods("metric.where"):

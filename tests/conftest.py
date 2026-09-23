@@ -4,17 +4,11 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-from uuid import uuid4
+from typing import Any
 
 import ibis
 import pytest
-
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.targets import S3Access
-
 
 from tests.install_marivo_helpers import InstallerEnv, InstallerToolchain
 from tests.shared_fixtures import (
@@ -375,30 +369,3 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
-
-
-@pytest.fixture
-def object_connection_access() -> Iterator[S3Access]:
-    """One isolated versioned bucket for the object connector smoke test."""
-    from marivo.analysis.materialization.object_storage import client
-    from marivo.analysis.materialization.targets import S3Access
-
-    endpoint = os.environ.get("MARIVO_TEST_S3_ENDPOINT")
-    if endpoint is None:
-        pytest.skip("Set MARIVO_TEST_S3_ENDPOINT for the object-storage-test connection smoke")
-    access = S3Access("fixture", endpoint, "marivo-4b-" + uuid4().hex, "minioadmin", "minioadmin")
-    with client(access) as s3:
-        s3.create_bucket(Bucket=access.bucket)
-        s3.put_bucket_versioning(
-            Bucket=access.bucket, VersioningConfiguration={"Status": "Enabled"}
-        )
-    try:
-        yield access
-    finally:
-        with client(access) as s3:
-            for page in s3.get_paginator("list_object_versions").paginate(Bucket=access.bucket):
-                for version in (*page.get("Versions", []), *page.get("DeleteMarkers", [])):
-                    s3.delete_object(
-                        Bucket=access.bucket, Key=version["Key"], VersionId=version["VersionId"]
-                    )
-            s3.delete_bucket(Bucket=access.bucket)

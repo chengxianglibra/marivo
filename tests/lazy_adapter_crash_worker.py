@@ -1,4 +1,4 @@
-"""Fresh processes for sink interruption and conservative request recovery acceptance."""
+"""Fresh processes for local publication interruption and recovery acceptance."""
 
 from __future__ import annotations
 
@@ -6,39 +6,27 @@ import argparse
 import json
 import os
 import sqlite3
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 from unittest.mock import patch
 
 import duckdb
 
 from marivo._compat import Never
-from marivo.analysis.materialization import admission, object_storage
+from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import (
-    ResourceRecord,
     RunRecord,
     failure_payload,
     receipt_payload,
     run_input_payload,
 )
 from marivo.analysis.materialization.errors import RecoveryPendingError
-from marivo.analysis.materialization.object_termination import OBJECT_REQUEST_CAPABILITY
-from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_execution_fixtures import make_execution_registry
-
-if TYPE_CHECKING:
-    from botocore.model import OperationModel
-    from mypy_boto3_s3 import S3Client
-
-_REQUESTS: dict[str, int] = {}
 
 
 def forbidden(*args: object, **kwargs: object) -> Never:
@@ -97,7 +85,6 @@ def describe(runtime: DatasetRuntime) -> dict[str, object]:
             **asdict(runtime.statistics),
             "local_executions": runtime.statistics.events.get("local_execution_started", 0),
         },
-        "object_requests": dict(_REQUESTS),
         "versions": {"duckdb": duckdb.__version__},
     }
 
@@ -111,36 +98,14 @@ def write_marker(project: Path, value: dict[str, object]) -> None:
 
 def run(
     mode: str,
-    kind: Literal["engine", "object"],
+    kind: Literal["engine"],
     project: Path,
     point: str,
     occurrence: int,
 ) -> dict[str, object]:
-    original_client = object_storage.client
-
-    def observe_request(model: OperationModel, **kwargs: object) -> None:
-        _REQUESTS[model.name] = _REQUESTS.get(model.name, 0) + 1
-
-    @contextmanager
-    def traced_client(access: S3Access) -> Iterator[S3Client]:
-        with original_client(access) as value:
-            value.meta.events.register("before-call.s3", observe_request)
-            yield value
-
-    object_storage.client = traced_client
-    access = (
-        S3Access(
-            "fixture",
-            os.environ["MARIVO_TEST_S3_ENDPOINT"],
-            os.environ["MARIVO_TEST_S3_BUCKET"],
-            "minioadmin",
-            "minioadmin",
-        )
-        if kind == "object"
-        else None
-    )
+    assert kind == "engine"
     if mode == "produce":
-        fixture = setup_adapter(project, kind, access=access)
+        fixture = setup_adapter(project, kind)
         runtime = fixture.runtime
         baseline = fixture.sources.population(ref.entity("sales.customers")).execute()
         initial = describe(runtime)
@@ -162,41 +127,24 @@ def run(
             if name == "readback" and point == "readback_unavailable":
                 raise OSError("authoritative readback unavailable")
 
-        original_discharge = SessionStore.discharge
-
-        def discharge(store: SessionStore, resource: ResourceRecord) -> None:
-            if resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY:
-                interrupt("object_response_before_discharge")
-            original_discharge(store, resource)
-
         runtime._hook = interrupt
-        if point in ("proxy_wait", "proxy_timeout"):
-            # The parent forwards a real PUT and kills this process only after its
-            # withheld remote response has been observed by the test server.
-            (project / "proxy-ready").write_text("ready")
         logical = fixture.sources.observe(ref.metric("sales.mean_amount"))
-        with (
-            patch.object(SessionStore, "discharge", discharge),
-        ):
-            try:
-                logical.execute()
-            except (RecoveryPendingError, RuntimeError):
-                if point not in ("readback_unavailable", "proxy_timeout"):
-                    raise
-                pending_state = describe(runtime)
-                pending_state.update(baseline=baseline.state.artifact_ref.ref, point=point)
-                write_marker(project, pending_state)
-                os._exit(73)
+        try:
+            logical.execute()
+        except (RecoveryPendingError, RuntimeError):
+            if point != "readback_unavailable":
+                raise
+            pending_state = describe(runtime)
+            pending_state.update(baseline=baseline.state.artifact_ref.ref, point=point)
+            write_marker(project, pending_state)
+            os._exit(73)
         raise AssertionError("the requested crash point was not reached")
     value: object = json.loads((project / "crash.json").read_text())
     assert isinstance(value, dict)
     session, artifact = str(value["session"]), str(value["baseline"])
-    runtime = DatasetRuntime.open(
-        project, session, object_bindings=() if access is None else (access,)
-    )
+    runtime = DatasetRuntime.open(project, session)
     before = describe(runtime)
     registry, sidecar = make_execution_registry(project / "warehouse.duckdb")
-    runtime.target = LocalTarget() if kind == "engine" else ObjectTarget("fixture")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     pending = False
     with (
@@ -219,7 +167,7 @@ def run(
     }
 
     if value.get("point") == "after_commit":
-        independent = DatasetRuntime.create(project, "independent", target=LocalTarget())
+        independent = DatasetRuntime.create(project, "independent")
         independent_sources = independent.sources(semantic_registry=registry, sidecar=sidecar)
         assert (
             len(independent_sources.population(ref.entity("sales.customers")).execute().to_pandas())
@@ -232,7 +180,7 @@ def run(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("produce", "recover"))
-    parser.add_argument("kind", choices=("engine", "object"))
+    parser.add_argument("kind", choices=("engine",))
     parser.add_argument("project", type=Path)
     parser.add_argument("--point", default="")
     parser.add_argument("--occurrence", type=int, default=1)

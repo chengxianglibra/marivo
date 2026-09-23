@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from marivo.analysis.datasets.errors import DatasetConstructionError
@@ -14,7 +15,6 @@ from marivo.analysis.errors import (
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.targets import ProjectObjectBindings, ProjectTarget
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.session._lazy_read_model import SessionInspection, SessionSummaryPage
 from marivo.analysis.session.core import Session
@@ -31,6 +31,27 @@ def _invalid(expected: str, received: str) -> DatasetConstructionError:
         repair="Inspect mv.session.recent() for identities, or create a new named Session with mv.session.get_or_create(name).",
         location="session.identity",
     )
+
+
+def _validate_project_manifest(root: Path) -> None:
+    from marivo.config import PROJECT_MANIFEST, load_project_config
+
+    try:
+        load_project_config(root)
+    except (OSError, ValueError) as exc:
+        raise SessionStateError(
+            message="The project manifest cannot configure a Session.",
+            expected="a valid project configuration",
+            received=str(exc),
+            location=str(root / PROJECT_MANIFEST),
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Repair marivo.toml, then create or resume the named Session.",
+                help_target=LiveHelpTarget(
+                    surface="analysis", canonical_id="session.get_or_create"
+                ),
+            ),
+        ) from exc
 
 
 def get_or_create(
@@ -53,29 +74,10 @@ def get_or_create(
     if question is not None and not isinstance(question, str):
         raise _invalid("a question string or None", "invalid question")
     root = resolve_project_root()
-    from marivo.config import PROJECT_MANIFEST, load_project_config
-
-    try:
-        load_project_config(root)
-    except (OSError, ValueError) as exc:
-        raise SessionStateError(
-            message="The project manifest cannot configure a Session.",
-            expected="a valid project configuration",
-            received=str(exc),
-            location=str(root / PROJECT_MANIFEST),
-            repair=AnalysisRepair(
-                kind="retry",
-                action="Repair marivo.toml, then create or resume the named Session.",
-                help_target=LiveHelpTarget(
-                    surface="analysis", canonical_id="session.get_or_create"
-                ),
-            ),
-        ) from exc
+    _validate_project_manifest(root)
     runtime = DatasetRuntime.create(
         root,
         name,
-        target=ProjectTarget(root),
-        object_bindings=(ProjectObjectBindings(root),),
         question=question,
         report_timezone=report_timezone,
     )
@@ -104,8 +106,6 @@ def current() -> Session | None:
             DatasetRuntime.open(
                 root,
                 record.session_ref,
-                target=ProjectTarget(root),
-                object_bindings=(ProjectObjectBindings(root),),
             )
         )
     )
@@ -186,8 +186,6 @@ def resume(identity: str, *, by: Literal["name", "id"] | None = None) -> Session
         DatasetRuntime.create(
             root,
             record.name,
-            target=ProjectTarget(root),
-            object_bindings=(ProjectObjectBindings(root),),
         )
     )
 
@@ -233,7 +231,7 @@ def abandon_run(*, session_id: str, run_id: str) -> None:
         run_id: Exact same-Session incomplete or already failed Run identity.
     Returns: None after guarded reconciliation succeeds.
     Example: ``mv.session.abandon_run(session_id=session_id, run_id=run_id)``.
-    Constraints: Local publication and object-write safety are mandatory; remote read status may remain unknown. Committed success cannot be abandoned.
+    Constraints: Local publication safety is mandatory; remote read status may remain unknown. Committed success cannot be abandoned.
     """
     store = SessionStore.open_existing(resolve_project_root())
     with session_writer_guard(store.layout.lock_path(session_id), session_ref=session_id):
@@ -242,7 +240,6 @@ def abandon_run(*, session_id: str, run_id: str) -> None:
             session_id,
             event=lambda point: None,
             run_ref=run_id,
-            object_bindings=(ProjectObjectBindings(store.project_root),),
         )
 
 

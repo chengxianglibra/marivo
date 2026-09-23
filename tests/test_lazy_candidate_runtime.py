@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from marivo.analysis.datasets.base import Dataset
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.operators.candidate_contracts import (
     CandidateObjective,
@@ -30,10 +29,8 @@ def test_real_candidate_authorities(
     incoming = candidate_input(source, objective, panel=True)
     value: Dataset = incoming
     if input_kind != "logical":
-        runtime.target = LocalTarget()
         value = incoming.execute()
         database.rename(tmp_path / "origin.offline")
-        runtime.target = LocalTarget()
     logical = discover(value, objective)
     result = logical.execute()
     frame = result.to_pandas()

@@ -14,7 +14,6 @@ from marivo.analysis.domains.lifecycle import PART_COLUMNS, PART_KEYS, ROLES, Li
 from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary, invalid
 from marivo.analysis.materialization.lifecycle_integrity import integrity_sql
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.targets import ObjectBinding
 
 if TYPE_CHECKING:
     from marivo.analysis.datasets.descriptors import DatasetRowContract
@@ -193,7 +192,6 @@ def native_summary(
 def inspect_history(
     root: Path,
     descriptor: ArtifactDescriptor,
-    bindings: tuple[ObjectBinding, ...],
     policy: ReadPolicy,
 ) -> None:
     """Inspect all immutable replay rows in the calling process."""
@@ -224,7 +222,6 @@ def inspect_history(
                 root,
                 receipt,
                 policy=policy,
-                bindings=bindings,
                 row=descriptor.row_contract if index == 0 else None,
                 rows=descriptor.row_set_contract if index == 0 else None,
                 audit=True,

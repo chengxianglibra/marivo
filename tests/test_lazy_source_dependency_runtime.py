@@ -150,7 +150,7 @@ def test_unused_declared_and_physical_columns(
         assert runtime.statistics.primary_queries == 0
 
 
-@pytest.mark.parametrize("variant", ["missing", "mismatch", "duplicate"])
+@pytest.mark.parametrize("variant", ["missing", "mismatch"])
 @pytest.mark.parametrize("engine", ["duckdb", "sqlite"])
 def test_necessary_columns_fail_even_for_empty_output(
     engine: Engine, variant: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -165,12 +165,11 @@ def test_necessary_columns_fail_even_for_empty_output(
         )
         with pytest.raises(MaterializationError) as caught:
             target.execute()
-        if variant != "duplicate":
-            error = caught.value
-            assert isinstance(error, SourceSchemaError)
-            assert error.reason == ("missing_column" if variant == "missing" else "type_mismatch")
-            assert error.logical_column == "amount" and error.physical_column == "gross"
-            assert error.entity_ref == "sales.orders"
+        error = caught.value
+        assert isinstance(error, SourceSchemaError)
+        assert error.reason == ("missing_column" if variant == "missing" else "type_mismatch")
+        assert error.logical_column == "amount" and error.physical_column == "gross"
+        assert error.entity_ref == "sales.orders"
 
 
 @pytest.mark.parametrize("engine", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"])

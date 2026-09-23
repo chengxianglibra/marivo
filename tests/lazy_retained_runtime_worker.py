@@ -15,7 +15,6 @@ from marivo.analysis import grain, time_scope
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import gt
@@ -77,7 +76,6 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
         if kind == "engine":
             assert isinstance(checkpoint, MaterializedPopulationDataset)
             registry, sidecar = make_execution_registry(project / "warehouse.duckdb")
-            runtime.target = LocalTarget()
             sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
             definitions = [
                 sources.observe(metric, population=checkpoint).aggregate()
@@ -101,7 +99,6 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
                 ):
                     guards.enter_context(patch.object(admission, name, forbidden))
             if mode == "cold":
-                runtime.target = ObjectTarget("unconfigured")
                 for name in ("place", "_build_backend_from_effective", "execute_local"):
                     guards.enter_context(patch.object(admission, name, forbidden))
             for logical in definitions:

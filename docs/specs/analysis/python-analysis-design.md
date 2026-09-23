@@ -428,9 +428,9 @@ fail before Run admission; exact same-Session binding hits remain source-free.
 Retained Parquet can attach only to the existing DuckDB reader, never by an
 implicit upload to another datasource. Source and execution ownership are
 independent of diagnostic engine versions.
-Unconfigured projects retain results in local Parquet. An explicit `marivo.toml`
-object-store binding changes the write destination. There is no database result
-storage, automatic destination selection, or failure-triggered executor retry.
+Projects retain results in local Parquet. There is no analysis result storage
+setting, database result storage, automatic destination selection, or
+failure-triggered executor retry.
 Native DuckDB analysis of immutable retained Parquet is admitted by the owning
 registered method; temporary execution relations are not persisted Artifacts.
 
@@ -445,7 +445,7 @@ certify a common source snapshot.
 One admitted execution creates a Run. Publication commits the primary result,
 required private parts, descriptor, Evidence and Findings atomically. Cache hits
 on the same exact realization do not invent another Run. Failed or interrupted
-Runs never masquerade as successful Artifacts. Store generation 5 is required;
+Runs never masquerade as successful Artifacts. Store generation 6 is required;
 existing older generations are rejected without rewriting their files.
 
 Local kernels and complete retained reads run synchronously in the calling Python

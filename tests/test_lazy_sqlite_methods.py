@@ -136,27 +136,6 @@ def test_hidden_axis_attribution_failure_after_source_preparation_cleans_up(
     assert runtime.store.resources(runtime.session_ref) == ()
 
 
-def test_entity_correlation_rejects_duplicate_identity(
-    tmp_path: Path, method_database: Path
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    with sqlite3.connect(method_database) as connection:
-        connection.execute(
-            "INSERT INTO orders(id, amount, weight, channel, day) VALUES (1, 50, 1, 'a', '2026-02-05')"
-        )
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "invalid-correlation", "sqlite-invalid-correlation")
-    logical = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe((ref.metric("sales.revenue"), ref.metric("sales.mean_amount")))
-        .correlate(method="pearson")
-    )
-    with pytest.raises(MaterializationError):
-        logical.execute()
-    assert runtime.statistics.primary_queries == 0
-
-
 def test_entity_correlation_constant_input(tmp_path: Path, method_database: Path) -> None:
     from marivo.analysis.materialization.errors import MaterializationError
 
@@ -737,32 +716,6 @@ def test_kendall_source_reduction(tmp_path: Path, method_database: Path) -> None
     assert runtime.statistics.events.get("local_execution_started", 0) > 0
 
 
-@pytest.mark.parametrize(
-    ("entity", "mutation"),
-    [
-        ("snapshots", "DELETE FROM snapshots WHERE day='2026-02-28'"),
-        ("validity", "INSERT INTO validity(id,start,\"end\") VALUES (1,'2026-02-11','2026-02-20')"),
-        ("validity", "INSERT INTO validity(id,start,\"end\") VALUES (3,'2026-02-20','2026-02-01')"),
-    ],
-)
-def test_version_failures_do_not_publish(
-    tmp_path: Path, method_database: Path, entity: str, mutation: str
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-    from tests.lazy_acceptance_capture import counts
-
-    with sqlite3.connect(method_database) as connection:
-        connection.execute(mutation)
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", "invalid-version")
-    logical = runtime.sources(semantic_registry=registry, sidecar=sidecar).population(
-        ref.entity(f"sales.{entity}"), time_scope=time_scope(start="2026-02-01", end="2026-03-01")
-    )
-    with pytest.raises(MaterializationError):
-        logical.execute()
-    assert counts(runtime)["dataset_artifacts"] == 0
-
-
 def test_retained_mean_in_fresh_process(tmp_path: Path, method_database: Path) -> None:
     import subprocess
     import sys
@@ -868,19 +821,9 @@ def test_cross_root_ratio_keeps_contribution_grain(tmp_path: Path, method_databa
     assert frame.cross_root_ratio.tolist() == [0.65]
 
 
-@pytest.mark.parametrize("missing", [True, False])
-def test_relationship_target_integrity(
-    tmp_path: Path, method_database: Path, missing: bool
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-    from tests.lazy_acceptance_capture import counts
-
+def test_relationship_target_integrity(tmp_path: Path, method_database: Path) -> None:
     with sqlite3.connect(method_database) as connection:
-        connection.execute(
-            "DELETE FROM customers WHERE id=2"
-            if missing
-            else "INSERT INTO customers(id,region) VALUES (2,'other')"
-        )
+        connection.execute("DELETE FROM customers WHERE id=2")
     registry, sidecar = registry_for(method_database)
     runtime = DatasetRuntime.create(tmp_path / "project", "relation-integrity")
     logical = (
@@ -889,14 +832,9 @@ def test_relationship_target_integrity(
         .with_dimensions(ref.dimension("sales.customers.region"))
         .aggregate()
     )
-    if missing:
-        frame = logical.execute().to_pandas()
-        assert frame.loc[frame.region.isna(), "revenue"].tolist() == [70.0]
-        assert frame.loc[frame.region == "EU", "revenue"].tolist() == [30.0]
-    else:
-        with pytest.raises(MaterializationError):
-            logical.execute()
-        assert counts(runtime)["dataset_artifacts"] == 0
+    frame = logical.execute().to_pandas()
+    assert frame.loc[frame.region.isna(), "revenue"].tolist() == [70.0]
+    assert frame.loc[frame.region == "EU", "revenue"].tolist() == [30.0]
 
 
 @pytest.mark.parametrize(

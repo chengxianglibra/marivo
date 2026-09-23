@@ -9,7 +9,6 @@ from marivo.analysis.materialization.contracts import RunFailure
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.resources import discharge_resources
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.targets import ObjectBinding
 from marivo.introspection.live.model import LiveHelpTarget
 
 
@@ -18,13 +17,12 @@ def reconcile_session(
     session_ref: str,
     *,
     event: Callable[[str], None],
-    object_bindings: tuple[ObjectBinding, ...] = (),
     run_ref: str | None = None,
 ) -> None:
     """Resolve guarded Session obligations, optionally selecting one exact Run.
 
     The caller owns the Session writer guard. Selection never bypasses publication
-    ownership or object-write safety or admits a successful publication.
+    ownership or admits a successful publication.
     """
     event("reconciliation")
     entries = store.recovery_snapshot(session_ref)
@@ -45,12 +43,12 @@ def reconcile_session(
                 run_ref=run_ref,
             )
         # A failed Run with no remaining obligations is an idempotent success.
-    # The read transaction is closed before any external proof or deletion.
+    # The read transaction is closed before local resource cleanup.
     for entry in entries:
         run = entry.run
         if run_ref is not None and run.run_ref != run_ref:
             continue
-        resolved = discharge_resources(store, entry.resources, object_bindings)
+        resolved = discharge_resources(store, entry.resources)
         if run.lifecycle == "incomplete":
             store.fail(
                 run.run_ref,

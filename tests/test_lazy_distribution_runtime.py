@@ -6,7 +6,6 @@ import pytest
 
 from marivo.analysis import time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.semantic._quantile import QuantileMethod, quantile_metric
@@ -28,7 +27,7 @@ def test_distribution_runtime_preserves_method_authority(
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
     registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "distribution", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "distribution")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(
@@ -51,7 +50,6 @@ def test_distribution_runtime_preserves_method_authority(
         assert isinstance(delta, LogicalDeltaDataset)
         delta = delta.execute()
         database.rename(tmp_path / "source.offline")
-        runtime.target = LocalTarget()
     drivers = delta.attribute(axes=(CHANNEL,))
     result = drivers.execute()
     frame = result.to_pandas()
@@ -103,7 +101,7 @@ def test_metric_operand_orders_and_no_raw_distribution_transfer(
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
     registry, sidecar = make_distribution_registry(database, q=0.7)
-    runtime = DatasetRuntime.create(tmp_path, "operands", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "operands")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(METRIC, time_scope=time_scope(start="2026-02-01", end="2026-02-05"))
@@ -117,7 +115,6 @@ def test_metric_operand_orders_and_no_raw_distribution_transfer(
     )
     left = current.execute() if topology[0] == "M" else current
     right = baseline.execute() if topology[1] == "M" else baseline
-    runtime.target = LocalTarget()
     if topology == "MM":
         database.rename(tmp_path / "source.offline")
     with guard_distribution_transport():
@@ -139,7 +136,7 @@ def test_retained_distribution_corruption_blocks_consumption_but_not_primary_rea
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
     registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "corruption", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "corruption")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = sources.observe(METRIC).with_dimensions(CHANNEL).aggregate()
     delta = metric.compare(metric).execute()
@@ -170,7 +167,6 @@ def test_retained_distribution_corruption_blocks_consumption_but_not_primary_rea
         )
         pq.write_table(changed, path)
     assert delta.to_pandas().equals(frame)
-    runtime.target = LocalTarget()
     with pytest.raises(MaterializationError):
         delta.attribute(axes=(CHANNEL,)).execute()
     assert len(runtime.graph().artifacts) == 1
@@ -195,7 +191,7 @@ def test_complete_players_and_other_survive_mapping_above_former_cap(
             ],
         )
     registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "players", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "players")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(METRIC, time_scope=time_scope(start="2026-02-01", end="2026-02-05"))
@@ -263,7 +259,7 @@ def test_numeric_source_types_replay_the_declared_float64_percentile(
     )
     registry = replace(registry, entities=entities)
     registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path, "types", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "types")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(
@@ -286,7 +282,6 @@ def test_numeric_source_types_replay_the_declared_float64_percentile(
         expected_current, abs=1e-12
     )
     database.rename(tmp_path / "source.offline")
-    runtime.target = LocalTarget()
     result = retained.attribute(axes=(CHANNEL,)).execute()
     assert float(result.to_pandas().current_value.iloc[0]) == pytest.approx(
         expected_current, abs=1e-12
@@ -311,7 +306,7 @@ def test_projection_preserves_method_and_preview_preserves_authored_order(
     )
     registry = replace(registry, metrics=metrics)
     registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path, "preview", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "preview")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = (
         sources.observe((METRIC, quantile_metric(second, method="duckdb_tdigest@v1")))

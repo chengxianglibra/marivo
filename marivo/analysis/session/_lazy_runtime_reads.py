@@ -353,7 +353,7 @@ def summary_in_snapshot(
         realized_byte_count=_exact_byte_count(receipt.realized_byte_count)
         if receipt.realized_byte_count is not None
         else _unavailable_byte_count("not_measured", ids=make_ids(())),
-        storage_kind_id="parquet" if receipt.kind == "local" else receipt.kind,
+        storage_kind_id="parquet",
         content_authority_digest=receipt.identity_digest,
         evidence=ArtifactEvidenceSummary(
             quality_summary_digest=evidence.quality_summary_digest,

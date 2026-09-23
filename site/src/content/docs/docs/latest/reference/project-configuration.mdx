@@ -37,27 +37,10 @@ When configuration or declarations must travel with the project, commit `marivo.
 and `models/`. Add `.marivo/` to `.gitignore`; it contains local sessions, evidence,
 telemetry, and cached metadata rather than shared declarations.
 
-## Choose a result location only when needed
+## Analysis result storage
 
-No analysis storage configuration is required for local Parquet. To write new
-Artifacts to an explicitly selected object store, add:
-
-```toml
-[analysis]
-storage = "object:archive"
-
-[analysis.object_stores.archive]
-endpoint_url = "https://objects.example.test"
-bucket = "analysis"
-access_key_id_env = "MARIVO_ARCHIVE_ACCESS_ID"
-secret_access_key_env = "MARIVO_ARCHIVE_SECRET"
-```
-
-Credentials remain environment references. The selected target is fixed for an
-execution; invalid configuration or a failed write raises a structured error.
-Marivo does not switch targets or retry through another executor. Named bindings
-can remain configured to read existing Artifacts after the write target changes;
-changing a setting does not relocate those Artifacts.
+Analysis results always use project-local Parquet. No result storage setting
+exists. Failed writes do not retry through another executor.
 
 See [Analysis Workflow](/docs/latest/concepts/analysis-workflow/) for the
 construction, explicit execution and recovery boundaries.

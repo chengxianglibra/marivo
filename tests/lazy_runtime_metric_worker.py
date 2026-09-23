@@ -10,7 +10,6 @@ from unittest.mock import patch
 from marivo.analysis.datasets.errors import DatasetFieldSelectionError
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import ObjectTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
@@ -52,7 +51,6 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
         ):
             stack.enter_context(patch.object(admission, name, forbidden))
         if mode == "cold":
-            runtime.target = ObjectTarget("unconfigured")
             for name in ("place", "execute_local"):
                 stack.enter_context(patch.object(admission, name, forbidden))
         if mode == "cold":

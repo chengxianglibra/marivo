@@ -80,12 +80,10 @@ def test_grouped_distribution_uses_retained_subjects(tmp_path: Path, retained: b
 
 @pytest.mark.parametrize("method", ["distribution", "transitions", "dwell", "violations"])
 def test_local_result_filter_is_source_offline(tmp_path: Path, method: str) -> None:
-    from marivo.analysis.materialization.targets import LocalTarget
     from marivo.analysis.observation.predicates import eq, is_null
 
     runtime, sources, database = setup_lifecycle(tmp_path, engine=True)
     h = history(sources).execute()
-    runtime.target = LocalTarget()
     if method == "distribution":
         result = h.distribution(at=(START, END)).execute()
         predicate = eq(result.fields.get("model_state"), "open")

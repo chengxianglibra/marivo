@@ -13,9 +13,7 @@ from marivo.analysis.materialization import reads, storage
 from marivo.analysis.materialization.contracts import (
     FileEntry,
     LocalReceipt,
-    ObjectReceipt,
     RetainedPart,
-    StorageReceipt,
     manifest_digest,
 )
 from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
@@ -76,21 +74,12 @@ def test_membership_rejected_before_generic_iterator_creation(tmp_path: Path, re
             reads.payload_batches(tmp_path, receipt, policy=storage.ReadPolicy())
 
 
-@pytest.mark.parametrize("kind", ["local", "object"])
 def test_owned_membership_payload_layout_rejects_each_generic_adapter_before_iteration(
-    tmp_path: Path, kind: str
+    tmp_path: Path,
 ) -> None:
     prefix = "artifacts/example/parts/delta_membership.current"
-    receipt: StorageReceipt
-    if kind == "local":
-        entries = (FileEntry("data.parquet", 123, "a" * 64),)
-        receipt = LocalReceipt(
-            prefix, entries, manifest_digest(entries), "a" * 64, "b" * 64, 3, 123
-        )
-    else:
-        receipt = ObjectReceipt(
-            "objects", prefix + "/manifest.json", "version-1", "a" * 64, "b" * 64, 3, 123
-        )
+    entries = (FileEntry("data.parquet", 123, "a" * 64),)
+    receipt = LocalReceipt(prefix, entries, manifest_digest(entries), "a" * 64, "b" * 64, 3, 123)
     with (
         patch.object(
             reads, "_guarded_payload_batches", side_effect=AssertionError("iterator created")

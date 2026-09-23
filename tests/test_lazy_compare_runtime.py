@@ -29,7 +29,6 @@ from marivo.analysis.materialization.local_execution import (
     LocalStage,
     StreamInput,
 )
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.contracts import ComparePayload
@@ -88,13 +87,7 @@ def _setup(project: Path, *, engine: bool = False) -> tuple[DatasetRuntime, Lazy
     database = project / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
-    runtime = (
-        DatasetRuntime.create(project, "comparison", target=LocalTarget())
-        if engine
-        else DatasetRuntime.create(project, "comparison")
-    )
-    if engine:
-        runtime.target = LocalTarget()
+    runtime = DatasetRuntime.create(project, "comparison")
     return runtime, runtime.sources(semantic_registry=registry, sidecar=sidecar), database
 
 
@@ -199,7 +192,7 @@ def test_repeated_checkpoint_keeps_two_operand_occurrences_and_immutable_rows(
     assert run.input_artifact_refs == (checkpoint.state.artifact_ref.ref,) * 2
     assert runtime.statistics.primary_queries == 1
     assert runtime.statistics.events.get("local_execution_started", 0) == 0
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     selected = cold.get_run(result.state.producing_run_ref)
     expected_inputs = (checkpoint.state.artifact_ref,) * 2
     assert selected.input_artifact_refs == expected_inputs

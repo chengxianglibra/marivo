@@ -113,7 +113,7 @@ def test_failure_and_cancellation_publish_no_partial_result(
     )
     before = snapshot(runtime)
     armed = True
-    with pytest.raises(KeyboardInterrupt) as caught:
+    with pytest.raises(KeyboardInterrupt if cancel else OSError) as caught:
         logical.execute()
     assert "private-canary" in str(caught.value)
     assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"]

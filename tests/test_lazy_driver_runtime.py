@@ -9,7 +9,6 @@ import pytest
 
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
 from marivo.analysis.operators.driver_contracts import DriverCandidateEvaluationSummary
@@ -68,7 +67,7 @@ def test_scoped_days_survive_driver_and_local_row_continuations(
     assert frame.axis_cardinality.tolist() == [3] * 4
     assert sorted(frame.concentration_share) == pytest.approx([0.5, 0.5, 0.6, 0.6])
     fixture.database.rename(tmp_path / "source.offline")
-    cold = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref, target=LocalTarget())
+    cold = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref)
     recovered = cold.artifact(candidates.state.artifact_ref.ref)
     assert isinstance(recovered, MaterializedCandidateDataset)
     selected = recovered.where(eq(recovered.fields.get("comparison_ordinal"), 1))

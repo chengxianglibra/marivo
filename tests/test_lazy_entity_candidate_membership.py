@@ -10,12 +10,9 @@ import duckdb
 import pytest
 
 from marivo._temporal import time_scope
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetOwnershipError
-from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.contracts import metric_definition
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.candidate_contracts import CandidateObjective
@@ -24,8 +21,6 @@ from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.refs import ref
 from tests.lazy_candidate_fixtures import candidate_input, discover
 from tests.lazy_entity_candidate_fixtures import entity_metric, setup_entity_candidate
-from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
-from tests.lazy_materialization_crash_worker import snapshot
 from tests.lazy_observation_fixtures import make_sources
 
 REVENUE = ref.metric("sales.revenue")
@@ -152,7 +147,6 @@ def test_engine_candidate_membership_reads_checkpoint_after_selection_source_dro
     tmp_path: Path,
 ) -> None:
     runtime, sources, database = setup_entity_candidate(tmp_path)
-    runtime.target = LocalTarget()
     checkpoint = entity_metric(sources).discover.entity_outliers().execute()
     with duckdb.connect(str(database)) as connection:
         connection.execute("DROP TABLE orders")
@@ -170,7 +164,7 @@ def test_engine_candidate_membership_reads_checkpoint_after_selection_source_dro
     assert record.descriptor.candidate_evidence is None
     assert all('"orders"' not in sql for _, sql in runtime.statistics.statements[start:])
     assert runtime.store.resources(runtime.session_ref) == ()
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     retained = cold.artifact(checkpoint.state.artifact_ref)
     assert isinstance(retained, MaterializedCandidateDataset)
     cold_sources = cold.sources(
@@ -189,29 +183,3 @@ def test_engine_candidate_membership_reads_checkpoint_after_selection_source_dro
         not cold.statistics.statements
         and cold.statistics.events.get("local_execution_started", 0) == 0
     )
-
-
-@pytest.mark.runtime
-@pytest.mark.parametrize("kind", ["local", "foreign_engine"])
-def test_candidate_identity_requires_registered_adapter_version_before_run(
-    tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    runtime, sources, _ = setup_entity_candidate(tmp_path)
-    if kind == "foreign_engine":
-        runtime.target = LocalTarget()
-    checkpoint = entity_metric(sources).discover.entity_outliers().execute()
-    runtime.target = LocalTarget()
-    if kind == "foreign_engine":
-        foreign = tmp_path / "foreign.duckdb"
-        seed_execution_database(foreign)
-        registry, sidecar = make_execution_registry(foreign)
-        sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    monkeypatch.setattr(duckdb, "__version__", "unsupported")
-    observed = sources.observe(LINE_REVENUE, population=checkpoint)
-    assert isinstance(observed._root, LogicalRootHandle)
-    assert isinstance(observed._root.inputs[0].root, MaterializedScanLeafHandle)
-    before = snapshot(runtime)
-    with pytest.raises(DatasetCompilationError, match="source-required"):
-        observed.execute()
-    assert snapshot(runtime) == before
-    assert runtime.store.resources(runtime.session_ref) == ()

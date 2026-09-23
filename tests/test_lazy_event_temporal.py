@@ -15,7 +15,6 @@ from marivo.analysis.domains.contracts import EventJourneySemantics
 from marivo.analysis.event import every_start, first_per_subject, sequence, step
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.contracts import scope_payload
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
@@ -166,7 +165,6 @@ def test_retained_parquet_membership_is_scanned_by_the_event_source(tmp_path: Pa
     runtime, sources, _ = setup_event(tmp_path)
     population = sources.population(ref.entity("sales.customers")).execute()
     before = snapshot(runtime)
-    runtime.target = LocalTarget()
     result = journey(sources, population=population).execute()
     after = snapshot(runtime)
     assert after["dataset_artifacts"] == before["dataset_artifacts"] + 1

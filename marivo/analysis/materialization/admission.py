@@ -83,7 +83,6 @@ from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     ArtifactRecord,
     LocalReceipt,
-    ObjectReceipt,
     ResourceRecord,
     RunDatasetInput,
     RunFailure,
@@ -138,20 +137,11 @@ from marivo.analysis.materialization.storage import (
     IndependentPartWrite,
     PartWriteSpec,
     ReadPolicy,
+    StoragePolicy,
     write_local_dataset,
 )
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.submissions import Submission
-from marivo.analysis.materialization.targets import (
-    LocalTarget,
-    MaterializationTarget,
-    ObjectBinding,
-    ObjectTarget,
-    ProjectTarget,
-    engine_domain,
-    object_access,
-    selection_error,
-)
 from marivo.analysis.materialization.validation import compile_preparations, execute_batch
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
@@ -234,7 +224,17 @@ from marivo.semantic.validator import Registry, normalize_target_entity
 
 _PREVIEW_MAX_OUTPUT_BYTES = 8192
 _READ_POLICY = ReadPolicy()
-_DEFAULT_TARGET = LocalTarget()
+_LOCAL_STORAGE_POLICY = StoragePolicy()
+
+
+def _engine_domain(binding: ExecutionBinding) -> str:
+    """Persist a declaration digest, never credentials or a Python owning object."""
+    if isinstance(binding, ParquetBinding):
+        return binding.domain_digest
+    source = binding.owner.semantic_registry.datasources[binding.datasource_id]
+    return codec.digest(
+        (binding.datasource_id, source.backend_type, source.fields, source.env_refs)
+    )
 
 
 @dataclass(slots=True)
@@ -348,8 +348,6 @@ class DatasetRuntime:
         session_ref: str,
         *,
         event: Callable[[str], None] | None = None,
-        target: MaterializationTarget | ProjectTarget = _DEFAULT_TARGET,
-        object_bindings: tuple[ObjectBinding, ...] = (),
         event_coverage_provider: EventCoverageProvider | None = None,
     ) -> None:
         session_record = store.session(session_ref)
@@ -360,8 +358,6 @@ class DatasetRuntime:
             resolution=session_record.report_timezone_resolution,
         )
         self.store = store
-        self.target = target
-        self.object_bindings = object_bindings
         self.event_coverage_provider = event_coverage_provider
         self.session_ref = session_ref
         self._hook = event
@@ -378,8 +374,6 @@ class DatasetRuntime:
         question: str | None = None,
         report_timezone: str | None = None,
         event: Callable[[str], None] | None = None,
-        target: MaterializationTarget | ProjectTarget = _DEFAULT_TARGET,
-        object_bindings: tuple[ObjectBinding, ...] = (),
         event_coverage_provider: EventCoverageProvider | None = None,
     ) -> DatasetRuntime:
         from marivo.analysis.timezone import resolve_system_timezone, zoneinfo_from_name
@@ -420,8 +414,6 @@ class DatasetRuntime:
                         store,
                         record.session_ref,
                         event=event,
-                        target=target,
-                        object_bindings=object_bindings,
                         event_coverage_provider=event_coverage_provider,
                     )
             # A competing creator won this name. Its guard must be acquired only
@@ -430,8 +422,6 @@ class DatasetRuntime:
             store,
             record.session_ref,
             event=event,
-            target=target,
-            object_bindings=object_bindings,
             event_coverage_provider=event_coverage_provider,
         )
         with session_writer_guard(
@@ -454,7 +444,6 @@ class DatasetRuntime:
                 store,
                 record.session_ref,
                 event=runtime._event,
-                object_bindings=object_bindings,
             )
             store.activate(record.session_ref, question=question)
         return runtime
@@ -466,8 +455,6 @@ class DatasetRuntime:
         session_ref: str,
         *,
         event: Callable[[str], None] | None = None,
-        target: MaterializationTarget | ProjectTarget = _DEFAULT_TARGET,
-        object_bindings: tuple[ObjectBinding, ...] = (),
         event_coverage_provider: EventCoverageProvider | None = None,
     ) -> DatasetRuntime:
         if not MaterializationLayout(project_root).store_db.is_file():
@@ -476,8 +463,6 @@ class DatasetRuntime:
             SessionStore.open_existing(project_root),
             session_ref,
             event=event,
-            target=target,
-            object_bindings=object_bindings,
             event_coverage_provider=event_coverage_provider,
         )
 
@@ -506,7 +491,7 @@ class DatasetRuntime:
     def recent(
         project_root: Path, *, limit: int = 20, cursor: str | None = None
     ) -> SessionSummaryPage:
-        """Read existing v5 Session history without creating or activating a Session."""
+        """Read existing v6 Session history without creating or activating a Session."""
         _lazy_runtime_reads.page_after(limit, cursor, operation="recent")
         return _lazy_history.recent(
             SessionStore.open_existing(project_root), limit=limit, cursor=cursor
@@ -516,7 +501,7 @@ class DatasetRuntime:
     def inspect(
         project_root: Path, name: str, *, run_limit: int = 5, run_cursor: str | None = None
     ) -> SessionInspection:
-        """Read a named existing v5 Session and one bounded Run page."""
+        """Read a named existing v6 Session and one bounded Run page."""
         _lazy_runtime_reads.page_after(run_limit, run_cursor, operation="inspect")
         return _lazy_history.inspect(
             SessionStore.open_existing(project_root),
@@ -580,7 +565,7 @@ class DatasetRuntime:
         """Explicitly inspect metadata, all committed storage and complete Evidence."""
         from marivo.analysis.materialization.inspection import revalidate
 
-        return revalidate(self.store, reference, bindings=self.object_bindings)
+        return revalidate(self.store, reference)
 
     def _recover(self, record: ArtifactRecord) -> MaterializedDataset:
         return recovery.recover_dataset(
@@ -617,7 +602,6 @@ class DatasetRuntime:
             row_contract=dataset.row_contract,
             row_set_contract=dataset.row_set_contract,
             policy=_READ_POLICY,
-            bindings=self.object_bindings,
         )
         limit = min(
             _PREVIEW_MAX_OUTPUT_BYTES,
@@ -723,7 +707,6 @@ class DatasetRuntime:
             row_contract=dataset.row_contract,
             row_set_contract=dataset.row_set_contract,
             policy=_READ_POLICY,
-            bindings=self.object_bindings,
         )
 
     def evidence_digest(self, dataset: MaterializedDataset) -> ArtifactDigest:
@@ -854,7 +837,6 @@ class DatasetRuntime:
                 self.store,
                 self.session_ref,
                 event=self._event,
-                object_bindings=self.object_bindings,
             )
             hit = self.store.lookup(self.session_ref, key)
             if hit is not None:
@@ -892,7 +874,7 @@ class DatasetRuntime:
 
             def admitted_binding(value: MaterializedDataset) -> ExecutionBinding | None:
                 receipt = records[value.state.artifact_ref.ref].descriptor.storage_receipt
-                if not isinstance(receipt, (LocalReceipt, ObjectReceipt)):
+                if not isinstance(receipt, LocalReceipt):
                     raise _error("execution_boundary")
                 # A fixed Parquet adapter can participate in the one existing
                 # source domain, or own a source-free native retained stage.
@@ -976,19 +958,8 @@ class DatasetRuntime:
             self.last_run_ref = run.run_ref
             backend: ExecutionAdapter | None = None
             execution: ResourceRecord | None = None
-            phase = "storage_selection"
-            object_bindings = self.object_bindings
+            phase = "authority_resolution"
             try:
-                from marivo.analysis.materialization.project_storage import configured_target
-
-                target = (
-                    configured_target(self.target.project_root)
-                    if isinstance(self.target, ProjectTarget)
-                    else self.target
-                )
-                object_bindings = self.object_bindings
-                self._validate_target(source_step, physical, target, object_bindings)
-                phase = "authority_resolution"
                 from marivo.analysis.materialization.event_comparison_publication import (
                     validate_checkpoint_inputs,
                 )
@@ -1207,9 +1178,12 @@ class DatasetRuntime:
                         if (
                             proof_recipe.attribution_proof is not None
                             and source_boundary.dataset.kind == "attribution"
-                            and any(
-                                field.role_id == "entity_identity"
-                                for field in source_boundary.dataset.row_contract.schema.columns
+                            and (
+                                proof_backend.engine == "duckdb"
+                                or any(
+                                    field.role_id == "entity_identity"
+                                    for field in source_boundary.dataset.row_contract.schema.columns
+                                )
                             )
                         ):
                             attribution_summary = self._attribution_source_summary(
@@ -1366,8 +1340,6 @@ class DatasetRuntime:
                             parts=output_parts,
                             independent_parts=independent_parts,
                             source_key_validation=True,
-                            target=target,
-                            object_bindings=object_bindings,
                         )
                     else:
                         boundaries: list[LocalBoundary] = []
@@ -1547,33 +1519,17 @@ class DatasetRuntime:
                                 local_parts, part_batches = self._local_input_parts(
                                     selected_descriptor,
                                     dataset,
-                                    object_bindings,
                                     input_dataset=step.dataset,
                                 )
                                 receipt = selected_descriptor.storage_receipt
-                                selected = (
-                                    ArtifactInput(
-                                        self.store.project_root,
-                                        receipt,
-                                        step.dataset.row_contract,
-                                        step.dataset.row_set_contract,
-                                    )
-                                    if isinstance(receipt, LocalReceipt)
-                                    else StreamInput(
-                                        step.dataset.row_contract, step.dataset.row_set_contract
-                                    )
+                                selected = ArtifactInput(
+                                    self.store.project_root,
+                                    receipt,
+                                    step.dataset.row_contract,
+                                    step.dataset.row_set_contract,
                                 )
                                 boundaries.append(LocalBoundary(step.output, selected, local_parts))
-                                streams.append(
-                                    LocalInputStreams(
-                                        ()
-                                        if isinstance(receipt, LocalReceipt)
-                                        else self._artifact_batches(
-                                            selected_descriptor, object_bindings
-                                        ),
-                                        part_batches,
-                                    )
-                                )
+                                streams.append(LocalInputStreams((), part_batches))
                         phase = "stage_execution"
 
                         def cancel_sources() -> None:
@@ -1612,8 +1568,6 @@ class DatasetRuntime:
                             run.run_ref,
                             parts=self._local_output_parts(local_result),
                             source_key_validation=True,
-                            target=target,
-                            object_bindings=object_bindings,
                         )
                 from marivo.analysis.materialization.parquet_scan import checked_local_path
                 from marivo.analysis.materialization.retained import selected_parts
@@ -1697,7 +1651,6 @@ class DatasetRuntime:
                                 self.store.project_root,
                                 descriptor.storage_receipt,
                                 policy=_READ_POLICY,
-                                bindings=object_bindings,
                                 row=descriptor.row_contract,
                                 rows=descriptor.row_set_contract,
                                 audit=True,
@@ -1734,7 +1687,6 @@ class DatasetRuntime:
                                 self.store.project_root,
                                 descriptor.storage_receipt,
                                 policy=_READ_POLICY,
-                                bindings=object_bindings,
                                 row=descriptor.row_contract,
                                 rows=descriptor.row_set_contract,
                                 audit=True,
@@ -1772,7 +1724,6 @@ class DatasetRuntime:
                             self.store.project_root,
                             descriptor.storage_receipt,
                             policy=_READ_POLICY,
-                            bindings=object_bindings,
                             row=descriptor.row_contract,
                             rows=descriptor.row_set_contract,
                             audit=True,
@@ -1794,7 +1745,6 @@ class DatasetRuntime:
                             self.store.project_root,
                             descriptor.storage_receipt,
                             policy=_READ_POLICY,
-                            bindings=object_bindings,
                             row=descriptor.row_contract,
                             rows=descriptor.row_set_contract,
                             audit=True,
@@ -1815,7 +1765,6 @@ class DatasetRuntime:
                             self.store.project_root,
                             descriptor.storage_receipt,
                             policy=_READ_POLICY,
-                            bindings=object_bindings,
                             row=descriptor.row_contract,
                             rows=descriptor.row_set_contract,
                             audit=True,
@@ -1839,7 +1788,6 @@ class DatasetRuntime:
                             self.store.project_root,
                             descriptor.storage_receipt,
                             policy=_READ_POLICY,
-                            bindings=object_bindings,
                             row=descriptor.row_contract,
                             rows=descriptor.row_set_contract,
                             audit=True,
@@ -1857,7 +1805,6 @@ class DatasetRuntime:
                         self.store.project_root,
                         descriptor.storage_receipt,
                         policy=_READ_POLICY,
-                        bindings=object_bindings,
                         row=descriptor.row_contract,
                         rows=descriptor.row_set_contract,
                         audit=True,
@@ -1908,7 +1855,6 @@ class DatasetRuntime:
                             self.store.project_root,
                             descriptor.storage_receipt,
                             policy=_READ_POLICY,
-                            bindings=object_bindings,
                             row=descriptor.row_contract,
                             rows=descriptor.row_set_contract,
                             audit=True,
@@ -1941,7 +1887,7 @@ class DatasetRuntime:
                     if any(owns_resource(receipt, item) for receipt in receipts)
                 )
                 garbage = tuple(item for item in resources if item not in outputs)
-                resolved = discharge_resources(self.store, garbage, object_bindings)
+                resolved = discharge_resources(self.store, garbage)
                 record = self.store.publish(
                     run.run_ref,
                     artifact_ref,
@@ -1965,7 +1911,7 @@ class DatasetRuntime:
                 safe = exc if isinstance(exc, MaterializationError) else _error(phase, run.run_ref)
                 try:
                     recovered = self._resolve_outcome(
-                        run, safe, run_failure_phase(safe.stage, phase), object_bindings
+                        run, safe, run_failure_phase(safe.stage, phase)
                     )
                     if recovered is not None:
                         return recovered
@@ -2138,7 +2084,7 @@ class DatasetRuntime:
                                         for capture in event_root.payload.captures
                                     )
                                 ),
-                                execution_domain_id=engine_domain(source_step.binding),
+                                execution_domain_id=_engine_domain(source_step.binding),
                             )
                         )
             from marivo.analysis.materialization.retained import required_primary_input
@@ -2158,9 +2104,7 @@ class DatasetRuntime:
                 for reference, selected_record in records.items():
                     descriptor = selected_record.descriptor
                     receipt = descriptor.storage_receipt
-                    table = attach_parquet_scan(
-                        backend, self.store.project_root, receipt, bindings=self.object_bindings
-                    )
+                    table = attach_parquet_scan(backend, self.store.project_root, receipt)
                     table = ordered_relation(
                         table, descriptor.row_contract, descriptor.row_set_contract
                     )
@@ -2191,9 +2135,7 @@ class DatasetRuntime:
                     receipt = descriptor.storage_receipt
                     from marivo.analysis.materialization.parquet_scan import attach_parquet_scan
 
-                    table = attach_parquet_scan(
-                        backend, self.store.project_root, receipt, bindings=self.object_bindings
-                    )
+                    table = attach_parquet_scan(backend, self.store.project_root, receipt)
                     if primary_inputs[reference]:
                         engine_inputs.append((table, receipt, descriptor.row_contract))
                     entity = normalize_target_entity(
@@ -2423,8 +2365,6 @@ class DatasetRuntime:
         parts: tuple[PartWriteSpec, ...] = (),
         independent_parts: tuple[IndependentPartWrite, ...] = (),
         source_key_validation: bool,
-        target: MaterializationTarget,
-        object_bindings: tuple[ObjectBinding, ...],
     ) -> tuple[str, DatasetWriteResult[StorageReceipt]]:
         nonce = uuid4().hex
         artifact_ref = "artifact_" + nonce
@@ -2446,52 +2386,10 @@ class DatasetRuntime:
             parts=parts,
             independent_parts=independent_parts,
             source_key_validation=source_key_validation,
-            policy=target.policy,
+            policy=_LOCAL_STORAGE_POLICY,
             event=self._event,
         )
-        if isinstance(target, ObjectTarget):
-            from marivo.analysis.materialization.object_storage import write_object_dataset
-
-            return artifact_ref, write_object_dataset(
-                store=self.store,
-                run_ref=run_ref,
-                session_ref=self.session_ref,
-                artifact_ref=artifact_ref,
-                source=storage,
-                access=object_access(object_bindings, target.object_store_ref),
-                event=self._event,
-            )
         return artifact_ref, storage
-
-    def _validate_target(
-        self,
-        source: SourceStep | None,
-        physical: PhysicalStageGraph,
-        target: MaterializationTarget,
-        object_bindings: tuple[ObjectBinding, ...],
-    ) -> None:
-        if not isinstance(target, (LocalTarget, ObjectTarget)):
-            selection_error("one supported configured target", "unknown target")
-        if any(type(value) is not int or value <= 0 for value in (target.policy.row_group_rows,)):
-            selection_error("positive row-group size", "invalid writer settings")
-        if isinstance(target, ObjectTarget):
-            from marivo.analysis.materialization.object_storage import validate_target
-
-            validate_target(object_access(object_bindings, target.object_store_ref))
-
-    def _artifact_batches(
-        self, descriptor: ArtifactDescriptor, object_bindings: tuple[ObjectBinding, ...]
-    ) -> Iterator[pa.RecordBatch]:
-        from marivo.analysis.materialization.reads import payload_batches
-
-        return payload_batches(
-            self.store.project_root,
-            descriptor.storage_receipt,
-            policy=_READ_POLICY,
-            bindings=object_bindings,
-            row=descriptor.row_contract,
-            rows=descriptor.row_set_contract,
-        )
 
     def _attribution_source_summary(
         self, backend: ExecutionAdapter, table: ir.Table, row: DatasetRowContract
@@ -2551,7 +2449,6 @@ class DatasetRuntime:
                 backend,
                 self.store.project_root,
                 receipt,
-                bindings=self.object_bindings,
                 verify_schema=True,
             )
             # Native scans erase Arrow nullability. The exact stored schema is
@@ -2565,7 +2462,6 @@ class DatasetRuntime:
                     backend,
                     self.store.project_root,
                     primary_receipt,
-                    bindings=self.object_bindings,
                 )
                 validate_source_private_relation(
                     backend,
@@ -2620,24 +2516,17 @@ class DatasetRuntime:
         self,
         descriptor: ArtifactDescriptor,
         dataset: LogicalDataset,
-        object_bindings: tuple[ObjectBinding, ...],
         *,
         input_dataset: MaterializedDataset | None = None,
     ) -> tuple[tuple[LocalPartInput, ...], tuple[Iterable[pa.RecordBatch], ...]]:
-        from marivo.analysis.materialization.reads import part_schema, read_part_batches
-        from marivo.analysis.materialization.retained import (
-            checked_component_batches,
-            component_schema,
-            selected_parts,
-        )
+        from marivo.analysis.materialization.reads import part_schema
+        from marivo.analysis.materialization.retained import component_schema, selected_parts
 
         selected = selected_parts(descriptor, dataset, input_dataset=input_dataset)
         inputs: list[LocalPartInput] = []
-        streams: list[Iterable[pa.RecordBatch]] = []
         for part in selected:
-            schema = part_schema(self.store.project_root, part, bindings=object_bindings)
+            schema = part_schema(self.store.project_root, part)
             keys = component_schema(descriptor.row_contract, part.role, schema)
-            receipt = part.storage_receipt
             inputs.append(
                 LocalPartInput(
                     part.role,
@@ -2645,21 +2534,10 @@ class DatasetRuntime:
                     part.contract_version,
                     schema,
                     keys,
-                    receipt if isinstance(receipt, LocalReceipt) else None,
+                    part.storage_receipt,
                 )
             )
-            if not isinstance(receipt, LocalReceipt):
-                incoming = read_part_batches(
-                    self.store.project_root,
-                    part,
-                    expected_schema=schema,
-                    policy=_READ_POLICY,
-                    bindings=object_bindings,
-                )
-                streams.append(
-                    checked_component_batches(incoming, descriptor.row_contract, part.role)
-                )
-        return tuple(inputs), tuple(streams)
+        return tuple(inputs), ()
 
     @staticmethod
     def _local_output_parts(result: LocalResult) -> tuple[PartWriteSpec, ...]:
@@ -2783,7 +2661,6 @@ class DatasetRuntime:
         run: RunRecord,
         error: MaterializationError,
         phase: str,
-        object_bindings: tuple[ObjectBinding, ...],
     ) -> MaterializedDataset | None:
         self._event("readback")
         current = self.store.run(run.run_ref)
@@ -2798,7 +2675,7 @@ class DatasetRuntime:
         resources = tuple(
             item for item in self.store.resources(self.session_ref) if item.run_ref == run.run_ref
         )
-        resolved = discharge_resources(self.store, resources, object_bindings)
+        resolved = discharge_resources(self.store, resources)
         self.store.fail(
             run.run_ref,
             RunFailure(

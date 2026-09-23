@@ -1,4 +1,4 @@
-"""Public source wiring, fixed target selection and exact generation admission."""
+"""Public source wiring, local publication and exact generation admission."""
 
 import sqlite3
 from pathlib import Path
@@ -10,18 +10,15 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 
 
-def test_new_public_session_preserves_eager_store_and_rejects_old_identities(
+def test_new_public_session_starts_with_empty_v6_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    old = tmp_path / ".marivo" / "analysis" / "session_store.db"
-    old.parent.mkdir(parents=True)
-    payload = b"private-old-store-canary: never decode as Dataset authority"
-    old.write_bytes(payload)
     session = mv.session.get_or_create("fresh-generation", report_timezone="UTC")
     assert session.runs().items == ()
     assert session._runtime.store.db_path == MaterializationLayout(tmp_path).store_db
@@ -29,7 +26,6 @@ def test_new_public_session_preserves_eager_store_and_rejects_old_identities(
         session.artifact("old-artifact")
     with pytest.raises(SessionNotFoundError):
         mv.session.resume("old-session", by="id")
-    assert old.read_bytes() == payload
     assert session.runs().items == ()
 
 
@@ -90,6 +86,9 @@ def test_public_default_local_execute_and_source_offline_cold_resume(
     monkeypatch.chdir(authoring_evidence_project)
     first = mv.session.get_or_create("cold", report_timezone="UTC")
     result = first.observe(ms.ref.metric("sales.revenue")).aggregate().execute()
+    record = first._runtime.store.artifact(result.state.artifact_ref.ref)
+    assert record is not None
+    assert isinstance(record.descriptor.storage_receipt, LocalReceipt)
     original = result.to_pandas()
     assert 751.5 in original.iloc[0].tolist()
     artifact = result.state.artifact_ref

@@ -42,9 +42,7 @@ def recover_dataset(
         artifact_ref=ArtifactRef(ref=record.artifact_ref),
         artifact_session_ref=record.session_ref,
         content_authority_digest=descriptor.storage_receipt.identity_digest,
-        storage_kind_id="parquet"
-        if descriptor.storage_receipt.kind == "local"
-        else descriptor.storage_receipt.kind,
+        storage_kind_id="parquet",
         realized_schema=descriptor.realized_schema,
         realized_row_count=descriptor.storage_receipt.realized_row_count,
         realized_byte_count=(

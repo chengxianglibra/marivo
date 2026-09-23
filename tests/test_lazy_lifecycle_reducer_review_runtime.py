@@ -17,7 +17,6 @@ from marivo.analysis.domains.lifecycle_reducers import in_state
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq
 from marivo.refs import ref
 from marivo.semantic.ir import LifecycleStateIR, StateTransitionIR, StateTriggerIR
@@ -92,7 +91,6 @@ def test_local_engine_numerical_structural_and_order_parity(tmp_path: Path) -> N
         project = tmp_path / sink
         project.mkdir()
         runtime, h = rich_history(project)
-        runtime.target = LocalTarget()
         results = {
             "distribution": h.distribution(
                 at=(END, START, START + timedelta(hours=1)),
@@ -248,7 +246,7 @@ def test_high_cardinality_identity_relations_stay_native_and_private(
     canaries = ("881730041", "981730041", "991730041", "997730041")
     assert_identity_private(runtime, canaries)
     metadata = repr([(repr(r), r.contract(), r.evidence_digest) for r in results])
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     recovered = cold.artifact(results[3].state.artifact_ref)
     record = cold.store.artifact(recovered.state.artifact_ref.ref)
     assert record is not None
@@ -344,8 +342,6 @@ def test_selected_membership_uses_registered_parquet_reader(
 ) -> None:
     runtime, sources, _ = setup_lifecycle(tmp_path, engine=True)
     h = history(sources).execute()
-    if kind == "local":
-        runtime.target = LocalTarget()
     selected = h.select_subjects(in_state(ModelStateHandle(MODEL, "done"), at=END)).execute()
     if kind == "foreign_engine":
         foreign = tmp_path / "foreign.duckdb"

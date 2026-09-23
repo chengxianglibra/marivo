@@ -11,7 +11,6 @@ import pytest
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.datasource.ir import TableSourceIR
@@ -32,7 +31,7 @@ def _setup(project: Path) -> tuple[DatasetRuntime, LazySources]:
     database = project / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
-    runtime = DatasetRuntime.create(project, "source-attribution", target=LocalTarget())
+    runtime = DatasetRuntime.create(project, "source-attribution")
     return runtime, runtime.sources(semantic_registry=registry, sidecar=sidecar)
 
 
@@ -189,7 +188,6 @@ def test_decimal_source_summary_preserves_exact_attribution_values(tmp_path: Pat
     runtime = DatasetRuntime.create(
         tmp_path,
         "decimal-source-attribution",
-        target=LocalTarget(),
     )
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     left, right = (

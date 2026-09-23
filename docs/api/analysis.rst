@@ -13,10 +13,9 @@ Materialized Dataset. Its owned fields and methods describe valid continuations.
 Use ``show()`` for bounded current state and ``contract()`` for mechanical input
 requirements. ``to_pandas()`` is the terminal boundary for custom analysis.
 
-Execution retains results as local Parquet by default. An explicit project
-configuration may select object storage. Database result storage and automatic
-storage or executor fallback are unavailable. Session recovery reads Store v3;
-older Store generations are rejected without rewriting their files.
+Execution retains results as project-local Parquet. There is no analysis result
+storage setting or database result storage. Session recovery reads Store v6;
+older generation files are not migrated or rewritten.
 
 Start discovery with ``marivo.help("analysis")``. Focused Help owns signatures,
 examples and constraints; errors preserve concrete diagnostics and own repair.

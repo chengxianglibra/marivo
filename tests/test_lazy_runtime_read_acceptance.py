@@ -82,7 +82,6 @@ def test_real_retained_bundle_failure_foreign_reads_and_cold_binding(
             assert isinstance(stats["local_executions"], int)
             assert isinstance(stats["handoffs"], list) and len(stats["handoffs"]) == 2
         assert '"orders"' not in json.dumps(stats["statements"])
-    assert cold["binding_object_requests"] == 0
     for name in ("binding_statistics", "consumer_binding_statistics"):
         stats = _mapping(cold[name])
         assert stats["primary_queries"] == stats["transferred_rows"] == 0

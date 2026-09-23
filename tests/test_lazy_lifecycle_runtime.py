@@ -183,14 +183,7 @@ def test_history_uses_exact_admitted_membership(tmp_path: Path, mode: str) -> No
         population=sources.population(ref.entity("sales.customers")),
     )
     selected = metric.where(gt(metric.fields.metric(ref.metric("sales.revenue")), 50))
-    if mode == "retained_metric":
-        from marivo.analysis.materialization.targets import LocalTarget
-
-        runtime.target = LocalTarget()
-        population = selected.execute()
-        runtime.target = LocalTarget()
-    else:
-        population = selected
+    population = selected.execute() if mode == "retained_metric" else selected
     if mode == "retained_metric":
         with duckdb.connect(str(database), config={"threads": 1}) as connection:
             connection.execute("DROP TABLE orders")

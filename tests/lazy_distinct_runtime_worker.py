@@ -24,11 +24,6 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import (
-    LocalTarget,
-    ObjectTarget,
-    S3Access,
-)
 from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
@@ -111,11 +106,10 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         seed_distinct_database(database, dense_time=True)
     registry, sidecar = make_distinct_registry(database)
     runtime = (
-        DatasetRuntime.create(project, "distinct-journey", target=LocalTarget())
+        DatasetRuntime.create(project, "distinct-journey")
         if mode == "produce"
         else DatasetRuntime.open(project, refs["session"])
     )
-    runtime.target = LocalTarget()
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     before = snapshot(runtime)
     if mode == "produce":
@@ -155,16 +149,6 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         assert_no_raw_keys(evidence)
         return evidence
 
-    runtime.target = LocalTarget()
-    if kind == "object":
-        access = S3Access(
-            "fixture",
-            os.environ["MARIVO_TEST_S3_ENDPOINT"],
-            os.environ["MARIVO_TEST_S3_BUCKET"],
-            os.environ["MARIVO_TEST_S3_ACCESS_KEY"],
-            os.environ["MARIVO_TEST_S3_SECRET_KEY"],
-        )
-        runtime.target, runtime.object_bindings = ObjectTarget("fixture"), (access,)
     recovered = runtime.artifact(refs["delta"])
     recovered_barrier = runtime.artifact(refs["barrier_delta"])
     assert isinstance(recovered, MaterializedDeltaDataset) and isinstance(

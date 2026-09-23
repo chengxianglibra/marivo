@@ -2,8 +2,7 @@
 
 Functional acceptance uses local Parquet files. Native DuckDB cases remain where
 engine execution, source-private membership/distribution, receipt integrity, or
-engine process recovery is the actual contract. A storage-neutral scenario should
-not acquire a new local/engine/object Cartesian product.
+engine process recovery is the actual contract.
 
 | Boundary | Owning checks |
 | --- | --- |
@@ -25,17 +24,9 @@ not acquire a new local/engine/object Cartesian product.
 | Private Lifecycle reducers and complete InState selection | `test_lazy_lifecycle_reducers_runtime.py`: logical/recovered distribution, transitions, dwell and violations; checkpoint coverage, grouped retained membership, local result filtering and Metric -> Lifecycle -> Population -> Metric/Event; `test_lazy_lifecycle_reducer_failures.py`: exact role consumption, corruption, empty membership, atomic failure/cancellation and retry |
 | Lifecycle reducer source-offline cold binding | `test_lazy_lifecycle_reducer_runtime_acceptance.py` with `lazy_lifecycle_reducer_worker.py`: separate producer, trigger-offline continuation and cold binding processes; original Population enumeration disabled, engine history with local/engine terminal outputs, exact Evidence/descriptor/row hashes and no cold source execution; `MARIVO_SLICE7E_EVIDENCE_DIR` captures candidate-bound process evidence |
 | Lifecycle reducer adversarial acceptance | `test_lazy_lifecycle_reducer_review_runtime.py`: independent multi-subject grouped and rational-duration references, engine/local result and filter parity, declared ordering, 5,000-subject native transfer and identity canaries, same-plan single membership realization into Metric/Event/Lifecycle, registered native Parquet membership across local and independent DuckDB files, and pre-data rejection of unregistered adapter versions |
-| Lifecycle object bundle ownership and exact versions | `test_lazy_lifecycle_object.py`: native SDK stubs, four version-pinned row sets, per-role upload failure/cancellation and complete owned-version cleanup; no external object service |
-| S3 versioning, conditional PUT, exact VersionId reads, missing access, cleanup ownership and unknown request results | `test_lazy_object_storage_contracts.py` and `test_lazy_object_access_boundaries.py`, with native SDK stubs and real local SessionStore files |
-| Acknowledgement without durable request discharge | One fresh-process Runtime check, using the local journal and a stubbed SDK acknowledgement |
-| Live object connector and declared materialization paths | `test_object_storage_connection.py`: real SDK connection, versioned writes, fixed-version read and deletion; distinct/exact-distribution/T-Digest primary and private parts with source-offline continuation; Pearson/Spearman/Kendall publication and cold binding in three processes |
-
-The former MinIO analysis/fold/inspection matrices and remote crash/proxy scenarios
-are removed. Object-specific protocol contracts remain at the SDK and journal
-boundaries; the connector smoke does not claim to reproduce remote crash timing.
-Local/engine crash checks continue to exercise actual process loss and publication
-recovery. Historical Slice acceptance records describe their original candidates;
-they are not the current recurring test matrix.
+Local/engine crash checks exercise actual process loss and publication recovery.
+Historical Slice acceptance records describe their original candidates; they are
+not the current recurring test matrix.
 
 Slice 9c adapter crashes target the local output reservation and actual Parquet
 primary/private-part file creation before atomic rename and Store commit. The
@@ -50,13 +41,10 @@ uses the default native route and real nonempty Findings in three processes.
 
 ## Commands
 
-- `make test`: daily contracts and SDK-boundary regressions; no external object service.
+- `make test`: daily contracts and local storage regressions.
 - `make runtime-test TESTS='tests/test_lazy_local_execution.py'`: focused functional checks.
 - `make runtime-test`: complete functional Runtime selection when explicitly needed.
-- `MARIVO_TEST_S3_ENDPOINT=http://127.0.0.1:9000 make object-storage-test`: isolated
-  versioned object connector and materialization gate. The fixture owns a unique bucket and its cleanup;
-  the caller owns the service lifecycle.
-- `make release-check`: daily, full functional Runtime, object connector, and packaging gates.
+- `make release-check`: daily, full functional Runtime, and packaging gates.
 
 Runtime defaults to two pytest workers per invocation. Increase this only after
 measuring host capacity and accounting for other concurrent invocations. More
@@ -91,8 +79,8 @@ source transfers. Exact recovery still requires zero execution and zero copies.
 Tests intended to exercise pandas preselect an absent source lowerer using the
 existing implementation registry. Native Parquet continuations are separately
 accepted. A successful basic SQLite/MySQL/PostgreSQL/ClickHouse/Trino query does
-not register that backend for Dataset analysis. Ordinary Runtime tests use local
-storage or SDK stubs; only the object gate requests `object_connection_access`.
+not register that backend for Dataset analysis. Runtime tests use local Parquet
+storage.
 Funnel comparison tests cover authored step order through publication and
 filtering. Distinct temporal checkpoints validate physical coordinate types in
 both the primary rows and independent membership parts before cold reuse.
@@ -115,13 +103,10 @@ protocols; their historical acceptance is not evidence for caller execution.
   cancel/close, safe later same-Session work and committed readback.
 - `test_lazy_reconciliation_snapshot.py` and `test_lazy_materialization_store.py`:
   exact ownership, contradictory commit state, safe read-only discharge and v5
-  generation rejection without old-file mutation.
+  v6 format validation without file mutation.
 - `test_lazy_runtime_concurrency.py`, `test_lazy_adapter_crash_acceptance.py` and
   `test_lazy_materialization_runtime_acceptance.py`: surviving writer exclusion,
   fork/lock ownership, real process death and atomic cold primary/part readback.
-- `test_lazy_object_storage_contracts.py`: unknown write-capable S3 requests remain
-  blocking without a live object service. Removed process-termination proof tests
-  are replaced by the read-only recovery cases above, not backend activation.
 
 ## Multi-datasource Slice 2
 

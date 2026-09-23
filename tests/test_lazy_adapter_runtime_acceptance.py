@@ -95,25 +95,14 @@ def test_fresh_adapter_journey_and_cold_binding(
         "analysis_action_run_inputs": 1,
         "action_resource_journal": 0,
     }
-    assert continued["rows"] == (
-        [[[1], 40.0], [[2], 100.0], [[3], 7.0], [[4], None]]
-        if kind == "engine"
-        else [[[3], 100.0], [[2], 30.0]]
-    )
+    assert continued["rows"] == [[[1], 40.0], [[2], 100.0], [[3], 7.0], [[4], None]]
     stats = continued["statistics"]
     assert isinstance(stats, dict)
-    if kind == "engine":
-        # Native execution still transfers the four output rows to immutable Parquet.
-        assert stats["transferred_rows"] == 4 and stats["local_executions"] == 0
-        assert '"customers"' not in json.dumps(stats["statements"])
-    else:
-        assert stats["primary_queries"] == 0 and stats["local_executions"] > 0
-        requests = continued["object_requests"]
-        assert isinstance(requests, list) and requests
-        assert all(isinstance(item, dict) and item["version_pinned"] is True for item in requests)
+    # Native execution still transfers the four output rows to immutable Parquet.
+    assert stats["transferred_rows"] == 4 and stats["local_executions"] == 0
+    assert '"customers"' not in json.dumps(stats["statements"])
     cold_stats = cold["statistics"]
     assert isinstance(cold_stats, dict) and cold_stats["events"] == {"reconciliation": 1}
-    assert cold["object_requests"] == []
     after = _manifest()
     assert before == after
     evidence = {

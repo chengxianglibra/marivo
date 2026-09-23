@@ -71,7 +71,7 @@ def test_reducers_and_selection_consume_exact_journey(tmp_path: Path, retained: 
         with duckdb.connect(str(database), config={"threads": 1}) as connection:
             connection.execute("DROP TABLE started_rows")
             connection.execute("DROP TABLE finished_rows")
-        cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+        cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
         recovered = cold.artifact(materialized.state.artifact_ref)
         assert isinstance(recovered, MaterializedEventDataset)
         runtime = cold
@@ -128,7 +128,7 @@ def test_recovered_selection_current_dimension_filter(tmp_path: Path) -> None:
     meaning = logical.row_contract.family_semantics
     assert isinstance(meaning, EventJourneySemantics)
     selected = logical.select_subjects(dropped_before(step=meaning.pattern.steps[-1])).execute()
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     recovered = cold.artifact(selected.state.artifact_ref)
     assert isinstance(recovered, MaterializedPopulationDataset)
     cold.sources(semantic_registry=sources._owner.semantic_registry, sidecar=sources._owner.sidecar)

@@ -230,7 +230,7 @@ def test_retained_partial_receipt_proves_attempt_after_coverage_start(tmp_path: 
     with duckdb.connect(str(database), config={"threads": 1}) as connection:
         connection.execute("DROP TABLE started_rows")
         connection.execute("DROP TABLE finished_rows")
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     receiver = cold.artifact(produced.state.artifact_ref)
     assert isinstance(receiver, MaterializedEventDataset)
     meaning = receiver.row_contract.family_semantics

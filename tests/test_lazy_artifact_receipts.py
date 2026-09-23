@@ -1,4 +1,4 @@
-"""Closed immutable adapter receipts and metadata-only v3 recovery."""
+"""Closed local receipts and metadata-only recovery."""
 
 from dataclasses import replace
 from pathlib import Path
@@ -23,20 +23,8 @@ def _local() -> c.LocalReceipt:
     )
 
 
-def _object() -> c.ObjectReceipt:
-    return c.ObjectReceipt(
-        "object",
-        "marivo/v3/s/a/primary/manifest.json",
-        "exact-version",
-        "d" * 64,
-        "c" * 64,
-        2,
-        4096,
-    )
-
-
-@pytest.mark.parametrize("receipt", [_local(), _object()])
-def test_closed_receipt_round_trip(receipt: c.StorageReceipt) -> None:
+def test_closed_receipt_round_trip() -> None:
+    receipt = _local()
     payload = c.receipt_payload(receipt)
     recovered = c.decode_receipt(c.parse_json(c.canonical_json(payload)))
     assert recovered == receipt
@@ -44,8 +32,8 @@ def test_closed_receipt_round_trip(receipt: c.StorageReceipt) -> None:
     assert "datasource" not in repr(receipt)
 
 
-@pytest.mark.parametrize("receipt", [_local(), _object()])
-def test_descriptor_round_trip_with_all_required_parts(receipt: c.StorageReceipt) -> None:
+def test_descriptor_round_trip_with_all_required_parts() -> None:
+    receipt = _local()
     original = descriptor(metric=True)
     updated = replace(
         original,
@@ -81,29 +69,11 @@ def test_local_receipt_rejects_unregistered_or_mutable_authority(field: str, val
         c.decode_receipt(payload)
 
 
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("format", "csv"),
-        ("parquet_contract_version", 2),
-        ("file_count", 0),
-        ("object_version_or_manifest_hash", "null"),
-        ("manifest_hash", "latest"),
-        ("immutable_prefix_or_manifest_ref", "../other/manifest.json"),
-        ("realized_byte_count", {"kind": "unavailable"}),
-    ],
-)
-def test_object_receipt_rejects_unpinned_or_unknown_protocol(field: str, value: object) -> None:
-    payload = c.receipt_payload(_object())
-    payload[field] = value
-    with pytest.raises(IntegrityError):
-        c.decode_receipt(payload)
-
-
-@pytest.mark.parametrize("receipt", [_local(), _object()])
 def test_receipt_codec_does_not_open_storage(
-    receipt: c.StorageReceipt, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    receipt = _local()
+
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("metadata-only receipt accessed storage")
 

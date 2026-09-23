@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Literal
 
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.session._lazy_sources import LazySources
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
@@ -20,20 +19,16 @@ class AdapterFixture:
 
 def setup_adapter(
     project: Path,
-    kind: Literal["engine", "object"],
+    kind: Literal["engine"],
     *,
-    access: S3Access | None = None,
     event: Callable[[str], None] | None = None,
 ) -> AdapterFixture:
     database = project / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
-    target = LocalTarget() if kind == "engine" else ObjectTarget("fixture")
     runtime = DatasetRuntime.create(
         project,
         "adapter",
-        target=target,
-        object_bindings=() if access is None else (access,),
         event=event,
     )
     return AdapterFixture(

@@ -3,7 +3,6 @@
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
-from typing import Literal
 
 import duckdb
 import ibis
@@ -14,19 +13,15 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.parquet_scan import attach_parquet_scan
 from marivo.analysis.materialization.reads import part_schema
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from marivo.refs import ref
-from tests.lazy_candidate_object_fixtures import stub_candidate_objects
 from tests.lazy_local_fixtures import REVENUE, pandas_methods, setup_local
 
 pytestmark = pytest.mark.runtime
 
 
-def _pandas_delta(
-    project: Path, storage: Literal["local", "object"], monkeypatch: pytest.MonkeyPatch
-) -> tuple[DatasetRuntime, MaterializedDeltaDataset, Path]:
+def _pandas_delta(project: Path) -> tuple[DatasetRuntime, MaterializedDeltaDataset, Path]:
     runtime, sources, database = setup_local(project)
     with duckdb.connect(str(database)) as connection:
         connection.execute("DELETE FROM orders")
@@ -39,10 +34,6 @@ def _pandas_delta(
                 (4, "2026-02-04", 9.0),
             ],
         )
-    if storage == "object":
-        access = S3Access("archive", "https://objects.invalid", "bucket", "key", "secret")
-        stub_candidate_objects(monkeypatch, access)
-        runtime.target, runtime.object_bindings = ObjectTarget("archive"), (access,)
     population = sources.population(ref.entity("sales.orders"))
 
     def series(start: str, end: str) -> LogicalMetricDataset:
@@ -61,21 +52,18 @@ def _pandas_delta(
     return runtime, delta, database
 
 
-@pytest.mark.parametrize("storage", ["local", "object"])
 def test_pandas_delta_parts_support_native_rank_without_origin(
-    tmp_path: Path, storage: Literal["local", "object"], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    runtime, delta, database = _pandas_delta(tmp_path, storage, monkeypatch)
+    runtime, delta, database = _pandas_delta(tmp_path)
     record = runtime.store.artifact(delta.state.artifact_ref.ref)
     assert record is not None and len(record.descriptor.retained_parts) == 2
     for part in record.descriptor.retained_parts:
-        schema = part_schema(tmp_path, part, bindings=runtime.object_bindings)
+        schema = part_schema(tmp_path, part)
         assert not schema.field("comparison_ordinal").nullable
         assert not schema.field(schema.names[-1]).nullable
     database.rename(tmp_path / "warehouse.offline")
-    cold = DatasetRuntime.open(
-        tmp_path, runtime.session_ref, target=LocalTarget(), object_bindings=runtime.object_bindings
-    )
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     recovered = cold.artifact(delta.state.artifact_ref)
     assert isinstance(recovered, MaterializedDeltaDataset)
     ranked = recovered.rank(recovered.fields.get("delta")).execute()
@@ -100,11 +88,10 @@ def test_pandas_delta_parts_support_native_rank_without_origin(
     ) == ("valid", "readable", "valid")
 
 
-@pytest.mark.parametrize("storage", ["local", "object"])
 def test_native_part_scan_rejects_wrong_physical_schema_fingerprint(
-    tmp_path: Path, storage: Literal["local", "object"], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    runtime, delta, _ = _pandas_delta(tmp_path, storage, monkeypatch)
+    runtime, delta, _ = _pandas_delta(tmp_path)
     record = runtime.store.artifact(delta.state.artifact_ref.ref)
     assert record is not None
     receipt = replace(
@@ -113,8 +100,6 @@ def test_native_part_scan_rejects_wrong_physical_schema_fingerprint(
     backend = ibis.duckdb.connect()
     try:
         with pytest.raises(IntegrityError, match="Parquet part schema differs"):
-            attach_parquet_scan(
-                backend, tmp_path, receipt, bindings=runtime.object_bindings, verify_schema=True
-            )
+            attach_parquet_scan(backend, tmp_path, receipt, verify_schema=True)
     finally:
         backend.disconnect()

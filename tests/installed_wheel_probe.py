@@ -76,7 +76,7 @@ def surface_snapshot() -> list[dict[str, object]]:
     assert isinstance(public_names, list)
     names = tuple(str(name) for name in public_names)
     assert list(names) == public_names
-    assert len(names) == len(exports) == 100
+    assert len(names) == len(exports) == 98
     for family in (
         "Population",
         "Metric",

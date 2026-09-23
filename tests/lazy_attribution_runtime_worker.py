@@ -23,7 +23,6 @@ from marivo.analysis.datasets.descriptors import (
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
@@ -97,17 +96,6 @@ def run(
         if mode == "produce"
         else DatasetRuntime.open(project, refs["session"])
     )
-    if kind == "engine":
-        runtime.target = LocalTarget()
-    if kind == "object":
-        access = S3Access(
-            "fixture",
-            os.environ["MARIVO_TEST_S3_ENDPOINT"],
-            os.environ["MARIVO_TEST_S3_BUCKET"],
-            "minioadmin",
-            "minioadmin",
-        )
-        runtime.target, runtime.object_bindings = ObjectTarget("fixture"), (access,)
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     before = snapshot(runtime)
     if mode == "produce":

@@ -1,4 +1,4 @@
-"""Selected receipt dispatch with bounded engine and version-pinned PyArrow reads."""
+"""Bounded reads of immutable local Parquet receipts."""
 
 from __future__ import annotations
 
@@ -10,36 +10,17 @@ from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
-from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization import storage
 from marivo.analysis.materialization.contracts import (
-    LocalReceipt,
-    ObjectReceipt,
     RetainedPart,
     StorageReceipt,
 )
 from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
 from marivo.analysis.materialization.storage import ReadPolicy, _integrity
-from marivo.analysis.materialization.targets import (
-    ObjectBinding,
-    S3Access,
-    object_access,
-)
 
 _DEFAULT_READ_POLICY = ReadPolicy()
-
-
-def _object_read_access(bindings: tuple[ObjectBinding, ...], reference: str) -> S3Access:
-    """Classify unavailable reader authority without changing target selection errors."""
-    try:
-        return object_access(bindings, reference)
-    except MaterializationError as error:
-        if type(error) is not MaterializationError or error.stage != "storage_selection":
-            raise
-    raise StorageAccessError("unauthorized")
 
 
 def _payload_batches(
@@ -47,7 +28,6 @@ def _payload_batches(
     receipt: StorageReceipt,
     *,
     policy: ReadPolicy,
-    bindings: tuple[ObjectBinding, ...] = (),
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
@@ -73,48 +53,22 @@ def _payload_batches(
         if not seen and receipt.realized_row_count:
             _integrity("all selected payload rows", "missing payload stream")
 
-    if isinstance(receipt, ObjectReceipt):
-        from marivo.analysis.materialization.object_storage import (
-            ObjectRangeFile,
-            client,
-            open_manifest,
+    parquet, path = storage._open_payload(project_root, receipt)
+    try:
+        if audit and storage._hash_file(path) != receipt.bytes_hash:
+            raise StorageAccessError("mutated")
+        yield pa.RecordBatch.from_arrays(
+            [pa.array([], type=f.type) for f in parquet.schema_arrow],
+            schema=parquet.schema_arrow,
         )
-
-        access = _object_read_access(bindings, receipt.object_store_ref)
-        with client(access) as s3:
-            file = open_manifest(s3, access, receipt)
-            with (
-                ObjectRangeFile(s3, access, file) as stream,
-                pq.ParquetFile(stream, page_checksum_verification=True) as parquet,
-            ):
-                if parquet.metadata.num_rows != receipt.realized_row_count:
-                    _integrity("the committed object row count", "object row count differs")
-                yield pa.RecordBatch.from_arrays(
-                    [pa.array([], type=f.type) for f in parquet.schema_arrow],
-                    schema=parquet.schema_arrow,
-                )
-                yield from checked(
-                    storage._parquet_batches(parquet, policy, preview=preview, use_threads=False)
-                )
-            if not preview:
-                file.verify(s3, access)
-    else:
-        parquet, path = storage._open_payload(project_root, receipt)
-        try:
-            if audit and storage._hash_file(path) != receipt.bytes_hash:
-                raise StorageAccessError("mutated")
-            yield pa.RecordBatch.from_arrays(
-                [pa.array([], type=f.type) for f in parquet.schema_arrow],
-                schema=parquet.schema_arrow,
-            )
-            yield from checked(storage._parquet_batches(parquet, policy, preview=preview))
-            if not preview and (
-                storage._hash_file(path) != receipt.bytes_hash
-                or receipt.file_manifest[0].sha256 != receipt.bytes_hash
-            ):
-                _integrity("the immutable selected local payload", "local content changed")
-        finally:
-            parquet.close()
+        yield from checked(storage._parquet_batches(parquet, policy, preview=preview))
+        if not preview and (
+            storage._hash_file(path) != receipt.bytes_hash
+            or receipt.file_manifest[0].sha256 != receipt.bytes_hash
+        ):
+            _integrity("the immutable selected local payload", "local content changed")
+    finally:
+        parquet.close()
     if not preview and count != receipt.realized_row_count:
         _integrity("the complete exact payload count", "incomplete selected payload")
 
@@ -124,7 +78,6 @@ def payload_batches(
     receipt: StorageReceipt,
     *,
     policy: ReadPolicy,
-    bindings: tuple[ObjectBinding, ...] = (),
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
@@ -138,7 +91,6 @@ def payload_batches(
         project_root,
         receipt,
         policy=policy,
-        bindings=bindings,
         preview=preview,
         row=row,
         rows=rows,
@@ -151,7 +103,6 @@ def _guarded_payload_batches(
     receipt: StorageReceipt,
     *,
     policy: ReadPolicy,
-    bindings: tuple[ObjectBinding, ...] = (),
     preview: bool = False,
     row: DatasetRowContract | None = None,
     rows: DatasetRowSetContract | None = None,
@@ -164,7 +115,6 @@ def _guarded_payload_batches(
             project_root,
             receipt,
             policy=policy,
-            bindings=bindings,
             preview=preview,
             row=row,
             rows=rows,
@@ -189,7 +139,6 @@ def part_schema(
     part: RetainedPart,
     *,
     policy: ReadPolicy = _DEFAULT_READ_POLICY,
-    bindings: tuple[ObjectBinding, ...] = (),
 ) -> pa.Schema:
     """Read selected storage schema and bind it to its immutable receipt.
 
@@ -200,7 +149,7 @@ def part_schema(
     from marivo.analysis.materialization.retained import guard_part_transfer
 
     guard_part_transfer(part)
-    stream = payload_batches(project_root, part.storage_receipt, policy=policy, bindings=bindings)
+    stream = payload_batches(project_root, part.storage_receipt, policy=policy)
     try:
         batch = next(stream, None)
         if batch is None or batch.num_rows:
@@ -222,43 +171,16 @@ def read_table(
     row_contract: DatasetRowContract,
     row_set_contract: DatasetRowSetContract,
     policy: ReadPolicy,
-    bindings: tuple[ObjectBinding, ...] = (),
     preview: bool = False,
 ) -> pa.Table:
-    if isinstance(receipt, LocalReceipt):
-        return storage._read(
-            project_root=project_root,
-            receipt=receipt,
-            row_contract=row_contract,
-            row_set_contract=row_set_contract,
-            policy=policy,
-            preview=preview,
-        )
-    validator = storage._RowValidator(row_contract, row_set_contract, source_key_validation=True)
-    retained: list[pa.RecordBatch] = []
-    schema: pa.Schema | None = None
-    for batch in payload_batches(
-        project_root,
-        receipt,
+    return storage._read(
+        project_root=project_root,
+        receipt=receipt,
+        row_contract=row_contract,
+        row_set_contract=row_set_contract,
         policy=policy,
-        bindings=bindings,
         preview=preview,
-        row=row_contract,
-        rows=row_set_contract,
-    ):
-        realized = storage._realized_schema(row_contract, batch.schema)
-        if codec.schema_fingerprint(realized) != receipt.schema_fingerprint:
-            _integrity("the exact selected realized schema", "receipt schema differs")
-        if schema is not None and not schema.equals(batch.schema, check_metadata=False):
-            _integrity("one complete selected schema", "changing payload schema")
-        schema = batch.schema
-        validator.accept(batch)
-        retained.append(batch)
-    if schema is None:
-        _integrity("the selected payload schema", "missing payload schema")
-    if not preview:
-        validator.finish()
-    return pa.Table.from_batches(retained, schema=schema)
+    )
 
 
 def read_preview(
@@ -268,7 +190,6 @@ def read_preview(
     row_contract: DatasetRowContract,
     row_set_contract: DatasetRowSetContract,
     policy: ReadPolicy,
-    bindings: tuple[ObjectBinding, ...] = (),
 ) -> pa.Table:
     return read_table(
         project_root=project_root,
@@ -276,7 +197,6 @@ def read_preview(
         row_contract=row_contract,
         row_set_contract=row_set_contract,
         policy=policy,
-        bindings=bindings,
         preview=True,
     )
 
@@ -288,26 +208,14 @@ def read_primary(
     row_contract: DatasetRowContract,
     row_set_contract: DatasetRowSetContract,
     policy: ReadPolicy,
-    bindings: tuple[ObjectBinding, ...] = (),
 ) -> pd.DataFrame:
-    if isinstance(receipt, LocalReceipt):
-        return storage.read_primary(
-            project_root=project_root,
-            receipt=receipt,
-            row_contract=row_contract,
-            row_set_contract=row_set_contract,
-            policy=policy,
-        )
-    table = read_table(
+    return storage.read_primary(
         project_root=project_root,
         receipt=receipt,
         row_contract=row_contract,
         row_set_contract=row_set_contract,
-        preview=False,
         policy=policy,
-        bindings=bindings,
     )
-    return storage._to_dataframe(table, row_contract)
 
 
 def read_part_batches(
@@ -316,14 +224,11 @@ def read_part_batches(
     *,
     expected_schema: pa.Schema,
     policy: ReadPolicy = _DEFAULT_READ_POLICY,
-    bindings: tuple[ObjectBinding, ...] = (),
 ) -> Iterator[pa.RecordBatch]:
     from marivo.analysis.materialization.retained import guard_part_transfer
 
     guard_part_transfer(part)
-    return _read_part_batches(
-        project_root, part, expected_schema=expected_schema, policy=policy, bindings=bindings
-    )
+    return _read_part_batches(project_root, part, expected_schema=expected_schema, policy=policy)
 
 
 def _read_part_batches(
@@ -332,7 +237,6 @@ def _read_part_batches(
     *,
     expected_schema: pa.Schema,
     policy: ReadPolicy,
-    bindings: tuple[ObjectBinding, ...],
 ) -> Iterator[pa.RecordBatch]:
     receipt = part.storage_receipt
     if (
@@ -340,7 +244,7 @@ def _read_part_batches(
         != hashlib.sha256(expected_schema.serialize().to_pybytes()).hexdigest()
     ):
         _integrity("the exact registered part schema fingerprint", "required part schema differs")
-    for batch in payload_batches(project_root, receipt, policy=policy, bindings=bindings):
+    for batch in payload_batches(project_root, receipt, policy=policy):
         if not batch.schema.equals(expected_schema, check_metadata=False):
             _integrity("the exact registered part schema", "required part schema differs")
         for field in expected_schema:

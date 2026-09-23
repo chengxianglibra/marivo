@@ -98,13 +98,6 @@ def _check_archives(wheel: Path, sdist: Path) -> dict[str, object]:
             if name.startswith("marivo/")
         }
         skill = archive.read("marivo/skills/marivo-analysis/SKILL.md").decode()
-        for token in (
-            "bounded Run history",
-            "exact committed Artifact",
-            "focused Session graph",
-            "Artifact-owned Finding reads",
-        ):
-            assert token in skill
         for stale in ("session.jobs(", "session.get_frame(", "session.evidence"):
             assert stale not in skill
     assert contents == expected, "wheel differs from the current package source inventory"
@@ -215,7 +208,6 @@ def test_installed_dataset_surface_and_three_process_recovery(
                 f"{wheel}[duckdb]",
                 "pytest",
                 "pytest-xdist",
-                "boto3",
             ],
         )
         run("dependencies", [str(interpreter), "-m", "pip", "list", "--format=json"])

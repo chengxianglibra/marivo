@@ -17,7 +17,6 @@ from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.analysis.observation.contracts import source_owner_of
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
@@ -40,7 +39,7 @@ def _setup(
     )
     registry = replace(original, metrics=metrics)
     registry.freeze()
-    runtime = DatasetRuntime.create(project, "distinct-runtime", target=LocalTarget(), event=event)
+    runtime = DatasetRuntime.create(project, "distinct-runtime", event=event)
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = (
         sources.observe(ref.metric("sales.order_count"))
@@ -48,16 +47,6 @@ def _setup(
         .aggregate()
     )
     return runtime, metric, database
-
-
-def test_membership_checkpoint_requires_explicit_available_object_binding(tmp_path: Path) -> None:
-    runtime, metric, _ = _setup(tmp_path)
-    runtime.target = ObjectTarget("unavailable")
-    with pytest.raises(MaterializationError):
-        metric.execute()
-    assert not runtime.statistics.statements
-    assert runtime.graph().artifacts == ()
-    assert runtime.store.resources(runtime.session_ref) == ()
 
 
 def test_membership_checkpoint_has_independent_count_and_native_cold_inspection(
@@ -85,8 +74,8 @@ def test_membership_checkpoint_has_independent_count_and_native_cold_inspection(
     with patch.object(
         inspection, "payload_batches", side_effect=AssertionError("membership transferred")
     ):
-        inspection._payload_check(tmp_path, record.descriptor, member, (), ReadPolicy())
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+        inspection._payload_check(tmp_path, record.descriptor, member, ReadPolicy())
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     recovered = cold.artifact(result.state.artifact_ref)
     assert isinstance(recovered, MaterializedMetricDataset)
     assert recovered.to_pandas().equals(result.to_pandas())
@@ -143,7 +132,7 @@ def test_damaged_delta_membership_keeps_primary_readable_but_blocks_consumption(
         os.chmod(path, 0o600)
         path.write_bytes(b"private-member-physical-canary")
     database.rename(tmp_path / "origin.offline")
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     recovered = cold.artifact(delta.state.artifact_ref)
     assert isinstance(recovered, MaterializedDeltaDataset)
     assert recovered.to_pandas().equals(expected)

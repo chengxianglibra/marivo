@@ -91,11 +91,10 @@ computation. See [Evidence](/docs/latest/concepts/evidence/) for the read contra
 Duration columns in the preview are explicitly labeled in microseconds;
 `to_pandas()` returns those columns as timedeltas.
 
-No configuration is needed for local Parquet result storage. Configure an object
-store in `marivo.toml` only when a different location is explicitly required.
+Results always use project-local Parquet; no result storage setting exists.
 Execution never chooses database result storage or changes target/executor after
 failure. Retained results preserve exact storage and temporal authority across
-cold recovery. Older Store generations are rejected without rewriting files.
+cold recovery. Store generation 6 does not migrate or rewrite older files.
 
 ## Keep decisions explicit
 
@@ -153,7 +152,7 @@ row, byte, memory, spill, method complexity, storage or deadline budgets. Databa
 driver, OS and external runner limits still apply.
 
 `show()` keeps its display bounds. Complete-input validation, ownership and atomic
-publication remain mandatory. Store generation 5 leaves older files untouched;
+publication remain mandatory. Store generation 6 leaves older files untouched;
 old Sessions are not migrated or resumed.
 
 Supported execution does not require engine, driver or Ibis version certification.
@@ -162,8 +161,8 @@ validation order. Recompilation alone does not submit another query.
 
 Cancellation or close can leave a remote read's status unknown. Marivo reports
 that uncertainty and permits later Session work once local publication is safe.
-Unresolved commit state, conflicting writers and unsafe object writes still block
-recovery. A failed Run has no successful local output; it does not prove a remote
+Unresolved commit state and conflicting writers still block recovery. A failed
+Run has no successful local output; it does not prove a remote
 server query stopped. Never automatically resubmit an ambiguously submitted action.
 
 ## Backend implementation boundaries

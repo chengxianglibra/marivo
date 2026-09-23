@@ -1019,7 +1019,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "event.pattern_step@v1",
             }
         ),
-        storage_kinds=frozenset({"parquet", "engine", "object"}),
+        storage_kinds=frozenset({"parquet", "engine"}),
         byte_unavailable_reasons=frozenset({"not_measured"}),
     )
 

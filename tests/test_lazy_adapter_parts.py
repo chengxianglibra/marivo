@@ -13,7 +13,6 @@ from marivo.analysis.materialization import contracts as c
 from marivo.analysis.materialization import reads
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 from tests.lazy_local_fixtures import REVENUE, setup_local
@@ -32,7 +31,7 @@ def _part_schema(project: Path, receipt: c.StorageReceipt) -> pa.Schema:
 def test_only_selected_part_is_read_and_missing_required_part_fails(
     tmp_path: Path,
     request: pytest.FixtureRequest,
-    kind: Literal["engine", "object"],
+    kind: Literal["engine"],
 ) -> None:
     fixture = setup_adapter(tmp_path, kind)
     result = fixture.sources.observe(
@@ -46,9 +45,7 @@ def test_only_selected_part_is_read_and_missing_required_part_fails(
     if isinstance(unrelated.storage_receipt, c.LocalReceipt):
         (tmp_path / unrelated.storage_receipt.project_relative_path / "data.parquet").unlink()
     assert len(result.to_pandas()) == 4
-    batches = tuple(
-        reads.read_part_batches(tmp_path, selected, expected_schema=schema, bindings=())
-    )
+    batches = tuple(reads.read_part_batches(tmp_path, selected, expected_schema=schema))
     assert pa.Table.from_batches(batches).num_rows == 4
     with pytest.raises(MaterializationError):
         tuple(
@@ -56,7 +53,6 @@ def test_only_selected_part_is_read_and_missing_required_part_fails(
                 tmp_path,
                 unrelated.storage_receipt,
                 policy=ReadPolicy(),
-                bindings=(),
             )
         )
 
@@ -75,8 +71,6 @@ def test_complete_large_retained_collection_and_offline_continuation(
     kind: str,
 ) -> None:
     runtime, sources, database = setup_local(tmp_path)
-    runtime.target = LocalTarget() if kind == "engine" else ObjectTarget("fixture")
-    runtime.object_bindings = ()
     with duckdb.connect(str(database)) as db:
         db.execute("INSERT INTO orders (id, amount) SELECT i + 1000, 1.0 FROM range(100001) t(i)")
     result = sources.observe(REVENUE).execute()
@@ -84,13 +78,8 @@ def test_complete_large_retained_collection_and_offline_continuation(
     database.rename(tmp_path / "warehouse.offline")
     assert len(result.to_pandas()) == result.state.realized_row_count
     narrowed = result.rank(result.fields.metric(REVENUE)).limit(1)
-    if kind == "engine":
-        output = narrowed.execute()
-        assert len(output.to_pandas()) == 1
-        assert runtime.statistics.transferred_rows == 1
-        assert runtime.statistics.events.get("local_execution_started", 0) == 0
-    else:
-        with pytest.raises(MaterializationError):
-            narrowed.execute()
-        assert runtime.statistics.local_handoffs == ()
+    output = narrowed.execute()
+    assert len(output.to_pandas()) == 1
+    assert runtime.statistics.transferred_rows == 1
+    assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.store.resources(runtime.session_ref) == ()
