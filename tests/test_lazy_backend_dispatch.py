@@ -1,5 +1,7 @@
 """Exact backend selection without enabling another production backend."""
 
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -62,6 +64,43 @@ def _sources(backend: BackendName, *, aggregation: AggKind = "sum") -> LazySourc
         store_id="dispatch",
         action_port=NoIoActionPort(),
     )
+
+
+def test_selected_execution_import_isolated_from_other_backend_dependencies() -> None:
+    script = """
+import builtins
+import sys
+
+original = builtins.__import__
+def without_postgres(name, *args, **kwargs):
+    if name == "psycopg" or name.startswith("psycopg."):
+        raise ImportError("simulated missing psycopg")
+    return original(name, *args, **kwargs)
+builtins.__import__ = without_postgres
+
+from marivo.analysis.materialization.execution import resolve_execution
+from marivo.analysis.materialization.errors import MaterializationError
+assert resolve_execution("unknown") is None
+assert resolve_execution("trino") is not None
+import marivo.analysis.materialization.lifecycle_publication
+assert "marivo.analysis.materialization.postgres_execution" not in sys.modules
+try:
+    resolve_execution("postgres")
+except MaterializationError as exc:
+    assert exc.stage == "implementation_registration"
+    assert "postgres" in exc.expected
+    assert "marivo[postgres]" in str(exc)
+else:
+    raise AssertionError("missing selected dependency was accepted")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_duplicate_backend_registration_is_rejected() -> None:

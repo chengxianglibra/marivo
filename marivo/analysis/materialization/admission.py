@@ -1078,25 +1078,28 @@ class DatasetRuntime:
 
                             if proof_recipe.event_coverage is None:
                                 raise _error("output_validation", run.run_ref)
-                            from marivo.analysis.materialization.clickhouse_execution import (
-                                ClickHouseExecutionAdapter,
-                            )
-                            from marivo.analysis.materialization.postgres_execution import (
-                                PostgresExecutionAdapter,
-                            )
-
-                            checked_event = (
-                                proof_backend.event_bundle_proof()
-                                if isinstance(
-                                    proof_backend,
-                                    (PostgresExecutionAdapter, ClickHouseExecutionAdapter),
+                            if proof_backend.engine == "postgres":
+                                from marivo.analysis.materialization.postgres_execution import (
+                                    PostgresExecutionAdapter,
                                 )
-                                else proof_backend.read_table(
+
+                                if not isinstance(proof_backend, PostgresExecutionAdapter):
+                                    raise _error("implementation_registration", run.run_ref)
+                                checked_event = proof_backend.event_bundle_proof()
+                            elif proof_backend.engine == "clickhouse":
+                                from marivo.analysis.materialization.clickhouse_execution import (
+                                    ClickHouseExecutionAdapter,
+                                )
+
+                                if not isinstance(proof_backend, ClickHouseExecutionAdapter):
+                                    raise _error("implementation_registration", run.run_ref)
+                                checked_event = proof_backend.event_bundle_proof()
+                            else:
+                                checked_event = proof_backend.read_table(
                                     proof_backend.prepare(
                                         proof_recipe.event_proof, role="event.journey_summary"
                                     )
                                 )
-                            )
                             if checked_event.num_rows != 1:
                                 raise _error("output_validation", run.run_ref)
                             event_summary = summary_from_proof(
@@ -2289,19 +2292,6 @@ class DatasetRuntime:
                     )
                 )
             ):
-                from marivo.analysis.materialization.clickhouse_execution import (
-                    ClickHouseExecutionAdapter,
-                )
-                from marivo.analysis.materialization.postgres_execution import (
-                    PostgresExecutionAdapter,
-                )
-                from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
-
-                if not isinstance(
-                    backend,
-                    (PostgresExecutionAdapter, ClickHouseExecutionAdapter, TrinoExecutionAdapter),
-                ):
-                    raise _error("implementation_registration", run_ref)
                 for entity in entities:
                     if (
                         isinstance(entity.source, TableSourceIR)
@@ -2322,29 +2312,55 @@ class DatasetRuntime:
                         source_step.binding.owner.semantic_registry,
                         run_ref=run_ref,
                     )
-                if isinstance(backend, TrinoExecutionAdapter) or (
-                    not isinstance(root.payload, EventPayload)
-                    and isinstance(backend, PostgresExecutionAdapter)
-                ):
-                    validations.extend(backend.open_event_relations(recipe))
-                elif isinstance(backend, ClickHouseExecutionAdapter) and isinstance(
-                    root.payload, LifecyclePayload
-                ):
-                    semantics = source_step.dataset.row_contract.family_semantics
-                    if not isinstance(semantics, LifecycleSemantics):
-                        raise _error("implementation_registration", run_ref)
-                    validations.extend(backend.open_lifecycle_bundle(recipe, semantics))
-                elif isinstance(root.payload, EventPayload):
-                    validations.extend(
-                        backend.open_event_bundle(
-                            recipe,
-                            step_keys=tuple(
-                                step.step.key for step in root.payload.definition.steps
-                            ),
-                        )
+                if selected.backend == "trino":
+                    from marivo.analysis.materialization.trino_execution import (
+                        TrinoExecutionAdapter,
                     )
+
+                    if not isinstance(backend, TrinoExecutionAdapter):
+                        raise _error("implementation_registration", run_ref)
+                    validations.extend(backend.open_event_relations(recipe))
+                elif selected.backend == "postgres":
+                    from marivo.analysis.materialization.postgres_execution import (
+                        PostgresExecutionAdapter,
+                    )
+
+                    if not isinstance(backend, PostgresExecutionAdapter):
+                        raise _error("implementation_registration", run_ref)
+                    if isinstance(root.payload, EventPayload):
+                        validations.extend(
+                            backend.open_event_bundle(
+                                recipe,
+                                step_keys=tuple(
+                                    step.step.key for step in root.payload.definition.steps
+                                ),
+                            )
+                        )
+                    else:
+                        validations.extend(backend.open_event_relations(recipe))
                 else:
-                    raise _error("implementation_registration", run_ref)
+                    from marivo.analysis.materialization.clickhouse_execution import (
+                        ClickHouseExecutionAdapter,
+                    )
+
+                    if not isinstance(backend, ClickHouseExecutionAdapter):
+                        raise _error("implementation_registration", run_ref)
+                    if isinstance(root.payload, LifecyclePayload):
+                        semantics = source_step.dataset.row_contract.family_semantics
+                        if not isinstance(semantics, LifecycleSemantics):
+                            raise _error("implementation_registration", run_ref)
+                        validations.extend(backend.open_lifecycle_bundle(recipe, semantics))
+                    elif isinstance(root.payload, EventPayload):
+                        validations.extend(
+                            backend.open_event_bundle(
+                                recipe,
+                                step_keys=tuple(
+                                    step.step.key for step in root.payload.definition.steps
+                                ),
+                            )
+                        )
+                    else:
+                        raise _error("implementation_registration", run_ref)
                 yield backend, recipe, tables
                 return
             self._event("backend_compile")

@@ -49,6 +49,8 @@ class BatchStream(Protocol):
 
 
 class ExecutionAdapter(Protocol):
+    engine: str
+
     def observe(self, observer: Callable[[Submission], None], domain: ExecutionDomain) -> None: ...
     def prepare(self, expression: ir.Expr, *, role: str = "query") -> Statement: ...
     def compile(self, expression: ir.Expr) -> str: ...
@@ -142,34 +144,54 @@ def resolve_execution(backend: str) -> ExecutionBackend | None:
     owns concrete functions only; declarations and realizations are checked together
     by the backend contract test without importing Runtime into the compiler.
     """
-    from marivo.analysis.materialization.clickhouse_execution import (
-        admit_dataset as admit_clickhouse,
-    )
-    from marivo.analysis.materialization.clickhouse_execution import bind_clickhouse
-    from marivo.analysis.materialization.duckdb_execution import (
-        admit_dataset,
-        bind_duckdb,
-        open_native_backend,
-    )
-    from marivo.analysis.materialization.mysql_execution import admit_dataset as admit_mysql
-    from marivo.analysis.materialization.mysql_execution import bind_mysql
-    from marivo.analysis.materialization.postgres_execution import admit_dataset as admit_postgres
-    from marivo.analysis.materialization.postgres_execution import bind_postgres
-    from marivo.analysis.materialization.sqlite_execution import admit_dataset as admit_sqlite
-    from marivo.analysis.materialization.sqlite_execution import bind_sqlite
-    from marivo.analysis.materialization.trino_execution import admit_dataset as admit_trino
-    from marivo.analysis.materialization.trino_execution import bind_trino
     from marivo.analysis.operators.registry import backend_execution
 
     registration = backend_execution(backend)
     if registration is None:
         return None
-    factories = {
-        "duckdb": ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset),
-        "postgres": ExecutionBackend(bind_postgres, None, admit_postgres),
-        "mysql": ExecutionBackend(bind_mysql, None, admit_mysql),
-        "sqlite": ExecutionBackend(bind_sqlite, None, admit_sqlite),
-        "trino": ExecutionBackend(bind_trino, None, admit_trino),
-        "clickhouse": ExecutionBackend(bind_clickhouse, None, admit_clickhouse),
-    }
-    return factories.get(registration.backend)
+    try:
+        if registration.backend == "duckdb":
+            from marivo.analysis.materialization.duckdb_execution import (
+                admit_dataset,
+                bind_duckdb,
+                open_native_backend,
+            )
+
+            return ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset)
+        if registration.backend == "postgres":
+            from marivo.analysis.materialization.postgres_execution import (
+                admit_dataset,
+                bind_postgres,
+            )
+
+            return ExecutionBackend(bind_postgres, None, admit_dataset)
+        if registration.backend == "mysql":
+            from marivo.analysis.materialization.mysql_execution import admit_dataset, bind_mysql
+
+            return ExecutionBackend(bind_mysql, None, admit_dataset)
+        if registration.backend == "sqlite":
+            from marivo.analysis.materialization.sqlite_execution import admit_dataset, bind_sqlite
+
+            return ExecutionBackend(bind_sqlite, None, admit_dataset)
+        if registration.backend == "trino":
+            from marivo.analysis.materialization.trino_execution import admit_dataset, bind_trino
+
+            return ExecutionBackend(bind_trino, None, admit_dataset)
+        from marivo.analysis.materialization.clickhouse_execution import (
+            admit_dataset,
+            bind_clickhouse,
+        )
+
+        return ExecutionBackend(bind_clickhouse, None, admit_dataset)
+    except (ImportError, OSError) as exc:
+        from marivo.analysis.materialization.errors import MaterializationError
+
+        raise MaterializationError(
+            expected=f"loadable {registration.backend} analysis execution dependencies",
+            received=f"{type(exc).__name__}: {exc}",
+            repair=(
+                f"Install the selected backend dependencies with marivo[{registration.backend}] "
+                "and any required native client libraries, then retry."
+            ),
+            stage="implementation_registration",
+        ) from exc

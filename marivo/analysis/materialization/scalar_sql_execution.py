@@ -314,7 +314,6 @@ class ScalarExecutionAdapter(ObservedExecution):
         *,
         role: str,
         params: Mapping[ir.Scalar, Parameter] | None = None,
-        execute: bool = False,
     ) -> ScalarStatement:
         self._check()
         from marivo.analysis.compiler.source_time import NATIVE_PARSE_OPERATIONS
@@ -330,8 +329,6 @@ class ScalarExecutionAdapter(ObservedExecution):
                 stage="implementation_registration",
             )
         physical = project(self._lower(expression), run_ref=self._run_ref)
-        if execute:
-            self._backend._run_pre_execute_hooks(physical.expression)
         sql = self._compile_sql(physical.expression, params=params)
         names = physical.expression.columns
         columns = tuple(tuple(names.index(name) for name in group) for group in physical.columns)
@@ -386,7 +383,7 @@ class ScalarExecutionAdapter(ObservedExecution):
     ) -> BatchStream:
         statement: Statement
         if isinstance(value, ir.Expr):
-            statement = self._prepare(value, role=role, params=params, execute=True)
+            statement = self._prepare(value, role=role, params=params)
         else:
             if params is not None:
                 raise self.error(

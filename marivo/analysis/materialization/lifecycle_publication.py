@@ -73,14 +73,15 @@ def validate_relation(
     role: str,
 ) -> None:
     part_schema(row, role, table.schema().to_pyarrow())
-    from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
+    if backend.engine == "clickhouse":
+        from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
 
-    if (
-        isinstance(backend, ClickHouseExecutionAdapter)
-        and backend.lifecycle_bundle is not None
-        and backend.lifecycle_bundle.certifies(table)
-    ):
-        return
+        if (
+            isinstance(backend, ClickHouseExecutionAdapter)
+            and backend.lifecycle_bundle is not None
+            and backend.lifecycle_bundle.certifies(table)
+        ):
+            return
     keys = PART_KEYS[ROLES.index(role)]
     query = table.group_by(*keys).aggregate(n=table.count())
     bad = query.filter(query.n != 1).count()
@@ -93,14 +94,15 @@ def native_summary(
     recipe: CompiledDataset,
     row: DatasetRowContract,
 ) -> LifecycleEvidenceSummary:
-    from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
+    if backend.engine == "clickhouse":
+        from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
 
-    if (
-        isinstance(backend, ClickHouseExecutionAdapter)
-        and backend.lifecycle_bundle is not None
-        and backend.lifecycle_bundle.certifies(recipe.expression)
-    ):
-        return backend.lifecycle_bundle.evidence
+        if (
+            isinstance(backend, ClickHouseExecutionAdapter)
+            and backend.lifecycle_bundle is not None
+            and backend.lifecycle_bundle.certifies(recipe.expression)
+        ):
+            return backend.lifecycle_bundle.evidence
     parts = {
         p.role: p.expression for p in recipe.retained_parts if isinstance(p, RetainedRelationSpec)
     }
@@ -122,19 +124,17 @@ def native_summary(
     if backend.read_scalar(backend.prepare(wrong_coverage, role="lifecycle.coverage_ledger")) != 0:
         raise invalid("Lifecycle coverage ledger differs from its retained source-origin prefix")
     from marivo.analysis.materialization.lifecycle_integrity import integrity_queries
-    from marivo.analysis.materialization.postgres_execution import PostgresExecutionAdapter
-    from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
 
     proofs = (
         integrity_queries(backend, recipe.expression, parts, semantics)
-        if isinstance(backend, TrinoExecutionAdapter)
+        if backend.engine == "trino"
         else (
             integrity_sql(
                 backend,
                 recipe.expression,
                 parts,
                 semantics,
-                dialect="postgres" if isinstance(backend, PostgresExecutionAdapter) else "duckdb",
+                dialect="postgres" if backend.engine == "postgres" else "duckdb",
             ),
         )
     )
@@ -171,7 +171,7 @@ def native_summary(
             backend.read_scalar(backend.prepare(expr, role="lifecycle.summary"))
             for expr in statements
         )
-        if isinstance(backend, TrinoExecutionAdapter)
+        if backend.engine == "trino"
         else backend.submit(
             backend.statement(
                 query,

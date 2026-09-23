@@ -84,7 +84,6 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
         *,
         role: str,
         params: Mapping[str, Parameter] | None = None,
-        execute: bool = False,
     ) -> ScalarStatement:
         if any(
             isinstance(node, ops.Divide)
@@ -92,7 +91,7 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
             for node in expression.op().find(ops.Divide)
         ):
             self.require_div_precision_increment()
-        return super()._prepare(expression, role=role, params=params, execute=execute)
+        return super()._prepare(expression, role=role, params=params)
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
         from marivo.analysis.materialization.temporal_sql import lower_temporal

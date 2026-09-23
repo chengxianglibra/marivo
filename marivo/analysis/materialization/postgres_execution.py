@@ -406,6 +406,8 @@ class PostgresEventBundleStream:
 class PostgresExecutionAdapter(ObservedExecution):
     """One real connection; assertions and output use independent read lifetimes."""
 
+    engine = "postgres"
+
     def __init__(self, backend: Backend, *, run_ref: str | None = None) -> None:
         super().__init__()
         self._backend = backend
@@ -552,7 +554,6 @@ class PostgresExecutionAdapter(ObservedExecution):
             return self._event_bundle
         if isinstance(value, ir.Expr):
             self._expression(value)
-            self._backend._run_pre_execute_hooks(value)
             statement = (
                 self.prepare(value, role=role)
                 if self._event_relation_prefix is not None and params is None

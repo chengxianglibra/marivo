@@ -38,6 +38,26 @@ restricted by table form: views and every engine or connector type enter, and Tr
 rejects only `$`-suffixed internal tables. Installed
 package acceptance is recorded separately from source-tree Runtime evidence.
 
+`md.register()` persists a declaration without loading analysis execution code.
+Execution admission loads only the selected backend implementation; a missing
+selected dependency fails with a structured repair before opening the source.
+Ordinary DuckDB result batches use Ibis execution and an owned Arrow reader.
+Colima qualification of the installed Ibis 12 batch interfaces did not qualify
+a remote transport switch. PostgreSQL preserves Decimal, timestamps and row
+batching, but its default text cursor fails on the anonymous RECORD used by
+Dataset identity. A binary server cursor repairs that value, yet closing an
+Ibis reader after a partial read leaves its named server cursor and transaction
+open. Trino preserves exact Decimal and composite identity values, one-row
+batches and submitted SQL, but early reader close leaves the driver cursor open.
+ClickHouse preserves Decimal, UInt64, timestamps and composite identity values,
+but a SELECT-only account returned a three-row batch for `chunk_size=1`.
+PostgreSQL and Trino batch entries also call Ibis pre-execution hooks;
+ClickHouse's batch entry collects external tables. The current remote paths do
+not invoke these hooks. MySQL and SQLite retain incremental driver transport
+because their Ibis batch APIs materialize a complete pandas result first.
+Remote source execution requires no write, table-creation or view-creation
+privileges. DuckDB may create action-local temporary tables and views.
+
 ### Relational and native-date methods
 
 PostgreSQL, MySQL, SQLite, Trino and ClickHouse use exact per-backend admission
