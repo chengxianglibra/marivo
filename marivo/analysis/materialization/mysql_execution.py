@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
@@ -206,14 +205,7 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                 datatype = self._mysql.compiler.type_mapper.from_string(
                     kind, nullable=nullable == "YES"
                 )
-            declared_boolean = dependency is not None and any(
-                item.physical == column and item.declared_type == "boolean"
-                for item in dependency.columns
-            )
             quoted = "`" + column.replace("`", "``") + "`"
-            if declared_boolean and re.fullmatch(r"tinyint\(1\)", kind.lower()):
-                datatype = dt.boolean.copy(nullable=nullable == "YES")
-                date_checks.append(f"({quoted} IS NOT NULL AND {quoted} NOT IN (0,1))")
             if isinstance(datatype, dt.Timestamp):
                 if datatype.scale is None:
                     datatype = datatype.copy(scale=0)
@@ -225,24 +217,7 @@ class MySQLExecutionAdapter(ScalarExecutionAdapter):
                     )
                     if zone not in {"UTC", "+00:00"}:
                         raise self.unsupported("MySQL TIMESTAMP requires a verified UTC session")
-                    declared = (
-                        next(
-                            (
-                                item.declared_type
-                                for item in dependency.columns
-                                if item.physical == column
-                            ),
-                            None,
-                        )
-                        if dependency is not None
-                        else None
-                    )
-                    aware = (
-                        declared is not None
-                        and isinstance(dt.dtype(declared), dt.Timestamp)
-                        and dt.dtype(declared).timezone is not None
-                    )
-                    datatype = datatype.copy(timezone="UTC" if aware else None)
+                    datatype = datatype.copy(timezone="UTC")
                 date_checks.append(
                     f"({quoted} IS NOT NULL AND (YEAR({quoted}) < 1 OR MONTH({quoted}) < 1 "
                     f"OR DAY({quoted}) < 1 OR LAST_DAY({quoted}) IS NULL "

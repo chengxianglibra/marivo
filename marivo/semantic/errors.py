@@ -137,7 +137,7 @@ class ErrorKind(StrEnum):
     INVALID_VERIFICATION_MODE = "invalid_verification_mode"
     INVALID_ENTITY_VERSIONING = "invalid_entity_versioning"
     DUPLICATE_IDENTITY_KEY = "duplicate_identity_key"
-    MISSING_IDENTITY_KEY_TYPE = "missing_identity_key_type"
+    MISSING_IDENTITY_KEY_COLUMN = "missing_identity_key_column"
     IDENTITY_VERSION_OVERLAP = "identity_version_overlap"
     NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"

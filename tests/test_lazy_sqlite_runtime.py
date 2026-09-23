@@ -200,10 +200,7 @@ def test_integer_sum_overflow_has_no_publication(tmp_path: Path, source_database
         entity,
         source=replace(
             entity.source,
-            columns=tuple(
-                (name, replace(binding, data_type="int64") if name == "amount" else binding)
-                for name, binding in entity.source.columns
-            ),
+            columns=tuple((name, binding) for name, binding in entity.source.columns),
         ),
     )
     registry = replace(registry, entities=entities)

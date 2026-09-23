@@ -419,7 +419,7 @@ def test_dataset_source_records_csv_source() -> None:
             name="orders",
             datasource=ms.ref.datasource("wh"),
             source=md.csv(
-                "/data/orders.csv", schema={"order_id": "string"}, header=False, delimiter="|"
+                "/data/orders.csv", columns={"order_id": "order_id"}, header=False, delimiter="|"
             ),
         )
 
@@ -455,7 +455,7 @@ def test_entity_accepts_json_source(semantic_project_factory) -> None:
                     "events = ms.entity(",
                     "    name='events',",
                     "    datasource=ms.ref.datasource('warehouse'),",
-                    "    source=md.json('data/events/*.json', schema={'event_id': 'string'}),",
+                    "    source=md.json('data/events/*.json', columns={'event_id': 'event_id'}),",
                     ")",
                 ]
             )
@@ -466,7 +466,7 @@ def test_entity_accepts_json_source(semantic_project_factory) -> None:
     assert project._registry.entities["sales.events"].source.to_dict() == {
         "kind": "json",
         "path": "data/events/*.json",
-        "schema": {"event_id": "string"},
+        "columns": {"event_id": "event_id"},
         "format": "auto",
         "records_path": None,
         "query_params": {},
@@ -490,7 +490,7 @@ def test_table_source_constructor() -> None:
     assert pq.path == "/data/orders.parquet"
     assert pq.hive_partitioning is True
 
-    cs = md.csv("/data/orders.csv", schema={"order_id": "string"}, delimiter=",")
+    cs = md.csv("/data/orders.csv", columns={"order_id": "order_id"}, delimiter=",")
     assert isinstance(cs, CsvSourceIR)
     assert cs.path == "/data/orders.csv"
     assert cs.delimiter == ","

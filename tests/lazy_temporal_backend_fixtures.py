@@ -127,24 +127,7 @@ def strptime_source(
         physical = f"Nullable({physical})"
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, TableSourceIR)
-    entity = replace(
-        entity,
-        source=replace(
-            entity.source,
-            table=name,
-            columns=tuple(
-                (
-                    key,
-                    replace(binding, data_type="string")
-                    if key == "day"
-                    else replace(binding, data_type="int64")
-                    if key == "amount"
-                    else binding,
-                )
-                for key, binding in entity.source.columns
-            ),
-        ),
-    )
+    entity = replace(entity, source=replace(entity.source, table=name))
     axis = replace(
         registry.dimensions[AXIS],
         parse=StrptimeParse(fmt, timezone=timezone),
@@ -194,28 +177,7 @@ def hour_prefix_source(
         physical = f"Nullable({physical})"
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, TableSourceIR)
-    entity = replace(
-        entity,
-        source=replace(
-            entity.source,
-            table=name,
-            columns=tuple(
-                (
-                    key,
-                    replace(binding, data_type="date")
-                    if key == "day"
-                    else replace(binding, data_type="int64")
-                    if key == "channel" and integer_hours
-                    else replace(binding, data_type="string")
-                    if key == "channel"
-                    else replace(binding, data_type="int64")
-                    if key == "amount"
-                    else binding,
-                )
-                for key, binding in entity.source.columns
-            ),
-        ),
-    )
+    entity = replace(entity, source=replace(entity.source, table=name))
     registry = replace(
         registry,
         entities={**registry.entities, entity.semantic_id: entity},
@@ -285,30 +247,9 @@ def temporal_source(
     }[engine]
     if engine == "clickhouse" and None in values:
         physical = f"Nullable({physical})"
-    logical = f"timestamp('{physical_zone}', {precision})" if aware else f"timestamp({precision})"
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, TableSourceIR)
-    entity = replace(
-        entity,
-        source=replace(
-            entity.source,
-            table=name,
-            columns=tuple(
-                (
-                    key,
-                    replace(
-                        binding,
-                        data_type=logical
-                        if key == "day"
-                        else "int64"
-                        if key == "amount"
-                        else binding.data_type,
-                    ),
-                )
-                for key, binding in entity.source.columns
-            ),
-        ),
-    )
+    entity = replace(entity, source=replace(entity.source, table=name))
     axis = replace(
         registry.dimensions[AXIS],
         parse=None if aware or zone is None else TimestampParse(timezone=zone),

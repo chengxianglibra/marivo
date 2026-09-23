@@ -155,11 +155,11 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     files = fiscal_analysis_project_files()
     files["sales/metrics.py"] = files["sales/metrics.py"].replace(
         "source=md.table('events')",
-        "source=md.table('events', columns={'user_id': md.source_column('user_id', data_type='int64'), 'amount': md.source_column('amount', data_type='float64'), 'event_date': md.source_column('event_date', data_type='date')}), primary_key=['user_id']",
+        "source=md.table('events', columns={'user_id': 'user_id', 'amount': 'amount', 'event_date': 'event_date'}), primary_key=['user_id']",
     )
     files["sales/calendar.py"] = files["sales/calendar.py"].replace(
         "source=md.table('calendar')",
-        "source=md.table('calendar', columns={'calendar_date': md.source_column('calendar_date', data_type='date'), 'fiscal_week': md.source_column('fiscal_week', data_type='string'), 'fiscal_month': md.source_column('fiscal_month', data_type='string')}), primary_key=['calendar_date']",
+        "source=md.table('calendar', columns={'calendar_date': 'calendar_date', 'fiscal_week': 'fiscal_week', 'fiscal_month': 'fiscal_month'}), primary_key=['calendar_date']",
     )
     catalog = SemanticCatalog(semantic_project_factory(files))
     publish_fiscal_calendar_artifact(catalog)

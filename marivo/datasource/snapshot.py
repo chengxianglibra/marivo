@@ -319,12 +319,20 @@ def _source_expression(
         reader = getattr(backend, "read_csv", None)
         if not callable(reader):
             raise RuntimeError("datasource backend does not expose read_csv()")
-        csv_options: dict[str, object] = {"columns": dict(source.schema)}
+        csv_options: dict[str, object] = {}
         if not source.header:
             csv_options["header"] = False
         if source.delimiter != ",":
             csv_options["delimiter"] = source.delimiter
-        return cast("ir.Table", reader(source.path, **csv_options))
+        expression = cast("ir.Table", reader(source.path, **csv_options))
+        if source.columns:
+            expression = expression.select(
+                *(
+                    expression[source_name].name(output_name)
+                    for output_name, source_name in source.columns
+                )
+            )
+        return expression
     if isinstance(source, JsonSourceIR):
         return read_json_source(backend, source, source_params=source_params)
     raise TypeError(f"unsupported source type: {type(source).__name__}")

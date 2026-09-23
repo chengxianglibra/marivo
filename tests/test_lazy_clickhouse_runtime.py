@@ -204,10 +204,7 @@ def numeric_registry(
     entity = registry.entities["sales.orders"]
     source = replace(
         entity.source,
-        columns=tuple(
-            (name, replace(binding, data_type=logical) if name == "amount" else binding)
-            for name, binding in entity.source.columns
-        ),
+        columns=tuple((name, binding) for name, binding in entity.source.columns),
     )
     registry = replace(
         registry, entities={**registry.entities, "sales.orders": replace(entity, source=source)}

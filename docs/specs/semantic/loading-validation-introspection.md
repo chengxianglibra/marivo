@@ -375,15 +375,16 @@ never permits reconstructing absent retained state or replaying an Artifact's
 original source.
 
 Entity source provenance is source-aware. An ordinary table is `IBIS_TABLE`; a
-table with typed column bindings is `TABLE_PROJECTION` and never carries a raw
+table with a column projection is `TABLE_PROJECTION` and never carries a raw
 SQL snippet; a retained Ibis SQL node is `SQL_VIEW`. A projected table still has
 one physical source. Metric-graph physical leaves therefore record one
 `physical_sources` item per entity with the entity, datasource, and the source's
 single canonical `to_dict()` payload. Output aliases remain inside that source's
 `columns` mapping rather than appearing as synthetic physical tables. The same
 source payload participates in the semantic dependency digest, so canonical
-reordering is identity-stable while rebinding, renaming, or changing a declared
-type changes identity.
+reordering is identity-stable while rebinding or renaming a projected field
+changes identity. Physical types are not semantic declarations; the observed
+source types enter downstream realized schemas when execution first needs them.
 
 To inspect a metric's caliber without executing analysis, use typed details and
 scoped readiness after the project has loaded successfully. Use
@@ -454,15 +455,15 @@ declared stable output alias. A missing alias is `invalid_ref` with the object,
 received columns, and a bounded canonical alias list; all missing aliases for one
 entity are aggregated into one `SemanticLoadError`, while structured `details`
 retain every alias, referencing object, field, and source location. Repair changes
-`column=` or adds the matching `md.source_column(...)` binding. This check is
-static: it does not connect or query. General expression decorators keep their
+`column=` or adds the matching output-to-source entry to `columns=`. This check
+is static: it does not connect or query. General expression decorators keep their
 existing runtime materialization boundary and do not gain inferred column typing.
 
 ClickHouse inspection augments catalog columns with safe adapter-only physical
-columns from active `system.parts_columns`. A projected binding found there must
-match the normalized backend type before any query; type conflicts or unparseable
-types are omitted with inspection warnings, and only genuinely unverifiable
-bindings retain the declared-only warning path.
+columns from active `system.parts_columns`. Type conflicts across active parts or
+unparseable types are omitted with inspection warnings. A projection never
+asserts an expected physical type; execution checks the observed type only when
+the dependency closure consumes that column.
 
 ### Runtime / materialization-time
 

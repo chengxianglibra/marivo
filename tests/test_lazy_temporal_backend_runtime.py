@@ -448,12 +448,7 @@ def _validity_source(
                 source=replace(
                     entity.source,
                     table=name,
-                    columns=tuple(
-                        (key, replace(binding, data_type=declared))
-                        if key in {"start", "end"}
-                        else (key, binding)
-                        for key, binding in entity.source.columns
-                    ),
+                    columns=tuple((key, binding) for key, binding in entity.source.columns),
                 ),
             ),
         },

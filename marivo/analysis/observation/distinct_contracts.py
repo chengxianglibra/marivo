@@ -45,6 +45,8 @@ _SAFE_AUTHORITY_REASONS = frozenset(
 
 def supported_distinct_key_type(logical_type: str) -> bool:
     """Admit scalar keys with an exact source equality and distinct operation."""
+    if logical_type == "unknown":
+        return True
     try:
         dtype: dt.DataType = dt.dtype(logical_type)
     except (TypeError, ValueError):
@@ -99,7 +101,11 @@ def make_distinct_membership(
         signature = target.identity_signature
         if not signature or any(not supported_distinct_key_type(kind) for _, kind in signature):
             return None
-        logical_type = str(dt.Struct.from_tuples(signature))
+        logical_type = (
+            "identity_tuple"
+            if any(kind == "unknown" for _, kind in signature)
+            else str(dt.Struct.from_tuples(signature))
+        )
         target_kind = "entity"
     elif node.target_ref.kind is SemanticKind.MEASURE:
         logical_type, _, _ = _target_measure_type(
@@ -115,7 +121,8 @@ def make_distinct_membership(
             # Computed measures have no single physical key column to offer.
             return None
         source_column = body.source_column
-        logical_type = str(dt.dtype(logical_type))
+        if logical_type != "unknown":
+            logical_type = str(dt.dtype(logical_type))
         target_kind = "measure"
     else:
         return None
@@ -181,7 +188,12 @@ def validate_membership_authority(authority: MetricFoldAuthorityV1) -> None:
             not name or not supported_distinct_key_type(kind)
             for name, kind in membership.identity_signature
         )
-        or membership.key_logical_type != str(dt.Struct.from_tuples(membership.identity_signature))
+        or membership.key_logical_type
+        != (
+            "identity_tuple"
+            if any(kind == "unknown" for _, kind in membership.identity_signature)
+            else str(dt.Struct.from_tuples(membership.identity_signature))
+        )
     ):
         raise ValueError(_INVALID_ENTITY_KEY)
 

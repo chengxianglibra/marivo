@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import Literal, cast
-
-import ibis
+from typing import Literal
 
 from marivo._temporal import Grain, civil_midnight_width_seconds
 from marivo.analysis.compiler.normalize import (
     artifact_inputs,
     logical_roots,
     required_entities,
-    required_source_dependencies,
 )
 from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.datasets.base import LogicalDataset
@@ -30,15 +27,12 @@ from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.contracts import ComparePayload
 from marivo.refs import (
-    EntityKind,
-    Ref,
     RefPayloadV1,
     SemanticKind,
     _create_ref,
 )
 from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
-    evaluate_expression_body,
 )
 from marivo.semantic.decimal_precision import DecimalPrecision, DecimalType, sum_of
 from marivo.semantic.ir import (
@@ -60,7 +54,6 @@ from marivo.semantic.metric_graph import (
     TargetMetricContract,
     WeightedMeanAggregateNodeV1,
 )
-from marivo.semantic.metric_graph_lowering import _derive_measure_result_type
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
 
 ResolvedDecimalUnit = Literal["linear", "mean", "div"]
@@ -95,6 +88,7 @@ def entity_correlation_reason(dataset: LogicalDataset) -> str | None:
 def supports_scalar_type(value: str) -> bool:
     """Recognize the common scalar types, including derived generic Decimal."""
     if value in {
+        "unknown",
         "string",
         "int8",
         "int16",
@@ -223,17 +217,7 @@ def _measure_input_facts(
     entity = normalize_target_entity(registry, measure.entity)
     if body.source_column is not None:
         return _decimal_facts(dict(entity.columns).get(body.source_column, ""))
-    placeholder = ibis.table(dict(entity.columns), name=_PLACEHOLDER_TABLE)
-    entity_ref = cast("Ref[EntityKind]", _create_ref(SemanticKind.ENTITY, entity.ref.path))
-    expression = evaluate_expression_body(
-        catalog_definition_fingerprint=node.target_ref.path,
-        expression_sidecar=sidecar,
-        owning_ref=_create_ref(SemanticKind.MEASURE, node.target_ref.path),
-        body=body,
-        entity_refs=(entity_ref,),
-        aliases=(placeholder,),
-    )
-    return _decimal_facts(_derive_measure_result_type(expression.op()))
+    return None
 
 
 def _decimal_unit(
@@ -409,22 +393,13 @@ def unsupported_reason(
         return "only declared table sources are supported"
     if any(entity.version is not None for entity in entities) and not versions:
         return "semantic version selection is not qualified for this backend"
-    dependencies = required_source_dependencies(dataset)
-    for entry in dependencies.entries:
-        for column in entry.columns:
-            if not supported_type(column.declared_type):
-                return (
-                    "unsupported declared source type "
-                    f"{column.declared_type[:100]} for Entity {entry.entity.ref.path[:160]} "
-                    f"column {column.logical[:100]} -> {column.physical[:100]}"
-                )
     entity_paths = {entity.ref.path for entity in entities}
     owner = source_owner_of(dataset)
 
     def dimension(axis: TargetDimensionContract | None) -> bool:
         return axis is None or (
             axis.entity_ref.path in entity_paths
-            and supported_type(axis.logical_type)
+            and (axis.logical_type == "unknown" or supported_type(axis.logical_type))
             and (
                 not axis.is_time_dimension
                 or axis.logical_type == "date"
@@ -604,7 +579,7 @@ def unsupported_reason(
                 or any(component.time_fold is not None for component in metric.components)
             ):
                 return "this Metric requires source-private state this backend has not qualified"
-            if not supported_type(metric.logical_type):
+            if metric.logical_type != "unknown" and not supported_type(metric.logical_type):
                 return "the Metric result type is not supported"
             for component in metric.components:
                 if component.computation_root.path not in entity_paths:
@@ -697,10 +672,4 @@ def unsupported_reason(
                         for reference, body in owner.sidecar.bodies.items()
                     ):
                         return "only direct-column measures are qualified for this backend"
-    if explicit_decimal_sources and any(
-        column.declared_type == "decimal"
-        for entry in dependencies.entries
-        for column in entry.columns
-    ):
-        return "Decimal source columns require explicit precision and scale"
     return None

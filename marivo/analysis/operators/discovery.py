@@ -245,7 +245,8 @@ def _definition(
                 metrics[0].identity, (d._CatalogFieldIdentity, d._RuntimeMetricFieldIdentity)
             )
             or (
-                not metrics[0].logical_type_id.startswith(("int", "uint", "float", "decimal"))
+                metrics[0].logical_type_id != "unknown"
+                and not metrics[0].logical_type_id.startswith(("int", "uint", "float", "decimal"))
                 and metrics[0].logical_type_id not in ("integer", "floating")
             )
         ):

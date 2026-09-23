@@ -83,8 +83,11 @@ def test_governed_composite_identity_is_one_complete_nonnullable_key() -> None:
     metric = make_distinct_sources().observe(ref.metric("sales.distinct_composite"))
     authority = membership_part_authorities(metric.row_contract)[0][1]
     assert authority.membership is not None
-    assert authority.membership.identity_signature == (("tenant", "string"), ("id", "int64"))
-    assert authority.membership.key_logical_type == "struct<tenant: string, id: int64>"
+    assert authority.membership.identity_signature == (
+        ("tenant", "unknown"),
+        ("id", "unknown"),
+    )
+    assert authority.membership.key_logical_type == "identity_tuple"
     assert authority.membership.source_column == ""
 
 

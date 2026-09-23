@@ -502,6 +502,16 @@ class ScalarExecutionAdapter(ObservedExecution):
     def read_parquet(self, path: str, *, table_name: str) -> ir.Table:
         raise self.unsupported("read_parquet")
 
+    def read_csv(
+        self,
+        path: str,
+        *,
+        table_name: str,
+        header: bool,
+        delimiter: str,
+    ) -> ir.Table:
+        raise self.unsupported("read_csv")
+
     def freeze_reader(self, name: str, reader: pa.RecordBatchReader) -> ir.Table:
         raise self.unsupported("freeze_reader")
 
@@ -509,7 +519,11 @@ class ScalarExecutionAdapter(ObservedExecution):
         raise self.unsupported("table_statement")
 
     def read_json(
-        self, path: str, *, table_name: str, columns: Mapping[str, str], format: str
+        self,
+        path: str,
+        *,
+        table_name: str,
+        format: str,
     ) -> ir.Table:
         raise self.unsupported("read_json")
 

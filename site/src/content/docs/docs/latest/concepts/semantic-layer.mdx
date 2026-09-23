@@ -341,7 +341,7 @@ supported aggregation and a native temporal column instead.
 
 Datasource authoring support is separate from Dataset execution. PostgreSQL,
 MySQL, SQLite, Trino and ClickHouse Group A each admit one unversioned table with direct-column
-scalar Metrics under their declared physical type and table restrictions. Individually
+scalar Metrics under their observed physical types and table restrictions. Individually
 qualified relational/date methods also support mean, weighted mean, ratio, same-source
 relationships and native-date analysis; complete aggregates can feed local methods.
 See the [analysis boundaries](/docs/latest/concepts/analysis-workflow/#backend-implementation-boundaries).
@@ -431,10 +431,11 @@ history model, and domain ownership must agree. Use
 `marivo.help("semantic.objects.entity")` for that checklist and
 `marivo.help("semantic.entity")` for the installed signature.
 `ms.entity(...)` returns a non-callable ref: assign it to a name rather than
-placing it above a function with `@`. For a versioned Entity, static loading
-requires declared types for every identity key and version axis. It reports
-duplicate keys, missing types, and version coordinates in `primary_key` as
-separate errors, one at a time in that order.
+placing it above a function with `@`. Identity and version columns must be
+exposed by the source projection. Their physical types come from the source
+when execution first needs them: database metadata for tables, or the actual
+read for CSV and JSON. `ms.entity(...)`, `ms.load()`, and `dataset.contract()`
+do not access the source to discover types.
 
 ```python
 warehouse = ms.ref.datasource("warehouse")
@@ -451,14 +452,14 @@ orders = ms.entity(
 
 | Builder | Required | Optional | Use for |
 | --- | --- | --- | --- |
-| `md.table(name)` | `name` | `database`, `columns` | A catalog-backed table or typed projection in the datasource (use `database="schema"` for Trino/MySQL). |
-| `md.parquet(path)` | `path` | `hive_partitioning` | Self-describing Parquet files through DuckDB. |
-| `md.csv(path, schema=...)` | `path`, typed `schema` | `header`, `delimiter` | CSV file source through DuckDB. |
-| `md.json(path, schema=...)` | `path`, typed `schema` | `format`, `records_path`, `field_paths`, `query_params`, `method`, `body` | JSON file, glob, GET URL, or parameterized-body POST URL; `records_path` selects a wrapped record array and `field_paths` maps stable output aliases to nested values. |
+| `md.table(name)` | `name` | `database`, `columns` | A catalog-backed table or optional projection (use `database="schema"` for Trino/MySQL). |
+| `md.parquet(path)` | `path` | `hive_partitioning`, `columns` | Self-describing Parquet files through DuckDB. |
+| `md.csv(path)` | `path` | `columns`, `header`, `delimiter` | CSV files read and type-inferred through DuckDB. |
+| `md.json(path)` | `path` | `columns`, `format`, `records_path`, `query_params`, `method`, `body` | JSON file, glob, GET URL, or parameterized-body POST URL; `columns` maps output aliases to JSON paths. |
 
-`md.table(...)` supports two closed modes. Omit `columns=` to use catalog-backed
-discovery. Supply `columns={alias: md.source_column(...)}` to declare a typed
-projection with stable entity output aliases:
+For tables, CSV, and JSON, `columns` is an optional projection mapping output
+names to physical column names or JSON paths. Omit it to expose all discoverable
+fields. The mapping does not declare types:
 
 ```python
 events = ms.entity(
@@ -467,36 +468,34 @@ events = ms.entity(
     source=md.table(
         "raw.events",
         columns={
-            "event_time": md.source_column("event.timestamp", data_type="timestamp"),
-            "score": md.source_column("generated.score", data_type="float64"),
+            "event_time": "event.timestamp",
+            "score": "generated.score",
         },
     ),
     primary_key=["event_time"],
 )
 ```
-The declared type is an assertion, not a cast, and the mapping is the complete
-projection allowlist. For a projected source, semantic `primary_key` and direct
-field `column=` values must name these stable aliases. Inspection can report a
-declared-only warning when catalog metadata cannot confirm a binding. In that
-case, choose an explicit bounded sample, acquire one snapshot, run scoped
-preview, and then use zero-query readiness. Static loading and validation prove
-declaration coherence; preview is the runtime authority. The source is recorded
-as `TABLE_PROJECTION`, while its aliases remain bindings inside one physical
-table rather than becoming separate sources.
+When supplied, the mapping is the complete projection allowlist. Semantic
+`primary_key` and direct field `column=` values must name its output aliases.
+Database types are read only for the required dependency closure when execution
+first needs them. File-source types are inferred during that read; an absent or
+unsupported required type fails clearly, while unused fields do not add type
+restrictions. Constructors, loading, and contract inspection remain source-I/O
+free. A projected table remains one physical source; its aliases are not
+separate sources.
 
-For a table inspected through `md.inspect`, use the retained metadata to create
-a typed binding without guessing a backend-to-Ibis type mapping:
+For a table inspected through `md.inspect`, use retained metadata to copy an
+exact physical field name into a projection:
 
 ```python
 inspection = md.inspect(warehouse, md.table("orders"))
-order_id = inspection.source_column("order_id")  # bigint metadata becomes int64
-orders_source = md.table("orders", columns={"order_id": order_id})
+physical_name = inspection.source_column("order_id")
+orders_source = md.table("orders", columns={"order_key": physical_name})
 ```
 
-Include every output needed by the projected source. The inspection card shows
-both physical and Ibis types and a copyable binding; `inspection.schema` retains
-the physical type. `inspection.source_column(...)` reads no rows, performs no
-cast, and rejects types it cannot map safely.
+Include every output needed by the projected source. `inspection.schema` shows
+the current physical type, and `inspection.source_column(...)` returns the
+physical name without reading rows; it does not author or override that type.
 
 ### 3. Add fields
 
@@ -1263,8 +1262,8 @@ shown only as `scope=local_node_only` notes; source-wide rows and bytes remain
 
 ClickHouse inspection also lists safe adapter-only physical columns under
 `projectable_columns`. The table is bounded and each row includes a copyable
-`md.source_column(...)` declaration using the exact physical name and normalized
-type. Columns whose active parts disagree on type, or whose backend type cannot
+projection using the exact physical name. Columns whose active parts disagree
+on type, or whose backend type cannot
 be parsed, are warned about and omitted. This does not enumerate dynamic MapV2
 keys: an unmaterialized key must be materialized upstream, exposed through a
 database view, or used only through terminal `md.raw_sql(...)`.
@@ -1282,10 +1281,10 @@ HTTP API source descriptor. All are used with the datasource ref and are not
 datasource declarations.
 
 ```python
-events = md.json("data/events/*.json", schema={"event_id": "string"}, format="newline_delimited")
+events = md.json("data/events/*.json", columns={"event_id": "event_id"}, format="newline_delimited")
 api_events = md.json(
     "https://api.example.com/events",
-    schema={"event_id": "string", "occurred_at": "timestamp"},
+    columns={"event_id": "event_id", "occurred_at": "occurred_at"},
     records_path="$.result.items",
     query_params={
         "query": "sum(pending_containers) by (cluster)",
@@ -1296,11 +1295,11 @@ api_events = md.json(
 )
 gpu_servers = md.json(
     "https://root.example/api/v1/graphql",
-    schema={
-        "name": "string",
-        "bs": "string",
-        "gpuAbstract": "string",
-        "status": "string",
+    columns={
+        "name": "name",
+        "bs": "bs",
+        "gpuAbstract": "gpuAbstract",
+        "status": "status",
     },
     method="POST",
     body={"query": "{ queryServers { name bs gpuAbstract status } }"},
@@ -1308,30 +1307,28 @@ gpu_servers = md.json(
     query_params={"policy-domain": "gpus"},
 )
 orders_parquet = md.parquet("data/orders/*.parquet")
-orders_csv = md.csv("data/orders/*.csv", schema={"order_id": "string"})
+orders_csv = md.csv("data/orders/*.csv", columns={"order_id": "order_id"})
 
 md.inspect(warehouse, events).show()
 ```
 `records_path` supports a deliberately small JSONPath subset: `$` followed by
 object members, for example `$.data` or `$.result.items`. It does not support
-filters, wildcards, recursive descent, or array indexes. A present empty array
-materializes as zero rows. For each selected record, declared schema fields are
-projected in schema order: missing fields become typed `NULL` values and
-additional object fields are ignored. Present values must be convertible to
-their declared types. A missing path or non-array value fails at execution so
-an authentication or response-envelope error is not mistaken for empty data.
+filters, wildcards, recursive descent, or array indexes. With discoverable
+field types, a present empty array materializes as zero rows. For each selected
+record, projected fields are emitted in mapping order and additional object
+fields are ignored. Types come from values in the actual read; if a required
+field is missing or null in every record, inference fails clearly. A missing
+path or non-array value fails at execution so an authentication or
+response-envelope error is not mistaken for empty data.
 
-`schema` maps stable output aliases to Ibis type names such as `int64`,
-`string`, `float64`, and `timestamp`. SQL or DuckDB names such as `BIGINT` are
-rejected at JSON declaration rather than at execution. To select a nested JSON
-value, map the output alias through `field_paths`: `a.b` reads a nested object
-member, `a[0].b` reads a fixed array index, and `a[].b` traverses an array of
+Each `columns` value is a JSON path: `a.b` reads a nested object member,
+`a[0].b` reads a fixed array index, and `a[].b` traverses an array of
 objects, materializing one row per element. Traversed sibling fields must share
 one array prefix and are projected from the same element, so their values stay
 correlated. Independent traversal roots and multiple traversals within one path
 fail at declaration rather than producing a Cartesian product. A record whose
 traversed array is missing, empty, or `null` produces no rows. Nested paths
-require `records_path`; literal top-level schema names remain supported,
+require `records_path`; literal top-level field names remain supported,
 including names with punctuation or spaces.
 
 For the minimal POST API case, set `method="POST"` and provide one JSON object
@@ -1346,13 +1343,9 @@ contract. Datasource-owned bearer or custom headers are applied only within
 ```python
 changes = md.json(
     "http://change-focus.example/api/v2/change/list",
-    schema={
-        "change_id": "int64",
-        "title": "string",
-        "app_id": "int64",
-        "app_name": "string",
-    },
-    field_paths={
+    columns={
+        "change_id": "change_id",
+        "title": "title",
         "app_id": "specificsource[].appid",
         "app_name": "specificsource[].name",
     },

@@ -130,10 +130,7 @@ def _method_registry(
         entity,
         source=replace(
             entity.source,
-            columns=tuple(
-                (name, replace(binding, data_type="float64") if name == "amount" else binding)
-                for name, binding in entity.source.columns
-            ),
+            columns=tuple((name, binding) for name, binding in entity.source.columns),
         ),
     )
     registry = replace(registry, entities=entities)
@@ -336,7 +333,7 @@ def _fold_registry(
     from tests.lazy_scalar_source_fixtures import fold_registry
 
     registry, sidecar = registry_for(table, monkeypatch)
-    return fold_registry(registry, sidecar, TimeFoldIR(fold), amount_data_type="float64")
+    return fold_registry(registry, sidecar, TimeFoldIR(fold))
 
 
 @pytest.fixture

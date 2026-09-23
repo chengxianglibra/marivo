@@ -357,7 +357,6 @@ def test_clickhouse_weekday_format_is_refused_before_publication(tmp_path: Path)
     with temporal_fixture(
         tmp_path,
         physical="VARCHAR",
-        declared="string",
         parse=StrptimeParse(fmt),
         values=("2026-07-01 Wed", "2026-07-02 Thu"),
     ) as fixture:
@@ -394,7 +393,6 @@ def test_compiled_dataset_has_no_strptime_preflight(engine: str, fmt: str, tmp_p
     with temporal_fixture(
         tmp_path,
         physical="VARCHAR",
-        declared="string",
         parse=StrptimeParse(fmt, timezone="UTC") if "%H" in fmt else StrptimeParse(fmt),
         values=("20260701", "20260702"),
     ) as fixture:
@@ -452,9 +450,7 @@ def test_duckdb_strptime_paths_still_execute(
 ) -> None:
     """The unconditioned DuckDB path keeps its pre-existing behavior."""
     parse = StrptimeParse(fmt, timezone="UTC") if "%H" in fmt else StrptimeParse(fmt)
-    with temporal_fixture(
-        tmp_path, physical="VARCHAR", declared="string", parse=parse, values=values
-    ) as fixture:
+    with temporal_fixture(tmp_path, physical="VARCHAR", parse=parse, values=values) as fixture:
         logical = (
             fixture.sources.observe(
                 ref.metric("sales.revenue"),

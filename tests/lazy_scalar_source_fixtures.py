@@ -90,7 +90,6 @@ def fold_registry(
     sidecar: CompiledExpressionSidecar,
     fold: TimeFoldIR,
     *,
-    amount_data_type: str | None = None,
     sampled: bool = True,
     aggregation: AggKind | None = None,
 ) -> tuple[Registry, CompiledExpressionSidecar]:
@@ -100,8 +99,6 @@ def fold_registry(
         registry: Frozen base registry from ``registry_for`` (any engine).
         sidecar: Compiled expression sidecar returned with the base registry.
         fold: Status-time fold kind to bind onto the orders amount measure.
-        amount_data_type: Optional physical amount rewrite (the PostgreSQL
-            declaration binds decimal, so its journeys ask for ``float64``).
         sampled: Sampled five-minute status axis when True; day granularity
             with the registry's own parse when False.
         aggregation: Optional revenue metric aggregation rewrite for
@@ -120,25 +117,6 @@ def fold_registry(
         and the ``sales.orders.order_time`` status axis; callers keep their
         engine-specific registry construction and table binding.
     """
-    rewrites = {"day": "timestamp"}
-    if amount_data_type is not None:
-        rewrites["amount"] = amount_data_type
-    entities = dict(registry.entities)
-    entity = entities["sales.orders"]
-    assert isinstance(entity.source, TableSourceIR)
-    entities["sales.orders"] = replace(
-        entity,
-        source=replace(
-            entity.source,
-            columns=tuple(
-                (
-                    name,
-                    replace(binding, data_type=rewrites[name]) if name in rewrites else binding,
-                )
-                for name, binding in entity.source.columns
-            ),
-        ),
-    )
     dimensions = dict(registry.dimensions)
     dimensions["sales.orders.order_time"] = replace(
         registry.dimensions["sales.orders.order_time"],
@@ -155,9 +133,7 @@ def fold_registry(
     metrics = dict(registry.metrics)
     if aggregation is not None:
         metrics["sales.revenue"] = replace(metrics["sales.revenue"], aggregation=aggregation)
-    registry = replace(
-        registry, entities=entities, dimensions=dimensions, measures=measures, metrics=metrics
-    )
+    registry = replace(registry, dimensions=dimensions, measures=measures, metrics=metrics)
     registry.freeze()
     return registry, sidecar
 

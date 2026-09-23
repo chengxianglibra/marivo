@@ -322,6 +322,33 @@ def _decimal_text(value: Decimal) -> str:
 
 def _literal(field: DatasetField, value: PredicateLiteral, kind: PredicateKind) -> CanonicalValue:
     logical = field.logical_type_id
+    if logical == "unknown":
+        if type(value) is tuple and kind in _EQUALITY_KINDS:
+            mask = _bool_tuple_value(value, arity=len(value))
+            if mask is None:
+                _error("a complete Boolean tuple literal", "invalid mask literal")
+            return ("bool_tuple", mask)
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return ("civil_timestamp", value.isoformat(timespec="microseconds"))
+            return ("instant", value.astimezone(timezone.utc).isoformat())
+        if type(value) is date:
+            return ("date", value.isoformat())
+        if type(value) is bool:
+            return ("boolean", value)
+        if type(value) is int:
+            return ("integer", value)
+        if type(value) is float:
+            if not math.isfinite(value):
+                _error("a finite floating literal", "non-finite value")
+            return ("floating", value if value else 0.0)
+        if isinstance(value, Decimal):
+            if not value.is_finite():
+                _error("a finite decimal literal", "non-finite value")
+            return ("decimal", _decimal_text(value))
+        if type(value) is str:
+            return ("string", value)
+        _error("a literal compatible with the observed source type", type(value).__name__)
     width = _bool_tuple_arity(logical)
     if width is not None and type(value) is tuple and kind in _EQUALITY_KINDS:
         mask = _bool_tuple_value(value, arity=width)

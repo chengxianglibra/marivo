@@ -44,7 +44,8 @@ def _identity(
             "the declared ordered identity struct", "changed Candidate identity"
         )
     if any(
-        value[name].type() != dt.dtype(kind)
+        kind != "unknown"
+        and value[name].type() != dt.dtype(kind)
         and not (kind == "decimal" and isinstance(value[name].type(), dt.Decimal))
         and not (
             kind == "timestamp"

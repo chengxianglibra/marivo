@@ -388,7 +388,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "invalid_verification_mode",
     "invalid_entity_versioning",
     "duplicate_identity_key",
-    "missing_identity_key_type",
+    "missing_identity_key_column",
     "identity_version_overlap",
     "non_root_metric_aggregate",
     "invalid_metric_fanout_policy",

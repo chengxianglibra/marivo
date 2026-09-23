@@ -34,8 +34,6 @@ class ConstraintId(StrEnum):
     DUCKDB_HTTP_AUTH_SCOPED = "duckdb_http_auth_scoped"
     JSON_REQUEST_SHAPE = "json_request_shape"
     JSON_SOURCE_PARAMS_EXACT = "json_source_params_exact"
-    TABLE_COLUMN_BINDINGS_CLOSED = "table_column_bindings_closed"
-    TABLE_COLUMN_TYPE_ASSERTION = "table_column_type_assertion"
     PROJECTED_SOURCE_RUNTIME_EVIDENCE = "projected_source_runtime_evidence"
     PARTITION_LISTING_BOUNDED = "partition_listing_bounded"
     SNAPSHOT_VALUE_PERSISTENCE = "snapshot_value_persistence"
@@ -184,11 +182,11 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("json", "source_param"),
         "JSON sources keep stable output aliases and correlate one shared array traversal.",
         "A stable physical request shape can be inspected without fetching data and bound without API-specific analysis arguments.",
-        "Use schema for output names and Ibis types, field_paths for nested selectors, and one flat non-empty scalar list when a request parameter needs repeated values.",
+        "Use columns to map output names to JSON field paths, records_path to select wrapped records, and one flat non-empty scalar list when a request parameter needs repeated values.",
         example=(
             'md.json("https://api.example/items", '
-            'schema={"id": "string", "app_name": "string"}, '
-            'records_path="$.data", field_paths={"app_name": "apps[].name"})'
+            'columns={"id": "id", "app_name": "apps[].name"}, '
+            'records_path="$.data")'
         ),
     ),
     ConstraintId.JSON_SOURCE_PARAMS_EXACT: _constraint(
@@ -200,36 +198,14 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Missing or extra values would make snapshot identity differ from the physical request that produced it.",
         "Pass source_params={...} with exactly every md.source_param(...) name; use a flat non-empty list for repeated query keys or a JSON array body value.",
     ),
-    ConstraintId.TABLE_COLUMN_BINDINGS_CLOSED: _constraint(
-        ConstraintId.TABLE_COLUMN_BINDINGS_CLOSED,
-        "DatasourceFieldInvalid",
-        "decorator",
-        ("table", "source_column"),
-        "Projected tables require complete identifier-only bindings; arbitrary SQL remains terminal through md.raw_sql(...).",
-        "Mixing inferred and declared columns would make the source schema depend on live metadata.",
-        "Bind every projected output with md.source_column(...); use md.raw_sql(...) only for terminal arbitrary SQL.",
-        example=(
-            'md.table("events", columns={"event_time": '
-            'md.source_column("event.timestamp", data_type="timestamp")})'
-        ),
-    ),
-    ConstraintId.TABLE_COLUMN_TYPE_ASSERTION: _constraint(
-        ConstraintId.TABLE_COLUMN_TYPE_ASSERTION,
-        "DatasourceFieldInvalid",
-        "decorator",
-        ("table", "source_column"),
-        "A table column data_type asserts the output schema without casting. Backend storage aliases require runtime validation; metadata alone does not prove Boolean values or UTC timestamp interpretation.",
-        "A declared type keeps projected materialization typed without introducing an authored expression.",
-        "Declare the canonical physical type accepted by ibis.dtype(...); change the source or use a view when a cast is required.",
-    ),
     ConstraintId.PROJECTED_SOURCE_RUNTIME_EVIDENCE: _constraint(
         ConstraintId.PROJECTED_SOURCE_RUNTIME_EVIDENCE,
         "DatasourceFieldInvalid",
         "runtime",
-        ("table", "source_column", "inspect", "SourceInspection.sample"),
-        "Projected inspection is metadata-only and declared-only bindings require bounded runtime evidence.",
-        "Catalog absence does not prove that a physical identifier is queryable.",
-        "Inspect first, then acquire an explicit bounded sample before semantic preview or readiness.",
+        ("table", "inspect", "SourceInspection.sample"),
+        "A projected column absent from catalog metadata requires bounded runtime evidence.",
+        "Catalog absence does not prove that a projected physical identifier is queryable.",
+        "Inspect the source, then acquire an explicit bounded sample to prove projection queryability.",
     ),
     ConstraintId.PARTITION_LISTING_BOUNDED: _constraint(
         ConstraintId.PARTITION_LISTING_BOUNDED,

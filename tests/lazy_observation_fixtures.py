@@ -159,11 +159,14 @@ def make_semantic_registry() -> tuple[Registry, CompiledExpressionSidecar]:
         source = (
             JsonSourceIR(
                 path="https://fixture.invalid/facts",
-                schema=_SCHEMA,
+                columns=tuple((name, name) for name, _type in _SCHEMA),
                 query_params=(("tenant", SourceParamIR("tenant")),),
             )
             if name == "api"
-            else CsvSourceIR(path=f"{name}.csv", schema=_SCHEMA)
+            else CsvSourceIR(
+                path=f"{name}.csv",
+                columns=tuple((column, column) for column, _type in _SCHEMA),
+            )
         )
         version: EntityVersioningIR | None = None
         if name == "snapshots":

@@ -129,11 +129,14 @@ def _postgres_event_reason(definition: EventDefinition) -> str | None:
         or definition.sampling_authority != "exact"
         or definition.entity.version is not None
         or not isinstance(definition.entity.source, TableSourceIR)
-        or any(logical != "int64" for _, logical in definition.entity.identity_signature)
+        or any(
+            logical not in ("unknown", "int64")
+            for _, logical in definition.entity.identity_signature
+        )
         or any(
             step.source.version is not None
             or not isinstance(step.source.source, TableSourceIR)
-            or any(axis.logical_type != "int64" for axis in step.identity)
+            or any(axis.logical_type not in ("unknown", "int64") for axis in step.identity)
             for step in definition.steps
         )
     ):

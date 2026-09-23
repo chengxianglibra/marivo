@@ -24,10 +24,7 @@ def registry_for(
         entity.source,
         table=table,
         database="public",
-        columns=tuple(
-            (name, replace(binding, data_type="decimal") if name == "amount" else binding)
-            for name, binding in entity.source.columns
-        ),
+        columns=tuple((name, binding) for name, binding in entity.source.columns),
     )
     entities["sales.orders"] = replace(entity, source=source)
     metrics = dict(original.metrics)

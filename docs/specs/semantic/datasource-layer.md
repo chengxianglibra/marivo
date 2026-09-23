@@ -239,109 +239,96 @@ discovery, and `ms.entity(source=...)`.
 
 | Constructor | IR | Meaning |
 |---|---|---|
-| `md.table(name, database=..., columns=...)` | `TableSourceIR` | A catalog-backed table/view or a complete typed projection over one physical table (any SQL backend). |
+| `md.table(name, database=..., columns=...)` | `TableSourceIR` | A catalog-backed table/view with an optional output-name to physical-column projection (any SQL backend). |
 | `md.parquet(path, hive_partitioning=...)` | `ParquetSourceIR` | A self-describing DuckDB file source over Parquet. |
-| `md.csv(path, schema=..., header=..., delimiter=...)` | `CsvSourceIR` | A DuckDB CSV file source with required typed physical schema. |
-| `md.json(path, schema=..., format=..., records_path=..., field_paths=..., query_params=..., method=..., body=...)` | `JsonSourceIR` | A DuckDB JSON source with stable typed output aliases, optional correlated nested-field extraction, and runtime-bindable query-string or POST-body values. |
+| `md.csv(path, columns=..., header=..., delimiter=...)` | `CsvSourceIR` | A DuckDB CSV file source with inferred types and an optional output-name to header projection. |
+| `md.json(path, columns=..., format=..., records_path=..., query_params=..., method=..., body=...)` | `JsonSourceIR` | A DuckDB JSON source with inferred types, optional JSON-path projection, and runtime-bindable query-string or POST-body values. |
 
 `TableSource` is the public union of these four IRs. File sources
 (`parquet`/`csv`/`json`) are read by the DuckDB engine, so they attach to a
-DuckDB datasource ref; `md.table(...)` works against any backend. CSV and JSON
-must carry a non-empty backend-independent typed `schema=` mapping so metadata
-inspection never opens user data merely to infer types. Parquet and CSV paths may
-be local files or globs. JSON additionally supports HTTP(S) GET and JSON-object
-POST requests while retaining the declared physical `format=` and schema.
+DuckDB datasource ref; `md.table(...)` works against any backend. Parquet carries
+self-described physical types. Table, CSV, and JSON sources do not accept authored
+physical types: the source is the authority for those facts. The `columns=`
+argument is an optional projection mapping stable output aliases to physical
+column names or JSON paths. Omitting it exposes all discoverable columns. Source
+construction, `ms.entity`, `ms.load()`, and `dataset.contract()` remain source-I/O
+free. Database metadata is read only when execution needs types, and only for the
+required dependency closure. CSV and JSON types are inferred during their actual
+read; remote JSON is not fetched only to inspect its schema.
 
-### Typed table column bindings
+### Source projections and observed types
 
-`md.table(...)` has two closed modes. Omitting `columns=` keeps the catalog-backed
-path and resolves the complete table through Ibis. Supplying `columns=` declares a
-complete typed interface over the same physical table. Every mapping key is the
-stable output alias used by semantic objects; every value is one
-`md.source_column(physical_name, data_type=...)` binding. Physical identifiers are
-quoted atomically, so dots, spaces, reserved words, and punctuation never become
-qualification or authored SQL:
+Supplying `columns=` to `md.table(...)` selects and renames physical columns. It
+does not declare their types. Physical identifiers are quoted atomically, so
+dots, spaces, reserved words, and punctuation are treated as one identifier:
 
 ```python
 events_source = md.table(
     "raw.events",
     database="warehouse",
     columns={
-        "event_time": md.source_column("event.timestamp", data_type="timestamp"),
-        "score": md.source_column("_generated_score", data_type="float64"),
+        "event_time": "event.timestamp",
+        "score": "_generated_score",
     },
 )
 ```
-The declared type is the output Ibis schema assertion; it does not cast the
-physical value. Projected mode is a complete allowlist: catalog inference cannot
-fill omitted columns, and duplicate physical identifiers are rejected. The
-datasource adapter generates one identifier-only inner `SELECT` without a table
-alias and supplies the declared schema to the backend. The binding mapping remains
-part of source, snapshot, semantic dependency, cache, and lineage identity.
-For an inspected table, `inspection.source_column("physical_name")` returns a
-binding with the backend type normalized to an Ibis declaration type. The
-inspection card retains the physical type alongside the normalized type and a
-copyable binding. Unsupported or ambiguous types have no generated binding;
-the helper fails with a structured repair rather than guessing or casting.
+The mapping is a complete allowlist when present. Execution resolves the selected
+physical columns and their actual types from the backend; undeclared physical
+columns do not constrain the source contract. `md.inspect` reports available
+physical metadata and a copyable projection. Metadata that is unavailable remains
+unknown; it is not filled from a user assertion. Unsupported necessary types fail
+when the execution closure consumes them. Unused columns do not add execution
+type restrictions.
 
-Backend-aware metadata normalizes SQLite integer aliases to int64 and text
-aliases to string. An explicit MySQL Boolean binding may use TINYINT(1); ordinary
-integer bindings remain integers. Metadata compatibility does not prove stored
-values. SQLite/MySQL bounded dataframe reads reject observed Boolean values
-outside exact 0/1/NULL before truthiness conversion. Analysis separately validates
-all necessary source columns. SQLite typed Analysis timestamps use fixed-width
-civil `YYYY-MM-DD HH:MM:SS.ffffff` text; its BOOL/BOOLEAN columns use integer
-0/1/NULL. These are checked representations, not casts or timezone inference.
-Native temporal Analysis also admits PostgreSQL timestamptz, MySQL TIMESTAMP and
-ClickHouse DateTime64 through microseconds. MySQL TIMESTAMP and ClickHouse timestamp
-execution retain verified UTC session/reader requirements; source column and report
-timezones remain distinct. Aware bindings preserve actual instant
-kind and timezone; existing verified UTC civil bindings remain supported. Reader
-and report timezone resolution accept IANA names and explicit offsets. An absent
-probe capability permits recorded system fallback; an actual failed or invalid
-probe does not. Physical instants and explicit parser authority skip unnecessary
-reader probes. Native parser declarations retain their existing IANA validation.
+SQLite and MySQL retain their source-representation checks at execution. For
+example, SQLite temporal and Boolean columns must use the backend's admitted
+representations, and Boolean values must be exactly 0/1/NULL. Native temporal
+analysis also admits PostgreSQL `timestamptz`, MySQL `TIMESTAMP`, and ClickHouse
+`DateTime64` through microseconds. MySQL `TIMESTAMP` and ClickHouse timestamp
+execution retain verified UTC session/reader requirements; source and report
+timezones remain distinct. Reader and report timezone resolution accept IANA
+names and explicit offsets. An absent probe capability permits recorded system
+fallback; an actual failed or invalid probe does not. Physical instants and
+explicit parser authority skip unnecessary reader probes. Native parser
+declarations retain their existing IANA validation.
 
 
 For ClickHouse tables, inspection also reads active `system.parts_columns` and
 exposes safe adapter-only physical columns through
 `SourceInspection.projectable_columns`. Each row carries the exact physical
-name accepted by `md.source_column(...)`, its normalized Ibis type, and
-nullability. Columns with conflicting part types or unparseable backend types
-are warned about and omitted. This is physical-column discovery, not Map key
-enumeration: dynamic keys that have not been materialized remain outside the
-governed source contract and require upstream materialization, a database view,
-or terminal `md.raw_sql(...)`.
+name accepted by `columns=`, its observed backend type, and nullability.
+Columns with conflicting part types or unparseable backend types are warned
+about and omitted. This is physical-column discovery, not Map key enumeration:
+dynamic keys that have not been materialized remain outside the governed source
+contract and require upstream materialization, a database view, or terminal
+`md.raw_sql(...)`.
 
-For a wrapped response, `records_path=` selects the array whose declared fields
-are projected into the output schema. Additional object fields are ignored and
-missing declared fields become typed nulls; present values must be convertible to
-their declared types. The initial contract is intentionally limited to `$` plus
-object-member access, such as `$.data` or `$.result.items`; filters, wildcards,
-recursive descent, and array indexing are not supported. A present, empty array
-materializes as zero rows. A missing path or a non-array value fails at execution
-instead of being treated as an empty result; verify the response envelope and API
-authentication before retrying.
+For a wrapped response, `records_path=` selects the array whose records are read.
+Additional object fields are ignored when a projection is supplied. Types are
+inferred from returned values; a required projected field missing from every
+record or null in every record fails clearly because no physical type can be
+inferred. The record path is intentionally limited to `$` plus object-member
+access, such as `$.data` or `$.result.items`; filters, wildcards, recursive
+descent, and array indexing are not supported. A present, empty array
+materializes as zero rows. A missing path or a non-array value fails at execution.
 
-`schema=` maps stable output aliases to Ibis type strings. For a field nested
-inside each selected record, `field_paths=` maps that output alias to a relative
-JSON path: `a.b` selects an object member, `a[0].b` selects a fixed array index,
-and `a[].b` traverses an array. Traversed sibling fields must share one array
-prefix and are projected from the same element, so their values remain
-correlated. Independent traversal roots and more than one traversal in a path
-fail at declaration instead of creating a Cartesian product. A record whose
-traversed array is missing, empty, or null produces no rows. Literal top-level
-field names remain schema keys and may contain punctuation or spaces.
+For JSON, each `columns=` value is a relative JSON path: `a.b` selects a nested
+object member, `a[0].b` selects a fixed array index, and `a[].b` traverses an
+array. Traversed sibling fields must share one array prefix and are projected
+from the same element, so their values remain correlated. Independent traversal
+roots and more than one traversal in a path fail at declaration instead of
+creating a Cartesian product. A record whose traversed array is missing, empty,
+or null produces no rows. Top-level field names may contain punctuation or spaces.
 
 ```python
 changes = md.json(
     "http://change-focus.example/api/v2/change/list",
-    schema={"change_id": "int64", "app_id": "int64", "app_name": "string"},
-    records_path="$.data.change_infos",
-    field_paths={
+    columns={
+        "change_id": "change_id",
         "app_id": "specificsource[].appid",
         "app_name": "specificsource[].name",
     },
+    records_path="$.data.change_infos",
 )
 ```
 Parameterized API URLs keep their stable request shape in the semantic project
@@ -350,7 +337,7 @@ and bind request-specific values at analysis time:
 ```python
 samples = md.json(
     "http://hawkeye.example/report/api/v2/query_range/datasource/81",
-    schema={"metric": "json", "value": "json", "values": "json"},
+    columns={"metric": "metric", "value": "value", "values": "values"},
     records_path="$.data.result",
     query_params={
         "query": 'sum(pending_containers{q1=~"llst_queue|sycpb|report"}) by (cluster, q1)',
@@ -378,11 +365,11 @@ non-empty scalar list. It does not interpolate string fragments.
 ```python
 gpu_servers = md.json(
     "https://root.example/api/v1/graphql",
-    schema={
-        "name": "string",
-        "bs": "string",
-        "gpuAbstract": "string",
-        "status": "string",
+    columns={
+        "name": "name",
+        "bs": "bs",
+        "gpuAbstract": "gpuAbstract",
+        "status": "status",
     },
     method="POST",
     body={"query": "{ queryServers { name bs gpuAbstract status } }"},
@@ -401,7 +388,7 @@ analysis-scoped values without turning pagination into datasource behavior:
 ```python
 changes = md.json(
     "http://change-focus.example/api/v2/change/list",
-    schema={"change_id": "int64", "title": "string"},
+    columns={"change_id": "change_id", "title": "title"},
     method="POST",
     body={
         "platform_id": 1,
@@ -500,17 +487,16 @@ Physical extent always carries provenance and scope. For a ClickHouse
 bounded local observation appears only in `physical extent notes` with
 `scope=local_node_only`. Marivo does not issue a cluster-wide fanout query.
 
-CSV and JSON descriptors require typed `schema=` mappings so inspection never
-opens data merely to infer types. Ordinary tables use catalog schema and Parquet
-uses footer schema. A projected table first compares its declared bindings with
-available base-table metadata, then exposes exactly the stable output aliases.
-Catalog-visible bindings must have the declared canonical type. A missing physical
-identifier becomes a `declared_column_unverified` warning with unknown nullability;
-it is not treated as proof that the identifier exists. If base metadata is
-classified unavailable, inspection remains metadata-only, returns the complete
-declared interface with unknown extent/partition/constraints, and requires an
-explicit bounded `md.unpruned(...)` acquisition. Authentication, connection,
-configuration, timeout, and unclassified metadata failures still fail closed.
+Ordinary tables use catalog metadata and Parquet uses footer metadata. A projected
+table maps those observed physical columns to stable output aliases; a missing
+physical identifier is reported as unverified, not filled from an authored type.
+CSV and local JSON inspection may infer available types from the file. HTTP JSON
+inspection never sends a request solely to discover types, so projected types are
+reported as `unknown` until the actual read. If base-table metadata is classified
+unavailable, table inspection remains metadata-only, returns projected aliases
+with unknown types and extents, and requires an explicit bounded
+`md.unpruned(...)` acquisition. Authentication, connection, configuration,
+timeout, and unclassified metadata failures still fail closed.
 
 ```python
 inspection = md.inspect(warehouse, md.table("orders"))

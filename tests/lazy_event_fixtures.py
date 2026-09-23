@@ -10,7 +10,7 @@ import ibis.expr.types as ir
 
 from marivo.analysis.observation.contracts import ObservationActionPort
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
-from marivo.datasource.ir import AiContextIR, TableColumnBindingIR, TableSourceIR
+from marivo.datasource.ir import AiContextIR, TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar, ExpressionBody
 from marivo.semantic.ir import (
@@ -58,7 +58,7 @@ def make_event_registry(database: Path) -> tuple[Registry, CompiledExpressionSid
             TableSourceIR(
                 f"{name}_rows",
                 columns=tuple(
-                    (column, TableColumnBindingIR(column, logical))
+                    (column, column)
                     for column, logical in (
                         ("occurrence_id", "int64"),
                         ("customer_id", "int64"),

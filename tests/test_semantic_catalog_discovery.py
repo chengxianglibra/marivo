@@ -419,13 +419,7 @@ def test_projected_entity_details_render_is_bounded_and_recoverable():
     source = md.table(
         "wide_events",
         database=("analytics", "with.dot"),
-        columns={
-            f"alias_{index:03d}": md.source_column(
-                f"physical_{index:03d}",
-                data_type="string",
-            )
-            for index in range(80)
-        },
+        columns={f"alias_{index:03d}": f"physical_{index:03d}" for index in range(80)},
     )
     details = EntityDetails(
         ref=_make_ref("sales.wide_events", SemanticKind.ENTITY),

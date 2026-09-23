@@ -320,7 +320,11 @@ def _normalize_steps(
         identity = tuple(
             replace(
                 item,
-                logical_type=str(dt.dtype(item.logical_type).copy(nullable=True)),
+                logical_type=(
+                    "unknown"
+                    if item.logical_type == "unknown"
+                    else str(dt.dtype(item.logical_type).copy(nullable=True))
+                ),
                 nullable=False,
             )
             for item in raw_identity

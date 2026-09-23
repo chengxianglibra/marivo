@@ -48,7 +48,7 @@ def make_distribution(
     ):
         return None
     kind, _, _ = _target_measure_type(registry, node.target_ref.path, sidecar, metric_id=metric.key)
-    if not dt.dtype(kind).is_numeric():
+    if kind != "unknown" and not dt.dtype(kind).is_numeric():
         return None
     from marivo.refs import _create_ref
 
@@ -60,7 +60,7 @@ def make_distribution(
         aggregate_node_id=metric.components[0].node_id,
         target_ref=node.target_ref.path,
         computation_root=metric.components[0].computation_root.path,
-        value_logical_type=str(dt.dtype(kind)),
+        value_logical_type=kind if kind == "unknown" else str(dt.dtype(kind)),
         source_column=column,
         quantile=QuantileMethodV1(
             method=method, q=node.agg[1] if isinstance(node.agg, tuple) else 0.5
@@ -84,7 +84,10 @@ def validate_distribution_authority(authority: MetricFoldAuthorityV1) -> None:
         or not basis.target_ref
         or not basis.computation_root
         or not basis.source_column
-        or not dt.dtype(basis.value_logical_type).is_numeric()
+        or (
+            basis.value_logical_type != "unknown"
+            and not dt.dtype(basis.value_logical_type).is_numeric()
+        )
     ):
         raise ValueError("invalid percentile component closure")
     component = authority.components[0]

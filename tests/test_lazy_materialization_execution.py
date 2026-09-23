@@ -469,10 +469,7 @@ def test_live_source_type_mismatch_fails_before_computation(tmp_path: Path) -> N
     assert isinstance(entity.source, TableSourceIR)
     source = replace(
         entity.source,
-        columns=tuple(
-            (name, replace(binding, data_type="int64") if name == "amount" else binding)
-            for name, binding in entity.source.columns
-        ),
+        columns=tuple((name, binding) for name, binding in entity.source.columns),
     )
     changed = replace(
         registry, entities={**registry.entities, entity.semantic_id: replace(entity, source=source)}

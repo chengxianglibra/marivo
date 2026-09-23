@@ -76,6 +76,8 @@ _GENERATED = (
 
 
 def promoted_numeric_type(logical_type: str) -> str:
+    if logical_type == "unknown":
+        return "unknown"
     if logical_type in ("integer", "int8", "int16", "int32", "int64"):
         return "int64"
     if logical_type in ("floating", "float32", "float64"):
@@ -325,7 +327,7 @@ def validate_delta(row: DatasetRowContract, rows: DatasetRowSetContract) -> None
     semantics = row.family_semantics
     if not isinstance(semantics, DeltaSemantics) or row.shape_id.local_shape_id not in DELTA_SHAPES:
         raise comparison_error("exact Delta shape and semantics", "invalid Delta contract")
-    if semantics.numeric_type not in ("int64", "float64", "decimal"):
+    if semantics.numeric_type not in ("unknown", "int64", "float64", "decimal"):
         raise comparison_error("canonical promoted Delta numeric type", "invalid numeric promotion")
     from marivo.analysis.operators.attribution_contracts import delta_part_authorities
 
@@ -582,6 +584,14 @@ def _number(value: object, promoted: str) -> int | float | Decimal | None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
         raise comparison_error("one exact numeric scalar", "invalid input scalar")
+    if promoted == "unknown":
+        promoted = (
+            "decimal"
+            if isinstance(value, Decimal)
+            else "float64"
+            if isinstance(value, float)
+            else "int64"
+        )
     finite = (
         value.is_finite()
         if isinstance(value, Decimal)
@@ -604,6 +614,8 @@ def _number(value: object, promoted: str) -> int | float | Decimal | None:
         ):
             raise comparison_error("lossless float64 input", "unrepresentable numeric promotion")
         return converted
+    if isinstance(value, int) and promoted == "decimal":
+        value = Decimal(value)
     if not isinstance(value, Decimal):
         raise comparison_error("exact Decimal input", "decimal type mismatch")
     exponent = value.as_tuple().exponent
@@ -614,6 +626,41 @@ def _number(value: object, promoted: str) -> int | float | Decimal | None:
     if precision > 38 or scale > 38:
         raise comparison_error("Decimal precision and scale within 38", "decimal range overflow")
     return value
+
+
+def _observed_numeric_type(series: pd.Series) -> str:
+    """Resolve an undeclared Metric type from its materialized values."""
+    dtype = series.dtype
+    arrow_type = dtype.pyarrow_dtype if isinstance(dtype, pd.ArrowDtype) else None
+    if arrow_type is not None:
+        if pa.types.is_decimal(arrow_type):
+            return "decimal"
+        if pa.types.is_floating(arrow_type):
+            return "float64"
+        if pa.types.is_integer(arrow_type):
+            return "int64"
+    if pd.api.types.is_float_dtype(dtype):
+        return "float64"
+    if pd.api.types.is_integer_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype):
+        return "int64"
+    values = tuple(value for value in series.tolist() if not _missing(value))
+    if not values:
+        raise comparison_error(
+            "an observed numeric Metric type", "cannot infer a type from an empty untyped result"
+        )
+    if any(isinstance(value, bool) for value in values):
+        raise comparison_error("an observed numeric Metric type", "Boolean Metric values")
+    has_decimal = any(isinstance(value, Decimal) for value in values)
+    has_float = any(isinstance(value, float) for value in values)
+    if has_decimal and has_float:
+        raise comparison_error("lossless observed numeric promotion", "Decimal and float values")
+    if has_decimal:
+        return "decimal"
+    if has_float:
+        return "float64"
+    if all(isinstance(value, int) for value in values):
+        return "int64"
+    raise comparison_error("an observed numeric Metric type", "unsupported materialized values")
 
 
 def _subtract(
@@ -665,11 +712,26 @@ def execute_compare(
     ordinal_preassigned: bool = False,
 ) -> pd.DataFrame:
     """Consume two completely guarded inputs without mutating either frame."""
+    promoted_type = spec.promoted_type
+    if promoted_type == "unknown":
+        left_type = _observed_numeric_type(current[spec.current_metric_name])
+        right_type = _observed_numeric_type(baseline[spec.baseline_metric_name])
+        if "decimal" in (left_type, right_type) and "float64" in (left_type, right_type):
+            raise comparison_error(
+                "lossless observed numeric promotion", "Decimal and float Metrics"
+            )
+        promoted_type = (
+            "decimal"
+            if "decimal" in (left_type, right_type)
+            else "float64"
+            if "float64" in (left_type, right_type)
+            else "int64"
+        )
     current_values = [
-        _number(value, spec.promoted_type) for value in current[spec.current_metric_name].tolist()
+        _number(value, promoted_type) for value in current[spec.current_metric_name].tolist()
     ]
     baseline_values = [
-        _number(value, spec.promoted_type) for value in baseline[spec.baseline_metric_name].tolist()
+        _number(value, promoted_type) for value in baseline[spec.baseline_metric_name].tolist()
     ]
     left_keys, right_keys = (
         frame_keys(current, row_key_names(spec.current_row)),
@@ -743,11 +805,7 @@ def execute_compare(
         ]
     records: list[dict[str, object]] = []
     zero: int | float | Decimal = (
-        Decimal(0)
-        if spec.promoted_type == "decimal"
-        else 0.0
-        if spec.promoted_type == "float64"
-        else 0
+        Decimal(0) if promoted_type == "decimal" else 0.0 if promoted_type == "float64" else 0
     )
     for key, a, b in pairs:
         presence = "baseline_only" if a is None else "current_only" if b is None else "matched"
@@ -760,7 +818,7 @@ def execute_compare(
             if c is None or v is None
             else "ok"
         )
-        delta = _subtract(c, v, spec.promoted_type) if c is not None and v is not None else None
+        delta = _subtract(c, v, promoted_type) if c is not None and v is not None else None
         relative, relative_status = _relative(delta, v)
         record: dict[str, object] = dict(zip(row_key_names(spec.output_row), key, strict=True))
         if "time" in shape:
@@ -781,7 +839,12 @@ def execute_compare(
     output: dict[str, pd.Series] = {}
     for field in spec.output_row.schema.columns:
         values = [record[field.name] for record in records]
-        if field.logical_type_id == "decimal":
+        field_type = (
+            promoted_type
+            if field.logical_type_id == "unknown" and field.role_id == "comparison_value"
+            else field.logical_type_id
+        )
+        if field_type == "decimal":
             decimals = [
                 value
                 for record in records
@@ -793,11 +856,9 @@ def execute_compare(
                 (max(0, -value) for value in exponents if isinstance(value, int)), default=0
             )
             dtype = pd.ArrowDtype(pa.decimal128(38, scale))
-        elif field.logical_type_id in ("int64", "float64", "string"):
+        elif field_type in ("int64", "float64", "string"):
             dtype = pd.ArrowDtype(
-                {"int64": pa.int64(), "float64": pa.float64(), "string": pa.string()}[
-                    field.logical_type_id
-                ]
+                {"int64": pa.int64(), "float64": pa.float64(), "string": pa.string()}[field_type]
             )
         else:
             source_field = next(
@@ -809,14 +870,22 @@ def execute_compare(
                 None,
             )
             if source_field is not None:
-                output[field.name] = pd.Series(values, dtype=current[source_field.name].dtype)
+                source_dtype = current[source_field.name].dtype
+                if field.logical_type_id == "unknown" and not isinstance(
+                    source_dtype, pd.ArrowDtype
+                ):
+                    source_dtype = pd.ArrowDtype(pa.array(values, from_pandas=True).type)
+                output[field.name] = pd.Series(values, dtype=source_dtype)
                 continue
             source_name = next(
                 item.name
                 for item in spec.current_row.schema.columns
                 if item.role_id == "time_dimension"
             )
-            output[field.name] = pd.Series(values, dtype=current[source_name].dtype)
+            source_dtype = current[source_name].dtype
+            if field.logical_type_id == "unknown" and not isinstance(source_dtype, pd.ArrowDtype):
+                source_dtype = pd.ArrowDtype(pa.array(values, from_pandas=True).type)
+            output[field.name] = pd.Series(values, dtype=source_dtype)
             continue
         try:
             output[field.name] = pd.Series(values, dtype=dtype)

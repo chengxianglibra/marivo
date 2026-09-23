@@ -77,6 +77,7 @@ def rank(
         dataset, by, allowed_roles=("metric", "rank", "comparison_value", "effect_value")
     )
     if selected.logical_type_id not in (
+        "unknown",
         "integer",
         "int32",
         "int64",

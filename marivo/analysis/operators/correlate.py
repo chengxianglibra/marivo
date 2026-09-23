@@ -73,14 +73,18 @@ def correlate(
             "2-16 distinct quantitative Metrics", "invalid Metric arity or duplicate identity"
         )
     for f in metrics:
-        if f.logical_type_id not in (
-            "integer",
-            "int32",
-            "int64",
-            "floating",
-            "float32",
-            "float64",
-            "decimal",
+        if (
+            f.logical_type_id != "unknown"
+            and f.logical_type_id
+            not in (
+                "integer",
+                "int32",
+                "int64",
+                "floating",
+                "float32",
+                "float64",
+                "decimal",
+            )
         ) or not isinstance(f.identity, (d._CatalogFieldIdentity, d._RuntimeMetricFieldIdentity)):
             raise correlation_error(
                 "quantitative governed Metric fields", "unsupported value or identity type"

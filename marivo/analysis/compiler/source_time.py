@@ -293,6 +293,18 @@ def source_time(
     elif parse is not None and not isinstance(parse, (DatetimeParse, TimestampParse)):
         raise compilation_error("a bound supported time parser", "unresolved composite parser")
     if isinstance(value, ir.DateValue):
+        if parse is None and axis.logical_type == "timestamp":
+            return (
+                value.cast("timestamp"),
+                SourceTimeAuthority(
+                    axis=axis.ref.path,
+                    physical_type=str(physical),
+                    kind="civil_date",
+                    read_timezone=None,
+                    source="civil_date",
+                    boundary_timezone=boundary_timezone,
+                ),
+            )
         if axis.logical_type != "date" or declared is not None:
             raise compilation_error(
                 "a civil-date parser without timezone", "unsupported temporal source representation"
@@ -355,11 +367,10 @@ def source_time(
 
 
 def needs_reader_timezone(dataset: LogicalDataset) -> bool:
-    """Use the exact dependency closure to avoid probing for already governed axes."""
-    from marivo.analysis.compiler.normalize import logical_roots, required_source_dependencies
+    """Read engine timezone for time axes whose semantics do not declare one."""
+    from marivo.analysis.compiler.normalize import logical_roots
     from marivo.analysis.observation.contracts import MetricPayload, PopulationPayload
 
-    dependencies = required_source_dependencies(dataset)
     for root in logical_roots(dataset):
         payload = root.payload
         axes: tuple[TargetDimensionContract | None, ...]
@@ -375,16 +386,6 @@ def needs_reader_timezone(dataset: LogicalDataset) -> bool:
             continue
         for axis in axes:
             if axis is None or not axis.is_time_dimension or axis.logical_type == "date":
-                continue
-            physical = next(
-                column.declared_type
-                for entry in dependencies.entries
-                if entry.entity.ref == axis.entity_ref
-                for column in entry.columns
-                if column.logical == axis.source_column
-            )
-            kind = dt.dtype(physical)
-            if isinstance(kind, dt.Timestamp) and kind.timezone is not None:
                 continue
             parser = axis.parse
             if (

@@ -17,7 +17,7 @@ import pytest
 from marivo.analysis import grain, time_scope
 from marivo.analysis.operators.registry import implementation, source_unsupported_reason
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
-from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
+from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic.ir import (
     CumulativeComposition,
@@ -134,16 +134,8 @@ def test_open_backend_admits_parsed_time_axes(
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_parsed_time_axes_do_not_open_epoch_representations(engine: WidenedEngine) -> None:
-    """Integer epoch parsing is outside this stage's contract.
-
-    ``%s`` cannot even be authored, because ``normalize_strptime`` probes the
-    format through ``time.strftime``/``time.strptime``.  An integer column with
-    no declared parser has no temporal parse at all, so it fails at declaration
-    normalization and never reaches backend admission.
-    """
-    from marivo.semantic.errors import SemanticError
-
+def test_unparsed_time_axis_defers_source_type_check(engine: WidenedEngine) -> None:
+    """An unparsed temporal axis waits for its physical type to be observed."""
     with pytest.raises(ValueError):
         StrptimeParse("%s")
 
@@ -156,7 +148,7 @@ def test_parsed_time_axes_do_not_open_epoch_representations(engine: WidenedEngin
             source=replace(
                 entity.source,
                 columns=tuple(
-                    (name, TableColumnBindingIR(name, "int64") if name == "day" else binding)
+                    (name, name if name == "day" else binding)
                     for name, binding in entity.source.columns
                 ),
             ),
@@ -165,9 +157,8 @@ def test_parsed_time_axes_do_not_open_epoch_representations(engine: WidenedEngin
         dimensions[AXIS] = replace(dimensions[AXIS], parse=None, granularity="second")
         return replace(registry, entities=entities, dimensions=dimensions)
 
-    with pytest.raises(SemanticError) as refusal:
-        _dataset(_sources(engine, mutate), AXIS, "day")
-    assert refusal.value.received == "a non-temporal source type without parse"
+    dataset = _dataset(_sources(engine, mutate), AXIS, "day")
+    assert source_unsupported_reason(dataset, engine) is None
 
 
 @pytest.mark.parametrize("format", ["%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S%Z"])
@@ -224,9 +215,7 @@ def test_parsed_time_axes_do_not_open_timestamp_validity(engine: WidenedEngine) 
                 columns=tuple(
                     (
                         name,
-                        replace(binding, data_type="timestamp(6)")
-                        if name in {"start", "end"}
-                        else binding,
+                        binding,
                     )
                     for name, binding in entity.source.columns
                 ),

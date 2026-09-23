@@ -63,6 +63,26 @@ def _timestamp(value: ir.Value) -> ir.TimestampValue:
     return value
 
 
+def _require_int64_identities(steps: tuple[EventStepRelation, ...]) -> None:
+    """Validate backend-qualified identity widths against observed source schemas."""
+    for step in steps:
+        for role, value in (
+            ("subject", step.expression.entity_identity),
+            ("occurrence", step.expression.event_identity),
+        ):
+            identity = _struct(value)
+            incompatible = tuple(
+                (name, str(identity[name].type()))
+                for name in identity.type().names
+                if not identity[name].type().is_int64()
+            )
+            if incompatible:
+                raise compilation_error(
+                    f"exact observed int64 {role} identity components",
+                    repr(incompatible),
+                )
+
+
 def _valid_identity(value: ir.Value) -> ir.BooleanValue:
     identity = _struct(value)
     valid = identity.notnull()
@@ -426,10 +446,13 @@ def compile_event_match(
     definition_digest: str,
     coverage_complete: bool,
     ranked_successors: bool = False,
+    require_int64_identities: bool = False,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...], ir.Table]:
     """Lower the frozen matching policy without reading or collecting occurrence rows."""
     if not steps or len({step.step_key for step in steps}) != len(steps):
         raise compilation_error("non-empty distinct PatternStep keys", "invalid Event pattern")
+    if require_int64_identities:
+        _require_int64_identities(steps)
     subject_type = _struct(steps[0].expression.entity_identity).type()
     event_type = _struct(steps[0].expression.event_identity).type()
     if any(

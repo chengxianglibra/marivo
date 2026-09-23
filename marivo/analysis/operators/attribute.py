@@ -358,7 +358,7 @@ def validate_attribution(row: DatasetRowContract, rows: DatasetRowSetContract) -
     ):
         raise attribution_error("exact Attribution row semantics", "invalid family contract")
     if (
-        semantics.numeric_type not in ("int64", "float64", "decimal")
+        semantics.numeric_type not in ("unknown", "int64", "float64", "decimal")
         or (
             semantics.method
             in ("component_mix@v1", "distinct_membership@v1", "distribution_shapley@v1")

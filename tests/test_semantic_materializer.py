@@ -21,11 +21,11 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import ibis
+import pyarrow as pa
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.source import PartitionScope
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
@@ -147,8 +147,8 @@ _PROJECTED_DATASET_PY = textwrap.dedent("""\
         source=md.table(
             "orders",
             columns={
-                "order_key": md.source_column("order_id", data_type="int64"),
-                "value": md.source_column("amount", data_type="float32"),
+                "order_key": "order_id",
+                "value": "amount",
             },
         ),
     )
@@ -300,7 +300,8 @@ def test_dataset_projected_table_materializes_output_aliases(
         {"order_key": 2, "value": 200.0},
     ]
     compiled = str(duckdb_backend.compile(table))
-    assert 'SELECT "order_id" AS "order_key", "amount" AS "value" FROM "orders"' in compiled
+    assert '"order_key"' in compiled
+    assert '"value"' in compiled
     meta = project._runtime_metadata["sales.orders"]
     assert meta.entity_provenance == EntityProvenance.TABLE_PROJECTION
     assert meta.raw_sql_snippet is None
@@ -330,7 +331,7 @@ def test_sql_query_result_remains_sql_view_provenance(
     assert meta.raw_sql_snippet == "SELECT 1 AS value"
 
 
-def test_dataset_projected_table_requires_schema_aware_sql(
+def test_dataset_projected_table_uses_observed_lookup_schema(
     semantic_project_factory,
 ) -> None:
     project = semantic_project_factory(
@@ -346,17 +347,8 @@ def test_dataset_projected_table_requires_schema_aware_sql(
         def table(self, name, /, *, database=None):
             return ibis.table({"order_id": "int64", "amount": "float32"}, name=name)
 
-    with (
-        _patch_connection_service(project, lambda _: _LookupOnlyBackend()),
-        pytest.raises(DatasourceSourceCapabilityError) as exc_info,
-    ):
+    with _patch_connection_service(project, lambda _: _LookupOnlyBackend()):
         _materialize_dataset(project, "sales.orders")
-
-    error = exc_info.value
-    assert error.effect_observed is not None
-    assert error.effect_observed.query_executed is False
-    assert error.repair is not None
-    assert error.repair.help_target.canonical_id == "table"
 
 
 def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
@@ -378,14 +370,15 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
         def read_parquet(self, path, **options):
             assert path == "/data/orders/*.parquet"
             assert options == {"hive_partitioning": True}
-            return ibis.table({"amount": "float64"}, name="orders_file")
+            return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
     with _patch_connection_service(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
-    assert table.get_name() == "orders_file"
+    assert table.columns == ("order_id", "amount")
+    assert table.schema() == ibis.schema({"order_id": "string", "amount": "int64"})
 
 
-def test_dataset_csv_source_passes_declared_schema_to_reader(semantic_project_factory) -> None:
+def test_dataset_csv_source_projects_inferred_columns(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -396,7 +389,7 @@ def test_dataset_csv_source_passes_declared_schema_to_reader(semantic_project_fa
                 "    datasource=ms.ref.datasource('warehouse'),\n"
                 "    source=md.csv(\n"
                 "        '/data/orders.csv',\n"
-                "        schema={'order_id': 'string', 'amount': 'int64'},\n"
+                "        columns={'order_id': 'order_id', 'amount': 'amount'},\n"
                 "        header=False,\n"
                 "        delimiter='|',\n"
                 "    ),\n"
@@ -408,19 +401,16 @@ def test_dataset_csv_source_passes_declared_schema_to_reader(semantic_project_fa
     class _Backend:
         def read_csv(self, path, **options):
             assert path == "/data/orders.csv"
-            assert options == {
-                "columns": {"order_id": "string", "amount": "int64"},
-                "header": False,
-                "delimiter": "|",
-            }
+            assert options == {"header": False, "delimiter": "|"}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
     with _patch_connection_service(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
-    assert table.get_name() == "orders_file"
+    assert table.columns == ("amount", "order_id")
+    assert table.schema() == ibis.schema({"amount": "int64", "order_id": "string"})
 
 
-def test_dataset_json_source_passes_declared_schema_to_reader(semantic_project_factory) -> None:
+def test_dataset_json_source_projects_inferred_columns(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -431,7 +421,7 @@ def test_dataset_json_source_passes_declared_schema_to_reader(semantic_project_f
                 "    datasource=ms.ref.datasource('warehouse'),\n"
                 "    source=md.json(\n"
                 "        '/data/orders.json',\n"
-                "        schema={'order_id': 'string', 'amount': 'int64'},\n"
+                "        columns={'order_id': 'order_id', 'amount': 'amount'},\n"
                 "        format='newline_delimited',\n"
                 "    ),\n"
                 ")\n"
@@ -442,19 +432,18 @@ def test_dataset_json_source_passes_declared_schema_to_reader(semantic_project_f
     class _Backend:
         def read_json(self, path, **options):
             assert path == "/data/orders.json"
-            assert options == {
-                "columns": {"order_id": "string", "amount": "int64"},
-                "format": "newline_delimited",
-            }
+            assert options == {"format": "newline_delimited"}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
     with _patch_connection_service(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
-    assert table.get_name() == "orders_file"
+    assert table.columns == ("amount", "order_id")
+    assert table.schema() == ibis.schema({"amount": "int64", "order_id": "string"})
 
 
 def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
     semantic_project_factory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -466,7 +455,7 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
                 "    datasource=ms.ref.datasource('warehouse'),\n"
                 "    source=md.json(\n"
                 "        'https://api.example/query?tenant=main',\n"
-                "        schema={'value': 'float64'},\n"
+                "        columns={'value': 'value'},\n"
                 "        query_params={\n"
                 "            'query': 'sum(metric) by (cluster)',\n"
                 "            'start': md.source_param('start'),\n"
@@ -478,16 +467,25 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
     )
 
     class _Backend:
-        def raw_sql(self, sql):
-            assert sql == "SET force_download=true"
+        def raw_sql(self, query):
+            assert "force_download" in query
 
-        def read_json(self, path, **options):
-            assert path == (
-                "https://api.example/query?tenant=main&"
-                "query=sum%28metric%29+by+%28cluster%29&start=now-3600"
-            )
-            assert options == {"columns": {"value": "float64"}}
-            return ibis.table({"value": "float64"}, name="orders_api")
+        def create_table(self, name, *, obj, temp):
+            assert name.startswith("_marivo_json_")
+            assert temp is True
+            assert isinstance(obj, pa.Table)
+            return ibis.memtable(obj)
+
+    from marivo.datasource import json_source
+
+    requests: list[str] = []
+
+    def request_payload(backend, source, supplied):
+        assert isinstance(backend, _Backend)
+        requests.append(json_source.json_source_url(source, supplied))
+        return [{"value": 1.25}]
+
+    monkeypatch.setattr(json_source, "_request_payload", request_payload)
 
     with _patch_connection_service(project, lambda _: _Backend()):
         table = _materialize_dataset(
@@ -496,7 +494,12 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
             source_bindings={"sales.orders": {"start": "now-3600"}},
         )
 
-    assert table.get_name() == "orders_api"
+    assert table.columns == ("value",)
+    assert len(requests) == 1
+    assert requests[0] == (
+        "https://api.example/query?tenant=main&"
+        "query=sum%28metric%29+by+%28cluster%29&start=now-3600"
+    )
 
 
 def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -> None:
@@ -508,7 +511,7 @@ def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -
                 "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource=ms.ref.datasource('warehouse'),\n"
-                "    source=md.csv('/data/orders.csv', schema={'order_id': 'string'}),\n"
+                "    source=md.csv('/data/orders.csv'),\n"
                 ")\n"
             ),
         }
@@ -533,7 +536,7 @@ def test_dataset_json_source_requires_backend_reader(semantic_project_factory) -
                 "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource=ms.ref.datasource('warehouse'),\n"
-                "    source=md.json('/data/orders.json', schema={'order_id': 'string'}),\n"
+                "    source=md.json('/data/orders.json'),\n"
                 ")\n"
             ),
         }

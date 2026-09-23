@@ -60,9 +60,9 @@ def test_sqlite_agent_native_authoring_journey(
                     name="orders",
                     datasource=ms.ref.datasource("warehouse"),
                     source=md.table("orders", columns={
-                        "order_id": md.source_column("order_id", data_type="int64"),
-                        "amount": md.source_column("amount", data_type="float64"),
-                        "created_at": md.source_column("created_at", data_type="timestamp"),
+                        "order_id": "order_id",
+                        "amount": "amount",
+                        "created_at": "created_at",
                     }),
                     primary_key=["order_id"],
                     ai_context=ms.ai_context(

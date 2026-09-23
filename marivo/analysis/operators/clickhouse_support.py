@@ -12,8 +12,8 @@ from marivo.analysis.operators.scalar_support import unsupported_reason as scala
 
 
 def supported_type(value: str) -> bool:
-    """Recognize declared scalar types; physical constraints are checked at execution."""
-    return (
+    """Recognize supported scalar types and defer unknown source types to execution."""
+    return value == "unknown" or (
         value in {"boolean", "uint8", "uint16", "uint32", "uint64"}
         or supports_timestamp(value)
         or supports_scalar_type(value)

@@ -71,7 +71,7 @@ class ConstraintId(StrEnum):
     METRIC_FANOUT_POLICY_DERIVED = "metric_fanout_policy_derived"
     ENTITY_VERSIONING_VALID = "entity_versioning_valid"
     ENTITY_IDENTITY_KEY_UNIQUE = "entity_identity_key_unique"
-    ENTITY_IDENTITY_KEY_TYPED = "entity_identity_key_typed"
+    ENTITY_IDENTITY_KEY_PROJECTED = "entity_identity_key_projected"
     ENTITY_VERSION_KEY_SEPARATE = "entity_version_key_separate"
     MATERIALIZE_EXECUTION = "materialize_execution"
     BACKEND_DIALECT_MATCH = "backend_dialect_match"
@@ -684,14 +684,14 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "A repeated name cannot define one ordered identity tuple.",
         "Remove repeated names from primary_key.",
     ),
-    ConstraintId.ENTITY_IDENTITY_KEY_TYPED: _constraint(
-        ConstraintId.ENTITY_IDENTITY_KEY_TYPED,
-        "missing_identity_key_type",
+    ConstraintId.ENTITY_IDENTITY_KEY_PROJECTED: _constraint(
+        ConstraintId.ENTITY_IDENTITY_KEY_PROJECTED,
+        "missing_identity_key_column",
         "assembly",
         ("entity",),
-        "Every identity key has a declared type in the Entity source.",
-        "Static semantic validation does not infer types from live catalog metadata.",
-        "Declare each missing identity key in the complete typed source interface.",
+        "Every identity key must be exposed by an explicit source projection.",
+        "Identity keys are resolved from the source when analysis first needs their types.",
+        "Add each missing identity key to columns=... or omit the source projection.",
     ),
     ConstraintId.ENTITY_VERSION_KEY_SEPARATE: _constraint(
         ConstraintId.ENTITY_VERSION_KEY_SEPARATE,

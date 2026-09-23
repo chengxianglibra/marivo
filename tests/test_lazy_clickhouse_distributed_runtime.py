@@ -109,9 +109,7 @@ def entity_registry(
                 columns=tuple(
                     (
                         name,
-                        replace(binding, data_type="decimal(9, 2)")
-                        if name == "amount" and decimal_amount
-                        else binding,
+                        binding,
                     )
                     for name, binding in entity.source.columns
                 ),

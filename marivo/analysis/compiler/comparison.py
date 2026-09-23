@@ -161,14 +161,33 @@ def lower_compare(
     )
     current_present = joined.__mv_current_present.fill_null(False)
     baseline_present = joined.__mv_baseline_present.fill_null(False)
-    if spec.promoted_type == "decimal":
+    promoted_type = spec.promoted_type
+    if promoted_type == "unknown":
+        left_type = current[spec.current_metric_name].type()
+        right_type = baseline[spec.baseline_metric_name].type()
+        if not (
+            left_type.is_integer() or left_type.is_floating() or left_type.is_decimal()
+        ) or not (right_type.is_integer() or right_type.is_floating() or right_type.is_decimal()):
+            raise TypeError(
+                "comparison requires an observed numeric Metric type; "
+                f"received {left_type} and {right_type}"
+            )
+        if left_type.is_decimal() or right_type.is_decimal():
+            if left_type.is_floating() or right_type.is_floating():
+                raise TypeError("comparison cannot losslessly mix Decimal and floating Metrics")
+            promoted_type = "decimal"
+        elif left_type.is_floating() or right_type.is_floating():
+            promoted_type = "float64"
+        else:
+            promoted_type = "int64"
+    if promoted_type == "decimal":
         left_type = current[spec.current_metric_name].type()
         right_type = baseline[spec.baseline_metric_name].type()
         if not isinstance(left_type, dt.Decimal) or not isinstance(right_type, dt.Decimal):
             raise TypeError("comparison requires exact physical Decimal types")
         kind: dt.DataType = dt.Decimal(38, max(left_type.scale or 0, right_type.scale or 0))
     else:
-        kind = dt.dtype(spec.promoted_type)
+        kind = dt.dtype(promoted_type)
     current_value = joined[f"__mv_current_{spec.current_metric_name}"].cast(kind)
     baseline_value = joined[f"__mv_baseline_{spec.baseline_metric_name}"].cast(kind)
     if spec.exact_empty_zero:

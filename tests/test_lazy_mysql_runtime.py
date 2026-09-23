@@ -86,7 +86,7 @@ def test_group_a(tmp_path: Path, source_table: str, kind: str) -> None:
                 columns=tuple(
                     (
                         name,
-                        replace(binding, data_type=logical_type) if name == "amount" else binding,
+                        binding,
                     )
                     for name, binding in entity.source.columns
                 ),

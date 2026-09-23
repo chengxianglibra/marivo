@@ -217,7 +217,7 @@ def test_composite_subject_key_order_is_preserved() -> None:
 
     from marivo.analysis.datasets import descriptors as d
     from marivo.analysis.session._lazy_sources import make_lazy_sources
-    from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
+    from marivo.datasource.ir import TableSourceIR
     from marivo.semantic.ir import JoinKey
     from tests.lazy_lifecycle_fixtures import MODEL
     from tests.lazy_observation_fixtures import NoIoActionPort
@@ -236,7 +236,7 @@ def test_composite_subject_key_order_is_preserved() -> None:
                 entity.source,
                 columns=(
                     *entity.source.columns,
-                    ("tenant", TableColumnBindingIR("tenant", "string")),
+                    ("tenant", "tenant"),
                 ),
             ),
         )
@@ -273,7 +273,7 @@ def test_composite_subject_key_order_is_preserved() -> None:
     )
     identity = history(other).schema.columns[0].identity
     assert isinstance(identity, d._EntityFieldIdentity)
-    assert identity.identity_signature == (("tenant", "string"), ("id", "int64"))
+    assert identity.identity_signature == (("tenant", "unknown"), ("id", "unknown"))
 
 
 @pytest.mark.parametrize("field", ["initial", "seed_fingerprint"])

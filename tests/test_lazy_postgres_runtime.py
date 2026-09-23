@@ -282,12 +282,7 @@ def test_scalar_numeric_and_null_semantics(
                 entity,
                 source=replace(
                     entity.source,
-                    columns=tuple(
-                        (name, replace(binding, data_type=kind))
-                        if name == "amount"
-                        else (name, binding)
-                        for name, binding in entity.source.columns
-                    ),
+                    columns=tuple((name, binding) for name, binding in entity.source.columns),
                 ),
             ),
         },

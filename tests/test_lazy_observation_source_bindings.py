@@ -40,7 +40,7 @@ def _entity(
     if source is None:
         source = JsonSourceIR(
             path="https://fixture.invalid/samples",
-            schema=(("id", "int64"), ("value", "float64")),
+            columns=(("id", "id"), ("value", "value")),
             query_params=(("from", SourceParamIR("start")), ("to", SourceParamIR("end"))),
         )
     entity_id = f"monitoring.{name}"
@@ -200,7 +200,7 @@ def test_sensitive_names_and_aliased_credential_slots_are_rejected(
     entity = _entity(
         source=JsonSourceIR(
             path="https://fixture.invalid/data",
-            schema=(("id", "int64"),),
+            columns=(("id", "id"),),
             query_params=((slot, SourceParamIR(name)),),
         ),
         credential_slot=credential,
@@ -217,8 +217,8 @@ def test_sensitive_names_and_aliased_credential_slots_are_rejected(
 
 def test_nonparameterized_and_non_json_entities_reject_scope_bindings() -> None:
     for source in (
-        JsonSourceIR(path="https://fixture.invalid/data", schema=(("id", "int64"),)),
-        CsvSourceIR(path="fixture.csv", schema=(("id", "int64"),)),
+        JsonSourceIR(path="https://fixture.invalid/data", columns=(("id", "id"),)),
+        CsvSourceIR(path="fixture.csv", columns=(("id", "id"),)),
     ):
         entity = _entity(source=source)
         scopes = SourceBindingScopes((entity,))
@@ -234,7 +234,7 @@ def test_general_declared_sequence_cannot_hide_a_credential_alias() -> None:
     entity = _entity(
         source=JsonSourceIR(
             path="https://fixture.invalid/data",
-            schema=(("id", "int64"),),
+            columns=(("id", "id"),),
             query_params=(("Authorization", UserList([SourceParamIR("value")])),),
         )
     )
@@ -251,7 +251,7 @@ def test_request_body_path_cannot_hide_a_credential_alias() -> None:
     entity = _entity(
         source=JsonSourceIR(
             path="https://fixture.invalid/data",
-            schema=(("id", "int64"),),
+            columns=(("id", "id"),),
             method="POST",
             body_json='{"auth": {"token": null}}',
             body_params=((("auth", "token"), SourceParamIR("value")),),

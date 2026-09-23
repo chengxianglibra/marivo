@@ -73,7 +73,7 @@ def test_required_parts_place_locally_without_worker_or_origin_work(
     runtime, sources, _ = setup_local(tmp_path)
     import pyarrow.parquet as pq
 
-    from marivo.analysis.materialization import admission
+    from marivo.analysis.materialization import source_preparation
     from marivo.refs import ref
     from tests.lazy_materialization_crash_worker import snapshot
 
@@ -81,7 +81,7 @@ def test_required_parts_place_locally_without_worker_or_origin_work(
     before = snapshot(runtime)
     queries = runtime.statistics.primary_queries
     monkeypatch.setattr(
-        admission,
+        source_preparation,
         "_build_backend_from_effective",
         lambda *args, **kwargs: pytest.fail("placement touched an origin"),
     )

@@ -82,12 +82,40 @@ def _coordinate(value: ir.Value) -> ir.StringValue:
     return value.isnull().ifelse("N", ibis.literal("V") + _hex(canonical))
 
 
+def _observed_type_id(value: ir.Value) -> str:
+    """Return a stable type identity for a physical value observed at execution."""
+    dtype = value.type()
+    if dtype.is_boolean():
+        return "boolean"
+    if dtype.is_integer() or dtype.is_floating():
+        return str(dtype)
+    if dtype.is_decimal():
+        return "decimal"
+    if dtype.is_string():
+        return "string"
+    if dtype.is_timestamp():
+        return "timestamp"
+    if dtype.is_date():
+        return "date"
+    if dtype.is_struct():
+        return "struct:" + str(dtype)
+    return str(dtype)
+
+
 def driver_item_id(
     table: ir.Table, row: d.DatasetRowContract, definition: DriverCandidateDefinition
 ) -> ir.StringValue:
     """Encode exact typed coordinates using the same canonical bytes as local rows."""
     fields = tuple(field for field in row.schema.columns if field.field_id in row.key_field_ids)
-    signature = tuple((field.field_id.value, field.logical_type_id) for field in fields)
+    signature = tuple(
+        (
+            field.field_id.value,
+            field.logical_type_id
+            if field.logical_type_id != "unknown"
+            else _observed_type_id(table[field.name]),
+        )
+        for field in fields
+    )
     encoded = ibis.literal("|").join([_coordinate(table[field.name]) for field in fields])
     prefix = (
         "candidate_driver_item@v1:"

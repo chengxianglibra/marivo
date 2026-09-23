@@ -11,7 +11,6 @@ from threading import Thread
 
 import ibis
 import pytest
-from duckdb import InvalidInputException
 
 import marivo.datasource as md
 from marivo.datasource import backends as datasource_backends
@@ -21,6 +20,7 @@ from marivo.datasource.ir import JsonSourceIR
 from marivo.datasource.json_source import json_source_url, read_json_source
 
 _EVENT_SCHEMA = {"event_id": "int64", "amount": "int64", "status": "string"}
+_EVENT_COLUMNS = {name: name for name in _EVENT_SCHEMA}
 
 
 @contextmanager
@@ -74,7 +74,10 @@ def test_apply_json_http_settings_enables_force_download_for_remote_json() -> No
 
     apply_json_http_settings(
         backend,
-        JsonSourceIR(path="https://example.com/events.json", schema=(("event_id", "string"),)),
+        JsonSourceIR(
+            path="https://example.com/events.json",
+            columns=(("event_id", "event_id"),),
+        ),
     )
 
     assert backend.calls == ["SET force_download=true"]
@@ -85,10 +88,10 @@ def test_apply_json_http_settings_ignores_local_http_prefixed_paths_and_non_json
 
     apply_json_http_settings(
         backend,
-        JsonSourceIR(path="http_exports/events.json", schema=(("event_id", "string"),)),
+        JsonSourceIR(path="http_exports/events.json", columns=(("event_id", "event_id"),)),
     )
     apply_json_http_settings(
-        backend, md.csv("https://example.com/events.csv", schema={"event_id": "string"})
+        backend, md.csv("https://example.com/events.csv", columns={"event_id": "event_id"})
     )
 
     assert backend.calls == []
@@ -98,7 +101,10 @@ def test_apply_json_http_settings_teaches_when_backend_lacks_raw_sql() -> None:
     with pytest.raises(DatasourceMetadataError) as exc_info:
         apply_json_http_settings(
             object(),
-            JsonSourceIR(path="https://example.com/events.json", schema=(("event_id", "string"),)),
+            JsonSourceIR(
+                path="https://example.com/events.json",
+                columns=(("event_id", "event_id"),),
+            ),
         )
 
     message = str(exc_info.value)
@@ -115,7 +121,10 @@ def test_apply_json_http_settings_rejects_non_callable_raw_sql() -> None:
     with pytest.raises(DatasourceMetadataError) as exc_info:
         apply_json_http_settings(
             _NonCallableRawSql(),
-            JsonSourceIR(path="https://example.com/events.json", schema=(("event_id", "string"),)),
+            JsonSourceIR(
+                path="https://example.com/events.json",
+                columns=(("event_id", "event_id"),),
+            ),
         )
 
     assert exc_info.value.received == "backend without raw_sql"
@@ -124,7 +133,7 @@ def test_apply_json_http_settings_rejects_non_callable_raw_sql() -> None:
 def test_json_source_url_encodes_fixed_and_bound_query_values() -> None:
     source = md.json(
         "http://hawkeye.example/query_range/datasource/81?tenant=main",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={
             "query": 'sum(metric{q1=~"a|b"}) by (cluster, q1)',
             "start": md.source_param("start"),
@@ -143,7 +152,7 @@ def test_json_source_url_encodes_fixed_and_bound_query_values() -> None:
 def test_json_source_url_requires_exact_declared_runtime_bindings() -> None:
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"start": md.source_param("start")},
     )
 
@@ -158,7 +167,7 @@ def test_json_source_url_requires_exact_declared_runtime_bindings() -> None:
 def test_json_source_url_encodes_list_query_value() -> None:
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"specificsource": ["app-1", "app-2"], "page": 1},
     )
 
@@ -170,7 +179,7 @@ def test_json_source_url_encodes_list_query_value() -> None:
 def test_json_source_url_binds_list_source_param() -> None:
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"specificsource": md.source_param("apps")},
     )
 
@@ -182,7 +191,7 @@ def test_json_source_url_binds_list_source_param() -> None:
 def test_json_source_url_resolves_source_params_inside_list() -> None:
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"specificsource": ["app-1", md.source_param("second")]},
     )
 
@@ -195,7 +204,7 @@ def test_json_source_url_rejects_non_scalar_list_items() -> None:
     with pytest.raises(TypeError, match="must contain str, int, float, bool"):
         md.json(
             "https://api.example/query",
-            schema={"value": "float64"},
+            columns={"value": "value"},
             query_params={"specificsource": ["app-1", ["nested"]]},  # type: ignore[dict-item]
         )
 
@@ -203,7 +212,7 @@ def test_json_source_url_rejects_non_scalar_list_items() -> None:
 def test_json_source_url_rejects_nested_list_binding() -> None:
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"specificsource": md.source_param("apps")},
     )
     with pytest.raises(TypeError, match="must be flat"):
@@ -213,7 +222,7 @@ def test_json_source_url_rejects_nested_list_binding() -> None:
 def test_json_source_url_rejects_empty_list_binding() -> None:
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"specificsource": md.source_param("apps")},
     )
     with pytest.raises(ValueError, match="empty list"):
@@ -226,7 +235,7 @@ def test_post_json_source_binds_array_body_value() -> None:
         backend = ibis.duckdb.connect(":memory:")
         source = md.json(
             url,
-            schema={"change_id": "int64"},
+            columns={"change_id": "change_id"},
             method="POST",
             body={
                 "specific_source": md.source_param("apps"),
@@ -254,7 +263,7 @@ def test_post_json_source_binds_array_body_value() -> None:
 def test_json_source_url_validates_parameters_declared_only_in_post_body() -> None:
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         method="POST",
         body={"page": md.source_param("page_num")},
     )
@@ -267,7 +276,7 @@ def test_json_source_url_validates_parameters_declared_only_in_post_body() -> No
 def test_json_source_url_rejects_query_name_declared_twice() -> None:
     source = md.json(
         "https://api.example/query?step=30s",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"step": "60s"},
     )
 
@@ -298,7 +307,7 @@ def test_post_json_source_binds_body_values_and_sends_multiple_scoped_headers() 
         backend.__dict__["_marivo_duckdb_http_auth"] = auth
         source = md.json(
             url,
-            schema={"change_id": "int64", "title": "string"},
+            columns={"change_id": "change_id", "title": "title"},
             method="POST",
             body={
                 "platform_id": 1,
@@ -315,7 +324,7 @@ def test_post_json_source_binds_body_values_and_sends_multiple_scoped_headers() 
                 source,
                 source_params={"app_id": "app-42", "page_num": 3},
             )
-            assert requests == []
+            assert len(requests) == 1
             assert table.execute().to_dict(orient="records") == [
                 {"change_id": 101, "title": "first"},
                 {"change_id": 102, "title": "second"},
@@ -345,7 +354,7 @@ def test_post_json_source_preserves_literal_objects_that_resemble_parameter_mark
         backend = ibis.duckdb.connect(":memory:")
         source = md.json(
             url,
-            schema={"id": "string"},
+            columns={"id": "id"},
             method="POST",
             body={"filter": literal},
         )
@@ -361,7 +370,7 @@ def test_post_json_source_preserves_literal_objects_that_resemble_parameter_mark
     assert source.body_params == ()
 
 
-def test_parameterized_json_inspection_uses_declared_schema_without_runtime_binding(
+def test_parameterized_json_inspection_does_not_probe_remote_source_without_runtime_binding(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -370,14 +379,14 @@ def test_parameterized_json_inspection_uses_declared_schema_without_runtime_bind
     _register_duckdb(tmp_path)
     source = md.json(
         "https://api.invalid/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"start": md.source_param("start")},
     )
 
     inspection = md.inspect(md.DuckDBSpec(name="warehouse").ref, source)
 
     assert tuple((column.name, column.type) for column in inspection.schema) == (
-        ("value", "float64"),
+        ("value", "unknown"),
     )
 
 
@@ -423,7 +432,7 @@ def _write_project_with_json_entity(
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data Team')\n"
     )
-    source_args = f"{json_path!r}, schema={_EVENT_SCHEMA!r}"
+    source_args = f"{json_path!r}, columns={_EVENT_COLUMNS!r}"
     if format is not None:
         source_args += f", format={format!r}"
     if records_path is not None:
@@ -546,9 +555,8 @@ def test_unpack_nested_object_member_path(tmp_path: Path) -> None:
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         _write_nested_json(tmp_path),
-        schema={"id": "int64", "user_name": "string"},
+        columns={"id": "id", "user_name": "user.name"},
         records_path="$.result.items",
-        field_paths={"user_name": "user.name"},
     )
     try:
         table = read_json_source(backend, source)
@@ -565,9 +573,8 @@ def test_unpack_array_index_path(tmp_path: Path) -> None:
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         _write_nested_json(tmp_path),
-        schema={"id": "int64", "first_tag": "string"},
+        columns={"id": "id", "first_tag": "tags[0]"},
         records_path="$.result.items",
-        field_paths={"first_tag": "tags[0]"},
     )
     try:
         table = read_json_source(backend, source)
@@ -584,9 +591,8 @@ def test_unpack_array_traversal_path(tmp_path: Path) -> None:
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         _write_nested_json(tmp_path),
-        schema={"id": "int64", "tag": "string"},
+        columns={"id": "id", "tag": "tags[]"},
         records_path="$.result.items",
-        field_paths={"tag": "tags[]"},
     )
     try:
         table = read_json_source(backend, source)
@@ -604,9 +610,8 @@ def test_unpack_array_traversal_nested_member(tmp_path: Path) -> None:
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         _write_traversal_json(tmp_path),
-        schema={"id": "int64", "app_name": "string"},
+        columns={"id": "id", "app_name": "specificsource[].name"},
         records_path="$.result.items",
-        field_paths={"app_name": "specificsource[].name"},
     )
     try:
         table = read_json_source(backend, source)
@@ -637,9 +642,8 @@ def test_unpack_array_traversal_drops_missing_empty_and_null(tmp_path: Path) -> 
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         _write_traversal_gaps_json(tmp_path),
-        schema={"id": "int64", "app_name": "string"},
+        columns={"id": "id", "app_name": "specificsource[].name"},
         records_path="$.result.items",
-        field_paths={"app_name": "specificsource[].name"},
     )
     try:
         table = read_json_source(backend, source)
@@ -655,12 +659,12 @@ def test_unpack_sibling_fields_share_one_array_traversal(tmp_path: Path) -> None
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         _write_traversal_json(tmp_path),
-        schema={"id": "int64", "app_id": "int64", "app_name": "string"},
-        records_path="$.result.items",
-        field_paths={
+        columns={
+            "id": "id",
             "app_id": "specificsource[].appid",
             "app_name": "specificsource[].name",
         },
+        records_path="$.result.items",
     )
     try:
         table = read_json_source(backend, source)
@@ -678,28 +682,28 @@ def test_json_field_paths_reject_invalid_nested_path() -> None:
     with pytest.raises(ValueError, match="must start with a field name"):
         md.json(
             "https://api.example/query",
-            schema={"name": "string"},
+            columns={"name": "[0].name"},
             records_path="$.items",
-            field_paths={"name": "[0].name"},
         )
 
 
-def test_json_field_paths_require_records_path() -> None:
-    with pytest.raises(ValueError, match="requires records_path"):
-        md.json(
-            "events.json",
-            schema={"user_name": "string"},
-            field_paths={"user_name": "user.name"},
-        )
+def test_json_field_path_can_select_nested_root_record(tmp_path: Path) -> None:
+    path = tmp_path / "events.json"
+    path.write_text('{"user": {"name": "Ada"}}')
+    backend = ibis.duckdb.connect(":memory:")
+    try:
+        table = read_json_source(backend, md.json(str(path), columns={"user_name": "user.name"}))
+        assert table.execute().to_dict(orient="records") == [{"user_name": "Ada"}]
+    finally:
+        backend.disconnect()
 
 
 def test_json_field_paths_reject_independent_array_traversals() -> None:
     with pytest.raises(ValueError, match="only one shared array path"):
         md.json(
             "events.json",
-            schema={"tag": "string", "app": "string"},
+            columns={"tag": "tags[]", "app": "apps[].name"},
             records_path="$.items",
-            field_paths={"tag": "tags[]", "app": "apps[].name"},
         )
 
 
@@ -707,9 +711,8 @@ def test_json_field_paths_reject_multiple_traversals_in_one_path() -> None:
     with pytest.raises(ValueError, match="more than one array traversal"):
         md.json(
             "events.json",
-            schema={"name": "string"},
+            columns={"name": "groups[].apps[].name"},
             records_path="$.items",
-            field_paths={"name": "groups[].apps[].name"},
         )
 
 
@@ -719,7 +722,7 @@ def test_wrapped_json_keeps_literal_output_field_names(tmp_path: Path) -> None:
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         str(source_path),
-        schema={"x-y": "string", "display name": "string"},
+        columns={"x-y": "x-y", "display name": "display name"},
         records_path="$.result.items",
     )
 
@@ -740,25 +743,23 @@ def test_wrapped_json_records_fill_missing_fields_and_ignore_extra_fields(tmp_pa
         "]}}"
     )
     backend = ibis.duckdb.connect(":memory:")
-    schema = {**_EVENT_SCHEMA, "metadata": "json"}
     source = md.json(
         str(source_path),
-        schema=schema,
+        columns=_EVENT_COLUMNS,
         records_path="$.result.items",
     )
 
     try:
         table = read_json_source(backend, source)
         result = table.execute()
-        assert tuple(result.columns) == tuple(schema)
+        assert tuple(result.columns) == tuple(sorted(_EVENT_COLUMNS))
         assert table.filter(table.amount.isnull()).count().execute() == 1
-        assert table.filter(table["metadata"].isnull()).count().execute() == 2
         assert result.loc[result["event_id"] == 2, "amount"].iloc[0] == 20
     finally:
         backend.disconnect()
 
 
-def test_wrapped_json_record_type_mismatch_fails_strictly(tmp_path: Path) -> None:
+def test_wrapped_json_types_are_inferred_from_returned_values(tmp_path: Path) -> None:
     source_path = tmp_path / "events.json"
     source_path.write_text(
         '{"result": {"items": [{"event_id": "not-an-int", "amount": 10, "status": "paid"}]}}'
@@ -766,14 +767,15 @@ def test_wrapped_json_record_type_mismatch_fails_strictly(tmp_path: Path) -> Non
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         str(source_path),
-        schema=_EVENT_SCHEMA,
+        columns={"event_id": "event_id", "amount": "amount", "status": "status"},
         records_path="$.result.items",
     )
 
     try:
         table = read_json_source(backend, source)
-        with pytest.raises(InvalidInputException, match="Failed to cast value to numerical"):
-            table.execute()
+        result = table.execute()
+        assert result["event_id"].tolist() == ["not-an-int"]
+        assert str(table.event_id.type()) == "string"
     finally:
         backend.disconnect()
 
@@ -784,12 +786,13 @@ def test_wrapped_json_empty_records_array_materializes_zero_rows(tmp_path: Path)
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         str(source_path),
-        schema=_EVENT_SCHEMA,
+        columns={"event_id": "event_id", "amount": "amount", "status": "status"},
         records_path="$.result.items",
     )
 
     try:
-        assert read_json_source(backend, source).count().execute() == 0
+        with pytest.raises(ValueError, match="Cannot infer a physical type"):
+            read_json_source(backend, source)
     finally:
         backend.disconnect()
 
@@ -807,20 +810,19 @@ def test_wrapped_json_invalid_records_path_fails_closed(tmp_path: Path, payload:
     backend = ibis.duckdb.connect(":memory:")
     source = md.json(
         str(source_path),
-        schema=_EVENT_SCHEMA,
+        columns={"event_id": "event_id", "amount": "amount", "status": "status"},
         records_path="$.result.items",
     )
 
     try:
-        table = read_json_source(backend, source)
         with pytest.raises(
-            InvalidInputException,
+            ValueError,
             match=(
-                r"records_path '\$\.result\.items' did not resolve to an array; "
+                r"md\.json records_path '\$\.result\.items' did not resolve to an array; "
                 r"verify the response envelope and API authentication"
             ),
         ):
-            table.execute()
+            read_json_source(backend, source)
     finally:
         backend.disconnect()
 
@@ -837,7 +839,7 @@ def test_wrapped_json_inspection_and_sample_use_record_schema(
     _register_duckdb(tmp_path)
     source = md.json(
         source_path,
-        schema=_EVENT_SCHEMA,
+        columns={"event_id": "event_id", "amount": "amount", "status": "status"},
         records_path="$.result.items",
     )
 
@@ -848,6 +850,6 @@ def test_wrapped_json_inspection_and_sample_use_record_schema(
         refresh=True,
     )
 
-    assert tuple(column.name for column in inspection.schema) == tuple(_EVENT_SCHEMA)
+    assert tuple(column.name for column in inspection.schema) == tuple(sorted(_EVENT_SCHEMA))
     assert snapshot.coverage.retained_row_count == 2
     assert snapshot.profiles[0].sample_distinct_count == 2

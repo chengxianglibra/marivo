@@ -13,7 +13,7 @@ from marivo.analysis.operators.scalar_support import unsupported_reason as scala
 
 def supported_type(value: str) -> bool:
     """Recognize the logical scalar types admitted by this backend."""
-    return (
+    return value == "unknown" or (
         value == "boolean"
         or supports_plain_timestamp(value)
         or (value not in {"int8", "int16"} and supports_scalar_type(value))

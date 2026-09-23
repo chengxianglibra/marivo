@@ -70,6 +70,8 @@ def _create_orders(path: Path) -> None:
 def _register_duckdb(project_root: Path, *, name: str = "warehouse") -> Path:
     path = project_root / f"{name}.duckdb"
     md.register(md.duckdb(name=name, path=str(path)), project_root=project_root)
+    (project_root / "orders.csv").write_text("order_id,dt\n1,2026-01-01\n")
+    (project_root / "events.csv").write_text("occurred_at\n2026-01-01T00:00:00Z\n")
     return path
 
 
@@ -158,29 +160,41 @@ def test_inspect_rejects_bare_datasource_name_and_invalid_source() -> None:
 
 
 @pytest.mark.parametrize(
-    ("factory", "expected_name"),
+    ("factory", "expected_name", "expected_type", "filename", "contents"),
     [
-        (lambda: md.csv("orders.csv", schema={"order_id": "string"}), "order_id"),
-        (lambda: md.json("orders.json", schema={"event_id": "string"}), "event_id"),
+        (
+            lambda: md.csv("orders.csv", columns={"order_id": "order_id"}),
+            "order_id",
+            "int64",
+            "orders.csv",
+            "order_id\n1\n",
+        ),
+        (
+            lambda: md.json("orders.json", columns={"event_id": "event_id"}),
+            "event_id",
+            "string",
+            "orders.json",
+            '{"event_id":"evt-1"}\n',
+        ),
     ],
 )
-def test_typed_text_inspection_uses_declared_schema_without_opening_source(
+def test_text_inspection_infers_observed_source_types(
     project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
     factory: Callable[[], md.TableSource],
     expected_name: str,
+    expected_type: str,
+    filename: str,
+    contents: str,
 ) -> None:
     _register_duckdb(project_root)
-    monkeypatch.setattr(
-        "marivo.datasource.backends.build_backend",
-        lambda *_args, **_kwargs: pytest.fail("backend opened"),
-    )
+    (project_root / filename).write_text(contents)
 
     source = factory()
     inspection = md.inspect(ms.ref.datasource("warehouse"), source)
 
     assert inspection.schema[0].name == expected_name
-    assert inspection.partitioning.state == "none"
+    assert inspection.schema[0].type == expected_type
+    assert inspection.partitioning.state == "unknown"
 
 
 def test_partition_states_remain_distinct(
@@ -190,10 +204,11 @@ def test_partition_states_remain_distinct(
     path = _register_duckdb(project_root)
     _create_orders(path)
     unknown = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
-    none = md.inspect(
-        ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", schema={"order_id": "string"}),
-    )
+    parquet_path = project_root / "orders.parquet"
+    backend = ibis.duckdb.connect(str(path))
+    backend.raw_sql(f"COPY orders TO '{parquet_path}' (FORMAT PARQUET)")
+    backend.disconnect()
+    no_partitions = md.inspect(ms.ref.datasource("warehouse"), md.parquet(str(parquet_path)))
 
     known_metadata = TableMetadata(
         datasource="warehouse",
@@ -227,7 +242,11 @@ def test_partition_states_remain_distinct(
     )
     known = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
 
-    assert (known.partitioning.state, none.partitioning.state, unknown.partitioning.state) == (
+    assert (
+        known.partitioning.state,
+        no_partitions.partitioning.state,
+        unknown.partitioning.state,
+    ) == (
         "known",
         "none",
         "unknown",
@@ -419,15 +438,16 @@ def test_partition_card_only_advertises_executable_scope_template(
     assert "md.unpruned(" not in unavailable_text
 
 
-def test_partitions_only_reshapes_captured_metadata(
+def test_file_partitions_report_unavailable_metadata(
     project_root: Path,
 ) -> None:
     _register_duckdb(project_root)
-    source = md.csv("orders.csv", schema={"order_id": "string"})
+    (project_root / "orders.csv").write_text("order_id\n1\n")
+    source = md.csv("orders.csv", columns={"order_id": "order_id"})
     result = md.inspect(ms.ref.datasource("warehouse"), source).partitions()
 
-    assert result.partitioning.state == "none"
-    assert result.status == "complete"
+    assert result.partitioning.state == "unknown"
+    assert result.status == "incomplete"
 
 
 def test_file_source_requires_duckdb_without_opening_backend(
@@ -451,7 +471,7 @@ def test_file_source_requires_duckdb_without_opening_backend(
     with pytest.raises(DatasourceError) as exc_info:
         md.inspect(
             ms.ref.datasource("warehouse"),
-            md.csv("orders.csv", schema={"order_id": "string"}),
+            md.csv("orders.csv", columns={"order_id": "order_id"}),
         )
 
     assert exc_info.value.effect_observed is not None
@@ -462,7 +482,7 @@ def test_sample_rejects_unknown_source_column_before_executor(project_root: Path
     _register_duckdb(project_root)
     inspection = md.inspect(
         ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", schema={"order_id": "string"}),
+        md.csv("orders.csv", columns={"order_id": "order_id"}),
     )
 
     with pytest.raises(DatasourceError) as exc_info:
@@ -480,7 +500,7 @@ def test_sample_rejects_unenforceable_timeout_before_executor(project_root: Path
     _register_duckdb(project_root)
     base = md.inspect(
         ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", schema={"order_id": "string"}),
+        md.csv("orders.csv", columns={"order_id": "order_id"}),
     )
     inspection = replace(
         base,
@@ -504,7 +524,7 @@ def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: P
     _register_duckdb(project_root)
     base = md.inspect(
         ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", schema={"order_id": "string", "dt": "date"}),
+        md.csv("orders.csv", columns={"order_id": "order_id", "dt": "dt"}),
     )
     known = replace(
         base,
@@ -550,7 +570,7 @@ def test_identity_partition_transform_is_rejected_in_v1(project_root: Path) -> N
     _register_duckdb(project_root)
     base = md.inspect(
         ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", schema={"order_id": "string", "dt": "date"}),
+        md.csv("orders.csv", columns={"order_id": "order_id", "dt": "dt"}),
     )
     identity = replace(
         base,
@@ -625,7 +645,7 @@ def test_inspection_exposes_factual_scope_inputs_without_lifecycle_state(
     _register_duckdb(project_root)
     inspection = md.inspect(
         ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", schema={"order_id": "string"}),
+        md.csv("orders.csv", columns={"order_id": "order_id"}),
     )
 
     assert not hasattr(inspection, "contract")
@@ -635,7 +655,7 @@ def test_inspection_exposes_factual_scope_inputs_without_lifecycle_state(
 
     temporal = md.inspect(
         ms.ref.datasource("warehouse"),
-        md.csv("events.csv", schema={"occurred_at": "timestamp"}),
+        md.csv("events.csv", columns={"occurred_at": "occurred_at"}),
     )
     assert temporal.schema[0].name == "occurred_at"
     assert temporal.execution_capabilities.partition_predicate_supported is True
@@ -658,7 +678,7 @@ def test_direct_partition_scope_rejects_duplicate_fields(project_root: Path) -> 
     _register_duckdb(project_root)
     base = md.inspect(
         ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", schema={"order_id": "string", "dt": "date"}),
+        md.csv("orders.csv", columns={"order_id": "order_id", "dt": "dt"}),
     )
     known = replace(
         base,

@@ -1,4 +1,4 @@
-"""Typed datasource source variants and semantic IR value objects."""
+"""Projection-only datasource source variants and semantic IR value objects."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def test_typed_source_builders_have_no_options_bag() -> None:
     parquet = md.parquet("/tmp/orders/*.parquet", hive_partitioning=True, columns=("id", "amount"))
     csv = md.csv(
         "/tmp/orders.csv",
-        schema={"id": "string", "amount": "decimal(18,2)"},
+        columns={"id": "id", "amount": "amount"},
         header=False,
         delimiter="|",
     )
@@ -56,7 +56,7 @@ def test_typed_source_builders_have_no_options_bag() -> None:
     assert csv.to_dict() == {
         "kind": "csv",
         "path": "/tmp/orders.csv",
-        "schema": {"id": "string", "amount": "decimal(18,2)"},
+        "columns": {"amount": "amount", "id": "id"},
         "header": False,
         "delimiter": "|",
     }
@@ -67,7 +67,7 @@ def test_json_source_ir_has_minimal_json_shape() -> None:
 
     source = JsonSourceIR(
         path="data/events/*.json",
-        schema=(("event_id", "string"),),
+        columns=(("event_id", "event_id"),),
         format="newline_delimited",
     )
 
@@ -78,7 +78,7 @@ def test_json_source_ir_has_minimal_json_shape() -> None:
     assert source.to_dict() == {
         "kind": "json",
         "path": "data/events/*.json",
-        "schema": {"event_id": "string"},
+        "columns": {"event_id": "event_id"},
         "format": "newline_delimited",
         "records_path": None,
         "query_params": {},
@@ -92,15 +92,15 @@ def test_json_source_ir_rejects_empty_path_bad_format_and_bad_kind() -> None:
     from marivo.datasource.ir import JsonSourceIR
 
     with pytest.raises(ValueError, match=r"JsonSourceIR\.path"):
-        JsonSourceIR(path="", schema=(("event_id", "string"),))
+        JsonSourceIR(path="", columns=(("event_id", "event_id"),))
     with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
-        JsonSourceIR(path="events.json", schema=(("event_id", "string"),), format="ndjson")  # type: ignore[arg-type]
+        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), format="ndjson")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"JsonSourceIR\.records_path"):
-        JsonSourceIR(path="events.json", schema=(("event_id", "string"),), records_path=1)  # type: ignore[arg-type]
+        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), records_path=1)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"JsonSourceIR\.records_path"):
-        JsonSourceIR(path="events.json", schema=(("event_id", "string"),), records_path="data")
+        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), records_path="data")
     with pytest.raises(ValueError, match=r"JsonSourceIR\.kind"):
-        JsonSourceIR(path="events.json", schema=(("event_id", "string"),), kind="csv")  # type: ignore[arg-type]
+        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), kind="csv")  # type: ignore[arg-type]
 
 
 def test_source_value_objects_reject_invalid_payloads() -> None:
@@ -111,7 +111,7 @@ def test_source_value_objects_reject_invalid_payloads() -> None:
     with pytest.raises(TypeError, match=r"ParquetSourceIR\.columns"):
         ParquetSourceIR(path="/tmp/orders.parquet", columns=("id", 1))  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"CsvSourceIR\.header"):
-        CsvSourceIR(path="/tmp/orders.csv", schema=(("order_id", "string"),), header="yes")  # type: ignore[arg-type]
+        CsvSourceIR(path="/tmp/orders.csv", columns=(("order_id", "order_id"),), header="yes")  # type: ignore[arg-type]
 
 
 def test_source_builders_reject_invalid_payloads() -> None:
@@ -122,12 +122,12 @@ def test_source_builders_reject_invalid_payloads() -> None:
     with pytest.raises(TypeError, match=r"ParquetSourceIR\.columns"):
         md.parquet("/tmp/orders.parquet", columns=("id", 1))  # type: ignore[list-item]
     with pytest.raises(TypeError, match=r"CsvSourceIR\.delimiter"):
-        md.csv("/tmp/orders.csv", schema={"order_id": "string"}, delimiter=123)  # type: ignore[arg-type]
+        md.csv("/tmp/orders.csv", columns={"order_id": "order_id"}, delimiter=123)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
-        md.json("/tmp/events.json", schema={"event_id": "string"}, format="ndjson")  # type: ignore[arg-type]
+        md.json("/tmp/events.json", columns={"event_id": "event_id"}, format="ndjson")  # type: ignore[arg-type]
 
 
-def test_source_from_dict_reads_typed_file_variants() -> None:
+def test_source_from_dict_reads_projected_file_variants() -> None:
     assert source_from_dict({"kind": "parquet", "path": "/tmp/orders.parquet"}).to_dict() == {
         "kind": "parquet",
         "path": "/tmp/orders.parquet",
@@ -138,13 +138,13 @@ def test_source_from_dict_reads_typed_file_variants() -> None:
         {
             "kind": "csv",
             "path": "/tmp/orders.csv",
-            "schema": {"order_id": "string"},
+            "columns": {"order_id": "order_id"},
             "delimiter": "\t",
         }
     ).to_dict() == {
         "kind": "csv",
         "path": "/tmp/orders.csv",
-        "schema": {"order_id": "string"},
+        "columns": {"order_id": "order_id"},
         "header": True,
         "delimiter": "\t",
     }
@@ -157,7 +157,7 @@ def test_source_from_dict_reads_json_variant() -> None:
         {
             "kind": "json",
             "path": "data/events/*.json",
-            "schema": {"event_id": "string"},
+            "columns": {"event_id": "event_id"},
             "format": "array",
             "records_path": "$.result.items",
         }
@@ -165,14 +165,14 @@ def test_source_from_dict_reads_json_variant() -> None:
 
     assert restored == JsonSourceIR(
         path="data/events/*.json",
-        schema=(("event_id", "string"),),
+        columns=(("event_id", "event_id"),),
         format="array",
         records_path="$.result.items",
     )
     assert restored.to_dict() == {
         "kind": "json",
         "path": "data/events/*.json",
-        "schema": {"event_id": "string"},
+        "columns": {"event_id": "event_id"},
         "format": "array",
         "records_path": "$.result.items",
         "query_params": {},

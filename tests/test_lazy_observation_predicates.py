@@ -89,12 +89,12 @@ def test_helpers_reject_non_scalar_or_non_finite_literals(value: object) -> None
 
 
 @pytest.mark.parametrize("value", [True, "1", Decimal("1"), 2**64 + 1])
-def test_float_binding_rejects_wrong_class_or_lossy_integer(value: object) -> None:
-    with pytest.raises(DatasetConstructionError):
-        make_sources().observe(REVENUE).where(gt(REVENUE, value))
+def test_unknown_metric_type_defers_scalar_literal_admission(value: object) -> None:
+    dataset = make_sources().observe(REVENUE).where(gt(REVENUE, value))
+    assert dataset.kind == "metric"
 
 
-def test_dates_and_string_ordering_have_no_implicit_coercion() -> None:
+def test_known_date_stays_strict_and_unknown_string_ordering_defers() -> None:
     source = (
         make_sources()
         .observe(REVENUE)
@@ -105,10 +105,10 @@ def test_dates_and_string_ordering_have_no_implicit_coercion() -> None:
     for predicate in (
         eq(DAY, "2026-02-01"),
         eq(DAY, datetime(2026, 2, 1, tzinfo=timezone.utc)),
-        gt(REGION, "EU"),
     ):
         with pytest.raises(DatasetConstructionError):
             source.where(predicate)
+    assert source.where(gt(REGION, "EU")).kind == "metric"
 
 
 def test_filter_position_changes_semantic_definition() -> None:

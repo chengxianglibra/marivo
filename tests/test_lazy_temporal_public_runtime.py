@@ -51,13 +51,6 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
     )
-    data_type = (
-        "string"
-        if representation == "strptime"
-        else "timestamp('UTC', 6)"
-        if representation == "native_aware"
-        else "timestamp(6)"
-    )
     parse = {
         "declared_utc": ", parse=ms.timestamp(timezone='UTC')",
         "native_naive": "",
@@ -67,9 +60,9 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     (semantic / "events.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), "
-        "source=md.table('events', columns={'id': md.source_column('id', data_type='int64'), "
-        f"'happened_at': md.source_column('happened_at', data_type={data_type!r}), "
-        "'amount': md.source_column('amount', data_type='float64')}), primary_key=['id'])\n"
+        "source=md.table('events', columns={'id': 'id', "
+        "'happened_at': 'happened_at', "
+        "'amount': 'amount'}), primary_key=['id'])\n"
         f"happened_at = ms.time_dimension_column(name='happened_at', entity=events, column='happened_at', granularity='second', is_default=True{parse})\n"
         "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive')\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"

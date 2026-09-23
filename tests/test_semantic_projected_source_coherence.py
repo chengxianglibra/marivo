@@ -18,9 +18,9 @@ events = ms.entity(
     source=md.table(
         "raw_events",
         columns={
-            "event_id": md.source_column("payload.id", data_type="string"),
-            "event_time": md.source_column("event.timestamp", data_type="timestamp"),
-            "score": md.source_column("generated.score", data_type="float64"),
+            "event_id": "payload.id",
+            "event_time": "event.timestamp",
+            "score": "generated.score",
         },
     ),
     primary_key=["event_id"],
@@ -140,13 +140,12 @@ def test_projected_source_rejects_physical_names_at_semantic_column_boundaries(
     assert error.details["omitted_missing_reference_count"] == 0
     assert error.details["missing_references"][0]["received_column"] == received
     assert "change each semantic column=" in error.hint
-    assert "md.source_column" in error.hint
+    assert "columns= projection" in error.hint
 
 
 def test_projected_source_alias_error_bounds_available_candidates() -> None:
     bindings = ",\n".join(
-        f'            "alias_{index:02d}": md.source_column("physical_{index:02d}", data_type="string")'
-        for index in range(12)
+        f'            "alias_{index:02d}": "physical_{index:02d}"' for index in range(12)
     )
     source = f"""\
 import marivo.datasource as md

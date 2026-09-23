@@ -330,10 +330,7 @@ def test_unregistered_time_representation_fails_during_pure_compilation(
 ) -> None:
     from dataclasses import replace
 
-    import ibis
-
     from marivo.analysis.compiler.errors import DatasetCompilationError
-    from marivo.analysis.compiler.normalize import required_entities
     from marivo.analysis.session._lazy_sources import make_lazy_sources
     from marivo.datasource.ir import TableSourceIR
     from tests.lazy_observation_fixtures import NoIoActionPort
@@ -343,10 +340,7 @@ def test_unregistered_time_representation_fails_during_pure_compilation(
         assert isinstance(entity.source, TableSourceIR)
         source = replace(
             entity.source,
-            columns=tuple(
-                (name, replace(binding, data_type="string") if name == "day" else binding)
-                for name, binding in entity.source.columns
-            ),
+            columns=tuple((name, binding) for name, binding in entity.source.columns),
         )
         registry = replace(
             fixture.registry,
@@ -366,10 +360,11 @@ def test_unregistered_time_representation_fails_during_pure_compilation(
         dataset = sources.observe(
             ref.metric("sales.revenue"), time_scope=time_scope(start="2026-02-01", end="2026-03-01")
         )
-        tables = {
-            entity.ref.path: ibis.table(dict(entity.columns), name=entity.ref.path)
-            for entity in required_entities(dataset)
-        }
+        tables = fixture.tables(dataset)
+        table = tables[entity.semantic_id]
+        tables[entity.semantic_id] = table.mutate(day=table.day.cast("string")).select(
+            *table.columns
+        )
         with pytest.raises(
             DatasetCompilationError, match="unsupported temporal source representation"
         ):

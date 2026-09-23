@@ -79,6 +79,25 @@ def _violations(backend: Backend, expression: ir.Table) -> int:
     return value
 
 
+def test_native_event_identity_types_are_checked_from_observed_schema() -> None:
+    backend = ibis.duckdb.connect()
+    try:
+        steps = _relations(backend, (((1, 0),), ((11, 2),)))
+        with pytest.raises(DatasetCompilationError, match="observed int64 subject identity"):
+            compile_event_match(
+                steps,
+                matching=FirstPerSubject(),
+                cohort_start=_BASE,
+                cohort_end=_BASE + timedelta(seconds=10),
+                completion_through=_BASE + timedelta(seconds=20),
+                definition_digest=_DIGEST,
+                coverage_complete=True,
+                require_int64_identities=True,
+            )
+    finally:
+        backend.disconnect()
+
+
 @pytest.mark.parametrize(
     ("matching", "expected"),
     [

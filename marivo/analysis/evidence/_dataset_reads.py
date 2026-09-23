@@ -144,6 +144,8 @@ def _registration(record: ArtifactRecord, registration: FindingRegistration | No
 
 def _scalar_matches(value: t.Scalar, field: d.DatasetField) -> bool:
     logical = field.logical_type_id
+    if logical == "unknown":
+        return type(value) in {bool, int, float, Decimal, str, date, datetime}
     if logical in ("boolean", "bool"):
         return type(value) is bool
     if logical == "integer" or logical.startswith(("int", "uint")):

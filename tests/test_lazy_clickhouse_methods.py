@@ -852,10 +852,7 @@ def test_explicit_decimal_source_float_composition(
     assert isinstance(entity.source, TableSourceIR)
     source = replace(
         entity.source,
-        columns=tuple(
-            (column, replace(binding, data_type="decimal(18,2)") if column == "amount" else binding)
-            for column, binding in entity.source.columns
-        ),
+        columns=tuple((column, binding) for column, binding in entity.source.columns),
     )
     registry = replace(
         registry, entities={**registry.entities, "sales.orders": replace(entity, source=source)}
@@ -885,10 +882,7 @@ def test_unresolved_decimal_mean_rejected_before_source(
     assert isinstance(entity.source, TableSourceIR)
     source = replace(
         entity.source,
-        columns=tuple(
-            (column, replace(binding, data_type=logical_type) if column == "amount" else binding)
-            for column, binding in entity.source.columns
-        ),
+        columns=tuple((column, binding) for column, binding in entity.source.columns),
     )
     registry = replace(
         registry, entities={**registry.entities, "sales.orders": replace(entity, source=source)}

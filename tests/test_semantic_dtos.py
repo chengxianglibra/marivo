@@ -68,7 +68,7 @@ def test_csv_source_is_shared_datasource_ir_type():
 
     source = CsvSourceIR(
         path="orders.csv",
-        schema=(("order_id", "string"), ("amount", "decimal(18,2)")),
+        columns=(("order_id", "order_id"), ("amount", "amount")),
         delimiter="|",
     )
 
@@ -77,7 +77,7 @@ def test_csv_source_is_shared_datasource_ir_type():
     assert source.to_dict() == {
         "kind": "csv",
         "path": "orders.csv",
-        "schema": {"order_id": "string", "amount": "decimal(18,2)"},
+        "columns": {"amount": "amount", "order_id": "order_id"},
         "header": True,
         "delimiter": "|",
     }
@@ -100,7 +100,7 @@ def test_file_source_csv_dict_round_trips_through_semantic_ir_parser():
 
     src = CsvSourceIR(
         path="/data/orders.csv",
-        schema=(("order_id", "string"), ("amount", "decimal(18,2)")),
+        columns=(("order_id", "order_id"), ("amount", "amount")),
         delimiter="\t",
     )
 
@@ -108,7 +108,7 @@ def test_file_source_csv_dict_round_trips_through_semantic_ir_parser():
 
     assert isinstance(restored, CsvSourceIR)
     assert restored.path == "/data/orders.csv"
-    assert restored.schema == (("order_id", "string"), ("amount", "decimal(18,2)"))
+    assert restored.columns == (("amount", "amount"), ("order_id", "order_id"))
     assert restored.delimiter == "\t"
 
 
@@ -118,24 +118,26 @@ def test_file_source_json_dict_round_trips_through_semantic_ir_parser():
 
     src = JsonSourceIR(
         path="/data/events.json",
-        schema=(("event_id", "string"), ("occurred_at", "timestamp"), ("app_name", "string")),
+        columns=(
+            ("event_id", "event_id"),
+            ("occurred_at", "occurred_at"),
+            ("app_name", "specificsource[].name"),
+        ),
         format="newline_delimited",
         records_path="$.data",
-        field_paths=(("app_name", "specificsource[].name"),),
     )
 
     restored = source_from_dict(src.to_dict())
 
     assert isinstance(restored, JsonSourceIR)
     assert restored.path == "/data/events.json"
-    assert restored.schema == (
-        ("event_id", "string"),
-        ("occurred_at", "timestamp"),
-        ("app_name", "string"),
+    assert restored.columns == (
+        ("app_name", "specificsource[].name"),
+        ("event_id", "event_id"),
+        ("occurred_at", "occurred_at"),
     )
     assert restored.format == "newline_delimited"
     assert restored.records_path == "$.data"
-    assert restored.field_paths == (("app_name", "specificsource[].name"),)
 
 
 def test_parameterized_json_source_round_trips_through_semantic_ir_parser() -> None:
@@ -143,7 +145,7 @@ def test_parameterized_json_source_round_trips_through_semantic_ir_parser() -> N
 
     src = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"start": md.source_param("start"), "step": "60s"},
     )
 
@@ -157,7 +159,7 @@ def test_post_json_source_round_trips_through_semantic_ir_parser() -> None:
 
     src = md.json(
         "https://api.example/graphql",
-        schema={"name": "string"},
+        columns={"name": "name"},
         method="POST",
         body={
             "query": "{ items { name } }",
@@ -169,12 +171,12 @@ def test_post_json_source_round_trips_through_semantic_ir_parser() -> None:
     assert source_from_dict(src.to_dict()) == src
 
 
-def test_source_from_dict_rejects_non_string_schema_entries() -> None:
+def test_source_from_dict_rejects_legacy_typed_source_schemas() -> None:
     from marivo.semantic.ir import source_from_dict
 
-    with pytest.raises(TypeError, match="schema"):
+    with pytest.raises(ValueError, match="no longer supported"):
         source_from_dict({"kind": "csv", "path": "orders.csv", "schema": {"order_id": 123}})
-    with pytest.raises(TypeError, match="schema"):
+    with pytest.raises(ValueError, match="no longer supported"):
         source_from_dict({"kind": "json", "path": "events.json", "schema": {123: "string"}})
 
 

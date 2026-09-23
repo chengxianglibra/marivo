@@ -537,11 +537,8 @@ def _entity_source_sections(source: DatasetSource) -> tuple[Section, ...]:
         FieldSection(label="full_source", value=".source.to_dict()"),
         TableSection(
             label="column_bindings",
-            columns=("output alias", "physical source", "declared type"),
-            rows=tuple(
-                (output_name, binding.source, binding.data_type)
-                for output_name, binding in source.columns
-            ),
+            columns=("output alias", "physical source"),
+            rows=tuple((output_name, source_name) for output_name, source_name in source.columns),
             rows_provider=None,
             row_count=len(source.columns),
             show_omission_counts=True,

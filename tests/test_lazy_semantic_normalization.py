@@ -12,7 +12,6 @@ from marivo.datasource.ir import (
     DatasourceSourceLocation,
     JsonSourceIR,
     SourceParamIR,
-    TableColumnBindingIR,
     TableSourceIR,
 )
 from marivo.refs import Ref, SemanticKindTag, ref
@@ -62,14 +61,14 @@ def _entity(
         datasource="warehouse",
         source=JsonSourceIR(
             path="https://example.test/facts",
-            schema=(
-                ("id", "int64"),
-                ("tenant", "string"),
-                ("amount", "float64"),
-                ("weight", "float64"),
-                ("day", "date"),
-                ("start", "date"),
-                ("end", "date"),
+            columns=(
+                ("id", "id"),
+                ("tenant", "tenant"),
+                ("amount", "amount"),
+                ("weight", "weight"),
+                ("day", "day"),
+                ("start", "start"),
+                ("end", "end"),
             ),
             query_params=(("region", SourceParamIR("region")),),
         ),
@@ -166,12 +165,12 @@ def test_entity_identity_is_ordered_and_independent_of_version_row_key() -> None
     registry.entities["sales.orders"] = _entity("orders", key=("tenant", "id"))
     normalized = normalize_target_entity(registry, "sales.orders")
     assert normalized.primary_key == ("tenant", "id")
-    assert normalized.identity_signature == (("tenant", "string"), ("id", "int64"))
+    assert normalized.identity_signature == (("tenant", "unknown"), ("id", "unknown"))
     assert normalized.version_row_key == ("tenant", "id")
     assert normalized.credential_slots == ("http_bearer_token",)
     assert normalized.datasource_ref.path == "warehouse"
     assert normalize_target_entity(registry, "sales.customers").identity_signature == (
-        ("id", "int64"),
+        ("id", "unknown"),
     )
     with pytest.raises(FrozenInstanceError):
         normalized.__setattr__("primary_key", ())
@@ -277,15 +276,21 @@ def test_validity_exact_endpoint_comparisons(interval: str) -> None:
 
 def test_invalid_identity_and_version_axes_fail_without_guessing_columns() -> None:
     registry = _registry()
-    for key, kind in (
-        (("unknown",), "missing_identity_key_type"),
-        (("id", "id"), "duplicate_identity_key"),
-    ):
-        registry.entities["sales.orders"] = _entity("orders", key=key)
-        with pytest.raises(SemanticLoadError) as caught:
-            normalize_target_entity(registry, "sales.orders")
-        assert caught.value.kind == kind
-        assert key[-1] in (caught.value.received or "")
+    missing_projection = replace(
+        _entity("orders", key=("unknown",)),
+        source=TableSourceIR("orders", columns=(("other", "other"),)),
+    )
+    registry.entities["sales.orders"] = missing_projection
+    with pytest.raises(SemanticLoadError) as caught:
+        normalize_target_entity(registry, "sales.orders")
+    assert caught.value.kind == "missing_identity_key_column"
+    assert "unknown" in (caught.value.received or "")
+
+    registry.entities["sales.orders"] = _entity("orders", key=("id", "id"))
+    with pytest.raises(SemanticLoadError) as caught:
+        normalize_target_entity(registry, "sales.orders")
+    assert caught.value.kind == "duplicate_identity_key"
+    assert "id" in (caught.value.received or "")
     registry.entities["sales.orders"] = _entity(
         "orders",
         version=SnapshotVersioningIR("snapshot", "sales.customers.day", "day"),
@@ -302,7 +307,7 @@ def test_invalid_identity_and_version_axes_fail_without_guessing_columns() -> No
     assert caught.value.kind == "identity_version_overlap"
 
 
-def test_identity_diagnostics_prioritize_duplicates_types_then_snapshot_overlap() -> None:
+def test_identity_diagnostics_prioritize_duplicates_projection_then_snapshot_overlap() -> None:
     registry = _registry()
     version = SnapshotVersioningIR("snapshot", "sales.orders.day", "day")
     untyped = TableSourceIR("orders")
@@ -314,22 +319,26 @@ def test_identity_diagnostics_prioritize_duplicates_types_then_snapshot_overlap(
     assert caught.value.kind == "duplicate_identity_key"
     assert caught.value.received == "duplicate identity keys ('id',)"
 
-    registry.entities[entity.semantic_id] = replace(entity, primary_key=("id", "day"))
+    registry.entities[entity.semantic_id] = replace(
+        entity,
+        primary_key=("id", "day"),
+        source=TableSourceIR("orders", columns=(("id", "id"),)),
+    )
     with pytest.raises(SemanticLoadError) as caught:
         normalize_target_entity(registry, entity.semantic_id)
-    assert caught.value.kind == "missing_identity_key_type"
-    assert caught.value.received == "missing type facts for ('id', 'day')"
-    assert "complete md.table(columns={...})" in (caught.value.hint or "")
+    assert caught.value.kind == "missing_identity_key_column"
+    assert "day" in (caught.value.received or "")
+    assert "Add these identity columns to columns" in (caught.value.hint or "")
 
     registry.entities[entity.semantic_id] = replace(
         entity,
         primary_key=("id", "day"),
-        source=TableSourceIR("orders", columns=(("id", TableColumnBindingIR("id", "int64")),)),
+        source=TableSourceIR("orders", columns=(("id", "id"), ("day", "day"))),
     )
     with pytest.raises(SemanticLoadError) as caught:
         normalize_target_entity(registry, entity.semantic_id)
-    assert caught.value.kind == "missing_identity_key_type"
-    assert caught.value.received == "missing type facts for ('day',)"
+    assert caught.value.kind == "identity_version_overlap"
+    assert "day" in (caught.value.received or "")
 
     registry.entities[entity.semantic_id] = replace(
         entity,
@@ -337,8 +346,8 @@ def test_identity_diagnostics_prioritize_duplicates_types_then_snapshot_overlap(
         source=TableSourceIR(
             "orders",
             columns=(
-                ("id", TableColumnBindingIR("id", "int64")),
-                ("day", TableColumnBindingIR("day", "date")),
+                ("id", "id"),
+                ("day", "day"),
             ),
         ),
     )
@@ -358,7 +367,7 @@ def test_aggregate_contract_is_derived_from_canonical_graph(agg: AggKind) -> Non
         normalized.graph == lower_catalog_metrics(registry, ("sales.value",), sidecar=sidecar).graph
     )
     assert tuple(item.path for item in normalized.computation_roots) == ("sales.orders",)
-    assert normalized.logical_type == ("int64" if agg == "count" else "float64")
+    assert normalized.logical_type == ("int64" if agg == "count" else "unknown")
     assert normalized.empty_rule == ("zero" if agg == "count" else "null")
     assert normalized.nullable is (agg != "count")
     assert "value.row_count" in normalized.required_state
@@ -367,24 +376,16 @@ def test_aggregate_contract_is_derived_from_canonical_graph(agg: AggKind) -> Non
 
 
 @pytest.mark.parametrize("agg", ["sum", "min", "max"])
-@pytest.mark.parametrize("physical", ["decimal(12, 2)", "decimal(30, 8)"])
-def test_declared_decimal_width_is_physical_not_a_logical_family(
-    agg: AggKind, physical: str
-) -> None:
+def test_source_decimal_width_is_deferred_until_physical_type_consumption(agg: AggKind) -> None:
     registry = _registry()
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, JsonSourceIR)
-    source = replace(
-        entity.source,
-        schema=tuple(
-            (name, physical if name == "amount" else kind) for name, kind in entity.source.schema
-        ),
-    )
-    registry.entities[entity.semantic_id] = replace(entity, source=source)
     registry.metrics["sales.value"] = _metric("value", agg=agg)
     normalized = normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
-    assert normalized.logical_type == "decimal"
-    assert dict(normalize_target_entity(registry, entity.semantic_id).columns)["amount"] == physical
+    assert normalized.logical_type == "unknown"
+    assert (
+        dict(normalize_target_entity(registry, entity.semantic_id).columns)["amount"] == "unknown"
+    )
     assert normalized.computation_roots == (
         normalize_target_entity(registry, entity.semantic_id).ref,
     )
@@ -518,5 +519,5 @@ def test_private_normalization_never_calls_telemetry_wrapped_public_ref_factorie
     assert normalize_target_entity(registry, "sales.orders").primary_key == ("id",)
     assert normalize_target_dimension(registry, "sales.orders.day").logical_type == "date"
     assert (
-        normalize_target_metric(registry, "sales.value", sidecar=sidecar).logical_type == "float64"
+        normalize_target_metric(registry, "sales.value", sidecar=sidecar).logical_type == "unknown"
     )

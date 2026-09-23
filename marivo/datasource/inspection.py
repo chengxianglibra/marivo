@@ -31,7 +31,6 @@ from marivo.datasource.ir import (
     DatasourceIR,
     JsonSourceIR,
     ParquetSourceIR,
-    TableColumnBindingIR,
     TableSourceIR,
     _format_database_identity,
 )
@@ -199,13 +198,12 @@ class SourceInspection(RenderableResult):
             card.field("projected columns", str(len(self.source.columns)))
             card.field("full source", ".source.to_dict()")
             card.table(
-                columns=("output alias", "physical source", "declared type"),
+                columns=("output alias", "physical source"),
                 rows=(
-                    (output_name, binding.source, binding.data_type)
-                    for output_name, binding in self.source.columns
+                    (output_name, source_name) for output_name, source_name in self.source.columns
                 ),
                 row_count=len(self.source.columns),
-                label="column bindings",
+                label="column projection",
                 show_omission_counts=True,
             )
         else:
@@ -250,7 +248,7 @@ class SourceInspection(RenderableResult):
         )
         if isinstance(self.source, TableSourceIR) and not self.source.columns:
             card.table(
-                columns=("column", "physical type", "ibis type", "nullable", "binding"),
+                columns=("column", "physical type", "ibis type", "nullable", "projection"),
                 rows=(self._table_schema_row(column) for column in self.schema),
                 row_count=len(self.schema),
                 label="schema",
@@ -272,7 +270,7 @@ class SourceInspection(RenderableResult):
             )
         if self.projectable_columns:
             card.table(
-                columns=("physical column", "ibis type", "nullable", "binding"),
+                columns=("physical column", "ibis type", "nullable", "projection"),
                 rows=(
                     (
                         column.name,
@@ -292,10 +290,7 @@ class SourceInspection(RenderableResult):
         return card
 
     def _binding_snippet(self, column: ColumnMetadata) -> str:
-        ibis_type = _ibis_table_type(column.type, backend_type=self._backend_type)
-        if ibis_type is None:
-            return "unavailable"
-        return f"md.source_column({column.name!r}, data_type={ibis_type!r})"
+        return f"{{{column.name!r}: {column.name!r}}}"
 
     def _table_schema_row(self, column: ColumnMetadata) -> tuple[str, ...]:
         ibis_type = _ibis_table_type(column.type, backend_type=self._backend_type)
@@ -307,29 +302,28 @@ class SourceInspection(RenderableResult):
             self._binding_snippet(column),
         )
 
-    def source_column(self, name: str) -> TableColumnBindingIR:
-        """Return one inspected physical table column as a typed binding.
+    def source_column(self, name: str) -> str:
+        """Return one inspected physical table column name.
 
         Args:
             name: Exact inspected column name, or an existing projected output alias.
 
         Returns:
-            A binding usable in ``md.table(columns=...)`` without casting values.
+            The physical source-column name for ``md.table(columns=...)``.
 
         Example:
-            ``binding = inspection.source_column("order_id")``
+            ``column = inspection.source_column("order_id")``
 
         Constraints:
-            Only table inspections support bindings. Unmapped backend types and
-            fixed-width character storage require a reviewed source or view.
-            This method uses retained metadata and performs no query.
+            Only table inspections support source-column lookup. The method uses
+            retained metadata and performs no query.
         """
         if not isinstance(self.source, TableSourceIR):
             raise _source_column_error(
                 code="source_column_not_table",
                 expected="an inspected table source",
                 received=self.source.kind,
-                action="Inspect a md.table(...) source before requesting a table column binding.",
+                action="Inspect a md.table(...) source before requesting a physical column name.",
             )
         if type(name) is not str or not name:
             raise _source_column_error(
@@ -338,9 +332,9 @@ class SourceInspection(RenderableResult):
                 received=repr(name),
                 action="Choose an exact column name from inspection.schema.",
             )
-        for output, binding in self.source.columns:
+        for output, physical_name in self.source.columns:
             if output == name:
-                return binding
+                return physical_name
         column = next(
             (item for item in (*self.schema, *self.projectable_columns) if item.name == name),
             None,
@@ -355,18 +349,7 @@ class SourceInspection(RenderableResult):
                     :8
                 ],
             )
-        ibis_type = _ibis_table_type(column.type, backend_type=self._backend_type)
-        if ibis_type is None:
-            raise _source_column_error(
-                code="source_column_type_unmapped",
-                expected="a backend type with a safe Ibis binding",
-                received=f"{name!r}: {column.type!r}",
-                action=(
-                    "Use a view with a supported physical type or author a reviewed Ibis "
-                    "binding after checking the backend representation."
-                ),
-            )
-        return TableColumnBindingIR(source=column.name, data_type=ibis_type)
+        return column.name
 
     def partitions(
         self,
@@ -557,7 +540,7 @@ def _source_column_error(
         stage="inspect",
         expected=expected,
         received=received,
-        reason="The inspected column cannot supply a typed table binding.",
+        reason="The inspected source does not expose this physical column for projection.",
         effect_observed=DatasourceObservedEffects(query_executed=False),
         repair=repair(
             kind="reauthor",
@@ -828,28 +811,6 @@ def _execution_capabilities(profile: EngineProfile) -> ExecutionCapabilities:
     )
 
 
-def _declared_schema(schema: tuple[tuple[str, str], ...]) -> tuple[ColumnMetadata, ...]:
-    if not schema:
-        raise _authoring_error(
-            code="typed_schema_required",
-            stage="inspect",
-            expected="a non-empty authored schema mapping",
-            received="empty schema",
-            reason="CSV and JSON inspection requires an authored typed schema",
-            scope_state=None,
-        )
-    return tuple(
-        ColumnMetadata(
-            name=name,
-            type=type_name,
-            nullable=None,
-            comment=None,
-            ordinal_position=index,
-        )
-        for index, (name, type_name) in enumerate(schema, start=1)
-    )
-
-
 def _unprojected_table(source: TableSourceIR) -> TableSourceIR:
     return TableSourceIR(table=source.table, database=source.database)
 
@@ -872,11 +833,11 @@ def _declared_only_table_metadata(
         )
     ]
     columns: list[ColumnMetadata] = []
-    for position, (output_name, binding) in enumerate(source.columns, start=1):
+    for position, (output_name, source_name) in enumerate(source.columns, start=1):
         columns.append(
             ColumnMetadata(
                 name=output_name,
-                type=binding.data_type,
+                type="unknown",
                 nullable=None,
                 comment=None,
                 ordinal_position=position,
@@ -884,11 +845,10 @@ def _declared_only_table_metadata(
         )
         warnings.append(
             MetadataWarning(
-                kind="declared_column_unverified",
+                kind="projected_column_unverified",
                 message=(
-                    f"projected column output={output_name!r} source={binding.source!r} "
-                    f"declared_type={binding.data_type!r} is declared only; bounded runtime "
-                    "acquisition is required to prove queryability"
+                    f"projected column output={output_name!r} source={source_name!r} "
+                    "is unverified because base table metadata is unavailable"
                 ),
                 columns=(output_name,),
             )
@@ -969,55 +929,6 @@ def _ibis_table_type(type_name: str, *, backend_type: str) -> str | None:
     return str(dtype)
 
 
-def _declared_type_mismatch(
-    *,
-    datasource_name: str,
-    source: TableSourceIR,
-    output_name: str,
-    physical_name: str,
-    declared_type: str,
-    observed_type: str,
-    scope_state: Literal["known", "none", "unknown"],
-) -> DatasourceAuthoringError:
-    fixed_character = re.fullmatch(r"(?:char|character)(?:\(\d+\))?", observed_type) is not None
-    snippet = (
-        None
-        if fixed_character
-        else f"md.source_column({physical_name!r}, data_type={observed_type!r})"
-    )
-    return DatasourceAuthoringError(
-        code="declared_type_mismatch",
-        stage="inspect",
-        expected=f"catalog type {observed_type!r} for projected output {output_name!r}",
-        received=(
-            f"datasource={datasource_name!r} table={source.table!r} "
-            f"database={source.database!r} output={output_name!r} "
-            f"source={physical_name!r} declared_type={declared_type!r}"
-        ),
-        reason=(
-            f"projected table {datasource_name!r}.{source.table!r} column {output_name!r} "
-            f"declares {declared_type!r}, but catalog metadata reports {observed_type!r} "
-            f"for physical source {physical_name!r}"
-        ),
-        effect_observed=DatasourceObservedEffects(
-            query_executed=False,
-            scope_state=scope_state,
-        ),
-        repair=repair(
-            kind="reauthor",
-            canonical_id="source_column",
-            action=(
-                "Bind a variable-length text column; fixed CHAR padding does not satisfy the string contract."
-                if fixed_character
-                else f"Correct md.table(columns=...)[{output_name!r}] to use the observed "
-                "catalog type, or bind a different physical source."
-            ),
-            snippet=snippet,
-            preserves_evidence=False,
-        ),
-    )
-
-
 def _mapped_constraint_columns(
     columns: tuple[str, ...],
     source_to_output: Mapping[str, str],
@@ -1031,17 +942,17 @@ def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> T
     catalog_columns = {
         column.name: column for column in (*metadata.columns, *metadata.projectable_columns)
     }
-    source_to_output = {binding.source: output for output, binding in source.columns}
+    source_to_output = {source_name: output for output, source_name in source.columns}
     columns: list[ColumnMetadata] = []
     warnings = list(metadata.warnings)
 
-    for position, (output_name, binding) in enumerate(source.columns, start=1):
-        catalog_column = catalog_columns.get(binding.source)
+    for position, (output_name, source_name) in enumerate(source.columns, start=1):
+        catalog_column = catalog_columns.get(source_name)
         if catalog_column is None:
             columns.append(
                 ColumnMetadata(
                     name=output_name,
-                    type=binding.data_type,
+                    type="unknown",
                     nullable=None,
                     comment=None,
                     ordinal_position=position,
@@ -1049,11 +960,11 @@ def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> T
             )
             warnings.append(
                 MetadataWarning(
-                    kind="declared_column_unverified",
+                    kind="projected_column_unverified",
                     message=(
-                        f"projected column output={output_name!r} source={binding.source!r} "
-                        f"declared_type={binding.data_type!r} is absent from base metadata; "
-                        "bounded runtime acquisition is required to prove queryability"
+                        f"projected column output={output_name!r} source={source_name!r} "
+                        "is absent from base metadata; bounded runtime acquisition is "
+                        "required to prove queryability"
                     ),
                     columns=(output_name,),
                 )
@@ -1064,50 +975,10 @@ def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> T
             catalog_column.type,
             backend_type=metadata.backend_type,
         )
-        boolean_storage = (
-            metadata.backend_type == "mysql"
-            and catalog_column.type.lower() == "tinyint(1)"
-            and binding.data_type == "boolean"
-        )
-        timestamp_storage = (
-            binding.data_type == "timestamp"
-            and re.fullmatch(r"timestamp(?:\([0-6]\))?", observed_type) is not None
-        )
-        utc_timestamp_storage = (
-            metadata.backend_type in {"mysql", "clickhouse"}
-            and re.fullmatch(r"timestamp\('UTC', [0-6]\)", observed_type) is not None
-            and (
-                binding.data_type == "timestamp"
-                or binding.data_type == observed_type.replace("'UTC', ", "")
-            )
-        )
-        if boolean_storage or utc_timestamp_storage:
-            warnings.append(
-                MetadataWarning(
-                    kind="declared_column_unverified",
-                    message="Physical representation is compatible; Boolean values or UTC execution timezone still require runtime validation.",
-                    columns=(output_name,),
-                )
-            )
-        if (
-            observed_type != binding.data_type
-            and not boolean_storage
-            and not timestamp_storage
-            and not utc_timestamp_storage
-        ):
-            raise _declared_type_mismatch(
-                datasource_name=metadata.datasource,
-                source=source,
-                output_name=output_name,
-                physical_name=binding.source,
-                declared_type=binding.data_type,
-                observed_type=observed_type,
-                scope_state=metadata.partition_state,
-            )
         columns.append(
             ColumnMetadata(
                 name=output_name,
-                type=binding.data_type,
+                type=observed_type,
                 nullable=catalog_column.nullable,
                 comment=catalog_column.comment,
                 ordinal_position=position,
@@ -1202,7 +1073,7 @@ def _project_partitioning(
     if partitioning.state != "known":
         return replace(partitioning, fields=effective_metadata.partitions)
 
-    source_to_output = {binding.source: output for output, binding in source.columns}
+    source_to_output = {source_name: output for output, source_name in source.columns}
     return replace(
         partitioning,
         fields=effective_metadata.partitions,
@@ -1444,7 +1315,7 @@ def _listed_partitioning(
     physical_fields = inspection.partitioning.fields
     source_to_output: dict[str, str] = {}
     if inspection.source.columns:
-        output_to_source = {output: binding.source for output, binding in inspection.source.columns}
+        output_to_source = dict(inspection.source.columns)
         if any(field.name not in output_to_source for field in physical_fields):
             return inspection.partitioning, (
                 MetadataWarning(
@@ -1521,10 +1392,11 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
         >>> inspection.show()
 
     Constraints:
-        Executes no user-data query. CSV and JSON paths are never opened and
-        use only the authored schema. Parquet reads footer schema only.
-        ``datasource`` is the typed ref itself; do not call ``md.connect``
-        before inspection.
+        Does not execute a user-data query. Tables use metadata hooks and
+        Parquet reads footer metadata. The backend may open local CSV and JSON
+        files to discover their columns and observed types. Remote HTTP JSON is
+        not fetched. ``datasource`` is the typed ref itself; do not call
+        ``md.connect`` before inspection.
     """
     project_root = find_project_root() or Path.cwd()
     return _inspect_in_project(datasource, source, project_root=project_root)
@@ -1575,25 +1447,11 @@ def _inspect_in_project(
     partition_warnings: tuple[MetadataWarning, ...] = ()
 
     if isinstance(source, CsvSourceIR | JsonSourceIR):
-        if datasource_ir.backend_type != "duckdb":
-            raise _authoring_error(
-                code="source_mismatch",
-                stage="inspect",
-                expected="a DuckDB datasource for CSV or JSON sources",
-                received=datasource_ir.backend_type,
-                reason="CSV and JSON source descriptors require a DuckDB datasource",
-                scope_state=None,
-            )
-        metadata = TableMetadata(
-            datasource=datasource_name,
-            table=source.path,
-            database=None,
-            backend_type=datasource_ir.backend_type,
-            comment=None,
-            columns=_declared_schema(source.schema),
-            partitions=(),
-            partition_state="none",
-            warnings=(),
+        metadata = _inspect_source(
+            datasource_name,
+            source=source,
+            include_partitions=False,
+            project_root=project_root,
         )
     elif isinstance(source, ParquetSourceIR):
         if datasource_ir.backend_type != "duckdb":

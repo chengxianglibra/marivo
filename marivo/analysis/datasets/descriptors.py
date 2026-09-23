@@ -898,14 +898,43 @@ def _validate_realized_schema(
             expected.field_id != actual.field_id
             or expected.name != actual.name
             or expected.role_id != actual.role_id
-            or expected.identity != actual.identity
             or expected.derivation_identity != actual.derivation_identity
-            or expected.logical_type_id != actual.logical_type_id
             or expected.nullable != actual.nullable
         ):
             _fail(
                 "the exact ordered logical field bindings",
                 "realized field binding differs",
+                "state.realized_schema",
+            )
+        if expected.identity != actual.identity:
+            expected_identity, actual_identity = expected.identity, actual.identity
+            if not (
+                isinstance(expected_identity, _EntityFieldIdentity)
+                and isinstance(actual_identity, _EntityFieldIdentity)
+                and expected_identity.entity_ref == actual_identity.entity_ref
+                and tuple(name for name, _ in expected_identity.identity_signature)
+                == tuple(name for name, _ in actual_identity.identity_signature)
+                and all(
+                    expected_kind == "unknown" or expected_kind == actual_kind
+                    for (_, expected_kind), (_, actual_kind) in zip(
+                        expected_identity.identity_signature,
+                        actual_identity.identity_signature,
+                        strict=True,
+                    )
+                )
+            ):
+                _fail(
+                    "the exact ordered logical identity binding",
+                    "realized identity differs",
+                    "state.realized_schema",
+                )
+        if expected.logical_type_id != actual.logical_type_id and not (
+            expected.logical_type_id == "unknown"
+            and actual.logical_type_id == actual.physical_type_state.physical_type_id
+        ):
+            _fail(
+                "the exact logical type or its explicit unknown-type refinement",
+                actual.logical_type_id,
                 "state.realized_schema",
             )
         physical = actual.physical_type_state.physical_type_id
@@ -914,9 +943,13 @@ def _validate_realized_schema(
             admitted = expected.physical_type_state.physical_type_id == physical
         elif isinstance(expected.physical_type_state, _DeferredPhysicalType):
             admitted = (
-                physical,
-                expected.physical_type_state.admitted_type_class_id,
-            ) in ids.physical_type_classes
+                expected.physical_type_state.admitted_type_class_id == "unknown"
+                or (
+                    physical,
+                    expected.physical_type_state.admitted_type_class_id,
+                )
+                in ids.physical_type_classes
+            )
             if (
                 physical == expected.physical_type_state.admitted_type_class_id
                 and _bool_tuple_arity(physical) is not None
