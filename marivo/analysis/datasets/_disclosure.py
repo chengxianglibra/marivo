@@ -314,7 +314,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="DatasetContract",
                 code="result = metric.contract()",
                 requires=("metric",),
-                effects="Pure metadata and consumer-admission read; no query or Run.",
+                effects="Pure metadata and consumer-admission read; source-bound Metric and Population contracts also show the selected backend's static source qualification or rejection. A static pass does not replace execution-time placement; retained inputs remain unchecked. No query or Run.",
             ),
         )
     )

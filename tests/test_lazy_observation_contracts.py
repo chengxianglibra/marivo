@@ -309,6 +309,16 @@ def _retained(
     return result
 
 
+def test_retained_population_skips_static_source_admission() -> None:
+    sources = make_sources()
+    population = _retained(sources.population(ref.entity("sales.orders")))
+    observed = sources.observe(REVENUE, population=population)
+    assert (
+        "source_admission: not_checked: retained Artifact inputs require execution-time placement"
+    ) in observed.contract().render()
+    assert "source_admission:" not in population.contract().render()
+
+
 def test_materialized_rows_only_admit_exact_scans_and_new_sources() -> None:
     sources = make_sources()
     retained = _retained(sources.observe(REVENUE, time_scope=WINDOW))

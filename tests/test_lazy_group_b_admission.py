@@ -167,5 +167,6 @@ def test_relationship_stage_requires_one_exact_datasource_binding(backend: str) 
     # Identical engine and connection fields do not merge distinct declaration authority.
     with pytest.raises(DatasetCompilationError, match="mixed sources"):
         source_binding(related)
+    assert "source_admission: rejected: mixed sources" in related.contract().render()
     with pytest.raises(DatasetCompilationError, match="mixed sources"):
         place(related)

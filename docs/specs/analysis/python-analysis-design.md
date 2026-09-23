@@ -31,8 +31,13 @@ execution does not fetch comments or infer business semantics from them.
 
 `marivo.help("analysis.actions.execute")` owns the bounded execution guidance.
 Datasource connectivity and semantic readiness do not establish support for a
-particular method or input shape. Read the logical Dataset contract and the
-structured rejection for the selected invocation. Remote sources require read-only
+particular method or input shape. For source-bound Metric and Population graphs,
+the logical Dataset contract shows the selected backend's static source admission:
+`rejected` includes the qualification reason, while `static_pass` means only that
+the pure source check passed. Graphs with retained Artifact inputs show
+`not_checked`. Final placement, current Runtime state and source-data validation
+remain execution-time decisions. Read the structured rejection for the selected
+invocation. Remote sources require read-only
 accounts; retained import and uploads remain unsupported. Source relations are not
 restricted by table form: views and every engine or connector type enter, and Trino
 rejects only `$`-suffixed internal tables. Installed
@@ -465,7 +470,8 @@ recovery; unresolved publication ownership and storage integrity still block.
 Start at `marivo.help("analysis")`. Its bounded hubs route to source entry,
 methods, inputs, artifacts, evidence and runtime. Native Help owns exact callable
 signatures, constraints and executable examples. Dataset `contract()` owns
-mechanical continuations, including the public call and exact Help target;
+mechanical continuations and static Metric/Population source admission, including
+the public call and exact Help target for continuations;
 structured errors preserve concrete diagnostics and own repair. Packaged skills
 own workflow decisions without duplicating signatures or private implementation
 inventories. Entry links to Session bootstrap/recovery and Metric, Event and

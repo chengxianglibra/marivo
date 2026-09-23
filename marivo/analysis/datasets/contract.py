@@ -106,7 +106,7 @@ class DatasetContract:
         Example:
             ``text = dataset.contract().render()``
         Constraints:
-            No rows, datasource reads, or current catalog lookups are performed.
+            No rows, datasource reads, or live catalog refreshes are performed.
         """
         card = Card(identity=self._identity, available=(".show()",))
         for label, value in self._facts:

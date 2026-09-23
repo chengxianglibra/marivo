@@ -306,10 +306,11 @@ class Dataset(ABC):
             A terminal DatasetContract; no parameters are required.
 
         Example:
-            ``dataset.contract().show()`` inspects admitted continuations.
+            ``dataset.contract().show()`` inspects continuations and static source admission.
 
         Constraints:
-            Reads already-bound facts only and never executes or revalidates rows.
+            Reads bound semantic facts without source I/O or row validation;
+            static source admission does not replace execution-time placement.
         """
         return make_contract(self)
 
