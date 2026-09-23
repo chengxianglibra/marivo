@@ -12,6 +12,8 @@ from marivo.datasource.ir import (
     DatasourceSourceLocation,
     JsonSourceIR,
     SourceParamIR,
+    TableColumnBindingIR,
+    TableSourceIR,
 )
 from marivo.refs import Ref, SemanticKindTag, ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar, ExpressionBody
@@ -275,10 +277,15 @@ def test_validity_exact_endpoint_comparisons(interval: str) -> None:
 
 def test_invalid_identity_and_version_axes_fail_without_guessing_columns() -> None:
     registry = _registry()
-    for key in (("unknown",), ("id", "id")):
+    for key, kind in (
+        (("unknown",), "missing_identity_key_type"),
+        (("id", "id"), "duplicate_identity_key"),
+    ):
         registry.entities["sales.orders"] = _entity("orders", key=key)
-        with pytest.raises(SemanticLoadError, match="declared source types"):
+        with pytest.raises(SemanticLoadError) as caught:
             normalize_target_entity(registry, "sales.orders")
+        assert caught.value.kind == kind
+        assert key[-1] in (caught.value.received or "")
     registry.entities["sales.orders"] = _entity(
         "orders",
         version=SnapshotVersioningIR("snapshot", "sales.customers.day", "day"),
@@ -290,8 +297,55 @@ def test_invalid_identity_and_version_axes_fail_without_guessing_columns() -> No
         key=("id", "day"),
         version=SnapshotVersioningIR("snapshot", "sales.orders.day", "day"),
     )
-    with pytest.raises(SemanticLoadError, match="separate from snapshot"):
+    with pytest.raises(SemanticLoadError, match="separate from snapshot") as caught:
         normalize_target_entity(registry, "sales.orders")
+    assert caught.value.kind == "identity_version_overlap"
+
+
+def test_identity_diagnostics_prioritize_duplicates_types_then_snapshot_overlap() -> None:
+    registry = _registry()
+    version = SnapshotVersioningIR("snapshot", "sales.orders.day", "day")
+    untyped = TableSourceIR("orders")
+    entity = replace(_entity("orders", key=("id", "id", "day"), version=version), source=untyped)
+    registry.entities[entity.semantic_id] = entity
+
+    with pytest.raises(SemanticLoadError) as caught:
+        normalize_target_entity(registry, entity.semantic_id)
+    assert caught.value.kind == "duplicate_identity_key"
+    assert caught.value.received == "duplicate identity keys ('id',)"
+
+    registry.entities[entity.semantic_id] = replace(entity, primary_key=("id", "day"))
+    with pytest.raises(SemanticLoadError) as caught:
+        normalize_target_entity(registry, entity.semantic_id)
+    assert caught.value.kind == "missing_identity_key_type"
+    assert caught.value.received == "missing type facts for ('id', 'day')"
+    assert "complete md.table(columns={...})" in (caught.value.hint or "")
+
+    registry.entities[entity.semantic_id] = replace(
+        entity,
+        primary_key=("id", "day"),
+        source=TableSourceIR("orders", columns=(("id", TableColumnBindingIR("id", "int64")),)),
+    )
+    with pytest.raises(SemanticLoadError) as caught:
+        normalize_target_entity(registry, entity.semantic_id)
+    assert caught.value.kind == "missing_identity_key_type"
+    assert caught.value.received == "missing type facts for ('day',)"
+
+    registry.entities[entity.semantic_id] = replace(
+        entity,
+        primary_key=("id", "day"),
+        source=TableSourceIR(
+            "orders",
+            columns=(
+                ("id", TableColumnBindingIR("id", "int64")),
+                ("day", TableColumnBindingIR("day", "date")),
+            ),
+        ),
+    )
+    with pytest.raises(SemanticLoadError) as caught:
+        normalize_target_entity(registry, entity.semantic_id)
+    assert caught.value.kind == "identity_version_overlap"
+    assert "'day' included in primary_key" in (caught.value.received or "")
 
 
 @pytest.mark.parametrize("agg", ["sum", "count", "mean"])

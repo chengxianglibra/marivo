@@ -97,6 +97,10 @@ operations and intentionally has no ``md.help()`` alias. A
 ``SourceInspection`` card points to
 ``marivo.help("datasource.SourceInspection.sample")`` for the complete
 single-process acquisition and query-free projection chain.
+For inspected tables, ``inspection.source_column(name)`` converts a supported
+physical metadata type into a typed ``md.table(columns=...)`` binding without
+reading rows. Inspect ``marivo.help("datasource.SourceInspection.source_column")``
+for its exact input and failure contract.
 
 .. autosummary::
    :toctree: api/

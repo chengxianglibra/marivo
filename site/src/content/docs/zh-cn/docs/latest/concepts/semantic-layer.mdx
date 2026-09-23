@@ -379,6 +379,10 @@ ms.domain(name="sales", owner="Mina Zhang")
 它的可复用记录集含义、权威来源、行粒度、身份、历史模型和领域归属必须一致。
 使用 `marivo.help("semantic.objects.entity")` 查看这份清单，再用
 `marivo.help("semantic.entity")` 查询已安装版本的签名。
+`ms.entity(...)` 返回不可调用的 ref，应赋值给名称，而不是写在函数前面作为
+`@` 装饰器。对于有版本声明的 Entity，静态加载要求每个身份键与版本轴都有
+已声明的类型；重复键、缺少类型、版本坐标进入 `primary_key` 会按此顺序
+逐次报告为不同错误。
 
 Analysis 执行时信任 Entity 的身份与版本声明，不扫描源行预检唯一性、时间解析或
 版本区间。需要检查源数据时，显式调用 `catalog.source_health(..., checks=...)`。
@@ -425,6 +429,19 @@ events = ms.entity(
 检查结果会给出仅声明警告。此时应选择显式有界样本，获取一次快照，执行限定范围的预览，
 再运行零查询就绪检查。静态加载和校验只证明声明内部一致；预览才是运行时权威。该来源记录为
 `TABLE_PROJECTION`，各别名仍是同一物理表内的绑定，不会被伪装为多个物理来源。
+
+对经 `md.inspect` 检查的表，可以用已保留的元数据生成类型绑定，无需猜测
+后端类型与 Ibis 类型的对应关系：
+
+```python
+inspection = md.inspect(warehouse, md.table("orders"))
+order_id = inspection.source_column("order_id")  # bigint metadata becomes int64
+orders_source = md.table("orders", columns={"order_id": order_id})
+```
+
+投影来源应包含所需的全部输出列。检查卡片同时显示物理类型、Ibis 类型与
+可复制的绑定；`inspection.schema` 保留物理类型。`inspection.source_column(...)`
+不读取数据、不转换值，对无法可靠映射的类型会明确报错。
 
 ### 3. 添加字段
 
@@ -1253,7 +1270,8 @@ join 与条件逻辑的 `md.raw_sql(...)`。Raw SQL 是普通的受治理探索�
 `null_semantics`，例如它表示“不适用于该事件分支”还是“值未知”。Marivo 不会把
 高 null rate 自动判为数据质量故障，也不会隐式过滤 `NULL`。
 
-检查卡片会显示精确来源 descriptor，以及真实结构的列名和类型。分区
+检查卡片会显示精确来源 descriptor，以及真实结构的列名和类型；普通表还会
+显示归一后的 Ibis 类型与绑定示例。分区
 卡片会显示请求的物理值升序/降序一侧、值来源、完整性、截断状态、有界值和范围模板。
 默认降序一侧复用已捕获的元数据；其他 limit 或 order 会执行一次有界 metadata-only
 查询。字符串或数值排序不会被自动解释为时间顺序。快照卡片会显示范围、selected 列、

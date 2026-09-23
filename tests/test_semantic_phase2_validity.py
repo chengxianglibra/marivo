@@ -168,8 +168,8 @@ def test_validity_valid_from_in_primary_key_rejected(semantic_project_factory):
     errors = exc_info.value.errors
     assert len(errors) >= 1
     error = errors[0]
-    assert error.kind == "invalid_target_semantics"
-    assert error.expected == "distinct validity bounds separate from K"
+    assert error.kind == "identity_version_overlap"
+    assert error.expected == "stable identity K separate from validity coordinates"
 
 
 # ---------------------------------------------------------------------------

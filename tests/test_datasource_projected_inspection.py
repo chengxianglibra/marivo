@@ -192,6 +192,7 @@ def test_public_inspection_projects_schema_and_blocks_type_mismatch_before_query
     )
     assert inspection.physical_extent.row_count == 12
     assert any("absent from base metadata" in warning for warning in inspection.warnings)
+    assert inspection.source_column("order_key") == md.source_column("order_id", data_type="string")
 
     mismatched = md.table(
         "orders",
@@ -209,6 +210,91 @@ def test_public_inspection_projects_schema_and_blocks_type_mismatch_before_query
     assert "database=None" in error.received
     assert error.repair is not None
     assert error.repair.snippet == "md.source_column('order_id', data_type='string')"
+
+
+def test_inspection_source_column_bridges_raw_catalog_types(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    columns = (
+        ColumnMetadata("group_id", "bigint", False, None, 1),
+        ColumnMetadata("group_name", "varchar", True, None, 2),
+    )
+    monkeypatch.setattr(
+        "marivo.datasource.inspection._inspect_source",
+        lambda *_a, **_k: _metadata(columns=columns, backend_type="trino"),
+    )
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+
+    assert [(column.name, column.type) for column in inspection.schema] == [
+        ("group_id", "bigint"),
+        ("group_name", "varchar"),
+    ]
+    assert inspection.source_column("group_id") == md.source_column("group_id", data_type="int64")
+    assert inspection.source_column("group_name") == md.source_column(
+        "group_name", data_type="string"
+    )
+    projected = md.table(
+        "orders",
+        columns={
+            "group_id": inspection.source_column("group_id"),
+            "group_name": inspection.source_column("group_name"),
+        },
+    )
+    assert [column.type for column in md.inspect(inspection.datasource, projected).schema] == [
+        "int64",
+        "string",
+    ]
+    rendered = inspection.render()
+    assert "physical type" in rendered and "ibis type" in rendered
+    assert "md.source_column('group_id', data_type='int64')" in rendered
+    assert "md.source_column('group_name', data_type='string')" in rendered
+
+
+def test_inspection_source_column_rejects_unmappable_types(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata = _metadata(
+        columns=(
+            ColumnMetadata("fixed_name", "char(8)", False, None, 1),
+            ColumnMetadata("unknown_value", "some_new_backend_type", True, None, 2),
+        ),
+        backend_type="trino",
+    )
+    monkeypatch.setattr("marivo.datasource.inspection._inspect_source", lambda *_a, **_k: metadata)
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+    for name, code in (
+        ("fixed_name", "source_column_type_unmapped"),
+        ("unknown_value", "source_column_type_unmapped"),
+        ("missing", "source_column_unknown"),
+    ):
+        with pytest.raises(DatasourceAuthoringError) as caught:
+            inspection.source_column(name)
+        assert caught.value.code == code
+        assert caught.value.effect_observed is not None
+        assert caught.value.effect_observed.query_executed is False
+    rendered = inspection.render()
+    assert "unavailable" in rendered
+    assert "md.source_column('fixed_name'" not in rendered
+
+
+def test_inspection_source_column_accepts_clickhouse_projectable_column(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata = _metadata(
+        columns=(ColumnMetadata("id", "int64", False, None, 1),),
+        projectable_columns=(
+            ColumnMetadata("string_map%2Eregion*ICDS*", "string", True, None, None),
+        ),
+        backend_type="clickhouse",
+    )
+    monkeypatch.setattr("marivo.datasource.inspection._inspect_source", lambda *_a, **_k: metadata)
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+    assert inspection.source_column("string_map%2Eregion*ICDS*") == md.source_column(
+        "string_map%2Eregion*ICDS*", data_type="string"
+    )
 
 
 def test_projected_metadata_validates_adapter_discovered_physical_column_type() -> None:

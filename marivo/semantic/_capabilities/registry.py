@@ -1573,6 +1573,34 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             preserves_evidence=True,
         ),
         SemanticRepairContract(
+            error_kind="entity_constructor_as_decorator",
+            kind="reauthor",
+            help_target=_target("entity"),
+            action="Assign ms.entity(...) to a name and remove the decorated function body.",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="duplicate_identity_key",
+            kind="reauthor",
+            help_target=_target("entity"),
+            action="Remove repeated names from primary_key.",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="missing_identity_key_type",
+            kind="reauthor",
+            help_target=_target("entity"),
+            action="Declare each missing identity key in the complete typed source interface.",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="identity_version_overlap",
+            kind="reauthor",
+            help_target=_target("entity"),
+            action="Remove version coordinates from primary_key and keep them in versioning.",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
             error_kind="organization_error",
             kind="reauthor",
             help_target=_target("authoring"),
@@ -2332,7 +2360,14 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ("dependency", "TableName"),
             ),
             effects=_AUTHOR,
-            constraints=("active_loader_context", "ref_shape"),
+            constraints=(
+                "active_loader_context",
+                "ref_shape",
+                "entity_constructor_assignment",
+                "entity_identity_key_unique",
+                "entity_identity_key_typed",
+                "entity_version_key_separate",
+            ),
             example=(
                 "warehouse = ms.ref.datasource('warehouse'); "
                 "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))"

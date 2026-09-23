@@ -1160,8 +1160,83 @@ def test_dataset_decorator_body_rejected(semantic_project_factory) -> None:
 
     assert result.status == "errored"
     assert result.errors
+    error = result.errors[0]
+    assert error.kind == ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR
+    assert error.constraint_id == "entity_constructor_assignment"
+    assert error.location is not None and error.location.line == 3
+    assert error.expected == "name = ms.entity(...) without a decorated function body"
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == "entity"
+
+
+@pytest.mark.parametrize(
+    ("import_line", "decorator_name"),
+    [
+        ("import marivo.semantic as sem", "sem.entity"),
+        ("from marivo.semantic import entity as declare_entity", "declare_entity"),
+        ("from marivo import semantic as sem", "sem.entity"),
+    ],
+)
+def test_entity_constructor_decorator_aliases_are_diagnosed(
+    semantic_project_factory, import_line: str, decorator_name: str
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                f"import marivo.datasource as md\nimport marivo.semantic as ms\n{import_line}\n"
+                f"@{decorator_name}(name='orders', datasource="
+                "ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "def orders(backend):\n    return backend.table('orders')\n"
+            ),
+        },
+        load=False,
+    )
+    result = project.load()
+    assert result.status == "errored"
+    assert result.errors[0].kind == ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR
+
+
+def test_unrelated_ref_call_keeps_general_runtime_diagnostic(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "entity_ref = ms.ref.entity('sales.orders')\n"
+                "entity_ref()\n"
+            ),
+        },
+        load=False,
+    )
+    result = project.load()
+    assert result.status == "errored"
     assert result.errors[0].kind == ErrorKind.ORGANIZATION_ERROR
-    assert "not callable" in result.errors[0].message
+
+
+def test_shadowed_semantic_alias_keeps_general_runtime_diagnostic(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "ref = ms.ref.entity('sales.orders')\n"
+                "class Other:\n"
+                "    def entity(self, **kwargs):\n"
+                "        return ref\n"
+                "ms = Other()\n"
+                "@ms.entity(name='orders')\n"
+                "def orders():\n"
+                "    pass\n"
+            ),
+        },
+        load=False,
+    )
+    result = project.load()
+    assert result.status == "errored"
+    assert result.errors[0].kind == ErrorKind.ORGANIZATION_ERROR
 
 
 def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:

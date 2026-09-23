@@ -114,6 +114,7 @@ class ErrorKind(StrEnum):
     INVALID_STATE_MODEL = "invalid_state_model"
     AMBIGUOUS_PARTICIPANT_ROLE = "ambiguous_participant_role"
     MODEL_STATE_MISMATCH = "model_state_mismatch"
+    ENTITY_CONSTRUCTOR_AS_DECORATOR = "entity_constructor_as_decorator"
 
     # assembly-time
     DOMAIN_FILE_MISSING = "domain_file_missing"
@@ -135,6 +136,9 @@ class ErrorKind(StrEnum):
     INCOMMENSURABLE_LINEAR_UNITS = "incommensurable_linear_units"
     INVALID_VERIFICATION_MODE = "invalid_verification_mode"
     INVALID_ENTITY_VERSIONING = "invalid_entity_versioning"
+    DUPLICATE_IDENTITY_KEY = "duplicate_identity_key"
+    MISSING_IDENTITY_KEY_TYPE = "missing_identity_key_type"
+    IDENTITY_VERSION_OVERLAP = "identity_version_overlap"
     NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"
     DERIVED_METRIC_FANOUT_POLICY = "derived_metric_fanout_policy"

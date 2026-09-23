@@ -12,6 +12,7 @@ you need the unassembled result rather than a catalog.
 
 from __future__ import annotations
 
+import ast
 import sys
 import types
 from collections.abc import Sequence
@@ -34,6 +35,7 @@ from marivo.refs import FieldKind, Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._compiled_state import CompiledSemanticState, build_compiled_state
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -49,6 +51,7 @@ from marivo.semantic.ir import (
     DomainIR,
     MeasureIR,
     MetricIR,
+    SourceLocation,
 )
 from marivo.semantic.validator import Registry, assembly_validate, canonicalize_state_models
 
@@ -249,6 +252,100 @@ def _ensure_package(name: str, path: Path) -> None:
     sys.modules[name] = package
 
 
+def _entity_constructor_decorator_error(filepath: Path, exc: Exception) -> SemanticLoadError | None:
+    """Classify only an executed @ms.entity(...) application that returned Ref."""
+    if type(exc) is not TypeError or str(exc) != "'Ref' object is not callable":
+        return None
+    offending_line: int | None = None
+    offending_scope: dict[str, object] | None = None
+    traceback = exc.__traceback__
+    while traceback is not None:
+        if Path(traceback.tb_frame.f_code.co_filename) == filepath:
+            offending_line = traceback.tb_lineno
+            offending_scope = {
+                **traceback.tb_frame.f_globals,
+                **traceback.tb_frame.f_locals,
+            }
+        traceback = traceback.tb_next
+    if offending_line is None or offending_scope is None:
+        return None
+    semantic_module = sys.modules.get("marivo.semantic")
+    if semantic_module is None:
+        return None
+    entity_constructor = getattr(semantic_module, "entity", None)
+    try:
+        tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
+    except (OSError, SyntaxError, UnicodeError):
+        return None
+
+    module_aliases: set[str] = set()
+    direct_aliases: set[str] = set()
+    bare_module = False
+    for statement in tree.body:
+        if isinstance(statement, ast.Import):
+            for alias in statement.names:
+                if alias.name == "marivo.semantic":
+                    if alias.asname is None:
+                        bare_module = True
+                    else:
+                        module_aliases.add(alias.asname)
+        elif isinstance(statement, ast.ImportFrom):
+            if statement.module == "marivo":
+                module_aliases.update(
+                    alias.asname or alias.name
+                    for alias in statement.names
+                    if alias.name == "semantic"
+                )
+            elif statement.module == "marivo.semantic":
+                direct_aliases.update(
+                    alias.asname or alias.name
+                    for alias in statement.names
+                    if alias.name == "entity"
+                )
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        for decorator in node.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+            if not decorator.lineno <= offending_line <= (decorator.end_lineno or decorator.lineno):
+                continue
+            target = decorator.func
+            direct = (
+                isinstance(target, ast.Name)
+                and target.id in direct_aliases
+                and offending_scope.get(target.id) is entity_constructor
+            )
+            qualified = (
+                isinstance(target, ast.Attribute)
+                and target.attr == "entity"
+                and isinstance(target.value, ast.Name)
+                and target.value.id in module_aliases
+                and offending_scope.get(target.value.id) is semantic_module
+            )
+            bare = (
+                bare_module
+                and isinstance(target, ast.Attribute)
+                and target.attr == "entity"
+                and isinstance(target.value, ast.Attribute)
+                and target.value.attr == "semantic"
+                and isinstance(target.value.value, ast.Name)
+                and target.value.value.id == "marivo"
+                and getattr(offending_scope.get("marivo"), "semantic", None) is semantic_module
+            )
+            if direct or qualified or bare:
+                return SemanticLoadError(
+                    kind=ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR,
+                    message="ms.entity(...) returns Ref[entity] and cannot decorate a definition.",
+                    location=SourceLocation(str(filepath), decorator.lineno),
+                    expected="name = ms.entity(...) without a decorated function body",
+                    received="@ms.entity(...) applied to a definition",
+                    constraint_id=ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT,
+                )
+    return None
+
+
 def _execute_file(
     filepath: Path,
     ctx: LoaderContext,
@@ -274,8 +371,10 @@ def _execute_file(
         if isinstance(exc, SemanticError):
             errors.append(exc)
         else:
+            entity_decorator_error = _entity_constructor_decorator_error(filepath, exc)
             errors.append(
-                SemanticLoadError(
+                entity_decorator_error
+                or SemanticLoadError(
                     kind=ErrorKind.ORGANIZATION_ERROR,
                     message=f"Error executing {filepath}: {exc}",
                     hint="Check the file for syntax or runtime errors.",

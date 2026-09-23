@@ -317,7 +317,12 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "projected_source_runtime_evidence",
             ),
             example='md.source_column("event.timestamp", data_type="timestamp(3)")',
-            see_also=(_target("table"), _target("inspect"), _target("raw_sql")),
+            see_also=(
+                _target("table"),
+                _target("inspect"),
+                _target("SourceInspection.source_column"),
+                _target("raw_sql"),
+            ),
         ),
         _capability(
             "table",
@@ -548,6 +553,27 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             public_entrypoint="inspection.partitions",
         ),
         _capability(
+            "SourceInspection.source_column",
+            "marivo.datasource.inspection.SourceInspection.source_column",
+            "Build one typed table binding from inspected metadata without reading rows.",
+            kind="method",
+            output="TableColumnBinding",
+            inputs=_inputs(
+                ("receiver", "SourceInspection"),
+                ("subject", "PhysicalColumnName"),
+            ),
+            effects=_NONE,
+            example=(
+                'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
+                'order_id = inspection.source_column("order_id")\n'
+                'source = md.table("orders", columns={"order_id": order_id})'
+            ),
+            preconditions=("a table SourceInspection with a safely mapped column type",),
+            repair_kinds=("reauthor",),
+            public_entrypoint="inspection.source_column",
+            see_also=(_target("inspect"), _target("source_column"), _target("table")),
+        ),
+        _capability(
             "SourceInspection.sample",
             "marivo.datasource.inspection.SourceInspection.sample",
             "Acquire scoped bounded evidence from an inspected source.",
@@ -639,6 +665,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "inspect_scope": (
                 "inspect",
                 "SourceInspection.partitions",
+                "SourceInspection.source_column",
                 "partition",
                 "time_range",
                 "unpruned",
@@ -825,7 +852,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
     add(
         TableColumnBindingIR,
         "TableColumnBindingIR",
-        ("source_column",),
+        ("source_column", "SourceInspection.source_column"),
         properties=("source", "data_type"),
         consumers=("table",),
     )
@@ -904,8 +931,12 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "projectable_columns",
             "warnings",
         ),
-        methods=("partitions", "sample", *show_render),
-        consumers=("SourceInspection.partitions", "SourceInspection.sample"),
+        methods=("partitions", "source_column", "sample", *show_render),
+        consumers=(
+            "SourceInspection.partitions",
+            "SourceInspection.source_column",
+            "SourceInspection.sample",
+        ),
     )
     add(
         DiscoverySnapshot,

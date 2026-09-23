@@ -31,6 +31,7 @@ from marivo.datasource.ir import (
     DatasourceIR,
     JsonSourceIR,
     ParquetSourceIR,
+    TableColumnBindingIR,
     TableSourceIR,
     _format_database_identity,
 )
@@ -174,6 +175,7 @@ class SourceInspection(RenderableResult):
     warnings: tuple[str, ...]
     _project_root: Path
     projectable_columns: tuple[ColumnMetadata, ...] = ()
+    _backend_type: str = ""
 
     def _repr_identity(self) -> str:
         return (
@@ -183,13 +185,12 @@ class SourceInspection(RenderableResult):
         )
 
     def _card(self) -> Card:
+        available = (
+            (".source_column(name)",) if isinstance(self.source, TableSourceIR) else ()
+        ) + (".partitions()", ".sample(...)", ".show()")
         card = Card(
             identity=self._repr_identity(),
-            available=(
-                ".partitions()",
-                ".sample(...)",
-                ".show()",
-            ),
+            available=available,
         )
         if isinstance(self.source, TableSourceIR) and self.source.columns:
             card.field("source kind", "projected table")
@@ -247,28 +248,38 @@ class SourceInspection(RenderableResult):
             label="focused acquisition help",
             value='marivo.help("datasource.SourceInspection.sample")',
         )
-        card.table(
-            columns=("column", "type", "nullable"),
-            rows=(
-                (
-                    column.name,
-                    column.type,
-                    "?" if column.nullable is None else ("Y" if column.nullable else "N"),
-                )
-                for column in self.schema
-            ),
-            row_count=len(self.schema),
-            label="schema",
-        )
+        if isinstance(self.source, TableSourceIR) and not self.source.columns:
+            card.table(
+                columns=("column", "physical type", "ibis type", "nullable", "binding"),
+                rows=(self._table_schema_row(column) for column in self.schema),
+                row_count=len(self.schema),
+                label="schema",
+                show_omission_counts=True,
+            )
+        else:
+            card.table(
+                columns=("column", "type", "nullable"),
+                rows=(
+                    (
+                        column.name,
+                        column.type,
+                        "?" if column.nullable is None else ("Y" if column.nullable else "N"),
+                    )
+                    for column in self.schema
+                ),
+                row_count=len(self.schema),
+                label="schema",
+            )
         if self.projectable_columns:
             card.table(
                 columns=("physical column", "ibis type", "nullable", "binding"),
                 rows=(
                     (
                         column.name,
-                        column.type,
+                        _ibis_table_type(column.type, backend_type=self._backend_type)
+                        or "unavailable",
                         "?" if column.nullable is None else ("Y" if column.nullable else "N"),
-                        f"md.source_column({column.name!r}, data_type={column.type!r})",
+                        self._binding_snippet(column),
                     )
                     for column in self.projectable_columns
                 ),
@@ -279,6 +290,83 @@ class SourceInspection(RenderableResult):
         if self.warnings:
             card.listing("warnings", self.warnings)
         return card
+
+    def _binding_snippet(self, column: ColumnMetadata) -> str:
+        ibis_type = _ibis_table_type(column.type, backend_type=self._backend_type)
+        if ibis_type is None:
+            return "unavailable"
+        return f"md.source_column({column.name!r}, data_type={ibis_type!r})"
+
+    def _table_schema_row(self, column: ColumnMetadata) -> tuple[str, ...]:
+        ibis_type = _ibis_table_type(column.type, backend_type=self._backend_type)
+        return (
+            column.name,
+            column.type,
+            ibis_type or "unavailable",
+            "?" if column.nullable is None else ("Y" if column.nullable else "N"),
+            self._binding_snippet(column),
+        )
+
+    def source_column(self, name: str) -> TableColumnBindingIR:
+        """Return one inspected physical table column as a typed binding.
+
+        Args:
+            name: Exact inspected column name, or an existing projected output alias.
+
+        Returns:
+            A binding usable in ``md.table(columns=...)`` without casting values.
+
+        Example:
+            ``binding = inspection.source_column("order_id")``
+
+        Constraints:
+            Only table inspections support bindings. Unmapped backend types and
+            fixed-width character storage require a reviewed source or view.
+            This method uses retained metadata and performs no query.
+        """
+        if not isinstance(self.source, TableSourceIR):
+            raise _source_column_error(
+                code="source_column_not_table",
+                expected="an inspected table source",
+                received=self.source.kind,
+                action="Inspect a md.table(...) source before requesting a table column binding.",
+            )
+        if type(name) is not str or not name:
+            raise _source_column_error(
+                code="source_column_name_invalid",
+                expected="a non-empty inspected column name",
+                received=repr(name),
+                action="Choose an exact column name from inspection.schema.",
+            )
+        for output, binding in self.source.columns:
+            if output == name:
+                return binding
+        column = next(
+            (item for item in (*self.schema, *self.projectable_columns) if item.name == name),
+            None,
+        )
+        if column is None:
+            raise _source_column_error(
+                code="source_column_unknown",
+                expected="a name in inspection.schema or inspection.projectable_columns",
+                received=repr(name),
+                action="Choose an exact inspected column name and retry.",
+                candidates=tuple(item.name for item in (*self.schema, *self.projectable_columns))[
+                    :8
+                ],
+            )
+        ibis_type = _ibis_table_type(column.type, backend_type=self._backend_type)
+        if ibis_type is None:
+            raise _source_column_error(
+                code="source_column_type_unmapped",
+                expected="a backend type with a safe Ibis binding",
+                received=f"{name!r}: {column.type!r}",
+                action=(
+                    "Use a view with a supported physical type or author a reviewed Ibis "
+                    "binding after checking the backend representation."
+                ),
+            )
+        return TableColumnBindingIR(source=column.name, data_type=ibis_type)
 
     def partitions(
         self,
@@ -453,6 +541,31 @@ def _authoring_error(
         reason=reason,
         effect_observed=DatasourceObservedEffects(query_executed=False, scope_state=scope_state),
         repair=repair_for_authoring_code(code),
+    )
+
+
+def _source_column_error(
+    *,
+    code: str,
+    expected: str,
+    received: str,
+    action: str,
+    candidates: tuple[str, ...] = (),
+) -> DatasourceAuthoringError:
+    return DatasourceAuthoringError(
+        code=code,
+        stage="inspect",
+        expected=expected,
+        received=received,
+        reason="The inspected column cannot supply a typed table binding.",
+        effect_observed=DatasourceObservedEffects(query_executed=False),
+        repair=repair(
+            kind="reauthor",
+            canonical_id="SourceInspection.source_column",
+            action=action,
+            candidates=candidates,
+            preserves_evidence=True,
+        ),
     )
 
 
@@ -838,6 +951,22 @@ def _canonical_catalog_type(type_name: str, *, backend_type: str) -> str:
         return str(ibis.dtype(type_name))
     except (TypeError, ValueError, RuntimeError):
         return type_name
+
+
+def _ibis_table_type(type_name: str, *, backend_type: str) -> str | None:
+    """Return a safe declared Ibis type while retaining the raw metadata elsewhere."""
+    canonical = _canonical_catalog_type(type_name, backend_type=backend_type)
+    if backend_type in {"postgres", "mysql", "trino"} and re.fullmatch(
+        r"(?:char|character)(?:\(\d+\))?", canonical
+    ):
+        return None
+    try:
+        dtype = ibis.dtype(canonical)
+    except (TypeError, ValueError, RuntimeError):
+        return None
+    if dtype.is_unknown():
+        return None
+    return str(dtype)
 
 
 def _declared_type_mismatch(
@@ -1552,4 +1681,5 @@ def _inspect_in_project(
         warnings=warnings,
         _project_root=project_root,
         projectable_columns=metadata.projectable_columns,
+        _backend_type=metadata.backend_type,
     )

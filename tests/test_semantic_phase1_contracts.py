@@ -9,6 +9,36 @@ from marivo.semantic.catalog import EntityDetails, MetricDetails, SemanticCatalo
 from marivo.semantic.errors import SemanticLoadFailed
 
 
+def test_versioned_entity_load_reports_missing_types_before_key_overlap(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+            ),
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "daily = ms.entity(name='daily', datasource=ms.ref.datasource('warehouse'), "
+                "source=md.table('daily'), primary_key=['id', 'dt'], "
+                "versioning=ms.snapshot(partition_field="
+                "ms.ref.time_dimension('sales.daily.dt'), grain='day', "
+                "format='%Y%m%d'))\n"
+                "dt = ms.time_dimension_column(name='dt', entity=daily, column='dt', "
+                "granularity='day', parse=ms.strptime('%Y%m%d'))\n"
+            ),
+        },
+        load=False,
+    )
+
+    result = project.load()
+    assert result.status == "errored"
+    identity_errors = [error for error in result.errors if error.semantic_refs == ("sales.daily",)]
+    assert len(identity_errors) == 1
+    assert identity_errors[0].kind == "missing_identity_key_type"
+    assert identity_errors[0].received == "missing type facts for ('id', 'dt')"
+
+
 def test_base_metric_requires_additivity(semantic_project_factory):
     project = semantic_project_factory(
         {

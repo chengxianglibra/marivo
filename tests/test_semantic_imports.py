@@ -366,6 +366,7 @@ _EXPECTED_DECORATOR_KINDS = {
     "invalid_state_model",
     "ambiguous_participant_role",
     "model_state_mismatch",
+    "entity_constructor_as_decorator",
 }
 
 _EXPECTED_ASSEMBLY_KINDS = {
@@ -386,6 +387,9 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "invalid_metric_root_entity",
     "invalid_verification_mode",
     "invalid_entity_versioning",
+    "duplicate_identity_key",
+    "missing_identity_key_type",
+    "identity_version_overlap",
     "non_root_metric_aggregate",
     "invalid_metric_fanout_policy",
     "invalid_filter",
