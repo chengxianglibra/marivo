@@ -23,7 +23,85 @@ pytestmark = [
     ),
 ]
 ROOT = Path(__file__).resolve().parents[1]
-BACKENDS = ("sqlite", "postgres", "mysql", "trino", "clickhouse")
+BACKENDS = ("sqlite", "postgres", "mysql", "clickhouse", "clickhouse-cluster", "trino")
+METHOD_CASES: dict[str, tuple[str, ...]] = {
+    "sqlite": (
+        "tests/test_lazy_sqlite_methods.py::test_entity_correlation",
+        "tests/test_lazy_sqlite_methods.py::test_hidden_axis_attribution_matches_complete_source_sides",
+        "tests/test_lazy_sqlite_methods.py::test_exact_distinct_membership",
+        "tests/test_lazy_sqlite_methods.py::test_exact_distribution",
+        "tests/test_lazy_sqlite_methods.py::test_status_fold_spatial_sums",
+        "tests/test_lazy_sqlite_methods.py::test_remote_membership_rejects_duplicate_pair_even_with_matching_endpoint",
+        "tests/test_lazy_sqlite_runtime.py::test_view_source_journey",
+    ),
+    "postgres": (
+        "tests/test_lazy_postgres_methods.py::test_entity_correlation",
+        "tests/test_lazy_postgres_methods.py::test_hidden_axis_attribution_complete_contributions",
+        "tests/test_lazy_postgres_methods.py::test_exact_private_state",
+        "tests/test_lazy_postgres_methods.py::test_status_fold_spatial_sums",
+        "tests/test_lazy_postgres_forms_baseline.py::test_view_source_full_dataset_journey",
+        "tests/test_lazy_postgres_event_methods.py::test_event_journey_is_one_read_only_source_submission",
+        "tests/test_lazy_postgres_lifecycle_methods.py::test_complete_history_and_retained_parts",
+        "tests/test_lazy_postgres_lifecycle_methods.py::test_source_reducers",
+    ),
+    "mysql": (
+        "tests/test_lazy_mysql_methods.py::test_entity_correlation",
+        "tests/test_lazy_mysql_methods.py::test_exact_private_state",
+        "tests/test_lazy_mysql_methods.py::test_status_fold_spatial_sums",
+        "tests/test_lazy_mysql_runtime.py::test_view_source_journey",
+        "tests/test_lazy_computation_runtime.py::test_mysql_decimal_mean_stays_rejected_until_the_mean_equation_lands",
+    ),
+    "clickhouse": (
+        "tests/test_lazy_clickhouse_methods.py::test_entity_correlation",
+        "tests/test_lazy_clickhouse_methods.py::test_hidden_axis_attribution_complete_contributions[None]",
+        "tests/test_lazy_clickhouse_methods.py::test_exact_distinct_membership",
+        "tests/test_lazy_clickhouse_methods.py::test_exact_distribution",
+        "tests/test_lazy_clickhouse_methods.py::test_status_fold_spatial_sums",
+        "tests/test_lazy_clickhouse_runtime.py::test_view_source_journey",
+        "tests/test_lazy_clickhouse_event_methods.py::test_event_journey_source_bundle",
+        "tests/test_lazy_clickhouse_lifecycle_methods.py::test_complete_history",
+    ),
+    "clickhouse-cluster": (
+        "tests/test_lazy_clickhouse_distributed_runtime.py::test_distributed_global_aggregation",
+        "tests/test_lazy_clickhouse_distributed_runtime.py::test_cross_shard_duplicate_identity_rejected",
+        "tests/test_lazy_clickhouse_distributed_runtime.py::test_receipt_audit_free_of_dedup_clauses",
+        "tests/test_lazy_clickhouse_distributed_runtime.py::test_cluster_reader_account",
+    ),
+    "trino": (
+        "tests/test_lazy_trino_methods.py::test_entity_correlation",
+        "tests/test_lazy_trino_methods.py::test_hidden_axis_attribution_complete_contributions",
+        "tests/test_lazy_trino_methods.py::test_hidden_axis_top_k_rejected_before_source_query",
+        "tests/test_lazy_trino_methods.py::test_exact_private_state",
+        "tests/test_lazy_trino_methods.py::test_status_fold_spatial_sums",
+        "tests/test_lazy_trino_runtime.py::test_view_source_journey",
+        "tests/test_lazy_trino_non_iceberg_runtime.py::test_full_journey",
+        "tests/test_lazy_trino_non_iceberg_runtime.py::test_receipt_audit_free_of_iceberg_metadata",
+        "tests/test_lazy_trino_non_iceberg_runtime.py::test_partitions_internal_table_rejected",
+        "tests/test_lazy_trino_event_methods.py::test_exact_microsecond_journey",
+        "tests/test_lazy_trino_lifecycle_methods.py::test_complete_history",
+    ),
+}
+PARAMETERIZED_CASES = (
+    "tests/test_lazy_scalar_type_runtime.py::test_scalar_group_transport_and_cold",
+    "tests/test_lazy_temporal_backend_runtime.py::test_native_temporal_buckets",
+    "tests/test_lazy_calendar_buckets.py::test_calendar_month_buckets_execute_on_source",
+    "tests/test_lazy_cumulative_sources.py::test_grain_to_date_month_resets_across_months",
+)
+PARSED_CASES = (
+    "tests/test_lazy_temporal_backend_runtime.py::test_strptime_date_only_axis_executes",
+    "tests/test_lazy_temporal_backend_runtime.py::test_hour_prefix_composite_axis_executes",
+)
+DECIMAL_CASES = (
+    "tests/test_lazy_computation_runtime.py::test_remote_computed_measure_decimal_sum_is_exact",
+    "tests/test_lazy_computation_runtime.py::test_remote_decimal_linear_publishes_exact_decimal",
+)
+STAGE_ENV: dict[str, str] = {
+    "postgres": "MARIVO_POSTGRES_ANALYSIS_TEST",
+    "mysql": "MARIVO_MYSQL_ANALYSIS_TEST",
+    "clickhouse": "MARIVO_CLICKHOUSE_ANALYSIS_TEST",
+    "clickhouse-cluster": "MARIVO_CLICKHOUSE_CLUSTER_TEST",
+    "trino": "MARIVO_TRINO_ANALYSIS_TEST",
+}
 
 
 @pytest.fixture(scope="module")
@@ -33,22 +111,11 @@ def installed_runner(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str,
     wheel = wheels[0]
     work = tmp_path_factory.mktemp("multisource-wheel")
     assert not work.resolve().is_relative_to(ROOT)
-    tests = work / "tests"
-    tests.mkdir()
-    (tests / "__init__.py").write_text("")
-    for name in ("installed_wheel_probe.py", "installed_multisource_probe.py"):
-        shutil.copy2(ROOT / "tests" / name, tests / name)
-    helpers = tests / "multisource_environment"
-    helpers.mkdir()
-    (helpers / "__init__.py").write_text("")
-    for name in (
-        "credentials",
-        "postgres_analysis",
-        "mysql_analysis",
-        "trino_analysis",
-        "clickhouse_analysis",
-    ):
-        shutil.copy2(ROOT / "tests/multisource_environment" / f"{name}.py", helpers / f"{name}.py")
+    shutil.copytree(
+        ROOT / "tests",
+        work / "tests",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+    )
     env = {
         key: value
         for key, value in os.environ.items()
@@ -65,9 +132,15 @@ def installed_runner(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str,
     reports.mkdir(parents=True, exist_ok=False)
     commands: list[dict[str, object]] = []
 
-    def run(name: str, command: list[str]) -> None:
+    def run(name: str, command: list[str], *, extra_env: dict[str, str] | None = None) -> None:
         completed = subprocess.run(
-            command, cwd=work, env=env, capture_output=True, text=True, timeout=900, check=False
+            command,
+            cwd=work,
+            env={**env, **(extra_env or {})},
+            capture_output=True,
+            text=True,
+            timeout=1800,
+            check=False,
         )
         (reports / f"{name}.log").write_text(completed.stdout + completed.stderr)
         commands.append(
@@ -110,16 +183,74 @@ def installed_runner(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str,
     def journey(engine: str, project: Path) -> None:
         probe = [str(interpreter), "-m", "tests.installed_multisource_probe"]
 
+        def stage_tests() -> None:
+            stage_env = {STAGE_ENV[engine]: "1"} if engine in STAGE_ENV else {}
+            if engine == "trino":
+                stage_env["MARIVO_TRINO_NON_ICEBERG_TEST"] = "1"
+            stage_env["MARIVO_INSTALLED_ORIGIN_REPORT"] = str(
+                reports / f"{engine}-stage-origin.json"
+            )
+            base = [
+                str(interpreter),
+                "-m",
+                "pytest",
+                "-q",
+                "-m",
+                "runtime",
+                "-p",
+                "tests.installed_wheel_probe",
+            ]
+            run(
+                engine + "-stage-methods",
+                [
+                    *base,
+                    f"--junitxml={reports / f'{engine}-stage-methods.xml'}",
+                    *METHOD_CASES[engine],
+                ],
+                extra_env=stage_env,
+            )
+            if engine == "clickhouse-cluster":
+                return
+            run(
+                engine + "-stage-parameterized",
+                [
+                    *base,
+                    f"--junitxml={reports / f'{engine}-stage-parameterized.xml'}",
+                    "-k",
+                    engine,
+                    *PARAMETERIZED_CASES,
+                    *(PARSED_CASES if engine != "trino" else ()),
+                    *(DECIMAL_CASES if engine in {"postgres", "mysql", "clickhouse"} else ()),
+                ],
+                extra_env=stage_env,
+            )
+            if engine == "trino":
+                run(
+                    engine + "-stage-computed",
+                    [
+                        *base,
+                        f"--junitxml={reports / 'trino-stage-computed.xml'}",
+                        "tests/test_lazy_computation_runtime.py::test_trino_computed_measure_decimal_sum_is_exact",
+                        "tests/test_lazy_computation_runtime.py::test_trino_decimal_mean_keeps_rejection",
+                    ],
+                    extra_env=stage_env,
+                )
+
         def phase(name: str) -> None:
             run(
                 engine + "-" + name,
                 [*probe, name, engine, str(project), str(reports / f"{engine}-{name}.json")],
             )
 
+        if engine == "clickhouse-cluster":
+            stage_tests()
+            return
         try:
             phase("prepare")
             phase("privileges")
             phase("produce")
+            if engine in {"sqlite", "mysql"}:
+                phase("native")
             phase("invalidate")
             phase("invalid")
         finally:
@@ -140,6 +271,7 @@ def installed_runner(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str,
         assert len(cold["result"]["receipts"]) == 3
         assert produced["pid"] != cold["pid"]
         assert produced["result"]["session"] == cold["result"]["session"]
+        stage_tests()
 
     return journey
 
