@@ -212,67 +212,10 @@ class LocalReceipt:
         return digest(receipt_payload(self))
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class ObjectReceipt:
-    object_store_ref: str
-    immutable_prefix_or_manifest_ref: str
-    object_version_or_manifest_hash: str
-    manifest_hash: str
-    schema_fingerprint: str
-    realized_row_count: int
-    realized_byte_count: int
-    file_count: int = 1
-    parquet_contract_version: int = 1
-
-    def __post_init__(self) -> None:
-        _text(self.object_store_ref)
-        _relative(self.immutable_prefix_or_manifest_ref)
-        _text(self.object_version_or_manifest_hash)
-        if self.object_version_or_manifest_hash == "null":
-            raise invalid("unversioned object manifest")
-        for value in (self.manifest_hash, self.schema_fingerprint):
-            _hash(value)
-        _int(self.realized_row_count)
-        _int(self.realized_byte_count)
-        if self.file_count != 1 or self.parquet_contract_version != 1:
-            raise invalid("unsupported object Parquet protocol")
-
-    @property
-    def kind(self) -> Literal["object"]:
-        return "object"
-
-    @property
-    def format(self) -> Literal["parquet"]:
-        return "parquet"
-
-    @property
-    def identity_digest(self) -> str:
-        return digest(receipt_payload(self))
-
-
-StorageReceipt: TypeAlias = LocalReceipt | ObjectReceipt
+StorageReceipt: TypeAlias = LocalReceipt
 
 
 def receipt_payload(value: StorageReceipt) -> dict[str, object]:
-    byte_count: dict[str, object] = (
-        {"kind": "unavailable"}
-        if value.realized_byte_count is None
-        else {"kind": "exact", "byte_count": value.realized_byte_count}
-    )
-    if isinstance(value, ObjectReceipt):
-        return {
-            "kind": "object",
-            "object_store_ref": value.object_store_ref,
-            "immutable_prefix_or_manifest_ref": value.immutable_prefix_or_manifest_ref,
-            "object_version_or_manifest_hash": value.object_version_or_manifest_hash,
-            "format": "parquet",
-            "parquet_contract_version": value.parquet_contract_version,
-            "file_count": value.file_count,
-            "manifest_hash": value.manifest_hash,
-            "schema_fingerprint": value.schema_fingerprint,
-            "realized_row_count": value.realized_row_count,
-            "realized_byte_count": byte_count,
-        }
     return {
         "kind": "local",
         "project_relative_path": value.project_relative_path,
@@ -288,25 +231,6 @@ def receipt_payload(value: StorageReceipt) -> dict[str, object]:
 
 
 def decode_receipt(value: object) -> StorageReceipt:
-    if isinstance(value, dict) and value.get("kind") == "object":
-        obj = _obj(
-            value,
-            "kind object_store_ref immutable_prefix_or_manifest_ref object_version_or_manifest_hash format parquet_contract_version file_count manifest_hash schema_fingerprint realized_row_count realized_byte_count",
-        )
-        size_obj = _obj(obj["realized_byte_count"], "kind byte_count")
-        if obj["format"] != "parquet" or size_obj["kind"] != "exact":
-            raise invalid("unsupported object storage format or byte count")
-        return ObjectReceipt(
-            _text(obj["object_store_ref"]),
-            _text(obj["immutable_prefix_or_manifest_ref"]),
-            _text(obj["object_version_or_manifest_hash"]),
-            _text(obj["manifest_hash"]),
-            _text(obj["schema_fingerprint"]),
-            _int(obj["realized_row_count"]),
-            _int(size_obj["byte_count"]),
-            _int(obj["file_count"]),
-            _int(obj["parquet_contract_version"]),
-        )
     obj = _obj(
         value,
         "kind project_relative_path format parquet_contract_version file_manifest manifest_hash bytes_hash schema_fingerprint realized_row_count realized_byte_count",
@@ -1692,12 +1616,10 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     if {item.role for item in distribution_parts} != distribution_roles:
         raise invalid("retained distribution roles mismatch")
     if any(
-        item.contract_id != f"{row.shape_id.family_id}.distribution"
-        or item.contract_version != 1
-        or not _same_storage_target(result.storage_receipt, item.storage_receipt)
+        item.contract_id != f"{row.shape_id.family_id}.distribution" or item.contract_version != 1
         for item in distribution_parts
     ):
-        raise invalid("private distribution requires the exact primary storage target")
+        raise invalid("private distribution contract or version mismatch")
     membership_roles = {role for role, _ in membership_part_authorities(row)}
     membership_parts = tuple(
         item for item in parts if item.contract_id in DISTINCT_MEMBERSHIP_CONTRACT_IDS
@@ -1707,10 +1629,9 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     if any(
         item.contract_id != f"{row.shape_id.family_id}.distinct_membership"
         or item.contract_version != 1
-        or not _same_storage_target(result.storage_receipt, item.storage_receipt)
         for item in membership_parts
     ):
-        raise invalid("private membership requires the exact primary storage target")
+        raise invalid("private membership contract or version mismatch")
     if (
         isinstance(row_set.cardinality, d._SingletonCardinality)
         and result.storage_receipt.realized_row_count != 1
@@ -2128,15 +2049,6 @@ class ArtifactRecord:
     committed_at: str
     producing_run_ref: str
     evidence: EvidenceRecord
-
-
-def _same_storage_target(primary: StorageReceipt, part: StorageReceipt) -> bool:
-    """Every private role uses the exact sink kind and authority of its primary."""
-    if isinstance(primary, LocalReceipt):
-        return isinstance(part, LocalReceipt)
-    if isinstance(primary, ObjectReceipt):
-        return isinstance(part, ObjectReceipt) and primary.object_store_ref == part.object_store_ref
-    return False
 
 
 def _decode_temporal(value: object) -> tuple[TemporalExecution, ...]:

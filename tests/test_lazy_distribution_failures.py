@@ -7,7 +7,6 @@ import pytest
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import LocalTarget
 from tests.lazy_distribution_fixtures import (
     CHANNEL,
     METRIC,
@@ -23,7 +22,7 @@ def test_distribution_receipt_mutation_after_output_rename_rolls_back(tmp_path: 
     database = tmp_path / "warehouse.duckdb"
     seed_distribution_database(database)
     registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "mutation", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "mutation")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = sources.observe(METRIC).with_dimensions(CHANNEL).aggregate()
     baseline = metric.execute()
@@ -45,7 +44,6 @@ def test_distribution_receipt_mutation_after_output_rename_rolls_back(tmp_path: 
                 stream.write(b"private-distribution-mutation-canary")
             changed.append(point)
 
-    runtime.target = LocalTarget()
     runtime._hook = mutate
     before = snapshot(runtime)
     with pytest.raises(MaterializationError, match="backing size changed"):
@@ -80,7 +78,7 @@ def test_one_sided_distribution_and_undefined_games(tmp_path: Path, mode: str) -
             + ([(3, "web", 2.0, "2026-02-02")] if mode == "one_sided" else []),
         )
     registry, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "undefined", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "undefined")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(METRIC, time_scope=time_scope(start="2026-02-01", end="2026-02-05"))

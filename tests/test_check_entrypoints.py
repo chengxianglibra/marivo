@@ -18,7 +18,6 @@ def _run_make(
     directory: Path,
     target: str,
     *,
-    endpoint: str = "",
     format_failure: bool = False,
     tests: str = "",
     runtime_workers: int | None = None,
@@ -51,7 +50,6 @@ def _run_make(
         if key not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL"}
     }
     environment.update(
-        MARIVO_TEST_S3_ENDPOINT=endpoint,
         MARIVO_CHECK_TEST_LOG=str(log),
         MARIVO_CHECK_FORMAT_FAILURE=str(int(format_failure)),
     )
@@ -97,32 +95,19 @@ def test_format_failure_stops_before_expensive_checks(tmp_path: Path, target: st
     assert commands == [["ruff", "format", "--check", "."]]
 
 
-def test_release_requires_explicit_storage_before_any_checks(tmp_path: Path) -> None:
-    result, commands = _run_make(tmp_path, "release-check")
-    assert result.returncode != 0
-    assert "MARIVO_TEST_S3_ENDPOINT" in result.stderr
-    assert commands == []
-
-
 def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) -> None:
     result, commands = _run_make(
         tmp_path,
         "release-check",
-        endpoint="http://127.0.0.1:9000",
         tests="tests/focused.py::test_one",
     )
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
-    assert len(pytest_commands) == 4
+    assert len(pytest_commands) == 3
     assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5"]
     assert pytest_commands[1] == ["pytest", "-m", "runtime", "-n", "2"]
-    assert pytest_commands[2][-3:] == [
-        "-m",
-        "object_connection",
-        "tests/test_object_storage_connection.py",
-    ]
-    assert pytest_commands[3][:5] == ["pytest", "-n", "0", "-m", "release"]
-    assert "tests/focused.py::test_one" not in pytest_commands[3]
+    assert pytest_commands[2][:5] == ["pytest", "-n", "0", "-m", "release"]
+    assert "tests/focused.py::test_one" not in pytest_commands[2]
     assert ["python", "-m", "build", "--outdir", "dist/pypi"] in commands
     assert any(command[:2] == ["twine", "check"] for command in commands)
 

@@ -7,7 +7,6 @@ import pytest
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.operators.errors import CorrelationError
 from marivo.refs import ref
 from tests.lazy_local_fixtures import pandas_methods, setup_local
@@ -69,7 +68,6 @@ def test_raw_entity_checkpoint_rejected_before_admission(tmp_path: Path) -> None
 
 def test_selected_engine_receipt_mutation_rolls_back(tmp_path: Path) -> None:
     runtime, sources, _ = setup_local(tmp_path)
-    runtime.target = LocalTarget()
     metric = sources.observe(
         [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
     ).execute()
@@ -87,7 +85,6 @@ def test_selected_engine_receipt_mutation_rolls_back(tmp_path: Path) -> None:
             with path.open("ab") as stream:
                 stream.write(b"private-correlation-receipt-mutation")
 
-    runtime.target = LocalTarget()
     runtime._hook = mutate
     before = snapshot(runtime)
     with pytest.raises(MaterializationError, match="backing size changed"):

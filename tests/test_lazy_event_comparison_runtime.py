@@ -43,7 +43,7 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
         with duckdb.connect(str(database), config={"threads": 1}) as connection:
             connection.execute("DROP TABLE started_rows")
             connection.execute("DROP TABLE finished_rows")
-        cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+        cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
         semantic_registry, sidecar = make_event_registry(database)
         cold.sources(semantic_registry=semantic_registry, sidecar=sidecar)
         recovered = cold.artifact(committed.state.artifact_ref)
@@ -68,10 +68,6 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
             else registered
         )
 
-    if local:
-        from marivo.analysis.materialization.targets import LocalTarget
-
-        runtime.target = LocalTarget()
     with patch.object(registry, "implementation", implementation):
         result = delta.execute()
         first = delta.where(eq(delta.fields.get("step_key"), "start")).execute()
@@ -87,7 +83,7 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
     assert attributed.evidence_digest.finding_count == len(contributions)
     assert len(result.findings().items) == 1
     assert len(attributed.findings().items) == len(contributions)
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     rebound = cold.artifact(attributed.state.artifact_ref)
     pd.testing.assert_frame_equal(rebound.to_pandas(), contributions)
     inspected = cold.revalidate(attributed.state.artifact_ref)
@@ -260,7 +256,7 @@ def test_cold_attribution_authority_corruption_is_rejected(tmp_path: Path, corru
         )
     database.unlink()
     before = snapshot(runtime)
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     with (
         patch("marivo.analysis.materialization.admission.execute_local", forbidden),
         pytest.raises(IntegrityError),
@@ -278,7 +274,6 @@ def test_nonzero_shifted_cohorts_have_full_runtime_source_local_parity(
 
     from marivo.analysis import time_scope
     from marivo.analysis.domains.completeness import BoundedCompletenessDeclarationV1
-    from marivo.analysis.materialization.targets import LocalTarget
     from tests.lazy_event_runtime_fixtures import END, START, THROUGH
 
     frames: list[tuple[pd.DataFrame, pd.DataFrame]] = []
@@ -344,8 +339,6 @@ def test_nonzero_shifted_cohorts_have_full_runtime_source_local_parity(
                 else registered
             )
 
-        if local:
-            runtime.target = LocalTarget()
         with patch.object(registry, "implementation", implementation):
             compared, attributed = delta.execute(), attribution.execute()
         frames.append((compared.to_pandas(), attributed.to_pandas()))
@@ -360,7 +353,7 @@ def test_filtered_funnel_checkpoint_cannot_hide_censoring(tmp_path: Path, engine
     runtime, sources, _ = setup_event(tmp_path, engine=engine)
     funnel = journey(sources, complete=False).funnel()
     checkpoint = funnel.where(eq(funnel.fields.get("step_key"), "start")).execute()
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     recovered = cold.artifact(checkpoint.state.artifact_ref)
     assert isinstance(recovered, MaterializedEventDataset)
     before = snapshot(cold)
@@ -406,7 +399,7 @@ def test_funnel_component_inspection_is_independent_of_primary_preview(
         with backing.open("r+b") as stream:
             stream.write(b"FAIL")
     database.rename(database.with_suffix(".offline"))
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     before = snapshot(cold)
     reopened = cold.artifact(attributed.state.artifact_ref)
     assert not reopened.to_pandas().empty

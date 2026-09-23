@@ -12,7 +12,6 @@ from unittest.mock import patch
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.candidate_codec import evidence_payload
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.candidate_contracts import CandidateObjective
@@ -32,9 +31,7 @@ def run(
 ) -> dict[str, object]:
     if mode == "produce":
         runtime, source, database = setup_candidate(project)
-        runtime.target = LocalTarget()
         source_rows = candidate_input(source, objective, panel=True).execute()
-        runtime.target = LocalTarget()
         result = discover(source_rows, objective).execute()
         database.rename(project / "origin.offline")
         refs = {
@@ -44,7 +41,7 @@ def run(
         }
         before = snapshot(runtime)
     else:
-        runtime = DatasetRuntime.open(project, refs["session"], target=LocalTarget())
+        runtime = DatasetRuntime.open(project, refs["session"])
         before = snapshot(runtime)
         recovered = runtime.artifact(refs["candidate"])
         assert isinstance(recovered, MaterializedCandidateDataset)

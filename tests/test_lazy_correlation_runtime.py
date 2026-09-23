@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.refs import ref
@@ -21,11 +20,9 @@ def test_real_association(tmp_path: Path, method: CorrelationMethod, retained: b
         [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
     )
     if retained:
-        runtime.target = LocalTarget()
         assert isinstance(source, LogicalMetricDataset)
         source = source.execute()
         database.rename(tmp_path / "source.offline")
-        runtime.target = LocalTarget()
     logical = source.correlate(method=method)
     result = logical.execute()
     assert result.to_pandas().iloc[0].coefficient == pytest.approx(1.0)
@@ -85,26 +82,14 @@ def test_authored_pair_order_private_transfers_and_direct_handoffs(
 
 
 @pytest.mark.parametrize("method", ["pearson", "spearman", "kendall"])
-@pytest.mark.parametrize("kind", ["local", "object"])
 def test_nonidentity_checkpoint_uses_local_exact_method(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: CorrelationMethod, kind: str
+    tmp_path: Path, method: CorrelationMethod
 ) -> None:
     import duckdb
-
-    from marivo.analysis.materialization.targets import ObjectTarget, S3Access
 
     runtime, sources, database = setup_local(tmp_path)
     with duckdb.connect(str(database), config={"threads": 1}) as connection:
         connection.execute("UPDATE orders SET channel = CAST(id AS VARCHAR)")
-    if kind == "object":
-        from tests.lazy_candidate_object_fixtures import stub_candidate_objects
-
-        access = S3Access(
-            "fixture", "http://127.0.0.1:9", "bucket", "private-key", "private-secret"
-        )
-        stub_candidate_objects(monkeypatch, access)
-        runtime.object_bindings = (access,)
-        runtime.target = ObjectTarget(access.object_store_ref)
     metric = (
         sources.observe([ref.metric("sales.revenue"), ref.metric("sales.mean_amount")])
         .with_dimensions(ref.dimension("sales.orders.channel"))
@@ -112,7 +97,6 @@ def test_nonidentity_checkpoint_uses_local_exact_method(
         .execute()
     )
     database.rename(tmp_path / "source.offline")
-    runtime.target = LocalTarget()
     with pandas_methods("metric.correlate"):
         result = metric.correlate(method=method).execute()
     assert abs(result.to_pandas().coefficient.iloc[0]) == pytest.approx(1.0)

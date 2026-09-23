@@ -10,14 +10,11 @@ import duckdb
 import pytest
 
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import LocalReceipt, ObjectReceipt
+from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import (
     IntegrityError,
-    StorageAccessError,
 )
-from marivo.analysis.materialization.object_storage import _call, client, open_manifest
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.targets import S3Access
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import AdapterFixture, setup_adapter
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
@@ -27,17 +24,16 @@ pytestmark = pytest.mark.runtime
 
 def _setup(
     root: Path, request: pytest.FixtureRequest, kind: Literal["local", "engine"]
-) -> tuple[AdapterFixture, S3Access | None]:
-    access = None
+) -> AdapterFixture:
     if kind != "local":
-        return setup_adapter(root, kind, access=access), access
+        return setup_adapter(root, kind)
     database = root / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
     runtime = DatasetRuntime.create(root, "inspection")
     return AdapterFixture(
         runtime, runtime.sources(semantic_registry=registry, sidecar=sidecar), database
-    ), None
+    )
 
 
 def _snapshot(store: SessionStore) -> str:
@@ -51,7 +47,7 @@ def test_missing_unused_part_does_not_block_preview_but_full_inspection_reports_
     request: pytest.FixtureRequest,
     kind: Literal["local", "engine"],
 ) -> None:
-    fixture, access = _setup(tmp_path, request, kind)
+    fixture = _setup(tmp_path, request, kind)
     runtime = fixture.runtime
     result = fixture.sources.observe(
         [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")],
@@ -67,19 +63,9 @@ def test_missing_unused_part_does_not_block_preview_but_full_inspection_reports_
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None and len(record.descriptor.retained_parts) == 2
     receipt = record.descriptor.retained_parts[-1].storage_receipt
-    if isinstance(receipt, LocalReceipt):
-        (tmp_path / receipt.project_relative_path / "data.parquet").unlink()
-    elif isinstance(receipt, LocalReceipt):
-        (tmp_path / receipt.qualified_relation_ref).unlink()
-    else:
-        assert isinstance(receipt, ObjectReceipt) and access is not None
-        with client(access) as s3:
-            file = open_manifest(s3, access, receipt)
-            s3.delete_object(Bucket=access.bucket, Key=file.key, VersionId=file.version)
+    (tmp_path / receipt.project_relative_path / "data.parquet").unlink()
     fixture.database.rename(tmp_path / "source.offline")
-    recovered = DatasetRuntime.open(
-        tmp_path, runtime.session_ref, object_bindings=runtime.object_bindings
-    )
+    recovered = DatasetRuntime.open(tmp_path, runtime.session_ref)
     handle = recovered.artifact(result.state.artifact_ref)
     assert len(handle.to_pandas()) == 4
     inspected = recovered.revalidate(result.state.artifact_ref)
@@ -101,7 +87,7 @@ def test_corrupt_metadata_and_evidence_are_independent_of_immutable_storage(
     request: pytest.FixtureRequest,
     fault: str,
 ) -> None:
-    fixture, _ = _setup(tmp_path, request, "local")
+    fixture = _setup(tmp_path, request, "local")
     runtime = fixture.runtime
     result = fixture.sources.population(ref.entity("sales.customers")).execute()
     artifact_ref = result.state.artifact_ref
@@ -155,7 +141,7 @@ def test_full_inspection_streams_above_the_primary_collection_row_limit(
     tmp_path: Path,
     request: pytest.FixtureRequest,
 ) -> None:
-    fixture, _ = _setup(tmp_path, request, "local")
+    fixture = _setup(tmp_path, request, "local")
     with duckdb.connect(str(fixture.database)) as backend:
         backend.execute("INSERT INTO customers(id,region) SELECT range+5,'EU' FROM range(100000)")
     result = fixture.sources.population(ref.entity("sales.customers")).execute()
@@ -169,7 +155,7 @@ def test_inspection_keeps_all_storage_problems_and_uses_confirmed_priority(
     tmp_path: Path,
     request: pytest.FixtureRequest,
 ) -> None:
-    fixture, _ = _setup(tmp_path, request, "local")
+    fixture = _setup(tmp_path, request, "local")
     result = fixture.sources.observe(
         [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
     ).execute()
@@ -187,46 +173,11 @@ def test_inspection_keeps_all_storage_problems_and_uses_confirmed_priority(
     assert {issue.kind for issue in inspected.issues} == {"storage_mutated", "storage_missing"}
 
 
-@pytest.mark.parametrize(
-    "code,status,expected",
-    [
-        ("AccessDenied", 403, "unauthorized"),
-        ("NoSuchVersion", 404, "missing"),
-        ("SlowDown", 503, "unknown"),
-    ],
-)
-def test_sdk_failure_classification_retains_no_native_message(
-    code: str, status: int, expected: str
-) -> None:
-    from botocore.exceptions import ClientError
-
-    def fail() -> None:
-        raise ClientError(
-            {
-                "Error": {"Code": code, "Message": "secret-canary"},
-                "ResponseMetadata": {
-                    "HTTPStatusCode": status,
-                    "RequestId": "fixture",
-                    "HostId": "fixture",
-                    "HTTPHeaders": {},
-                    "RetryAttempts": 0,
-                },
-            },
-            "GetObject",
-        )
-
-    with pytest.raises(StorageAccessError) as caught:
-        _call(fail)
-    assert caught.value.storage_status == expected
-    assert caught.value.__context__ is None and caught.value.__cause__ is None
-    assert "secret-canary" not in str(caught.value)
-
-
 @pytest.mark.parametrize("state", ["missing", "empty", "old"])
 def test_read_factory_never_initializes_missing_or_unversioned_state(
     tmp_path: Path, state: str
 ) -> None:
-    path = tmp_path / ".marivo/analysis/generations/v5/session_store.db"
+    path = tmp_path / ".marivo/analysis/generations/v6/session_store.db"
     if state != "missing":
         path.parent.mkdir(parents=True)
         with sqlite3.connect(path) as conn:

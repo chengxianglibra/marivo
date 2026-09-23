@@ -169,7 +169,6 @@ def capture_terminal_actions(
                 "local_step_count": len(runtime.statistics.local_handoffs),
                 "output_rows": None if receipt is None else receipt.realized_row_count,
                 "output_stored_bytes": None if receipt is None else receipt.realized_byte_count,
-                "writer_target": type(runtime.target).__name__,
                 "storage_wire_operation_count": None,
                 "storage_measurement_scope": "Receipts enumerate committed primary and private parts. Storage wire calls and adapter metadata requests are not instrumented and are not zero queries.",
                 "terminal": None if record is None else record_evidence(record),

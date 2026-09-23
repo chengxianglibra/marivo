@@ -19,11 +19,6 @@ from marivo.analysis.datasets.descriptors import (
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import (
-    LocalTarget,
-    ObjectTarget,
-    S3Access,
-)
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from marivo.refs import ref
@@ -55,7 +50,7 @@ def run(
                 "insert into orders select * replace(id+100 as id, amount*2 as amount, day+interval '1 day' as day) from orders"
             )
         registry, sidecar = make_distribution_registry(database, q=0.7)
-        runtime = DatasetRuntime.create(project, "distribution-journey", target=LocalTarget())
+        runtime = DatasetRuntime.create(project, "distribution-journey")
         sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         current = (
             sources.observe(
@@ -86,16 +81,7 @@ def run(
             "artifact": record_evidence(record),
             "origin_removed": True,
         }
-    runtime = DatasetRuntime.open(project, refs["session"], target=LocalTarget())
-    if kind == "object":
-        access = S3Access(
-            "fixture",
-            os.environ["MARIVO_TEST_S3_ENDPOINT"],
-            os.environ["MARIVO_TEST_S3_BUCKET"],
-            "minioadmin",
-            "minioadmin",
-        )
-        runtime.target, runtime.object_bindings = ObjectTarget("fixture"), (access,)
+    runtime = DatasetRuntime.open(project, refs["session"])
     before = snapshot(runtime)
     recovered_delta = runtime.artifact(refs["delta"])
     assert isinstance(recovered_delta, MaterializedDeltaDataset)

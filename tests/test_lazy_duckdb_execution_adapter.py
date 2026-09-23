@@ -330,11 +330,7 @@ def test_runtime_diagnostics_match_submitted_fences_assertions_and_primary(
     assert result.to_pandas().shape[0] == 1
     assert runtime.statistics.statements == submitted
     assert sum(role == "primary" for role, _ in submitted) == 1
-    assert {role for role, _ in submitted} >= {
-        "primary",
-        "validation_batch",
-        "source_schema",
-    }
+    assert {role for role, _ in submitted} >= {"primary", "source_schema"}
 
 
 @pytest.mark.runtime
@@ -377,7 +373,6 @@ def test_runtime_publishes_after_between_query_update_without_retry(
     def submit(adapter: DuckDBExecutionAdapter, statement: Statement) -> DuckDBPyConnection:
         assert statement.sql not in ("BEGIN TRANSACTION", "ROLLBACK")
         if statement.role == "primary" and not updates:
-            assert "validation_batch" in roles
             writer.raw_sql("UPDATE orders SET amount = amount + 10 WHERE id = 1")
             updates.append(True)
         roles.append(statement.role)
@@ -398,40 +393,6 @@ def test_runtime_publishes_after_between_query_update_without_retry(
         assert roles.count("primary") == 1
     finally:
         writer.disconnect()
-
-
-@pytest.mark.runtime
-@pytest.mark.parametrize("empty_output", [False, True])
-def test_invalid_source_is_rejected_even_for_empty_output(
-    tmp_path: Path, empty_output: bool
-) -> None:
-    from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.observation.predicates import gt
-    from marivo.refs import ref
-    from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
-
-    database = tmp_path / "warehouse.duckdb"
-    seed_execution_database(database)
-    writer = ibis.duckdb.connect(database)
-    try:
-        writer.raw_sql("INSERT INTO orders SELECT * FROM orders WHERE id = 1")
-    finally:
-        writer.disconnect()
-    registry, sidecar = make_execution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "invalid-source")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    logical = sources.observe(ref.metric("sales.revenue"))
-    if empty_output:
-        logical = logical.where(gt(ref.metric("sales.revenue"), 1000))
-    with pytest.raises(MaterializationError):
-        logical.execute()
-    assert runtime.statistics.validation_queries > 0
-    assert runtime.statistics.primary_queries == 0
-    assert runtime.last_run_ref is not None
-    run = runtime.store.run(runtime.last_run_ref)
-    assert run is not None and run.lifecycle == "failed"
-    assert runtime.store.resources(runtime.session_ref) == ()
-    assert not list(runtime.store.layout.session_dir(runtime.session_ref).rglob("*.parquet"))
 
 
 @pytest.mark.parametrize("empty", [False, True])

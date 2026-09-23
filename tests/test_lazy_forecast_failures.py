@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.operators.errors import ForecastError
 from marivo.analysis.operators.forecast_contracts import periods
 from tests.lazy_forecast_fixtures import history, setup_forecast
@@ -143,47 +142,3 @@ def test_cold_forecast_rejects_corrupt_training_and_finding_claims(tmp_path: Pat
         training[key] = damaged_value
         with pytest.raises(IntegrityError):
             decode_descriptor(canonical_json(payload))
-
-
-def test_native_object_denial_uses_real_store_and_no_model_work(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from collections.abc import Iterator
-    from contextlib import contextmanager
-    from typing import TYPE_CHECKING
-
-    from botocore.stub import Stubber
-
-    from marivo.analysis.materialization import object_storage
-    from marivo.analysis.materialization.targets import ObjectTarget, S3Access
-
-    if TYPE_CHECKING:
-        from mypy_boto3_s3 import S3Client
-    runtime, source, _ = setup_forecast(tmp_path)
-    access = S3Access("fixture", "http://127.0.0.1:9", "bucket", "private-key", "private-secret")
-    runtime.target, runtime.object_bindings = ObjectTarget("fixture"), (access,)
-    base_client = object_storage.client
-
-    @contextmanager
-    def denied(binding: S3Access) -> Iterator[S3Client]:
-        with base_client(binding) as client, Stubber(client) as stub:
-            stub.add_client_error(
-                "get_bucket_versioning",
-                service_error_code="AccessDenied",
-                service_message="private-canary",
-                http_status_code=403,
-                expected_params={"Bucket": "bucket"},
-            )
-            yield client
-            stub.assert_no_pending_responses()
-
-    monkeypatch.setattr(object_storage, "client", denied)
-    before = snapshot(runtime)
-    with pytest.raises(MaterializationError) as error:
-        history(source).forecast(horizon=periods(4)).execute()
-    assert error.value.stage == "storage_selection" and "private-canary" not in str(error.value)
-    unchanged_bundle(before, snapshot(runtime))
-    assert (
-        runtime.statistics.events.get("local_execution_started", 0) == 0
-        and runtime.statistics.primary_queries == 0
-    )

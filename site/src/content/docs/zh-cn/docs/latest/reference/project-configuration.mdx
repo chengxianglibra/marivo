@@ -31,24 +31,8 @@ Marivo 始终先加载当前项目的 `models/` 目录，再按声明顺序加�
 需要让配置或声明随项目流转时，请将 `marivo.toml` 和 `models/` 纳入版本控制；将 `.marivo/`
 加入 `.gitignore`，其中保存的是本地会话、证据、遥测和缓存元数据，而不是可共享的声明。
 
-## 只有需要其他位置时才配置结果存储
+## 分析结果存储
 
-使用本地 Parquet 不需要任何分析存储配置。只有需要将新 Artifact 写入明确选定的
-对象存储时，才添加：
-
-```toml
-[analysis]
-storage = "object:archive"
-
-[analysis.object_stores.archive]
-endpoint_url = "https://objects.example.test"
-bucket = "analysis"
-access_key_id_env = "MARIVO_ARCHIVE_ACCESS_ID"
-secret_access_key_env = "MARIVO_ARCHIVE_SECRET"
-```
-
-凭据使用环境变量引用。单次执行的目标固定；配置非法或写入失败会抛出结构化错误，
-Marivo 不会切换目标，也不会换用其他执行器重试。改变写入目标后，可以保留命名绑定
-用于读取已有 Artifact；配置变化不会移动这些 Artifact。
+分析结果始终使用项目本地 Parquet，没有结果存储配置。写入失败后不会换用其他执行器重试。
 
 构造、显式执行和恢复边界见[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)。

@@ -15,7 +15,6 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.contracts import metric_definition, scope_payload
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import gt
@@ -65,7 +64,7 @@ def test_resolved_engine_versioned_population_continues_after_membership_table_d
         f'"{version}"' not in sql for _, sql in fixture.runtime.statistics.statements[start:]
     )
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
-    cold = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref, target=fixture.runtime.target)
+    cold = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref)
     retained = cold.artifact(checkpoint.state.artifact_ref)
     assert isinstance(retained, MaterializedPopulationDataset)
     cold_sources = cold.sources(semantic_registry=registry, sidecar=fixture.sources._owner.sidecar)
@@ -148,7 +147,7 @@ def test_january_checkpoint_does_not_become_the_new_observation_scope(tmp_path: 
         assert record is not None
         assert record.descriptor.population_authority.membership_scope == scope_payload(JANUARY)
         assert record.descriptor.population_authority.version_selection is not None
-    cold = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref, target=fixture.runtime.target)
+    cold = DatasetRuntime.open(tmp_path, fixture.runtime.session_ref)
     retained = cold.artifact(checkpoint.state.artifact_ref)
     assert isinstance(retained, MaterializedPopulationDataset)
     cold_sources = cold.sources(semantic_registry=registry, sidecar=fixture.sources._owner.sidecar)
@@ -193,21 +192,15 @@ def test_true_entity_time_multiplicity_is_rejected_before_identity_projection(
 @pytest.mark.parametrize("kind", ["parquet"])
 def test_local_identity_uses_registered_native_parquet_membership(
     tmp_path: Path,
-    kind: Literal["parquet", "object"],
+    kind: Literal["parquet"],
     request: pytest.FixtureRequest,
 ) -> None:
     database = tmp_path / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
-    access: S3Access | None = None
-    runtime = DatasetRuntime.create(
-        tmp_path, "local-membership", object_bindings=() if access is None else (access,)
-    )
-    if access is not None:
-        runtime.target = ObjectTarget("fixture")
+    runtime = DatasetRuntime.create(tmp_path, "local-membership")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     checkpoint = sources.population(ref.entity("sales.customers")).execute()
-    runtime.target = LocalTarget()
     observed = sources.observe(REVENUE, population=checkpoint)
     result = observed.execute()
     assert len(result.to_pandas()) == len(checkpoint.to_pandas())
@@ -240,7 +233,6 @@ def test_retained_versioned_membership_keeps_independent_current_metric_versions
     version: str,
 ) -> None:
     from marivo.analysis.compiler.normalize import required_entities
-    from marivo.analysis.materialization.errors import MaterializationError
     from marivo.semantic.ir import SemiAdditive, TimeFoldIR
 
     fixture = setup_adapter(tmp_path, "engine")
@@ -293,7 +285,7 @@ def test_retained_versioned_membership_keeps_independent_current_metric_versions
     with duckdb.connect(str(fixture.database)) as database:
         database.execute(f"DROP TABLE {version}")
     new_scope = time_scope(start="2026-04-01", end="2026-05-01")
-    with pytest.raises(MaterializationError):
+    with pytest.raises(duckdb.CatalogException):
         sources.observe(
             ref.metric("sales.version_value"), population=checkpoint, time_scope=new_scope
         ).aggregate().execute()

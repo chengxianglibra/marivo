@@ -22,7 +22,6 @@ from marivo.analysis.materialization.resources import (
     reserve_output,
 )
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.targets import S3Access
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.introspection.live.model import LiveHelpTarget
 from tests.lazy_materialization_fixtures import descriptor
@@ -130,7 +129,7 @@ def test_all_selected_metadata_is_validated_before_any_cleanup(
                 "local_parquet@v1",
                 "artifact",
                 "local_owned_path@v1",
-                ".marivo/analysis/generations/v5/sessions/session/artifacts/artifact",
+                ".marivo/analysis/generations/v6/sessions/session/artifacts/artifact",
             ),
         )
 
@@ -260,11 +259,10 @@ def test_snapshot_transaction_closes_before_resource_proof_or_cleanup(
     def checked_discharge(
         selected: SessionStore,
         owned: tuple[ResourceRecord, ...],
-        bindings: tuple[S3Access, ...],
     ) -> tuple[ResourceRecord, ...]:
         assert active == 0
         assert set(owned) == set(resources)
-        return original_discharge(selected, owned, bindings)
+        return original_discharge(selected, owned)
 
     monkeypatch.setattr(store, "_read", tracked_read)
     monkeypatch.setattr(reconciliation, "discharge_resources", checked_discharge)

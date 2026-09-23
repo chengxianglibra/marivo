@@ -12,11 +12,6 @@ from unittest.mock import patch
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import (
-    LocalTarget,
-    ObjectTarget,
-    S3Access,
-)
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.refs import ref
@@ -36,7 +31,7 @@ def run(
     if mode == "produce":
         seed_execution_database(database)
         registry, sidecar = make_execution_registry(database)
-        runtime = DatasetRuntime.create(project, "correlation-journey", target=LocalTarget())
+        runtime = DatasetRuntime.create(project, "correlation-journey")
         source = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         metric = source.observe(
             [ref.metric("sales.revenue"), ref.metric("sales.mean_amount")]
@@ -51,18 +46,7 @@ def run(
     runtime = DatasetRuntime.open(
         project,
         refs["session"],
-        target=LocalTarget(),
     )
-    if kind == "object":
-        access = S3Access(
-            "fixture",
-            os.environ["MARIVO_TEST_S3_ENDPOINT"],
-            os.environ["MARIVO_TEST_S3_BUCKET"],
-            "minioadmin",
-            "minioadmin",
-        )
-        runtime.target = ObjectTarget("fixture")
-        runtime.object_bindings = (access,)
     before = snapshot(runtime)
     recovered = runtime.artifact(refs["metric"])
     assert isinstance(recovered, MaterializedMetricDataset)

@@ -12,7 +12,6 @@ from unittest.mock import patch
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.operators.forecast_contracts import drift, naive, periods, seasonal_naive
 from marivo.analysis.operators.forecast_dataset import MaterializedForecastDataset
@@ -31,9 +30,7 @@ def run(mode: str, model: str, kind: str, project: Path, refs: dict[str, str]) -
     )
     if mode == "produce":
         runtime, source, database = setup_forecast(project)
-        runtime.target = LocalTarget()
         metric = history(source).execute()
-        runtime.target = LocalTarget()
         result = metric.forecast(horizon=periods(4), model=method).execute()
         database.rename(project / "origin.offline")
         refs = {
@@ -43,7 +40,7 @@ def run(mode: str, model: str, kind: str, project: Path, refs: dict[str, str]) -
         }
         before = snapshot(runtime)
     else:
-        runtime = DatasetRuntime.open(project, refs["session"], target=LocalTarget())
+        runtime = DatasetRuntime.open(project, refs["session"])
         before = snapshot(runtime)
         recovered = runtime.artifact(refs["forecast"])
         assert isinstance(recovered, MaterializedForecastDataset)

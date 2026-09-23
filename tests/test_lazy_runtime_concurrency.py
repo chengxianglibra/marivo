@@ -22,11 +22,6 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.targets import (
-    LocalTarget,
-    ObjectTarget,
-    S3Access,
-)
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.datasource.backends import (
     BuiltDatasourceBackend,
@@ -39,12 +34,6 @@ from tests.lazy_concurrency_runtime_worker import snapshot
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
 pytestmark = pytest.mark.runtime
-
-
-def _access(request: pytest.FixtureRequest, kind: str) -> tuple[S3Access, ...]:
-    if kind != "object":
-        return ()
-    raise AssertionError("Only local and engine functional targets are supported")
 
 
 def _evidence(name: str, value: dict[str, object]) -> None:
@@ -61,20 +50,12 @@ def _evidence(name: str, value: dict[str, object]) -> None:
 @pytest.mark.parametrize("key", ["same", "different"])
 @pytest.mark.parametrize("mode", ["thread", "process", "reentrant"])
 def test_busy_contender_preserves_real_producer(
-    tmp_path: Path, request: pytest.FixtureRequest, kind: str, key: str, mode: str
+    tmp_path: Path, kind: str, key: str, mode: str
 ) -> None:
-    bindings = _access(request, kind)
     database = tmp_path / "warehouse.duckdb"
     seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
-    target = (
-        LocalTarget()
-        if kind == "engine"
-        else ObjectTarget("fixture")
-        if kind == "object"
-        else LocalTarget()
-    )
-    runtime = DatasetRuntime.create(tmp_path, "writer", target=target, object_bindings=bindings)
+    runtime = DatasetRuntime.create(tmp_path, "writer")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     committed = sources.population(ref.entity("sales.customers")).execute()
     logical = sources.observe(ref.metric("sales.revenue"))
@@ -354,9 +335,8 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
 
 @pytest.mark.parametrize("kind", ["local"])
 def test_different_sessions_overlap_inside_real_duckdb_queries(
-    tmp_path: Path, request: pytest.FixtureRequest, kind: str, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    bindings = _access(request, kind)
     entered = threading.Barrier(3)
     release = threading.Event()
     original = _build_backend_from_effective
@@ -405,14 +385,7 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
             },
         )
         registry.freeze()
-        target = (
-            LocalTarget()
-            if kind == "engine"
-            else ObjectTarget("fixture")
-            if kind == "object"
-            else LocalTarget()
-        )
-        runtime = DatasetRuntime.create(tmp_path, name, target=target, object_bindings=bindings)
+        runtime = DatasetRuntime.create(tmp_path, name)
         runtimes.append(runtime)
         logicals.append(
             runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(

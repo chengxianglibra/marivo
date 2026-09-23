@@ -13,7 +13,6 @@ from unittest.mock import patch
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.candidate_codec import evidence_payload
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
@@ -37,7 +36,6 @@ def run(
             .compare(driver_metric(fixture.sources, baseline=True, temporal=True, region=True))
             .execute()
         )
-        runtime.target = LocalTarget()
         result = delta.discover.driver_axes(search_space=[CHANNEL]).execute()
         fixture.database.rename(project / "origin.offline")
         refs = {
@@ -46,7 +44,7 @@ def run(
             "candidate": result.state.artifact_ref.ref,
         }
     else:
-        runtime = DatasetRuntime.open(project, refs["session"], target=LocalTarget())
+        runtime = DatasetRuntime.open(project, refs["session"])
         loaded = runtime.artifact(refs["candidate"])
         assert isinstance(loaded, MaterializedCandidateDataset)
         result = loaded

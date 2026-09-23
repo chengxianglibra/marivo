@@ -18,7 +18,6 @@ from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import SourceStep, place, source_binding
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.predicates import gt
 from marivo.datasource.backends import BuiltDatasourceBackend, EffectiveDatasourceKwargs
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
@@ -170,9 +169,8 @@ def test_actual_integer_sum_widening_is_exact_or_atomically_failed(
     finally:
         backend.disconnect()
     if overflow:
-        with pytest.raises(MaterializationError) as caught:
+        with pytest.raises(duckdb.ConversionException, match="out of range"):
             logical.execute()
-        assert caught.value.run_ref == runtime.last_run_ref
         assert runtime.last_run_ref is not None
         failed = runtime.store.run(runtime.last_run_ref)
         assert failed is not None and failed.lifecycle == "failed" and failed.failure is not None

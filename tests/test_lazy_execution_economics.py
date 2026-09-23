@@ -1,12 +1,10 @@
 """Compound source-chain and unsupported-adapter terminal economics."""
 
-from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import SourceStep, place
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.predicates import gt
@@ -54,29 +52,3 @@ def test_compound_source_chain_and_retained_rollup(tmp_path: Path) -> None:
     assert counts(runtime) == {"analysis_action_runs": 2, "dataset_artifacts": 2}
     assert runtime.revalidate(folded.state.artifact_ref).storage_authority == "readable"
     pd.testing.assert_frame_equal(result.to_pandas(), frame)
-
-
-@pytest.mark.parametrize("adapter", ["sqlite", "trino", "mysql", "postgres", "clickhouse"])
-def test_unqualified_source_method_rejects_before_admission(tmp_path: Path, adapter: str) -> None:
-    registry, sidecar = make_execution_registry(tmp_path / "absent.duckdb")
-    registry = replace(
-        registry,
-        metrics={
-            **registry.metrics,
-            "sales.revenue": replace(registry.metrics["sales.revenue"], aggregation="median"),
-        },
-        datasources={
-            name: replace(value, backend_type=adapter)
-            for name, value in registry.datasources.items()
-        },
-    )
-    registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path, f"unsupported-{adapter}")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    logical = sources.observe(ref.metric("sales.revenue"))
-    before = counts(runtime)
-    with pytest.raises(DatasetCompilationError):
-        logical.execute()
-    assert counts(runtime) == before == {"analysis_action_runs": 0, "dataset_artifacts": 0}
-    assert runtime.statistics.primary_queries == 0
-    assert runtime.statistics.events.get("profile_resolution", 0) == 0

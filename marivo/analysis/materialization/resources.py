@@ -8,12 +8,7 @@ from uuid import uuid4
 
 from marivo.analysis.materialization.contracts import ResourceRecord
 from marivo.analysis.materialization.errors import IntegrityError, RecoveryPendingError
-from marivo.analysis.materialization.object_termination import (
-    OBJECT_REQUEST_CAPABILITY,
-    object_request_is_terminal,
-)
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.targets import ObjectBinding
 
 _LOCAL_CAPABILITY = "local_owned_path@v1"
 _READ_CAPABILITY = "read_only_execution@v1"
@@ -70,12 +65,10 @@ def reserve_output(
 def discharge_resources(
     store: SessionStore,
     resources: tuple[ResourceRecord, ...],
-    object_bindings: tuple[ObjectBinding, ...] = (),
 ) -> tuple[ResourceRecord, ...]:
-    """Discharge guarded local recovery without certifying remote read termination.
+    """Discharge guarded local recovery resources.
 
     The caller holds the Session writer guard and has resolved Store commit state.
-    Object requests can still write and therefore retain their exact proof gate.
     Read-only queries and connection-scoped temporary relations cannot publish.
     """
     runs = tuple(store.run(ref) for ref in {item.run_ref for item in resources})
@@ -98,15 +91,10 @@ def discharge_resources(
             ):
                 raise _invalid_resource(resource)
             continue
-        if (
-            resource.cleanup_capability_id == OBJECT_REQUEST_CAPABILITY
-            and object_request_is_terminal(resource)
-        ):
-            continue
         raise RecoveryPendingError(
-            expected="resolved publication ownership and exact write-capable resource cleanup",
-            received="an unresolved object write or unsupported resource obligation",
-            repair="Resolve the recorded publication or object-write obligation before retrying Session recovery.",
+            expected="resolved local publication ownership and resource cleanup",
+            received="an unsupported resource obligation",
+            repair="Inspect the recorded resource obligation before retrying Session recovery.",
             stage="reconciliation",
             run_ref=resource.run_ref,
         )
@@ -114,28 +102,6 @@ def discharge_resources(
     for resource in resources:
         if resource.resource_kind in ("backend_execution", "planner_temporary_relation"):
             resolved.append(resource)
-            continue
-        if resource.cleanup_capability_id == "s3_versioned_key@v1":
-            from marivo.analysis.materialization.errors import (
-                MaterializationError,
-                StorageAccessError,
-            )
-            from marivo.analysis.materialization.object_storage import cleanup_object
-            from marivo.analysis.materialization.targets import object_access
-
-            try:
-                if cleanup_object(
-                    store, resource, object_access(object_bindings, resource.execution_domain_id)
-                ):
-                    resolved.append(resource)
-            except StorageAccessError:
-                # Unavailable access does not revive proven-terminal object work.
-                pass
-            except IntegrityError:
-                raise
-            except MaterializationError:
-                # Proven-terminal exact object garbage can be maintained later.
-                pass
             continue
         if resource.cleanup_capability_id != _LOCAL_CAPABILITY:
             raise RecoveryPendingError(

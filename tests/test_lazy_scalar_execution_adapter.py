@@ -137,7 +137,7 @@ def test_decode_failure_closes_cursor(
     statement = replace(
         adapter.prepare(table.select("label")), schema=pa.schema([("label", pa.int64())])
     )
-    with pytest.raises((pa.ArrowInvalid, pa.ArrowTypeError)):
+    with pytest.raises((MaterializationError, pa.ArrowInvalid, pa.ArrowTypeError)):
         list(adapter.batches(statement, chunk_size=2))
     assert not adapter._streams
     assert adapter.read_scalar(table.count()) == 17

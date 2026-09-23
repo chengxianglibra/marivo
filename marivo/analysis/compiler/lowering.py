@@ -772,7 +772,10 @@ class _Compiler:
         def check_axis(axis: TargetDimensionContract | None, zone: str | None = None) -> None:
             if axis is None or not axis.is_time_dimension or axis.ref.path in checked_axes:
                 return
-            table = self.tables[axis.entity_ref.path]
+            table = self.tables.get(axis.entity_ref.path)
+            if table is None:
+                # A retained input has already fixed this source coordinate.
+                return
             self._time_column(table, axis.source_column, axis, zone)
             checked_axes.add(axis.ref.path)
 

@@ -12,7 +12,6 @@ import pytest
 
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
 from tests.lazy_distinct_fixtures import (
     CHANNEL,
@@ -35,7 +34,7 @@ def test_every_operand_order_keeps_membership_inside_engine(tmp_path: Path, stat
     database = tmp_path / "warehouse.duckdb"
     seed_distinct_database(database, dense_time=True)
     registry, sidecar = make_distinct_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "distinct-operands", target=LocalTarget())
+    runtime = DatasetRuntime.create(tmp_path, "distinct-operands")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     left, right = metric(sources, current=True), metric(sources, current=False)
     current = left.execute() if states[0] == "M" else left

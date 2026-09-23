@@ -19,7 +19,6 @@ from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.event_codec import evidence_payload
 from marivo.analysis.materialization.event_reducer_codec import selection_evidence_payload
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.subject import dropped_before
@@ -62,7 +61,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
             "statistics": statistics(runtime),
             "identity_privacy_verified": True,
         }
-    runtime = DatasetRuntime.open(project, refs["session"], target=LocalTarget())
+    runtime = DatasetRuntime.open(project, refs["session"])
     before = snapshot(runtime)
     receiver = runtime.artifact(refs["journey"])
     assert isinstance(receiver, MaterializedEventDataset)

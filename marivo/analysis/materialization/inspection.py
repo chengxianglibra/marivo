@@ -22,7 +22,7 @@ from marivo.analysis.materialization.errors import (
     MaterializationError,
     StorageAccessError,
 )
-from marivo.analysis.materialization.ownership import object_artifact_prefix, validate_receipt_owner
+from marivo.analysis.materialization.ownership import validate_receipt_owner
 from marivo.analysis.materialization.reads import payload_batches
 from marivo.analysis.materialization.retained import (
     checked_component_batches,
@@ -30,9 +30,6 @@ from marivo.analysis.materialization.retained import (
     validate_source_private_relation,
 )
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.materialization.targets import (
-    ObjectBinding,
-)
 from marivo.analysis.refs import ArtifactRef
 
 if TYPE_CHECKING:
@@ -62,12 +59,11 @@ def _payload_check(
     root: Path,
     descriptor: ArtifactDescriptor,
     part: RetainedPart | None,
-    bindings: tuple[ObjectBinding, ...],
     policy: ReadPolicy,
 ) -> None:
     receipt = descriptor.storage_receipt if part is None else part.storage_receipt
     if part is not None and source_private_part(part):
-        _source_private_check(root, descriptor, part, bindings)
+        _source_private_check(root, descriptor, part)
         return
     row, rows = descriptor.row_contract, descriptor.row_set_contract
     validator = (
@@ -77,7 +73,6 @@ def _payload_check(
         root,
         receipt,
         policy=policy,
-        bindings=bindings,
         row=row if part is None else None,
         rows=rows if part is None else None,
         audit=True,
@@ -116,7 +111,7 @@ def _payload_check(
             if str(row.shape_id) == "lifecycle/history@v1":
                 from marivo.analysis.materialization.lifecycle_publication import inspect_history
 
-                inspect_history(root, descriptor, bindings, policy)
+                inspect_history(root, descriptor, policy)
     finally:
         stream.close()
 
@@ -125,7 +120,6 @@ def _source_private_check(
     root: Path,
     descriptor: ArtifactDescriptor,
     part: RetainedPart,
-    bindings: tuple[ObjectBinding, ...] = (),
 ) -> None:
     """Inspect exact private Parquet state with the fixed native query adapter."""
     import ibis
@@ -143,8 +137,8 @@ def _source_private_check(
     backend = DuckDBExecutionAdapter(ibis.duckdb.connect())
     try:
         backend.configure()
-        primary = attach_parquet_scan(backend, root, primary_receipt, bindings=bindings)
-        table = attach_parquet_scan(backend, root, receipt, bindings=bindings)
+        primary = attach_parquet_scan(backend, root, primary_receipt)
+        table = attach_parquet_scan(backend, root, receipt)
         validate_parquet_relation(backend, primary, primary_receipt, descriptor.row_contract)
         schema = backend.read_table(
             backend.prepare(table.limit(0), role="inspection.schema")
@@ -169,7 +163,6 @@ def _source_private_check(
 def _storage_checks(
     project_root: Path,
     descriptor: ArtifactDescriptor,
-    bindings: tuple[ObjectBinding, ...],
     *,
     policy: ReadPolicy = _POLICY,
 ) -> tuple[_StorageCheck, ...]:
@@ -178,7 +171,7 @@ def _storage_checks(
         role = "primary" if part is None else part.role
         status: StorageStatus = "readable"
         try:
-            _payload_check(project_root, descriptor, part, bindings, policy)
+            _payload_check(project_root, descriptor, part, policy)
         except StorageAccessError as error:
             status = error.storage_status
         except MaterializationError:
@@ -193,7 +186,6 @@ def revalidate(
     store: SessionStore,
     reference: str | ArtifactRef,
     *,
-    bindings: tuple[ObjectBinding, ...] = (),
     policy: ReadPolicy = _POLICY,
 ) -> ArtifactRevalidation:
     """Inspect one immutable authority without loading its origin or repairing state."""
@@ -231,9 +223,7 @@ def revalidate(
                     descriptor.storage_receipt,
                     *(part.storage_receipt for part in descriptor.retained_parts),
                 ):
-                    validate_receipt_owner(
-                        receipt, prefix, object_artifact_prefix(_text(raw, "session_ref"), ref.ref)
-                    )
+                    validate_receipt_owner(receipt, prefix)
                 storage_descriptor = descriptor
                 metadata = store._artifact_metadata(conn, ref.ref)
                 if metadata is None:
@@ -291,7 +281,7 @@ def revalidate(
             )
     checks: tuple[_StorageCheck, ...] = ()
     if storage_descriptor is not None:
-        checks = _storage_checks(store.project_root, storage_descriptor, bindings, policy=policy)
+        checks = _storage_checks(store.project_root, storage_descriptor, policy=policy)
     storage_status: StorageStatus = "unknown" if not checks else "readable"
     for status in _STORAGE_FAILURE_PRIORITY:
         if any(check.status == status for check in checks):

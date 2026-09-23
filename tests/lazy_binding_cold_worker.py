@@ -14,11 +14,6 @@ from unittest.mock import patch
 from marivo._compat import Never
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import (
-    LocalTarget,
-    ObjectTarget,
-    S3Access,
-)
 from marivo.analysis.observation.source_bindings import SourceBindingScopes
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry
@@ -52,30 +47,10 @@ def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
 
 def run(mode: str, kind: str, project: Path, url: str, session: str) -> dict[str, object]:
     registry, sidecar = make_execution_registry(project / "warehouse.duckdb", api_url=url)
-    target = (
-        LocalTarget()
-        if kind == "engine"
-        else ObjectTarget("fixture")
-        if kind == "object"
-        else LocalTarget()
-    )
-    bindings = (
-        (
-            S3Access(
-                "fixture",
-                os.environ["MARIVO_TEST_S3_ENDPOINT"],
-                os.environ["MARIVO_TEST_S3_BUCKET"],
-                "minioadmin",
-                "minioadmin",
-            ),
-        )
-        if kind == "object"
-        else ()
-    )
     runtime = (
-        DatasetRuntime.create(project, "binding-cold", target=target, object_bindings=bindings)
+        DatasetRuntime.create(project, "binding-cold")
         if mode == "produce"
-        else DatasetRuntime.open(project, session, object_bindings=bindings)
+        else DatasetRuntime.open(project, session)
     )
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     logicals = []
@@ -135,7 +110,7 @@ def run(mode: str, kind: str, project: Path, url: str, session: str) -> dict[str
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("produce", "cold"))
-    parser.add_argument("kind", choices=("local", "engine", "object"))
+    parser.add_argument("kind", choices=("local", "engine"))
     parser.add_argument("project", type=Path)
     parser.add_argument("url")
     parser.add_argument("--session", default="")

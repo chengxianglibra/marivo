@@ -14,7 +14,6 @@ import duckdb
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.candidate_codec import evidence_payload
-from marivo.analysis.materialization.targets import LocalTarget
 from marivo.analysis.observation.predicates import gte
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
 from marivo.refs import ref
@@ -31,7 +30,6 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
     database = project / "warehouse.duckdb"
     if mode == "produce":
         runtime, sources, database = setup_entity_candidate(project)
-        runtime.target = LocalTarget()
         logical = entity_metric(sources).discover.entity_outliers()
         selected = logical.where(gte(logical.fields.get("score"), 4.0))
         with (
@@ -47,7 +45,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
             connection.execute("DROP TABLE orders")
         before = snapshot(runtime)
     else:
-        runtime = DatasetRuntime.open(project, refs["session"], target=LocalTarget())
+        runtime = DatasetRuntime.open(project, refs["session"])
         before = snapshot(runtime)
         recovered = runtime.artifact(refs["candidate"])
         assert isinstance(recovered, MaterializedCandidateDataset)

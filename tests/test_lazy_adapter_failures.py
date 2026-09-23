@@ -10,11 +10,7 @@ import pytest
 
 from marivo.analysis.materialization import contracts as c
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import (
-    IntegrityError,
-    MaterializationError,
-)
-from marivo.analysis.materialization.targets import ObjectTarget
+from marivo.analysis.materialization.errors import IntegrityError
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 
@@ -81,28 +77,9 @@ def test_parquet_exact_content_rejects_mutation(tmp_path: Path, mutation: str) -
         reopened.to_pandas()
 
 
-def test_missing_object_configuration_precedes_source_work(tmp_path: Path) -> None:
-    fixture = setup_adapter(tmp_path, "engine")
-    fixture.runtime.target = ObjectTarget("absent")
-    with pytest.raises(MaterializationError, match="storage_selection"):
-        fixture.sources.population(ref.entity("sales.customers")).execute()
-    _assert_failed(fixture.runtime)
-    assert fixture.runtime.statistics.events.get("profile_resolution", 0) == 0
-    assert fixture.runtime.statistics.events.get("source_statement", 0) == 0
-
-
-def test_binding_hit_ignores_new_invalid_target(tmp_path: Path) -> None:
-    fixture = setup_adapter(tmp_path, "engine")
-    logical = fixture.sources.population(ref.entity("sales.customers"))
-    result = logical.execute()
-    fixture.runtime.target = ObjectTarget("unavailable")
-    assert logical.execute().state.artifact_ref == result.state.artifact_ref
-    assert fixture.runtime.statistics.events == {"reconciliation": 1}
-
-
 @pytest.mark.parametrize("kind", ["engine"])
 def test_lost_commit_ack_recovers_committed_output(
-    tmp_path: Path, request: pytest.FixtureRequest, kind: Literal["engine", "object"]
+    tmp_path: Path, request: pytest.FixtureRequest, kind: Literal["engine"]
 ) -> None:
 
     def event(name: str) -> None:
@@ -113,17 +90,6 @@ def test_lost_commit_ack_recovers_committed_output(
     result = fixture.sources.population(ref.entity("sales.customers")).execute()
     assert len(result.to_pandas()) == 4
     assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
-
-
-def test_one_validated_target_is_fixed_for_the_action(tmp_path: Path) -> None:
-    def event(name: str) -> None:
-        if name == "backend_compile":
-            fixture.runtime.target = ObjectTarget("unavailable")
-
-    fixture = setup_adapter(tmp_path, "engine", event=event)
-    result = fixture.sources.population(ref.entity("sales.customers")).execute()
-    record = fixture.runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and isinstance(record.descriptor.storage_receipt, c.LocalReceipt)
 
 
 @pytest.mark.parametrize("independent_source", [False, True])
@@ -175,7 +141,7 @@ def test_reservation_insert_failure_prevents_external_resource_creation(
     tmp_path: Path,
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
-    kind: Literal["engine", "object"],
+    kind: Literal["engine"],
 ) -> None:
     from marivo.analysis.materialization.store import SessionStore
 
@@ -191,7 +157,7 @@ def test_reservation_insert_failure_prevents_external_resource_creation(
         original(store, resource)
 
     monkeypatch.setattr(SessionStore, "reserve", refuse)
-    with pytest.raises(MaterializationError):
+    with pytest.raises(OSError, match="injected reservation persistence failure"):
         fixture.sources.population(ref.entity("sales.customers")).execute()
     assert rejected
     _assert_failed(fixture.runtime)

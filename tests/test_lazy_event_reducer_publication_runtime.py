@@ -85,7 +85,7 @@ def test_time_to_event_entry_coverage_propagates_and_anchor_is_observed(tmp_path
             ),
         )
     database.unlink()
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     assert cold.artifact(later.state.artifact_ref).to_pandas().completion_status.tolist() == [
         "not_entered",
         "entry_unknown",
@@ -150,7 +150,7 @@ def test_cold_reducer_metadata_corruption_fails_without_origin_or_partial_output
         )
     database.unlink()
     before = snapshot(runtime)
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     with (
         patch("marivo.analysis.materialization.admission.execute_local", forbidden),
         pytest.raises(IntegrityError) as caught,

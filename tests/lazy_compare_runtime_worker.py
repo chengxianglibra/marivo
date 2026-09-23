@@ -23,7 +23,6 @@ from marivo.analysis.datasets.descriptors import (
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.targets import LocalTarget, ObjectTarget, S3Access
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
@@ -79,17 +78,6 @@ def _forbidden(*args: object, **kwargs: object) -> None:
 
 def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
     database = project / "warehouse.duckdb"
-    access = (
-        S3Access(
-            "fixture",
-            os.environ["MARIVO_TEST_S3_ENDPOINT"],
-            os.environ["MARIVO_TEST_S3_BUCKET"],
-            "minioadmin",
-            "minioadmin",
-        )
-        if kind == "object"
-        else None
-    )
     if mode == "produce":
         seed_execution_database(database)
     registry, sidecar = make_execution_registry(database)
@@ -97,11 +85,6 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         runtime = DatasetRuntime.create(project, "delta-journey")
     else:
         runtime = DatasetRuntime.open(project, refs["session"])
-    if kind == "engine":
-        runtime.target = LocalTarget()
-    elif kind == "object":
-        assert access is not None
-        runtime.target, runtime.object_bindings = ObjectTarget("fixture"), (access,)
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     before = snapshot(runtime)
     if mode == "produce":

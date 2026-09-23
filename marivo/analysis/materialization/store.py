@@ -1,4 +1,4 @@
-"""One normalized v5 SQLite authority with short atomic metadata transactions."""
+"""One normalized v6 SQLite authority with short atomic metadata transactions."""
 
 from __future__ import annotations
 
@@ -39,9 +39,7 @@ from marivo.analysis.materialization.contracts import (
 )
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
-from marivo.analysis.materialization.object_termination import forget_object_termination
 from marivo.analysis.materialization.ownership import (
-    object_artifact_prefix,
     owns_resource,
     validate_receipt_owner,
 )
@@ -111,7 +109,7 @@ CREATE TABLE findings (
 ) STRICT;
 CREATE TABLE action_resource_journal (
  run_ref TEXT NOT NULL REFERENCES analysis_action_runs(run_ref) ON DELETE RESTRICT,
- resource_kind TEXT NOT NULL CHECK(resource_kind IN ('planner_temporary_relation','backend_execution','private_parquet_staging','local_storage_staging','object_storage_staging')),
+ resource_kind TEXT NOT NULL CHECK(resource_kind IN ('planner_temporary_relation','backend_execution','private_parquet_staging','local_storage_staging')),
  execution_domain_id TEXT NOT NULL CHECK(length(execution_domain_id)>0),
  ownership_nonce TEXT NOT NULL CHECK(length(ownership_nonce)>0),
  cleanup_capability_id TEXT NOT NULL CHECK(length(cleanup_capability_id)>0),
@@ -128,7 +126,7 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 
 def _generation_error(version: object) -> IntegrityError:
     return IntegrityError(
-        expected="an existing complete Session Store with user_version=5",
+        expected="an existing complete Session Store with user_version=6",
         received=f"Session Store user_version={version}",
         repair="Preserve the old Store unchanged and create a new named Session in a fresh project; old Stores cannot be resumed or migrated.",
         stage="store_generation",
@@ -164,10 +162,6 @@ def _recovery_metadata(run_ref: str | None = None) -> Iterator[None]:
         ) from None
 
 
-def _forget_termination(resources: tuple[ResourceRecord, ...]) -> None:
-    forget_object_termination(resources)
-
-
 def _enable_wal(conn: sqlite3.Connection) -> None:
     # SQLite does not consistently invoke its busy handler when changing the
     # journal mode. Concurrent generation creators must retry that transition.
@@ -183,7 +177,7 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.01)
         else:
             if mode != "wal":
-                raise invalid("v5 Store requires WAL durability")
+                raise invalid("v6 Store requires WAL durability")
             return
 
 
@@ -237,7 +231,7 @@ class SessionStore:
 
     @classmethod
     def open_existing(cls, project_root: str | Path) -> SessionStore:
-        """Open only an existing complete v5 authority without initializing state."""
+        """Open only an existing complete v6 authority without initializing state."""
         result = cls.__new__(cls)
         result.layout = MaterializationLayout(Path(project_root))
         unavailable = False
@@ -246,7 +240,7 @@ class SessionStore:
         except (sqlite3.Error, OSError):
             unavailable = True
         if unavailable:
-            raise invalid("selected v5 Store is unavailable")
+            raise invalid("selected v6 Store is unavailable")
         return result
 
     @property
@@ -283,7 +277,7 @@ class SessionStore:
         if not readonly:
             conn.execute("PRAGMA synchronous=FULL")
         version: object = conn.execute("PRAGMA user_version").fetchone()[0]
-        if version != 5:
+        if version != 6:
             conn.close()
             raise invalid("unsupported Store generation")
         return conn
@@ -299,9 +293,9 @@ class SessionStore:
                 tables = read.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
-                if version != 5:
+                if version != 6:
                     raise _generation_error(version)
-                if version == 5:
+                if version == 6:
                     expected = {
                         "sessions",
                         "runtime_state",
@@ -314,29 +308,29 @@ class SessionStore:
                         "action_resource_journal",
                     }
                     if {row[0] for row in tables} != expected:
-                        raise invalid("incomplete v5 schema")
+                        raise invalid("incomplete v6 schema")
                     strict = read.execute("PRAGMA table_list").fetchall()
                     if any(row[5] != 1 for row in strict if row[1] in expected):
-                        raise invalid("non-STRICT v5 relation")
+                        raise invalid("non-STRICT v6 relation")
                     if immutable:
                         # Immutable SQLite reports its local journal mode as delete.
                         # The durable header remains the authority for a clean WAL Store.
                         with self.db_path.open("rb") as source:
                             wal_header = source.read(20)[18:20]
                         if wal_header != b"\x02\x02":
-                            raise invalid("v5 Store requires WAL durability")
+                            raise invalid("v6 Store requires WAL durability")
                     else:
                         journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
                         if journal != "wal":
-                            raise invalid("v5 Store requires WAL durability")
+                            raise invalid("v6 Store requires WAL durability")
             finally:
                 read.close()
-            if version == 5:
+            if version == 6:
                 return
         if existing_only:
-            raise invalid("selected v5 Store is absent")
+            raise invalid("selected v6 Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        # Publish only a complete, closed v5 file. Competing creators never see
+        # Publish only a complete, closed v6 file. Competing creators never see
         # an empty generation-zero database or perform a migration in place.
         with TemporaryDirectory(prefix="store-init-", dir=self.db_path.parent) as directory:
             staged = Path(directory) / "session_store.db"
@@ -349,7 +343,7 @@ class SessionStore:
                 for statement in _SCHEMA.split(";"):
                     if statement.strip():
                         conn.execute(statement)
-                conn.execute("PRAGMA user_version=5")
+                conn.execute("PRAGMA user_version=6")
                 conn.commit()
             finally:
                 conn.close()
@@ -779,7 +773,6 @@ class SessionStore:
     def discharge(self, resource: ResourceRecord) -> None:
         with self._write() as conn:
             self._delete_resources(conn, resource.run_ref, (resource,))
-        _forget_termination((resource,))
 
     def fail(
         self,
@@ -799,7 +792,6 @@ class SessionStore:
                 (run_ref, run.session_ref, "failed", _now(), None, payload),
             )
             self._delete_resources(conn, run_ref, resolved_resources)
-        _forget_termination(resolved_resources)
 
     def _artifact_metadata(
         self, conn: sqlite3.Connection, artifact_ref: str
@@ -847,9 +839,7 @@ class SessionStore:
             *(part.storage_receipt for part in descriptor.retained_parts),
         )
         for receipt in receipts:
-            validate_receipt_owner(
-                receipt, prefix, object_artifact_prefix(session_ref, artifact_ref)
-            )
+            validate_receipt_owner(receipt, prefix)
         return ArtifactMetadata(
             artifact_ref,
             session_ref,
@@ -1006,7 +996,6 @@ class SessionStore:
                 raise invalid("committed output remains a cleanup obligation")
             if event is not None:
                 event("before_commit")
-        _forget_termination(resolved_resources)
         if event is not None:
             event("after_commit")
         return result

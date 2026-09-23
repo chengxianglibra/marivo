@@ -50,7 +50,7 @@ def test_selected_identity_authority_drives_events_without_origin_replay(
         if kind != "population":
             with duckdb.connect(str(database), config={"threads": 1}) as connection:
                 connection.execute("DROP TABLE orders")
-        cold = DatasetRuntime.open(tmp_path, runtime.session_ref, target=runtime.target)
+        cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
         recovered = cold.artifact(selected.state.artifact_ref)
         assert isinstance(
             recovered,
