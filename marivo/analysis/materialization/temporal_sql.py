@@ -200,8 +200,8 @@ def sqlite_strptime(value: str | int | float | None, fmt: str) -> str | None:
     A cell the format cannot read returns SQL NULL rather than raising. The
     driver reports a Python exception from a stored function as an opaque
     ``user-defined function raised exception``, which would cross the execution
-    boundary as a raw driver error; returning NULL instead lets the compiled
-    ``temporal.strptime_format`` assertion name the axis and the format.
+    boundary as a raw driver error. Analysis trusts the declared source format,
+    so an unparseable cell becomes NULL without a separate source-data preflight.
     """
     if value is None:
         return None

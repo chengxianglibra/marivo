@@ -694,5 +694,5 @@ def test_event_semantic_digest_pins_authored_relationship_authority() -> None:
 
     # Pins the source-free definition with endpoint-owned Dimension join refs.
     assert semantic_dependency_digest(match(make_event_sources())) == (
-        "526e483769db0c6859fc75929abfdfb40560d8c2cfbb6182ddf55f7657efdce0"
+        "54b429fe4c8cc79390a82677da8ffbba4d09bf8971fd5f9dd9771937782f232a"
     )

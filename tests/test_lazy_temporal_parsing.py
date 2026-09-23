@@ -24,9 +24,7 @@ from marivo.analysis import grain, time_scope
 from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import (
-    NULL_ON_MALFORMED_ENGINES,
     entity_engine,
-    malformed_strptime_rows,
     parse_strptime,
     translated_strptime_format,
 )
@@ -387,95 +385,12 @@ def test_every_engine_profile_has_a_strptime_translator() -> None:
         assert ENGINE_PROFILES[backend_type].translate_strptime_format("%Y%m%d")
 
 
-def test_only_null_returning_engines_get_the_explicit_assertion() -> None:
-    """The malformed-value assertion is scoped to the engines that need it.
-
-    PostgreSQL is deliberately outside the set: ``TO_TIMESTAMP`` can answer a
-    malformed cell with a wrong non-NULL instant, which a NULL check cannot
-    detect. DuckDB raises, and the execution adapter turns that into a
-    structured failure.
-    """
-    table = ibis.table({"c": "string"}, name="t")
-    parse = StrptimeParse("%Y-%m-%d %H:%M:%S", timezone="UTC")
-    for engine in ENGINES:
-        rows = malformed_strptime_rows(engine, table.c, parse)
-        if engine in NULL_ON_MALFORMED_ENGINES:
-            assert rows is not None, engine
-        else:
-            assert rows is None, engine
-
-
-@pytest.mark.parametrize("engine", ["sqlite", "mysql", "clickhouse"])
-@pytest.mark.parametrize("fmt", ["%Y%m%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"])
-def test_date_only_parses_are_asserted_on_the_parser_result(engine: str, fmt: str) -> None:
-    """A date-only format must not skip the malformed-value assertion.
-
-    The civil-date cast turns a malformed cell into a NULL coordinate, which
-    silently leaves the time axis; the assertion reads the parser result before
-    that cast.
-    """
-    table = ibis.table({"c": "string"}, name="t")
-    rows = malformed_strptime_rows(engine, table.c, StrptimeParse(fmt))
-    assert rows is not None, engine
-    sql = " ".join(ibis.to_sql(rows, dialect=engine).split())
-    assert "IS NULL" in sql or "isNull" in sql
-    parser = NATIVE_PARSER[engine]
-    assert parser.lower() in sql.lower()
-    # The guard reads the parser result; the civil-date cast would hide the
-    # NULL it must report, so no DATE cast may appear in the predicate.
-    casts = [
-        node.to.sql(dialect=engine).upper()
-        for node in sqlglot.parse_one(sql, read=engine).find_all(sge.Cast)
-    ]
-    assert "DATE" not in casts, sql
-
-
-@pytest.mark.parametrize("engine", ["sqlite", "mysql", "clickhouse"])
-def test_date_only_assertion_counts_only_malformed_cells(engine: str) -> None:
-    """The guard names exactly the non-null cells the declared format rejects."""
-    table = ibis.table({"c": "string"}, name="t")
-    rows = malformed_strptime_rows(engine, table.c, StrptimeParse("%Y%m%d"))
-    assert rows is not None
-    assert rows.schema().names == ("c",)
-    sql = " ".join(ibis.to_sql(rows, dialect=engine).split())
-    assert "IS NOT NULL" in sql or "isNotNull" in sql
-
-
-def test_date_only_guard_reports_the_malformed_sqlite_cell() -> None:
-    """The widened guard is executable: it names the bad cell and spares the rest.
-
-    SQLite is the engine whose parser is local, so the whole guard runs here
-    without a service. ``datetime.strptime`` remains the oracle for which cells
-    are malformed.
-    """
-    connection = ibis.sqlite.connect(":memory:")
-    connection.raw_sql("CREATE TABLE t (c TEXT)")
-    connection.raw_sql(
-        "INSERT INTO t VALUES ('20260701'), ('bad'), (NULL), ('20261301'), ('20260702')"
-    )
-    connection.con.create_function("_marivo_strptime", 2, sqlite_strptime, deterministic=True)
-    rows = malformed_strptime_rows("sqlite", connection.table("t").c, StrptimeParse("%Y%m%d"))
-    assert rows is not None
-    try:
-        counted = rows.order_by("c").execute()
-        assert counted["c"].tolist() == ["20261301", "bad"]
-    finally:
-        connection.disconnect()
-
-
 @pytest.mark.parametrize("engine", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"])
 @pytest.mark.parametrize(
     "fmt", ["%Y%m%d", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y"], ids=["date-only", "timed", "slashes"]
 )
-def test_compiled_dataset_carries_the_strptime_assertion(
-    engine: str, fmt: str, tmp_path: Path
-) -> None:
-    """The compiler turns the malformed-value guard into one named validation.
-
-    ``temporal_fixture`` compiles against DuckDB, so only the datasource
-    declaration is swapped to *engine*: the assertion under test is the
-    compiler's, which resolves the parser from that declaration.
-    """
+def test_compiled_dataset_has_no_strptime_preflight(engine: str, fmt: str, tmp_path: Path) -> None:
+    """Every backend keeps time provenance without a source-data parse check."""
     with temporal_fixture(
         tmp_path,
         physical="VARCHAR",
@@ -485,15 +400,9 @@ def test_compiled_dataset_carries_the_strptime_assertion(
     ) as fixture:
         logical = _daily_dataset(_sources_declared_for(fixture, engine))
         compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-        strptime = [
-            validation for validation in compiled.validations if "strptime" in validation.name
-        ]
-        if engine in NULL_ON_MALFORMED_ENGINES:
-            assert [validation.name for validation in strptime] == [
-                f"temporal.strptime_format.{AXIS}"
-            ]
-        else:
-            assert strptime == []
+        assert compiled.temporal_execution is not None
+        assert AXIS in {axis.axis for axis in compiled.temporal_execution.axes}
+        assert not any(check.name.startswith("temporal.") for check in compiled.validations)
 
 
 def test_sqlite_scalar_parses_to_canonical_microsecond_text() -> None:
@@ -507,49 +416,13 @@ def test_sqlite_scalar_parses_to_canonical_microsecond_text() -> None:
 
 
 def test_sqlite_scalar_answers_null_for_an_unparseable_cell() -> None:
-    """A malformed cell returns NULL so the compiled assertion owns the report.
+    """A malformed cell returns NULL without a separate source-data preflight.
 
     Raising would cross the driver boundary as an opaque
-    ``user-defined function raised exception`` instead of naming the axis.
+    ``user-defined function raised exception``.
     """
     assert sqlite_strptime("not-a-date", "%Y-%m-%d") is None
     assert sqlite_strptime("2026-02-30", "%Y-%m-%d") is None
-
-
-@pytest.mark.parametrize(
-    "engine,is_asserted",
-    [
-        ("sqlite", True),
-        ("mysql", True),
-        ("clickhouse", True),
-        ("duckdb", False),
-        ("postgres", False),
-    ],
-)
-def test_malformed_input_split_is_asserted_not_assumed(engine: str, is_asserted: bool) -> None:
-    """Only the NULL-returning engines get Marivo's assertion, for two reasons.
-
-    ``datetime.strptime`` is the oracle: every cell it rejects must either be
-    asserted by Marivo or reach the caller as some other explicit outcome.
-    DuckDB and PostgreSQL are both outside the asserted set, but not for the
-    same reason -- DuckDB raises on the same input, which the execution adapter
-    converts to a structured failure, while PostgreSQL ``TO_TIMESTAMP`` is
-    *lenient* and can answer a wrong non-NULL instant that no NULL check can
-    see. The assertion is therefore scoped to the engines whose parser answers
-    a malformed cell with NULL, and PostgreSQL's leniency is a documented
-    limitation rather than a guarded case.
-    """
-    from datetime import datetime
-
-    from marivo.analysis.materialization.temporal_sql import sqlite_strptime
-
-    malformed = ["bad", "2026-13-01 00:00:00", ""]
-    for text in malformed:
-        with pytest.raises(ValueError):
-            datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
-    if engine == "sqlite":
-        assert all(sqlite_strptime(text, "%Y-%m-%d %H:%M:%S") is None for text in malformed)
-    assert (engine in NULL_ON_MALFORMED_ENGINES) is is_asserted
 
 
 @pytest.mark.parametrize("engine", ["sqlite", "mysql", "trino", "clickhouse"])
@@ -653,34 +526,11 @@ def test_mysql_keeps_the_microseconds_the_parse_reads() -> None:
 
 
 @pytest.mark.runtime
-def test_mysql_date_only_guard_counts_a_malformed_cell() -> None:
-    """The compiled date-only assertion names the malformed cell and only it."""
-    table = ibis.table({"c": "string"}, name="t")
-    rows = malformed_strptime_rows("mysql", table.c, StrptimeParse("%Y%m%d"))
-    assert rows is not None
-    predicate = " ".join(ibis.to_sql(rows, dialect="mysql").split()).split(" WHERE ", 1)[1]
-    connection = _live_mysql_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 WHERE " + _with_cell(predicate, "bad"))
-            assert cursor.fetchone() is not None, "the malformed cell must be counted"
-            cursor.execute("SELECT 1 WHERE " + _with_cell(predicate, "20261301"))
-            assert cursor.fetchone() is not None, "an impossible civil date must be counted"
-            cursor.execute("SELECT 1 WHERE " + _with_cell(predicate, "20260701"))
-            assert cursor.fetchone() is None, "a well-formed cell must not be counted"
-    finally:
-        connection.close()
-
-
-@pytest.mark.runtime
 def test_postgres_lenient_to_timestamp_is_a_documented_limitation() -> None:
     """PostgreSQL answers a malformed cell with a wrong non-NULL instant.
 
     ``TO_TIMESTAMP`` fills missing fields and ignores trailing input instead of
-    raising, so the compiler cannot make PostgreSQL safe by adding it to
-    ``NULL_ON_MALFORMED_ENGINES``: there is no NULL for the guard to count. This
-    pins the documented limitation so a later change cannot silently claim the
-    engine is covered.
+    raising. This pins the known parser behavior without a source-data guard.
     """
     if os.environ.get("MARIVO_POSTGRES_ANALYSIS_TEST") != "1":
         pytest.skip("opt-in PostgreSQL service")
@@ -698,7 +548,6 @@ def test_postgres_lenient_to_timestamp_is_a_documented_limitation() -> None:
             trailing = cursor.fetchone()[0]
         connection.rollback()
     assert wrong is not None and str(wrong).startswith("2026-01-07"), (
-        "the documented leniency changed; revisit NULL_ON_MALFORMED_ENGINES"
+        "the documented leniency changed; revisit parser expectations"
     )
     assert trailing is not None, "trailing garbage is ignored, not rejected"
-    assert "postgres" not in NULL_ON_MALFORMED_ENGINES

@@ -105,8 +105,8 @@ def test_snapshot_probe_rejects_a_second_physical_source() -> None:
 def test_envelope_uses_real_sum_count_checks_and_retained_parts() -> None:
     source, recipe = qualification_recipe()
     assert tuple(check.name for check in recipe.validations) == (
-        "sales.orders.identity_non_null",
-        "sales.orders.source_row_unique",
+        "probe.identity_non_null",
+        "probe.source_row_unique",
     )
     envelope = assertion_envelope(recipe)
     ast = sg.parse_one(str(ibis.to_sql(envelope, dialect="clickhouse")), read="clickhouse")

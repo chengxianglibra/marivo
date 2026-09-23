@@ -13,7 +13,7 @@ import duckdb
 import pandas as pd
 import pytest
 
-from marivo.analysis import grain
+from marivo.analysis import grain, time_scope
 from marivo.analysis.datasets.handles import MaterializedScanLeafHandle
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -57,6 +57,29 @@ def _setup(
     registry, sidecar = make_execution_registry(database)
     runtime = DatasetRuntime.create(project, "execution-acceptance", event=event)
     return runtime, runtime.sources(semantic_registry=registry, sidecar=sidecar), database
+
+
+def test_duplicate_entity_key_does_not_preflight_scalar_observation(tmp_path: Path) -> None:
+    runtime, sources, database = _setup(tmp_path)
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("INSERT INTO orders (id, customer_id, amount) VALUES (1, 1, 5)")
+    frame = sources.observe(ref.metric("sales.revenue")).aggregate().execute().to_pandas()
+    assert frame.revenue.tolist() == [152.0]
+    assert not any(
+        "identity_non_null" in role or "source_row_unique" in role
+        for role, _ in runtime.statistics.statements
+    )
+
+
+def test_missing_snapshot_uses_empty_population_semantics(tmp_path: Path) -> None:
+    runtime, sources, _ = _setup(tmp_path)
+    population = sources.population(
+        ref.entity("sales.snapshots"),
+        time_scope=time_scope(start="2026-03-01", end="2026-04-01"),
+    )
+    frame = population.execute().to_pandas()
+    assert frame.empty
+    assert not any("exact_snapshot_available" in sql for _, sql in runtime.statistics.statements)
 
 
 def _run_count(runtime: DatasetRuntime) -> int:
@@ -329,12 +352,10 @@ def test_raw_statement_diagnostics_keep_bindings_out_of_persisted_state_and_erro
         assert statement_kinds.count("source_fence") == 1
         assert statement_kinds.count("primary") == runtime.statistics.primary_queries == 1
         assert statement_kinds.count("transfer_guard") == 0
-        assert statement_kinds.count("validation_batch") == 3
+        assert statement_kinds.count("validation_batch") == 1
         record = runtime.store.artifact(materialized.state.artifact_ref.ref)
         assert record is not None
         assert {
-            "sales.api.identity_non_null",
-            "sales.api.source_row_unique",
             "dataset.final_row_key_unique",
         } == {
             name

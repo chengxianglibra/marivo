@@ -28,8 +28,9 @@ engine facts fail with their original cause when reader authority is required. E
 and explicit system fallback. Civil dates do not shift. Naive time values localize
 before instant comparison; absolute instants preserve their meaning. Source
 precision and logical temporal kind are validated separately. Unsupported exact
-precision conversion fails; no silent truncation is permitted. Native naive gap/fold
-values fail before filtering or publication. Known instants in a repeated report hour
+precision conversion fails; no silent truncation is permitted. Source naive
+gap/fold values are not preflighted; query conversion follows declared time
+authority, and the backend may report a conversion error. Known instants in a repeated report hour
 share the same civil bucket coordinate. Timestamp predicate literals must match their
 field kind: naive civil values or aware instants.
 
@@ -791,17 +792,10 @@ and [materialization contract](../superpowers/specs/2026-09-01-lazy-analysis-mat
 for detailed owning rules.
 
 
-### Native timestamp timezone-rule agreement (C3a)
+### Native timestamp timezone authority (C3a)
 
-Runtime ZoneInfo is the authority for named-zone rules. Before a native timestamp
-source produces a primary result, source-side min/max aggregates bound the relevant
-intervals. Source-side validation then checks that every non-null naive value has
-exactly one ZoneInfo candidate and that source conversion to UTC and the report
-boundary agrees with those rules. TZif transition instants and POSIX continuation
-rules locate intervals; ZoneInfo supplies their offsets. Gaps, folds, unavailable
-rules and engine/runtime disagreement fail with a structured MaterializationError
-before publication. Fixed-offset-only paths need no rule-data comparison. SQLite
-keeps its connection-local Python temporal functions. This does not transfer source
-rows or install remote UDFs. Each range/rule query is an attempted physical
-engine_check validation submission. Separate validation and primary queries retain
-the existing source-concurrency limitation; this is not a snapshot guarantee.
+Runtime ZoneInfo supplies named-zone rules for declared time conversions.
+Analysis does not submit source-side range, gap/fold, or engine/runtime rule
+agreement checks before the requested query. SQLite keeps its connection-local
+Python temporal functions. Backend conversion errors propagate from query
+execution; source values that violate the declaration can affect results.

@@ -580,7 +580,6 @@ def entity_payload(entity: TargetEntityContract) -> CanonicalValue:
         entity.version_row_key,
         entity.columns,
         _version_payload(entity.version),
-        tuple((obligation.kind, obligation.columns) for obligation in entity.obligations),
         entity.credential_slots,
     )
     return (entity.ref.path, entity.identity_signature, _canonical_digest(declaration))

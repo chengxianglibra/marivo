@@ -74,7 +74,8 @@ The design holds to these goals:
   time meaning, snapshot periods, validity intervals, and Metric status folds.
   Analysis supplies exact temporal boundaries with their fixed instant or
   immediately-before-endpoint interpretation and keeps membership selection, Metric
-  observation, and output coordinates separate. An absent exact snapshot fails;
+  observation, and output coordinates separate. An absent exact snapshot uses
+  the consuming operation's empty-result semantics;
   neither implicit latest nor per-Entity last-known selection repairs it.
 - **Aggregation follows the governed equation.** Metric computation roots,
   component equations, spatial-before-temporal order, fixed null/empty rules,
@@ -187,7 +188,7 @@ executed by the library. This mirrors the ownership split stated in
 | Semantic constructors, typed refs, dependencies, project validation, preview | `marivo.semantic` (`ms`) |
 | Entity identity, version row grain, intrinsic Metric graph and fold/state requirements | semantic declarations and their shared normalized resolver |
 | Membership/time choices, current coordinate/state admission, explicit Dataset execution | `marivo.analysis` (`mv`) |
-| Snapshot/validity integrity and operation-required source coverage | exact runtime validation and source evidence |
+| Snapshot/validity selection and operation-required source coverage | declared semantics and query execution; explicit source health for data inspection |
 | Readiness and analysis-ready inputs | `ReadinessReport` |
 | Callable operations, effects, input facts, and constraints | private native registries (not public APIs) |
 | Current failed-operation repair | typed error/result repair object |
@@ -208,7 +209,7 @@ report. No additional transfer object or hidden authoring API exists between
 readiness and ordinary analysis operations.
 
 The lazy cutover is accepted only when one coherent snapshot preserves identity
-without last-known substitution, validity resolution rejects overlap, independent
+without last-known substitution, validity resolution uses declared intervals, independent
 membership/observation periods compose, and multi-root observations preserve
 per-component contributions. Numerical acceptance must additionally reject
 overlapping-bucket sums and non-commuting semi-additive folds, preserve null and

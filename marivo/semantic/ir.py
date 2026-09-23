@@ -399,21 +399,6 @@ class EntityIR:
 
 
 @dataclass(frozen=True, slots=True)
-class TargetRuntimeObligation:
-    """A source assertion awaiting execution, never static validation evidence."""
-
-    kind: Literal[
-        "identity_non_null",
-        "source_row_unique",
-        "validity_well_formed",
-        "validity_non_overlapping",
-        "exact_snapshot_available",
-        "selected_identity_unique",
-    ]
-    columns: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class TargetSnapshotVersion:
     """Private target snapshot coordinate, separate from Entity identity."""
 
@@ -453,7 +438,6 @@ class TargetEntityContract:
     version_row_key: tuple[str, ...]
     columns: tuple[tuple[str, str], ...]
     version: TargetSnapshotVersion | TargetValidityVersion | None
-    obligations: tuple[TargetRuntimeObligation, ...]
     credential_slots: tuple[str, ...]
 
 

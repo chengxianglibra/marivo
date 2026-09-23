@@ -177,7 +177,6 @@ def test_entity_identity_is_ordered_and_independent_of_version_row_key() -> None
     unkeyed = normalize_target_entity(registry, "sales.orders")
     assert unkeyed.primary_key == ()
     assert unkeyed.identity_signature == ()
-    assert unkeyed.obligations == ()
 
 
 def test_normalized_source_detaches_authored_mutable_query_sequences() -> None:
@@ -215,7 +214,7 @@ def test_normalized_entity_preserves_datasource_identity() -> None:
     assert second.dependency_fingerprint == fingerprint_before_change
 
 
-def test_snapshot_normalization_declares_obligations_and_exact_left_limit() -> None:
+def test_snapshot_normalization_preserves_exact_left_limit() -> None:
     registry = _registry()
     registry.entities["sales.orders"] = _entity(
         "orders",
@@ -224,12 +223,6 @@ def test_snapshot_normalization_declares_obligations_and_exact_left_limit() -> N
     normalized = normalize_target_entity(registry, "sales.orders")
     assert normalized.primary_key == ("id",)
     assert normalized.version_row_key == ("id", "day")
-    assert {obligation.kind for obligation in normalized.obligations} == {
-        "identity_non_null",
-        "source_row_unique",
-        "exact_snapshot_available",
-        "selected_identity_unique",
-    }
     boundary = datetime(2026, 2, 1, 16, tzinfo=timezone.utc)
     instant = normalize_target_version_selection(
         normalized, boundary=boundary, interpretation="instant"
@@ -262,7 +255,6 @@ def test_validity_exact_endpoint_comparisons(interval: str) -> None:
     registry.entities["sales.orders"] = _entity("orders", version=version)
     normalized = normalize_target_entity(registry, "sales.orders")
     assert normalized.version_row_key == ("id", "start")
-    assert "validity_non_overlapping" in {item.kind for item in normalized.obligations}
     boundary = datetime(2026, 2, 1, tzinfo=timezone.utc)
     instant = normalize_target_version_selection(
         normalized, boundary=boundary, interpretation="instant"
