@@ -123,7 +123,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalEventDataset",
             "result = session.events.match(pattern, cohort_window=window, completion_through=end, matching=first_per_subject(), completeness=event_completeness)",
             ("session", "pattern", "window", "end", "first_per_subject", "event_completeness"),
-            "Matching policy, anchor scope, follow-up and coverage authority are separate choices. PostgreSQL source execution admits exact two- or three-step first-per-subject and every-start journeys with unversioned tables and int64 identities.",
+            "Exact unversioned int64 journeys: PostgreSQL supports two/three steps; ClickHouse and Trino support two. Matching, anchor scope, follow-up and coverage remain separate choices.",
             ("session.events.match",),
         ),
         (
@@ -144,7 +144,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalLifecycleDataset",
             "result = session.lifecycle.replay(model, window=window, seed=from_inception(), completeness=lifecycle_completeness)",
             ("session", "model", "window", "from_inception", "lifecycle_completeness"),
-            "Replay requires from-inception history and exact trigger coverage; a bounded prefix cannot replace source-origin completeness.",
+            "Replay requires from-inception history and exact trigger coverage. PostgreSQL, Trino Iceberg and ClickHouse MergeTree support two triggers over unversioned int64 tables (one identity component on Trino/ClickHouse). Execute history before remote retained continuations; direct reducers also support PostgreSQL.",
             ("session.lifecycle.replay",),
         ),
     ):
@@ -184,7 +184,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalEventDataset",
             "result = events.funnel()",
             ("events",),
-            "Reduce dense journeys with fixed denominators and separate censoring counts.",
+            "Reduce dense journeys with fixed denominators and separate censoring counts. Qualified direct sources include PostgreSQL and ungrouped Trino funnels.",
         ),
         (
             "event",
@@ -198,7 +198,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalEventDataset",
             "result = events.time_to_event(from_step=start_step, to_step=finish_step)",
             ("events", "start_step", "finish_step"),
-            "Pair-local entry classification preserves completed versus observed durations.",
+            "Pair-local entry classification preserves completed versus observed durations. Direct sources include PostgreSQL and first-per-subject Trino journeys.",
         ),
         (
             "event",
@@ -215,7 +215,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalPopulationDataset",
             "result = events.select_subjects(dropped_before(step=finish_step))",
             ("events", "dropped_before", "finish_step"),
-            "Select resolved losses with proven complete membership; row filters do not create a new cohort.",
+            "Select resolved losses with proven complete membership. Qualified direct sources include PostgreSQL and Trino.",
         ),
         (
             "event",

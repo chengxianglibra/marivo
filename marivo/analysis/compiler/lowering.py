@@ -734,6 +734,8 @@ class _Compiler:
         explicit_correlation: bool = False,
         emulate_full_join: bool = False,
         scalar_masks: bool = False,
+        lifecycle_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
+        ranked_event_successors: bool = False,
     ) -> None:
         self.dataset = dataset
         self.owner = source_owner_of(dataset) if source_owner is None else source_owner
@@ -745,6 +747,8 @@ class _Compiler:
         self.explicit_correlation = explicit_correlation
         self.emulate_full_join = emulate_full_join
         self.scalar_masks = scalar_masks
+        self.lifecycle_dialect = lifecycle_dialect
+        self.ranked_event_successors = ranked_event_successors
         self.time_authorities: dict[tuple[str, str], SourceTimeAuthority] = {}
         self.version_selections: dict[str, CanonicalValue] = {}
         dependencies = (
@@ -2288,7 +2292,12 @@ class _Compiler:
             payload.definition, require_source_origin=True
         )
         table, parts, checks = compile_replay(
-            occurrences, membership, payload.semantics, coverage, freeze=freeze
+            occurrences,
+            membership,
+            payload.semantics,
+            coverage,
+            freeze=freeze,
+            dialect=self.lifecycle_dialect,
         )
         self.validations.extend(checks)
         self.lifecycle_coverage = coverage
@@ -2338,6 +2347,7 @@ class _Compiler:
             completion_through=definition.completion_through,
             definition_digest=journey_identity_digest(journey_semantics(definition)),
             coverage_complete=coverage.complete,
+            ranked_successors=self.ranked_event_successors,
         )
         self.validations.extend(checks)
         table = freeze(table)
@@ -3065,6 +3075,8 @@ def compile_dataset(
     explicit_correlation: bool = False,
     emulate_full_join: bool = False,
     scalar_masks: bool = False,
+    lifecycle_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
+    ranked_event_successors: bool = False,
 ) -> CompiledDataset:
     """Lower a logical Dataset using exact source tables without executing or reading rows."""
     return _Compiler(
@@ -3081,6 +3093,8 @@ def compile_dataset(
         explicit_correlation,
         emulate_full_join,
         scalar_masks,
+        lifecycle_dialect,
+        ranked_event_successors,
     ).compile()
 
 

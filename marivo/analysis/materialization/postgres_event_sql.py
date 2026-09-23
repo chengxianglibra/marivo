@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
+import ibis.expr.types as ir
 import pyarrow as pa
 from ibis.backends.postgres import Backend
 from ibis.backends.sql.compilers.postgres import PostgresCompiler
@@ -75,6 +76,11 @@ class _EventCompiler(PostgresCompiler):  # type: ignore[misc]  # Ibis compiler l
 
 class _EventBackend(Backend):  # type: ignore[misc]  # Ibis backend lacks typing.
     compiler = _EventCompiler()
+
+
+def compile_event_expression(expression: ir.Expr) -> str:
+    result: str = _EventBackend().compile(expression)
+    return result
 
 
 @dataclass(frozen=True, slots=True)

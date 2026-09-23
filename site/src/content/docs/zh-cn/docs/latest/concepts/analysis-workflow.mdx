@@ -137,7 +137,27 @@ DuckDB oracle 旅程执行，五个远程后端的执行证据随 C7/C8 日历�
 PostgreSQL、MySQL、SQLite、Trino 和 ClickHouse 启用；SQLite/MySQL 在 SQL 中逐列去重有类型的身份字段，
 私有 part 保持原有 Arrow struct。精确线性插值 median/percentile 已在五个远程后端启用。远程
 `duckdb_tdigest@v1` 以及 percentile status-time 折叠仍未准入。五个远程后端已支持在源端对完整私有配对做 Entity Pearson 和 Spearman 相关性归约；Kendall 继续使用完整输入的本地续算。
-PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。PostgreSQL 还支持精确的两步或三步 `session.events.match(...)` 旅程（`first_per_subject()` 或 `every_start()`）；这些形态要求未版本化表源以及 `int64` 的主体和事件身份。只读源端查询在发布旅程前完成匹配与断言。PostgreSQL 的其他 Event 形状、Event 派生方法和 Lifecycle 回放仍不支持；SQLite、MySQL、Trino 和 ClickHouse 的 Event/Lifecycle 仍不支持。采样、Entity candidates 和源端 driver screening 仍不支持。
+PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。PostgreSQL 支持精确的两步或三步 `session.events.match(...)` 旅程，以及包含两个触发 Event 的 `session.lifecycle.replay(...)` 历史；要求未版本化表源和 `int64` 主体、事件身份。直接 Event 漏斗、耗时和主体选择，以及 Lifecycle 状态分布、转移、停留、违规和主体选择均已验收。完整 PostgreSQL 漏斗可通过既有保留结果路径继续比较和归因。
+
+ClickHouse 和 Trino 支持相同表源与身份条件下的两步旅程，匹配策略包括 `first_per_subject()` 和 `every_start()` 的共享／独占完成分配。Trino 的真实验收使用 Iceberg；ClickHouse 要求只读账户获准设置 `enable_materialized_cte=1`。空输出也执行源端断言，只有契约允许的完整结果进入既有本地续算。Trino 还支持直接无分组漏斗、first-per-subject 耗时、主体选择和完整无分组漏斗比较。Trino 分组漏斗的核对查询超过验收服务的 stage 上限，因此分组漏斗和依赖它的归因保持拒绝。ClickHouse 的直接 Event 派生方法与主体选择仍因计划或内存限制保持拒绝。Trino（Iceberg）和 ClickHouse（MergeTree）还支持相同表源条件下的双触发 Event Lifecycle history，主体与事件身份各限定为一个 `int64` 分量：使用源端数组折叠完成全量重放，并验证并列顺序是否有歧义。先执行 history，再从完整保留结果继续状态分布、转移、停留、违规和主体选择；这两个后端的直接源端 Lifecycle 派生方法仍未开放。SQLite、MySQL 的 Event/Lifecycle 仍未开放。
+
+对于已验收的 PostgreSQL、Trino 或 ClickHouse 模型，先执行 history，再从保留结果继续：
+
+```python
+history = session.lifecycle.replay(
+    model,
+    window=window,
+    seed=mv.from_inception(),
+    completeness=lifecycle_completeness,
+)
+retained_history = history.execute()
+transitions = retained_history.transitions().execute()
+transitions.show()
+```
+
+其中 `model` 是包含两个触发 Event 的受治理 StateModel，`window` 是带时区的时间范围，`lifecycle_completeness` 提供从源头开始的覆盖声明。源端完成完整回放，发布结果保留冷进程续算需要的组成部分。
+
+采样、Entity candidates 和源端 driver screening 仍不支持。
 字符串时间解析与多单位桶按后端逐步启用，限制见下节。
 不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。
 

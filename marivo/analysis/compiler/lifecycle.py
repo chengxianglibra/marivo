@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from typing import Literal
 
 import ibis
 import ibis.expr.operations as ops
@@ -71,7 +72,11 @@ def _evaluation(semantics: LifecycleSemantics, state: str, trigger: str) -> tupl
 
 
 def _ambiguity_check(
-    combined: ir.Table, replay: ir.Table, semantics: LifecycleSemantics
+    combined: ir.Table,
+    replay: ir.Table,
+    semantics: LifecycleSemantics,
+    *,
+    dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
 ) -> CompiledValidation:
     """Prove confluence of equal governed-order groups inside the source engine.
 
@@ -108,6 +113,44 @@ def _ambiguity_check(
         SELECT entity_identity, lo FROM paths WHERE len(remaining)=0
         GROUP BY ALL HAVING count(DISTINCT struct_pack(state := state, outcomes := outcomes)) > 1
     )"""
+    if dialect == "postgres":
+        query = f"""WITH RECURSIVE groups AS (
+            SELECT entity_identity, occurred_at, min(ordinal) lo, max(ordinal) hi
+            FROM {source} GROUP BY entity_identity, occurred_at HAVING count(*) > 1
+        ), paths AS (
+            SELECT g.entity_identity, g.lo, g.hi,
+                ARRAY(SELECT generate_series(g.lo, g.hi)) AS remaining,
+                r.state_before::TEXT AS state, '{{}}'::JSONB AS outcomes
+            FROM groups g JOIN {replay_name} r
+                ON r.entity_identity=g.entity_identity AND r.ordinal=g.lo
+            UNION
+            SELECT p.entity_identity, p.lo, p.hi,
+                array_remove(p.remaining, o.ordinal), {after},
+                p.outcomes || jsonb_build_object(o.ordinal::TEXT,
+                    jsonb_build_array({kind}, CASE WHEN ({kind}) IN
+                        ('illegal_transition','transition_from_terminal') THEN p.state END))
+            FROM paths p JOIN {source} o
+                ON p.entity_identity=o.entity_identity AND o.ordinal=ANY(p.remaining)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM {source} preceding
+                WHERE preceding.entity_identity=o.entity_identity
+                    AND preceding.trigger_event_ref=o.trigger_event_ref
+                    AND preceding.event_identity<o.event_identity
+                    AND preceding.ordinal=ANY(p.remaining)
+            )
+        ) SELECT count(*)::BIGINT AS violations FROM (
+            SELECT entity_identity, lo FROM paths WHERE cardinality(remaining)=0
+            GROUP BY entity_identity, lo
+            HAVING count(DISTINCT ROW(state, outcomes)) > 1
+        ) AS divergent"""
+    if dialect == "trino":
+        from marivo.analysis.compiler.lifecycle_array import trino_confluence
+
+        query = trino_confluence(source, replay_name, semantics)
+    if dialect == "clickhouse":
+        from marivo.analysis.compiler.lifecycle_array import clickhouse_confluence
+
+        query = clickhouse_confluence(source, replay_name, semantics)
     expression = ops.SQLStringView(
         combined.op(),
         f"SELECT * FROM ({query}) AS lifecycle_confluence",
@@ -128,6 +171,7 @@ def compile_replay(
     coverage: EventCoverageResolution,
     *,
     freeze: Callable[[ir.Table], ir.Table],
+    dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
 ) -> tuple[ir.Table, tuple[tuple[str, ir.Table], ...], tuple[CompiledValidation, ...]]:
     """Replay ordered source-private rows without collecting identities in Python."""
     streams = tuple(
@@ -149,11 +193,19 @@ def compile_replay(
     name = sge.to_identifier(combined.get_name(), quoted=True).sql(dialect="duckdb")
     after, kind = _evaluation(semantics, "r.state_after", "o.trigger_key")
     query = f"""WITH RECURSIVE replay AS (
-        SELECT DISTINCT entity_identity, 0::BIGINT AS ordinal, NULL::VARCHAR AS state_before, NULL::VARCHAR AS state_after, NULL::VARCHAR AS evaluation FROM {name}
+        SELECT DISTINCT entity_identity, 0::BIGINT AS ordinal, NULL::TEXT AS state_before, NULL::TEXT AS state_after, NULL::TEXT AS evaluation FROM {name}
         UNION ALL
         SELECT o.entity_identity, o.ordinal, r.state_after, {after}, {kind}
         FROM replay r JOIN {name} o ON r.entity_identity = o.entity_identity AND o.ordinal = r.ordinal + 1
     ) SELECT o.*, r.state_before, r.state_after, r.evaluation FROM replay r JOIN {name} o USING (entity_identity, ordinal)"""
+    if dialect == "trino":
+        from marivo.analysis.compiler.lifecycle_array import trino_replay
+
+        query = trino_replay(name, semantics)
+    if dialect == "clickhouse":
+        from marivo.analysis.compiler.lifecycle_array import clickhouse_replay
+
+        query = clickhouse_replay(name, semantics)
     schema = ibis.schema(
         [
             *combined.schema().items(),
@@ -168,7 +220,7 @@ def compile_replay(
         ).to_expr()
     )
     checks: list[CompiledValidation] = []
-    checks.append(_ambiguity_check(combined, replay, semantics))
+    checks.append(_ambiguity_check(combined, replay, semantics, dialect=dialect))
     start = datetime.fromisoformat(semantics.source.cohort_start)
     end = datetime.fromisoformat(semantics.source.cohort_end)
     known = known_through(semantics, coverage)

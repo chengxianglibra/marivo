@@ -19,7 +19,12 @@ from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.execution import ExecutionContext, Parameter, Statement
+from marivo.analysis.materialization.execution import (
+    BatchStream,
+    ExecutionContext,
+    Parameter,
+    Statement,
+)
 from marivo.analysis.materialization.scalar_projection import project
 from marivo.analysis.materialization.submissions import ObservedExecution
 from marivo.analysis.materialization.temporal_sql import governed_temporal_operation
@@ -41,6 +46,7 @@ class Cursor(Protocol):
 @dataclass(frozen=True, slots=True)
 class ScalarStatement(Statement):
     columns: tuple[tuple[int, ...], ...] = ()
+    native_structs: bool = False
 
 
 def _cell(value: object, dtype: pa.DataType, *, run_ref: str | None = None) -> object:
@@ -156,9 +162,10 @@ class ScalarBatchStream:
     ) -> None:
         self._adapter = adapter
         self._schema = statement.schema
+        self._flattened = isinstance(statement, ScalarStatement) and not statement.native_structs
         self._columns = (
             statement.columns
-            if isinstance(statement, ScalarStatement)
+            if isinstance(statement, ScalarStatement) and not statement.native_structs
             else tuple((i,) for i in range(len(self._schema)))
         )
         self._chunk_size = chunk_size
@@ -190,7 +197,7 @@ class ScalarBatchStream:
                 arrays = []
                 for field, positions in zip(self._schema, self._columns, strict=True):
                     values: list[object]
-                    if pa.types.is_struct(field.type):
+                    if self._flattened and pa.types.is_struct(field.type):
                         values = [
                             {
                                 child.name: self._adapter.decode_cell(row[index], child.type)
@@ -245,7 +252,7 @@ class ScalarExecutionAdapter(ObservedExecution):
         self._run_ref = run_ref
         self._context = ExecutionContext()
         self._closed = False
-        self._streams: set[ScalarBatchStream] = set()
+        self._streams: set[BatchStream] = set()
 
     def error(
         self, expected: str, received: str, repair: str, *, stage: str = "execution_boundary"
@@ -292,6 +299,15 @@ class ScalarExecutionAdapter(ObservedExecution):
     def _lower(self, expression: ir.Expr) -> ir.Expr:
         raise NotImplementedError
 
+    def _compile_sql(
+        self,
+        expression: ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Parameter] | None = None,
+    ) -> str:
+        result: str = self._backend.compile(expression, params=params, limit=None)
+        return result
+
     def _prepare(
         self,
         expression: ir.Expr,
@@ -316,7 +332,7 @@ class ScalarExecutionAdapter(ObservedExecution):
         physical = project(self._lower(expression), run_ref=self._run_ref)
         if execute:
             self._backend._run_pre_execute_hooks(physical.expression)
-        sql = self._backend.compile(physical.expression, params=params, limit=None)
+        sql = self._compile_sql(physical.expression, params=params)
         names = physical.expression.columns
         columns = tuple(tuple(names.index(name) for name in group) for group in physical.columns)
         return ScalarStatement(sql, (), physical.schema, role, self._context, columns=columns)
@@ -367,7 +383,7 @@ class ScalarExecutionAdapter(ObservedExecution):
         chunk_size: int,
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
-    ) -> ScalarBatchStream:
+    ) -> BatchStream:
         statement: Statement
         if isinstance(value, ir.Expr):
             statement = self._prepare(value, role=role, params=params, execute=True)
