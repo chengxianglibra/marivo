@@ -252,6 +252,13 @@ def test_mysql_family_actually_reads_the_collapsed_hour_format(engine: str) -> N
     )
 
 
+def test_trino_fractional_format_reaches_date_parse() -> None:
+    """Fractional seconds follow Trino date_parse's native precision."""
+    assert _parser_arguments("trino", "%Y-%m-%d %H:%M:%S.%f", timezone="UTC")[0] == (
+        "%Y-%m-%d %T.%f"
+    )
+
+
 @pytest.mark.parametrize(
     "fmt,reason",
     [

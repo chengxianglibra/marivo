@@ -159,9 +159,11 @@ all six backends; the composed-Decimal unit matrix above names each backend
 whose linear decimal cell resolves exactly (PostgreSQL, MySQL, ClickHouse) and
 the ones that keep the conservative rejection (Trino's lossy AVG probe, SQLite's
 missing Decimal storage). Multi-unit buckets and string-parser time axes were
-activated by C3b
-(see the C3b acceptance record for the per-backend and per-format limits); Trino
-carries no execution evidence yet for either. No
+activated by C3b (see its acceptance record for per-backend and per-format
+limits). Trino's strptime and composite hour-prefix axes were qualified later
+through [live source execution](../../superpowers/specs/2026-09-23-c3b-trino-parsed-time-acceptance.md).
+Trino `date_parse` accepts `%f` with its native millisecond result precision;
+the tested malformed cell raised the native parser error before publication. No
 private state is uploaded or moved to a different executor to bypass rejection.
 
 ### Native timestamp analysis

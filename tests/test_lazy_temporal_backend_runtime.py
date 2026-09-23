@@ -29,10 +29,15 @@ from tests.lazy_temporal_fixtures import AXIS
 
 pytestmark = pytest.mark.runtime
 
-# Backends with live execution evidence for the parsed-time gate.  PostgreSQL
-# joined the gate in the same commit as its ``*_support`` flag, and the two
-# remaining engines stay closed: Trino has no reachable service.
-PARSED_ENGINES: tuple[Engine, ...] = ("duckdb", "sqlite", "mysql", "clickhouse", "postgres")
+# Backends with live execution evidence for the parsed-time gate.
+PARSED_ENGINES: tuple[Engine, ...] = (
+    "duckdb",
+    "sqlite",
+    "mysql",
+    "clickhouse",
+    "postgres",
+    "trino",
+)
 HOUR_AXIS = "sales.orders.hour"
 
 
@@ -640,6 +645,46 @@ def test_strptime_time_bearing_axis_executes(
         } == {"2026-07-01": 5}
 
 
+def test_trino_fractional_strptime_executes_with_native_precision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The admitted %f format reaches Trino date_parse on a typed time axis."""
+    with strptime_source(
+        "trino",
+        tmp_path,
+        monkeypatch,
+        ("2026-07-01 15:59:59.123456", "2026-07-01 16:00:00.654321"),
+        fmt="%Y-%m-%d %H:%M:%S.%f",
+        timezone="UTC",
+    ) as (registry, sidecar):
+        runtime = DatasetRuntime.create(
+            tmp_path / "project", "parsed-fractional", report_timezone="Asia/Shanghai"
+        )
+        result = _daily(runtime, registry, sidecar).execute().to_pandas()
+        assert {str(row.order_time)[:10]: row.revenue for row in result.itertuples()} == {
+            "2026-07-01": 2,
+            "2026-07-02": 3,
+        }
+        assert any(
+            "DATE_PARSE" in submission.sql.upper() and "%f" in submission.sql
+            for submission in runtime.statistics.submissions
+        )
+
+
+def test_trino_strptime_keeps_null_coordinate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A nullable parsed source cell remains a separate NULL time bucket."""
+    with strptime_source("trino", tmp_path, monkeypatch, (None, "20260701"), fmt="%Y%m%d") as (
+        registry,
+        sidecar,
+    ):
+        runtime = DatasetRuntime.create(tmp_path / "project", "parsed-null", report_timezone="UTC")
+        result = _daily(runtime, registry, sidecar).execute().to_pandas()
+        assert result.loc[result.order_time.isna(), "revenue"].tolist() == [2]
+        assert result.loc[result.order_time.notna(), "revenue"].tolist() == [3]
+
+
 @pytest.mark.parametrize("engine", PARSED_ENGINES)
 def test_strptime_malformed_cell_fails_before_publication(
     engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -647,8 +692,9 @@ def test_strptime_malformed_cell_fails_before_publication(
     """A cell the declared format cannot read never becomes a NULL coordinate.
 
     SQLite, MySQL and ClickHouse answer an unreadable cell with NULL, so without
-    the compiled assertion the row would silently leave the time axis.  The
-    failure must be Marivo's own error, never a driver's.
+    the compiled assertion the row would silently leave the time axis. Their
+    failures must be Marivo's own errors, never the driver's. Trino, like DuckDB,
+    raises a native parse error before it can return a NULL coordinate.
 
     MySQL reports the cell through its adapter's pre-existing result-warning
     guard rather than through the axis assertion: ``STR_TO_DATE`` answers NULL
@@ -678,6 +724,12 @@ def test_strptime_malformed_cell_fails_before_publication(
         if engine == "duckdb":
             # DuckDB raises on the same cell, so no NULL exists to assert.
             assert "parse" in str(failure.value).lower()
+        elif engine == "trino":
+            from trino.exceptions import TrinoUserError
+
+            assert isinstance(failure.value, TrinoUserError)
+            assert failure.value.error_name == "INVALID_FUNCTION_ARGUMENT"
+            assert "2026070x" in str(failure.value)
         elif engine == "mysql":
             assert isinstance(failure.value, MaterializationError)
             assert failure.value.received == "MySQL reported 1 statement warnings"
@@ -724,7 +776,7 @@ def test_postgres_lenient_to_timestamp_merges_an_unreadable_cell(
 # ClickHouse refuses a parse declaring a zone other than the physical column's
 # own (``matching declared and physical timezones``); its rejected cell is a
 # compile-time refusal, so there is no unpublished-Artifact path to assert.
-DECLARED_ZONE_ENGINES: tuple[Engine, ...] = ("duckdb", "sqlite", "mysql", "postgres")
+DECLARED_ZONE_ENGINES: tuple[Engine, ...] = ("duckdb", "sqlite", "mysql", "postgres", "trino")
 
 
 @pytest.mark.parametrize("engine", DECLARED_ZONE_ENGINES)
