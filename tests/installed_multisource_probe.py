@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import importlib
 import json
 import os
 import sqlite3
 import sys
+from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -246,16 +249,84 @@ def produce(project: Path) -> dict[str, object]:
             "statistics": asdict(session._runtime.statistics),
         }
     )
-    before = len(session.runs().items)
-    from marivo.analysis.compiler.errors import DatasetCompilationError
-
-    with pytest.raises(DatasetCompilationError, match="source-private"):
-        grouped(session, "distinct_amount").execute()
-    assert len(session.runs().items) == before
-    assert not session._runtime.statistics.statements
+    distinct = grouped(session, "distinct_amount").execute()
+    distinct_values = distinct.to_pandas().sort_values("channel").distinct_amount.tolist()
+    assert distinct_values == [2, 2]
+    artifacts["distinct_amount"] = str(distinct.state.artifact_ref)
+    receipts.append(
+        {
+            "method": "distinct_amount",
+            "expected": [2, 2],
+            "actual": distinct_values,
+            "statistics": asdict(session._runtime.statistics),
+        }
+    )
     saved = {"session": session.id, "artifacts": artifacts}
     (project / "saved.json").write_text(json.dumps(saved))
-    return {**saved, "receipts": receipts, "rejection": "distinct before Run and source work"}
+    return {**saved, "receipts": receipts}
+
+
+def native_audit(engine: str, project: Path) -> dict[str, object]:
+    """Compare one installed scalar journey with native driver submissions."""
+    observed: list[str] = []
+    ms.load()
+    with pytest.MonkeyPatch.context() as patch:
+        if engine == "sqlite":
+            original_connect = sqlite3.connect
+            source = project / "source.sqlite"
+
+            def connect(
+                database: str | Path, *args: object, **kwargs: object
+            ) -> sqlite3.Connection:
+                # Forward the driver's dynamic connection arguments unchanged.
+                connection = original_connect(database, *args, **kwargs)  # type: ignore[call-overload]
+                assert isinstance(connection, sqlite3.Connection)
+                if Path(database).resolve() == source:
+                    connection.set_trace_callback(observed.append)
+                return connection
+
+            patch.setattr(sqlite3, "connect", connect)
+        elif engine == "mysql":
+            ss_cursor_type = importlib.import_module("MySQLdb.cursors").SSCursor
+            original_execute = ss_cursor_type.execute
+
+            def execute(cursor: object, query: str | bytes, args: object = None) -> int:
+                observed.append(query.decode() if isinstance(query, bytes) else query)
+                count = original_execute(cursor, query, args)
+                assert isinstance(count, int)
+                return count
+
+            patch.setattr(ss_cursor_type, "execute", execute)
+        else:
+            raise ValueError(engine)
+        session = mv.session.get_or_create("native-audit", report_timezone="UTC")
+        result = grouped(session, "revenue").execute().to_pandas().sort_values("channel")
+        assert result.revenue.tolist() == [30.0, 70.0]
+        submitted = [
+            item
+            for item in session._runtime.statistics.submissions
+            if item.domain == "source"
+            and item.role in {"primary", "validation_batch", "engine_check.sqlite_storage"}
+            and item.state == "succeeded"
+        ]
+    assert any(item.role == "primary" for item in submitted)
+    expected = Counter(item.sql for item in submitted)
+    actual = Counter(observed)
+    missing = {sql: count - actual[sql] for sql, count in expected.items() if actual[sql] < count}
+    assert not missing, {"unmatched_roles": [item.role for item in submitted]}
+    return {
+        "boundary": "sqlite3 trace callback" if engine == "sqlite" else "MySQLdb SSCursor.execute",
+        "matched": [
+            {
+                "role": item.role,
+                "state": item.state,
+                "sql_sha256": hashlib.sha256(item.sql.encode()).hexdigest(),
+            }
+            for item in submitted
+        ],
+        "native_statement_count": len(observed),
+        "runtime_statement_count": len(submitted),
+    }
 
 
 def failure(kind: str) -> dict[str, object]:
@@ -270,8 +341,9 @@ def failure(kind: str) -> dict[str, object]:
     with pytest.raises(MaterializationError) as caught:
         logical.aggregate().execute()
     assert isinstance(session.runs().items[0], mv.FailedRun)
-    assert session._runtime.statistics.validation_queries >= 1
     assert any(role == "source_schema" for role, _ in session._runtime.statistics.statements)
+    if kind == "invalid":
+        assert session._runtime.statistics.validation_queries >= 1
     if kind == "offline":
         # Missing SQLite metadata is a non-scalar result; other drivers report the missing table.
         message = str(caught.value).lower()
@@ -285,6 +357,8 @@ def failure(kind: str) -> dict[str, object]:
                 "unknown table",
                 "no such table",
                 "no columns were found for the requested relation",
+                "missing_column",
+                "no information_schema.tables row",
             )
         ), message
     if kind == "invalid":
@@ -343,6 +417,16 @@ def cold_retained(project: Path) -> dict[str, object]:
                 "rollup_statistics": asdict(session._runtime.statistics),
             }
         )
+    distinct = session.artifact(saved["artifacts"]["distinct_amount"])
+    assert isinstance(distinct, mv.MaterializedMetricDataset)
+    before = len(session.runs().items)
+    assert (
+        grouped(session, "distinct_amount").execute().state.artifact_ref
+        == distinct.state.artifact_ref
+    )
+    assert len(session.runs().items) == before
+    assert not session._runtime.statistics.statements
+    assert distinct.to_pandas().sort_values("channel").distinct_amount.tolist() == [2, 2]
     return {
         "session": session.id,
         "source_tables_removed": True,
@@ -436,6 +520,8 @@ def main() -> None:
         os.chdir(project)
         if phase == "produce":
             result = produce(project)
+        elif phase == "native":
+            result = native_audit(engine, project)
         elif phase == "privileges":
             result = privileges(engine, project)
         elif phase == "cold":

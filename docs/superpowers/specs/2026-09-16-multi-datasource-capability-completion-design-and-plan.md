@@ -2,7 +2,7 @@
 
 日期：2026-09-16
 
-状态：C0–C8 的具体交付边界以各阶段独立验收记录为准；C9 已开放经真实只读验收的 PostgreSQL Event/Lifecycle 与派生单元、Trino 两步 Event 与部分派生单元，以及 ClickHouse 两步 Event；9 月 23 日续作补充 Trino/ClickHouse 双触发 Lifecycle history 与完整保留结果续算，直接源端 Lifecycle 派生方法仍待验收；完整矩阵仍未完成，具体形状与剩余差距见 [C9 实施计划](2026-09-22-multisource-capability-c9-implementation-plan.md)与[C9 当前验收](2026-09-22-multisource-capability-c9-acceptance.md)。C10 仍须独立实施及验收。
+状态：C0–C8 的具体交付边界以各阶段独立验收记录为准；C9 已开放经真实只读验收的 PostgreSQL Event/Lifecycle 与派生单元、Trino 两步 Event 与部分派生单元，以及 ClickHouse 两步 Event；9 月 23 日续作补充 Trino/ClickHouse 双触发 Lifecycle history 与完整保留结果续算，直接源端 Lifecycle 派生方法仍待验收；完整矩阵仍未完成，具体形状与剩余差距见 [C9 实施计划](2026-09-22-multisource-capability-c9-implementation-plan.md)与[C9 当前验收](2026-09-22-multisource-capability-c9-acceptance.md)。C10 已完成[有界最终 wheel 验收](2026-09-23-multisource-capability-c10-acceptance.md)，其代表旅程不替代各阶段专项矩阵，也不关闭剩余差距。
 
 C0 的当前能力、目标/排除、历史证据与本次只读环境探测见 [C0 验收](2026-09-16-multisource-capability-c0-acceptance.md)；后续各阶段的 owner、fixture、验证入口及进入条件见 [C0 实施计划清单](2026-09-16-multisource-capability-c0-implementation-plan.md)。
 
