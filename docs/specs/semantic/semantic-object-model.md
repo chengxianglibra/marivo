@@ -133,7 +133,8 @@ orders = ms.entity(
   authority through observed uniqueness or a guessed Dimension.
 - One identity tuple always denotes the same Entity instance. There is no second
   `business_key` or `physical_key` authoring parameter. Source row uniqueness is
-  derived from `K` and the declared version coordinates below.
+  an authoring assumption derived from `K` and the declared version coordinates;
+  Analysis does not scan the source to prove it.
 
 ### Versioning: snapshot and validity
 
@@ -168,8 +169,8 @@ operation, not new semantic authoring arguments or an arbitrary timestamp-tick
 subtraction. An instant selects the snapshot period containing it under the
 declared grain and timezone. An immediately-before endpoint selects the period
 containing its left limit; an endpoint on a period boundary selects the preceding
-period. If that exact snapshot is absent, the operation fails with the missing
-period and a concrete temporal repair. It never chooses the latest available
+period. If that exact snapshot is absent, the operation follows its empty-result
+semantics. It never chooses the latest available
 partition, a nearest earlier available partition, or each Entity's last-known
 row. A half-open scope alone does not choose an interpretation: its consuming
 operation defines and normalizes the exact temporal boundary rule.
@@ -210,11 +211,11 @@ boundary resolves at most one representation. For `[valid_from, valid_to)`, an
 instant `at` uses `valid_from <= at < valid_to`; immediately before an excluded
 `end` uses `valid_from < end <= valid_to`, with the declared open-end convention.
 Other admitted interval closures follow their exact boundary rule. Zero matching
-intervals preserves absence; multiple matching intervals fail, without choosing
-an arbitrary row.
+intervals preserves absence; multiple matches are not preflighted and may affect
+the result or fail an independent output contract.
 `current_flag`-style versioning is not supported.
 
-| Entity source | Required source row uniqueness | Resolved identity |
+| Entity source | Declared source row uniqueness | Resolved identity |
 | --- | --- | --- |
 | Non-versioned with declared `K` | `K` | `K` |
 | Snapshot with declared `K` | `(K, snapshot_coordinate)` | `K` within one exact snapshot |
@@ -713,9 +714,9 @@ never itself a physical column name.
 
 Relationship owns the mapping between its endpoints, not a Metric's counting or
 allocation rule. Key coverage and version resolution derive single-valuedness;
-declared identity is a constraint to validate, not runtime evidence that a source
-obeys it. Ambiguous paths or temporal matches fail rather than choosing a cheaper
-or first path. A path that permits coordinate enrichment does not itself prove
+declared identity is trusted for source data, not runtime evidence that a source
+obeys it. Ambiguous paths still fail during planning; temporal matches use the
+declared selection without choosing a cheaper or first path. A path that permits coordinate enrichment does not itself prove
 that overlapping contributions can be summed when a coordinate is removed.
 
 ## Event and StateModel boundaries
@@ -737,12 +738,12 @@ No semantic Population, Sample, or `complete=True` authoring field is introduced
 ## Bounded acceptance cases for the amendment
 
 1. A snapshot Entity with `K=(user_id,)` admits repeated users across dates,
-   rejects duplicate `(user_id, snapshot)` rows, resolves one exact snapshot,
-   and rejects a missing snapshot without last-known substitution. A physically
+   trusts `(user_id, snapshot)` row uniqueness, resolves one exact snapshot,
+   and uses the consuming operation's empty result when it is absent. A physically
    partitioned non-versioned Event Entity acquires no snapshot semantics.
-2. A validity Entity derives `(K, valid_from)` row uniqueness, rejects overlapping
-   intervals and ambiguous matches, and proves at most one row only after an
-   exact anchor is supplied. No identity key is constructed by removing columns.
+2. A validity Entity derives `(K, valid_from)` row uniqueness and applies the
+   declared interval selection without source-data preflight. No identity key
+   is constructed by removing columns.
 3. A January membership selection can observe February facts while retaining the
    selected `K` values. An unspecified versioned membership anchor cannot become
    historical `distinct(K)` or the downstream observation end.

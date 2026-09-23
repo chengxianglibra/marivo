@@ -2300,18 +2300,6 @@ class DatasetRuntime:
                         self._validate_source_schema(
                             backend, entity, dependency=dependencies.for_entity(entity)
                         )
-                if isinstance(source_step.binding, SourceBinding):
-                    from marivo.analysis.materialization.temporal_validation import (
-                        validate_temporal_rules,
-                    )
-
-                    validate_temporal_rules(
-                        backend,
-                        recipe.temporal_execution,
-                        tables,
-                        source_step.binding.owner.semantic_registry,
-                        run_ref=run_ref,
-                    )
                 if selected.backend == "trino":
                     from marivo.analysis.materialization.trino_execution import (
                         TrinoExecutionAdapter,
@@ -2398,18 +2386,6 @@ class DatasetRuntime:
                 fence_statement = backend.table_statement(fence.relation_name, source_table)
                 backend.submit(fence_statement)
                 self.statistics.source_fences += 1
-            if isinstance(source_step.binding, SourceBinding):
-                from marivo.analysis.materialization.temporal_validation import (
-                    validate_temporal_rules,
-                )
-
-                validate_temporal_rules(
-                    backend,
-                    recipe.temporal_execution,
-                    tables,
-                    source_step.binding.owner.semantic_registry,
-                    run_ref=run_ref,
-                )
             for validation in preparations:
                 if isinstance(validation, CompiledRelationFence):
                     reserve_preparation(validation.relation_name)

@@ -1,14 +1,12 @@
 """Temporal authority failures and precision use independent bounded expectations."""
 
-import re
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import ibis
 import pytest
 
 from marivo._temporal import builtin_grain
-from marivo.analysis.compiler.lowering import _hour_range_violations
 from marivo.analysis.compiler.temporal import bucket as bucket_start_expr
 from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
 from marivo.analysis.materialization.temporal_sql import (
@@ -18,144 +16,6 @@ from marivo.analysis.materialization.temporal_sql import (
 )
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.timezone import resolve_engine_timezone
-
-DIALECTS = ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-
-_HOUR_LITERAL = re.compile(r"^([01]?[0-9]|2[0-3])$")
-_PADDING = re.compile(r"\s")
-_HOUR_CELLS = (
-    "15",
-    "0",
-    "00",
-    "23",
-    "99",
-    "oops",
-    "",
-    " 15",
-    "15 ",
-    "15\n",
-    "-3",
-    "007",
-    "1.5",
-)
-
-
-def _oracle(cell: str | None) -> bool:
-    """Independent Python verdict for the 0-23 integer-literal hour contract.
-
-    The declared pattern is the whole domain, so ``'0'``, ``'00'`` and ``'23'``
-    are accepted while padded, signed or out-of-range text is not.
-    """
-    if cell is None:
-        return True
-    return _PADDING.search(cell) is not None or _HOUR_LITERAL.match(cell) is None
-
-
-@pytest.mark.parametrize(
-    "declared_type",
-    ["string", "int64", "float64", "boolean", "date", "geospatial:geometry"],
-)
-def test_hour_range_predicate_compiles_on_every_supported_dialect(declared_type: str) -> None:
-    """Every admitted column kind compiles without an engine-specific comparison error.
-
-    ``date`` pins the branch ordering contract: it is judged through its text
-    rendering, so reordering the branches must not fall through to a numeric
-    comparison. ``boolean`` and ``geospatial:geometry`` subclass ``NumericValue``
-    and must be handled before that branch.
-    """
-    table = ibis.table({"hour": declared_type}, name="orders")
-    expression = _hour_range_violations(table, "hour")
-    assert tuple(expression.columns) == ("hour",)
-    for dialect in DIALECTS:
-        sql = ibis.to_sql(expression.select(expr=ibis.literal(1)), dialect=dialect)
-        assert sql
-
-
-@pytest.mark.parametrize("engine", ["duckdb", "sqlite"])
-def test_boolean_hour_cells_are_all_violations(engine: str) -> None:
-    """A flag is never a 0-23 integer literal, so no cell may be published."""
-    connection = ibis.duckdb.connect() if engine == "duckdb" else ibis.sqlite.connect(":memory:")
-    try:
-        cells: list[bool | None] = [True, False, None]
-        table = connection.create_table(
-            "flag_probe", ibis.memtable({"hour": cells}, schema={"hour": "boolean"})
-        )
-        violations = (
-            _hour_range_violations(table, "hour")
-            .aggregate(violations=lambda frame: frame.count())
-            .to_pyarrow()
-            .to_pylist()
-        )
-        assert violations == [{"violations": len(cells)}]
-    finally:
-        connection.disconnect()
-
-
-def test_geometry_hour_cells_are_all_violations() -> None:
-    """A geometry is never a 0-23 integer literal, so no cell may be published.
-
-    Built through real DDL because a geospatial memtable needs the optional
-    geoarrow dependency; the engine still executes the predicate.
-    """
-    connection = ibis.duckdb.connect()
-    try:
-        connection.raw_sql("CREATE TABLE geom_probe (id BIGINT, hour GEOMETRY)")
-        connection.raw_sql("INSERT INTO geom_probe VALUES (1, NULL), (2, NULL)")
-        violations = (
-            _hour_range_violations(connection.table("geom_probe"), "hour")
-            .aggregate(violations=lambda frame: frame.count())
-            .to_pyarrow()
-            .to_pylist()
-        )
-        assert violations == [{"violations": 2}]
-    finally:
-        connection.disconnect()
-
-
-def test_date_hour_cells_are_all_violations_through_their_text_rendering() -> None:
-    """A civil date is outside the domain, judged through its text rendering.
-
-    This pins the documented branch ordering: dates reach the text branch, so
-    relocating them onto a numeric comparison would raise the bare comparison
-    error the earlier branches exist to remove.
-    """
-    connection = ibis.duckdb.connect()
-    try:
-        cells = [date(2026, 7, 1), date(2026, 7, 2)]
-        table = connection.create_table(
-            "date_probe", ibis.memtable({"hour": cells}, schema={"hour": "date"})
-        )
-        violations = (
-            _hour_range_violations(table, "hour")
-            .aggregate(violations=lambda frame: frame.count())
-            .to_pyarrow()
-            .to_pylist()
-        )
-        assert violations == [{"violations": len(cells)}]
-    finally:
-        connection.disconnect()
-
-
-@pytest.mark.parametrize("engine", ["duckdb", "sqlite"])
-def test_string_hour_cells_follow_the_declared_value_domain(engine: str) -> None:
-    """Execute the predicate on both local engines; the oracle stays independent.
-
-    SQLite previously coerced malformed cells to hour zero, so execution there
-    is the regression that matters most.
-    """
-    connection = ibis.duckdb.connect() if engine == "duckdb" else ibis.sqlite.connect(":memory:")
-    try:
-        cells: list[str | None] = [*_HOUR_CELLS, None]
-        table = connection.create_table(
-            "hour_probe", ibis.memtable({"hour": cells}, schema={"hour": "string"})
-        )
-        actual = {
-            row["hour"] for row in _hour_range_violations(table, "hour").to_pyarrow().to_pylist()
-        }
-        expected = {cell for cell in cells if _oracle(cell)}
-        assert actual == expected
-    finally:
-        connection.disconnect()
 
 
 @pytest.mark.parametrize(

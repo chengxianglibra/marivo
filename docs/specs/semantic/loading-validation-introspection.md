@@ -257,7 +257,8 @@ with current coordinates, selection, and retained state.
 
 Relationship key coverage alone cannot advertise an unresolved historical
 Entity as a unique join side. The consuming operation must supply the exact
-temporal anchor and prove the resulting cardinality. Population identity,
+temporal anchor; source cardinality follows the Entity declaration without an
+automatic source-data proof. Population identity,
 current source bindings, and persisted Artifact state remain separate authority.
 `DerivedMetricDetails.render()` / `.show()` additionally include an
 `expression_tree` table that expands every authored component occurrence through
@@ -352,8 +353,8 @@ its closed interpretation from the consuming Analysis operation: an instant or
 immediately before an excluded endpoint. This is an internal binding, not a new
 public authoring argument. Snapshot resolution selects the period containing
 the instant or the endpoint's left limit under the declared grain and timezone;
-the latter selects the preceding period at an exact period boundary. Missing
-that exact snapshot fails. No arbitrary timestamp tick, implicit latest/nearest
+the latter selects the preceding period at an exact period boundary. A missing
+exact snapshot follows the consuming operation's empty-result semantics. No arbitrary timestamp tick, implicit latest/nearest
 available snapshot, per-Entity last-known selection, or unconditional
 observe-window-end anchor is inserted. For closed-open validity, instant
 resolution uses `valid_from <= at < valid_to`, while endpoint-left resolution
@@ -434,9 +435,9 @@ on the owning Entity with coherent temporal types and timezone rules. A
 source-only Entity may omit `K`; Population input, Event participant subject,
 and StateModel subject require a complete non-empty identity signature. Analysis
 checks the first of those consumer boundaries; semantic Event/StateModel
-assembly checks their own subject references. Actual nulls, duplicates, and
-overlapping validity intervals remain runtime integrity checks, not facts
-invented by static assembly.
+assembly checks their own subject references. Static assembly does not inspect
+actual nulls, duplicates, or overlapping validity intervals; Analysis trusts
+those source-data declarations.
 
 Metric assembly lowers each component's computation root and intrinsic
 aggregate, filter, fold, unit, null/empty, and cumulative contract. Different
@@ -481,16 +482,15 @@ routes the required decision to the current business authority. Project loading
 and `semantic_static` readiness may continue without the unavailable runtime
 evidence.
 
-For the lazy target, runtime validates uniqueness at the declared source grain:
-`K` for a non-versioned keyed Entity, `(K, snapshot_coordinate)` for a keyed
-snapshot, and `(K, valid_from)` plus non-overlapping intervals for keyed validity.
-An unkeyed computation source cannot establish identity or a unique join side.
-At a selected
-temporal anchor it validates at most one representation per `K`, complete
-non-null subject identities, and operation-required coverage. Empty or absent
-members are handled by the owning Population/observation contract; duplicate
-versions or ambiguous temporal matches are integrity failures, never a request
-to deduplicate opportunistically.
+Analysis trusts the declared Entity source grain: `K` for a non-versioned keyed
+Entity, `(K, snapshot_coordinate)` for a keyed snapshot, and `(K, valid_from)`
+for keyed validity. It does not preflight source identity, snapshot availability,
+interval well-formedness or overlap, or selected-version identity. Time-axis
+source cells receive no automatic parse, gap/fold or engine/runtime timezone
+rule scan. Declared filters and conversions still run; malformed cells may
+produce NULL, a backend error, or incorrect results according to the backend.
+An absent snapshot follows the consuming operation's empty-result contract.
+Artifact row-key and retained-state integrity remain separately enforced.
 
 Retained aggregation state must reconcile with its primary values, obey the
 same selection and coordinate binding, and preserve the exact empty/null and
@@ -517,10 +517,9 @@ body). The SQL-escape-hatch check scans the materialized Ibis expression tree;
 decorator-time only rejects obvious method names to avoid false positives on
 ordinary column access.
 
-Optional sampled uniqueness observations belong to explicit source health,
-not static policy. They cannot certify full-source identity, version integrity,
-or completeness, and do not replace required action-time checks at the exact
-source and temporal grain.
+Bounded uniqueness observations belong to explicit source health, not static
+policy or automatic Analysis execution. They cannot certify full-source
+identity, version integrity, or completeness.
 
 ## Error model
 
@@ -568,8 +567,8 @@ Two checks sit at the end of the write loop:
   Every `ReadinessReport` exposes `scope="semantic_static"` in its bounded
   rendering and dictionary form. This certifies the selected semantic
   dependency closures only; it does not promise that a particular analysis
-  operation is executable. Operation-specific snapshot identity, temporal
-  fold, grain, and artifact-shape checks remain owned by the consuming
+  operation is executable. Operation-specific temporal selection, fold,
+  grain, and artifact-shape checks remain owned by the consuming
   analysis call.
   A versioned Entity therefore does not need an ambient "current" anchor to pass
   intrinsic static checks, and readiness cannot select its latest rows. Likewise,
@@ -666,11 +665,13 @@ resuming.
 The coordinated cutover must verify these seams without duplicating owners:
 
 1. An identity-keyed snapshot declaration loads, repeated `K` across snapshots
-   is valid, duplicate `(K, snapshot)` rows fail, and an absent requested snapshot
-   fails without another partition being substituted.
+   is valid, duplicate `(K, snapshot)` rows are not preflighted, and an absent
+   requested snapshot uses the consuming operation's empty-result semantics
+   without another partition being substituted.
 2. Static readiness succeeds without querying or inventing a temporal anchor;
-   action admission separately rejects missing temporal context, overlapping
-   validity, incomplete subject identity, and unsupported coordinate folds.
+   action admission separately rejects missing temporal context, incomplete
+   subject identity, and unsupported coordinate folds. Overlapping source
+   validity intervals are not preflighted.
 3. One explicit Population supports safely mapped different Metric roots while
    invalid paths fail at the responsible occurrence. Event and StateModel
    subjects retain exact Entity identity and never derive it from occurrence keys.

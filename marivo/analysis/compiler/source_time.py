@@ -25,22 +25,6 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.validator import Registry
 
-# Backends whose string parser answers a malformed value with SQL NULL instead
-# of an error. Marivo asserts the parse explicitly for exactly these engines so
-# a malformed cell fails before publication.
-#
-# The remaining engines are not equivalent to each other:
-# - DuckDB and Trino raise on malformed input, so no separate NULL assertion
-#   is needed.
-# - PostgreSQL ``TO_TIMESTAMP`` is *lenient*: a cell it cannot read in full can
-#   become a wrong non-NULL instant instead of an error. ``to_timestamp(
-#   '2026-07-01 15:59:00', 'YYYYMMDD')`` is 2026-01-07, a short cell is filled
-#   with midnight, and trailing text is ignored. No post-parse NULL check can
-#   detect that, so this is a known, documented limitation rather than a
-#   guarded case; Marivo deliberately does not round-trip the source to compare
-#   parsed values.
-NULL_ON_MALFORMED_ENGINES: frozenset[str] = frozenset({"sqlite", "mysql", "clickhouse"})
-
 # ClickHouse ``parseDateTime`` returns second-precision ``DateTime``, so a
 # format carrying a sub-second directive would silently drop the fraction.
 _CLICKHOUSE_TRUNCATING_DIRECTIVES: frozenset[str] = frozenset({"%f"})
@@ -69,9 +53,7 @@ _CLICKHOUSE_TRUNCATING_DIRECTIVES: frozenset[str] = frozenset({"%f"})
 # A format missing a directive is *not* refused: ClickHouse fills the gap from
 # its own epoch (``%m`` alone answers year 2000, ``%Y`` alone month 1), exactly
 # as DuckDB fills 1900 and MySQL fills 0000. Only ClickHouse's fill is
-# documented here because only this backend is used through a parser whose NULL
-# result the compiler asserts; the assertion still holds, since a missing
-# directive is a format property rather than a malformed cell.
+# documented here because its fill behavior differs from other engines.
 _CLICKHOUSE_INEXACT_DIRECTIVES: frozenset[str] = frozenset({"%U", "%a", "%A", "%w"})
 
 # A real ``%<letter>`` directive, as opposed to an escaped literal percent.
@@ -97,8 +79,8 @@ _sqlite_strptime: Callable[[ir.StringValue, str], ir.TimestampValue] = ibis.udf.
 )
 # ClickHouse has no ibis ``StringToTimestamp`` rule either. ``parseDateTimeOrNull``
 # is its native MySQL-format parser; the explicit zone argument keeps the result
-# a UTC-labelled instant regardless of session timezone, and the ``OrNull`` form
-# lets the explicit validity assertion own malformed-value detection.
+# a UTC-labelled instant regardless of session timezone. Malformed values may
+# become NULL and are not checked by an automatic source preflight.
 _clickhouse_strptime: Callable[[ir.StringValue, str, str], ir.TimestampValue] = (
     ibis.udf.scalar.builtin(
         _parse_signature_zoned,
@@ -197,30 +179,6 @@ def parse_strptime(engine: str, text: ir.StringValue, parse: StrptimeParse) -> i
     return parsed
 
 
-def malformed_strptime_rows(engine: str, text: ir.Value, parse: StrptimeParse) -> ir.Table | None:
-    """Return the non-null text rows whose declared format does not parse.
-
-    The check reads the value the parser actually returns, so a date-only
-    format is asserted on its parser result as well: the civil-date cast would
-    otherwise turn a malformed cell into a NULL coordinate that silently leaves
-    the time axis.
-
-    Only NULL-returning engines need this assertion: DuckDB raises on the same
-    input, and PostgreSQL would return a wrong non-NULL instant that a NULL
-    check cannot see, so an explicit check there would only add a second scan
-    without changing the outcome.
-    """
-    if engine not in NULL_ON_MALFORMED_ENGINES:
-        return None
-    string = text.cast("string")
-    if not isinstance(string, ir.StringValue):
-        return None
-    parsed = native_parse(engine, string, parse)
-    if not isinstance(parsed, (ir.TimestampValue, ir.DateValue)):
-        return None
-    return string.as_table().filter(string.notnull() & parsed.isnull())
-
-
 def entity_engine(registry: Registry, entity: TargetEntityContract) -> str:
     """Resolve the engine backend_type of one Entity's declared datasource.
 
@@ -306,13 +264,8 @@ def source_time(
     engine: str,
     read_source: Literal["engine", "system_fallback"] = "engine",
     prefix: ir.Value | None = None,
-) -> tuple[ir.Value, SourceTimeAuthority, ir.TimestampValue | None]:
-    """Parse and localize a column without executing it or consulting ambient state.
-
-    The third element is the naive wall clock the axis contributes, before any
-    civil-date cast, for a caller that must probe its own gap/fold legality.  It
-    is ``None`` when the axis is already an exact instant or a civil date.
-    """
+) -> tuple[ir.Value, SourceTimeAuthority]:
+    """Parse and localize a column without executing it or consulting ambient state."""
     physical = value.type()
     parse = axis.parse
     declared = (
@@ -354,7 +307,6 @@ def source_time(
                 source="civil_date",
                 boundary_timezone=boundary_timezone,
             ),
-            None,
         )
     if not isinstance(value, ir.TimestampValue):
         raise compilation_error("a declared date or timestamp parser", "non-temporal source")
@@ -396,15 +348,9 @@ def source_time(
         source=origin,
         boundary_timezone=boundary_timezone,
     )
-    # A physical instant is already exact, and a converted value is an instant
-    # rather than the wall clock a gap/fold guard must judge.  A naive value
-    # keeps its own coordinate; a native precision the guard cannot round-trip
-    # losslessly reports nothing rather than a lossy answer.
-    naive = kind.timezone is None and not (kind.scale is not None and kind.scale > 6)
     return (
         value if instant is None else render(boundary_timezone, instant),
         authority,
-        value if naive else None,
     )
 
 
@@ -452,14 +398,3 @@ def needs_reader_timezone(dataset: LogicalDataset) -> bool:
                 continue
             return True
     return False
-
-
-def local_time_invalid(value: ir.TimestampValue, zone: str) -> ir.BooleanValue:
-    """Reject gaps and repeated wall clocks instead of selecting an implicit fold."""
-    instant = localize(zone, value)
-    invalid = instant.isnull() | (render(zone, instant) != value)
-    if time_zone(zone).utcoffset(None) is None:
-        day = ibis.interval(seconds=86400)
-        for candidate in (localize(zone, value - day) + day, localize(zone, value + day) - day):
-            invalid = invalid | ((candidate != instant) & (render(zone, candidate) == value))
-    return value.notnull() & invalid.fill_null(False)

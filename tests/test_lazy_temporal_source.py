@@ -402,113 +402,6 @@ def _hour_prefix_dataset(sources: LazySources, *, prefix_axis: str = AXIS) -> Lo
     )
 
 
-@pytest.mark.parametrize("cell", ["oops", "99", "-3", "", " 15", "15 ", "007", "1.5", None])
-def test_malformed_hour_cells_are_counted_as_hour_range_violations(
-    cell: object, tmp_path: Path
-) -> None:
-    """The value domain is decided on the raw cell, never an engine cast result.
-
-    A missing cell is outside the integer-literal domain too: silently dropping
-    the row would undercount the composite axis without a diagnostic.
-    """
-    with temporal_fixture(
-        tmp_path,
-        physical="DATE",
-        declared="date",
-        parse=DateParse(),
-        granularity="day",
-        report_zone="UTC",
-        values=("2026-07-01", "2026-07-01", "2026-07-01"),
-    ) as fixture:
-        sources, _ = _hour_prefix_fixture(fixture, "channel", cells=(cell, "15", "16"))
-        logical = _hour_prefix_dataset(sources)
-        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-        checks = {check.name: check for check in compiled.validations}
-        assert "temporal.hour_range" in checks
-        violations = checks["temporal.hour_range"].expression.to_pyarrow().to_pylist()
-        assert violations == [{"violations": 1}]
-
-
-@pytest.mark.parametrize("cell,expected", [(-1, 1), (24, 1), (99, 1), (0, 0), (23, 0), (None, 1)])
-def test_integer_hour_cells_keep_the_same_open_range_contract(
-    cell: int | None, expected: int, tmp_path: Path
-) -> None:
-    """Integers keep the pre-existing range contract; one domain with the text case.
-
-    A missing hour is now counted rather than silently dropped, so the composite
-    axis can never undercount its rows without a diagnostic.
-    """
-    with temporal_fixture(
-        tmp_path,
-        physical="DATE",
-        declared="date",
-        parse=DateParse(),
-        granularity="day",
-        report_zone="UTC",
-        values=("2026-07-01", "2026-07-01"),
-    ) as fixture:
-        sources, _ = _hour_prefix_fixture(fixture, "order_id", cells=(cell, 16))
-        logical = _hour_prefix_dataset(sources)
-        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-        checks = {check.name: check for check in compiled.validations}
-        assert checks["temporal.hour_range"].expression.to_pyarrow().to_pylist() == [
-            {"violations": expected}
-        ]
-
-
-@pytest.mark.parametrize("cells", [(True, False), (False, True), (True, True)])
-def test_boolean_hour_columns_are_a_structured_violation(
-    cells: tuple[bool, bool], tmp_path: Path
-) -> None:
-    """A boolean is admissible as a declared type but is not a 0-23 hour literal.
-
-    BooleanValue subclasses NumericValue, so branch selection matters: comparing
-    or taking a remainder against an integer is undefined for booleans and raised
-    a bare IbisTypeError. Every cell must count as a violation instead, and the
-    flag must never be published as the implicit hours 0 and 1.
-    """
-    with temporal_fixture(
-        tmp_path,
-        physical="DATE",
-        declared="date",
-        parse=DateParse(),
-        granularity="day",
-        report_zone="UTC",
-        values=("2026-07-01", "2026-07-01"),
-    ) as fixture:
-        fixture.backend.raw_sql("ALTER TABLE orders ADD COLUMN bhour BOOLEAN")
-        sources, _ = _hour_prefix_fixture(fixture, "bhour", cells=cells, declared="boolean")
-        logical = _hour_prefix_dataset(sources)
-        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-        checks = {check.name: check for check in compiled.validations}
-        assert checks["temporal.hour_range"].expression.to_pyarrow().to_pylist() == [
-            {"violations": 2}
-        ]
-
-
-@pytest.mark.parametrize("cell,expected", [(15.0, 0), (16.0, 0), (15.5, 1), (23.9, 1)])
-def test_fractional_numeric_hour_cells_are_outside_the_integer_domain(
-    cell: float, expected: int, tmp_path: Path
-) -> None:
-    """A fractional hour is not a 0-23 integer literal even when it casts cleanly."""
-    with temporal_fixture(
-        tmp_path,
-        physical="DATE",
-        declared="date",
-        parse=DateParse(),
-        granularity="day",
-        report_zone="UTC",
-        values=("2026-07-01", "2026-07-01"),
-    ) as fixture:
-        fixture.backend.raw_sql("ALTER TABLE orders ADD COLUMN fhour DOUBLE")
-        sources, _ = _hour_prefix_fixture(fixture, "fhour", cells=(cell, 16.0), declared="float64")
-        logical = _hour_prefix_dataset(sources)
-        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-        checks = {check.name: check for check in compiled.validations}
-        violations = checks["temporal.hour_range"].expression.to_pyarrow().to_pylist()
-        assert violations == [{"violations": expected}]
-
-
 def test_valid_string_and_integer_hour_columns_share_one_value_domain(tmp_path: Path) -> None:
     """Physical type must not change the accepted 0-23 integer-literal contract."""
     outputs: dict[str, list[tuple[str, float]]] = {}
@@ -644,8 +537,8 @@ def test_validity_selection_uses_report_endpoint_and_source_instants(tmp_path: P
 # Every parse variant that yields a naive wall clock, keyed by the exact
 # declaration that reaches it.  ``DateParse`` and a date-only ``StrptimeParse``
 # are absent on purpose: they produce a civil date, which carries no time of day
-# to be inside or outside a gap.  A variant added to ``SemanticParse`` must be
-# placed in one of those two groups or this mapping stops being exhaustive.
+# to be inside or outside a gap. Each variant must still retain its time
+# authority in the compiled result.
 NAIVE_TIME_BEARING_PARSES: dict[str, tuple[str, str, SemanticParse | None]] = {
     "native-naive": ("TIMESTAMP", "timestamp(6)", None),
     "datetime": ("TIMESTAMP", "timestamp(6)", DatetimeParse()),
@@ -655,13 +548,7 @@ NAIVE_TIME_BEARING_PARSES: dict[str, tuple[str, str, SemanticParse | None]] = {
 
 
 def test_naive_time_bearing_parse_coverage_is_exhaustive() -> None:
-    """A parse variant cannot be added without deciding its gap/fold duty.
-
-    This is exhaustive over ``SemanticParse`` variants only.  Which *axis kinds*
-    reach the guard is a separate question this test cannot see: a version
-    coordinate named by no payload field was missed once already, and it is the
-    validity-endpoint runtime tests that now own that coverage.
-    """
+    """Keep every authored parse variant in the time-authority coverage map."""
     from typing import get_args
 
     every_variant = set(get_args(SemanticParse))
@@ -682,15 +569,10 @@ def test_naive_time_bearing_parse_coverage_is_exhaustive() -> None:
     NAIVE_TIME_BEARING_PARSES.values(),
     ids=NAIVE_TIME_BEARING_PARSES,
 )
-def test_every_naive_time_bearing_axis_kind_emits_a_gap_fold_guard(
+def test_every_naive_time_bearing_axis_kind_retains_authority_without_preflight(
     physical: str, declared: str, parse: SemanticParse | None, tmp_path: Path
 ) -> None:
-    """A parser cannot silently opt out of the gap/fold guard.
-
-    Every axis kind that carries a naive wall clock must publish its own
-    ``temporal.local_time`` assertion, so a future parser that forgets to
-    register one fails here rather than at publication.
-    """
+    """Every naive wall-clock shape keeps provenance without scanning source rows."""
     with temporal_fixture(
         tmp_path,
         physical=physical,
@@ -704,11 +586,13 @@ def test_every_naive_time_bearing_axis_kind_emits_a_gap_fold_guard(
             .aggregate()
         )
         result = compile_dataset(logical, fixture.tables(logical), read_timezone="America/New_York")
-        assert f"temporal.local_time.{AXIS}" in {check.name for check in result.validations}
+        assert result.temporal_execution is not None
+        assert AXIS in {axis.axis for axis in result.temporal_execution.axes}
+        assert not any(check.name.startswith("temporal.") for check in result.validations)
 
 
-def test_composite_hour_prefix_axis_emits_a_gap_fold_guard(tmp_path: Path) -> None:
-    """The reconstructed civil date plus stored hour is a wall clock too."""
+def test_composite_hour_prefix_axis_retains_authority_without_preflight(tmp_path: Path) -> None:
+    """A reconstructed wall clock keeps provenance without a separate guard query."""
     with temporal_fixture(
         tmp_path,
         physical="DATE",
@@ -745,7 +629,9 @@ def test_composite_hour_prefix_axis_emits_a_gap_fold_guard(tmp_path: Path) -> No
             .aggregate()
         )
         result = compile_dataset(logical, fixture.tables(logical), read_timezone="America/New_York")
-        assert f"temporal.local_time.{hour}" in {check.name for check in result.validations}
+        assert result.temporal_execution is not None
+        assert hour in {axis.axis for axis in result.temporal_execution.axes}
+        assert not any(check.name.startswith("temporal.") for check in result.validations)
 
 
 def test_fixed_offset_report_authority_is_explicit(tmp_path: Path) -> None:

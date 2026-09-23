@@ -2,7 +2,7 @@
 
 Covers the real two-shard ``marivo_multisource`` topology: global aggregation
 over a Distributed table with per-shard split proof, cross-shard duplicate
-identity rejection, a shard-outage structured failure and recovery, a
+identity acceptance, a shard-outage structured failure and recovery, a
 FINAL/dedup-free receipt audit, ReplacingMergeTree unconverged acceptance, and
 cross-shard relationship hit/miss fanout. Admin prepares per-shard fixtures;
 the ``analysis_reader`` account executes every Dataset journey. Run this file
@@ -215,7 +215,7 @@ def test_distributed_global_aggregation(tmp_path: Path, probe_suffix: str) -> No
     assert runtime.store.resources(runtime.session_ref) == ()
 
 
-def test_cross_shard_duplicate_identity_rejected(tmp_path: Path, probe_suffix: str) -> None:
+def test_cross_shard_duplicate_identity_is_trusted(tmp_path: Path, probe_suffix: str) -> None:
     suffix = probe_suffix
     with clickhouse.connection(admin=True, port=18201) as con:
         con.command(f"INSERT INTO {DATABASE}.orders_{suffix} VALUES (10, '10.25')")
@@ -226,11 +226,11 @@ def test_cross_shard_duplicate_identity_rejected(tmp_path: Path, probe_suffix: s
     target = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(REVENUE).aggregate()
     )
-    with pytest.raises(MaterializationError, match="source_row_unique"):
-        target.execute()
-    assert counts(runtime)["dataset_artifacts"] == 0
+    frame = target.execute().to_pandas()
+    assert frame.revenue.tolist() == [31.75]
+    assert counts(runtime)["dataset_artifacts"] == 1
     assert runtime.store.resources(runtime.session_ref) == ()
-    assert runtime.statistics.events.get("remote_read_status_unknown") == 1
+    assert not any("source_row_unique" in sql for _, sql in runtime.statistics.statements)
 
 
 def test_shard_outage_fails_structured_and_recovers(tmp_path: Path, probe_suffix: str) -> None:
@@ -309,10 +309,14 @@ def test_receipt_audit_free_of_dedup_clauses(tmp_path: Path, probe_suffix: str) 
             con.command(f"INSERT INTO {DATABASE}.orders_{suffix} VALUES (10, '10.25')")
         with clickhouse.connection(admin=True, port=18203) as con:
             con.command(f"INSERT INTO {DATABASE}.orders_{suffix} VALUES (10, '10.25')")
-        with pytest.raises(MaterializationError, match="source_row_unique"):
-            duplicate_runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(
-                REVENUE
-            ).aggregate().execute()
+        duplicate = (
+            duplicate_runtime.sources(semantic_registry=registry, sidecar=sidecar)
+            .observe(REVENUE)
+            .aggregate()
+            .execute()
+            .to_pandas()
+        )
+        assert duplicate.revenue.tolist() == [31.75]
         sql_texts = [str(entry["sql"]) for entry in submitted]
         assert sql_texts, "Expected captured driver submissions"
         for banned in ("FINAL", "final = 1", "OPTIMIZE", " DEDUPLICATE", " any("):

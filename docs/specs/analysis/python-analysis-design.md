@@ -68,8 +68,8 @@ and fanout assertions. Each participating relation must meet its backend's exist
 physical type restrictions.
 
 Native civil-date axes support single-unit day, week, month, quarter and year
-buckets. Snapshot and validity membership retain required exact-period,
-non-overlap and selected-identity assertions. All five remote backends admit
+buckets. Snapshot and validity membership use declared boundaries without
+automatic source-data identity or time preflights. All five remote backends admit
 both authored validity interval closures and configured open-end sentinels.
 Version diagnostics still never gate execution or domain equality.
 
@@ -429,15 +429,13 @@ storage, automatic destination selection, or failure-triggered executor retry.
 Native DuckDB analysis of immutable retained Parquet is admitted by the owning
 registered method; temporary execution relations are not persisted Artifacts.
 
-Source assertions, primary output and required part reads need not observe the
-same source state. Each query uses its backend's current observation; successful
-checks do not certify later reads. Marivo neither opens a shared consistency
-transaction nor rejects or retries solely because intervening updates occurred.
-Required validations still apply; Event/Lifecycle may re-evaluate deterministic
-source relations, including across concurrent writes. Assertions certifying an
-output must observe that output's source version; earlier checks alone cannot
-certify later rows. Independent output queries may observe different versions;
-atomic publication does not certify a common source snapshot.
+Primary output and required part reads need not observe the same source state.
+Each query uses its backend's current observation. Marivo neither opens a shared
+consistency transaction nor rejects or retries solely because intervening updates
+occurred. Artifact validations still apply; Event/Lifecycle may re-evaluate
+deterministic source relations, including across concurrent writes. Independent
+output queries may observe different versions; atomic publication does not
+certify a common source snapshot.
 
 One admitted execution creates a Run. Publication commits the primary result,
 required private parts, descriptor, Evidence and Findings atomically. Cache hits
@@ -520,8 +518,8 @@ and nested values remain excluded. Engine form is not restricted by this
 scalar-type extension.
 
 Use a SELECT-only account configured with effective `join_use_nulls=1`.
-Metadata, required assertions and output run separately; empty output never
-bypasses validation. Declared floating values must be finite or NULL. Exact
+Metadata, remaining required assertions and output run separately; empty output never
+bypasses Artifact validation. Source identity and time data are trusted. Exact
 integer/Decimal sums widen internally to Decimal256 before checked output
 conversion; overflow and non-finite output fail without publication.
 

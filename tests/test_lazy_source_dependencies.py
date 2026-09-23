@@ -61,7 +61,7 @@ def test_unused_complex_column_and_hidden_weight(engine: str, hidden: bool) -> N
     table = _declared_table(entry.entity, dependency=entry)
     assert "tenant" not in table.columns
     recipe = compile_dataset(target, {entry.entity.ref.path: table}, dependencies=dependencies)
-    assert recipe.validations
+    assert recipe.validations == ()
 
 
 @pytest.mark.parametrize("relation_shape", ["distinct", "same_table", "other_schema"])

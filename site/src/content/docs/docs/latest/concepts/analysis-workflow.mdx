@@ -15,7 +15,8 @@ accounts; uploading retained results to bypass admission is unsupported.
 
 
 Source execution checks only the columns required by the complete computation,
-including hidden Metrics, identities, joins and version assertions. An unused
+including hidden Metrics, identity fields, joins and version coordinates. It
+trusts Entity identity and time declarations without source-data preflight. An unused
 complex column does not block a supported scalar calculation. For example, the
 existing revenue example still works when its table also declares an unused JSON
 payload; referencing that payload does not gain a new supported method or type.
@@ -131,7 +132,7 @@ queries; an acquired public method can also be passed directly to
 `marivo.help(...)`. Each focused callable supplies its required inputs and return
 routes. Once those facts support the next step, save and run the minimum analysis.
 
-Source checks, primary rows and required parts may observe different source states within one execution. Successful checks do not certify later reads. Marivo preserves required checks, single evaluation and atomic publication, but does not reject or retry solely because source data changed between queries.
+Primary rows and required parts may observe different source states within one execution. Marivo preserves required Artifact checks, single evaluation and atomic publication, but does not reject or retry solely because source data changed between queries.
 
 The same execution definition in one Session recovers its committed snapshot.
 For current source rows, use a new named Session or change an explicit
@@ -299,8 +300,8 @@ offsets are supported for reader/report authority; native parser declarations
 retain their existing IANA validation. Report authority is persisted once.
 
 Scopes compare exact instants before producing report-local civil coordinates.
-Naive timestamps in DST gaps or folds fail rather than selecting an implicit
-interpretation. Two known instants in a repeated report hour share its civil bucket.
+Naive source timestamps in DST gaps or folds are not preflighted; conversion follows
+the declared authority and backend behavior. Two known instants in a repeated report hour share its civil bucket.
 Naive predicate literals compare civil fields; aware literals compare instant
 fields. Mixing these kinds fails. Milliseconds/microseconds remain exact through
 SQL literals, Arrow, Parquet and source-offline cold recovery. Hour-to-day retained
@@ -311,9 +312,9 @@ selection remain unsupported on remote backends.
 
 A time dimension authored with an explicit parser (`ms.strptime(...)`) executes on
 the source for DuckDB, SQLite, MySQL, PostgreSQL, ClickHouse and Trino, including
-composite hour-prefix axes. A cell the declared format cannot read is rejected
-before publication on SQLite, MySQL and ClickHouse; DuckDB and Trino surface the
-engine's own error when their parsers reject a cell. PostgreSQL's `TO_TIMESTAMP`
+composite hour-prefix axes. Source cells are not scanned for format validity before
+the requested query; backend parsing may produce NULL or raise an error.
+PostgreSQL's `TO_TIMESTAMP`
 is lenient toward format-mismatched text. A well-formed cell that its format
 misreads can produce a wrong instant there. Trino accepts `%f` with `date_parse`'s native
 millisecond result precision; a six-digit fraction can lose its final three digits.
@@ -428,7 +429,7 @@ an intermediate pandas collection. MySQL unbuffered cursor close may drain
 unread responses; no hard cancellation deadline or memory bound is promised.
 SQLite steps its native cursor incrementally; sorting and aggregation may still
 materialize inside the engine. Batches limit rows, not bytes, and each cell is
-decoded in full. SQLite execution is query-only. Source assertions and output reads may see
+decoded in full. SQLite execution is query-only. Output reads may see
 different states; publication remains atomic. Retained results stay in Parquet
 and use the existing native reader, without upload to either source. The relational/native-date extension above adds individually qualified methods.
 Sampling and source-private advanced methods remain outside this subset.
@@ -504,7 +505,7 @@ MySQL/SQLite preview and sample preserve large nullable integers without an
 intermediate float64 conversion.
 
 
-Native timestamp timezone rules follow runtime ZoneInfo. Source-side validation
-rejects ambiguous wall times or engine/runtime rule disagreements before publishing
-results. Align the source engine and runtime timezone data before retrying a rule
-mismatch; only aggregate bounds and validation counts cross the source boundary.
+Native timestamp conversion uses the declared authority and runtime ZoneInfo.
+Analysis does not scan source rows for ambiguous wall times, malformed parsed
+cells, or engine/runtime timezone-rule disagreements. Backend conversion errors
+still surface during the requested query; temporal provenance remains in the Artifact.

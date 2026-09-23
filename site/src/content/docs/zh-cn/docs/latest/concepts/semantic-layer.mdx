@@ -380,6 +380,9 @@ ms.domain(name="sales", owner="Mina Zhang")
 使用 `marivo.help("semantic.objects.entity")` 查看这份清单，再用
 `marivo.help("semantic.entity")` 查询已安装版本的签名。
 
+Analysis 执行时信任 Entity 的身份与版本声明，不扫描源行预检唯一性、时间解析或
+版本区间。需要检查源数据时，显式调用 `catalog.source_health(..., checks=...)`。
+
 ```python
 warehouse = ms.ref.datasource("warehouse")
 

@@ -68,7 +68,6 @@ from marivo.semantic.ir import (
     StrptimeParse,
     TargetDimensionContract,
     TargetEntityContract,
-    TargetRuntimeObligation,
     TargetSnapshotSelection,
     TargetSnapshotVersion,
     TargetValiditySelection,
@@ -298,9 +297,6 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             action="Declare each identity key once in the typed source schema.",
         )
     signature = tuple((name, types[name]) for name in key)
-    obligations: list[TargetRuntimeObligation] = []
-    if key:
-        obligations.append(TargetRuntimeObligation("identity_non_null", key))
     version: TargetSnapshotVersion | TargetValidityVersion | None = None
     row_key = key
     authored = entity.versioning
@@ -321,9 +317,6 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             authored.format,
         )
         row_key = (*key, axis.source_column) if key else ()
-        obligations.append(
-            TargetRuntimeObligation("exact_snapshot_available", (axis.source_column,))
-        )
     elif isinstance(authored, ValidityVersioningIR):
         start = _target_time_axis(registry, entity, authored.valid_from)
         end = _target_time_axis(registry, entity, authored.valid_to)
@@ -346,17 +339,6 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             authored.timezone or start.timezone,
         )
         row_key = (*key, start.source_column) if key else ()
-        obligations.append(
-            TargetRuntimeObligation(
-                "validity_well_formed", (start.source_column, end.source_column)
-            )
-        )
-        if key:
-            obligations.append(TargetRuntimeObligation("validity_non_overlapping", key))
-    if row_key:
-        obligations.append(TargetRuntimeObligation("source_row_unique", row_key))
-    if key and version is not None:
-        obligations.append(TargetRuntimeObligation("selected_identity_unique", key))
     datasource = registry.datasources.get(entity.datasource)
     if datasource is None:
         _target_error(
@@ -385,7 +367,6 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
         version_row_key=row_key,
         columns=columns,
         version=version,
-        obligations=tuple(obligations),
         credential_slots=credential_slots,
     )
 

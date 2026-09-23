@@ -182,8 +182,8 @@ admitted. Engine form is not restricted by this scalar-type extension.
 Timestamp conversion is not qualified by this slice.
 
 Use a SELECT-only account configured with effective `join_use_nulls=1`.
-Metadata, required assertions and output run separately; empty output never
-bypasses validation. Declared floating values must be finite or NULL. Exact
+Metadata, remaining required assertions and output run separately; empty output never
+bypasses Artifact validation. Source identity and time data are trusted. Exact
 integer/Decimal sums widen internally to Decimal256 before checked output
 conversion; overflow and non-finite output fail without publication.
 
@@ -201,7 +201,7 @@ The [relational/date admission owner](python-analysis-design.md#relational-and-n
 extends the existing adapters; it adds no executor, Store generation or retained-import
 permission. Mean, weighted mean and ratio publish their sufficient components with
 the primary result in the existing atomic transaction. Cold retained rollup reads
-those components without reconnecting to the original source. Source checks,
-primary output and part reads remain separate observations, without a shared
+those components without reconnecting to the original source. Primary output
+and part reads remain separate observations, without a shared
 snapshot or automatic retry. Source-to-local Forecast, Kendall and time discovery
 transfer the complete admitted aggregate input and execute synchronously.

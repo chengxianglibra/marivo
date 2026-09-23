@@ -147,34 +147,30 @@ def test_population_filter_and_version_resolution(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "entity,mutation,expected",
+    "entity,mutation",
     [
-        ("orders", "INSERT INTO orders (id) VALUES (1)", "source_row_unique"),
-        ("orders", "INSERT INTO orders (id) VALUES (NULL)", "identity_non_null"),
+        ("orders", "INSERT INTO orders (id) VALUES (1)"),
+        ("orders", "INSERT INTO orders (id) VALUES (NULL)"),
         (
             "snapshots",
             "INSERT INTO snapshots (id, day) VALUES (1, DATE '2026-02-28')",
-            "source_row_unique",
         ),
         (
             "snapshots",
             "DELETE FROM snapshots WHERE day = DATE '2026-02-28'",
-            "exact_snapshot_available",
         ),
         (
             "validity",
             "INSERT INTO validity (id, start, \"end\") VALUES (1, DATE '2026-02-11', DATE '2026-02-20')",
-            "validity_non_overlapping",
         ),
         (
             "validity",
             "INSERT INTO validity (id, start, \"end\") VALUES (3, DATE '2026-02-20', DATE '2026-02-01')",
-            "validity_well_formed",
         ),
     ],
 )
-def test_invalid_identity_and_temporal_sources_have_named_preflights(
-    tmp_path: Path, entity: str, mutation: str, expected: str
+def test_entity_identity_and_time_declarations_do_not_add_source_preflights(
+    tmp_path: Path, entity: str, mutation: str
 ) -> None:
     with execution_fixture(tmp_path) as fixture:
         fixture.backend.raw_sql(mutation)
@@ -185,12 +181,12 @@ def test_invalid_identity_and_temporal_sources_have_named_preflights(
             ),
         )
         compiled = compile_dataset(dataset, fixture.tables(dataset))
-        failures = [
+        source_checks = [
             validation.name
             for validation in compiled.validations
-            if validation.expression.to_pyarrow()["violations"][0].as_py() > 0
+            if validation.name.startswith(f"sales.{entity}.")
         ]
-        assert f"sales.{entity}.{expected}" in failures
+        assert source_checks == []
 
 
 def test_membership_and_observation_windows_are_independent(tmp_path: Path) -> None:

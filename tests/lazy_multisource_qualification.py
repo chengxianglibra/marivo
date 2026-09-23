@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import ibis
@@ -15,7 +15,7 @@ from ibis.backends.sql.compilers.trino import TrinoCompiler
 from ibis.backends.sql.datatypes import ClickHouseType
 
 from marivo.analysis.compiler import compile_dataset
-from marivo.analysis.compiler.nodes import CompiledDataset, RetainedPartSpec
+from marivo.analysis.compiler.nodes import CompiledDataset, CompiledValidation, RetainedPartSpec
 from marivo.analysis.compiler.normalize import required_entities
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.session._lazy_sources import make_lazy_sources
@@ -84,9 +84,13 @@ class SnapshotCompiler(TrinoCompiler):  # type: ignore[misc]
 
 
 def qualification_recipe(
-    *, catalog: str | None = None, database: str = "qualification", positive_only: bool = False
+    *,
+    catalog: str | None = None,
+    database: str = "qualification",
+    positive_only: bool = False,
+    synthetic_assertions: bool = True,
 ) -> tuple[ir.Table, CompiledDataset]:
-    """Lower real unversioned sum/count contracts without connecting a source."""
+    """Lower a real sum/count expression with optional test-only envelope checks."""
     registry, sidecar = make_execution_registry(Path("/nonexistent/qualification.duckdb"))
     sources = make_lazy_sources(
         semantic_registry=registry,
@@ -104,7 +108,23 @@ def qualification_recipe(
         raise ValueError("Probe requires exactly one source Entity")
     entity = entities[0]
     table = ibis.table(dict(entity.columns), name="orders", catalog=catalog, database=database)
-    return table, compile_dataset(logical, {entity.ref.path: table})
+    recipe = compile_dataset(logical, {entity.ref.path: table})
+    if not synthetic_assertions:
+        return table, recipe
+    missing = table.filter(table.id.isnull())
+    grouped = table.group_by("id").aggregate(n=table.count())
+    duplicates = grouped.filter(grouped.n > 1)
+    checks = (
+        CompiledValidation(
+            "probe.identity_non_null",
+            missing.aggregate(violations=missing.count()),
+        ),
+        CompiledValidation(
+            "probe.source_row_unique",
+            duplicates.aggregate(violations=duplicates.count()),
+        ),
+    )
+    return table, replace(recipe, validations=checks)
 
 
 def assertion_envelope(recipe: CompiledDataset, *, empty_primary: bool = False) -> ir.Table:

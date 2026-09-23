@@ -423,6 +423,9 @@ ms.domain(name="sales", owner="Mina Zhang")
 
 An entity is one physical source (a table or file) plus its primary key. It is the
 anchor that dimensions, measures, and metrics attach to.
+Analysis trusts its identity and version declarations during execution; it does
+not scan source rows to preflight uniqueness, time parsing, or version intervals.
+Use explicit `catalog.source_health(..., checks=...)` when source data needs inspection.
 Its reusable recordset meaning, authoritative source, row grain, identity,
 history model, and domain ownership must agree. Use
 `marivo.help("semantic.objects.entity")` for that checklist and

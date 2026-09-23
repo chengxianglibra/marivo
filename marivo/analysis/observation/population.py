@@ -202,7 +202,7 @@ def make_population(
             captures=captures,
             dependency_fingerprint=path_dependency_fingerprint(owner, reference.path, (path,)),
         ),
-        requirements=tuple(f"population.{item.kind}@v1" for item in normalized.obligations),
+        requirements=(),
         dependency_facts=(f"entity:{reference.path}",),
         contract_versions=producer_contract("session.population").versions,
     )
