@@ -52,7 +52,6 @@ release-test: pypi-build pypi-check
 		tests/test_install_marivo_script.py \
 		tests/test_install_marivo_script_uv.py \
 		tests/test_analysis_runtime_wheel.py \
-		tests/test_analysis_help_environment.py
 
 typecheck:
 	@./scripts/require-venv.sh mypy

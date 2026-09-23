@@ -566,5 +566,4 @@ def test_format_family_block_lists_members() -> None:
         help_call="marivo.help",
     )
     text = "\n".join(block)
-    assert "Families (call marivo.help('<name>') for any member):" in text
     assert "References (2): ARef, BRef" in text

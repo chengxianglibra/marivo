@@ -258,25 +258,15 @@ def test_unknown_method_has_no_backend_default() -> None:
 @pytest.mark.parametrize(
     "backend", ["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"]
 )
-def test_execute_contract_routes_to_help_without_claiming_backend_admission(
-    capsys: pytest.CaptureFixture[str],
-    backend: BackendName,
-) -> None:
-    import marivo
-
-    coordinator = marivo.help
-    assert callable(coordinator)
+def test_execute_continuation_resolves_for_each_backend(backend: BackendName) -> None:
     logical = _sources(backend).observe(REVENUE)
-    contract = logical.contract().render(max_output_bytes=None)
-    assert "dataset.execute(); marivo.help('analysis.actions.execute')" in contract
-    coordinator(logical.execute)
-    bound_help = capsys.readouterr().out
-    coordinator("analysis.actions.execute")
-    assert bound_help == capsys.readouterr().out
-    assert (
-        "admitted PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar and individually admitted"
-        in bound_help
-    )
+    from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    routed = resolve_live_target("actions.execute", ANALYSIS_LIVE_SURFACE)
+    bound = resolve_live_target(logical.execute, ANALYSIS_LIVE_SURFACE)
+    assert bound.descriptor is routed.descriptor
+    assert bound.canonical_id == "actions.execute"
 
 
 @pytest.mark.runtime

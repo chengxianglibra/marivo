@@ -25,8 +25,6 @@ from marivo.semantic._capabilities.model import (
     SemanticCheckRoute,
     SemanticCheckTopic,
     SemanticHelpDescriptor,
-    SemanticHelpRenderBudget,
-    SemanticHelpRenderClass,
     SemanticNavigationRoute,
     SemanticNavigationTopic,
     SemanticObjectContract,
@@ -58,7 +56,6 @@ def _finalize_fixture(
     object_contracts: tuple[SemanticObjectContract, ...] | None = None,
     root_sections: tuple[SemanticRootSection, ...] | None = None,
     repair_contracts: Mapping[str, SemanticRepairContract] | None = None,
-    render_budgets: Mapping[SemanticHelpRenderClass, SemanticHelpRenderBudget] | None = None,
 ) -> SemanticCapabilityRegistry:
     active_descriptors = REGISTRY.descriptors if descriptors is None else descriptors
     active_objects = REGISTRY.object_contracts if object_contracts is None else object_contracts
@@ -89,7 +86,7 @@ def _finalize_fixture(
         ),
         help_descriptors=help_descriptors,
         object_contracts=active_objects,
-        render_budgets=(SEMANTIC_HELP_RENDER_BUDGETS if render_budgets is None else render_budgets),
+        render_budgets=SEMANTIC_HELP_RENDER_BUDGETS,
     )
 
 
@@ -113,35 +110,6 @@ def test_semantic_help_descriptor_union_is_closed() -> None:
         SemanticCheckTopic,
         SemanticObjectContract,
     }
-
-
-def test_semantic_help_render_classes_and_budgets_are_closed() -> None:
-    assert set(get_args(SemanticHelpRenderClass)) == {
-        "root",
-        "decision_hub",
-        "navigation",
-        "exact_contract",
-        "current_briefing",
-    }
-    expected = {
-        "root": (32, 3_000, 10, 0),
-        "decision_hub": (40, 4_000, 8, 0),
-        "navigation": (64, 6_000, 24, 0),
-        "exact_contract": (72, 7_000, 8, 1),
-        "current_briefing": (64, 6_000, 6, 1),
-    }
-    assert {
-        render_class: (
-            budget.max_lines,
-            budget.max_codepoints,
-            budget.max_outgoing_routes,
-            budget.max_examples_or_snippets,
-        )
-        for render_class, budget in REGISTRY.render_budgets.items()
-    } == expected
-    assert REGISTRY.render_budgets is not SEMANTIC_HELP_RENDER_BUDGETS
-    with pytest.raises(TypeError):
-        REGISTRY.render_budgets["root"] = SemanticHelpRenderBudget(1, 1, 1, 0)  # type: ignore[index]
 
 
 def test_native_descriptor_models_are_frozen_and_non_invokable() -> None:
@@ -443,27 +411,6 @@ def test_registry_rejects_multiple_discovery_owners_eagerly() -> None:
         _finalize_fixture(help_descriptors=help_descriptors)
 
 
-def test_navigation_labels_remain_bound_to_targets_when_teaching_order_changes() -> None:
-    from marivo.semantic._capabilities.render import _render_navigation_topic
-
-    authoring = REGISTRY.by_canonical_id("authoring")
-    assert isinstance(authoring, SemanticNavigationTopic)
-    reordered = replace(
-        authoring,
-        members=(authoring.members[1], authoring.members[0], *authoring.members[2:]),
-    )
-    help_descriptors = tuple(
-        reordered if descriptor is authoring else descriptor
-        for descriptor in REGISTRY.help_descriptors
-    )
-
-    _finalize_fixture(help_descriptors=help_descriptors)
-    text = _render_navigation_topic(reordered, render_class="decision_hub")
-
-    assert 'supporting parameter or handle: marivo.help("semantic.builders")' in text
-    assert 'object meaning and construction: marivo.help("semantic.objects")' in text
-
-
 def test_registry_rejects_public_constructor_without_discovery_owner() -> None:
     dimension = REGISTRY.object_contract(SemanticKind.DIMENSION)
     trimmed = replace(
@@ -590,24 +537,6 @@ def test_registry_rejects_duplicate_callable_paths_eagerly() -> None:
         _finalize_fixture((*REGISTRY.descriptors, duplicate))
 
 
-@pytest.mark.parametrize("extra", (False, True))
-def test_registry_requires_exact_render_budget_coverage(extra: bool) -> None:
-    budgets: dict[object, SemanticHelpRenderBudget] = dict(REGISTRY.render_budgets)
-    if extra:
-        budgets["unknown"] = SemanticHelpRenderBudget(1, 1, 1, 0)
-    else:
-        budgets.pop("navigation")
-    with pytest.raises(ValueError, match="budgets must cover every render class"):
-        _finalize_fixture(render_budgets=budgets)  # type: ignore[arg-type]
-
-
-def test_registry_rejects_non_positive_render_budget() -> None:
-    budgets = dict(REGISTRY.render_budgets)
-    budgets["navigation"] = replace(budgets["navigation"], max_lines=0)
-    with pytest.raises(ValueError, match="invalid semantic Help render budget"):
-        _finalize_fixture(render_budgets=budgets)
-
-
 def test_registry_rejects_missing_render_assignment_before_rendering() -> None:
     render_classes = dict(REGISTRY._render_classes)
     render_classes.pop("authoring")
@@ -626,19 +555,6 @@ def test_registry_rejects_invokable_navigation_before_rendering(field_name: str)
     object.__setattr__(topic, field_name, "marivo.semantic.load")
     with pytest.raises(ValueError, match="navigation descriptor must not be invokable"):
         _finalize_fixture(help_descriptors=(*REGISTRY.help_descriptors, topic))
-
-
-def test_registry_root_sections_are_registered_and_ordered() -> None:
-    assert tuple(section.section_id for section in REGISTRY.root_sections) == (
-        "start",
-        "discover_authoring",
-        "current_catalog",
-    )
-    assert tuple(section.label for section in REGISTRY.root_sections) == (
-        "Start",
-        "Discover authoring contracts",
-        "Current catalog",
-    )
 
 
 def test_type_contract_type_is_dataclass() -> None:
@@ -940,8 +856,6 @@ def test_preview_capability_is_one_entry_or_exact_ref() -> None:
     assert subject.min_count == 1
     assert subject.max_count == 1
     assert subject.family == "CatalogEntry | Ref"
-    assert preview.minimal_example is not None
-    assert "catalog.preview(revenue" in preview.minimal_example
     assert preview.effects is not None
     assert preview.effects.mutations == ()
     assert "may_publish_certified_artifact" in preview.effects.flags

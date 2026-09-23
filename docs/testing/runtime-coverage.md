@@ -102,8 +102,7 @@ protocols; their historical acceptance is not evidence for caller execution.
 - `test_lazy_materialization_failures.py`: unknown open without query ID, failed
   cancel/close, safe later same-Session work and committed readback.
 - `test_lazy_reconciliation_snapshot.py` and `test_lazy_materialization_store.py`:
-  exact ownership, contradictory commit state, safe read-only discharge and v5
-  v6 format validation without file mutation.
+  exact ownership, contradictory commit state and safe read-only discharge.
 - `test_lazy_runtime_concurrency.py`, `test_lazy_adapter_crash_acceptance.py` and
   `test_lazy_materialization_runtime_acceptance.py`: surviving writer exclusion,
   fork/lock ownership, real process death and atomic cold primary/part readback.

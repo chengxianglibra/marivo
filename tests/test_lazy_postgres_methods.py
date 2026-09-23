@@ -31,6 +31,7 @@ from tests.lazy_distribution_fixtures import VALUES, make_distribution_registry
 from tests.lazy_postgres_fixtures import registry_for
 from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR
+from tests.lazy_shared_assertions import assert_primary_status_gate, assert_status_fold_values
 from tests.multisource_environment import postgres_analysis as pg
 
 pytestmark = [
@@ -398,14 +399,10 @@ def test_status_fold_spatial_sums(
         .aggregate()
     )
     frame = logical.execute().to_pandas().sort_values("channel")
-    assert frame.revenue.astype(float).tolist() == pytest.approx(expected)
-    # The lowering's status gate executed as a source validation.
-    assert any(
-        role == "validation_batch" and "__mv_status" in statement
-        for role, statement in runtime.statistics.statements
+    assert_status_fold_values(
+        frame.revenue.astype(float).tolist(), expected, runtime.statistics.statements
     )
-    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
-    assert len(primary) == 1 and "__mv_status" in primary[0]
+    assert_primary_status_gate(runtime.statistics.statements)
 
 
 def test_status_fold_versioned_metric_composite(
@@ -448,13 +445,10 @@ def test_status_fold_versioned_metric_composite(
         .aggregate()
     )
     frame = logical.execute().to_pandas().sort_values("channel")
-    assert frame.revenue.astype(float).tolist() == pytest.approx([30.0, 40.0])
-    assert any(
-        role == "validation_batch" and "__mv_status" in statement
-        for role, statement in runtime.statistics.statements
+    assert_status_fold_values(
+        frame.revenue.astype(float).tolist(), [30.0, 40.0], runtime.statistics.statements
     )
-    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
-    assert len(primary) == 1 and "__mv_status" in primary[0]
+    assert_primary_status_gate(runtime.statistics.statements)
 
 
 def test_relationship_dimension_reads_same_source(

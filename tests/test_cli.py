@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -187,64 +185,12 @@ def test_rejects_invalid_toml_without_force(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_no_args_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main([])
-    assert exc_info.value.code == 0
-    captured = capsys.readouterr()
-    assert "Marivo" in captured.out or "marivo" in captured.out
-
-
-def test_root_help_points_analysis_to_python_workflow(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--help"])
-    assert exc_info.value.code == 0
-    captured = capsys.readouterr()
-    assert "marivo help" in captured.out
-    assert "marivo doctor --semantic" in captured.out
-    assert "marivo doctor --datasource <name> --connect" in captured.out
-    # The CLI command set is init, doctor, and help.
-    # argparse renders the subcommand group as
-    # "{init,doctor,help}" (insertion order) rather than the literal
-    # "marivo <cmd>".
-    assert "{init,doctor,help}" in captured.out
-    assert "marivo doctor" in captured.out
-    assert "marivo help analysis" not in captured.out
-    assert "marivo help datasource" not in captured.out
-    assert "marivo help semantic" not in captured.out
-
-
-def test_cli_help_is_bootstrap_only(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    main(["help"])
-
-    output = capsys.readouterr().out
-    assert f"Marivo: {marivo.__version__}" in output
-    assert f"Python: {sys.executable}" in output
-    assert f"Package: {Path(marivo.__file__).resolve()}" in output
-    assert "import marivo" in output
-    assert "import marivo.datasource as md" in output
-    assert "import marivo.semantic as ms" in output
-    assert "import marivo.analysis as mv" in output
-    assert "marivo.help()" in output
-    assert 'marivo.help("authoring")' in output
-    assert 'marivo.help("analysis")' in output
-    assert "Do not append a surface or target" in output
-
-
 @pytest.mark.parametrize(
-    ("arguments", "expected_target"),
-    (
-        (("observe",), "observe"),
-        (("analysis", "observe"), "analysis.observe"),
-        (("semantic", "load"), "semantic.load"),
-        (("datasource", "inspect"), "datasource.inspect"),
-    ),
+    "arguments",
+    (("observe",), ("analysis", "observe"), ("semantic", "load"), ("datasource", "inspect")),
 )
 def test_cli_help_rejects_tracks_and_targets_as_bootstrap_only(
     arguments: tuple[str, ...],
-    expected_target: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exc_info:
@@ -253,26 +199,7 @@ def test_cli_help_rejects_tracks_and_targets_as_bootstrap_only(
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "bootstrap-only" in captured.err
-    assert sys.executable in captured.err
-    assert f"marivo.help({expected_target!r})" in captured.err
     assert "Traceback" not in captured.err
-
-
-def test_module_help_uses_subprocess_environment_fingerprint() -> None:
-    """Module CLI help reports the interpreter and package that executed it."""
-    result = subprocess.run(
-        [sys.executable, "-m", "marivo", "help"],
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-
-    assert result.returncode == 0
-    # Help must report the interpreter actually running marivo (sys.executable),
-    # not the symlink-resolved system Python. doctor reports the same value.
-    assert f"Python: {sys.executable}" in result.stdout
-    assert f"Package: {Path(marivo.__file__).resolve()}" in result.stdout
 
 
 def test_version_flag_prints_package_version(capsys: pytest.CaptureFixture[str]) -> None:

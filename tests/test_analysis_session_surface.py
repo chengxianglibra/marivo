@@ -10,11 +10,6 @@ def _session(tmp_path, monkeypatch):
     return mv.session.get_or_create(name="surface_probe")
 
 
-def test_session_removes_the_legacy_evidence_namespace(tmp_path, monkeypatch) -> None:
-    session = _session(tmp_path, monkeypatch)
-    assert not hasattr(session, "evidence")
-
-
 def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
     names = set(dir(session))
@@ -32,21 +27,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "catalog",
     ):
         assert advertised in names, f"missing advertised member: {advertised}"
-    for removed in (
-        "evidence",
-        "frame_summaries",
-        "get_frame",
-        "jobs",
-        "recent_jobs",
-        "job",
-        "from_pandas",
-        "explore_ibis",
-        "promote_metric_frame",
-        "promote_delta_frame",
-        "promote_attribution_frame",
-        "assess_quality",
-    ):
-        assert removed not in names
     for hidden in (
         "layout",
         "semantic_project",
@@ -73,8 +53,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "_evidence_store",
     ):
         assert hidden not in names, f"plumbing leaked into dir(): {hidden}"
-    assert "validate" not in names
-    assert "run_followup" not in names
 
 
 def test_internal_fields_not_publicly_accessible(tmp_path, monkeypatch):
@@ -83,12 +61,6 @@ def test_internal_fields_not_publicly_accessible(tmp_path, monkeypatch):
     # Underscore-prefixed storage is reachable for internal code
     assert session._runtime is not None
     assert "_runtime" not in dir(session)
-
-
-def test_session_no_longer_exposes_transform_namespace(tmp_path, monkeypatch) -> None:
-    session = _session(tmp_path, monkeypatch)
-
-    assert not hasattr(session, "transform")
 
 
 def test_session_namespaces_are_typed_helpers_only(authoring_evidence_project, monkeypatch):

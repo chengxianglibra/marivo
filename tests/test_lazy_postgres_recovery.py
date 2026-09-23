@@ -27,6 +27,10 @@ from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from tests.lazy_acceptance_capture import counts
 from tests.lazy_postgres_fixtures import registry_for
+from tests.lazy_shared_assertions import (
+    assert_composed_parts_recover,
+    assert_producer_death_recovers,
+)
 from tests.multisource_environment import postgres_analysis as pg
 
 pytestmark = [
@@ -195,17 +199,7 @@ def _worker(
 def test_producer_death_has_atomic_publication_and_cold_recovery(
     tmp_path: Path, source_table: str, point: str
 ) -> None:
-    process = _worker("produce", tmp_path, source_table, point)
-    assert process.returncode == 73, process.stdout + process.stderr
-    crashed = json.loads((tmp_path / "crash.json").read_text())
-    recovered = _worker("recover", tmp_path, source_table)
-    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
-    result = json.loads(recovered.stdout)
-    assert result["pid"] != crashed["pid"]
-    committed = point == "after_commit"
-    assert result["lifecycle"] == ("succeeded" if committed else "failed")
-    assert result["before"]["dataset_artifacts"] == int(committed)
-    assert result["before"]["analysis_action_runs"] == 1
+    assert_producer_death_recovers(_worker, tmp_path, source_table, point)
 
 
 def test_cleanup_unknown_preserves_failure_and_allows_safe_next_run(
@@ -249,13 +243,7 @@ def test_cleanup_unknown_preserves_failure_and_allows_safe_next_run(
 def test_composed_parts_have_atomic_publication_and_cold_fold(
     tmp_path: Path, source_table: str, point: str
 ) -> None:
-    process = _worker("produce", tmp_path, source_table, point + ":ratio")
-    assert process.returncode == 73, process.stdout + process.stderr
-    recovered = _worker("recover", tmp_path, source_table)
-    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
-    result = json.loads(recovered.stdout)
-    assert result["lifecycle"] == ("succeeded" if point == "after_commit" else "failed")
-    assert result["before"]["dataset_artifacts"] == int(point == "after_commit")
+    assert_composed_parts_recover(_worker, tmp_path, source_table, point)
 
 
 if __name__ == "__main__":

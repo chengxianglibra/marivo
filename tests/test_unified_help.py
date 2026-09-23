@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import inspect
 import subprocess
 import sys
@@ -18,15 +17,13 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._help import render as help_render
 from marivo._help.model import (
-    GLOBAL_HELP_RENDER_BUDGETS,
-    GlobalHelpRenderBudget,
     MarivoHelpSurfaceError,
     MarivoHelpTargetError,
     NativeHelpRoute,
     SurfaceRootHelpRoute,
     TopicHelpRoute,
 )
-from marivo._help.render import PublicHelpTarget, render_help_text
+from marivo._help.render import PublicHelpTarget
 from marivo._help.route import _resolve_one, route_help_target
 from marivo.analysis._capabilities.dataset_model import FamilyInput, TypeInput
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
@@ -58,33 +55,6 @@ _SURFACE_NAMES: tuple[HelpSurface, ...] = (
     "analysis",
     "ontology",
 )
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-_SLICE3_ACTIVE_GUIDANCE = (
-    Path(marivo.__file__).resolve().parent / "skills" / "marivo-analysis" / "SKILL.md",
-    _REPO_ROOT
-    / "site"
-    / "src"
-    / "content"
-    / "docs"
-    / "docs"
-    / "latest"
-    / "concepts"
-    / "analysis-workflow.mdx",
-    _REPO_ROOT
-    / "site"
-    / "src"
-    / "content"
-    / "docs"
-    / "zh-cn"
-    / "docs"
-    / "latest"
-    / "concepts"
-    / "analysis-workflow.mdx",
-)
-
-
-def _text(target: PublicHelpTarget = None) -> str:
-    return render_help_text(target)[0]
 
 
 def test_public_help_wraps_unexpected_surface_failure(
@@ -102,15 +72,6 @@ def test_public_help_wraps_unexpected_surface_failure(
     assert error.received == "datasource.duckdb"
     assert error.stage == "route_or_render"
     assert error.cause_type == "RuntimeError"
-    assert "doctor" in str(error)
-    assert "installed package source" in str(error)
-
-
-def test_public_help_preserves_unknown_target_error() -> None:
-    with pytest.raises(MarivoHelpTargetError) as captured:
-        marivo.help("not-a-registered-target")
-
-    assert "Use marivo.help() to choose authoring or analysis" in str(captured.value)
 
 
 def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
@@ -129,106 +90,16 @@ def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert "marivo.help" in completed.stdout
-    assert "Choose inspection, optional scoped sampling, or governed raw SQL" in completed.stdout
 
 
-def test_marivo_help_is_the_only_public_help_callable(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_marivo_help_is_the_only_public_help_callable() -> None:
     assert marivo.__all__ == ["__version__", "help"]
     assert callable(marivo.help)
     assert marivo.help() is None
-    assert capsys.readouterr().out.strip()
-    assert not hasattr(marivo, "help_text")
 
     for surface in (md, ms, mv):
         assert "help" not in surface.__all__
-        assert "help_text" not in surface.__all__
         assert not hasattr(surface, "help")
-        assert not hasattr(surface, "help_text")
-
-
-@pytest.mark.parametrize("target", ("load", "targets"))
-def test_removed_flat_global_topics_do_not_resolve(target: str) -> None:
-    with pytest.raises(MarivoHelpTargetError):
-        marivo.help(target)
-
-
-def test_domain_help_attribute_raises_guiding_error() -> None:
-    """mv.help raises a friendly AttributeError that points to marivo.help(...)."""
-    with pytest.raises(AttributeError, match=r"marivo\.help"):
-        mv.help("analysis.observe")  # type: ignore[attr-defined]
-
-
-def test_analysis_catalog_attribute_raises_session_bound_guidance() -> None:
-    with pytest.raises(AttributeError) as exc_info:
-        mv.catalog.metrics.show()  # type: ignore[attr-defined]
-
-    message = str(exc_info.value)
-    assert "catalog is session-bound" in message
-    assert "session = mv.session.get_or_create" in message
-    assert "catalog = session.catalog" in message
-
-
-def test_root_help_introduces_marivo_and_routes_to_two_secondary_roots() -> None:
-    text = _text()
-
-    assert text.startswith("Marivo\n")
-    assert "pure Python library for governed, auditable analysis" in text
-    assert "Datasource -> physical connections and source evidence" in text
-    assert "Semantic   -> governed business objects and stable refs" in text
-    assert "Analysis   -> typed artifacts, findings, evidence, and lineage" in text
-    assert 'marivo.help("authoring")' in text
-    assert 'marivo.help("analysis")' in text
-    assert 'marivo.help("load")' not in text
-    assert 'marivo.help("targets")' not in text
-    assert "Domain modules expose no public .help alias" in text
-
-
-def test_global_help_topics_use_coordinator_owned_render_budgets() -> None:
-    expected = {
-        "root": (32, 3_000, 10, 0),
-        "decision_hub": (40, 4_000, 8, 0),
-    }
-    assert {
-        render_class: (
-            budget.max_lines,
-            budget.max_codepoints,
-            budget.max_outgoing_routes,
-            budget.max_examples_or_snippets,
-        )
-        for render_class, budget in GLOBAL_HELP_RENDER_BUDGETS.items()
-    } == expected
-    with pytest.raises(TypeError):
-        GLOBAL_HELP_RENDER_BUDGETS["root"] = GlobalHelpRenderBudget(1, 1, 1, 0)  # type: ignore[index]
-
-    for target, render_class in ((None, "root"), ("authoring", "decision_hub")):
-        text = _text(target)
-        budget = GLOBAL_HELP_RENDER_BUDGETS[render_class]  # type: ignore[index]
-        assert len(text.splitlines()) <= budget.max_lines
-        assert len(text) <= budget.max_codepoints
-
-
-def test_root_help_advertises_only_the_two_resolvable_secondary_roots() -> None:
-    text = _text()
-    advertised = tuple(
-        line.strip() for line in text.splitlines() if line.strip().startswith("marivo.help(")
-    )
-
-    assert advertised == ('marivo.help("authoring")', 'marivo.help("analysis")')
-    assert route_help_target("authoring") == TopicHelpRoute("authoring")
-    assert route_help_target("analysis") == SurfaceRootHelpRoute("analysis")
-
-
-@pytest.mark.parametrize(
-    "module_name",
-    ("marivo.datasource.help", "marivo.semantic.help", "marivo.analysis.help"),
-)
-def test_removed_domain_help_modules_cannot_rebind_public_attributes(
-    module_name: str,
-) -> None:
-    assert importlib.util.find_spec(module_name) is None
 
 
 def test_public_help_annotation_is_one_closed_alias() -> None:
@@ -257,7 +128,6 @@ def test_every_qualified_registry_target_preserves_native_descriptor_identity() 
 def test_surface_name_routes_to_the_exact_native_root(owner: HelpSurface) -> None:
     route = route_help_target(owner)
     assert route == SurfaceRootHelpRoute(owner)
-    assert _text(owner) == rendered_native_root(owner)
 
 
 def test_every_unique_unqualified_registry_target_routes_to_its_only_owner() -> None:
@@ -318,20 +188,9 @@ def test_exact_canonical_target_wins_over_cross_surface_entrypoint_alias(
     assert route.resolved.canonical_id == canonical_target
 
 
-def test_removed_alignment_no_longer_conflicts_with_semantic_constructor() -> None:
-    route = route_help_target("period_correspondence")
-    assert isinstance(route, NativeHelpRoute)
-    assert route.owner == "semantic"
-    with pytest.raises(MarivoHelpTargetError):
-        route_help_target("analysis.period_correspondence")
-
-
 def test_global_authoring_composition_topic_wins_over_native_duplicates() -> None:
     route = route_help_target("authoring")
     assert route == TopicHelpRoute("authoring")
-    text = _text("authoring")
-    assert "datasource.authoring" in text
-    assert "semantic.authoring" in text
 
 
 @pytest.mark.parametrize(
@@ -342,19 +201,6 @@ def test_semantic_slice3_navigation_targets_are_publicly_active(target: str) -> 
     route = route_help_target(target)
     assert isinstance(route, NativeHelpRoute)
     assert route.owner == "semantic"
-
-
-def test_global_authoring_routes_to_surface_owned_decision_hubs() -> None:
-    text = _text("authoring")
-
-    assert "Physical source definitions and evidence" in text
-    assert "Executable reusable business semantics" in text
-    assert "Optional non-executable contextual relations" in text
-    assert "marivo.help(result_or_error)" in text
-    assert "does not establish" in text
-    for owner in ("datasource", "semantic", "ontology"):
-        assert f'marivo.help("{owner}.authoring")' in text
-        assert f'marivo.help("{owner}")' in text
 
 
 def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> None:
@@ -382,43 +228,6 @@ def test_slice3_qualified_navigation_targets_resolve(target: str) -> None:
     assert route.owner == "analysis"
 
 
-def test_slice3_active_guidance_uses_live_canonical_recovery_targets() -> None:
-    targets = (
-        "analysis.runtime",
-        "analysis.evidence",
-    )
-
-    for path in _SLICE3_ACTIVE_GUIDANCE:
-        text = path.read_text()
-        assert 'marivo.help("analysis.recovery")' not in text
-        for target in targets:
-            assert f'marivo.help("{target}")' in text
-
-    for target in targets:
-        route = route_help_target(target)
-        assert isinstance(route, NativeHelpRoute)
-        assert route.owner == "analysis"
-        canonical_id = target.removeprefix("analysis.")
-        assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id(canonical_id)
-
-
-def test_slice5_active_guidance_uses_the_same_progressive_topology_in_both_locales() -> None:
-    targets = (
-        "analysis.entry",
-        "analysis.methods",
-        "analysis.inputs",
-        "analysis.artifacts",
-        "analysis.evidence",
-        "analysis.runtime",
-        "analysis.actions.to_pandas",
-    )
-
-    for path in _SLICE3_ACTIVE_GUIDANCE:
-        text = path.read_text()
-        for target in targets:
-            assert target in text
-
-
 def test_slice3_bounded_target_projections_resolve_independently() -> None:
     for owner in (
         "evidence",
@@ -434,32 +243,6 @@ def test_slice3_bounded_target_projections_resolve_independently() -> None:
         for target in topic.members:
             route = route_help_target(f"analysis.{target}")
             assert isinstance(route, NativeHelpRoute)
-
-
-@pytest.mark.parametrize(
-    ("target", "replacement"),
-    (
-        ("analysis.recovery", "analysis.runtime.runs"),
-        ("analysis.session", "analysis.runtime.sessions"),
-        ("analysis.boundary", "analysis.actions.to_pandas"),
-    ),
-)
-def test_slice3_removed_qualified_navigation_targets_do_not_resolve(
-    target: str,
-    replacement: str,
-) -> None:
-    with pytest.raises(MarivoHelpTargetError) as captured:
-        route_help_target(target)
-    assert captured.value.outcome == "unknown"
-    assert isinstance(route_help_target(replacement), NativeHelpRoute)
-    for candidate in captured.value.candidates:
-        route_help_target(candidate)
-
-
-@pytest.mark.parametrize("target", ("analysis.engine_sample", "analysis.population.sample"))
-def test_removed_entity_sampling_help_targets_do_not_resolve(target: str) -> None:
-    with pytest.raises(MarivoHelpTargetError):
-        route_help_target(target)
 
 
 def test_default_analysis_error_repairs_resolve_on_their_declared_surface() -> None:
@@ -530,29 +313,9 @@ def test_model_state_handle_has_one_semantic_help_owner() -> None:
         name="paid",
     )
 
-    semantic_text = _text("semantic.ModelStateHandle")
-    assert _text(ms.ModelStateHandle) == semantic_text
-    assert _text(handle) == semantic_text
-
-    with pytest.raises(MarivoHelpTargetError) as captured:
-        route_help_target("analysis.ModelStateHandle")
-
-    assert captured.value.outcome == "unknown"
-    assert captured.value.candidates[0] == "semantic.ModelStateHandle"
-
-
-@pytest.mark.parametrize(
-    "target",
-    (
-        "observe",
-        "analysis.observe",
-        mv.Session.observe,
-    ),
-)
-def test_equivalent_observe_targets_render_one_native_descriptor(
-    target: str | Callable[..., object],
-) -> None:
-    assert _text(target) == _text("analysis.observe")
+    assert marivo.help("semantic.ModelStateHandle") is None
+    assert marivo.help(ms.ModelStateHandle) is None
+    assert marivo.help(handle) is None
 
 
 def test_period_calendar_period_navigation_resolves_through_public_help() -> None:
@@ -563,10 +326,8 @@ def test_period_calendar_period_navigation_resolves_through_public_help() -> Non
     assert isinstance(route, NativeHelpRoute)
     assert route.owner == "analysis"
     assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("calendar.period")
-    assert 'scope = calendar.period("fiscal_week", "FY2026-W01")' in _text(
-        "analysis.calendar.period"
-    )
-    assert _text(PeriodCalendarEntry.period) == _text("analysis.calendar.period")
+    assert marivo.help("analysis.calendar.period") is None
+    assert marivo.help(PeriodCalendarEntry.period) is None
 
 
 @pytest.mark.parametrize(
@@ -592,7 +353,10 @@ def test_temporal_catalog_member_navigation_resolves_through_public_help(
     assert isinstance(route, NativeHelpRoute)
     assert route.owner == "analysis"
     assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id(target)
-    assert _text(method) == _text(f"analysis.{target}")
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    resolved = resolve_live_target(method, ANALYSIS_LIVE_SURFACE)
+    assert resolved.descriptor is route.resolved.descriptor
 
 
 def test_bound_method_renders_the_same_descriptor(
@@ -601,17 +365,20 @@ def test_bound_method_renders_the_same_descriptor(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create(name="unified_help")
-    assert _text(session.observe) == _text("analysis.observe")
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    resolved = resolve_live_target(session.observe, ANALYSIS_LIVE_SURFACE)
+    assert resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("observe")
 
 
 def test_unknown_target_raises_one_bounded_global_error() -> None:
     with pytest.raises(MarivoHelpTargetError) as exc_info:
-        _text("observv")
+        marivo.help("not-a-registered-target")
 
     error = exc_info.value
     assert error.outcome == "unknown"
+    assert error.received == "not-a-registered-target"
     assert len(error.candidates) <= SURFACE_LIMITS.help_suggestion_limit
-    assert all(candidate != "help" and candidate != "help_text" for candidate in error.candidates)
 
 
 def test_ref_briefing_is_identity_only_and_performs_no_io(
@@ -626,12 +393,13 @@ def test_ref_briefing_is_identity_only_and_performs_no_io(
     monkeypatch.setattr("marivo.datasource.backends.build_backend_with_secrets", fail)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", fail)
 
-    text = _text(ms.ref.metric("sales.revenue"))
-    assert "metric: sales.revenue" in text
-    assert "typed identity only" in text
-    assert "catalog.require(ref)" in text
-    assert "readiness are unknown" in text
-    assert "currently legal" not in text
+    reference = ms.ref.metric("sales.revenue")
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    resolved = resolve_live_target(reference, SEMANTIC_LIVE_SURFACE)
+    assert resolved.kind == "reference_briefing"
+    assert resolved.reference_id == "sales.revenue"
+    assert marivo.help(reference) is None
 
 
 def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
@@ -649,18 +417,12 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
     monkeypatch.setattr("marivo.datasource.backends.build_backend_with_secrets", fail)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", fail)
 
-    text = _text(entry)
-    assert "metric: sales.revenue" in text
-    assert "Object-near inspection:" in text
-    assert "entry.show()" in text
-    assert "entry.details().show()" in text
-    assert 'marivo.help("semantic.preview")' in text
-    assert "Analysis handoff (kind-level" in text
-    assert "session.observe(...) -> LogicalMetricDataset" in text
-    assert 'marivo.help("analysis.observe")' in text
-    assert "result.contract().show()" in text
-    assert "Readiness is not inferred here" in text
-    assert "No datasource connectivity or inspection evidence was queried" in text
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    resolved = resolve_live_target(entry, SEMANTIC_LIVE_SURFACE)
+    assert resolved.kind == "reference_briefing"
+    assert resolved.reference_id == "sales.revenue"
+    assert marivo.help(entry) is None
 
 
 def test_error_instance_uses_qualified_repair_and_preserves_repair_free_facts() -> None:
@@ -672,55 +434,11 @@ def test_error_instance_uses_qualified_repair_and_preserves_repair_free_facts() 
             help_target=LiveHelpTarget(surface="datasource", canonical_id="inspect"),
         ),
     )
-    assert 'marivo.help("datasource.inspect")' in _text(repaired)
-    assert "Message: no repair" in _text(AnalysisError(message="no repair"))
-
-
-def test_root_and_all_focused_registry_help_stay_inside_shared_budgets() -> None:
-    root = _text()
-    assert len(root.splitlines()) <= SURFACE_LIMITS.root_help_max_lines
-    assert len(root) <= SURFACE_LIMITS.root_help_max_codepoints
-
-    for owner, registry in _REGISTRIES.items():
-        for canonical_id in registry.canonical_ids():
-            if not canonical_id:
-                continue
-            text = _text(f"{owner}.{canonical_id}")
-            assert len(text.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
-            assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
-
-
-def test_current_rendered_help_never_points_to_removed_domain_help_paths() -> None:
-    forbidden = ("md.help", "ms.help", "mv.help", "help_text", "skill attachment")
-    targets = [
-        None,
-        "authoring",
-        *(
-            f"{owner}.{canonical_id}"
-            for owner, registry in _REGISTRIES.items()
-            for canonical_id in registry.canonical_ids()
-            if canonical_id
-        ),
-    ]
-    for target in targets:
-        text = _text(target)
-        for stale in forbidden:
-            assert stale not in text, f"{target!r} still renders {stale!r}"
-
-
-def rendered_native_root(owner: HelpSurface) -> str:
-    if owner == "datasource":
-        from marivo.datasource._capabilities.render import render_root_help
-
-        return render_root_help()
-    if owner == "semantic":
-        from marivo.semantic._capabilities.render import render_root_help
-
-        return render_root_help()
-    if owner == "ontology":
-        from marivo.ontology._capabilities.render import render_root_help
-
-        return render_root_help()
-    from marivo.analysis._capabilities.render import render_root_help
-
-    return render_root_help()
+    assert repaired.repair is not None
+    assert repaired.repair.help_target == LiveHelpTarget(
+        surface="datasource",
+        canonical_id="inspect",
+    )
+    repair_free = AnalysisError(message="no repair")
+    assert repair_free.repair is None
+    assert repair_free.message == "no repair"

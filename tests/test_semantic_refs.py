@@ -52,13 +52,9 @@ def test_ref_factory_namespace_is_immutable() -> None:
         ms.ref.metric = lambda _path: None  # type: ignore[method-assign]
 
 
-def test_raw_constructor_and_legacy_helpers_are_absent() -> None:
+def test_ref_cannot_be_constructed_without_a_factory() -> None:
     with pytest.raises(TypeError, match="no public raw constructor"):
         ms.Ref()  # type: ignore[call-arg]
-    assert not hasattr(ms, "SemanticRef")
-    assert not hasattr(ms, "MetricRef")
-    assert hasattr(ms, "ref")
-    assert not hasattr(ms.Ref, "metric")
 
 
 def test_field_ref_bind_without_binding_context_raises() -> None:

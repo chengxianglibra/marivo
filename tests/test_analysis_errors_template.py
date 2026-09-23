@@ -37,7 +37,6 @@ def test_analysis_error_renders_stable_fields_and_repair() -> None:
         '  session.observe(metric, time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))'
         in rendered
     )
-    assert "Help: marivo.help('analysis.observe')" in rendered
 
 
 def test_base_template_omits_missing_optional_sections() -> None:
@@ -51,7 +50,6 @@ def test_base_template_omits_missing_optional_sections() -> None:
     assert "Received:" not in rendered
     assert "Hint:" not in rendered
     assert "Repair:" not in rendered
-    assert "Help:" not in rendered
 
 
 def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:

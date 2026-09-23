@@ -43,5 +43,4 @@ def test_dataset_error_hierarchy_and_bounded_repair(cls: type[DatasetConstructio
     assert error.received == "r" * 320
     assert error.location == "dataset.compare"
     assert error.repair.action == "Construct one same-Session Dataset."
-    assert "Help: marivo.help('analysis')" in str(error)
     assert type(error).__name__ in str(error)

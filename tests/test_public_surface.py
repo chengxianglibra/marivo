@@ -7,22 +7,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import pydoc
 import subprocess
 import sys
 
-import marivo
 import marivo.analysis as ma
 import marivo.datasource as md
 import marivo.semantic as ms
-
-
-def test_entity_sampling_is_absent_from_analysis_surface() -> None:
-    assert not hasattr(ma, "engine_sample")
-    assert not hasattr(ma, "EntitySamplingPolicy")
-    assert not hasattr(ma.LogicalPopulationDataset, "sample")
-    assert not hasattr(ma.MaterializedPopulationDataset, "sample")
-
 
 SEMANTIC_PUBLIC = {
     "AggregateFoldInput",
@@ -296,19 +286,7 @@ DATASOURCE_PUBLIC = {
 }
 
 
-def test_top_level_help_teaches_supported_surface_imports_and_cli_routes() -> None:
-    rendered = pydoc.render_doc(marivo, renderer=pydoc.plaintext)
-
-    assert "import marivo.datasource as md" in rendered
-    assert "import marivo.semantic as ms" in rendered
-    assert "import marivo.analysis as mv" in rendered
-    assert "python -m marivo help" in rendered
-    assert "marivo.help(...)" in rendered
-    assert "for all focused help" in rendered
-    assert "python -m marivo help datasource" not in rendered
-
-
-def test_time_range_does_not_expand_partition_scope_constructor_surface() -> None:
+def test_partition_scope_constructor_signature_is_stable() -> None:
     import inspect
 
     import marivo.datasource as md
@@ -316,10 +294,6 @@ def test_time_range_does_not_expand_partition_scope_constructor_surface() -> Non
     assert str(inspect.signature(md.PartitionScope)) == (
         "(values: 'tuple[tuple[str, str], ...]', max_rows: 'int', timeout_seconds: 'int') -> None"
     )
-    assert "_time_range" not in md.__all__
-    assert "advisories" not in ms.ReadinessReport.__dataclass_fields__
-    assert "TimeRangeScope" not in md.__all__
-    assert "ColumnBindingCandidate" not in md.__all__
 
 
 def test_top_level_package_does_not_add_public_convenience_exports() -> None:
@@ -353,11 +327,6 @@ def test_analysis_all_order_is_pinned() -> None:
     assert hashlib.sha256(payload.encode("utf-8")).hexdigest() == ANALYSIS_PUBLIC_ORDER_SHA256
 
 
-def test_ontology_metric_candidate_has_no_legacy_alias() -> None:
-    assert not hasattr(ma, "OntologyMetricCandidate")
-    assert not hasattr(ma, "SemanticMetricCandidate")
-
-
 def test_phase2_datasource_all_is_pinned_to_the_baseline() -> None:
     assert set(md.__all__) == DATASOURCE_PUBLIC
 
@@ -370,12 +339,3 @@ def test_followup_action_is_not_public_analysis_api() -> None:
 def test_run_query_stays_nested_under_terminal_runs() -> None:
     assert "RunQuery" not in ma.__all__
     assert not hasattr(ma, "RunQuery")
-
-
-def test_analysis_public_surface_keeps_session_summaries_not_frame_summaries() -> None:
-    assert not hasattr(ma, "FrameSummary")
-    assert not hasattr(ma, "FramePreview")
-    assert not hasattr(ma, "AssociationResultSummary")
-    assert not hasattr(ma, "QualityReportSummary")
-    assert not hasattr(ma, "FrameSummaryEntry")
-    assert not hasattr(ma, "JobSummary")

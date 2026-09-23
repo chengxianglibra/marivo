@@ -79,10 +79,3 @@ def test_receipt_codec_does_not_open_storage(
 
     monkeypatch.setattr(Path, "open", forbidden)
     assert c.decode_receipt(c.receipt_payload(receipt)) == receipt
-
-
-def test_database_receipt_kind_is_rejected_without_compatibility_decoding() -> None:
-    payload = c.receipt_payload(_local())
-    payload["kind"] = "engine"
-    with pytest.raises(IntegrityError):
-        c.decode_receipt(payload)

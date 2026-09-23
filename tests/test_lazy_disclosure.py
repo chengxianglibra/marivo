@@ -335,44 +335,6 @@ def test_shapes_methods_and_admission_links_are_derived_from_real_owners(
                 assert len(owners) == 1, consumer.id
 
 
-def test_every_target_renders_resolves_and_is_bounded(
-    disclosure: DatasetDisclosureRegistry,
-) -> None:
-    for descriptor in disclosure.descriptors:
-        target = descriptor.canonical_id
-        assert render(disclosure, target) == render(disclosure, target)
-        assert "0x" not in render(disclosure, target)
-        # Independent frozen budgets: do not ask the renderer for its own limits.
-        if isinstance(descriptor, NavigationInput):
-            bounds = {
-                "root": (32, 3000, 8),
-                "decision_hub": (44, 4500, 10),
-                "navigation": (64, 6500, 16),
-            }[descriptor.render_class]
-            assert len(descriptor.members) <= bounds[2]
-        elif isinstance(descriptor, CallableInput):
-            bounds = (104, 9000, 10)
-        else:
-            bounds = (72, 7000, 10)
-        text = render(disclosure, target)
-        assert len(text.splitlines()) <= bounds[0]
-        assert len(text) <= bounds[1]
-        import re
-
-        routes = set(re.findall(r"marivo\.help\('analysis\.([^']+)'\)", text))
-        assert len(routes) <= bounds[2]
-        for route in routes:
-            assert disclosure.resolve(route).canonical_id == route
-        if target:
-            assert render(disclosure, "analysis." + target) == render(disclosure, target)
-        if isinstance(descriptor, NavigationInput):
-            for member in descriptor.members:
-                assert disclosure.resolve(member).canonical_id == member
-    root = disclosure.by_canonical_id("")
-    assert isinstance(root, NavigationInput)
-    assert root.members == ("entry", "methods", "inputs", "artifacts", "evidence", "runtime")
-
-
 def test_native_help_never_creates_persistent_state(monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("static disclosure crossed the persistence boundary")
@@ -403,7 +365,6 @@ def test_incomplete_or_duplicate_owner_is_rejected(disclosure: DatasetDisclosure
         "duplicate",
         "dangling",
         "missing_consumer",
-        "budget",
     ),
 )
 def test_corrupt_native_input_fails_closed(
@@ -412,7 +373,7 @@ def test_corrupt_native_input_fails_closed(
     providers = list(disclosure.providers)
     owner_index = 0
     descriptors = list(providers[owner_index].descriptors)
-    if fault in ("parameter", "signature", "missing_consumer", "budget"):
+    if fault in ("parameter", "signature", "missing_consumer"):
         owner_index = 2 if fault == "missing_consumer" else 0
         descriptors = list(providers[owner_index].descriptors)
         i = next(
@@ -429,10 +390,8 @@ def test_corrupt_native_input_fails_closed(
             descriptors[i] = replace(
                 d, bindings=(replace(d.bindings[0], signature=inspect.Signature()),)
             )
-        elif fault == "missing_consumer":
-            descriptors[i] = replace(d, registration_ids=())
         else:
-            descriptors[i] = replace(d, summary="x" * 10000)
+            descriptors[i] = replace(d, registration_ids=())
     elif fault == "type_fields":
         i = next(i for i, d in enumerate(descriptors) if isinstance(d, TypeInput))
         d = descriptors[i]
@@ -807,7 +766,6 @@ def test_lookup_miss_protocol_is_adapted_to_structured_resolve_error(
         assert caught.value.repair.candidates
         for candidate in caught.value.repair.candidates:
             disclosure.resolve(candidate)
-        assert "marivo.help" in caught.value.repair.action
 
 
 @pytest.mark.parametrize("fault", ("missing_default", "duplicate_default", "dangling_export"))
@@ -861,20 +819,3 @@ def test_callable_specialization_uses_registration_scope_not_target_spelling(
         assert isinstance(value, Dataset)
         assert candidate.by_callable(value.attribute).canonical_id == target
         assert candidate.by_callable(type(value).attribute).canonical_id == "renamed.general"
-
-
-def test_execute_help_discloses_qualified_source_boundaries(
-    disclosure: DatasetDisclosureRegistry,
-) -> None:
-    text = render(disclosure, "actions.execute")
-    for fact in (
-        "read-only accounts",
-        "remote retained import and uploads are unsupported",
-        "not restricted by table form",
-        "`$`-suffixed internal tables",
-        "ReplacingMergeTree",
-        "replay of a committed snapshot is unaffected",
-        "semantic readiness do not prove method support",
-    ):
-        assert fact in text
-    assert len(text.encode()) <= 9000

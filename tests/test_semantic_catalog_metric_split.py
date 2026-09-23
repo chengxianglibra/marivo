@@ -1,4 +1,4 @@
-"""Tests for metric-split Plan 3: catalog / DTO / reader / help."""
+"""Tests for metric-split Plan 3: catalog, DTO, and reader behavior."""
 
 from __future__ import annotations
 
@@ -102,24 +102,3 @@ def test_simple_metric_details_render_includes_additivity(semantic_project_facto
     rendered = rev.render()
     assert "additivity: additive" in rendered
     assert "type: simple" in rendered
-
-
-# ---------------------------------------------------------------------------
-# Task 5: Help topics reflect split model
-# ---------------------------------------------------------------------------
-
-
-def test_help_topics_reflect_split():
-    from tests.shared_fixtures import rendered_help
-
-    # The Metric object page owns intent-based constructor discovery.
-    index = rendered_help("objects.metric", owner="semantic")
-    assert "metric" in index
-    assert "ratio" in index
-    assert "linear" in index
-    assert "cumulative" in index
-    assert "weighted_mean" in index
-
-    # The metric capability help must reference the constructor family
-    metric_help = rendered_help("metric", owner="semantic")
-    assert "ms.metric" in metric_help

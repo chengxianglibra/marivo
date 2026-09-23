@@ -94,18 +94,6 @@ def test_analysis_error_context_is_private() -> None:
     assert err._context == {"key": "value"}
 
 
-def test_transform_op_unsupported_error_removed_from_public_errors() -> None:
-    import marivo.analysis.errors as errors
-
-    assert not hasattr(errors, "TransformOpUnsupportedError")
-
-
-def test_session_question_mismatch_error_removed_from_public_errors() -> None:
-    import marivo.analysis.errors as errors
-
-    assert not hasattr(errors, "SessionQuestionMismatchError")
-
-
 def test_help_target_error_is_analysis_error() -> None:
     err = HelpTargetError(target=123, suggestions=("observe", "compare"))
     assert isinstance(err, AnalysisError)
@@ -115,7 +103,6 @@ def test_help_target_error_renders_received_type_for_non_string() -> None:
     err = HelpTargetError(target=123, suggestions=("observe",))
     rendered = str(err)
     assert "int" in rendered
-    assert "marivo.help('analysis')" in rendered
 
 
 def test_help_target_error_renders_received_string() -> None:

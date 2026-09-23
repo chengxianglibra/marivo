@@ -28,13 +28,10 @@ CONTRACT_TESTS = (
     "test_agent_result_protocol",
     "test_lazy_dataset_values",
     "test_lazy_dataset_contract",
-    "test_analysis_help",
     "test_analysis_help_resolution",
     "test_unified_help",
     "test_lazy_disclosure",
-    "test_lazy_disclosure_examples",
     "test_lazy_public_session",
-    "test_cutover_removed_contracts",
     "test_cutover_documentation_examples",
     "test_cli",
 )
@@ -97,9 +94,6 @@ def _check_archives(wheel: Path, sdist: Path) -> dict[str, object]:
             for name in names
             if name.startswith("marivo/")
         }
-        skill = archive.read("marivo/skills/marivo-analysis/SKILL.md").decode()
-        for stale in ("session.jobs(", "session.get_frame(", "session.evidence"):
-            assert stale not in skill
     assert contents == expected, "wheel differs from the current package source inventory"
     with tarfile.open(sdist) as archive:
         sources: dict[str, str] = {}

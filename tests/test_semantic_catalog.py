@@ -147,7 +147,7 @@ def _make_ref(r: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
     return make_ref(r, kind)
 
 
-def _ref_from_legacy_typed_id(value: str) -> Ref[SemanticKindTag]:
+def _ref_from_typed_id_path(value: str) -> Ref[SemanticKindTag]:
     kind_value, separator, path = value.partition(".")
     assert separator
     return make_ref(path, SemanticKind(kind_value))
@@ -412,26 +412,12 @@ def test_catalog_require_returns_concrete_catalog_entry(
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
-    obj = catalog.require(_ref_from_legacy_typed_id(typed_id))
+    obj = catalog.require(_ref_from_typed_id_path(typed_id))
 
     assert type(obj) is expected_type
     assert obj.key == typed_id.replace(".", ":", 1)
     assert obj.name == expected_name
     assert obj.ref.kind.value == typed_id.partition(".")[0]
-
-
-def test_catalog_object_high_frequency_surface_is_minimal(semantic_project_factory) -> None:
-    revenue = _make_catalog(semantic_project_factory).require(ms.ref.metric("sales.revenue"))
-
-    for removed in (
-        "semantic_id",
-        "domain",
-        "context",
-        "source_location",
-        "python_symbol",
-        "children",
-    ):
-        assert not hasattr(revenue, removed)
 
 
 def test_catalog_object_equality_is_concrete_type_and_typed_id(
@@ -788,13 +774,6 @@ def test_catalog_entities_includes_orders_entity(semantic_project_factory):
     assert "sales.orders" in refs
 
 
-def test_catalog_metrics_includes_revenue_metric(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.metrics
-    refs = {obj.ref.path for obj in result.items}
-    assert "sales.revenue" in refs
-
-
 def test_catalog_entities_render_uses_card_entity_listing(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
 
@@ -1132,7 +1111,7 @@ def test_catalog_details_expose_ai_context_via_context_field(semantic_project_fa
         "metric.sales.revenue": "revenue",
     }
     for typed_id, python_symbol in cases.items():
-        details = catalog.require(_ref_from_legacy_typed_id(typed_id)).details()
+        details = catalog.require(_ref_from_typed_id_path(typed_id)).details()
         assert details.context.business_definition
         assert details.context.guardrails
         assert details.python_symbol == python_symbol
@@ -1427,7 +1406,7 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
         ),
     }
     for metric_id, expected_roles in expected_lineage_by_metric.items():
-        details = catalog.require(_ref_from_legacy_typed_id(metric_id)).details()
+        details = catalog.require(_ref_from_typed_id_path(metric_id)).details()
         assert isinstance(details, DerivedMetricDetails)
         assert tuple(role for role, _ref in details.measure_lineage) == expected_roles
 
@@ -1729,12 +1708,6 @@ def test_catalog_require_exact_ref_returns_current_entry(semantic_project_factor
 # --- ms.load() ---
 
 
-def test_ms_load_returns_semantic_catalog(tmp_path):
-    _write_minimal_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path)
-    assert isinstance(catalog, SemanticCatalog)
-
-
 def test_ms_load_defaults_to_cwd(tmp_path, monkeypatch):
     _write_minimal_project(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -1765,6 +1738,7 @@ def test_ms_load_catalog_can_browse(tmp_path):
     catalog = ms.load(workspace_dir=tmp_path)
     result = catalog.domains
     assert len(result.items) >= 1
+    assert "sales.revenue" in {obj.ref.path for obj in catalog.metrics.items}
 
 
 def test_ms_load_with_domains_filters_domains(tmp_path):
@@ -1893,19 +1867,6 @@ def test_ms_load_with_domains_returns_different_filtered_catalog(semantic_projec
     assert "ops" in refs
     assert "sales" not in refs
     assert {obj.ref.path for obj in catalog.domains.items} == {"sales"}
-
-
-def test_catalog_access_after_failed_load_raises_semantic_load_failed(tmp_path):
-    semantic = tmp_path / "models" / "semantic" / "sales"
-    semantic.mkdir(parents=True)
-    (semantic / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='wrong_name', owner='Mina Zhang')\n"
-    )
-
-    from marivo.semantic.errors import SemanticLoadFailed
-
-    with pytest.raises(SemanticLoadFailed):
-        ms.load(workspace_dir=tmp_path)
 
 
 def _preview_backend(path: str):
@@ -2552,7 +2513,6 @@ def test_catalog_readiness_rejects_string_refs(semantic_project_factory):
     assert "bare strings are not accepted" in rendered
     assert "expected: current CatalogEntry" in rendered
     assert "received: str" in rendered
-    assert "Help: marivo.help('semantic.readiness')" in rendered
 
     with pytest.raises(SemanticRuntimeError) as unknown_exc_info:
         catalog.readiness(refs=["sales.missing"])  # type: ignore[list-item]

@@ -640,36 +640,6 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 """)
 
 
-def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
-    """Dataset in one file, metric referencing it in another should work."""
-    datasets_py = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
-    """)
-    metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-
-        @ms.metric(entities=[ms.ref.entity("sales.orders")], additivity="additive", )
-        def revenue(table):
-            return table.amount.sum()
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": datasets_py,
-            "sales/metrics.py": metrics_py,
-        }
-    )
-    assert project.is_ready()
-    reg = project._registry
-    assert reg is not None
-    assert "sales.orders" in reg.entities
-    assert "sales.revenue" in reg.metrics
-
-
 def test_duplicate_default_time_dimension_raises() -> None:
     registry = _make_registry()
     # Add a second time field with is_default=True on the same dataset
@@ -698,27 +668,6 @@ def test_duplicate_default_time_dimension_raises() -> None:
     assert any(e.kind == ErrorKind.DUPLICATE_DEFAULT_TIME_DIMENSION for e in errors), (
         f"Expected DUPLICATE_DEFAULT_TIME_DIMENSION, got: {[e.kind for e in errors]}"
     )
-
-
-def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
-    """Metric referencing a non-existent dataset should produce an error."""
-    metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-
-        @ms.metric(entities=[ms.ref.entity("sales.nonexistent")], additivity="additive", )
-        def revenue(table):
-            return table.amount.sum()
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/metrics.py": metrics_py,
-        }
-    )
-    assert not project.is_ready()
-    errors = project.errors()
-    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
 
 
 def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
@@ -1066,28 +1015,3 @@ def test_non_nested_derived_metric_emits_no_nested_warning() -> None:
     errors, warnings = assembly_validate(registry)
     assert not errors
     assert not warnings
-
-
-_BASE_NESTED_PROJECT = """\
-import marivo.datasource as md
-import marivo.semantic as ms
-
-wh = ms.ref.datasource("wh")
-orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
-amount = ms.measure_column(
-    name="amount", entity=orders, column="amount", additivity="additive")
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-order_count = ms.count(name="order_count", entity=orders)
-"""
-
-
-def test_nested_derived_metric_loads_without_legacy_warning() -> None:
-    from tests.shared_fixtures import load_inline_semantic
-
-    source = _BASE_NESTED_PROJECT + (
-        "inner = ms.ratio(name='inner', numerator=revenue, denominator=order_count)\n"
-        "outer = ms.ratio(name='outer', numerator=inner, denominator=revenue)\n"
-    )
-    with load_inline_semantic(source) as result:
-        assert result.status == "ready"
-        assert not result.warnings

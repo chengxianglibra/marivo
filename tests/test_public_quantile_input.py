@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-import marivo
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.observation.distribution_contracts import distribution_part_authorities
@@ -14,7 +13,7 @@ from marivo.semantic.errors import SemanticLoadError
 
 
 @pytest.mark.parametrize("method", ["linear_interpolation@v1", "duckdb_tdigest@v1"])
-def test_public_quantile_selection_is_pure_frozen_and_discoverable(
+def test_public_quantile_selection_is_pure_frozen_and_showable(
     monkeypatch, capsys, method: QuantileMethod
 ):
     import marivo.telemetry as telemetry
@@ -36,29 +35,23 @@ def test_public_quantile_selection_is_pure_frozen_and_discoverable(
     assert len(repr(selected)) < 256
     selected.show()
     assert method in capsys.readouterr().out
-    for target in (
-        "semantic.quantile_metric",
-        ms.quantile_metric,
-        ms.QuantileMetricInput,
-        selected,
-        ms.QuantileMetricInput.render,
-        ms.QuantileMetricInput.show,
-    ):
-        marivo.help(target)
-        text = capsys.readouterr().out
-        assert "quantile_metric" in text
 
 
 @pytest.mark.parametrize("method", ["automatic", "duckdb_tdigest", None])
-def test_public_quantile_rejects_unregistered_method_with_resolvable_repair(method, capsys):
+def test_public_quantile_rejects_unregistered_method_with_resolvable_repair(method):
     with pytest.raises(SemanticLoadError) as caught:
         ms.quantile_metric(ms.ref.metric("sales.p95_amount"), method=method)
     error = caught.value
     assert error.kind == "invalid_quantile_method"
     assert error.repair is not None
+    assert error.repair.help_target.surface == "semantic"
     assert error.repair.help_target.canonical_id == "quantile_metric"
-    marivo.help("semantic.quantile_metric")
-    assert "duckdb_tdigest@v1" in capsys.readouterr().out
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import route_help_target
+
+    route = route_help_target("semantic.quantile_metric")
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "semantic"
 
 
 @pytest.mark.runtime

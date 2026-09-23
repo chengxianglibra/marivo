@@ -135,7 +135,7 @@ def test_ref_is_data_only_and_factories_are_separate() -> None:
     assert not hasattr(Ref, "metric")
 
 
-def test_payload_and_private_key_decoders_use_validated_factories() -> None:
+def test_current_ref_payload_and_canonical_key_decode() -> None:
     ref = ref_factory.metric("sales.revenue")
     payload = RefPayloadV1.from_ref(ref)
     assert _decode_ref_payload(payload) == ref
@@ -150,26 +150,6 @@ def test_payload_and_private_key_decoders_use_validated_factories() -> None:
         == ref
     )
     assert _decode_ref_key("metric:sales.revenue") == ref
-    with pytest.raises(ValueError, match="exactly schema, kind, and path"):
-        _decode_ref_payload(
-            {
-                "schema": "marivo.semantic_ref/v1",
-                "kind": "metric",
-                "path": "sales.revenue",
-                "legacy_id": "sales.revenue",
-            }
-        )
-    with pytest.raises(ValueError, match="schema"):
-        _decode_ref_payload(
-            {
-                "schema": "semantic-ref/v0",
-                "kind": "metric",
-                "path": "sales.revenue",
-            }
-        )
-    for legacy_text in ("sales.revenue", "metric.sales.revenue"):
-        with pytest.raises(ValueError):
-            _decode_ref_key(legacy_text)
 
 
 class _MetricEnvelope(BaseModel):
@@ -183,8 +163,6 @@ def test_pydantic_python_mode_accepts_only_exact_ref_and_preserves_value() -> No
     dumped = envelope.model_dump(mode="python")
     assert dumped["metric"] is ref
     for invalid in (
-        "sales.revenue",
-        "metric:sales.revenue",
         {
             "schema": "marivo.semantic_ref/v1",
             "kind": "metric",

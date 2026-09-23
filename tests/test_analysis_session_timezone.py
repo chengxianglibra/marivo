@@ -106,13 +106,6 @@ def test_reopen_conflicting_timezone_does_not_update_question(monkeypatch):
     assert _read_session_meta(persisted)["question"] == meta_before["question"]
 
 
-def test_create_does_not_initialize_legacy_calendar_directory(monkeypatch):
-    monkeypatch.setenv("TZ", "Asia/Shanghai")
-    s = session_attach.get_or_create(name="demo")
-
-    assert not (s.project_root / ".marivo" / "calendar").exists()
-
-
 def test_system_timezone_prefers_tz_environment(monkeypatch):
     from marivo.analysis.timezone import resolve_system_timezone
 

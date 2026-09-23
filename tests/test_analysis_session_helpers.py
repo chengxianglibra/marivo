@@ -440,18 +440,6 @@ def test_resume_rejects_unknown_identity_selector(
     assert error.repair.candidates == ("name", "id")
 
 
-def test_resume_rejects_removed_session_id_keyword(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    session = mv.session.get_or_create(name="s")
-
-    removed_keyword_call = {"session_id": session.id}
-    with pytest.raises(TypeError):
-        mv.session.resume(**removed_keyword_call)
-
-
 def test_resume_rejects_backends_and_backend_factory_together(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

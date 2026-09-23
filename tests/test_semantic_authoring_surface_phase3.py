@@ -183,42 +183,6 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
     assert "dimension" in str(exc_info.value)
 
 
-def test_phase3_public_help_routes_measure_details_and_current_metric_shape() -> None:
-    from tests.shared_fixtures import rendered_help
-
-    assert hasattr(ms, "MeasureDetails")
-
-    index = rendered_help(owner="semantic")
-    assert "MeasureDetails" not in index
-    assert 'marivo.help("semantic.objects")' in index
-
-    objects = rendered_help("objects", owner="semantic")
-    assert 'marivo.help("semantic.objects.measure")' in objects
-
-    measure_details = rendered_help(ms.MeasureDetails, owner="semantic")
-    assert "MeasureDetails" in measure_details
-    assert "Public consumption: show, render" in measure_details
-
-    measure_topic = rendered_help("measure", owner="semantic")
-    assert "Declare a calculated measure" in measure_topic
-    assert "additivity" in measure_topic
-
-    metric_topic = rendered_help("metric", owner="semantic")
-    assert "ms.metric" in metric_topic
-    assert "Signature:" in metric_topic
-
-
-def test_phase3_cumulative_constructor_is_describable() -> None:
-    from tests.shared_fixtures import rendered_help
-
-    assert hasattr(ms, "cumulative")
-
-    cumulative_topic = rendered_help("cumulative", owner="semantic")
-    assert "ms.cumulative" in cumulative_topic
-    assert "cumulative" in cumulative_topic.lower()
-    assert "anchor" in cumulative_topic.lower()
-
-
 def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 

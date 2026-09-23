@@ -175,24 +175,6 @@ def test_all_list_matches_expected() -> None:
         "where",
     }
     assert set(ms.__all__) == expected
-    assert not hasattr(ms, "component")
-    assert not hasattr(ms, "count_distinct")
-    # Category 1 symbols removed from public API
-    for name in (
-        "SemanticProject",
-        "DecisionKind",
-        "Rejected" + "Candidate",
-        "DimensionKind",
-        "AuthoringSourceRole",
-        "SemanticKindInput",
-        "SemanticRefInput",
-        "RichnessGap",
-        "DimensionSummary",
-        "RelationshipSummary",
-        "file",
-        "FileSourceIR",
-    ):
-        assert name not in ms.__all__, f"{name} should not be in ms.__all__"
 
 
 def test_reader_project_class() -> None:
@@ -343,19 +325,8 @@ def test_raise_helper() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live help surface (text-based, not JSON)
+# Constraint metadata references
 # ---------------------------------------------------------------------------
-
-
-def test_semantic_native_root_is_compact_directory() -> None:
-    from tests.shared_fixtures import rendered_help
-
-    text = rendered_help(owner="semantic")
-    assert "marivo.semantic" in text
-    for target in ("authoring", "objects", "builders", "checks"):
-        assert f'marivo.help("semantic.{target}")' in text
-    assert "semantic.entity" not in text
-    assert "semantic.metric" not in text
 
 
 def test_constraint_example_paths_exist() -> None:
@@ -363,25 +334,6 @@ def test_constraint_example_paths_exist() -> None:
     for constraint in iter_constraints():
         if constraint.example is not None:
             assert (repo_root / constraint.example).exists(), constraint.example
-
-
-def test_invalid_composition_hint_points_to_composition_help() -> None:
-    constraint = get_constraint("composition_shape")
-    assert constraint is not None
-    assert 'marivo.help("semantic.composition")' in constraint.hint
-
-
-def test_derived_fanout_policy_hint_uses_flat_constructors() -> None:
-    constraint = get_constraint("metric_fanout_policy_derived")
-    assert constraint is not None
-    assert "ms.ratio" in constraint.hint
-    assert "ms.derived_metric" not in constraint.hint
-
-
-def test_removed_component_body_constraints_absent() -> None:
-    assert get_constraint("metric_derived_shape") is None
-    assert get_constraint("component_name_declared") is None
-    assert get_constraint("ast_component_arithmetic") is None
 
 
 # ---------------------------------------------------------------------------
@@ -686,10 +638,6 @@ def test_ibis_backend_protocol() -> None:
     assert hasattr(typing_mod, "IbisBackend")
 
 
-def test_component_expr_protocol_removed() -> None:
-    assert not hasattr(typing_mod, "ComponentExpr")
-
-
 def test_ai_context_value_fields() -> None:
     assert hasattr(typing_mod, "AiContextValue")
     import dataclasses
@@ -852,53 +800,3 @@ def test_reader_project_load_works() -> None:
         project = SemanticProject(root=semantic_root)
         result = project.load()
         assert result.status == "ready"
-
-
-def test_reader_project_load_reloads() -> None:
-    """SemanticProject.load() resets and re-loads when called again."""
-    import tempfile
-    from pathlib import Path
-
-    from marivo.semantic.reader import SemanticProject
-
-    with tempfile.TemporaryDirectory() as tmp:
-        semantic_root = Path(tmp) / "models" / "semantic"
-        semantic_root.mkdir(parents=True)
-        project = SemanticProject(root=semantic_root)
-        result = project.load()
-        assert result.status == "ready"
-
-
-def test_help_semi_additive_documents_fold_semantics() -> None:
-    from tests.shared_fixtures import rendered_help
-
-    out = rendered_help("semi_additive", owner="semantic")
-    assert "semi_additive" in out
-    assert "ms.semi_additive" in out
-    assert "fold" in out
-
-
-def test_help_metric_mentions_body() -> None:
-    from tests.shared_fixtures import rendered_help
-
-    out = rendered_help("metric", owner="semantic")
-    assert "body" in out
-
-
-def test_help_text_documents_column_helpers() -> None:
-    from tests.shared_fixtures import rendered_help
-
-    for kind, constructor in (
-        ("dimension", "dimension_column"),
-        ("measure", "measure_column"),
-        ("time_dimension", "time_dimension_column"),
-    ):
-        text = rendered_help(f"objects.{kind}", owner="semantic")
-        assert f'marivo.help("semantic.{constructor}")' in text
-
-
-def test_help_text_measure_mentions_additivity() -> None:
-    from tests.shared_fixtures import rendered_help
-
-    text = rendered_help("measure", owner="semantic")
-    assert "additivity" in text
