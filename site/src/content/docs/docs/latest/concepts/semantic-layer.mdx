@@ -63,11 +63,14 @@ marivo.help("semantic.objects")    # object meaning and construction modes
 marivo.help("semantic.builders")   # nested values and typed handles
 marivo.help("semantic.checks")     # what each inspection or check proves
 marivo.help(entry_or_error)         # current identity or structured repair
+# SemanticError.semantic_refs contains canonical path strings.
 ```
 Follow the fully qualified routes from the selected secondary root instead of
 depending on short-name disambiguation. Registered public type, error, and
 member targets remain available to focused help when already known or obtained
 from a live result; they do not need a separate flat inventory.
+When an error is built with a target Dimension contract among its refs, its
+`semantic_refs` contains that contract's `ref.path`.
 
 Each native surface root reveals the active Marivo version, Python executable,
 and package path, then uses capability summaries to route the next focused lookup.

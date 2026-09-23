@@ -15,6 +15,7 @@ plain functions to match the rest of the test suite.
 from __future__ import annotations
 
 import dataclasses
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -23,8 +24,10 @@ from typing import Any
 import pytest
 
 import marivo.semantic as ms
+from marivo.refs import RefPayloadV1
 from marivo.semantic import errors as errors_mod
 from marivo.semantic import typing as typing_mod
+from marivo.semantic.check import _error_to_dict
 from marivo.semantic.constraints import ConstraintId, get_constraint, iter_constraints
 from marivo.semantic.ir import (
     AiContextIR,
@@ -41,6 +44,7 @@ from marivo.semantic.ir import (
     SemanticKind,
     SourceLocation,
     SqlProvenance,
+    TargetDimensionContract,
 )
 
 # ---------------------------------------------------------------------------
@@ -259,6 +263,39 @@ def test_semantic_error_str_template() -> None:
     assert "refs: ref1, ref2" in s
     assert "at: /tmp/test.py:42" in s
     assert "hint: try this" in s
+
+
+def test_semantic_error_normalizes_target_dimension_refs() -> None:
+    dimension = TargetDimensionContract(
+        ref=RefPayloadV1(
+            schema="marivo.semantic_ref/v1",
+            kind=SemanticKind.DIMENSION,
+            path="sales.orders.region",
+        ),
+        entity_ref=RefPayloadV1(
+            schema="marivo.semantic_ref/v1",
+            kind=SemanticKind.ENTITY,
+            path="sales.orders",
+        ),
+        source_column="region",
+        logical_type="string",
+        nullable=False,
+        is_time_dimension=False,
+        granularity=None,
+        is_default=False,
+        timezone=None,
+    )
+    err = errors_mod.SemanticError(
+        kind="test_kind",
+        message="invalid dimension",
+        refs=("sales.orders", dimension, "sales.revenue"),
+    )
+
+    expected_refs = ("sales.orders", "sales.orders.region", "sales.revenue")
+    assert err.semantic_refs == expected_refs
+    assert "refs: sales.orders, sales.orders.region, sales.revenue" in str(err)
+    assert "TargetDimensionContract" not in str(err)
+    assert json.loads(json.dumps(_error_to_dict(err)))["refs"] == list(expected_refs)
 
 
 def test_decorator_error_is_semantic_error() -> None:
