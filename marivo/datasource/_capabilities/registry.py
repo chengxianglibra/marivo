@@ -33,9 +33,8 @@ INPUT_FAMILIES = frozenset(
         "DatasourceCatalog",
         "DatasourceConnection",
         "TableSource",
-        "TableColumnBindings",
+        "ProjectionColumns",
         "PhysicalColumnName",
-        "IbisDataType",
         "PartitionScope",
         "UnprunedScope",
         "AuthoringScope",
@@ -48,8 +47,6 @@ INPUT_FAMILIES = frozenset(
         "SourceParameterName",
         "SourceParameter",
         "SourceParameters",
-        "TypedSchema",
-        "JsonFieldPaths",
         "PartitionValues",
         "PartitionOrder",
         "TemporalColumn",
@@ -75,11 +72,11 @@ OUTPUT_FAMILIES = frozenset(
         "DatasourceConnection",
         "DatasourceTestResult",
         "TableSource",
-        "TableColumnBinding",
         "SourceParameter",
         "PartitionScope",
         "UnprunedScope",
         "SourceInspection",
+        "PhysicalColumnName",
         "PartitionInspection",
         "DiscoverySnapshot",
         "RawSqlResult",
@@ -303,48 +300,20 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             example=('result = md.test(ms.ref.datasource("warehouse"))\nresult.show()\n'),
         ),
         _capability(
-            "source_column",
-            "marivo.datasource.source.source_column",
-            "Declare one typed identifier-only physical table column; the type asserts schema without casting.",
-            output="TableColumnBinding",
-            inputs=_inputs(
-                ("subject", "PhysicalColumnName"),
-                ("dependency", "IbisDataType"),
-            ),
-            constraints=(
-                "table_column_bindings_closed",
-                "table_column_type_assertion",
-                "projected_source_runtime_evidence",
-            ),
-            example='md.source_column("event.timestamp", data_type="timestamp(3)")',
-            see_also=(
-                _target("table"),
-                _target("inspect"),
-                _target("SourceInspection.source_column"),
-                _target("raw_sql"),
-            ),
-        ),
-        _capability(
             "table",
             "marivo.datasource.source.table",
-            "Build either a catalog-backed table or a complete typed column-binding table source.",
+            "Build a catalog-backed table source with an optional output-name projection.",
             output="TableSource",
             inputs=(
                 *_inputs(("subject", "TableName")),
-                _optional_input("dependency", "TableColumnBindings"),
+                _optional_input("dependency", "ProjectionColumns"),
             ),
-            constraints=(
-                "table_column_bindings_closed",
-                "table_column_type_assertion",
-                "projected_source_runtime_evidence",
-            ),
+            constraints=("projected_source_runtime_evidence",),
             example=(
                 'catalog_source = md.table("orders")\n'
-                'projected_source = md.table("events", columns={\n'
-                '    "event_time": md.source_column("event.timestamp", data_type="timestamp"),\n'
-                "})"
+                'projected_source = md.table("events", columns={"event_time": "event.timestamp"})'
             ),
-            see_also=(_target("source_column"), _target("inspect"), _target("raw_sql")),
+            see_also=(_target("inspect"), _target("raw_sql")),
         ),
         _capability(
             "parquet",
@@ -357,10 +326,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "csv",
             "marivo.datasource.source.csv",
-            "Build a typed CSV source descriptor.",
+            "Build a CSV source descriptor with inferred types and an optional projection.",
             output="TableSource",
-            inputs=_inputs(("subject", "SourcePath"), ("dependency", "TypedSchema")),
-            example='md.csv("data/orders.csv", schema={"order_id": "string"})',
+            inputs=_inputs(("subject", "SourcePath"), ("dependency", "ProjectionColumns")),
+            example='md.csv("data/orders.csv", columns={"order_id": "Order ID"})',
         ),
         _capability(
             "source_param",
@@ -373,19 +342,17 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "json",
             "marivo.datasource.source.json",
-            "Build a typed JSON source with stable output aliases, correlated nested-field extraction, and scalar-or-list request bindings.",
+            "Build a JSON source with inferred types, optional projected JSON paths, and scalar-or-list request bindings.",
             output="TableSource",
             inputs=(
-                *_inputs(("subject", "SourcePath"), ("dependency", "TypedSchema")),
-                _optional_input("dependency", "JsonFieldPaths"),
+                *_inputs(("subject", "SourcePath"), ("dependency", "ProjectionColumns")),
                 _optional_input("dependency", "SourceParameter"),
             ),
             constraints=("json_request_shape",),
             example=(
                 'md.json("https://api.example/orders", '
-                'schema={"order_id": "string", "app_name": "string"}, '
+                'columns={"order_id": "id", "app_name": "apps[].name"}, '
                 'records_path="$.data", '
-                'field_paths={"app_name": "apps[].name"}, '
                 'query_params={"app": md.source_param("apps")})'
             ),
         ),
@@ -555,9 +522,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "SourceInspection.source_column",
             "marivo.datasource.inspection.SourceInspection.source_column",
-            "Build one typed table binding from inspected metadata without reading rows.",
+            "Return one physical field name from inspected metadata without reading rows.",
             kind="method",
-            output="TableColumnBinding",
+            output="PhysicalColumnName",
             inputs=_inputs(
                 ("receiver", "SourceInspection"),
                 ("subject", "PhysicalColumnName"),
@@ -565,13 +532,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             effects=_NONE,
             example=(
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
-                'order_id = inspection.source_column("order_id")\n'
-                'source = md.table("orders", columns={"order_id": order_id})'
+                'physical_name = inspection.source_column("order_id")\n'
+                'source = md.table("orders", columns={"order_id": physical_name})'
             ),
-            preconditions=("a table SourceInspection with a safely mapped column type",),
+            preconditions=("a table SourceInspection with the requested physical column",),
             repair_kinds=("reauthor",),
             public_entrypoint="inspection.source_column",
-            see_also=(_target("inspect"), _target("source_column"), _target("table")),
+            see_also=(_target("inspect"), _target("table")),
         ),
         _capability(
             "SourceInspection.sample",
@@ -655,7 +622,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "test",
             ),
             "physical_sources": (
-                "source_column",
                 "table",
                 "parquet",
                 "csv",
@@ -711,7 +677,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         JsonSourceIR,
         ParquetSourceIR,
         SourceParamIR,
-        TableColumnBindingIR,
         TableSourceIR,
     )
     from marivo.datasource.manage import (
@@ -849,13 +814,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             ),
             consumers=("inspect",),
         )
-    add(
-        TableColumnBindingIR,
-        "TableColumnBindingIR",
-        ("source_column", "SourceInspection.source_column"),
-        properties=("source", "data_type"),
-        consumers=("table",),
-    )
     add(
         SourceParamIR,
         "SourceParamIR",

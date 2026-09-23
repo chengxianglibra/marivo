@@ -258,16 +258,26 @@ class Materializer:
                     refs=(semantic_id,),
                     details={"source_kind": source.kind},
                 )
-            csv_kwargs: dict[str, object] = {"columns": dict(source.schema)}
+            csv_kwargs: dict[str, object] = {}
             if not source.header:
                 csv_kwargs["header"] = source.header
             if source.delimiter != ",":
                 csv_kwargs["delimiter"] = source.delimiter
-            return reader(source.path, **csv_kwargs)
+            table = reader(source.path, **csv_kwargs)
+            if source.columns:
+                table = table.select(
+                    *(
+                        table[source_name].name(output_name)
+                        for output_name, source_name in source.columns
+                    )
+                )
+            return table
 
         if isinstance(source, JsonSourceIR):
             reader = getattr(backend, "read_json", None)
-            if not callable(reader):
+            is_http = source.path.lower().startswith(("http://", "https://"))
+            can_register_arrow = callable(getattr(backend, "create_table", None))
+            if (not is_http and not callable(reader)) or (is_http and not can_register_arrow):
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
                     (

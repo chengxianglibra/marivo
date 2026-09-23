@@ -68,7 +68,7 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
                 import marivo.semantic as ms
 
                 source = ms.ref.datasource("{datasource}")
-                rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}, columns={{"id": md.source_column("id", data_type="int64"), "amount": md.source_column("amount", data_type="float64")}}), primary_key=["id"])
+                rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}, columns={{"id": "id", "amount": "amount"}}), primary_key=["id"])
 
                 @ms.metric(entities=[rows], additivity="additive")
                 def {metric}(table):
@@ -131,7 +131,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
             import marivo.semantic as ms
 
             source = ms.ref.datasource("warehouse")
-            rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds", columns={"id": md.source_column("id", data_type="int64"), "amount": md.source_column("amount", data_type="float64")}), primary_key=["id"])
+            rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds", columns={"id": "id", "amount": "amount"}), primary_key=["id"])
 
             amount = ms.measure_column(name="amount", entity=rows, column="amount", additivity="additive")
             refunds_total = ms.aggregate(name="refunds_total", measure=amount, agg="sum")

@@ -400,21 +400,30 @@ def test_invalid_slice_shapes_fail_at_construction(predicate: dict[str, object])
     [
         ("channel", {"op": ">", "value": 1}),
         ("channel", {"op": "in", "value": ["web", 1]}),
+    ],
+)
+def test_slice_literals_defer_type_checks_until_source_observation(
+    dimension: str, predicate: dict[str, object]
+) -> None:
+    axis = ref.dimension(f"sales.orders.{dimension}")
+    expression = rm.slice(expressions()[0], by={axis: predicate}, label="invalid")
+    assert make_sources().observe(expression).kind == "metric"
+
+
+@pytest.mark.parametrize(
+    ("dimension", "predicate"),
+    [
         ("order_time", {"op": "between", "value": ["2026-02-01", 2]}),
         ("order_time", {"op": "between", "value": [None, "2026-02-01"]}),
         ("order_time", {"op": "==", "value": "not-a-date"}),
     ],
 )
-def test_slice_literals_are_checked_against_declared_dimension_types(
+def test_time_dimension_slice_literals_use_semantic_time_type(
     dimension: str, predicate: dict[str, object]
 ) -> None:
     from marivo.semantic.errors import SemanticLoadError
 
-    axis = (
-        ref.dimension("sales.orders.channel")
-        if dimension == "channel"
-        else ref.time_dimension("sales.orders.order_time")
-    )
+    axis = ref.time_dimension(f"sales.orders.{dimension}")
     expression = rm.slice(expressions()[0], by={axis: predicate}, label="invalid")
     with pytest.raises(SemanticLoadError) as error:
         make_sources().observe(expression)
@@ -423,7 +432,7 @@ def test_slice_literals_are_checked_against_declared_dimension_types(
 
 
 @pytest.mark.runtime
-def test_invalid_slice_type_does_not_admit_a_run(tmp_path: Path) -> None:
+def test_invalid_slice_type_fails_before_source_data_query(tmp_path: Path) -> None:
     from marivo.semantic.errors import SemanticLoadError
     from tests.lazy_adapter_runtime_worker import snapshot
 
@@ -434,10 +443,20 @@ def test_invalid_slice_type_does_not_admit_a_run(tmp_path: Path) -> None:
         by={ref.dimension("sales.orders.channel"): {"op": ">", "value": 1}},
         label="invalid",
     )
+    dataset = fixture.sources.observe(expression)
     with pytest.raises(SemanticLoadError, match="channel"):
-        fixture.sources.observe(expression)
-    assert snapshot(fixture.runtime) == before
-    assert fixture.runtime.statistics.statements == []
+        dataset.execute()
+    after = snapshot(fixture.runtime)
+    assert after["analysis_action_runs"] == before["analysis_action_runs"] + 1
+    assert after["analysis_action_run_terminals"] == before["analysis_action_run_terminals"] + 1
+    for name in (
+        "dataset_artifacts",
+        "dataset_evidence",
+        "analysis_action_run_inputs",
+        "action_resource_journal",
+    ):
+        assert after[name] == before[name]
+    assert fixture.runtime.statistics.primary_queries == 0
 
 
 def test_runtime_identity_reaches_existing_operator_constructors() -> None:

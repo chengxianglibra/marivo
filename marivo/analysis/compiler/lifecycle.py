@@ -11,7 +11,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 from sqlglot import expressions as sge
 
-from marivo.analysis.compiler.event import EventStepRelation
+from marivo.analysis.compiler.event import EventStepRelation, _require_int64_identities
 from marivo.analysis.compiler.nodes import CompiledValidation
 from marivo.analysis.domains.completeness import EventCoverageResolution
 from marivo.analysis.domains.lifecycle import ROLES, LifecycleSemantics
@@ -174,6 +174,8 @@ def compile_replay(
     dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
 ) -> tuple[ir.Table, tuple[tuple[str, ir.Table], ...], tuple[CompiledValidation, ...]]:
     """Replay ordered source-private rows without collecting identities in Python."""
+    if dialect in ("postgres", "trino", "clickhouse"):
+        _require_int64_identities(occurrences)
     streams = tuple(
         item.expression.mutate(
             trigger_key=ibis.literal(item.step_key),

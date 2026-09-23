@@ -32,10 +32,7 @@ def test_complete_closure(
             entity,
             source=replace(
                 entity.source,
-                columns=tuple(
-                    (name, replace(binding, data_type=dtype) if name == "weight" else binding)
-                    for name, binding in entity.source.columns
-                ),
+                columns=tuple((name, binding) for name, binding in entity.source.columns),
             ),
         )
         registry = replace(registry, entities=entities)

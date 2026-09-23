@@ -20,7 +20,7 @@ from marivo.analysis.compiler.normalize import required_entities
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.observation.contracts import ObservationActionPort
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
-from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, TableColumnBindingIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, TableSourceIR
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 from tests.lazy_observation_fixtures import NoIoActionPort, make_semantic_registry
@@ -66,10 +66,7 @@ def make_execution_registry(
         elif isinstance(source, CsvSourceIR):
             source = TableSourceIR(
                 entity.name,
-                columns=tuple(
-                    (name, TableColumnBindingIR(name, logical_type))
-                    for name, logical_type in source.schema
-                ),
+                columns=tuple((name, name) for name, _physical_name in source.columns),
             )
         entities[path] = replace(entity, source=source)
     registry = replace(

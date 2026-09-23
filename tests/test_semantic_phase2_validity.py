@@ -31,7 +31,7 @@ valid_from = ms.time_dimension_column(name='valid_from', entity=user_history_ref
 valid_to = ms.time_dimension_column(name='valid_to', entity=user_history_ref, column='valid_to', granularity='day')
 user_history = ms.entity(
     name='user_history', datasource=ms.ref.datasource('warehouse'),
-    source=md.table('user_history', columns={'user_id': md.source_column('user_id', data_type='int64'), 'valid_from': md.source_column('valid_from', data_type='date'), 'valid_to': md.source_column('valid_to', data_type='date')}),
+    source=md.table('user_history', columns={'user_id': 'user_id', 'valid_from': 'valid_from', 'valid_to': 'valid_to'}),
     primary_key=['user_id'],
     versioning=ms.validity(valid_from=valid_from, valid_to=valid_to, interval='closed_open', open_end=(None,)),
 )

@@ -17,7 +17,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.contracts import scope_payload
 from marivo.analysis.session._lazy_sources import LazySources
-from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
+from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar, ExpressionBody
 from marivo.semantic.event import participant_role
@@ -195,7 +195,7 @@ def _self_subject_sources(project: Path) -> tuple[DatasetRuntime, LazySources, P
                     entity.source,
                     columns=(
                         *entity.source.columns,
-                        ("snapshot_day", TableColumnBindingIR("snapshot_day", "date")),
+                        ("snapshot_day", "snapshot_day"),
                     ),
                 ),
                 versioning=SnapshotVersioningIR("snapshot", snapshot_ref.path, "day"),

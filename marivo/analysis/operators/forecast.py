@@ -79,7 +79,8 @@ def forecast(
     if not isinstance(
         metric.identity, (d._CatalogFieldIdentity, d._RuntimeMetricFieldIdentity)
     ) or (
-        not metric.logical_type_id.startswith(("int", "uint", "float", "decimal"))
+        metric.logical_type_id != "unknown"
+        and not metric.logical_type_id.startswith(("int", "uint", "float", "decimal"))
         and metric.logical_type_id not in ("integer", "floating")
     ):
         raise forecast_error("a quantitative governed Metric", "invalid Metric value type")

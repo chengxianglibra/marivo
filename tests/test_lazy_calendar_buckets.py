@@ -182,7 +182,7 @@ def _remote_registry(
     database: Path = Path("unused.duckdb"),
 ) -> tuple[Registry, CompiledExpressionSidecar]:
     """Bind each remote engine's registry, adding the fiscal calendar declaration."""
-    from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
+    from marivo.datasource.ir import TableSourceIR
 
     if engine == "postgres":
         from tests.lazy_postgres_fixtures import registry_for as postgres_registry
@@ -206,7 +206,7 @@ def _remote_registry(
         source=replace(
             entity.source,
             columns=tuple(
-                (column, TableColumnBindingIR(column, "float64") if column == "amount" else binding)
+                (column, column if column == "amount" else binding)
                 for column, binding in entity.source.columns
                 if column in {"id", "day", "amount"}
             ),

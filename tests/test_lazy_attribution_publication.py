@@ -52,13 +52,29 @@ def _value(
     axes = (REGION,) if mode == "joint" else (REGION, CHANNEL)
     metric = sources.observe(ref.metric("sales.revenue")).with_dimensions(*axes).aggregate()
     logical = metric.compare(metric).attribute(axes=axes, mode=mode)
+    observed_types = {
+        "region": "string",
+        "channel": "string",
+        "current_value": "float64",
+        "baseline_value": "float64",
+        "overall_delta": "float64",
+        "contribution": "float64",
+    }
     realized = d._make_schema(
         tuple(
             replace(
                 field,
                 _token=d._CORE_TOKEN,
+                logical_type_id=(
+                    observed_types[field.name]
+                    if field.logical_type_id == "unknown"
+                    else field.logical_type_id
+                ),
                 physical_type_state=d._resolved_type(
-                    field.logical_type_id, ids=logical._registration.ids
+                    observed_types[field.name]
+                    if field.logical_type_id == "unknown"
+                    else field.logical_type_id,
+                    ids=logical._registration.ids,
                 ),
             )
             for field in logical.schema.columns

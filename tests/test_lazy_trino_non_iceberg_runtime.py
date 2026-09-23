@@ -57,7 +57,7 @@ def noniceberg_registry(tmp_path: Path, table: str) -> tuple[Registry, CompiledE
             columns=tuple(
                 (
                     name,
-                    replace(binding, data_type="decimal(9, 2)") if name == "amount" else binding,
+                    binding,
                 )
                 for name, binding in entity.source.columns
             ),

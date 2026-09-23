@@ -29,6 +29,7 @@ from marivo.analysis.datasets.descriptors import (
     DatasetSchema,
     _bool_tuple_arity,
     _bool_tuple_value,
+    _DeferredPhysicalType,
     _EntityFieldIdentity,
     _make_schema,
     _OrderedOrdering,
@@ -178,6 +179,8 @@ def _normalize_batch(batch: pa.RecordBatch) -> pa.RecordBatch:
 
 
 def _matches_type(logical: str, actual: pa.DataType) -> bool:
+    if logical == "unknown":
+        return True
     decimal = re.fullmatch(r"decimal\((\d+),\s*(\d+)\)", logical)
     if decimal is not None:
         return bool(
@@ -228,6 +231,29 @@ def _matches_type(logical: str, actual: pa.DataType) -> bool:
     return check is not None and bool(check(actual))
 
 
+def _observed_type_id(actual: pa.DataType) -> str:
+    value = _normal_type(actual)
+    if pa.types.is_boolean(value):
+        return "boolean"
+    if pa.types.is_integer(value):
+        return str(value)
+    if pa.types.is_float64(value):
+        return "float64"
+    if pa.types.is_float32(value):
+        return "float32"
+    if pa.types.is_decimal(value):
+        return "decimal"
+    if pa.types.is_string(value) or pa.types.is_large_string(value):
+        return "string"
+    if pa.types.is_date(value):
+        return "date"
+    if pa.types.is_timestamp(value):
+        return "timestamp"
+    if pa.types.is_struct(value):
+        return "identity_tuple"
+    return "unknown"
+
+
 def _realized_schema(row: DatasetRowContract, actual: pa.Schema) -> DatasetSchema:
     logical = row.schema
     if actual.names != [column.name for column in logical.columns]:
@@ -259,12 +285,47 @@ def _realized_schema(row: DatasetRowContract, actual: pa.Schema) -> DatasetSchem
         physical_id = (
             physical.physical_type_id
             if isinstance(physical, _ResolvedPhysicalType)
-            else expected.logical_type_id
+            else (
+                _observed_type_id(field.type)
+                if isinstance(physical, _DeferredPhysicalType)
+                and physical.admitted_type_class_id == "unknown"
+                else expected.logical_type_id
+            )
         )
+        logical_id = expected.logical_type_id
+        if (
+            isinstance(physical, _DeferredPhysicalType)
+            and physical.admitted_type_class_id == "unknown"
+        ):
+            logical_id = physical_id
+            if logical_id == "unknown":
+                _fail(
+                    "a supported observed source type",
+                    str(field.type),
+                    stage="state.realized_schema",
+                )
+        if isinstance(identity, _EntityFieldIdentity) and any(
+            kind == "unknown" for _, kind in identity.identity_signature
+        ):
+            identity = replace(
+                identity,
+                _token=_CORE_TOKEN,
+                identity_signature=tuple(
+                    (child.name, _observed_type_id(child.type)) for child in field.type
+                ),
+            )
+            if any(kind == "unknown" for _, kind in identity.identity_signature):
+                _fail(
+                    "supported observed Entity identity types",
+                    str(field.type),
+                    stage="state.realized_schema",
+                )
         columns.append(
             replace(
                 expected,
                 _token=_CORE_TOKEN,
+                identity=identity,
+                logical_type_id=logical_id,
                 physical_type_state=_ResolvedPhysicalType(
                     _token=_CORE_TOKEN, physical_type_id=physical_id
                 ),

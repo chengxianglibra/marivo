@@ -73,13 +73,13 @@ def test_versions_are_independently_qualified() -> None:
     assert "version" in (unsupported_reason(population, supports_scalar_type) or "")
 
 
-def test_projected_graph_still_checks_all_source_types() -> None:
+def test_projected_graph_defers_source_type_admission() -> None:
     observed = (
         _sources()
         .observe([ref.metric("sales.revenue"), ref.metric("sales.mean_amount")])
         .metric(ref.metric("sales.revenue"))
     )
-    assert unsupported_reason(observed, lambda kind: kind != "float64") is not None
+    assert unsupported_reason(observed, lambda kind: kind != "float64") is None
 
 
 def test_linear_graph_remains_unqualified_even_after_projection() -> None:
@@ -104,7 +104,7 @@ def test_timestamp_reference_cannot_bypass_native_date_admission() -> None:
                     columns=tuple(
                         (
                             name,
-                            replace(binding, data_type="timestamp") if name == "day" else binding,
+                            binding,
                         )
                         for name, binding in entity.source.columns
                     ),

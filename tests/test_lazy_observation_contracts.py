@@ -1,6 +1,7 @@
 """Actual source normalizers establish complete immutable Dataset contracts."""
 
 from dataclasses import FrozenInstanceError, replace
+from pathlib import Path
 
 import pytest
 
@@ -46,8 +47,8 @@ WINDOW = time_scope(start="2026-02-01", end="2026-03-01")
 def test_population_identity_is_a_non_null_ordered_tuple() -> None:
     sources = make_sources()
     for name, signature in (
-        ("customers", (("id", "int64"),)),
-        ("composite", (("tenant", "string"), ("id", "int64"))),
+        ("customers", (("id", "unknown"),)),
+        ("composite", (("tenant", "unknown"), ("id", "unknown"))),
     ):
         population = sources.population(ref.entity(f"sales.{name}"))
         assert isinstance(population, LogicalPopulationDataset)
@@ -82,7 +83,7 @@ def test_versioned_population_owns_exact_excluded_endpoint(name: str, kind: str)
         assert selection.period == "2026-02-28"
     else:
         assert selection.start_operator == "lt" and selection.end_operator == "ge"
-    assert population.schema.columns[0].identity.identity_signature == (("id", "int64"),)
+    assert population.schema.columns[0].identity.identity_signature == (("id", "unknown"),)
     assert "require execution" in population.contract().render()
 
 
@@ -112,7 +113,7 @@ def test_all_eight_shapes_have_complete_canonical_keys_and_order() -> None:
         assert reduced.row_contract.shape_id.local_shape_id == expected
         assert isinstance(reduced.row_contract.family_semantics, EntityReducedMetricSemantics)
         assert reduced.row_contract.family_semantics.reduced_identity_signature == (
-            ("id", "int64"),
+            ("id", "unknown"),
         )
         assert reduced.row_set_contract.cardinality.kind == (
             "singleton" if expected == "scalar" else "keyed"
@@ -471,7 +472,7 @@ def test_population_prefers_its_own_default_before_remote_defaults() -> None:
     assert population._root.payload.reference_axis.ref.path == "sales.orders.order_time"
 
 
-def test_versioned_intermediate_and_incompatible_join_keys_fail_locally() -> None:
+def test_versioned_intermediate_fails_locally_and_join_key_types_are_deferred() -> None:
     from marivo.semantic.ir import JoinKey
 
     registry, sidecar = _editable_authority()
@@ -500,8 +501,34 @@ def test_versioned_intermediate_and_incompatible_join_keys_fail_locally() -> Non
         keys=(JoinKey("sales.orders.region", "sales.customers.id"),),
     )
     sources = _sources_from(registry, sidecar)
-    with pytest.raises(DatasetConstructionError, match="join keys"):
-        sources.observe(REVENUE, population=sources.population(ref.entity("sales.customers")))
+    dataset = sources.observe(REVENUE, population=sources.population(ref.entity("sales.customers")))
+    assert isinstance(dataset, LogicalMetricDataset)
+
+
+@pytest.mark.runtime
+def test_incompatible_observed_join_key_types_fail_before_data_query(tmp_path: Path) -> None:
+    from marivo.semantic.ir import JoinKey
+    from tests.lazy_retained_fixtures import setup_retained
+
+    fixture = setup_retained(tmp_path)
+    original = fixture.sources._owner.semantic_registry
+    relationships = dict(original.relationships)
+    relationships["sales.order_customer"] = replace(
+        relationships["sales.order_customer"],
+        keys=(JoinKey("sales.orders.region", "sales.customers.id"),),
+    )
+    registry = replace(original, relationships=relationships)
+    registry.freeze()
+    sources = fixture.runtime.sources(
+        semantic_registry=registry, sidecar=fixture.sources._owner.sidecar
+    )
+    dataset = sources.observe(REVENUE, population=sources.population(ref.entity("sales.customers")))
+
+    from marivo.analysis.datasets.errors import DatasetConstructionError
+
+    with pytest.raises(DatasetConstructionError, match="observed join key types"):
+        dataset.execute()
+    assert fixture.runtime.statistics.primary_queries == 0
 
 
 def test_retained_population_never_recaptures_its_parameterized_origin() -> None:

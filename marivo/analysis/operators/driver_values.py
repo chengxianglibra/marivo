@@ -44,6 +44,25 @@ def _scalar_encoding(value: object, kind: str) -> str:
         return "N"
     if isinstance(value, (np.integer, np.floating, np.bool_)):
         value = value.item()
+    if kind == "unknown":
+        if type(value) is bool:
+            kind = "boolean"
+        elif isinstance(value, int):
+            kind = "integer"
+        elif isinstance(value, float):
+            kind = "float64"
+        elif isinstance(value, Decimal):
+            kind = "decimal"
+        elif isinstance(value, datetime):
+            kind = "timestamp"
+        elif isinstance(value, date):
+            kind = "date"
+        elif type(value) is str:
+            kind = "string"
+        else:
+            raise discovery_error(
+                "a supported observed driver coordinate type", type(value).__name__
+            )
     if kind.startswith(("int", "uint")) or kind == "integer":
         if isinstance(value, bool) or not isinstance(value, int):
             raise discovery_error("exact typed integer coordinate", "invalid coordinate")
@@ -93,7 +112,11 @@ def _scalar_encoding(value: object, kind: str) -> str:
 
 
 def driver_item_id(
-    definition: DriverCandidateDefinition, row: d.DatasetRowContract, values: Mapping[str, object]
+    definition: DriverCandidateDefinition,
+    row: d.DatasetRowContract,
+    values: Mapping[str, object],
+    *,
+    observed_types: Mapping[str, str] | None = None,
 ) -> str:
     """Match the source-native versioned tagged UTF-8 key encoding exactly."""
     fields = tuple(f for f in row.schema.columns if f.field_id in row.key_field_ids)
@@ -105,12 +128,39 @@ def driver_item_id(
                 "source-native Entity identity encoding",
                 "local identity computation is not admitted",
             )
-        encoded.append(_scalar_encoding(value, field.logical_type_id))
+        kind = field.logical_type_id
+        if kind == "unknown":
+            kind = (observed_types or {}).get(field.name, "unknown")
+            if kind == "unknown" and value is not None:
+                if type(value) is bool:
+                    kind = "boolean"
+                elif isinstance(value, int):
+                    kind = "int64"
+                elif isinstance(value, float):
+                    kind = "float64"
+                elif isinstance(value, Decimal):
+                    kind = "decimal"
+                elif isinstance(value, datetime):
+                    kind = "timestamp"
+                elif isinstance(value, date):
+                    kind = "date"
+                elif type(value) is str:
+                    kind = "string"
+        encoded.append(_scalar_encoding(value, kind))
+    signature = tuple(
+        (
+            field.field_id.value,
+            field.logical_type_id
+            if field.logical_type_id != "unknown"
+            else (observed_types or {}).get(field.name, "unknown"),
+        )
+        for field in fields
+    )
     prefix = (
         "candidate_driver_item@v1:"
         + d._canonical_digest(definition.identity_payload())
         + ":"
-        + d._canonical_digest(tuple((f.field_id.value, f.logical_type_id) for f in fields))
+        + d._canonical_digest(signature)
         + ":"
     )
     return "sha256:" + hashlib.sha256((prefix + "|".join(encoded)).encode("utf-8")).hexdigest()
@@ -220,6 +270,47 @@ def execute_driver(
         for scope in original_groups:
             groups.setdefault(scope, [])
     records: list[dict[str, object]] = []
+    observed_types: dict[str, str] = {}
+    for field in spec.output_row.schema.columns:
+        if field.field_id not in spec.output_row.key_field_ids or field.name not in frame:
+            continue
+        if field.logical_type_id != "unknown":
+            observed_types[field.name] = field.logical_type_id
+            continue
+        dtype = frame[field.name].dtype
+        arrow_type = dtype.pyarrow_dtype if isinstance(dtype, pd.ArrowDtype) else None
+        if arrow_type is not None:
+            if pa.types.is_boolean(arrow_type):
+                observed_types[field.name] = "boolean"
+            elif pa.types.is_integer(arrow_type):
+                observed_types[field.name] = str(arrow_type)
+            elif pa.types.is_floating(arrow_type):
+                observed_types[field.name] = "float64"
+            elif pa.types.is_decimal(arrow_type):
+                observed_types[field.name] = "decimal"
+            elif pa.types.is_string(arrow_type):
+                observed_types[field.name] = "string"
+            elif pa.types.is_timestamp(arrow_type):
+                observed_types[field.name] = "timestamp"
+            elif pa.types.is_date(arrow_type):
+                observed_types[field.name] = "date"
+        if field.name not in observed_types:
+            sample = next((value for value in frame[field.name] if not _missing(value)), None)
+            if sample is not None:
+                if type(sample) is bool:
+                    observed_types[field.name] = "boolean"
+                elif isinstance(sample, int):
+                    observed_types[field.name] = "int64"
+                elif isinstance(sample, float):
+                    observed_types[field.name] = "float64"
+                elif isinstance(sample, Decimal):
+                    observed_types[field.name] = "decimal"
+                elif isinstance(sample, datetime):
+                    observed_types[field.name] = "timestamp"
+                elif isinstance(sample, date):
+                    observed_types[field.name] = "date"
+                elif type(sample) is str:
+                    observed_types[field.name] = "string"
     zero_count = 0
     axis_keys_by_name = {axis.name: frame_keys(frame, (axis.name,)) for axis in spec.axis_fields}
     for scope in sorted(groups, key=cmp_to_key(compare_value)):
@@ -321,7 +412,9 @@ def execute_driver(
                 score=1.0 / (count + len(members) / 1000.0),
                 reason_codes=("axis_concentration",),
             )
-            record["item_id"] = driver_item_id(spec.definition, spec.output_row, record)
+            record["item_id"] = driver_item_id(
+                spec.definition, spec.output_row, record, observed_types=observed_types
+            )
             records.append(record)
     if not groups:
         raise discovery_error(

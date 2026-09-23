@@ -15,7 +15,6 @@ from marivo.analysis import time_scope
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.observation.contracts import metric_definition, semantic_dependency_digest
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
-from marivo.datasource.ir import CsvSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
@@ -226,18 +225,6 @@ def test_grain_changes_coordinate_identity_without_changing_population() -> None
 
 def test_requested_grain_respects_physical_sample_interval() -> None:
     registry, sidecar = _registry()
-    entity = registry.entities["sales.orders"]
-    assert isinstance(entity.source, CsvSourceIR)
-    registry.entities[entity.semantic_id] = replace(
-        entity,
-        source=replace(
-            entity.source,
-            schema=tuple(
-                (name, "timestamp" if name == "day" else kind)
-                for name, kind in entity.source.schema
-            ),
-        ),
-    )
     registry.dimensions[DAY.path] = replace(
         registry.dimensions[DAY.path],
         granularity="minute",

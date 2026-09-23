@@ -594,7 +594,7 @@ def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
         "domain_file_mismatch": "semantic.domain",
         "entity_constructor_as_decorator": "semantic.entity",
         "duplicate_identity_key": "semantic.entity",
-        "missing_identity_key_type": "semantic.entity",
+        "missing_identity_key_column": "semantic.entity",
         "identity_version_overlap": "semantic.entity",
         "organization_error": "semantic.authoring",
     }

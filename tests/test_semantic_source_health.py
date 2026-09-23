@@ -96,7 +96,7 @@ def _catalog(
                     source=md.table(
                         "projected_orders",
                         columns={
-                            "amount": md.source_column("amount", data_type="float64"),
+                            "amount": "amount",
                         },
                     ),
                 )
@@ -322,7 +322,7 @@ def test_decorator_field_schema_drift_fails_closed_with_affected_refs(
     assert schema.repair.kind == "reauthor"
 
 
-def test_projected_type_drift_is_failed_schema_not_connection_unavailable(
+def test_projected_source_health_does_not_require_a_declared_type(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory,
@@ -332,13 +332,9 @@ def test_projected_type_drift_is_failed_schema_not_connection_unavailable(
     report = catalog.source_health([ms.ref.metric("sales.projected_revenue")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
-    assert report.status == "failed"
-    assert schema.status == "failed"
-    assert schema.observed["code"] == "declared_type_mismatch"
-    assert schema.repair is not None
-    assert schema.repair.kind == "reauthor"
-    assert ms.ref.measure("sales.projected_orders.amount") in schema.affected_refs
-    assert ms.ref.metric("sales.projected_revenue") in schema.affected_refs
+    assert report.status == "current"
+    assert schema.status == "current"
+    assert schema.observed["metadata_authority"] == "authoritative"
 
 
 def test_permission_failure_is_distinct_from_failed_and_unknown(

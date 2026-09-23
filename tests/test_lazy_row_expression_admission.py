@@ -1,11 +1,11 @@
-"""Pure static admission checks for computed measures, Linear, and decimal units.
+"""Pure static admission checks for computed measures, Linear, and deferred types.
 
 The five SQL backends admit computed Measure row expressions and Linear graphs
 through their concrete ``unsupported_reason`` owners, and composed decimal
-results decide per published unit through the derived facts walk. The fixture
-reuses the shared execution registry, rewrites the orders ``amount`` to
-``decimal(12,2)``, and adds one computed Measure plus linear/mean/ratio
-metrics; no service is started because nothing executes.
+results defer backend-specific precision checks until source types are
+observed. The fixture reuses the shared execution registry with projected
+columns and adds one computed Measure plus linear/mean/ratio metrics; no
+service is started because nothing executes.
 """
 
 from __future__ import annotations
@@ -58,26 +58,12 @@ REASONS = {
     "trino": trino_reason,
     "clickhouse": ch_reason,
 }
-# Published composed-decimal units per backend (plan §4). PostgreSQL and
-# ClickHouse open only the add/sub-level linear cell. MySQL keeps mean/div
-# closed this stage: the mean pipeline still publishes a float-labeled
-# sum/count division that the value-exact transport rule refuses (verified on
-# the live service), and no decimal-rooted ratio is constructible while engine
-# division inference labels results float64. Trino (probe: lossy AVG at the
-# input scale) and SQLite (no decimal storage) keep the conservative rejection.
-UNITS: dict[Backends, frozenset[str]] = {
-    "postgres": frozenset({"linear"}),
-    "mysql": frozenset({"linear"}),
-    "sqlite": frozenset(),
-    "trino": frozenset(),
-    "clickhouse": frozenset({"linear"}),
-}
 
 
 def _decimal_registry(
     engine: Backends, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Registry, CompiledExpressionSidecar]:
-    """The shared execution registry with decimal facts plus computed measures."""
+    """The shared execution registry with projected sources plus computed measures."""
     table = "c4_" + _unique()
     base, base_sidecar = registry_for(tmp_path / "unused", engine=engine, table=table)
     entity = base.entities["sales.orders"]
@@ -89,11 +75,7 @@ def _decimal_registry(
             columns=tuple(
                 (
                     key,
-                    replace(binding, data_type="decimal(12,2)")
-                    if key == "amount"
-                    else replace(binding, data_type="int64")
-                    if key == "weight"
-                    else binding,
+                    binding,
                 )
                 for key, binding in entity.source.columns
             ),
@@ -269,11 +251,11 @@ def test_linear_graph_is_admitted(
         ("postgres", True),
         ("mysql", True),
         ("sqlite", False),
-        ("trino", False),
+        ("trino", True),
         ("clickhouse", True),
     ],
 )
-def test_decimal_linear_admission_matches_declared_units(
+def test_decimal_linear_admission_defers_unknown_source_types(
     backend: Backends,
     admitted: bool,
     tmp_path: Path,
@@ -291,14 +273,14 @@ def test_decimal_linear_admission_matches_declared_units(
 @pytest.mark.parametrize(
     "backend,admitted",
     [
-        ("postgres", False),
-        ("mysql", False),
+        ("postgres", True),
+        ("mysql", True),
         ("sqlite", False),
-        ("trino", False),
-        ("clickhouse", False),
+        ("trino", True),
+        ("clickhouse", True),
     ],
 )
-def test_decimal_mean_admission_matches_declared_units(
+def test_decimal_mean_admission_defers_unknown_source_types(
     backend: Backends,
     admitted: bool,
     tmp_path: Path,
@@ -313,28 +295,28 @@ def test_decimal_mean_admission_matches_declared_units(
     assert (reason is None) == admitted
 
 
-def test_kept_rejection_reasons_name_their_engine_fact(
+def test_decimal_engine_rejections_wait_for_observed_source_types(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     observed = _sources("trino", tmp_path, monkeypatch, "dec-trino").observe(
         ref.metric("sales.revenue_linear")
     )
     reason = trino_reason(observed.aggregate())
-    assert reason is not None
+    assert reason is None
     observed = _sources("postgres", tmp_path, monkeypatch, "dec-pg").observe(
         ref.metric("sales.amount_mean")
     )
     reason = pg_reason(observed.aggregate())
-    assert "AVG scale is a public contract" in (reason or "")
+    assert reason is None
     observed = _sources("clickhouse", tmp_path, monkeypatch, "dec-ch").observe(
         ref.metric("sales.amount_mean")
     )
     reason = ch_reason(observed.aggregate())
-    assert "AVG scale is a public contract" in (reason or "")
+    assert reason is None
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-def test_direct_column_decimal_measures_stay_admitted(
+def test_direct_column_measures_stay_admitted_before_source_type_observation(
     backend: Backends, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     if backend == "sqlite":

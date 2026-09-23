@@ -738,6 +738,16 @@ class PostgresExecutionAdapter(ObservedExecution):
     def read_parquet(self, path: str, *, table_name: str) -> ir.Table:
         raise self._error("unsupported_operation", detail="read_parquet")
 
+    def read_csv(
+        self,
+        path: str,
+        *,
+        table_name: str,
+        header: bool,
+        delimiter: str,
+    ) -> ir.Table:
+        raise self._error("unsupported_operation", detail="read_csv")
+
     def freeze_reader(self, name: str, reader: pa.RecordBatchReader) -> ir.Table:
         raise self._error("unsupported_operation", detail="freeze_reader")
 
@@ -749,7 +759,6 @@ class PostgresExecutionAdapter(ObservedExecution):
         path: str,
         *,
         table_name: str,
-        columns: Mapping[str, str],
         format: str,
     ) -> ir.Table:
         raise self._error("unsupported_operation", detail="read_json")

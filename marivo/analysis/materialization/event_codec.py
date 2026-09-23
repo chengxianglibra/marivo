@@ -189,6 +189,8 @@ def validate_semantics(semantics: EventJourneySemantics) -> None:
         *semantics.occurrence_identity_types,
         *(kind for _, kind in semantics.subject_identity_signature),
     ):
+        if logical == "unknown":
+            continue
         value = dt.dtype(logical)
         if not (
             value.is_boolean()

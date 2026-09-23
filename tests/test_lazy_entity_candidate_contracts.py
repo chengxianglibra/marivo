@@ -72,7 +72,7 @@ def test_entity_schema_preserves_exact_identity_and_order(composite: bool) -> No
     assert identity is metric.schema.columns[0]
     assert isinstance(identity.identity, d._EntityFieldIdentity)
     assert identity.identity.identity_signature == (
-        (("tenant", "string"), ("id", "int64")) if composite else (("id", "int64"),)
+        (("tenant", "unknown"), ("id", "unknown")) if composite else (("id", "unknown"),)
     )
     assert candidate.row_contract.coordinate_field_ids == (identity.field_id,)
     assert candidate.row_contract.key_field_ids == (identity.field_id,)

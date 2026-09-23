@@ -177,10 +177,7 @@ def test_decimal_source_summary_preserves_exact_attribution_values(tmp_path: Pat
         entity,
         source=replace(
             entity.source,
-            columns=tuple(
-                (name, replace(binding, data_type="decimal") if name == "amount" else binding)
-                for name, binding in entity.source.columns
-            ),
+            columns=tuple((name, binding) for name, binding in entity.source.columns),
         ),
     )
     registry = replace(registry, entities=entities)

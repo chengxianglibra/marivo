@@ -251,10 +251,7 @@ def test_numeric_source_types_replay_the_declared_float64_percentile(
         entity,
         source=replace(
             entity.source,
-            columns=tuple(
-                (name, replace(binding, data_type=source_type) if name == "amount" else binding)
-                for name, binding in entity.source.columns
-            ),
+            columns=tuple((name, binding) for name, binding in entity.source.columns),
         ),
     )
     registry = replace(registry, entities=entities)

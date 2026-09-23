@@ -25,6 +25,7 @@ from marivo.analysis.operators.attribution_contracts import (
     delta_state_name,
 )
 from marivo.analysis.operators.compare import _number as promoted_number
+from marivo.analysis.operators.compare import _observed_numeric_type
 from marivo.analysis.operators.delta_state import validate_delta_parts
 from marivo.analysis.operators.errors import attribution_error
 from marivo.analysis.operators.rollup import _value
@@ -449,22 +450,25 @@ def execute_attribute(
     output: dict[str, pd.Series] = {}
     for field in spec.output_row.schema.columns:
         values = [record[field.name] for record in records]
+        field_type = field.logical_type_id
+        if field_type == "unknown" and field.role_id in ("comparison_value", "effect_value"):
+            field_type = _observed_numeric_type(frame["delta"])
         mask_arity = _bool_tuple_arity(field.logical_type_id)
         if mask_arity is not None:
             output[field.name] = pd.Series(
                 values, dtype=pd.ArrowDtype(pa.list_(pa.bool_(), mask_arity))
             )
-        elif field.logical_type_id in ("int64", "float64", "string"):
+        elif field_type in ("int64", "float64", "string"):
             dtype = {"int64": pa.int64(), "float64": pa.float64(), "string": pa.string()}[
-                field.logical_type_id
+                field_type
             ]
-            if field.logical_type_id != "string":
+            if field_type != "string":
                 values = [
-                    promoted_number(value, field.logical_type_id) if value is not None else None
+                    promoted_number(value, field_type) if value is not None else None
                     for value in values
                 ]
             output[field.name] = pd.Series(values, dtype=pd.ArrowDtype(dtype))
-        elif field.logical_type_id == "decimal":
+        elif field_type == "decimal":
             decimal_values = [value for value in values if isinstance(value, Decimal)]
             exponents = (value.as_tuple().exponent for value in decimal_values)
             scale = max(

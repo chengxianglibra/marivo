@@ -34,6 +34,16 @@ class MaterializationError(DatasetConstructionError):
         )
 
 
+def _execution_error(stage: str, run_ref: str | None = None) -> MaterializationError:
+    return MaterializationError(
+        expected="a supported and complete registered Dataset execution",
+        received="the admitted action could not complete its current phase; remote read status may be unknown",
+        repair="Inspect the safe Run phase, correct its source or resource requirement, and retry.",
+        stage=stage,
+        run_ref=run_ref,
+    )
+
+
 class IntegrityError(MaterializationError):
     """Selected committed metadata or backing contradicts its immutable contract."""
 
@@ -96,13 +106,12 @@ class SourceSchemaError(MaterializationError):
         self.table = source.table if isinstance(source, TableSourceIR) else None
         self.logical_column = binding.logical
         self.physical_column = column
-        self.declared_type = binding.declared_type
         self.actual_type = actual_type
         relation = ".".join(part for part in (self.catalog, self.database, self.table) if part)
         super().__init__(
-            expected=f"Entity {self.entity_ref[:160]} on {relation[:200]}: {binding.logical[:100]} -> {column[:100]} declared as {binding.declared_type[:100]}",
+            expected=f"Entity {self.entity_ref[:160]} on {relation[:200]}: required column {binding.logical[:100]} -> {column[:100]}",
             received=f"{reason}: necessary source column has type {(actual_type or '<missing>')[:120]}",
-            repair="Correct this column binding or the physical source type; use a type qualified for this backend and retry.",
+            repair="Correct the source projection or use a physical column type supported by this backend, then retry.",
             stage="output_validation",
             run_ref=run_ref,
         )

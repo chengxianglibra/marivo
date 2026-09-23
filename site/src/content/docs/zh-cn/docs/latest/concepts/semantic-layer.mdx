@@ -380,9 +380,9 @@ ms.domain(name="sales", owner="Mina Zhang")
 使用 `marivo.help("semantic.objects.entity")` 查看这份清单，再用
 `marivo.help("semantic.entity")` 查询已安装版本的签名。
 `ms.entity(...)` 返回不可调用的 ref，应赋值给名称，而不是写在函数前面作为
-`@` 装饰器。对于有版本声明的 Entity，静态加载要求每个身份键与版本轴都有
-已声明的类型；重复键、缺少类型、版本坐标进入 `primary_key` 会按此顺序
-逐次报告为不同错误。
+`@` 装饰器。对于有版本声明的 Entity，静态加载要求每个身份键与版本轴都在
+投影中可用；源类型在首次需要类型的执行阶段读取。重复键或版本坐标进入
+`primary_key` 会按此顺序逐次报告为不同错误。
 
 Analysis 执行时信任 Entity 的身份与版本声明，不扫描源行预检唯一性、时间解析或
 版本区间。需要检查源数据时，显式调用 `catalog.source_health(..., checks=...)`。
@@ -402,13 +402,13 @@ orders = ms.entity(
 
 | 构建器 | 必填 | 可选 | 用于 |
 | --- | --- | --- | --- |
-| `md.table(name)` | `name` | `database`、`columns` | 数据源中的目录表或类型化投影（Trino/MySQL 用 `database="schema"`）。 |
-| `md.parquet(path)` | `path` | `hive_partitioning` | 通过 DuckDB 读取的 self-describing Parquet 文件来源。 |
-| `md.csv(path, schema=...)` | `path`、类型化 `schema` | `header`、`delimiter` | 通过 DuckDB 读取的 CSV 文件来源。 |
-| `md.json(path, schema=...)` | `path`、类型化 `schema` | `format`、`records_path`、`field_paths`、`query_params`、`method`、`body` | JSON 文件、glob、GET URL 或参数化请求体的 POST URL；`records_path` 选择包装响应中的记录数组，`field_paths` 把稳定输出别名映射到嵌套值。 |
+| `md.table(name)` | `name` | `database`、`columns` | 数据源中的目录表或可选投影（Trino/MySQL 用 `database="schema"`）。 |
+| `md.parquet(path)` | `path` | `hive_partitioning`、`columns` | 通过 DuckDB 读取的自描述 Parquet 文件来源。 |
+| `md.csv(path)` | `path` | `columns`、`header`、`delimiter` | 通过 DuckDB 读取并推断类型的 CSV 来源。 |
+| `md.json(path)` | `path` | `columns`、`format`、`records_path`、`query_params`、`method`、`body` | JSON 文件、glob、GET URL 或参数化请求体的 POST URL；`columns` 将输出别名映射到 JSON 路径。 |
 
-`md.table(...)` 支持两种封闭模式。省略 `columns=` 时使用目录发现；传入
-`columns={alias: md.source_column(...)}` 时声明类型化投影，并为实体提供稳定输出别名：
+表、CSV 和 JSON 的 `columns` 都是可选投影，把输出名映射到物理列名或 JSON 路径。
+省略时会公开可发现的全部字段。该映射只选择和命名字段，不声明类型：
 
 ```python
 events = ms.entity(
@@ -417,31 +417,29 @@ events = ms.entity(
     source=md.table(
         "raw.events",
         columns={
-            "event_time": md.source_column("event.timestamp", data_type="timestamp"),
-            "score": md.source_column("generated.score", data_type="float64"),
+            "event_time": "event.timestamp",
+            "score": "generated.score",
         },
     ),
     primary_key=["event_time"],
 )
 ```
-声明的类型是断言，不是类型转换；该映射也是完整的投影允许列表。对于投影来源，语义层的
-`primary_key` 以及直接字段的 `column=` 必须引用这些稳定别名。若目录元数据无法确认绑定，
-检查结果会给出仅声明警告。此时应选择显式有界样本，获取一次快照，执行限定范围的预览，
-再运行零查询就绪检查。静态加载和校验只证明声明内部一致；预览才是运行时权威。该来源记录为
-`TABLE_PROJECTION`，各别名仍是同一物理表内的绑定，不会被伪装为多个物理来源。
+提供 `columns` 时，它就是完整投影允许列表。语义层的 `primary_key` 和直接字段 `column=`
+必须引用输出别名。执行首次需要类型时，数据库只读取依赖闭包涉及列的元数据；CSV 和 JSON
+在实际读取时推断类型，不会为此额外探测 HTTP JSON。`ms.entity(...)`、`ms.load()` 和
+`dataset.contract()` 不访问数据源。必需列缺失、全空而无法推断或类型不支持时会明确报错，
+未使用字段不会增加类型约束。投影表仍是一个物理来源，别名不是独立来源。
 
-对经 `md.inspect` 检查的表，可以用已保留的元数据生成类型绑定，无需猜测
-后端类型与 Ibis 类型的对应关系：
+检查表时，可以通过 `md.inspect` 中保留的元数据复制物理字段名到投影：
 
 ```python
 inspection = md.inspect(warehouse, md.table("orders"))
-order_id = inspection.source_column("order_id")  # bigint metadata becomes int64
-orders_source = md.table("orders", columns={"order_id": order_id})
+physical_name = inspection.source_column("order_id")
+orders_source = md.table("orders", columns={"order_key": physical_name})
 ```
 
-投影来源应包含所需的全部输出列。检查卡片同时显示物理类型、Ibis 类型与
-可复制的绑定；`inspection.schema` 保留物理类型。`inspection.source_column(...)`
-不读取数据、不转换值，对无法可靠映射的类型会明确报错。
+投影来源应包含所需的全部输出列。`inspection.schema` 展示当前物理类型；
+`inspection.source_column(...)` 只返回物理字段名，不读取数据，也不会声明或覆盖类型。
 
 ### 3. 添加字段
 
@@ -1136,10 +1134,10 @@ descriptor。它们都需要配合数据源引用使用，并且都不是数据�
 声明。
 
 ```python
-events = md.json("data/events/*.json", schema={"event_id": "string"}, format="newline_delimited")
+events = md.json("data/events/*.json", columns={"event_id": "event_id"}, format="newline_delimited")
 api_events = md.json(
     "https://api.example.com/events",
-    schema={"event_id": "string", "occurred_at": "timestamp"},
+    columns={"event_id": "event_id", "occurred_at": "occurred_at"},
     records_path="$.result.items",
     query_params={
         "query": "sum(pending_containers) by (cluster)",
@@ -1150,11 +1148,11 @@ api_events = md.json(
 )
 gpu_servers = md.json(
     "https://root.example/api/v1/graphql",
-    schema={
-        "name": "string",
-        "bs": "string",
-        "gpuAbstract": "string",
-        "status": "string",
+    columns={
+        "name": "name",
+        "bs": "bs",
+        "gpuAbstract": "gpuAbstract",
+        "status": "status",
     },
     method="POST",
     body={"query": "{ queryServers { name bs gpuAbstract status } }"},
@@ -1162,25 +1160,22 @@ gpu_servers = md.json(
     query_params={"policy-domain": "gpus"},
 )
 orders_parquet = md.parquet("data/orders/*.parquet")
-orders_csv = md.csv("data/orders/*.csv", schema={"order_id": "string"})
+orders_csv = md.csv("data/orders/*.csv", columns={"order_id": "order_id"})
 
 md.inspect(warehouse, events).show()
 ```
 `records_path` 刻意只支持一小部分 JSONPath：以 `$` 开头，后接对象成员，
 例如 `$.data` 或 `$.result.items`。它不支持过滤器、通配符、递归下降或数组下标。
-路径存在且值为空数组时会物化为 0 行。对于选出的每条记录，声明的字段会按
-schema 顺序投影：缺少字段会变成带类型的 `NULL`，额外字段会被忽略；存在的字段
-必须能够转换为声明的类型。路径缺失或值不是数组时则在执行阶段失败，避免把认证
-错误或响应包装变化误判成空数据。
+如果字段类型可发现，空数组会物化为 0 行。对于选出的每条记录，投影字段会按
+映射顺序输出，额外字段会被忽略。类型来自实际读取的值；必需字段在所有记录中
+都缺失或为 null 时，类型推断会明确失败。路径缺失或值不是数组时则在执行阶段
+失败，避免把认证错误或响应包装变化误判成空数据。
 
-`schema` 把稳定输出别名映射到 Ibis 类型名，例如 `int64`、`string`、
-`float64`、`timestamp`；诸如 `BIGINT` 的 SQL/DuckDB 名称会在 JSON 声明时被
-拒绝，而不是拖到执行阶段。嵌套 JSON 值通过 `field_paths` 从输出别名映射到
-物理路径：`a.b` 读取嵌套对象成员，`a[0].b` 读取固定数组下标，`a[].b` 遍历
+`columns` 的每个值都是 JSON 路径：`a.b` 读取嵌套对象成员，`a[0].b` 读取固定数组下标，`a[].b` 遍历
 对象数组，每个元素物化为一行。同一数组下的多个字段共享一次遍历，并从同一个
 元素投影，避免字段错配。不同遍历根或单个路径中的多次遍历会在声明期失败，而
 不会生成笛卡尔积。数组缺失、为空或为 `null` 的记录不产生行。嵌套路径需要
-`records_path`；顶层 schema 名仍按字面值处理，可以包含标点或空格。
+`records_path`；顶层字段名按字面值处理，可以包含标点或空格。
 
 最小 POST API 场景使用 `method="POST"`，并通过 `body=` 提供一个 JSON
 对象。`md.source_param(...)` 可以出现在对象或数组中的任意完整 JSON 值
@@ -1193,13 +1188,9 @@ POST 要求 HTTP(S) URL 和
 ```python
 changes = md.json(
     "http://change-focus.example/api/v2/change/list",
-    schema={
-        "change_id": "int64",
-        "title": "string",
-        "app_id": "int64",
-        "app_name": "string",
-    },
-    field_paths={
+    columns={
+        "change_id": "change_id",
+        "title": "title",
         "app_id": "specificsource[].appid",
         "app_name": "specificsource[].name",
     },
@@ -1250,8 +1241,8 @@ coverage 和 cache identity；值默认只在内存。
 不会默认发起 cluster-wide 扩散查询。
 
 ClickHouse 检查还会在 `projectable_columns` 中列出安全的 adapter-only
-物理列。该表有界展示，每一项都给出可复制的 `md.source_column(...)` 声明，
-保留精确物理名与规范化类型。active parts 间类型冲突或无法解析的后端类型只会
+物理列。该表有界展示，每一项都给出包含精确物理名的可复制投影示例；类型和
+可空性只用于 inspection 展示，不进入语义来源声明。active parts 间类型冲突或无法解析的后端类型只会
 产生 warning，并且不会列为可投影列。这并不枚举动态 MapV2 key：未物化 key
 必须在上游物化、通过数据库 view 暴露，或仅在终端 `md.raw_sql(...)` 中使用。
 根据问题选择 inspection、可选的显式有界 sample，和/或用于来源特定元数据、分布、

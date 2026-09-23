@@ -3,17 +3,37 @@
 from dataclasses import replace
 from pathlib import Path
 
+import ibis
 import pytest
 
 from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.normalize import required_source_dependencies
-from marivo.analysis.materialization.admission import _declared_table
+from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
+from marivo.analysis.materialization.source_preparation import _declared_table
 from marivo.analysis.operators.registry import implementation
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_observation_fixtures import NoIoActionPort
+
+_PHYSICAL_TYPES = {
+    "id": "int64",
+    "customer_id": "int64",
+    "amount": "float64",
+    "gross": "float64",
+    "weight": "float64",
+    "region": "string",
+    "day": "date",
+    "start": "date",
+    "end": "date",
+}
+
+
+def _observed_schema(entry: EntitySourceDependency) -> ibis.Schema:
+    return ibis.schema(
+        {column.physical: _PHYSICAL_TYPES[column.physical] for column in entry.columns}
+    )
 
 
 @pytest.mark.parametrize("engine", ["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"])
@@ -22,16 +42,6 @@ def test_unused_complex_column_and_hidden_weight(engine: str, hidden: bool) -> N
     registry, sidecar = make_execution_registry(Path("must-not-open"))
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, TableSourceIR)
-    entity = replace(
-        entity,
-        source=replace(
-            entity.source,
-            columns=tuple(
-                (name, replace(binding, data_type="array<string>") if name == "tenant" else binding)
-                for name, binding in entity.source.columns
-            ),
-        ),
-    )
     registry = replace(
         registry,
         entities={**registry.entities, entity.semantic_id: entity},
@@ -57,8 +67,9 @@ def test_unused_complex_column_and_hidden_weight(engine: str, hidden: bool) -> N
     assert {c.logical for c in entry.columns} == (
         {"id", "amount", "weight"} if hidden else {"id", "amount"}
     )
-    assert implementation(target).for_backend(engine) is not None
-    table = _declared_table(entry.entity, dependency=entry)
+    registration = implementation(target).for_backend(engine)
+    assert registration is not None
+    table = _declared_table(entry.entity, _observed_schema(entry), dependency=entry)
     assert "tenant" not in table.columns
     recipe = compile_dataset(target, {entry.entity.ref.path: table}, dependencies=dependencies)
     assert recipe.validations == ()
@@ -74,8 +85,8 @@ def test_relationship_keys_and_aliases_are_owned_by_each_entity(relation_shape: 
         source=replace(
             original.source,
             columns=tuple(
-                (name, replace(binding, source="gross") if name == "amount" else binding)
-                for name, binding in original.source.columns
+                (name, "gross" if name == "amount" else physical)
+                for name, physical in original.source.columns
             ),
         ),
     )
@@ -190,6 +201,10 @@ def test_dependency_owner_cannot_be_swapped() -> None:
     with pytest.raises(DatasetCompilationError, match="source binding mismatch"):
         compile_dataset(
             target,
-            {entry.entity.ref.path: _declared_table(entry.entity, dependency=entry)},
+            {
+                entry.entity.ref.path: _declared_table(
+                    entry.entity, _observed_schema(entry), dependency=entry
+                )
+            },
             dependencies=replace(dependencies, entries=(foreign,)),
         )

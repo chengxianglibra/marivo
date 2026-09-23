@@ -1587,10 +1587,10 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             preserves_evidence=True,
         ),
         SemanticRepairContract(
-            error_kind="missing_identity_key_type",
+            error_kind="missing_identity_key_column",
             kind="reauthor",
             help_target=_target("entity"),
-            action="Declare each missing identity key in the complete typed source interface.",
+            action="Add each missing identity key to columns=... or omit the source projection.",
             preserves_evidence=True,
         ),
         SemanticRepairContract(
@@ -2365,7 +2365,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "ref_shape",
                 "entity_constructor_assignment",
                 "entity_identity_key_unique",
-                "entity_identity_key_typed",
                 "entity_version_key_separate",
             ),
             example=(

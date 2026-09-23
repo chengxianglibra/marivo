@@ -27,7 +27,6 @@ def setup(
     with temporal_fixture(
         project,
         physical="VARCHAR" if invalid_parse else "TIMESTAMP",
-        declared="string" if invalid_parse else "timestamp(6)",
         parse=StrptimeParse("%Y-%m-%d %H:%M:%S", timezone="UTC")
         if invalid_parse
         else TimestampParse(timezone="UTC"),

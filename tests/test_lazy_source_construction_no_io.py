@@ -26,7 +26,9 @@ import marivo.analysis as mv
 import marivo.semantic.runtime_metric_lowering
 import marivo.analysis.compiler as compiler
 import marivo.analysis.compiler.lowering as lowering
-import marivo.analysis.materialization.admission as admission
+import marivo.analysis.materialization.source_preparation as source_preparation
+import marivo.analysis.materialization.dataset_presentation as dataset_presentation
+import marivo.analysis.materialization.dataset_publication as dataset_publication
 import marivo.analysis.materialization.storage as storage
 import marivo.analysis.observation.ordering
 import marivo.analysis.operators.compare
@@ -90,12 +92,6 @@ for aggregation in ('sum', 'count', 'mean', 'min', 'max', 'count_distinct',
 timestamp_registry = copy_registry()
 entity = timestamp_registry.entities['sales.orders']
 assert isinstance(entity.source, CsvSourceIR)
-timestamp_registry.entities[entity.semantic_id] = replace(
-    entity, source=replace(entity.source, schema=tuple(
-        (name, 'timestamp' if name == 'day' else kind)
-        for name, kind in entity.source.schema
-    )),
-)
 timestamp_registry.dimensions[order_time.path] = replace(
     timestamp_registry.dimensions[order_time.path], granularity='second',
     parse=TimestampParse(timezone='UTC'),
@@ -137,8 +133,8 @@ guards = (
     (backends, 'build_backend_with_secrets', 'backend'),
     (backends, '_build_backend_from_effective', 'backend'),
     (backends, '_effective_kwargs', 'credentials'),
-    (admission, '_build_backend_from_effective', 'backend'),
-    (admission, '_effective_kwargs', 'credentials'),
+    (source_preparation, '_build_backend_from_effective', 'backend'),
+    (source_preparation, '_effective_kwargs', 'credentials'),
     (secrets, 'resolve', 'credentials'),
     (secrets.EnvProvider, 'get', 'credentials'),
     (secrets.LocalPlaintextCache, 'get', 'credentials'),
@@ -156,10 +152,10 @@ guards = (
     (Backend, 'read_csv', 'source'),
     (Backend, 'read_parquet', 'source'),
     (Backend, 'read_json', 'source'),
-    (admission, 'read_json_source', 'source'),
+    (source_preparation, 'read_json_source', 'source'),
     (compiler, 'compile_dataset', 'compiler'),
     (lowering, 'compile_dataset', 'compiler'),
-    (admission, 'compile_dataset', 'compiler'),
+    (source_preparation, 'compile_dataset', 'compiler'),
     (DatasetRuntime, '__init__', 'session'),
     (DatasetRuntime, 'create', 'session'),
     (DatasetRuntime, 'open', 'session'),
@@ -178,9 +174,9 @@ guards = (
     (storage, 'read_primary', 'artifact'),
     (storage, 'read_preview', 'artifact'),
     (storage, 'write_local_dataset', 'artifact'),
-    (admission, 'read_primary', 'artifact'),
-    (admission, 'read_preview', 'artifact'),
-    (admission, 'write_local_dataset', 'artifact'),
+    (dataset_presentation, 'read_primary', 'artifact'),
+    (dataset_presentation, 'read_preview', 'artifact'),
+    (dataset_publication, 'write_local_dataset', 'artifact'),
     (pa, 'array', 'arrow'),
     (pa, 'table', 'arrow'),
     (pa, 'record_batch', 'arrow'),
@@ -287,19 +283,13 @@ with ExitStack() as stack:
         scalar_delta = comparisons[1]
 
         negative_failures = 0
+        # Physical type compatibility is checked after execution observes source types.
         for invalid in (
-            lambda: dimensional.where(eq(metric, True)),
-            lambda: dimensional.where(gt(region, private)),
-            lambda: dimensional.where(eq(metric, 1), gt(metric, 2)),
-            lambda: original.where(eq(region, private)),
-            lambda: original.with_time_axis(order_time, grain=builtin_grain('hour')),
             lambda: original.with_time_axis(order_time, grain=uncertified),
             lambda: original.limit(2),
             lambda: ranked[0].rank(ranked[0].fields.metric(revenue)),
-            lambda: dimensional.rank(dimensional.fields.metric(revenue)),
             lambda: reduced.rank(reduced.fields.dimension(region)),
             lambda: ranked[0].limit(True),
-            lambda: scalar_delta.where(gt(scalar_delta.fields.get('delta'), 0)),
             lambda: scalar_delta.rank(scalar_delta.fields.get('delta')),
             lambda: scalar_delta.limit(1),
             lambda: setattr(original, 'kind', 'changed'),
@@ -357,7 +347,7 @@ def test_complete_source_construction_has_no_io() -> None:
     assert evidence["grains"] == 9
     assert evidence["aggregates"] == 8
     assert evidence["ties"] == 4
-    assert evidence["guarded_negative_failures"] == 15
+    assert evidence["guarded_negative_failures"] == 8
     assert evidence["guarded_entrypoints"] == 60
     assert evidence["checked_definitions"] == 56
     assert evidence["telemetry_enabled"] is True

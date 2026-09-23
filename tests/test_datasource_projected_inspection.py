@@ -1,4 +1,4 @@
-"""Truthful metadata and evidence tests for typed table projections."""
+"""Truthful metadata and evidence tests for projection-only table sources."""
 
 from __future__ import annotations
 
@@ -95,16 +95,16 @@ def _metadata(
 
 def _projected_source(*, include_partition: bool = True) -> md.TableSourceIR:
     columns = {
-        "order_key": md.source_column("order_id", data_type="string"),
-        "value": md.source_column("amount", data_type="float64"),
-        "virtual_score": md.source_column("catalog.hidden", data_type="float64"),
+        "order_key": "order_id",
+        "value": "amount",
+        "virtual_score": "catalog.hidden",
     }
     if include_partition:
-        columns["event_day"] = md.source_column("dt", data_type="date")
+        columns["event_day"] = "dt"
     return md.table("orders", columns=columns)
 
 
-def test_projected_metadata_uses_declared_interface_and_preserves_base_facts() -> None:
+def test_projected_metadata_uses_observed_types_and_preserves_base_facts() -> None:
     source = _projected_source()
 
     projected = _project_table_metadata(_metadata(), source)
@@ -113,7 +113,7 @@ def test_projected_metadata_uses_declared_interface_and_preserves_base_facts() -
         ("event_day", "date"),
         ("order_key", "string"),
         ("value", "float64"),
-        ("virtual_score", "float64"),
+        ("virtual_score", "unknown"),
     ]
     by_name = {column.name: column for column in projected.columns}
     assert (by_name["order_key"].nullable, by_name["order_key"].comment) == (
@@ -127,7 +127,7 @@ def test_projected_metadata_uses_declared_interface_and_preserves_base_facts() -
     assert projected.primary_keys == ("order_key",)
     assert projected.unique_constraints[0].columns == ("order_key", "event_day")
     assert projected.physical_profile == _metadata().physical_profile
-    assert [warning.kind for warning in projected.warnings] == ["declared_column_unverified"]
+    assert [warning.kind for warning in projected.warnings] == ["projected_column_unverified"]
 
 
 def test_projected_metadata_omits_incomplete_constraints_and_partitions() -> None:
@@ -143,7 +143,7 @@ def test_projected_metadata_omits_incomplete_constraints_and_partitions() -> Non
     assert projected.partition_state == "unknown"
     assert projected.partitions == ()
     assert {warning.kind for warning in projected.warnings} == {
-        "declared_column_unverified",
+        "projected_column_unverified",
         "projected_constraint_incomplete",
         "projected_partition_unavailable",
     }
@@ -173,7 +173,7 @@ def test_projected_partition_fields_and_values_are_renamed_after_capture() -> No
     assert projected.values == ((("event_day", "2026-08-17"),),)
 
 
-def test_public_inspection_projects_schema_and_blocks_type_mismatch_before_query(
+def test_public_inspection_projects_schema_from_observed_metadata(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -192,24 +192,16 @@ def test_public_inspection_projects_schema_and_blocks_type_mismatch_before_query
     )
     assert inspection.physical_extent.row_count == 12
     assert any("absent from base metadata" in warning for warning in inspection.warnings)
-    assert inspection.source_column("order_key") == md.source_column("order_id", data_type="string")
+    assert inspection.source_column("order_key") == "order_id"
 
-    mismatched = md.table(
+    projected_source = md.table(
         "orders",
-        columns={"order_key": md.source_column("order_id", data_type="int64")},
+        columns={"order_key": "order_id"},
     )
-    with pytest.raises(DatasourceAuthoringError) as exc_info:
-        md.inspect(ms.ref.datasource("warehouse"), mismatched)
-
-    error = exc_info.value
-    assert error.code == "declared_type_mismatch"
-    assert error.effect_observed is not None
-    assert error.effect_observed.query_executed is False
-    assert "datasource='warehouse'" in error.received
-    assert "table='orders'" in error.received
-    assert "database=None" in error.received
-    assert error.repair is not None
-    assert error.repair.snippet == "md.source_column('order_id', data_type='string')"
+    projected_inspection = md.inspect(ms.ref.datasource("warehouse"), projected_source)
+    assert [(column.name, column.type) for column in projected_inspection.schema] == [
+        ("order_key", "string")
+    ]
 
 
 def test_inspection_source_column_bridges_raw_catalog_types(
@@ -230,10 +222,8 @@ def test_inspection_source_column_bridges_raw_catalog_types(
         ("group_id", "bigint"),
         ("group_name", "varchar"),
     ]
-    assert inspection.source_column("group_id") == md.source_column("group_id", data_type="int64")
-    assert inspection.source_column("group_name") == md.source_column(
-        "group_name", data_type="string"
-    )
+    assert inspection.source_column("group_id") == "group_id"
+    assert inspection.source_column("group_name") == "group_name"
     projected = md.table(
         "orders",
         columns={
@@ -247,11 +237,11 @@ def test_inspection_source_column_bridges_raw_catalog_types(
     ]
     rendered = inspection.render()
     assert "physical type" in rendered and "ibis type" in rendered
-    assert "md.source_column('group_id', data_type='int64')" in rendered
-    assert "md.source_column('group_name', data_type='string')" in rendered
+    assert "'group_id'" in rendered
+    assert "'group_name'" in rendered
 
 
-def test_inspection_source_column_rejects_unmappable_types(
+def test_inspection_source_column_returns_names_without_type_admission(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -264,19 +254,16 @@ def test_inspection_source_column_rejects_unmappable_types(
     )
     monkeypatch.setattr("marivo.datasource.inspection._inspect_source", lambda *_a, **_k: metadata)
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
-    for name, code in (
-        ("fixed_name", "source_column_type_unmapped"),
-        ("unknown_value", "source_column_type_unmapped"),
-        ("missing", "source_column_unknown"),
-    ):
-        with pytest.raises(DatasourceAuthoringError) as caught:
-            inspection.source_column(name)
-        assert caught.value.code == code
-        assert caught.value.effect_observed is not None
-        assert caught.value.effect_observed.query_executed is False
+    assert inspection.source_column("fixed_name") == "fixed_name"
+    assert inspection.source_column("unknown_value") == "unknown_value"
+    with pytest.raises(DatasourceAuthoringError) as caught:
+        inspection.source_column("missing")
+    assert caught.value.code == "source_column_unknown"
+    assert caught.value.effect_observed is not None
+    assert caught.value.effect_observed.query_executed is False
     rendered = inspection.render()
     assert "unavailable" in rendered
-    assert "md.source_column('fixed_name'" not in rendered
+    assert "md.source_column" not in rendered
 
 
 def test_inspection_source_column_accepts_clickhouse_projectable_column(
@@ -292,12 +279,10 @@ def test_inspection_source_column_accepts_clickhouse_projectable_column(
     )
     monkeypatch.setattr("marivo.datasource.inspection._inspect_source", lambda *_a, **_k: metadata)
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
-    assert inspection.source_column("string_map%2Eregion*ICDS*") == md.source_column(
-        "string_map%2Eregion*ICDS*", data_type="string"
-    )
+    assert inspection.source_column("string_map%2Eregion*ICDS*") == "string_map%2Eregion*ICDS*"
 
 
-def test_projected_metadata_validates_adapter_discovered_physical_column_type() -> None:
+def test_projected_metadata_uses_adapter_discovered_physical_type() -> None:
     base = _metadata(
         projectable_columns=(
             ColumnMetadata("string_map%2Eregion*ICDS*", "string", True, None, None),
@@ -305,37 +290,19 @@ def test_projected_metadata_validates_adapter_discovered_physical_column_type() 
     )
     source = md.table(
         "orders",
-        columns={
-            "region": md.source_column(
-                "string_map%2Eregion*ICDS*",
-                data_type="string",
-            )
-        },
+        columns={"region": "string_map%2Eregion*ICDS*"},
     )
 
     projected = _project_table_metadata(base, source)
 
     assert projected.columns == (ColumnMetadata("region", "string", True, None, 1),)
-    assert not any(warning.kind == "declared_column_unverified" for warning in projected.warnings)
+    assert not any(warning.kind == "projected_column_unverified" for warning in projected.warnings)
 
-    mismatched = md.table(
-        "orders",
-        columns={
-            "region": md.source_column(
-                "string_map%2Eregion*ICDS*",
-                data_type="float64",
-            )
-        },
-    )
-    with pytest.raises(DatasourceAuthoringError) as exc_info:
-        _project_table_metadata(base, mismatched)
-    assert exc_info.value.code == "declared_type_mismatch"
-    assert exc_info.value.effect_observed is not None
-    assert exc_info.value.effect_observed.query_executed is False
+    assert projected.columns[0].type == "string"
 
 
 @pytest.mark.parametrize(
-    ("catalog_type", "declared_type"),
+    ("catalog_type", "observed_type"),
     [
         ("DateTime64(3)", "timestamp(3)"),
         ("DateTime64(3, 'UTC')", "timestamp('UTC', 3)"),
@@ -344,7 +311,7 @@ def test_projected_metadata_validates_adapter_discovered_physical_column_type() 
 )
 def test_projected_metadata_compares_clickhouse_types_in_canonical_ibis_form(
     catalog_type: str,
-    declared_type: str,
+    observed_type: str,
 ) -> None:
     base = _metadata(
         columns=(ColumnMetadata("timestamp", catalog_type, True, None, 1),),
@@ -353,13 +320,13 @@ def test_projected_metadata_compares_clickhouse_types_in_canonical_ibis_form(
     source = md.table(
         "orders",
         columns={
-            "event_time": md.source_column("timestamp", data_type=declared_type),
+            "event_time": "timestamp",
         },
     )
 
     projected = _project_table_metadata(base, source)
 
-    assert projected.columns == (ColumnMetadata("event_time", declared_type, True, None, 1),)
+    assert projected.columns == (ColumnMetadata("event_time", observed_type, True, None, 1),)
 
 
 def test_unknown_partition_warning_is_structured_before_public_rendering() -> None:
@@ -560,13 +527,7 @@ def test_projected_source_inspection_render_is_bounded_and_recoverable(
     )
     source = md.table(
         "wide_events",
-        columns={
-            f"alias_{index:03d}": md.source_column(
-                f"physical_{index:03d}",
-                data_type="string",
-            )
-            for index in range(80)
-        },
+        columns={f"alias_{index:03d}": f"physical_{index:03d}" for index in range(80)},
     )
     monkeypatch.setattr(
         "marivo.datasource.inspection._inspect_source",
@@ -577,7 +538,7 @@ def test_projected_source_inspection_render_is_bounded_and_recoverable(
 
     assert "projected columns: 80" in rendered
     assert "full source: .source.to_dict()" in rendered
-    assert "column bindings" in rendered
+    assert "column projection" in rendered
     assert "total=80" in rendered
     assert '"columns":' not in rendered
 
@@ -601,7 +562,7 @@ def test_projected_source_render_preserves_database_identity_shape(
             "orders",
             database=database,
             columns={
-                "order_key": md.source_column("order_id", data_type="string"),
+                "order_key": "order_id",
             },
         )
 
@@ -613,11 +574,11 @@ def test_projected_source_render_preserves_database_identity_shape(
 @pytest.mark.parametrize(
     "engine,physical,logical",
     [
-        ("mysql", "tinyint(1)", "boolean"),
+        ("mysql", "tinyint(1)", "int8"),
         ("mysql", "tinyint(1)", "int8"),
         ("mysql", "bigint unsigned", "uint64"),
         ("sqlite", "INT2", "int64"),
-        ("sqlite", "TIMESTAMP", "timestamp"),
+        ("sqlite", "TIMESTAMP", "timestamp(6)"),
         ("sqlite", "VARCHAR(20)", "string"),
     ],
 )
@@ -629,7 +590,7 @@ def test_scalar_representation_metadata_is_not_a_cast(
     )
     projected = _project_table_metadata(
         metadata,
-        md.table("orders", columns={"value": md.source_column("value", data_type=logical)}),
+        md.table("orders", columns={"value": "value"}),
     )
     assert projected.columns[0].type == logical
     assert projected.columns[0].nullable is True
@@ -638,12 +599,12 @@ def test_scalar_representation_metadata_is_not_a_cast(
 @pytest.mark.parametrize(
     "engine,physical", [("postgres", "character(8)"), ("mysql", "char(8)"), ("trino", "char(8)")]
 )
-def test_projected_fixed_char_is_not_a_string_binding(engine: str, physical: str) -> None:
+def test_projected_fixed_char_retains_observed_type(engine: str, physical: str) -> None:
     metadata = _metadata(
         columns=(ColumnMetadata("value", physical, True, None, 1),), backend_type=engine
     )
-    with pytest.raises(DatasourceAuthoringError, match="fixed CHAR"):
-        _project_table_metadata(
-            metadata,
-            md.table("orders", columns={"value": md.source_column("value", data_type="string")}),
-        )
+    projected = _project_table_metadata(
+        metadata,
+        md.table("orders", columns={"value": "value"}),
+    )
+    assert projected.columns[0].type == physical.lower()

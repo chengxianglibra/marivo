@@ -41,8 +41,9 @@ from marivo.analysis.event import (
 )
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
-from marivo.datasource.ir import JsonSourceIR, SourceParamIR, TableColumnBindingIR, TableSourceIR
+from marivo.datasource.ir import JsonSourceIR, SourceParamIR, TableSourceIR
 from marivo.refs import ref
+from marivo.semantic.errors import SemanticLoadError
 from marivo.semantic.event import participant_role
 from marivo.semantic.ir import JoinKey
 from tests.lazy_event_fixtures import make_event_sources
@@ -189,7 +190,7 @@ def test_composite_subject_identity_preserves_key_order() -> None:
                 source_entity.source,
                 columns=(
                     *source_entity.source.columns,
-                    ("tenant", TableColumnBindingIR("tenant", "string")),
+                    ("tenant", "tenant"),
                 ),
             ),
         )
@@ -214,12 +215,12 @@ def test_composite_subject_identity_preserves_key_order() -> None:
     registry.freeze()
     dataset = match(with_owner(replace(sources._owner, semantic_registry=registry)))
     assert payload(dataset).definition.entity.identity_signature == (
-        ("tenant", "string"),
-        ("id", "int64"),
+        ("tenant", "unknown"),
+        ("id", "unknown"),
     )
     identity = dataset.schema.columns[2].identity
     assert isinstance(identity, d._EntityFieldIdentity)
-    assert identity.identity_signature == (("tenant", "string"), ("id", "int64"))
+    assert identity.identity_signature == (("tenant", "unknown"), ("id", "unknown"))
 
 
 def test_event_parameter_capture_is_frozen_and_redacted() -> None:
@@ -229,7 +230,7 @@ def test_event_parameter_capture_is_frozen_and_redacted() -> None:
     assert isinstance(source_entity.source, TableSourceIR)
     source = JsonSourceIR(
         path="https://fixture.invalid/events",
-        schema=tuple((name, binding.data_type) for name, binding in source_entity.source.columns),
+        columns=source_entity.source.columns,
         query_params=(("tenant", SourceParamIR("tenant")),),
     )
     registry = replace(
@@ -305,7 +306,7 @@ def test_temporal_bounds_are_explicit_and_distinct_from_membership_scope() -> No
         )
 
 
-def test_source_admission_rejects_mixed_subjects_optional_roles_and_identity_types() -> None:
+def test_source_admission_rejects_mixed_subjects_optional_roles_and_unprojected_identity() -> None:
     sources = make_event_sources()
     original = sources._owner.semantic_registry
     finished = original.events["sales.finished"]
@@ -330,15 +331,14 @@ def test_source_admission_rejects_mixed_subjects_optional_roles_and_identity_typ
     source = replace(
         entity.source,
         columns=tuple(
-            (name, replace(binding, data_type="string") if name == "occurrence_id" else binding)
-            for name, binding in entity.source.columns
+            (name, binding) for name, binding in entity.source.columns if name != "occurrence_id"
         ),
     )
     registry = replace(
         original, entities={**original.entities, entity.semantic_id: replace(entity, source=source)}
     )
     registry.freeze()
-    with pytest.raises(EventConstructionError, match="homogeneous"):
+    with pytest.raises(SemanticLoadError, match="every identity key"):
         match(with_owner(replace(sources._owner, semantic_registry=registry)))
 
 
@@ -694,5 +694,5 @@ def test_event_semantic_digest_pins_authored_relationship_authority() -> None:
 
     # Pins the source-free definition with endpoint-owned Dimension join refs.
     assert semantic_dependency_digest(match(make_event_sources())) == (
-        "54b429fe4c8cc79390a82677da8ffbba4d09bf8971fd5f9dd9771937782f232a"
+        "572ef209662cf0433e39af30742fdf99974015e76f6e5791ee60a6d737c70db6"
     )

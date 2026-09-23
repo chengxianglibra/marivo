@@ -10,8 +10,6 @@ from math import isfinite
 from pathlib import PurePosixPath
 from typing import Any, Literal, TypeAlias
 
-import ibis
-
 __all__ = [
     "AiContextIR",
     "CsvSourceIR",
@@ -28,7 +26,6 @@ __all__ = [
     "QueryParamScalar",
     "QueryParamScalarList",
     "SourceParamIR",
-    "TableColumnBindingIR",
     "TableSourceIR",
     "json_body_to_string",
     "normalize_json_body",
@@ -304,34 +301,24 @@ def _validate_columns(value: object, field_name: str) -> None:
         _require_non_empty_str(column, field_name)
 
 
-def _validate_schema(value: object, field_name: str) -> None:
+def _normalize_source_columns(value: object, field_name: str) -> tuple[tuple[str, str], ...]:
     if not isinstance(value, tuple):
-        raise TypeError(
-            f"{field_name} must be tuple[tuple[str, str], ...], got {type(value).__name__}."
-        )
-    if not value:
-        raise ValueError(f"{field_name} must contain at least one typed column.")
+        raise TypeError(f"{field_name} must be tuple[tuple[str, str], ...].")
+    normalized: list[tuple[str, str]] = []
+    outputs: set[str] = set()
     for entry in value:
         if not isinstance(entry, tuple) or len(entry) != 2:
             raise TypeError(f"{field_name} entries must be tuple[str, str].")
-        name, type_name = entry
-        _require_non_empty_str(name, f"{field_name} column name")
-        _require_non_empty_str(type_name, f"{field_name} type name")
-
-
-def _validate_ibis_schema_types(
-    schema: tuple[tuple[str, str], ...],
-    field_name: str,
-) -> None:
-    for _name, type_name in schema:
-        try:
-            ibis.dtype(type_name)
-        except (TypeError, ValueError, RuntimeError):
-            raise ValueError(
-                f"{field_name} type name {type_name!r} must be a valid Ibis type string "
-                "(e.g. 'int64', 'string', 'float64'), not a SQL/DuckDB name such as "
-                "'BIGINT'."
-            ) from None
+        output, source = entry
+        output = _require_non_empty_str(output, f"{field_name} output name")
+        source = _require_non_empty_str(source, f"{field_name} source field")
+        _require_no_nul(output, f"{field_name} output name")
+        _require_no_nul(source, f"{field_name} source field")
+        if output in outputs:
+            raise ValueError(f"{field_name} contains duplicate output name {output!r}.")
+        outputs.add(output)
+        normalized.append((output, source))
+    return tuple(sorted(normalized))
 
 
 _JSON_PATH_MEMBER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -344,6 +331,8 @@ def _parse_json_path(name: str) -> tuple[tuple[str, object], ...]:
     ``a`` (top-level member), ``a.b`` (nested object member), ``a[0].b``
     (array index), or ``a[].b`` (array traversal, expanding one row per element).
     """
+    if not any(separator in name for separator in (".", "[", "]")):
+        return (("member", name),)
     segments: list[tuple[str, object]] = []
     for part in name.split("."):
         if not part:
@@ -376,42 +365,16 @@ def _parse_json_path(name: str) -> tuple[tuple[str, object], ...]:
     return tuple(segments)
 
 
-def _validate_json_field_paths(
-    schema: tuple[tuple[str, str], ...],
-    field_paths: object,
-) -> None:
-    if not isinstance(field_paths, tuple):
-        raise TypeError(
-            "JsonSourceIR.field_paths must be tuple[tuple[str, str], ...], "
-            f"got {type(field_paths).__name__}."
-        )
-
-    schema_names = {name for name, _ in schema}
-    seen: set[str] = set()
+def _validate_json_columns(columns: tuple[tuple[str, str], ...]) -> None:
     traversal_prefix: tuple[tuple[str, object], ...] | None = None
-    for entry in field_paths:
-        if not isinstance(entry, tuple) or len(entry) != 2:
-            raise TypeError("JsonSourceIR.field_paths entries must be (output, path) tuples.")
-        raw_output_name, raw_path = entry
-        output_name = _require_non_empty_str(
-            raw_output_name, "JsonSourceIR.field_paths output name"
-        )
-        path = _require_non_empty_str(raw_path, "JsonSourceIR.field_paths path")
-        if output_name not in schema_names:
-            raise ValueError(
-                f"JsonSourceIR.field_paths output {output_name!r} is not declared in schema."
-            )
-        if output_name in seen:
-            raise ValueError(f"JsonSourceIR.field_paths contains duplicate output {output_name!r}.")
-        seen.add(output_name)
-
+    for _output_name, path in columns:
         segments = _parse_json_path(path)
         traversal_positions = [
             index for index, (kind, _arg) in enumerate(segments) if kind == "traverse"
         ]
         if len(traversal_positions) > 1:
             raise ValueError(
-                f"JsonSourceIR.field_paths path {path!r} contains more than one array traversal."
+                f"JsonSourceIR.columns path {path!r} contains more than one array traversal."
             )
         if not traversal_positions:
             continue
@@ -420,7 +383,7 @@ def _validate_json_field_paths(
             traversal_prefix = prefix
         elif traversal_prefix != prefix:
             raise ValueError(
-                "JsonSourceIR.field_paths may traverse only one shared array path; "
+                "JsonSourceIR.columns may traverse only one shared array path; "
                 f"got both {_format_json_path(traversal_prefix)!r} and "
                 f"{_format_json_path(prefix)!r}."
             )
@@ -444,89 +407,20 @@ def _require_no_nul(value: str, field_name: str) -> None:
 
 
 @dataclass(frozen=True)
-class TableColumnBindingIR:
-    """One typed physical identifier in a projected table source."""
-
-    source: str
-    data_type: str
-
-    def __post_init__(self) -> None:
-        source = _require_non_empty_str(self.source, "TableColumnBindingIR.source")
-        _require_no_nul(source, "TableColumnBindingIR.source")
-        data_type = _require_non_empty_str(
-            self.data_type,
-            "TableColumnBindingIR.data_type",
-        )
-        _require_no_nul(data_type, "TableColumnBindingIR.data_type")
-        try:
-            canonical_data_type = str(ibis.dtype(data_type))
-        except (TypeError, ValueError, RuntimeError):
-            raise ValueError(
-                "TableColumnBindingIR.data_type must be a valid Ibis type string, "
-                f"got {data_type!r}."
-            ) from None
-        object.__setattr__(self, "data_type", canonical_data_type)
-
-    def to_dict(self) -> dict[str, str]:
-        return {"source": self.source, "data_type": self.data_type}
-
-
-def _normalize_table_column_bindings(
-    value: object,
-) -> tuple[tuple[str, TableColumnBindingIR], ...]:
-    if not isinstance(value, tuple):
-        raise TypeError(
-            "TableSourceIR.columns must be "
-            "tuple[tuple[str, TableColumnBindingIR], ...], "
-            f"got {type(value).__name__}."
-        )
-
-    normalized: list[tuple[str, TableColumnBindingIR]] = []
-    output_names: set[str] = set()
-    physical_sources: set[str] = set()
-    for entry in value:
-        if not isinstance(entry, tuple) or len(entry) != 2:
-            raise TypeError(
-                "TableSourceIR.columns entries must be tuple[str, TableColumnBindingIR]."
-            )
-        output_name, binding = entry
-        output_name = _require_non_empty_str(
-            output_name,
-            "TableSourceIR.columns output name",
-        )
-        _require_no_nul(output_name, "TableSourceIR.columns output name")
-        if type(binding) is not TableColumnBindingIR:
-            raise TypeError(
-                "TableSourceIR.columns values must be TableColumnBindingIR, "
-                f"got {type(binding).__name__} for output {output_name!r}."
-            )
-        if output_name in output_names:
-            raise ValueError(
-                f"TableSourceIR.columns contains duplicate output name {output_name!r}."
-            )
-        if binding.source in physical_sources:
-            raise ValueError(
-                f"TableSourceIR.columns contains duplicate physical source {binding.source!r}."
-            )
-        output_names.add(output_name)
-        physical_sources.add(binding.source)
-        normalized.append((output_name, binding))
-    return tuple(sorted(normalized, key=lambda item: item[0]))
-
-
-@dataclass(frozen=True)
 class TableSourceIR:
     """Physical table source for a dataset."""
 
     table: str
     database: str | tuple[str, ...] | None = None
-    columns: tuple[tuple[str, TableColumnBindingIR], ...] = ()
+    columns: tuple[tuple[str, str], ...] = ()
     kind: Literal["table"] = "table"
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.table, "TableSourceIR.table")
         _validate_database(self.database)
-        object.__setattr__(self, "columns", _normalize_table_column_bindings(self.columns))
+        object.__setattr__(
+            self, "columns", _normalize_source_columns(self.columns, "TableSourceIR.columns")
+        )
         _require_kind(self.kind, field_name="TableSourceIR.kind", expected="table")
 
     def to_dict(self) -> dict[str, object]:
@@ -539,9 +433,7 @@ class TableSourceIR:
             "database": database,
         }
         if self.columns:
-            result["columns"] = {
-                output_name: binding.to_dict() for output_name, binding in self.columns
-            }
+            result["columns"] = dict(self.columns)
         return result
 
     def to_ir(self) -> TableSourceIR:
@@ -584,14 +476,16 @@ class CsvSourceIR:
     """Physical CSV source for an entity."""
 
     path: str
-    schema: tuple[tuple[str, str], ...]
+    columns: tuple[tuple[str, str], ...] = ()
     header: bool = True
     delimiter: str = ","
     kind: Literal["csv"] = "csv"
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.path, "CsvSourceIR.path")
-        _validate_schema(self.schema, "CsvSourceIR.schema")
+        object.__setattr__(
+            self, "columns", _normalize_source_columns(self.columns, "CsvSourceIR.columns")
+        )
         if type(self.header) is not bool:
             raise TypeError(f"CsvSourceIR.header must be bool, got {type(self.header).__name__}.")
         _require_non_empty_str(self.delimiter, "CsvSourceIR.delimiter")
@@ -601,7 +495,7 @@ class CsvSourceIR:
         return {
             "kind": self.kind,
             "path": self.path,
-            "schema": dict(self.schema),
+            "columns": dict(self.columns) if self.columns else None,
             "header": self.header,
             "delimiter": self.delimiter,
         }
@@ -615,10 +509,9 @@ class JsonSourceIR:
     """Physical JSON source for an entity."""
 
     path: str
-    schema: tuple[tuple[str, str], ...]
+    columns: tuple[tuple[str, str], ...] = ()
     format: Literal["auto", "newline_delimited", "array"] = "auto"
     records_path: str | None = None
-    field_paths: tuple[tuple[str, str], ...] = ()
     query_params: tuple[tuple[str, JsonQueryParamValue], ...] = ()
     method: Literal["GET", "POST"] = "GET"
     body_json: str | None = None
@@ -627,21 +520,11 @@ class JsonSourceIR:
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.path, "JsonSourceIR.path")
-        _validate_schema(self.schema, "JsonSourceIR.schema")
-        _validate_ibis_schema_types(self.schema, "JsonSourceIR.schema")
-        _validate_json_field_paths(self.schema, self.field_paths)
-        paths_by_output = dict(self.field_paths)
-        object.__setattr__(
-            self,
-            "field_paths",
-            tuple(
-                (output_name, paths_by_output[output_name])
-                for output_name, _type_name in self.schema
-                if output_name in paths_by_output
-            ),
-        )
-        if self.field_paths and self.records_path is None:
-            raise ValueError("JsonSourceIR.field_paths requires records_path.")
+        normalized_columns = _normalize_source_columns(self.columns, "JsonSourceIR.columns")
+        _validate_json_columns(normalized_columns)
+        object.__setattr__(self, "columns", normalized_columns)
+        if any("[]" in path for _output, path in normalized_columns) and self.records_path is None:
+            raise ValueError("JsonSourceIR.columns array traversal requires records_path.")
         _require_json_format(self.format, "JsonSourceIR.format")
         _validate_json_records_path(self.records_path)
         _validate_json_query_params(self.query_params)
@@ -710,7 +593,7 @@ class JsonSourceIR:
         result: dict[str, object] = {
             "kind": self.kind,
             "path": self.path,
-            "schema": dict(self.schema),
+            "columns": dict(self.columns) if self.columns else None,
             "format": self.format,
             "records_path": self.records_path,
             "query_params": {
@@ -723,8 +606,6 @@ class JsonSourceIR:
                 {"path": list(path), "name": param.name} for path, param in self.body_params
             ],
         }
-        if self.field_paths:
-            result["field_paths"] = dict(self.field_paths)
         return result
 
     def to_ir(self) -> JsonSourceIR:

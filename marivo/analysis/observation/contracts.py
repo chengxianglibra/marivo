@@ -493,24 +493,18 @@ def _query_parameter_payload(value: JsonQueryParamValue) -> CanonicalValue:
 
 def _source_payload(source: EntitySourceIR) -> CanonicalValue:
     if type(source) is TableSourceIR:
-        return (
-            "table",
-            source.table,
-            source.database,
-            tuple((name, binding.source, binding.data_type) for name, binding in source.columns),
-        )
+        return ("table", source.table, source.database, source.columns)
     if type(source) is ParquetSourceIR:
         return ("parquet", source.path, source.hive_partitioning, source.columns)
     if type(source) is CsvSourceIR:
-        return ("csv", source.path, source.schema, source.header, source.delimiter)
+        return ("csv", source.path, source.columns, source.header, source.delimiter)
     if type(source) is JsonSourceIR:
         return (
             "json",
             source.path,
-            source.schema,
+            source.columns,
             source.format,
             source.records_path,
-            source.field_paths,
             tuple((name, _query_parameter_payload(value)) for name, value in source.query_params),
             source.method,
             source.body_json,
@@ -644,7 +638,6 @@ def dimension_payload(dimension: TargetDimensionContract) -> CanonicalValue:
         dimension.nullable,
         dimension.granularity,
         dimension.timezone,
-        dimension.physical_type,
         _parse_payload(dimension.parse),
     )
 
@@ -926,6 +919,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
             *(f"timestamp({scale})" for scale in range(7)),
             "datetime",
             "decimal",
+            "unknown",
             *(kind for entity in entities for _, kind in entity.columns),
         }
     )

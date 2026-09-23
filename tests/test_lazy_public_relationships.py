@@ -14,14 +14,14 @@ _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
     source=md.table("orders", columns={
-        "order_id": md.source_column("order_id", data_type="int64"),
-        "region": md.source_column("region", data_type="string")}), primary_key=["order_id"])
+        "order_id": "order_id",
+        "region": "region"}), primary_key=["order_id"])
 events = ms.entity(name="events", datasource=ms.ref.datasource("warehouse"),
     source=md.table("events", columns={
-        "event_id": md.source_column("event_id", data_type="int64"),
-        "order_id": md.source_column("order_id", data_type="int64"),
-        "kind": md.source_column("kind", data_type="string"),
-        "occurred_at": md.source_column("occurred_at", data_type="timestamp")}),
+        "event_id": "event_id",
+        "order_id": "order_id",
+        "kind": "kind",
+        "occurred_at": "occurred_at"}),
     primary_key=["event_id"])
 subject_key = ms.dimension_column(name="subject_key", entity=orders, column="order_id")
 participant_key = ms.dimension_column(name="participant_key", entity=events, column="order_id")

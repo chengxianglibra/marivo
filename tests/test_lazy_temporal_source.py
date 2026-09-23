@@ -12,7 +12,7 @@ from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
-from marivo.datasource.ir import TableColumnBindingIR, TableSourceIR
+from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic.ir import (
     CumulativeComposition,
@@ -40,7 +40,6 @@ def test_report_days(representation: str, tmp_path: Path) -> None:
     with temporal_fixture(
         tmp_path,
         physical="VARCHAR" if string else "TIMESTAMP",
-        declared="string" if string else "timestamp(6)",
         parse=parse,
     ) as fixture:
         logical = (
@@ -69,7 +68,6 @@ def test_hour_partition_endpoints(tmp_path: Path, partial: bool, expected: int) 
     with temporal_fixture(
         tmp_path,
         physical="VARCHAR",
-        declared="string",
         report_zone="UTC",
         parse=StrptimeParse("%Y%m%d%H"),
         granularity="hour",
@@ -126,14 +124,13 @@ def test_native_dst_hour_buckets(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "physical,declared,parse,values",
+    "physical,parse,values",
     [
-        ("DATE", "date", DateParse(), ("2026-07-01", "2026-07-02")),
-        ("BIGINT", "int64", StrptimeParse("%Y%m%d"), ("20260701", "20260702")),
-        ("VARCHAR", "string", StrptimeParse("%d/%m/%Y"), ("01/07/2026", "02/07/2026")),
+        ("DATE", DateParse(), ("2026-07-01", "2026-07-02")),
+        ("BIGINT", StrptimeParse("%Y%m%d"), ("20260701", "20260702")),
+        ("VARCHAR", StrptimeParse("%d/%m/%Y"), ("01/07/2026", "02/07/2026")),
         (
             "TIMESTAMPTZ",
-            "timestamp('UTC', 6)",
             None,
             ("2026-07-01 15:59:00+00", "2026-07-01 16:01:00+00"),
         ),
@@ -142,13 +139,10 @@ def test_native_dst_hour_buckets(tmp_path: Path) -> None:
 def test_civil_dates_and_absolute_instants(
     tmp_path: Path,
     physical: str,
-    declared: str,
     parse: DateParse | StrptimeParse | None,
     values: tuple[str, ...],
 ) -> None:
-    with temporal_fixture(
-        tmp_path, physical=physical, declared=declared, parse=parse, values=values
-    ) as fixture:
+    with temporal_fixture(tmp_path, physical=physical, parse=parse, values=values) as fixture:
         logical = (
             fixture.sources.observe(
                 ref.metric("sales.revenue"),
@@ -295,7 +289,6 @@ def test_composite_date_hour_axis_is_localized_before_day_bucket(tmp_path: Path)
     with temporal_fixture(
         tmp_path,
         physical="DATE",
-        declared="date",
         parse=DateParse(),
         granularity="day",
         values=("2026-07-01", "2026-07-01"),
@@ -345,7 +338,6 @@ def _hour_prefix_fixture(
     column: str,
     *,
     cells: tuple[object, ...],
-    declared: str | None = None,
 ) -> tuple[LazySources, Registry]:
     """Bind ``column`` as an hour-prefix axis over the DATE prefix column."""
     for index, cell in enumerate(cells, 1):
@@ -355,20 +347,7 @@ def _hour_prefix_fixture(
         dimensions=dict(fixture.registry.dimensions),
         entities=dict(fixture.registry.entities),
     )
-    if declared is not None:
-        entity = registry.entities["sales.orders"]
-        source = entity.source
-        assert isinstance(source, TableSourceIR)
-        registry.entities[entity.semantic_id] = replace(
-            entity,
-            source=replace(
-                source,
-                columns=(
-                    *source.columns,
-                    (column, TableColumnBindingIR(column, declared)),
-                ),
-            ),
-        )
+    entity = registry.entities["sales.orders"]
     registry.dimensions[AXIS] = replace(registry.dimensions[AXIS], is_default=False)
     hour = "sales.orders.hour"
     registry.dimensions[hour] = replace(
@@ -411,7 +390,6 @@ def test_valid_string_and_integer_hour_columns_share_one_value_domain(tmp_path: 
         with temporal_fixture(
             case,
             physical="DATE",
-            declared="date",
             parse=DateParse(),
             granularity="day",
             report_zone="UTC",
@@ -442,7 +420,6 @@ def test_string_hour_prefix_keeps_the_integer_report_zone_matrix(
     with temporal_fixture(
         tmp_path,
         physical="DATE",
-        declared="date",
         parse=DateParse(),
         granularity="day",
         report_zone=zone,
@@ -461,7 +438,6 @@ def test_submicrosecond_source_is_never_silently_truncated(tmp_path: Path) -> No
     with temporal_fixture(
         tmp_path,
         physical="TIMESTAMP_NS",
-        declared="timestamp(9)",
         parse=TimestampParse(timezone="UTC"),
     ) as fixture:
         logical = fixture.sources.observe(
@@ -476,7 +452,6 @@ def test_submicrosecond_source_is_never_silently_truncated(tmp_path: Path) -> No
 
 
 def test_validity_selection_uses_report_endpoint_and_source_instants(tmp_path: Path) -> None:
-    from marivo.datasource.ir import TableSourceIR
 
     with temporal_fixture(tmp_path) as fixture:
         fixture.backend.raw_sql("DELETE FROM validity")
@@ -500,9 +475,7 @@ def test_validity_selection_uses_report_endpoint_and_source_instants(tmp_path: P
                 columns=tuple(
                     (
                         name,
-                        replace(binding, data_type="timestamp(6)")
-                        if name in ("start", "end")
-                        else binding,
+                        binding,
                     )
                     for name, binding in source.columns
                 ),
@@ -539,11 +512,11 @@ def test_validity_selection_uses_report_endpoint_and_source_instants(tmp_path: P
 # are absent on purpose: they produce a civil date, which carries no time of day
 # to be inside or outside a gap. Each variant must still retain its time
 # authority in the compiled result.
-NAIVE_TIME_BEARING_PARSES: dict[str, tuple[str, str, SemanticParse | None]] = {
-    "native-naive": ("TIMESTAMP", "timestamp(6)", None),
-    "datetime": ("TIMESTAMP", "timestamp(6)", DatetimeParse()),
-    "timestamp": ("TIMESTAMP", "timestamp(6)", TimestampParse()),
-    "strptime": ("VARCHAR", "string", StrptimeParse("%Y-%m-%d %H:%M:%S")),
+NAIVE_TIME_BEARING_PARSES: dict[str, tuple[str, SemanticParse | None]] = {
+    "native-naive": ("TIMESTAMP", None),
+    "datetime": ("TIMESTAMP", DatetimeParse()),
+    "timestamp": ("TIMESTAMP", TimestampParse()),
+    "strptime": ("VARCHAR", StrptimeParse("%Y-%m-%d %H:%M:%S")),
 }
 
 
@@ -553,7 +526,7 @@ def test_naive_time_bearing_parse_coverage_is_exhaustive() -> None:
 
     every_variant = set(get_args(SemanticParse))
     covered = {
-        *(type(parse) for _, _, parse in NAIVE_TIME_BEARING_PARSES.values() if parse is not None),
+        *(type(parse) for _, parse in NAIVE_TIME_BEARING_PARSES.values() if parse is not None),
         HourPrefixParse,
         DateParse,
     }
@@ -565,18 +538,17 @@ def test_naive_time_bearing_parse_coverage_is_exhaustive() -> None:
 
 
 @pytest.mark.parametrize(
-    ("physical", "declared", "parse"),
+    ("physical", "parse"),
     NAIVE_TIME_BEARING_PARSES.values(),
     ids=NAIVE_TIME_BEARING_PARSES,
 )
 def test_every_naive_time_bearing_axis_kind_retains_authority_without_preflight(
-    physical: str, declared: str, parse: SemanticParse | None, tmp_path: Path
+    physical: str, parse: SemanticParse | None, tmp_path: Path
 ) -> None:
     """Every naive wall-clock shape keeps provenance without scanning source rows."""
     with temporal_fixture(
         tmp_path,
         physical=physical,
-        declared=declared,
         parse=parse,
         values=("2026-07-01 12:00:00",),
     ) as fixture:
@@ -596,7 +568,6 @@ def test_composite_hour_prefix_axis_retains_authority_without_preflight(tmp_path
     with temporal_fixture(
         tmp_path,
         physical="DATE",
-        declared="date",
         parse=DateParse(),
         granularity="day",
         values=("2026-07-01",),
@@ -748,7 +719,6 @@ def test_duckdb_exact_nanosecond_fixed_zone_path_is_preserved(tmp_path: Path) ->
     with temporal_fixture(
         tmp_path,
         physical="TIMESTAMP_NS",
-        declared="timestamp(9)",
         parse=TimestampParse(timezone="UTC"),
         report_zone="UTC",
         values=("2026-07-01 12:00:00.000000001",),

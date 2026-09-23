@@ -27,7 +27,6 @@ PUBLIC_CALLABLE_TARGETS = {
     "connect",
     "test",
     "table",
-    "source_column",
     "parquet",
     "csv",
     "source_param",
@@ -88,7 +87,6 @@ EXPECTED_EFFECTS = {
         flags=("may_cache_resolved_secret",),
     ),
     "table": AuthoringEffects(data_access="none", connection="none"),
-    "source_column": AuthoringEffects(data_access="none", connection="none"),
     "parquet": AuthoringEffects(data_access="none", connection="none"),
     "csv": AuthoringEffects(data_access="none", connection="none"),
     "source_param": AuthoringEffects(data_access="none", connection="none"),
@@ -187,11 +185,7 @@ def test_raw_sql_never_claims_bounded_backend_work() -> None:
 def test_registry_input_contracts_match_required_datasource_arguments() -> None:
     assert tuple(
         requirement.family for requirement in REGISTRY.by_canonical_id("table").input_requirements
-    ) == ("TableName", "TableColumnBindings")
-    assert tuple(
-        requirement.family
-        for requirement in REGISTRY.by_canonical_id("source_column").input_requirements
-    ) == ("PhysicalColumnName", "IbisDataType")
+    ) == ("TableName", "ProjectionColumns")
     partition_families = tuple(
         requirement.family
         for requirement in REGISTRY.by_canonical_id("partition").input_requirements
@@ -243,7 +237,6 @@ def test_type_contracts_list_registered_consumption_methods() -> None:
 def test_registry_resolves_functions_and_bound_methods() -> None:
     assert REGISTRY.by_callable(md.inspect) is REGISTRY.by_canonical_id("inspect")
     assert REGISTRY.by_callable(md.source_param) is REGISTRY.by_canonical_id("source_param")
-    assert REGISTRY.by_callable(md.source_column) is REGISTRY.by_canonical_id("source_column")
     assert REGISTRY.by_callable(SourceInspection.source_column) is REGISTRY.by_canonical_id(
         "SourceInspection.source_column"
     )

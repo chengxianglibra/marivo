@@ -19,8 +19,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
 from zoneinfo import ZoneInfo
 
-import ibis.expr.datatypes as dt
-
 from marivo.datasource.ir import (
     CsvSourceIR,
     DatasourceIR,
@@ -170,13 +168,13 @@ def _target_error(
 
 def _target_columns(entity: EntityIR) -> tuple[tuple[str, str], ...]:
     source = entity.source
-    if isinstance(source, TableSourceIR):
-        columns = tuple((name, value.data_type) for name, value in source.columns)
-    elif isinstance(source, CsvSourceIR | JsonSourceIR):
-        columns = source.schema
+    if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
+        names = tuple(name for name, _source in source.columns)
+    elif isinstance(source, ParquetSourceIR):
+        names = tuple(source.columns or ())
     else:
-        columns = ()
-    return tuple((name, str(dt.dtype(data_type))) for name, data_type in columns)
+        names = ()
+    return tuple((name, "unknown") for name in names)
 
 
 def _snapshot_target_source(source: EntitySourceIR) -> EntitySourceIR:
@@ -192,13 +190,12 @@ def _snapshot_target_source(source: EntitySourceIR) -> EntitySourceIR:
             query.append((name, frozen_value))
         return replace(
             source,
-            schema=tuple((name, dtype) for name, dtype in source.schema),
-            field_paths=tuple((name, path) for name, path in source.field_paths),
+            columns=tuple((name, path) for name, path in source.columns),
             query_params=tuple(query),
             body_params=tuple((tuple(path), parameter) for path, parameter in source.body_params),
         )
     if isinstance(source, CsvSourceIR):
-        return replace(source, schema=tuple((name, dtype) for name, dtype in source.schema))
+        return replace(source, columns=tuple(source.columns))
     if isinstance(source, ParquetSourceIR):
         return replace(
             source, columns=tuple(source.columns) if source.columns is not None else None
@@ -222,16 +219,16 @@ def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetD
             ref=dimension_id,
             expected="a declared direct source column on a loaded Entity",
             received="missing declared source-column facts",
-            action="Declare a direct-column Dimension with typed source columns.",
+            action="Declare a direct-column Dimension on a source field, and include it in columns=... when the source is projected.",
         )
     columns = dict(_target_columns(entity))
-    data_type = columns.get(dimension.source_column)
-    if data_type is None:
+    projected_names = set(columns)
+    if projected_names and dimension.source_column not in projected_names:
         _target_error(
             ref=dimension_id,
-            expected="a declared source-column type",
-            received="column type is not declared",
-            action="Declare the Dimension column in the source schema.",
+            expected="a logical source column exposed by the projection",
+            received=f"{dimension.source_column!r} is not projected",
+            action="Add the Dimension source column to columns=... or omit the projection.",
         )
     dimension_ref = (
         _create_ref(SemanticKind.TIME_DIMENSION, dimension_id)
@@ -239,32 +236,22 @@ def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetD
         else _create_ref(SemanticKind.DIMENSION, dimension_id)
     )
     parse = dimension.parse
-    if (
-        isinstance(parse, DateParse)
-        or (parse is None and dt.dtype(data_type).is_date())
-        or (isinstance(parse, StrptimeParse) and not is_time_bearing_format(parse.format))
+    if isinstance(parse, DateParse) or (
+        isinstance(parse, StrptimeParse) and not is_time_bearing_format(parse.format)
     ):
         logical_type = "date"
     elif dimension.is_time_dimension:
-        if parse is None and not dt.dtype(data_type).is_timestamp():
-            _target_error(
-                ref=dimension_id,
-                expected="a temporal source type or explicit temporal parse",
-                received="a non-temporal source type without parse",
-                action="Declare the source time type or a governed temporal parser.",
-            )
         logical_type = "timestamp"
     else:
-        logical_type = data_type
+        logical_type = "unknown"
     return TargetDimensionContract(
         ref=RefPayloadV1.from_ref(dimension_ref),
         entity_ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.ENTITY, entity.semantic_id)),
         source_column=dimension.source_column,
         logical_type=logical_type,
-        nullable=dt.dtype(data_type).nullable,
+        nullable=True,
         is_time_dimension=dimension.is_time_dimension,
         granularity=dimension.granularity,
-        physical_type=data_type,
         parse=parse,
         is_default=dimension.is_default,
         timezone=(
@@ -298,7 +285,6 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             action="Use an Entity from the current Registry.",
         )
     columns = _target_columns(entity)
-    types = dict(columns)
     key = entity.primary_key
     seen_keys: set[str] = set()
     duplicate_keys: list[str] = []
@@ -316,33 +302,21 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             constraint_id=ConstraintId.ENTITY_IDENTITY_KEY_UNIQUE,
             location=entity.location,
         )
-    missing_types = tuple(name for name in key if name not in types)
-    if missing_types:
-        if isinstance(entity.source, TableSourceIR):
-            action = (
-                "Declare a complete md.table(columns={...}) typed interface containing every "
-                "identity key; md.inspect(...).source_column(name) can provide each binding."
-                if not entity.source.columns
-                else f"Add bindings for {missing_types!r} to md.table(columns=...); "
-                "md.inspect(...).source_column(name) can provide each binding."
-            )
-        elif isinstance(entity.source, CsvSourceIR | JsonSourceIR):
-            action = f"Declare types for {missing_types!r} in the source schema."
-        else:
-            action = (
-                "Use a source with authored type facts for versioned identity keys; "
-                "md.parquet(...) has no typed schema declaration."
-            )
+    projected_names = set(dict(columns))
+    if isinstance(entity.source, ParquetSourceIR) and entity.source.columns is not None:
+        projected_names = set(entity.source.columns)
+    missing_columns = tuple(name for name in key if projected_names and name not in projected_names)
+    if missing_columns:
         _target_error(
             ref=entity_id,
-            expected="declared source types for every identity key",
-            received=f"missing type facts for {missing_types!r}",
-            action=action,
-            kind=ErrorKind.MISSING_IDENTITY_KEY_TYPE,
-            constraint_id=ConstraintId.ENTITY_IDENTITY_KEY_TYPED,
+            expected="every identity key to be exposed by the source projection",
+            received=f"identity columns absent from projection {missing_columns!r}",
+            action="Add these identity columns to columns=... or omit the projection.",
+            kind=ErrorKind.MISSING_IDENTITY_KEY_COLUMN,
+            constraint_id=ConstraintId.ENTITY_IDENTITY_KEY_PROJECTED,
             location=entity.location,
         )
-    signature = tuple((name, types[name]) for name in key)
+    signature = tuple((name, "unknown") for name in key)
     version: TargetSnapshotVersion | TargetValidityVersion | None = None
     row_key = key
     authored = entity.versioning
@@ -871,7 +845,7 @@ def _infer_terminal_cast(expr: ast.AST) -> str | None:
 def _time_dimension_dtype_advisory(
     field_ir: DimensionIR, fn: Callable[..., Any] | None
 ) -> str | None:
-    """Return the inferred cast target if it conflicts with declared data_type, else None."""
+    """Return a cast target that conflicts with the Dimension's declared parse result."""
     if not field_ir.is_time_dimension:
         return None
     parse = field_ir.parse
@@ -889,7 +863,7 @@ def _time_dimension_dtype_advisory(
     compatible = _CAST_TARGET_TO_DECLARED.get(inferred)
     if compatible is None:
         return None
-    # Extract data_type from parse variant for comparison
+    # The parse declaration determines the semantic expression's expected kind.
     parse = field_ir.parse
     data_type_val: str | None = None
     if parse is None:
@@ -1827,9 +1801,14 @@ def _validate_projected_source_aliases(
         *, object_id: str, entity: EntityIR, field: str, column: str, location: SourceLocation
     ) -> None:
         source = entity.source
-        if not isinstance(source, TableSourceIR) or not source.columns:
+        if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
+            aliases = {output_name for output_name, _source in source.columns}
+        elif isinstance(source, ParquetSourceIR) and source.columns is not None:
+            aliases = set(source.columns)
+        else:
             return
-        aliases = {output_name for output_name, _binding in source.columns}
+        if not aliases:
+            return
         if column in aliases:
             return
         missing_by_entity.setdefault(entity.semantic_id, []).append(
@@ -1879,9 +1858,12 @@ def _validate_projected_source_aliases(
     for entity_id, missing in missing_by_entity.items():
         entity = registry.entities[entity_id]
         source = entity.source
-        if not isinstance(source, TableSourceIR):
+        if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
+            aliases = tuple(output_name for output_name, _source in source.columns)
+        elif isinstance(source, ParquetSourceIR) and source.columns is not None:
+            aliases = source.columns
+        else:
             continue
-        aliases = tuple(output_name for output_name, _binding in source.columns)
         visible_missing = missing[:_PROJECTED_ALIAS_DISPLAY_LIMIT]
         rendered_missing = ", ".join(
             f"{item['object']}.{item['field']}={item['received_column']!r}"
@@ -1904,8 +1886,8 @@ def _validate_projected_source_aliases(
                 expected="stable output aliases declared by md.table(columns=...)",
                 received=", ".join(str(item["received_column"]) for item in visible_missing),
                 hint=(
-                    "Add every missing md.source_column(...) binding to the entity's "
-                    "md.table(columns=...), or change each semantic column= to an exposed alias."
+                    "Add every missing logical output to the entity's columns= projection, "
+                    "or change each semantic column= to an exposed alias."
                 ),
                 details={
                     "entity": entity_id,
@@ -2855,7 +2837,7 @@ def assembly_validate(
                 )
             )
 
-    # Dtype/data_type mismatch advisory warnings
+    # Warn when the expression casts away from its declared temporal parse result.
     for f_id, f_ir in registry.dimensions.items():
         field_ref = (
             ref_factory.time_dimension(f_id)
@@ -2870,26 +2852,26 @@ def assembly_validate(
         if inferred is not None:
             compatible = sorted(_CAST_TARGET_TO_DECLARED.get(inferred, set()))
             parse = f_ir.parse
-            declared_data_type: str | None = None
+            declared_kind: str | None = None
             if parse is None:
                 continue  # deferred parse — skip dtype advisory
             elif isinstance(parse, DateParse):
-                declared_data_type = "date"
+                declared_kind = "date"
             elif isinstance(parse, DatetimeParse):
-                declared_data_type = "datetime"
+                declared_kind = "datetime"
             elif isinstance(parse, TimestampParse):
-                declared_data_type = "timestamp"
+                declared_kind = "timestamp"
             elif isinstance(parse, StrptimeParse):
-                declared_data_type = "strptime"
+                declared_kind = "strptime"
             elif isinstance(parse, HourPrefixParse):
-                declared_data_type = "hour_prefix"
+                declared_kind = "hour_prefix"
             warnings.append(
                 StructuredWarning(
                     kind=WarningKind.TIME_DIMENSION_DTYPE_ADVISORY.value,
                     message=(
-                        f"Time field {f_id!r} declared data_type={declared_data_type!r} "
+                        f"Time field {f_id!r} declares parse kind={declared_kind!r} "
                         f"but body .cast({inferred!r}) produces ibis dtype {inferred!r}. "
-                        f"Compatible data_type values: {', '.join(compatible)}. "
+                        f"Compatible parse kinds: {', '.join(compatible)}. "
                         "This mismatch causes TypeError at execution."
                     ),
                     refs=(f_id,),

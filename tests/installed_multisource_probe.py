@@ -106,16 +106,16 @@ def configure(engine: str, project: Path, prefix: str) -> None:
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
     source=md.table("{prefix}orders", columns={{
-        "id": md.source_column("id", data_type="int64"),
-        "customer_id": md.source_column("customer_id", data_type="int64"),
-        "amount": md.source_column("amount", data_type="float64"),
-        "weight": md.source_column("weight", data_type="float64"),
-        "channel": md.source_column("channel", data_type="string"),
-        "day": md.source_column("day", data_type="date")}}), primary_key=["id"])
+        "id": "id",
+        "customer_id": "customer_id",
+        "amount": "amount",
+        "weight": "weight",
+        "channel": "channel",
+        "day": "day"}}), primary_key=["id"])
 customers = ms.entity(name="customers", datasource=ms.ref.datasource("warehouse"),
     source=md.table("{prefix}customers", columns={{
-        "id": md.source_column("id", data_type="int64"),
-        "region": md.source_column("region", data_type="string")}}), primary_key=["id"])
+        "id": "id",
+        "region": "region"}}), primary_key=["id"])
 customer_key = ms.dimension_column(name="customer_key", entity=customers, column="id")
 order_customer = ms.dimension_column(name="customer_key", entity=orders, column="customer_id")
 region = ms.dimension_column(name="region", entity=customers, column="region")

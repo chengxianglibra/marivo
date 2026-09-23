@@ -50,7 +50,7 @@ def test_snapshot_identity_includes_nonsecret_source_parameters() -> None:
 
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"start": md.source_param("start")},
     )
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
@@ -74,7 +74,7 @@ def test_snapshot_identity_list_source_params_deterministic_and_order_sensitive(
 
     source = md.json(
         "https://api.example/query",
-        schema={"value": "float64"},
+        columns={"value": "value"},
         query_params={"specificsource": md.source_param("apps")},
     )
     scope = md.unpruned(max_rows=100, timeout_seconds=30)

@@ -313,16 +313,10 @@ score = ms.measure_column(
 total = ms.aggregate(name="total", measure=score, agg="sum")
 """
     first_source = template.format(
-        bindings=(
-            '"score": md.source_column("generated.score", data_type="double"), '
-            '"event_time": md.source_column("event.timestamp", data_type="timestamp")'
-        )
+        bindings=('"score": "generated.score", "event_time": "event.timestamp"')
     )
     reordered_source = template.format(
-        bindings=(
-            '"event_time": md.source_column("event.timestamp", data_type="timestamp"), '
-            '"score": md.source_column("generated.score", data_type="float64")'
-        )
+        bindings=('"event_time": "event.timestamp", "score": "generated.score"')
     )
     changed_source = reordered_source.replace('"generated.score"', '"generated.score.v2"')
 
@@ -346,14 +340,8 @@ total = ms.aggregate(name="total", measure=score, agg="sum")
         (
             "columns",
             (
-                (
-                    "event_time",
-                    (("data_type", "timestamp"), ("source", "event.timestamp")),
-                ),
-                (
-                    "score",
-                    (("data_type", "float64"), ("source", "generated.score")),
-                ),
+                ("event_time", "event.timestamp"),
+                ("score", "generated.score"),
             ),
         ),
         ("database", "warehouse"),

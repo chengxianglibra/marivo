@@ -9,7 +9,7 @@ from marivo.semantic.catalog import EntityDetails, MetricDetails, SemanticCatalo
 from marivo.semantic.errors import SemanticLoadFailed
 
 
-def test_versioned_entity_load_reports_missing_types_before_key_overlap(
+def test_versioned_entity_load_rejects_identity_version_overlap_without_source_access(
     semantic_project_factory,
 ) -> None:
     project = semantic_project_factory(
@@ -35,8 +35,8 @@ def test_versioned_entity_load_reports_missing_types_before_key_overlap(
     assert result.status == "errored"
     identity_errors = [error for error in result.errors if error.semantic_refs == ("sales.daily",)]
     assert len(identity_errors) == 1
-    assert identity_errors[0].kind == "missing_identity_key_type"
-    assert identity_errors[0].received == "missing type facts for ('id', 'dt')"
+    assert identity_errors[0].kind == "identity_version_overlap"
+    assert "dt" in (identity_errors[0].received or "")
 
 
 def test_base_metric_requires_additivity(semantic_project_factory):
@@ -179,7 +179,7 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
                 "user_profile_daily = ms.entity(\n"
                 "    name='user_profile_daily',\n"
                 "    datasource=ms.ref.datasource('warehouse'),\n"
-                "    source=md.table('user_profile_daily', columns={'user_id': md.source_column('user_id', data_type='int64'), 'dt': md.source_column('dt', data_type='string')}),\n"
+                "    source=md.table('user_profile_daily', columns={'user_id': 'user_id', 'dt': 'dt'}),\n"
                 "    primary_key=['user_id'],\n"
                 "    versioning=ms.snapshot(\n"
                 "        partition_field=ms.ref.time_dimension('sales.user_profile_daily.dt'),\n"

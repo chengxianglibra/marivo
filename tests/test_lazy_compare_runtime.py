@@ -415,10 +415,7 @@ def test_registered_numeric_source_and_local_comparison_are_lossless(
         entity,
         source=replace(
             entity.source,
-            columns=tuple(
-                (name, replace(binding, data_type=numeric) if name == "amount" else binding)
-                for name, binding in entity.source.columns
-            ),
+            columns=tuple((name, binding) for name, binding in entity.source.columns),
         ),
     )
     registry = replace(registry, entities=entities)

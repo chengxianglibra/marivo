@@ -204,10 +204,33 @@ def membership_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> 
                 )
         elif not _matches_type(field.logical_type_id, physical):
             _integrity("declared contribution coordinate types", "part coordinate type differs")
-    if (
-        schema.field(DISTINCT_KEY_COLUMN).type
-        != dt.dtype(authority.membership.key_logical_type).to_pyarrow()
-    ):
+    member_type = schema.field(DISTINCT_KEY_COLUMN).type
+    key_type = authority.membership.key_logical_type
+    if key_type == "unknown":
+        supported = any(
+            check(member_type)
+            for check in (
+                pa.types.is_boolean,
+                pa.types.is_integer,
+                pa.types.is_floating,
+                pa.types.is_decimal,
+                pa.types.is_string,
+                pa.types.is_binary,
+                pa.types.is_date,
+                pa.types.is_time,
+                pa.types.is_timestamp,
+            )
+        )
+    elif key_type == "identity_tuple":
+        signature = authority.membership.identity_signature
+        supported = bool(
+            pa.types.is_struct(member_type)
+            and tuple(member_type.names) == tuple(name for name, _ in signature)
+            and all(_matches_type(kind, member_type.field(name).type) for name, kind in signature)
+        )
+    else:
+        supported = member_type == dt.dtype(key_type).to_pyarrow()
+    if not supported:
         _integrity("the exact registered private member key type", "part member type differs")
     return tuple(field.name for field in keys)
 

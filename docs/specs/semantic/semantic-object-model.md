@@ -108,10 +108,11 @@ it is not a copy of the source table's physical uniqueness constraint. Version
 coordinates belong to `versioning` and are not added to `K` merely to distinguish
 historical rows. The same `K` may appear in multiple historical versions.
 `ms.entity(...)` is an assignment-style constructor returning `Ref[entity]`;
-it cannot decorate a function. For versioned Entities, each identity key and
-version axis needs an authored source type even when `md.inspect(...)` can read
-the physical catalog. Loading checks duplicate keys, missing type facts, and
-identity/version overlap in that order, reporting the first defect for each Entity.
+it cannot decorate a function. Identity and version columns must be exposed by
+the source projection, but their physical types are read from the source when
+execution first needs them. Loading remains source-I/O free and checks
+projection, duplicate-key declarations, and identity/version overlap without
+requiring authored physical type facts.
 
 ```python
 warehouse = ms.ref.datasource("warehouse")
@@ -127,7 +128,9 @@ orders = ms.entity(
 - `source` is a datasource-owned structured descriptor: `md.table(...)` for a
   backend table/view; `md.parquet(...)` and `md.csv(...)` for DuckDB file
   sources; and `md.json(...)` for a DuckDB-backed JSON file or HTTP API source.
-  CSV and JSON require typed physical `schema=` mappings.
+  Table, CSV, and JSON sources accept an optional projection mapping; physical
+  types come from source metadata or from the actual file/API read. JSON paths
+  are expressed in `columns=` alongside output aliases.
 - Entities have no Python body and no inline SQL view. A persisted SQL view must
   be exposed as a backend table via `source=md.table(...)`; one-off SQL
   transforms are out of scope.
@@ -156,8 +159,8 @@ user_profile_daily = ms.entity(
     name="user_profile_daily",
     datasource=warehouse,
     source=md.table("user_profile_daily", columns={
-        "user_id": md.source_column("user_id", data_type="int64"),
-        "dt": md.source_column("dt", data_type="string"),
+        "user_id": "user_id",
+        "dt": "dt",
     }),
     primary_key=["user_id"],
     versioning=ms.snapshot(
@@ -199,9 +202,9 @@ user_history = ms.entity(
     name="user_history",
     datasource=warehouse,
     source=md.table("user_history", columns={
-        "user_id": md.source_column("user_id", data_type="int64"),
-        "valid_from": md.source_column("valid_from", data_type="date"),
-        "valid_to": md.source_column("valid_to", data_type="date"),
+        "user_id": "user_id",
+        "valid_from": "valid_from",
+        "valid_to": "valid_to",
     }),
     primary_key=["user_id"],
     versioning=ms.validity(

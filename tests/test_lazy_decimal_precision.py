@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 import ibis
 import ibis.expr.datatypes as dt
 import pytest
@@ -157,12 +155,7 @@ def test_derive_measure_result_type_rejects_reduction_and_window() -> None:
 
 
 _COMPUTED_COLUMNS = (
-    "md.table('orders', columns={"
-    "'id': md.source_column('id', data_type='int64'), "
-    "'amount': md.source_column('amount', data_type='decimal(12,2)'), "
-    "'qty': md.source_column('qty', data_type='int64'), "
-    "'wide': md.source_column('wide', data_type='decimal(38,20)')"
-    "})"
+    "md.table('orders', columns={'id': 'id', 'amount': 'amount', 'qty': 'qty', 'wide': 'wide'})"
 )
 
 
@@ -193,19 +186,12 @@ def _normalize(measure_body: str) -> str:
         return contract.logical_type
 
 
-def test_computed_measure_normalizes_to_generic_decimal() -> None:
-    # dec(12,2) * int64 promotes the integer operand and derives by rule.
-    assert _normalize("orders.amount * orders.qty") == "decimal"
+def test_computed_measure_defers_type_until_source_access() -> None:
+    assert _normalize("orders.amount * orders.qty") == "unknown"
 
 
-def test_computed_integer_measure_keeps_ibis_inferred_type() -> None:
-    int_columns = (
-        "md.table('orders', columns={"
-        "'id': md.source_column('id', data_type='int64'), "
-        "'amount': md.source_column('amount', data_type='int64'), "
-        "'qty': md.source_column('qty', data_type='int32')"
-        "})"
-    )
+def test_computed_integer_measure_defers_type_until_source_access() -> None:
+    int_columns = "md.table('orders', columns={'id': 'id', 'amount': 'amount', 'qty': 'qty'})"
     source = (
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
@@ -224,7 +210,7 @@ def test_computed_integer_measure_keeps_ibis_inferred_type() -> None:
         contract = normalize_target_metric(
             result.registry, "sales.gross", sidecar=result.expression_sidecar
         )
-        assert contract.logical_type == "int64"
+        assert contract.logical_type == "unknown"
 
 
 def test_computed_measure_loads_into_lazy_sources() -> None:
@@ -286,7 +272,7 @@ def test_computed_measure_with_undeclared_column_is_rejected() -> None:
         "warehouse = ms.ref.datasource('wh')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, "
         "source=md.table('orders', columns={"
-        "'amount': md.source_column('amount', data_type='decimal(12,2)')}))\n"
+        "'amount': 'amount'}))\n"
         "@ms.measure(entity=orders, additivity='additive')\n"
         "def net(orders):\n"
         "    return orders.amount * orders.missing_qty\n"
@@ -300,49 +286,21 @@ def test_computed_measure_with_undeclared_column_is_rejected() -> None:
             )
 
 
-def test_computed_measure_with_derivation_overflow_is_rejected() -> None:
-    # dec(38,20) * dec(38,20): scale 40 > 38 rejects instead of truncating.
-    with pytest.raises(SemanticLoadError, match="exceeds 38 digits"):
-        _normalize("orders.wide * orders.wide")
+def test_computed_measure_defers_derivation_overflow_until_source_access() -> None:
+    assert _normalize("orders.wide * orders.wide") == "unknown"
 
 
-def test_computed_measure_with_unresolved_precision_is_rejected() -> None:
-    # A bare "decimal" declared column carries no precision and scale, so the
-    # multiply cannot derive by rule; it must fail with the structured error,
-    # never with a raw TypeError from DecimalType construction.
-    from marivo.semantic.metric_graph_lowering import normalize_target_metric
-
-    with load_inline_semantic(_project("orders.amount * orders.qty"), domain="sales") as result:
-        assert result.status == "ready" and result.registry is not None
-        entities = dict(result.registry.entities)
-        orders = entities["sales.orders"]
-        assert orders.source is not None and orders.source.columns is not None
-        entities["sales.orders"] = replace(
-            orders,
-            source=replace(
-                orders.source,
-                columns=tuple(
-                    (name, replace(binding, data_type="decimal") if name == "amount" else binding)
-                    for name, binding in orders.source.columns
-                ),
-            ),
-        )
-        registry = replace(result.registry, entities=entities)
-        registry.freeze()
-        with pytest.raises(
-            SemanticLoadError,
-            match="resolved precision and scale",
-        ):
-            normalize_target_metric(registry, "sales.gross", sidecar=result.expression_sidecar)
+def test_computed_measure_defers_unresolved_precision_until_source_access() -> None:
+    assert _normalize("orders.amount * orders.qty") == "unknown"
 
 
-def test_linear_metric_over_int64_measure_keeps_int64_type() -> None:
+def test_linear_metric_defers_measure_type_until_source_access() -> None:
     source = (
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
         "warehouse = ms.ref.datasource('wh')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders', "
-        "columns={'amount': md.source_column('amount', data_type='int64')}))\n"
+        "columns={'amount': 'amount'}))\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
         "additivity='additive')\n"
         "gross = ms.aggregate(name='gross', measure=amount, agg='sum')\n"
@@ -356,4 +314,4 @@ def test_linear_metric_over_int64_measure_keeps_int64_type() -> None:
         contract = normalize_target_metric(
             result.registry, "sales.net", sidecar=result.expression_sidecar
         )
-        assert contract.logical_type == "int64"
+        assert contract.logical_type == "unknown"

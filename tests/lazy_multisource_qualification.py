@@ -23,6 +23,20 @@ from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_observation_fixtures import NoIoActionPort
 
+_OBSERVED_TYPES = {
+    "id": "int64",
+    "tenant": "string",
+    "customer_id": "int64",
+    "order_id": "int64",
+    "amount": "float64",
+    "weight": "float64",
+    "region": "string",
+    "channel": "string",
+    "day": "date",
+    "start": "date",
+    "end": "date",
+}
+
 
 # Ibis ships no compiler typing metadata; the extension's own boundary is typed below.
 class SnapshotCompiler(TrinoCompiler):  # type: ignore[misc]
@@ -107,7 +121,12 @@ def qualification_recipe(
     if len(entities) != 1:
         raise ValueError("Probe requires exactly one source Entity")
     entity = entities[0]
-    table = ibis.table(dict(entity.columns), name="orders", catalog=catalog, database=database)
+    table = ibis.table(
+        {name: _OBSERVED_TYPES[name] for name, _logical_type in entity.columns},
+        name="orders",
+        catalog=catalog,
+        database=database,
+    )
     recipe = compile_dataset(logical, {entity.ref.path: table})
     if not synthetic_assertions:
         return table, recipe

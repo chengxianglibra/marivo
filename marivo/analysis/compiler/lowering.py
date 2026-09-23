@@ -86,6 +86,7 @@ from marivo.analysis.observation.contracts import (
     RankSpec,
     RetainedRowsPayload,
     _version_selection_payload,
+    construction_error,
     metric_contracts,
     source_owner_of,
 )
@@ -139,6 +140,7 @@ from marivo.semantic.decimal_precision import DecimalPrecision, DecimalType, min
 from marivo.semantic.ir import (
     AggKind,
     HourPrefixParse,
+    RelationshipIR,
     TargetDimensionContract,
     TargetEntityContract,
     TargetSnapshotSelection,
@@ -159,7 +161,10 @@ from marivo.semantic.metric_graph import (
     component_node,
     component_predicate,
 )
-from marivo.semantic.metric_graph_lowering import _derive_measure_result_type
+from marivo.semantic.metric_graph_lowering import (
+    _derive_measure_result_type,
+    _validate_component_slice,
+)
 from marivo.semantic.validator import (
     normalize_target_dimension,
     normalize_target_entity,
@@ -349,6 +354,8 @@ def _declared_cast(
     embeds exactly into a declared scale-0 decimal. Every other shape is a
     structured failure, never a silent reinterpretation.
     """
+    if logical_type == "unknown":
+        return value
     target = dt.dtype(logical_type)
     if logical_type == "decimal":
         physical = value.type()
@@ -392,20 +399,6 @@ def _declared_cast(
                 )
             target = physical
     return ops.Cast(value, to=target).to_expr()
-
-
-def _source_type_matches(actual: dt.DataType, declared: str) -> bool:
-    expected = dt.dtype(declared)
-    if actual == expected or (declared == "decimal" and isinstance(actual, dt.Decimal)):
-        return True
-    return (
-        isinstance(actual, dt.Timestamp)
-        and isinstance(expected, dt.Timestamp)
-        and expected.scale is None
-        and actual.scale in (None, 0, 1, 2, 3, 4, 5, 6)
-        and expected.timezone == actual.timezone
-        and expected.nullable == actual.nullable
-    )
 
 
 def _physical_casts(expression: ir.Table) -> ir.Table:
@@ -757,13 +750,6 @@ class _Compiler:
                 raise compilation_error(
                     "ordered declared semantic source columns", "source schema mismatch"
                 )
-            if any(
-                not _source_type_matches(table[column.logical].type(), column.declared_type)
-                for column in needed
-            ):
-                raise compilation_error(
-                    "exact declared semantic source types", "source type mismatch"
-                )
             table = table.select(*(column.logical for column in needed))
             self.tables[entity.ref.path] = table
 
@@ -1001,13 +987,14 @@ class _Compiler:
             prefix = f"__mv_join_{index}_"
             renamed = {name: prefix + name for name in right_source.columns}
             right = right_source.select(**{new: right_source[old] for old, new in renamed.items()})
-            conditions = [
-                _boolean(
-                    table[mapping[left_key if forward else right_key]]
-                    == right[renamed[right_key if forward else left_key]]
-                )
-                for left_key, right_key in relationship_columns(self.registry, relation)
-            ]
+            conditions = self._relationship_conditions(
+                table,
+                mapping,
+                right,
+                renamed,
+                relation,
+                forward=forward,
+            )
             table = table.join(right, conditions, how="left")
             mapping = renamed
             current = destination
@@ -1195,6 +1182,33 @@ class _Compiler:
             self.registry, source, axis.entity_ref.path, allow_versioned_target=True
         )
 
+    def _relationship_conditions(
+        self,
+        left_table: ir.Table,
+        left_mapping: Mapping[str, str],
+        right_table: ir.Table,
+        right_mapping: Mapping[str, str],
+        relationship: RelationshipIR,
+        *,
+        forward: bool,
+    ) -> list[ir.BooleanValue]:
+        conditions = []
+        for left_key, right_key in relationship_columns(self.registry, relationship):
+            left_name, right_name = (left_key, right_key) if forward else (right_key, left_key)
+            left = left_table[left_mapping[left_name]]
+            right = right_table[right_mapping[right_name]]
+            if left.type() != right.type():
+                raise construction_error(
+                    f"matching observed join key types for {relationship.semantic_id}",
+                    f"{left.type()} and {right.type()} for {left_name!r}/{right_name!r}",
+                    repair=(
+                        "Align the physical types of relationship endpoint columns before "
+                        "using this path."
+                    ),
+                )
+            conditions.append(_boolean(left == right))
+        return conditions
+
     def _coordinate_rows(
         self,
         table: ir.Table,
@@ -1239,13 +1253,14 @@ class _Compiler:
                 right = right_source.select(
                     **{alias: right_source[name] for name, alias in renamed.items()}
                 )
-                conditions = [
-                    _boolean(
-                        table[mapping[left_key if forward else right_key]]
-                        == right[renamed[right_key if forward else left_key]]
-                    )
-                    for left_key, right_key in relationship_columns(self.registry, relationship)
-                ]
+                conditions = self._relationship_conditions(
+                    table,
+                    mapping,
+                    right,
+                    renamed,
+                    relationship,
+                    forward=forward,
+                )
                 destination_keys = tuple(
                     right_key if forward else left_key
                     for left_key, right_key in relationship_columns(self.registry, relationship)
@@ -1454,17 +1469,24 @@ class _Compiler:
         if measure is None:
             raise compilation_error("a loaded Measure", f"unknown Measure {path!r}")
         entity = normalize_target_entity(self.registry, measure.entity)
-        columns = dict(entity.columns)
-        placeholder = ibis.table(columns, name=path)
+        source_table = self.tables.get(entity.ref.path)
+        if source_table is None:
+            return None
         expression = evaluate_expression_body(
             catalog_definition_fingerprint=path,
             expression_sidecar=self.owner.sidecar,
             owning_ref=_create_ref(SemanticKind.MEASURE, path),
             body=body,
             entity_refs=(cast("Ref[EntityKind]", _decode_ref_payload(entity.ref)),),
-            aliases=(placeholder,),
+            aliases=(source_table,),
         )
-        derived = _derive_measure_result_type(expression.op())
+        expression_op = expression.op()
+        has_decimal_operand = expression.type().is_decimal() or any(
+            field.to_expr().type().is_decimal() for field in expression_op.find(ops.Field)
+        )
+        if not has_decimal_operand:
+            return None
+        derived = _derive_measure_result_type(expression_op)
         try:
             row_type = DecimalPrecision.from_string(derived)
         except ValueError:
@@ -1541,6 +1563,12 @@ class _Compiler:
             alias = f"__mv_filter_{index}"
             op, value = component_predicate(condition.value)
             column = table[alias]
+            _validate_component_slice(
+                self.registry,
+                condition,
+                metric.key,
+                observed_type=column.type(),
+            )
             if op == "in" and isinstance(value, tuple):
                 table = table.filter(column.isin(value))
             elif op == "between" and isinstance(value, tuple):
@@ -2152,6 +2180,7 @@ class _Compiler:
             definition_digest=journey_identity_digest(journey_semantics(definition)),
             coverage_complete=coverage.complete,
             ranked_successors=self.ranked_event_successors,
+            require_int64_identities=self.lifecycle_dialect in ("postgres", "trino", "clickhouse"),
         )
         self.validations.extend(checks)
         table = freeze(table)

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.analysis.session._lazy_sources import make_lazy_sources
-from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.ir import SemanticParse
 from tests.lazy_execution_fixtures import ExecutionFixture, execution_fixture
 from tests.lazy_observation_fixtures import NoIoActionPort
@@ -20,7 +19,6 @@ def temporal_fixture(
     path: Path,
     *,
     physical: str = "TIMESTAMP",
-    declared: str = "timestamp(6)",
     parse: SemanticParse | None = None,
     granularity: str = "second",
     report_zone: str = "Asia/Shanghai",
@@ -40,19 +38,6 @@ def temporal_fixture(
             fixture.registry,
             entities=dict(fixture.registry.entities),
             dimensions=dict(fixture.registry.dimensions),
-        )
-        entity = registry.entities["sales.orders"]
-        source = entity.source
-        assert isinstance(source, TableSourceIR)
-        registry.entities[entity.semantic_id] = replace(
-            entity,
-            source=replace(
-                source,
-                columns=tuple(
-                    (name, replace(binding, data_type=declared) if name == "day" else binding)
-                    for name, binding in source.columns
-                ),
-            ),
         )
         registry.dimensions[AXIS] = replace(
             registry.dimensions[AXIS], parse=parse, granularity=granularity

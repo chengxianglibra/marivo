@@ -289,8 +289,15 @@ def test_native_driver_entity_digest_is_source_only_and_tampering_fails() -> Non
 
         with pytest.raises(CandidateError, match="local identity computation is not admitted"):
             local_item_id(spec.definition, spec.output_row, row)
+        from marivo.analysis.compiler.driver_candidate import _observed_type_id
+
         signature = tuple(
-            (field.field_id.value, field.logical_type_id)
+            (
+                field.field_id.value,
+                field.logical_type_id
+                if field.logical_type_id != "unknown"
+                else _observed_type_id(table[field.name]),
+            )
             for field in spec.output_row.schema.columns
             if field.field_id in spec.output_row.key_field_ids
         )

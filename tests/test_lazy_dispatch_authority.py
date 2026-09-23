@@ -34,7 +34,7 @@ def test_source_domain_rejects_each_independent_authority_change(
         make_sources(session_id="other-session", store_id="other-store").observe(REVENUE)
     )
     binding = SourceBinding(owner, "warehouse", "duckdb")
-    equivalent = replace(binding, owner=replace(owner))
+    equivalent = binding
     assert binding.same_domain(equivalent)
     assert equivalent.same_domain(binding)
     changed_owners = {
@@ -69,13 +69,11 @@ def test_parquet_domain_requires_exact_retained_authority(field: str) -> None:
     owner = source_owner_of(make_sources().observe(REVENUE))
     binding = ParquetBinding(owner, "warehouse", "retained-digest")
     assert binding.same_domain(replace(binding))
-    changed = (
-        replace(binding, owner=replace(owner))
-        if field == "owner"
-        else replace(binding, datasource_id="other-warehouse")
-        if field == "datasource"
-        else replace(binding, domain_digest="other-digest")
-    )
+    changed = {
+        "owner": replace(binding, owner=object()),
+        "datasource": replace(binding, datasource_id="other-warehouse"),
+        "digest": replace(binding, domain_digest="other-digest"),
+    }[field]
     assert not binding.same_domain(changed)
     assert not changed.same_domain(binding)
 

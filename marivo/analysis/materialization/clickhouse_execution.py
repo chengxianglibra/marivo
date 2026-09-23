@@ -416,30 +416,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                     temporal_transport_checked = True
                 if datatype.timezone is None:
                     datatype = datatype.copy(timezone=self.timezone().engine_timezone_name)
-                # C2's UTC-labelled civil binding remains exact; new aware bindings
-                # retain the physical instant instead of relabelling its wall clock.
-                declared = (
-                    next(
-                        (
-                            item.declared_type
-                            for item in dependency.columns
-                            if item.physical == column
-                        ),
-                        None,
-                    )
-                    if dependency is not None
-                    else None
-                )
-                if (
-                    declared is not None
-                    and isinstance(dt.dtype(declared), dt.Timestamp)
-                    and dt.dtype(declared).timezone is None
-                ):
-                    if datatype.timezone != "UTC":
-                        raise self.unsupported(
-                            "a civil ClickHouse binding requires a verified UTC physical timezone"
-                        )
-                    datatype = datatype.copy(timezone=None)
             if not supported_type(str(datatype.copy(nullable=True))):
                 raise unsupported_source_type(dependency, column, kind)
             fields[column] = datatype

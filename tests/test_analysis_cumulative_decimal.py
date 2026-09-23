@@ -33,7 +33,7 @@ def _bootstrap_project(tmp_path) -> None:
         "import marivo.semantic as ms\n"
         "import marivo.analysis as mv\n"
         "warehouse = ms.ref.datasource('warehouse')\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders', columns={'order_id': md.source_column('order_id', data_type='int64'), 'created_at': md.source_column('created_at', data_type='date'), 'amount': md.source_column('amount', data_type='decimal(18, 2)'), 'user_id': md.source_column('user_id', data_type='int64')}), primary_key=['order_id'])\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders', columns={'order_id': 'order_id', 'created_at': 'created_at', 'amount': 'amount', 'user_id': 'user_id'}), primary_key=['order_id'])\n"
         "order_date = ms.time_dimension_column("
         "name='order_date', entity=orders, column='created_at', granularity='day')\n"
         "amount = ms.measure_column("

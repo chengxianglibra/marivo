@@ -729,39 +729,6 @@ assert not any(item.domain == "source" for item in runtime.statistics.submission
     )
 
 
-def test_unresolved_decimal_rejected_before_connect(tmp_path: Path) -> None:
-    from marivo.analysis.compiler.errors import DatasetCompilationError
-
-    registry, sidecar = registry_for(tmp_path / "unused", engine="trino")
-    entities = dict(registry.entities)
-    name = "sales.orders"
-    entity = entities[name]
-    assert isinstance(entity.source, TableSourceIR)
-    entity = replace(
-        entity,
-        source=replace(
-            entity.source,
-            columns=tuple(
-                (key, replace(value, data_type="decimal") if key == "amount" else value)
-                for key, value in entity.source.columns
-            ),
-        ),
-    )
-    entities[name] = entity
-    registry = replace(registry, entities=entities)
-    registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path, "unqualified-decimal")
-    logical = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe(ref.metric("sales.revenue"))
-        .aggregate()
-    )
-    with pytest.raises(DatasetCompilationError, match=r"Decimal"):
-        logical.execute()
-    assert runtime.statistics.events.get("backend_connect", 0) == 0
-    assert runtime.statistics.primary_queries == 0
-
-
 @pytest.mark.parametrize("change", ["closed_closed", "sentinel"])
 def test_validity_selection_preserves_membership(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str, change: str

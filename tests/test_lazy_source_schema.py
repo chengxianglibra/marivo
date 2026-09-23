@@ -3,9 +3,11 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import ibis
 import ibis.expr.datatypes as dt
 import pytest
 
+import marivo.datasource as md
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.normalize import required_source_dependencies
 from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
@@ -17,6 +19,7 @@ from marivo.analysis.materialization.scalar_sql_execution import ScalarExecution
 from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
 from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
 from marivo.analysis.session._lazy_sources import make_lazy_sources
+from marivo.datasource.json_source import read_json_source
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_observation_fixtures import NoIoActionPort
@@ -308,3 +311,46 @@ def test_sqlite_accepts_view_definition(monkeypatch: pytest.MonkeyPatch) -> None
     )
     schema = adapter.get_schema("orders")
     assert set(schema.names) == {"id", "amount"}
+
+
+def test_duckdb_json_source_infers_nested_projection(tmp_path: Path) -> None:
+    path = tmp_path / "events.json"
+    path.write_text(
+        '[{"id":1,"user":{"name":"Ada"}},{"id":2,"user":{"name":"Lin"}}]',
+        encoding="utf-8",
+    )
+    backend = ibis.duckdb.connect(":memory:")
+    adapter = DuckDBExecutionAdapter(backend)
+
+    class JsonReader:
+        def read_json(self, source_path: str, *, format: str = "auto") -> ibis.Table:
+            return adapter.read_json(
+                source_path,
+                table_name="inferred_events",
+                format=format,
+            )
+
+    try:
+        projected = read_json_source(
+            JsonReader(),
+            md.json(str(path), columns={"user_name": "user.name"}),
+        )
+        assert projected.schema() == ibis.schema({"user_name": "string"})
+        assert backend.execute(projected)["user_name"].tolist() == ["Ada", "Lin"]
+    finally:
+        backend.disconnect()
+
+
+def test_duckdb_plan_cache_identity_includes_observed_types() -> None:
+    backend = ibis.duckdb.connect(":memory:")
+    adapter = DuckDBExecutionAdapter(backend)
+    integer_table = ibis.table({"amount": "int64"}, name="observed_source")
+    string_table = ibis.table({"amount": "string"}, name="observed_source")
+
+    try:
+        integer_plan = adapter.prepare(integer_table)
+        string_plan = adapter.prepare(string_table)
+        assert integer_plan.schema.field("amount").type != string_plan.schema.field("amount").type
+        assert len(adapter._compiled) == 2
+    finally:
+        backend.disconnect()

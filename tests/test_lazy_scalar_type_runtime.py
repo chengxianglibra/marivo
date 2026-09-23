@@ -63,21 +63,7 @@ def source(
             monkeypatch.setenv(f"MARIVO_TEST_{engine.upper()}_PASSWORD", password())
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, TableSourceIR)
-    selected = "id" if identity else "amount" if measure else "channel"
-    columns = tuple(
-        (
-            key,
-            replace(
-                binding,
-                data_type=logical
-                if key == selected
-                else "int64"
-                if key in {"id", "amount"} or (measure and key == "weight")
-                else binding.data_type,
-            ),
-        )
-        for key, binding in entity.source.columns
-    )
+    columns = tuple((key, binding) for key, binding in entity.source.columns)
     entity = replace(entity, source=replace(entity.source, table=name, columns=columns))
     metrics = dict(registry.metrics)
     for agg in ("min", "max"):
@@ -415,7 +401,7 @@ def test_public_load_to_scalar_execution(
         )
         (semantic / "orders.py").write_text(
             "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-            f"orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table({name!r}, columns={{'id': md.source_column('id', data_type='int64'), 'amount': md.source_column('amount', data_type='int64'), 'channel': md.source_column('channel', data_type={logical!r})}}), primary_key=['id'])\n"
+            f"orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table({name!r}, columns={{'id': 'id', 'amount': 'amount', 'channel': 'channel'}}), primary_key=['id'])\n"
             "channel = ms.dimension_column(name='channel', entity=orders, column='channel')\n"
             "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity='additive')\n"
             "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
@@ -428,9 +414,9 @@ def test_public_load_to_scalar_execution(
             md.table(
                 name,
                 columns={
-                    "id": md.source_column("id", data_type="int64"),
-                    "amount": md.source_column("amount", data_type="int64"),
-                    "channel": md.source_column("channel", data_type=logical),
+                    "id": "id",
+                    "amount": "amount",
+                    "channel": "channel",
                 },
             ),
         )
@@ -544,9 +530,7 @@ def test_explicit_timestamp_precision(
                     columns=tuple(
                         (
                             key,
-                            replace(binding, data_type="timestamp(6)")
-                            if key == "channel"
-                            else binding,
+                            binding,
                         )
                         for key, binding in entity.source.columns
                     ),
@@ -632,9 +616,7 @@ def test_uint64_relationship_keys_preserve_full_range(
                     columns=tuple(
                         (
                             column,
-                            replace(binding, data_type="uint64")
-                            if column in {"id", "customer_id"}
-                            else binding,
+                            binding,
                         )
                         for column, binding in entity.source.columns
                     ),

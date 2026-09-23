@@ -57,11 +57,7 @@ def _source(
     columns = tuple(
         (
             key,
-            replace(binding, source="gross", data_type="float64")
-            if key == "amount"
-            else replace(binding, data_type="array<string>")
-            if key == "tenant"
-            else binding,
+            binding,
         )
         for key, binding in entity.source.columns
     )

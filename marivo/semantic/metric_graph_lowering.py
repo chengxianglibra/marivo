@@ -987,12 +987,21 @@ def _target_metric_error(
 
 
 def _validate_component_slice(
-    registry: Registry, condition: CanonicalSliceEntryV1, metric_id: str
+    registry: Registry,
+    condition: CanonicalSliceEntryV1,
+    metric_id: str,
+    *,
+    observed_type: dt.DataType | None = None,
 ) -> None:
-    """Validate literal types against declared Dimension facts without source work."""
+    """Validate slice literals against semantic or observed Dimension type facts."""
     op, value = component_predicate(condition.value)
     dimension = normalize_target_dimension(registry, condition.dimension_ref.path)
-    dtype = dt.dtype(dimension.logical_type)
+    if observed_type is None:
+        if dimension.logical_type == "unknown":
+            return
+        dtype = dt.dtype(dimension.logical_type)
+    else:
+        dtype = observed_type
     values = value if isinstance(value, tuple) else (value,)
     for scalar in values:
         compatible = (
@@ -1033,8 +1042,8 @@ def _fail_undeclared_column(metric_id: str, measure_path: str, column: str) -> N
         "columns declared on the owning entity source",
         f"the body references undeclared column {column!r}",
         action=(
-            f"Declare column {column!r} on the entity source schema, or reference only "
-            "columns the entity already declares."
+            f"Expose source field {column!r} in the entity projection, or reference only "
+            "output columns the entity already declares."
         ),
     )
 
@@ -1233,6 +1242,42 @@ def _derive_expression_type(
     raise AssertionError("unreachable")
 
 
+def _validate_expression_shape(op: ops.Node, facts: _MeasureFacts) -> None:
+    """Reject unsupported row-expression operations without inferring physical types."""
+    if isinstance(op, ops.Field | ops.Literal):
+        return
+    if isinstance(op, ops.Cast | ops.Negate):
+        _validate_expression_shape(op.arg, facts)
+        return
+    if isinstance(op, ops.Add | ops.Subtract | ops.Multiply):
+        _validate_expression_shape(op.left, facts)
+        _validate_expression_shape(op.right, facts)
+        return
+    if isinstance(op, ops.Reduction):
+        _measure_step_error(
+            facts.metric_id,
+            facts.measure_path,
+            "row-level arithmetic over declared columns of exactly one entity",
+            "a cross-row aggregation inside the measure body",
+            action=(
+                "Return a row expression from the measure body. Move the aggregation into a "
+                "Metric that aggregates this measure (for example ms.aggregate(..., agg='sum'))."
+            ),
+        )
+    if isinstance(op, ops.WindowFunction):
+        _measure_step_error(
+            facts.metric_id,
+            facts.measure_path,
+            "row-level arithmetic over declared columns of exactly one entity",
+            "a window function inside the measure body",
+            action=(
+                "Remove the window call from the measure body. Window semantics belong to "
+                "analysis operators, not to row-level measure expressions."
+            ),
+        )
+    _fail_unresolved_step(op, None, facts)
+
+
 def _fail_unresolved_step(op: ops.Node, received: str | None, facts: _MeasureFacts) -> NoReturn:
     detail = type(op).__name__
     received_text = f"{detail} over {received}" if received is not None else detail
@@ -1276,14 +1321,7 @@ def _target_measure_type(
         )
     entity = normalize_target_entity(registry, measure.entity)
     if body.source_column is not None:
-        data_type = dict(entity.columns).get(body.source_column)
-        if data_type is None:
-            _target_metric_error(
-                metric_id,
-                "a declared source type for the measure column",
-                "missing source-column type",
-            )
-        return data_type, measure.unit, entity.ref
+        return "unknown", measure.unit, entity.ref
     return _computed_measure_type(path, declared_sidecar, measure, body, entity, metric_id)
 
 
@@ -1314,7 +1352,11 @@ def _computed_measure_type(
             _fail_undeclared_column(metric_id, path, body_column)
     # The placeholder deliberately carries every entity-declared column, not
     # only body.source_columns, so bind-captured column references resolve.
-    placeholder = ibis.table(columns, name=path)
+    placeholder_schema = {
+        name: "float64" if logical_type == "unknown" else logical_type
+        for name, logical_type in columns.items()
+    }
+    placeholder = ibis.table(placeholder_schema, name=path)
     measure_ref = _create_ref(SemanticKind.MEASURE, path)
     result = evaluate_expression_body(
         catalog_definition_fingerprint=path,
@@ -1352,15 +1394,8 @@ def _computed_measure_type(
     for field_op in expression_op.find(ops.Field):
         if field_op.name not in columns:
             _fail_undeclared_column(metric_id, path, field_op.name)
-    decimal_fields = {
-        field_op: DecimalType(field_type.precision, field_type.scale)
-        for field_op in expression_op.find(ops.Field)
-        if isinstance(field_type := dt.dtype(columns.get(field_op.name, "")), dt.Decimal)
-        and field_type.precision is not None
-        and field_type.scale is not None
-    }
-    data_type = _derive_expression_type(expression_op, decimal_fields, facts)
-    return data_type, measure.unit, entity.ref
+    _validate_expression_shape(expression_op, facts)
+    return "unknown", measure.unit, entity.ref
 
 
 def normalize_target_metric(
@@ -1572,7 +1607,11 @@ def _normalize_target_graph(
                 additivity = registry.measures[node.target_ref.path].additivity
                 if isinstance(additivity, SemiAdditive):
                     status_time_dimension = _ref_payload("time_dimension", additivity.over)
-            if node.agg not in ("count", "count_distinct") and not dt.dtype(data_type).is_numeric():
+            if (
+                node.agg not in ("count", "count_distinct")
+                and data_type != "unknown"
+                and not dt.dtype(data_type).is_numeric()
+            ):
                 _target_metric_error(metric_id, "a numeric measure", "non-numeric source type")
             if node.fold is not None:
                 if status_time_dimension is None:
@@ -1583,13 +1622,28 @@ def _normalize_target_graph(
                 requirements.add("metric.source_temporal_fold@v1")
                 if isinstance(node.fold, tuple):
                     requirements.add("metric.source_quantile@v1")
-            expression = ibis.table({"value": data_type}, name="_target_type_facts").value
             state: tuple[str, ...]
             if node.agg == "sum":
-                output_type = str(expression.sum().type())
+                output_type = (
+                    "unknown"
+                    if data_type == "unknown"
+                    else str(
+                        ibis.table({"value": data_type}, name="_target_type_facts")
+                        .value.sum()
+                        .type()
+                    )
+                )
                 state = ("sum", "non_null_count", "row_count")
             elif node.agg == "mean":
-                output_type = str(expression.mean().type())
+                output_type = (
+                    "unknown"
+                    if data_type == "unknown"
+                    else str(
+                        ibis.table({"value": data_type}, name="_target_type_facts")
+                        .value.mean()
+                        .type()
+                    )
+                )
                 state = ("sum", "non_null_count", "row_count")
             elif node.agg in ("count", "count_distinct"):
                 output_type = "int64"
@@ -1648,7 +1702,8 @@ def _normalize_target_graph(
                 metric_id=metric_id,
             )
             if root != weight_root or any(
-                not dt.dtype(value).is_numeric() for value in (value_type, weight_type)
+                value != "unknown" and not dt.dtype(value).is_numeric()
+                for value in (value_type, weight_type)
             ):
                 _target_metric_error(
                     metric_id,
@@ -1682,18 +1737,27 @@ def _normalize_target_graph(
                     policies.get(role, "block"),
                 )
             )
-            typed_pair = ibis.table(
-                {"value": value_type, "weight": weight_type}, name="_target_weighted_type_facts"
-            )
-            output_type = str(
-                ((typed_pair.value * typed_pair.weight).sum() / typed_pair.weight.sum()).type()
-            )
+            if value_type == "unknown" or weight_type == "unknown":
+                output_type = "unknown"
+            else:
+                typed_pair = ibis.table(
+                    {"value": value_type, "weight": weight_type}, name="_target_weighted_type_facts"
+                )
+                output_type = str(
+                    ((typed_pair.value * typed_pair.weight).sum() / typed_pair.weight.sum()).type()
+                )
             return output_type, True, node.unit_override or unit
         if isinstance(node, RatioNodeV1):
             numerator_type, _, numerator_unit = visit(node.numerator_id, f"{role}.numerator")
             denominator_type, _, denominator_unit = visit(
                 node.denominator_id, f"{role}.denominator"
             )
+            if numerator_type == "unknown" or denominator_type == "unknown":
+                return (
+                    "unknown",
+                    True,
+                    node.unit_override or ratio_unit(numerator_unit, denominator_unit),
+                )
             typed_pair = ibis.table(
                 {"numerator": numerator_type, "denominator": denominator_type},
                 name="_target_ratio_type_facts",
@@ -1713,6 +1777,8 @@ def _normalize_target_graph(
             units = tuple(term[2] for term in terms)
             if linear_units_conflict(units):
                 _target_metric_error(metric_id, "commensurable linear component units", role)
+            if any(term[0] == "unknown" for term in terms):
+                return "unknown", True, node.unit_override or units[0]
             typed = ibis.table(
                 {f"term_{index}": term[0] for index, term in enumerate(terms)},
                 name="_target_linear_type_facts",
@@ -1798,7 +1864,11 @@ def _normalize_target_graph(
             for component in components
             for state in component.required_state
         ),
-        logical_type="decimal" if dt.dtype(output_type).is_decimal() else output_type,
+        logical_type=(
+            "decimal"
+            if output_type != "unknown" and dt.dtype(output_type).is_decimal()
+            else output_type
+        ),
         nullable=nullable,
         unit=(registry.metrics[metric_id].unit_override or unit)
         if isinstance(forest.identities[0], CatalogMetricIdentity)

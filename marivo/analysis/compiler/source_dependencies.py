@@ -11,7 +11,10 @@ from marivo.analysis.observation.coordinates import relationship_columns
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic._expression_binding import expression_column_accesses
 from marivo.semantic.ir import (
+    CsvSourceIR,
     HourPrefixParse,
+    JsonSourceIR,
+    ParquetSourceIR,
     TableSourceIR,
     TargetDimensionContract,
     TargetEntityContract,
@@ -27,7 +30,6 @@ ColumnUse = Literal["value", "identity", "relationship", "version", "event"]
 class SourceColumnDependency:
     logical: str
     physical: str
-    declared_type: str
     uses: tuple[ColumnUse, ...]
 
 
@@ -164,24 +166,33 @@ class ColumnCollector:
                 for ref in (version.valid_from_ref, version.valid_to_ref):
                     self.axis(normalize_target_dimension(self.registry, ref.path), "version")
             required = self.columns.get(entity.ref.path, {})
-            declared = dict(entity.columns)
-            if set(required) - declared.keys():
-                raise compilation_error(
-                    "declared logical source columns",
-                    f"unknown necessary column on Entity {entity.ref.path}",
-                )
-            bindings = (
-                dict(entity.source.columns) if isinstance(entity.source, TableSourceIR) else {}
+            source = entity.source
+            projected = (
+                dict(source.columns)
+                if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR)
+                else {}
             )
+            if isinstance(source, ParquetSourceIR) and source.columns is not None:
+                projected_names = set(source.columns)
+                missing = set(required) - projected_names
+            elif projected:
+                projected_names = set(projected)
+                missing = set(required) - projected_names
+            else:
+                missing = set()
+            if missing:
+                raise compilation_error(
+                    "required logical source columns exposed by the projection",
+                    f"missing projected columns {tuple(sorted(missing))!r} on Entity {entity.ref.path}",
+                )
+            bindings = projected
             columns = tuple(
                 SourceColumnDependency(
                     name,
-                    bindings[name].source if bindings else name,
-                    kind,
+                    bindings[name] if bindings else name,
                     tuple(sorted(required[name])),
                 )
-                for name, kind in entity.columns
-                if name in required
+                for name in sorted(required)
             )
             entries.append(EntitySourceDependency(self.owner, entity, columns))
         return SourceDependencies(tuple(entries))

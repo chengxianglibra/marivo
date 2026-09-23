@@ -10,10 +10,16 @@ from pathlib import Path
 from typing import Any, Literal
 
 import ibis
+import ibis.expr.datatypes as dt
 
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
-from marivo.datasource.errors import DatasourceMetadataError, _backend_failure_summary, repair
+from marivo.datasource.errors import (
+    DatasourceMetadataError,
+    DatasourceObservedEffects,
+    _backend_failure_summary,
+    repair,
+)
 from marivo.datasource.ir import (
     CsvSourceIR,
     EntitySourceIR,
@@ -22,6 +28,7 @@ from marivo.datasource.ir import (
     TableSourceIR,
     source_name,
 )
+from marivo.datasource.json_source import read_json_source
 from marivo.render import Card, RenderableResult
 
 MetadataWarningKind = Literal[
@@ -34,7 +41,7 @@ MetadataWarningKind = Literal[
     "metadata_query_failed",
     "schema_only_fallback",
     "base_table_metadata_unavailable",
-    "declared_column_unverified",
+    "projected_column_unverified",
     "projected_partition_unavailable",
     "projected_constraint_incomplete",
     "partition_state_unknown",
@@ -683,36 +690,25 @@ def _inspect_source(
                 candidates=tuple(_store.list_names()),
             ),
         )
+    if isinstance(source, CsvSourceIR) and datasource_ir.backend_type != "duckdb":
+        raise DatasourceMetadataError(
+            message="CSV source type discovery requires a DuckDB datasource",
+            expected="a DuckDB datasource for CSV source inspection",
+            received=datasource_ir.backend_type,
+            location=f"md.inspect({datasource!r}, {source.path!r})",
+            effect_observed=DatasourceObservedEffects(query_executed=False),
+            repair=repair(
+                kind="reconnect",
+                canonical_id="inspect",
+                action="Register a DuckDB datasource to inspect a CSV source.",
+            ),
+        )
     try:
         backend = _backends.build_backend(datasource_ir)
-        kwargs: dict[str, object] = {}
-        if isinstance(source, ParquetSourceIR):
-            reader = getattr(backend, "read_parquet", None)
-            if reader is None:
-                raise AttributeError("backend has no read_parquet()")
-            if source.hive_partitioning:
-                kwargs["hive_partitioning"] = source.hive_partitioning
-            if source.columns is not None:
-                kwargs["columns"] = list(source.columns)
-            table_expr = reader(source.path, **kwargs)
-        elif isinstance(source, CsvSourceIR):
-            reader = getattr(backend, "read_csv", None)
-            if reader is None:
-                raise AttributeError("backend has no read_csv()")
-            if not source.header:
-                kwargs["header"] = source.header
-            if source.delimiter != ",":
-                kwargs["delimiter"] = source.delimiter
-            table_expr = reader(source.path, **kwargs)
-        elif isinstance(source, JsonSourceIR):
-            # JSON sources carry a required physical schema. Inspection is
-            # metadata-only, so parameterized API URLs do not need runtime
-            # bindings and are never fetched merely to rediscover that schema.
-            table_expr = ibis.table(dict(source.schema), name=source_name(source))
     except Exception as exc:
         raise DatasourceMetadataError(
             message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
-            expected="an inspectable file datasource source",
+            expected="an inspectable datasource file source",
             received=str(exc),
             location=f"md.inspect({datasource!r}, {source.path!r})",
             repair=repair(
@@ -722,26 +718,89 @@ def _inspect_source(
             ),
         ) from exc
 
-    return _with_primary_key_capability_warning(
-        _schema_only(
-            datasource=datasource,
-            table=source_name(source),
-            database=None,
-            backend_type=datasource_ir.backend_type,
-            table_expr=table_expr,
-            warnings=(
-                MetadataWarning(
-                    kind="comments_unavailable",
-                    message="file source comments are not available",
+    try:
+        try:
+            kwargs: dict[str, object] = {}
+            if isinstance(source, ParquetSourceIR):
+                reader = getattr(backend, "read_parquet", None)
+                if reader is None:
+                    raise AttributeError("backend has no read_parquet()")
+                if source.hive_partitioning:
+                    kwargs["hive_partitioning"] = source.hive_partitioning
+                if source.columns is not None:
+                    kwargs["columns"] = list(source.columns)
+                table_expr = reader(source.path, **kwargs)
+            elif isinstance(source, CsvSourceIR):
+                reader = getattr(backend, "read_csv", None)
+                if reader is None:
+                    raise AttributeError("backend has no read_csv()")
+                if not source.header:
+                    kwargs["header"] = source.header
+                if source.delimiter != ",":
+                    kwargs["delimiter"] = source.delimiter
+                table_expr = reader(source.path, **kwargs)
+                if source.columns:
+                    table_expr = table_expr.select(
+                        *(
+                            table_expr[source_name].name(output_name)
+                            for output_name, source_name in source.columns
+                        )
+                    )
+            elif isinstance(source, JsonSourceIR):
+                if source.path.lower().startswith(("http://", "https://")):
+                    # Inspection must not fetch a remote response only to rediscover types.
+                    table_expr = ibis.table(
+                        {output: dt.null for output, _path in source.columns},
+                        name=source_name(source),
+                    )
+                else:
+                    table_expr = read_json_source(backend, source)
+        except Exception as exc:
+            raise DatasourceMetadataError(
+                message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
+                expected="an inspectable file datasource source",
+                received=str(exc),
+                location=f"md.inspect({datasource!r}, {source.path!r})",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="inspect",
+                    action="Verify the datasource connection and file source before retrying.",
                 ),
-                MetadataWarning(
-                    kind="nullable_unavailable",
-                    message="file source nullable flags are not available",
+            ) from exc
+
+        result = _with_primary_key_capability_warning(
+            _schema_only(
+                datasource=datasource,
+                table=source_name(source),
+                database=None,
+                backend_type=datasource_ir.backend_type,
+                table_expr=table_expr,
+                warnings=(
+                    MetadataWarning(
+                        kind="comments_unavailable",
+                        message="file source comments are not available",
+                    ),
+                    MetadataWarning(
+                        kind="nullable_unavailable",
+                        message="file source nullable flags are not available",
+                    ),
+                    MetadataWarning(
+                        kind="partitions_unavailable",
+                        message="file source partition metadata is not available",
+                    ),
                 ),
-                MetadataWarning(
-                    kind="partitions_unavailable",
-                    message="file source partition metadata is not available",
-                ),
-            ),
+            )
         )
-    )
+        if isinstance(source, JsonSourceIR) and source.path.lower().startswith(
+            ("http://", "https://")
+        ):
+            result = replace(
+                result,
+                columns=tuple(replace(column, type="unknown") for column in result.columns),
+            )
+        return result
+    finally:
+        disconnect = getattr(backend, "disconnect", None)
+        if callable(disconnect):
+            with suppress(Exception):
+                disconnect()

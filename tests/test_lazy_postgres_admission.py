@@ -10,7 +10,7 @@ from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.postgres_support import supported_type
 from marivo.analysis.operators.registry import backend_execution, implementation
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
-from marivo.datasource.ir import CsvSourceIR, TableColumnBindingIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, TableSourceIR
 from marivo.refs import ref
 from marivo.semantic.ir import AggKind, HourPrefixParse, StrptimeParse, TimestampParse
 from marivo.semantic.validator import Registry
@@ -19,7 +19,6 @@ from tests.lazy_observation_fixtures import NoIoActionPort, make_semantic_regist
 
 def _sources(
     *,
-    amount_type: str = "float64",
     aggregation: AggKind = "sum",
     parsed_time: bool = False,
     hour_prefix: bool = False,
@@ -41,13 +40,7 @@ def _sources(
                 source=TableSourceIR(
                     table=entity.name,
                     columns=tuple(
-                        (
-                            column,
-                            TableColumnBindingIR(
-                                column, amount_type if column == "amount" else kind
-                            ),
-                        )
-                        for column, kind in entity.source.schema
+                        (column, column) for column, _physical_name in entity.source.columns
                     ),
                 ),
             )
@@ -121,9 +114,9 @@ def test_relationship_and_native_date_dependencies_are_registered() -> None:
         assert implementation(dataset).for_backend("postgres") is not None
 
 
-def test_unsupported_declared_source_type_is_not_registered() -> None:
-    dataset = _sources(amount_type="uint64").observe(ref.metric("sales.revenue"))
-    assert implementation(dataset).for_backend("postgres") is None
+def test_backend_registration_defers_observed_source_types() -> None:
+    dataset = _sources().observe(ref.metric("sales.revenue"))
+    assert implementation(dataset).for_backend("postgres") is not None
 
 
 def test_filter_projection_rank_and_limit_keep_full_closure() -> None:
@@ -215,7 +208,8 @@ def test_median_qualifies_postgres_placement_without_source_io(
         raise AssertionError("Unsupported placement touched source I/O")
 
     monkeypatch.setattr(
-        "marivo.analysis.materialization.admission._build_backend_from_effective", forbidden
+        "marivo.analysis.materialization.source_preparation._build_backend_from_effective",
+        forbidden,
     )
     dataset = sources.observe(ref.metric("sales.mean_amount"))
     graph = place(dataset)

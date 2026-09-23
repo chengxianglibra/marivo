@@ -77,9 +77,9 @@ def _projected_orders_inspection(inspection: SourceInspection) -> SourceInspecti
         md.table(
             "orders",
             columns={
-                "event_day": md.source_column("dt", data_type="string"),
-                "order_key": md.source_column("order_id", data_type="string"),
-                "value": md.source_column("amount", data_type="float64"),
+                "event_day": "dt",
+                "order_key": "order_id",
+                "value": "amount",
             },
         ),
     )
@@ -236,42 +236,44 @@ def test_projected_sample_executes_generated_relation_once_with_outer_scope(
 
     assert query_spy.user_data_queries == 1
     sql = query_spy.user_data_sql[0]
-    inner_projection = (
-        'SELECT "dt" AS "event_day", "order_id" AS "order_key", "amount" AS "value" FROM "orders"'
-    )
-    assert inner_projection in sql
-    assert sql.index(inner_projection) < sql.index(" WHERE ")
-    assert '"event_day" = ' in sql
+    assert 'FROM "orders" AS "t0"' in sql
+    assert '"t0"."order_id" AS "order_key"' in sql
+    assert '"t0"."amount" AS "value"' in sql
+    assert 'WHERE "t0"."dt" = ' in sql
     assert "LIMIT 3" in sql.upper()
     assert snapshot.columns == ("order_key", "value")
     assert snapshot.coverage.pushed_predicate == (("eq", "event_day", "2026-07-10"),)
     assert snapshot.coverage.observed_row_count == 2
 
 
-def test_projected_sample_missing_sql_capability_is_structured_before_execution(
+def test_projected_sample_missing_table_capability_is_structured_before_execution(
     inspection: SourceInspection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class LookupOnlyBackend:
+    projected = _projected_orders_inspection(inspection)
+
+    class NoLookupBackend:
         name = "duckdb"
 
         def __init__(self) -> None:
             self.disconnected = False
-
-        def table(self, name: str, **_kwargs: object) -> object:
-            return ibis.table({"order_id": "string"}, name=name)
+            self.con = _TimeoutConnection()
 
         def disconnect(self) -> None:
             self.disconnected = True
 
-    backend = LookupOnlyBackend()
+    class _TimeoutConnection:
+        def interrupt(self) -> None:
+            return None
+
+    backend = NoLookupBackend()
     monkeypatch.setattr(
         "marivo.datasource.snapshot._backends.build_backend",
         lambda *_args, **_kwargs: backend,
     )
 
     with pytest.raises(DatasourceAuthoringError) as exc_info:
-        _projected_orders_inspection(inspection).sample(
+        projected.sample(
             scope=md.partition(
                 {"event_day": "2026-07-10"},
                 max_rows=2,
@@ -289,7 +291,7 @@ def test_projected_sample_missing_sql_capability_is_structured_before_execution(
     assert backend.disconnected is True
 
 
-def test_projected_sample_unknown_physical_identifier_is_execution_failure(
+def test_projected_sample_unknown_physical_identifier_fails_during_source_resolution(
     query_spy: _QuerySpy,
     inspection: SourceInspection,
 ) -> None:
@@ -297,7 +299,7 @@ def test_projected_sample_unknown_physical_identifier_is_execution_failure(
         inspection,
         source=md.table(
             "orders",
-            columns={"missing_alias": md.source_column("catalog.hidden", data_type="string")},
+            columns={"missing_alias": "catalog.hidden"},
         ),
         schema=(ColumnMetadata("missing_alias", "string", None, None, 1),),
     )
@@ -310,10 +312,10 @@ def test_projected_sample_unknown_physical_identifier_is_execution_failure(
         )
 
     error = exc_info.value
-    assert error.code == "acquisition_execution_failed"
+    assert error.code == "acquisition_source_failed"
     assert error.effect_observed is not None
-    assert error.effect_observed.query_executed is True
-    assert query_spy.user_data_queries == 1
+    assert error.effect_observed.query_executed is False
+    assert query_spy.user_data_queries == 0
 
 
 def test_unsupported_timeout_blocks_before_execution(
@@ -549,8 +551,8 @@ def test_time_range_uses_projected_temporal_alias(
         md.table(
             "orders",
             columns={
-                "event_time": md.source_column("ts", data_type="timestamp"),
-                "order_key": md.source_column("order_id", data_type="string"),
+                "event_time": "ts",
+                "order_key": "order_id",
             },
         ),
     )
@@ -568,9 +570,9 @@ def test_time_range_uses_projected_temporal_alias(
     )
 
     sql = query_spy.user_data_sql[0]
-    assert 'SELECT "ts" AS "event_time", "order_id" AS "order_key" FROM "orders"' in sql
-    assert '"event_time" >= ' in sql
-    assert '"event_time" < ' in sql
+    assert 'SELECT "t0"."order_id" AS "order_key" FROM "orders" AS "t0"' in sql
+    assert '"t0"."ts" >= ' in sql
+    assert '"t0"."ts" < ' in sql
     assert snapshot.coverage.observed_row_count == 2
 
 
@@ -752,18 +754,18 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
     assert disconnected == 1
 
 
-def test_typed_csv_acquisition_uses_authored_schema(
+def test_csv_acquisition_infers_source_type_during_read(
     project_root: Path,
     query_spy: _QuerySpy,
 ) -> None:
-    path = project_root / "warehouse.duckdb"
+    path = project_root / "csv-acquisition.duckdb"
     ibis.duckdb.connect(str(path)).disconnect()
     md.register(md.duckdb(name="warehouse", path=str(path)), project_root=project_root)
     csv_path = project_root / "orders.csv"
     csv_path.write_text("order_id,ignored\n1,x\n2,y\n")
     inspection = md.inspect(
         ms.ref.datasource("warehouse"),
-        md.csv(str(csv_path), schema={"order_id": "VARCHAR", "ignored": "VARCHAR"}),
+        md.csv(str(csv_path), columns={"order_id": "order_id", "ignored": "ignored"}),
     )
 
     snapshot = inspection.sample(
@@ -772,8 +774,10 @@ def test_typed_csv_acquisition_uses_authored_schema(
     )
 
     assert query_spy.user_data_queries == 1
-    assert snapshot.profiles[0].display_samples == ("1", "2")
-    assert snapshot.profiles[0].min_length == 1
+    assert snapshot.profiles[0].data_type == "int64"
+    assert snapshot.profiles[0].display_samples == (1, 2)
+    assert snapshot.profiles[0].min_value == 1
+    assert snapshot.profiles[0].max_value == 2
 
 
 def test_profiles_preserve_integer_range(

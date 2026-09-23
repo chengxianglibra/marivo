@@ -25,7 +25,6 @@ from marivo.datasource.ir import (
     JsonSourceIR,
     ParquetSourceIR,
     SourceParamIR,
-    TableColumnBindingIR,
     TableSourceIR,
     json_body_to_string,
     source_name,
@@ -208,59 +207,27 @@ def _validate_sample_interval_value(value: object, field_name: str) -> None:
         )
 
 
-def _source_schema_from_dict(value: object, *, field_name: str) -> tuple[tuple[str, str], ...]:
-    if not isinstance(value, Mapping):
+def _source_columns_from_dict(
+    value: object,
+    *,
+    field_name: str,
+) -> tuple[tuple[str, str], ...]:
+    if value is None:
         return ()
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{field_name} must be a mapping of output names to source fields.")
     normalized: list[tuple[str, str]] = []
-    for name, type_name in value.items():
-        if not isinstance(name, str) or not isinstance(type_name, str):
-            raise TypeError(f"{field_name} column names and type names must be strings.")
-        normalized.append((name, type_name))
+    for name, source in value.items():
+        if not isinstance(name, str) or not isinstance(source, str):
+            raise TypeError(f"{field_name} output names and source fields must be strings.")
+        normalized.append((name, source))
     return tuple(normalized)
 
 
 def _table_columns_from_dict(
     value: object,
-) -> tuple[tuple[str, TableColumnBindingIR], ...]:
-    if not isinstance(value, Mapping):
-        raise TypeError("TableSourceIR.columns must be a mapping.")
-    if not value:
-        raise ValueError("TableSourceIR.columns must contain at least one binding.")
-
-    normalized: list[tuple[str, TableColumnBindingIR]] = []
-    expected_keys = {"source", "data_type"}
-    for output_name, raw_binding in value.items():
-        if not isinstance(output_name, str):
-            raise TypeError("TableSourceIR.columns output names must be strings.")
-        if not isinstance(raw_binding, Mapping):
-            raise TypeError(
-                "TableSourceIR.columns values must be mappings with source and data_type."
-            )
-        received_keys = set(raw_binding)
-        if received_keys != expected_keys:
-            missing = sorted(expected_keys - received_keys)
-            unknown = sorted(str(key) for key in received_keys - expected_keys)
-            details = []
-            if missing:
-                details.append(f"missing keys {missing!r}")
-            if unknown:
-                details.append(f"unknown keys {unknown!r}")
-            raise ValueError(
-                f"TableSourceIR.columns binding for {output_name!r} has "
-                + " and ".join(details)
-                + "."
-            )
-        source = raw_binding["source"]
-        data_type = raw_binding["data_type"]
-        if not isinstance(source, str) or not isinstance(data_type, str):
-            raise TypeError("TableSourceIR.columns binding source and data_type must be strings.")
-        normalized.append(
-            (
-                output_name,
-                TableColumnBindingIR(source=source, data_type=data_type),
-            )
-        )
-    return tuple(normalized)
+) -> tuple[tuple[str, str], ...]:
+    return _source_columns_from_dict(value, field_name="TableSourceIR.columns")
 
 
 def _deserialize_query_param_value(raw_value: object) -> object:
@@ -297,29 +264,29 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
             columns=columns,
         )
     if kind == "csv":
+        if "schema" in data:
+            raise ValueError("typed CSV schema declarations are no longer supported; use columns.")
         return CsvSourceIR(
             path=str(data["path"]),
-            schema=_source_schema_from_dict(data.get("schema"), field_name="CsvSourceIR.schema"),
+            columns=_source_columns_from_dict(
+                data.get("columns"), field_name="CsvSourceIR.columns"
+            ),
             header=bool(data.get("header", True)),
             delimiter=str(data.get("delimiter", ",")),
         )
     if kind == "json":
+        if "schema" in data or "field_paths" in data:
+            raise ValueError(
+                "typed JSON schemas and field_paths are no longer supported; use columns."
+            )
         raw_format = str(data.get("format", "auto"))
         raw_records_path = data.get("records_path")
-        raw_field_paths = data.get("field_paths", {})
         raw_query_params = data.get("query_params", {})
         raw_method = str(data.get("method", "GET"))
         raw_body = data.get("body")
         raw_body_params = data.get("body_params", [])
         if not isinstance(raw_query_params, Mapping):
             raise TypeError("JsonSourceIR.query_params must be a mapping.")
-        if not isinstance(raw_field_paths, Mapping):
-            raise TypeError("JsonSourceIR.field_paths must be a mapping.")
-        field_paths: list[tuple[str, str]] = []
-        for output_name, field_path in raw_field_paths.items():
-            if not isinstance(output_name, str) or not isinstance(field_path, str):
-                raise TypeError("JsonSourceIR.field_paths names and paths must be strings.")
-            field_paths.append((output_name, field_path))
         query_params: list[tuple[str, object]] = []
         for name, raw_value in raw_query_params.items():
             if not isinstance(name, str):
@@ -348,10 +315,11 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
             body_params.append((tuple(path), SourceParamIR(name=raw_name)))
         return JsonSourceIR(
             path=str(data["path"]),
-            schema=_source_schema_from_dict(data.get("schema"), field_name="JsonSourceIR.schema"),
+            columns=_source_columns_from_dict(
+                data.get("columns"), field_name="JsonSourceIR.columns"
+            ),
             format=cast('Literal["auto", "newline_delimited", "array"]', raw_format),
             records_path=cast("str | None", raw_records_path),
-            field_paths=tuple(field_paths),
             query_params=cast("tuple[tuple[str, JsonQueryParamValue], ...]", tuple(query_params)),
             method=cast('Literal["GET", "POST"]', raw_method),
             body_json=json_body_to_string(raw_body) if raw_body is not None else None,
@@ -443,7 +411,7 @@ class TargetEntityContract:
 
 @dataclass(frozen=True, slots=True)
 class TargetDimensionContract:
-    """Declared direct-column Dimension facts usable during lazy construction."""
+    """Declared Dimension facts usable during lazy construction."""
 
     ref: RefPayloadV1
     entity_ref: RefPayloadV1
@@ -454,7 +422,6 @@ class TargetDimensionContract:
     granularity: str | None
     is_default: bool
     timezone: str | None
-    physical_type: str = ""
     parse: SemanticParse | None = None
 
 

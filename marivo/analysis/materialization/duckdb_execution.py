@@ -368,17 +368,45 @@ class DuckDBExecutionAdapter(ObservedExecution):
         self.submit(self.statement(sql, role="retained_scan"))
         return self.table(table_name)
 
+    def read_csv(
+        self,
+        path: str,
+        *,
+        table_name: str,
+        header: bool,
+        delimiter: str,
+    ) -> ir.Table:
+        if self._reserve is not None:
+            self._reserve(table_name)
+        options = [
+            sge.PropertyEQ(this=sge.to_identifier("header"), expression=sge.convert(header)),
+            sge.PropertyEQ(
+                this=sge.to_identifier("delim"), expression=sge.Literal.string(delimiter)
+            ),
+        ]
+        reader = sge.Anonymous(
+            this="read_csv_auto",
+            expressions=[sge.Literal.string(path), *options],
+        )
+        sql = (
+            f"CREATE OR REPLACE TEMPORARY VIEW {quote(table_name)} AS "
+            f"{sge.select('*').from_(reader).sql(dialect='duckdb')}"
+        )
+        self.submit(self.statement(sql, role="source_fence_reader"))
+        return self.table(table_name)
+
     def read_json(
         self,
         path: str,
         *,
         table_name: str,
-        columns: Mapping[str, str],
         format: str,
     ) -> ir.Table:
-        sql = json_statement(table_name, path, columns, format)
+        if self._reserve is not None:
+            self._reserve(table_name)
+        sql = json_statement(table_name, path, format)
         self.submit(self.statement(sql, role="source_fence_reader"))
-        return ibis.table({name: dt.dtype(kind) for name, kind in columns.items()}, name=table_name)
+        return self.table(table_name)
 
     def timezone(self) -> DatasourceEngineTimezone:
         from marivo.datasource.engines import require_profile_for_backend_type
@@ -448,21 +476,8 @@ def describe_statement(name: str, database: str | None, catalog: str | None) -> 
     ).sql(dialect="duckdb")
 
 
-def json_statement(name: str, path: str, columns: Mapping[str, str], format: str) -> str:
-    physical = {
-        key: Backend.compiler.type_mapper.to_string(dt.dtype(kind)) for key, kind in columns.items()
-    }
-    options = [
-        sge.to_identifier("format").eq(sge.convert(format)),
-        sge.to_identifier("columns").eq(
-            sge.Struct.from_arg_list(
-                [
-                    sge.PropertyEQ(this=sge.to_identifier(key), expression=sge.convert(kind))
-                    for key, kind in physical.items()
-                ]
-            )
-        ),
-    ]
+def json_statement(name: str, path: str, format: str) -> str:
+    options = [sge.to_identifier("format").eq(sge.convert(format))]
     reader = sge.Anonymous(this="read_json_auto", expressions=[sge.convert(path), *options])
     return f"CREATE OR REPLACE TEMPORARY VIEW {quote(name)} AS {sge.select('*').from_(reader).sql(dialect='duckdb')}"
 

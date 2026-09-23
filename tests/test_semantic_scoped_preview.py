@@ -339,7 +339,7 @@ def test_json_source_bindings_are_exact_entity_ref_mappings(
                     datasource=ms.ref.datasource("warehouse"),
                     source=md.json(
                         "https://example.invalid/events",
-                        schema={"event_id": "int64"},
+                        columns={"event_id": "event_id"},
                         query_params={"start": md.source_param("start")},
                     ),
                 )

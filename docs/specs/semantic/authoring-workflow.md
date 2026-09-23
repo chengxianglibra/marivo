@@ -60,9 +60,11 @@ when the answer changes a reusable declaration or its promotion caliber.
 
 Use datasource registration, connection testing, and `md.inspect(...)` for
 column names, physical types, source identity, partition facts, and backend
-capabilities. Inspection is the preferred schema path because these facts should
-not require a user-data scan. Unknown or unsupported metadata remains explicit;
-Marivo does not replace it with a discovery guess.
+capabilities. Inspection helps authors choose projections and understand the
+current source; it does not copy types into semantic declarations. At execution,
+table metadata supplies types for the required dependency closure, while CSV and
+JSON infer them during the actual read. Unknown or unsupported required types
+fail explicitly, and unused columns do not add type restrictions.
 
 ### 3. Explore according to the question
 
