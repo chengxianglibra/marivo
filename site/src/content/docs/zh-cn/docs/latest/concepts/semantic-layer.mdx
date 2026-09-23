@@ -54,10 +54,13 @@ marivo.help("semantic.objects")    # object meaning and construction modes
 marivo.help("semantic.builders")   # nested values and typed handles
 marivo.help("semantic.checks")     # what each inspection or check proves
 marivo.help(entry_or_error)         # current identity or structured repair
+# SemanticError.semantic_refs contains canonical path strings.
 ```
 请沿所选次级根入口中的完整限定路径继续查询，不要依赖短名称自动消歧。已知或从
 live result 获得的 public type、error 和 member target 仍可查询 focused help；无需再
 提供单独的平铺清单。
+如果构造错误时的引用包含目标 Dimension 契约，`semantic_refs` 会保存该契约的
+`ref.path`。
 
 每个原生 surface 根页都会展示当前 Marivo 版本、Python 可执行文件和包路径，再通过 capability
 摘要引导下一次 focused 查询，而不会展开完整的 public type 或 error algebra。Ontology 构造器的

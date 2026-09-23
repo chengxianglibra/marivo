@@ -22,7 +22,7 @@ from marivo.semantic.constraints import (
     default_hint_for_error_kind,
     get_constraint,
 )
-from marivo.semantic.ir import SourceLocation
+from marivo.semantic.ir import SourceLocation, TargetDimensionContract
 
 __all__ = [
     "HINTS",
@@ -228,7 +228,7 @@ class SemanticError(Exception):
         *,
         kind: str,
         message: str,
-        refs: tuple[str, ...] = (),
+        refs: tuple[str | TargetDimensionContract, ...] = (),
         location: SourceLocation | None = None,
         hint: str | None = None,
         details: dict[str, Any] | None = None,
@@ -258,7 +258,9 @@ class SemanticError(Exception):
                 )
         self.kind = kind
         self.message = message
-        self.semantic_refs = refs
+        self.semantic_refs = tuple(
+            ref.ref.path if isinstance(ref, TargetDimensionContract) else ref for ref in refs
+        )
         self.location = location
         self.hint = hint
         self.details = details or {}

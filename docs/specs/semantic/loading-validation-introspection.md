@@ -528,7 +528,9 @@ Errors are structured and teach: every typed error states what was expected, wha
 was received, and the concrete next step, with a stable `kind`, the `refs`
 involved, a `source location`, and a human-readable hint. New exceptions subclass
 `SemanticError`, carry structured fields, and render through the shared template
-style. The mapping from error kind to agent action is mechanical:
+style. Structured `semantic_refs` contain canonical path strings; a target
+Dimension contract supplied while constructing an error is recorded by its
+`ref.path`. The mapping from error kind to agent action is mechanical:
 
 | Error kind | Agent action |
 |---|---|
