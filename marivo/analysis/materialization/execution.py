@@ -15,6 +15,7 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
+from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
 from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
 from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.contracts import ExchangeBinding
@@ -51,6 +52,34 @@ class BatchStream(Protocol):
     def close(self) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ExchangeStreamBinding:
+    """Closed physical stream contract for a relation or a Cell-valued result."""
+
+    kind: str
+    row: DatasetRowContract
+    rows: DatasetRowSetContract
+    schema: pa.Schema
+    cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def __post_init__(self) -> None:
+        from marivo.analysis.materialization.storage import _matches_type
+
+        if self.kind not in ("relation", "value"):
+            raise _exchange_error("unknown exchange kind")
+        names = tuple(self.schema.names)
+        if names != tuple(field.name for field in self.row.schema.columns) or any(
+            field.nullable != arrow.nullable or not _matches_type(field.logical_type_id, arrow.type)
+            for field, arrow in zip(self.row.schema.columns, self.schema, strict=True)
+        ):
+            raise _exchange_error("stream fields differ from row contract")
+        has_cells = names[-3:] == ("value", "cell_tag", "cell_reason")
+        if has_cells != (self.kind == "value"):
+            raise _exchange_error("relation and Cell fields differ")
+        if self.kind == "relation" and self.cell_reasons:
+            raise _exchange_error("relation has Cell reasons")
+
+
 def _exchange_error(received: str) -> MaterializationError:
     return MaterializationError(
         expected="one complete schema-bound Analysis exchange stream",
@@ -63,7 +92,9 @@ def _exchange_error(received: str) -> MaterializationError:
 class ValidatedExchangeStream:
     """One-shot private S0 consumer; completion follows exhaustion and owned close."""
 
-    def __init__(self, source: BatchStream, binding: ExchangeBinding) -> None:
+    def __init__(
+        self, source: BatchStream, binding: ExchangeBinding | ExchangeStreamBinding
+    ) -> None:
         try:
             matches = source.schema.equals(binding.schema, check_metadata=False)
         except Exception:
@@ -92,7 +123,12 @@ class ValidatedExchangeStream:
         return self._active
 
     def _check_cells(self, batch: pa.RecordBatch) -> None:
-        allowed = dict(self._binding.method.cell_reasons)
+        if isinstance(self._binding, ExchangeStreamBinding):
+            if self._binding.kind == "relation":
+                return
+            allowed = dict(self._binding.cell_reasons)
+        else:
+            allowed = dict(self._binding.method.cell_reasons)
         values = batch.column("value")
         tags = batch.column("cell_tag")
         reasons = batch.column("cell_reason")

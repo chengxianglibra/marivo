@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -77,6 +78,22 @@ if TYPE_CHECKING:
     from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
 
 
+def _j1_local_table(rows: list[dict[str, object]], schema: pa.Schema) -> pa.Table:
+    for row in rows:
+        for field in schema:
+            value = row.get(field.name)
+            if pa.types.is_float64(field.type) and type(value) is int:
+                converted = float(value)
+                if not math.isfinite(converted) or int(converted) != value:
+                    raise MaterializationError(
+                        expected="lossless int64 to float64 J1 output",
+                        received=f"{field.name} loses integer precision",
+                        repair="Use an admitted numeric output type that retains the exact sum.",
+                        stage="local_execution",
+                    )
+    return pa.Table.from_pylist(rows, schema=schema)
+
+
 def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1ExecutionResult:
     """Evaluate one J1 successor over fixed, fully validated Arrow input in pandas."""
     from marivo.analysis.compiler.placement import place_j1_local
@@ -95,7 +112,8 @@ def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1Exec
         input_domain: MethodDomain = (
             "group" if "group" in retained.primary.column_names else "entity"
         )
-        value_type = str(retained.primary.schema.field("value").type)
+        value_field = retained.primary.schema.field("value").type
+        value_type = "float64" if pa.types.is_float64(value_field) else str(value_field)
         method_contract.require_route("local", "pandas", input_domain, value_type)
         inherited_checks = set(method_contract.contract.required_checks) - {
             "strict_current_row_cell"
@@ -172,7 +190,11 @@ def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1Exec
                     retained.primary.schema.field("row_count"),
                 ]
             )
-            return J1ExecutionResult(root, pa.Table.from_pylist(rows, schema=schema))
+            return J1ExecutionResult(
+                root,
+                _j1_local_table(rows, schema),
+                completed_checks=retained.completed_checks,
+            )
         if tuple(frame.columns) == ("member", "value", "cell_tag", "cell_reason"):
             if (frame["cell_tag"] != "defined").any():
                 raise MaterializationError(
@@ -184,7 +206,9 @@ def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1Exec
             selected = frame[["value"]].drop_duplicates().rename(columns={"value": "group"})
             schema = pa.schema([retained.primary.schema.field("value").with_name("group")])
             return J1ExecutionResult(
-                root, pa.Table.from_pandas(selected, schema=schema, preserve_index=False)
+                root,
+                pa.Table.from_pandas(selected, schema=schema, preserve_index=False),
+                completed_checks=("strict_category_cell",),
             )
         raise _error("implementation_registration")
     if operation == "dsl.j1.rollup":
@@ -208,7 +232,11 @@ def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1Exec
             "row_count": row_count,
         }
         schema = pa.schema([retained.primary.schema.field(name) for name in row])
-        return J1ExecutionResult(root, pa.Table.from_pylist([row], schema=schema))
+        return J1ExecutionResult(
+            root,
+            _j1_local_table([row], schema),
+            completed_checks=retained.completed_checks,
+        )
     if operation == "dsl.j1.summarize":
         if not parameters or not isinstance(parameters[0], str):
             raise _error("implementation_registration")
@@ -273,7 +301,18 @@ def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1Exec
                 )
         else:
             raise _error("implementation_registration")
-        return J1ExecutionResult(root, pa.Table.from_pylist([row], schema=schema))
+        return J1ExecutionResult(
+            root,
+            _j1_local_table([row], schema),
+            completed_checks=tuple(
+                dict.fromkeys(
+                    (
+                        *retained.completed_checks,
+                        *(("strict_current_row_cell",) if method in ("sum", "mean") else ()),
+                    )
+                )
+            ),
+        )
     raise MaterializationError(
         expected="an admitted J1 retained-input method",
         received=operation,

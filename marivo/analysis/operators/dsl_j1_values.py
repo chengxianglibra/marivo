@@ -95,7 +95,12 @@ def _validate_table(table: pa.Table, *, part: bool = False) -> None:
             else pa.types.is_string(physical) or pa.types.is_int64(physical)
         )
         if not admitted:
-            raise _fail("string or int64 explicit key", str(table.schema.field(key_name).type))
+            expected = (
+                "physical string coordinate key"
+                if key_name == "group"
+                else "physical string or int64 member key"
+            )
+            raise _fail(expected, str(physical))
     for name in ("non_null_count", "row_count", "current_count"):
         if name in names and not pa.types.is_int64(table.schema.field(name).type):
             raise _fail("int64 state count", str(table.schema.field(name).type))
@@ -235,6 +240,8 @@ class J1ExecutionResult:
                 table.schema.field("member").type != self.primary.schema.field("member").type
             ):
                 raise _fail("coordinate part on the exact member key type", "foreign key type")
+            if table.schema.field("state_sum").type != self.primary.schema.field("state_sum").type:
+                raise _fail("coordinate part on the exact sum state type", "foreign sum type")
             primary_rows = {row["member"]: row for row in self.primary.to_pylist()}
             counts: dict[object, list[tuple[int, int, object]]] = {}
             for row in table.to_pylist():
@@ -251,7 +258,15 @@ class J1ExecutionResult:
                     or merge_counts(item[1] for item in components) != primary["row_count"]
                 ):
                     raise _fail("complete coordinate contribution partition", "state counts differ")
-                if pa.types.is_int64(table.schema.field("state_sum").type):
-                    amount = merge_numbers(item[2] for item in components if item[2] is not None)
-                    if primary["non_null_count"] and amount != primary["state_sum"]:
-                        raise _fail("exact integer coordinate sum partition", "state sums differ")
+                amount = merge_numbers(item[2] for item in components if item[2] is not None)
+                if primary["non_null_count"]:
+                    original = primary["state_sum"]
+                    if pa.types.is_int64(table.schema.field("state_sum").type):
+                        if amount != original:
+                            raise _fail(
+                                "exact integer coordinate sum partition", "state sums differ"
+                            )
+                    elif not math.isclose(
+                        float(amount), float(original), rel_tol=1e-12, abs_tol=1e-12
+                    ):
+                        raise _fail("bounded float64 coordinate sum partition", "state sums differ")

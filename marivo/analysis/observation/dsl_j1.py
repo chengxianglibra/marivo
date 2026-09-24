@@ -79,6 +79,23 @@ def _j1_contracts(
     input_root: LogicalRootHandle | None,
     parameters: tuple[object, ...],
 ) -> tuple[DatasetRowContract, DatasetRowSetContract]:
+    if kind in ("read", "group", "summarize") and not parameters:
+        raise _reject(
+            "canonical J1 node parameters",
+            f"empty {kind} parameters",
+            repair="Rebuild the J1 node from its admitted constructor.",
+        )
+    if (
+        kind == "observe"
+        and input_root is not None
+        and input_root.shape_id.local_shape_id == "group"
+        and (type(input_root.parameters) is not tuple or not input_root.parameters)
+    ):
+        raise _reject(
+            "canonical J1 group input parameters",
+            "empty group parameters",
+            repair="Rebuild the J1 group input from its admitted constructor.",
+        )
     entity = normalize_target_entity(context.registry, entity_path)
     member_type = entity.identity_signature[0][1]
     if member_type not in ("unknown", "string", "int64"):
@@ -216,7 +233,9 @@ def j1_row_contracts(
                 "J1 logical ancestry", "materialized leaf", repair="Use the exact J1 input."
             )
         first = input_root
-    member_path = first.parameters[0] if type(first.parameters) is tuple else None
+    member_path = (
+        first.parameters[0] if type(first.parameters) is tuple and first.parameters else None
+    )
     if not isinstance(member_path, str):
         raise _reject("bound member Entity", "invalid root", repair="Rebuild the J1 node.")
     parent = root.inputs[0].root if root.inputs else None

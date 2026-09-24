@@ -130,7 +130,15 @@ The first-round numeric method policy admits int64/float64 inputs; count yields
 int64, integer sum checks int64 overflow, and mean/ratio/coefficient yield
 float64. Nonfinite values fail method admission or consumption. Decimal may
 round-trip through the exchange codec but is not a first-round numeric
-algorithm input. A Defined Cell has a valid typed payload; Null is a present
+algorithm input. The method and Cell policy versions agree across the DuckDB
+and pandas routes, but float64 accumulation follows each route's evaluation
+order and algorithm; equal inputs do not promise bit-identical sums or means.
+Comparisons between routes therefore check the admitted semantics and use
+appropriate numeric tolerances rather than exact float64 equality. When J1
+retains coordinate sum state, its partition check requires exact int64 sums or
+float64 sums within relative and absolute tolerance `1e-12`; a numerically
+unstable float64 partition outside that bound is rejected before publication.
+A Defined Cell has a valid typed payload; Null is a present
 missing source value, Undefined is a method result with its reason, and Unknown
 retains its distinct uncertainty reason. A missing domain row is none of these.
 The inactive `MethodContract.cell_reasons` owns the closed reason IDs for each

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timezone
 
 import duckdb
 import ibis
@@ -11,6 +12,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.compiler.dsl_j1_source import _utc_bound
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization.contracts import schema_fingerprint
 from marivo.analysis.materialization.dsl_j1_receipt import (
@@ -38,6 +40,10 @@ from marivo.analysis.observation.dsl_j1 import (
 )
 from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
 from tests.shared_fixtures import DslCaseFactory
+
+
+def test_j1_time_bound_normalizes_explicit_offset_to_utc() -> None:
+    assert _utc_bound("2026-08-01T08:00:00+08:00") == datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def test_j1_ibis_source_matches_independent_oracle(
@@ -439,6 +445,18 @@ def test_j1_local_rejects_duplicate_missing_nonfinite_and_overflow_state(
     invalid = {**row("A", 1), "value": float("nan"), "state_sum": float("nan")}
     with pytest.raises(MaterializationError, match="finite int64 or float64"):
         J1ExecutionResult(observed.root, pa.Table.from_pylist([invalid], schema=float_schema))
+    mixed_schema = schema.set(1, pa.field("value", pa.float64()))
+    precise_rows = [
+        {**row("A", 2**53), "value": float(2**53)},
+        {**row("B", 1), "value": 1.0},
+    ]
+    retained = J1ExecutionResult(
+        observed.root,
+        pa.Table.from_pylist(precise_rows, schema=mixed_schema),
+        completed_checks=("complete_coverage", "contribution_partition"),
+    )
+    with pytest.raises(MaterializationError, match="loses integer precision"):
+        run_j1_local(observed.rollup().root, retained)
     read = context.members(ms.ref.entity(f"{domain}.customer")).read(
         ms.ref.dimension(f"{domain}.customer.region")
     )
@@ -487,6 +505,93 @@ def test_j1_local_rejects_duplicate_missing_nonfinite_and_overflow_state(
                     ),
                 ),
             )
+    non_string_coordinate = coordinate_schema.set(1, pa.field("group", pa.int64()))
+    with pytest.raises(MaterializationError, match="physical string coordinate key"):
+        J1ExecutionResult(
+            observed.root,
+            pa.Table.from_pylist([row("A", 1)], schema=schema),
+            parts=(
+                (
+                    "coordinate",
+                    pa.Table.from_pylist(
+                        [
+                            {
+                                "member": "A",
+                                "group": 1,
+                                "state_sum": 1,
+                                "non_null_count": 1,
+                                "row_count": 1,
+                            }
+                        ],
+                        schema=non_string_coordinate,
+                    ),
+                ),
+            ),
+        )
+    float_coordinate = coordinate_schema.set(2, pa.field("state_sum", pa.float64()))
+    with pytest.raises(MaterializationError, match="bounded float64 coordinate sum partition"):
+        J1ExecutionResult(
+            observed.root,
+            pa.Table.from_pylist(
+                [{**row("A", 10), "value": 10.0, "state_sum": 10.0}], schema=float_schema
+            ),
+            parts=(
+                (
+                    "coordinate",
+                    pa.Table.from_pylist(
+                        [
+                            {
+                                "member": "A",
+                                "group": "web",
+                                "state_sum": 9.0,
+                                "non_null_count": 1,
+                                "row_count": 1,
+                            }
+                        ],
+                        schema=float_coordinate,
+                    ),
+                ),
+            ),
+        )
+    J1ExecutionResult(
+        observed.root,
+        pa.Table.from_pylist(
+            [
+                {
+                    **row("A", 1),
+                    "value": 0.3,
+                    "state_sum": 0.3,
+                    "non_null_count": 2,
+                    "row_count": 2,
+                }
+            ],
+            schema=float_schema,
+        ),
+        parts=(
+            (
+                "coordinate",
+                pa.Table.from_pylist(
+                    [
+                        {
+                            "member": "A",
+                            "group": "mobile",
+                            "state_sum": 0.1,
+                            "non_null_count": 1,
+                            "row_count": 1,
+                        },
+                        {
+                            "member": "A",
+                            "group": "web",
+                            "state_sum": 0.2,
+                            "non_null_count": 1,
+                            "row_count": 1,
+                        },
+                    ],
+                    schema=float_coordinate,
+                ),
+            ),
+        ),
+    )
 
 
 def test_j1_null_contribution_keeps_cell_and_state_across_routes(

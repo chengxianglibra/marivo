@@ -30,16 +30,33 @@ selected or grouped after a fixed receipt; a coordinate-free Revenue
 observation retains keyed sum, non-null count, and row-count parts for local
 rollup after its fixed receipt. An in-memory source result with a retained
 Channel coordinate can group that coordinate by explicit key. Persisted
-coordinate parts and successful Artifact publication/cold recovery remain W3
-work. These private calls do not activate public Analysis DSL signatures or
-claim Runtime publication.
+coordinate parts and successful Artifact publication/cold recovery are described
+in the W3 section below. These private calls do not activate public Analysis
+DSL signatures or claim Runtime publication.
 
 For J1 builder-backed `ms.aggregate(..., agg="sum")`, the graph fixes
 ignore-Null inputs and a Null result for complete empty contributions; the
 builder has no separate value-policy parameters. Explicit authored policy
 facts, when present on a normalized Metric, must agree with that graph before
-J1 admission. The execution route then applies the same versioned Cell and
-numeric policy on DuckDB and pandas.
+J1 admission. Both routes apply the same versioned Cell and numeric admission
+policy. DuckDB and pandas accumulate float64 in different orders, so a float64
+sum or mean is not promised to be bit-identical across routes. J1 exchange
+vectors compare float64 with an explicit tolerance and preserve exact int64
+checks; a retained coordinate float64 partition must pass its own bounded
+sum-state check before publication.
+
+## S1 W3 private J1 Artifact exchange
+
+W3 uses one closed schema-first Arrow stream contract for J1 member relations
+and Cell-valued rows. The DuckDB/Ibis producer and receipt-checked local Parquet
+reader complete row, key, Cell and content checks before yielding publication
+evidence. An exact admitted Run publishes the main rows and separately receipted
+sum/count and optional coordinate parts through the existing Store. Recovery
+requires the exact Artifact reference, J1 definition, method version and input
+binding; it reads every selected receipt before pandas continuation. A cold
+process can continue with saved category rows, current-row statistics and
+Channel coordinate rollup without a source connection. W4 still owns formal
+Runtime execution identity, repeated-source key allocation and cache policy.
 
 ## Accepted S0 Analysis DSL slice (inactive)
 

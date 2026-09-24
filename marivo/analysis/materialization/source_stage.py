@@ -66,7 +66,15 @@ def run_j1_source(
     """
     from marivo.analysis.compiler.dsl_j1_source import lower_j1_source
     from marivo.analysis.compiler.placement import place_j1_source
-    from marivo.analysis.materialization.ibis_batches import IbisBatchStream
+    from marivo.analysis.materialization.execution import (
+        ExchangeStreamBinding,
+        ValidatedExchangeStream,
+    )
+    from marivo.analysis.materialization.ibis_batches import (
+        IbisBatchStream,
+        ProjectedBatchStream,
+    )
+    from marivo.analysis.observation.dsl_j1 import j1_row_contracts
     from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
     from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
     from marivo.analysis.operators.registry import MethodDomain
@@ -94,53 +102,73 @@ def run_j1_source(
                 )
         method.require_route("source", "duckdb", domain, str(plan.primary["value"].type()))
 
-    def collect(expression: ir.Table) -> pa.Table:
+    def collect(expression: ir.Table, *, primary: bool = False) -> pa.Table:
+        if primary:
+            row, rows = j1_row_contracts(context, root)
+            keys = tuple(
+                field.name for field in row.schema.columns if field.field_id in row.key_field_ids
+            )
+            if keys:
+                expression = expression.order_by([expression[key] for key in keys])
+        inferred = expression.schema().to_pyarrow()
+        required = {
+            "member",
+            "group",
+            "cell_tag",
+            "non_null_count",
+            "row_count",
+            "current_count",
+        }
+        expected = pa.schema(
+            [
+                pa.field(field.name, field.type, nullable=field.name not in required)
+                for field in inferred
+            ]
+        )
+        if primary:
+            names = tuple(field.name for field in row.schema.columns)
+            selected = pa.schema([expected.field(name) for name in names])
+            binding = ExchangeStreamBinding(
+                "value" if "cell_tag" in names else "relation",
+                row,
+                rows,
+                selected,
+                (
+                    ("null", ("source_null", "empty_contribution")),
+                    ("undefined", ("empty_mean",)),
+                )
+                if "cell_tag" in names
+                else (),
+            )
         backend.compile(expression)
         native = backend.to_pyarrow_batches(expression, chunk_size=1024)
         stream = IbisBatchStream(native, native.schema)
         try:
-            inferred = expression.schema().to_pyarrow()
-            required = {
-                "member",
-                "group",
-                "cell_tag",
-                "non_null_count",
-                "row_count",
-                "current_count",
-            }
-            expected = pa.schema(
-                [
-                    pa.field(field.name, field.type, nullable=field.name not in required)
-                    for field in inferred
-                ]
-            )
-            batches: list[pa.RecordBatch] = []
-            for batch in stream:
-                if batch.schema.names != expected.names:
-                    raise MaterializationError(
-                        expected="stable Ibis output fields",
-                        received="source batch fields differ",
-                        repair="Correct the source lowering or backend batch adaptation.",
-                        stage="source_transfer",
-                    )
-                for key in ("member", "group"):
-                    if key in batch.schema.names and batch.column(key).null_count:
-                        raise MaterializationError(
-                            expected="complete unique explicit keys",
-                            received="missing or duplicate key",
-                            repair="Correct the selected J1 source key declaration or rows.",
-                            stage="source_validation",
-                        )
+            if primary:
+                projected = ProjectedBatchStream(stream, expected, selected)
+                checked = ValidatedExchangeStream(projected, binding)
                 try:
-                    batches.append(batch.cast(expected, safe=True))
-                except (pa.ArrowException, ValueError) as error:
-                    raise MaterializationError(
-                        expected="lossless checked Ibis output types",
-                        received="source batch type or integer range differs",
-                        repair="Use a method whose numeric type is admitted by the source adapter.",
-                        stage="source_transfer",
-                    ) from error
+                    for _ in checked:
+                        pass
+                    if not checked.completed:
+                        raise MaterializationError(
+                            expected="complete J1 source exchange",
+                            received="source stream was not exhausted",
+                            repair="Retry the admitted source action.",
+                            stage="source_transfer",
+                        )
+                    return pa.Table.from_batches(projected.full_batches, schema=expected)
+                finally:
+                    checked.close()
+            batches = tuple(batch.cast(expected, safe=True) for batch in stream)
             return pa.Table.from_batches(batches, schema=expected)
+        except (pa.ArrowException, ValueError):
+            raise MaterializationError(
+                expected="lossless checked Ibis output types",
+                received="source batch type or integer range differs",
+                repair="Use a method whose numeric type is admitted by the source adapter.",
+                stage="source_transfer",
+            ) from None
         finally:
             stream.close()
 
@@ -156,7 +184,7 @@ def run_j1_source(
                 stage="source_validation",
             )
         completed.append(name)
-    primary = collect(plan.primary)
+    primary = collect(plan.primary, primary=True)
     parts = tuple((role, collect(expression)) for role, expression in plan.parts)
     return J1ExecutionResult(root, primary, parts, tuple(completed))
 

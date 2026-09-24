@@ -359,6 +359,23 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
+        if self.producer_id.startswith("dsl.j1."):
+            states = (
+                "dsl.j1.value_sum",
+                "dsl.j1.non_null_count",
+                "dsl.j1.row_count",
+            )
+            if self.producer_id == "dsl.j1.observe_coordinates":
+                return (*states, "dsl.j1.coordinate")
+            if self.producer_id in ("dsl.j1.observe", "dsl.j1.derived_state"):
+                return states
+            if self.producer_id == "dsl.j1.current_sum":
+                return ("dsl.j1.current_sum",)
+            if self.producer_id == "dsl.j1.current_count":
+                return ("dsl.j1.current_count",)
+            if self.producer_id == "dsl.j1.current_mean":
+                return ("dsl.j1.current_sum", "dsl.j1.current_count")
+            return ()
         if self.producer_id == "session.lifecycle.replay":
             from marivo.analysis.domains.lifecycle import ROLES
 
@@ -477,6 +494,19 @@ class ObservationProducerContract:
 
 
 _PRODUCER_CONTRACTS = (
+    *(
+        ObservationProducerContract(f"dsl.j1.{name}", "dsl_j1")
+        for name in (
+            "relation",
+            "value",
+            "observe",
+            "observe_coordinates",
+            "derived_state",
+            "current_sum",
+            "current_count",
+            "current_mean",
+        )
+    ),
     ObservationProducerContract("session.lifecycle.replay", "lifecycle_history"),
     ObservationProducerContract("session.events.match", "event_journey"),
     ObservationProducerContract("event.compare", "funnel_delta"),
@@ -1121,6 +1151,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "candidate",
                 "event",
                 "lifecycle",
+                "dsl_j1",
             }
         ),
         shapes=frozenset(
@@ -1141,6 +1172,18 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 ),
                 *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
                 ("population", "entity-membership", 1),
+                *(
+                    ("dsl_j1", kind, 1)
+                    for kind in (
+                        "members",
+                        "read",
+                        "where",
+                        "group",
+                        "observe",
+                        "rollup",
+                        "summarize",
+                    )
+                ),
                 ("event", "journey", 1),
                 *(
                     ("lifecycle", shape, 1)
@@ -1183,6 +1226,10 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "attribution_partition_identity",
                 "method_identity",
                 "status",
+                "member",
+                "group",
+                "value",
+                "cell",
             }
         ),
         logical_types=types,
@@ -1497,6 +1544,29 @@ def _validate_population(row: DatasetRowContract, row_set: DatasetRowSetContract
         )
 
 
+def _validate_j1(row: DatasetRowContract, row_set: DatasetRowSetContract) -> None:
+    """Admit only the finite private J1 row shapes into Artifact recovery."""
+    names = tuple(field.name for field in row.schema.columns)
+    keys = tuple(field.name for field in row.schema.columns if field.field_id in row.key_field_ids)
+    if (
+        row.shape_id.local_shape_id
+        not in ("members", "read", "where", "group", "observe", "rollup", "summarize")
+        or row.family_semantics.kind != "complete_from_schema"
+        or keys not in ((), ("member",), ("group",))
+        or names
+        not in (
+            ("member",),
+            ("group",),
+            ("member", "value", "cell_tag", "cell_reason"),
+            ("group", "value", "cell_tag", "cell_reason"),
+            ("value", "cell_tag", "cell_reason"),
+        )
+        or (not keys and row_set.cardinality.kind != "singleton")
+        or (keys and row_set.cardinality.kind != "keyed")
+    ):
+        raise construction_error("closed J1 row shape and cardinality", "invalid J1 rows")
+
+
 def _validate_metric(row: DatasetRowContract, row_set: DatasetRowSetContract) -> None:
     semantics = row.family_semantics
     if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
@@ -1775,7 +1845,9 @@ def _contract_facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
     return tuple(facts)
 
 
-def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
+def make_family_registry(
+    ids: _StableIdRegistry, *, include_j1: bool = False
+) -> DatasetFamilyRegistry:
     from marivo.analysis.domains.contracts import EventSelectionPayload
     from marivo.analysis.domains.lifecycle_reducers import LifecycleSelectionPayload
     from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
@@ -1820,6 +1892,37 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             contract_facts=_contract_facts,
         )
     )
+    if include_j1:
+        from marivo.analysis.observation.dsl_j1_dataset import (
+            LogicalJ1Dataset,
+            MaterializedJ1Dataset,
+        )
+
+        registry.register(
+            DatasetFamilyRegistration(
+                family_id="dsl_j1",
+                logical_type=LogicalJ1Dataset,
+                materialized_type=MaterializedJ1Dataset,
+                shape_ids=tuple(
+                    _make_shape_id("dsl_j1", kind, 1, ids=ids)
+                    for kind in (
+                        "members",
+                        "read",
+                        "where",
+                        "group",
+                        "observe",
+                        "rollup",
+                        "summarize",
+                    )
+                ),
+                owner_id="observation.dsl_j1",
+                ids=ids,
+                row_validator=_validate_j1,
+                consumers=(),
+                repr_renderer=_dataset_repr,
+                materialized_state_decoder=state_decoder,
+            )
+        )
     shapes = tuple(_make_shape_id("metric", shape, 1, ids=ids) for shape in METRIC_SHAPES)
     entity_shapes = shapes[:4]
     consumers = tuple(

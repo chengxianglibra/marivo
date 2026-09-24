@@ -27,6 +27,8 @@ def independent_contracts(row: DatasetRowContract) -> dict[str, str]:
 
     if isinstance(row.family_semantics, LifecycleSemantics):
         return dict(zip(ROLES, ROLES, strict=True))
+    if row.shape_id.family_id == "dsl_j1" and row.shape_id.local_shape_id == "observe":
+        return {"coordinate": "dsl.j1.coordinate"}
     return {
         **{
             role: f"{row.shape_id.family_id}.distinct_membership"

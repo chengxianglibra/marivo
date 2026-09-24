@@ -336,6 +336,99 @@ class ExchangeRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class J1ArtifactExchange:
+    """Exact private J1 meaning and selected receipts committed with an Artifact."""
+
+    kind: Literal["relation", "value"]
+    operator_id: str
+    domain: str
+    quantity: str | None
+    method_id: str
+    method_version: int
+    input_binding: str
+    completed_checks: tuple[str, ...]
+    primary_schema_fingerprint: str
+    receipt_identity: str
+    parts: tuple[tuple[str, str, int, str, str], ...]
+
+
+def j1_exchange_payload(value: J1ArtifactExchange) -> dict[str, object]:
+    return {
+        "schema": "marivo.j1_artifact_exchange/v1",
+        "kind": value.kind,
+        "operator_id": value.operator_id,
+        "domain": value.domain,
+        "quantity": value.quantity,
+        "method_id": value.method_id,
+        "method_version": value.method_version,
+        "input_binding": value.input_binding,
+        "completed_checks": value.completed_checks,
+        "primary_schema_fingerprint": value.primary_schema_fingerprint,
+        "receipt_identity": value.receipt_identity,
+        "parts": [list(part) for part in value.parts],
+    }
+
+
+def decode_j1_exchange(value: object) -> J1ArtifactExchange:
+    obj = _obj(
+        value,
+        "schema kind operator_id domain quantity method_id method_version input_binding completed_checks primary_schema_fingerprint receipt_identity parts",
+    )
+    if obj["schema"] != "marivo.j1_artifact_exchange/v1" or obj["kind"] not in (
+        "relation",
+        "value",
+    ):
+        raise invalid("unsupported J1 Artifact exchange")
+    domain = _text(obj["domain"])
+    if canonical_json(parse_json(domain)) != domain:
+        raise invalid("noncanonical J1 domain")
+    quantity = obj["quantity"]
+    if quantity is not None:
+        quantity = _text(quantity)
+        if canonical_json(parse_json(quantity)) != quantity:
+            raise invalid("noncanonical J1 quantity")
+    parts: list[tuple[str, str, int, str, str]] = []
+    for item in _array(obj["parts"]):
+        fields = _array(item)
+        if len(fields) != 5:
+            raise invalid("invalid J1 retained role")
+        schema_hash, receipt_hash = _text(fields[3]), _text(fields[4])
+        _hash(schema_hash)
+        _hash(receipt_hash)
+        parts.append(
+            (
+                _text(fields[0]),
+                _text(fields[1]),
+                _int(fields[2], minimum=1),
+                schema_hash,
+                receipt_hash,
+            )
+        )
+    primary_hash, receipt_hash = (
+        _text(obj["primary_schema_fingerprint"]),
+        _text(obj["receipt_identity"]),
+    )
+    _hash(primary_hash)
+    _hash(receipt_hash)
+    checks = _texts(obj["completed_checks"])
+    if len(set(checks)) != len(checks) or len({part[0] for part in parts}) != len(parts):
+        raise invalid("duplicate J1 exchange obligation")
+    return J1ArtifactExchange(
+        obj["kind"],
+        _text(obj["operator_id"]),
+        domain,
+        quantity,
+        _text(obj["method_id"]),
+        _int(obj["method_version"], minimum=1),
+        _text(obj["input_binding"]),
+        checks,
+        primary_hash,
+        receipt_hash,
+        tuple(parts),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class ExchangeBinding:
     """Run-local view of existing Dataset, method and receipt owners."""
 
@@ -896,6 +989,7 @@ class ArtifactDescriptor:
     lifecycle_evidence: LifecycleEvidenceSummary | ContinuationEvidence | None = None
 
     temporal_execution: tuple[TemporalExecution, ...] = ()
+    j1_exchange: J1ArtifactExchange | None = None
 
     @property
     def row_contract_fingerprint(self) -> str:
@@ -1522,8 +1616,10 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         evidence_payload as lifecycle_evidence_payload,
     )
 
-    return {
-        "schema": "marivo.dataset_artifact_descriptor/v1",
+    payload: dict[str, object] = {
+        "schema": "marivo.dataset_artifact_descriptor/v2"
+        if value.j1_exchange is not None
+        else "marivo.dataset_artifact_descriptor/v1",
         "definition_fingerprint": value.definition_fingerprint,
         "row_contract": row_payload(value.row_contract),
         "row_contract_fingerprint": value.row_contract_fingerprint,
@@ -1575,6 +1671,9 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         "event_evidence": event_evidence_payload(value.event_evidence),
         "subject_selection_evidence": selection_evidence_payload(value.subject_selection_evidence),
     }
+    if value.j1_exchange is not None:
+        payload["j1_exchange"] = j1_exchange_payload(value.j1_exchange)
+    return payload
 
 
 def encode_descriptor(value: ArtifactDescriptor) -> str:
@@ -1613,16 +1712,21 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     )
 
     ids = make_ids(())
-    obj = _obj(
-        parse_json(text),
-        "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence lifecycle_evidence temporal_execution",
-    )
-    if obj["schema"] != "marivo.dataset_artifact_descriptor/v1":
+    raw = parse_json(text)
+    if not isinstance(raw, dict):
+        raise invalid("invalid Artifact descriptor")
+    j1_version = raw.get("schema") == "marivo.dataset_artifact_descriptor/v2"
+    names = "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence lifecycle_evidence temporal_execution"
+    obj = _obj(raw, names + (" j1_exchange" if j1_version else ""))
+    if obj["schema"] not in (
+        "marivo.dataset_artifact_descriptor/v1",
+        "marivo.dataset_artifact_descriptor/v2",
+    ):
         raise invalid("unsupported Artifact descriptor or sampling contract")
     row = decode_row(obj["row_contract"], ids)
     row_set = decode_row_set(obj["row_set_contract"], ids)
     realized = decode_schema(obj["realized_schema"], ids)
-    registry = make_family_registry(ids)
+    registry = make_family_registry(ids, include_j1=row.shape_id.family_id == "dsl_j1")
     registry.get(row.shape_id.family_id).validate(row, row_set)
     d._validate_realized_schema(row.schema, realized, ids=ids)
     if any(
@@ -1715,7 +1819,65 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         decode_funnel_evidence(obj["funnel_evidence"]),
         decode_lifecycle_evidence(obj["lifecycle_evidence"]),
         _decode_temporal(obj["temporal_execution"]),
+        decode_j1_exchange(obj["j1_exchange"]) if j1_version else None,
     )
+    if (row.shape_id.family_id == "dsl_j1") != (result.j1_exchange is not None):
+        raise invalid("J1 exchange outside its Artifact family")
+    if result.j1_exchange is not None:
+        exchange = result.j1_exchange
+        producer = result.dataset_materialization_contract.producer_id
+        states = (
+            ("value.sum", "dsl.j1.value_sum"),
+            ("value.non_null_count", "dsl.j1.non_null_count"),
+            ("value.row_count", "dsl.j1.row_count"),
+        )
+        j1_expected_roles = {
+            "dsl.j1.relation": (),
+            "dsl.j1.value": (),
+            "dsl.j1.observe": states,
+            "dsl.j1.observe_coordinates": (*states, ("coordinate", "dsl.j1.coordinate")),
+            "dsl.j1.derived_state": states,
+            "dsl.j1.current_sum": (("current_sum", "dsl.j1.current_sum"),),
+            "dsl.j1.current_count": (("current_count", "dsl.j1.current_count"),),
+            "dsl.j1.current_mean": (
+                ("current_sum", "dsl.j1.current_sum"),
+                ("current_count", "dsl.j1.current_count"),
+            ),
+        }.get(producer)
+        if (
+            exchange.operator_id != "dsl.j1." + row.shape_id.local_shape_id
+            or exchange.receipt_identity != result.storage_receipt.identity_digest
+            or not exchange.input_binding
+            or j1_expected_roles is None
+            or tuple((part.role, part.contract_id) for part in result.retained_parts)
+            != j1_expected_roles
+            or tuple(
+                (
+                    part.role,
+                    part.contract_id,
+                    part.contract_version,
+                    part.storage_receipt.schema_fingerprint,
+                    part.storage_receipt.identity_digest,
+                )
+                for part in result.retained_parts
+            )
+            != exchange.parts
+            or (exchange.kind == "value")
+            != ("cell_tag" in (field.name for field in row.schema.columns))
+            or (exchange.kind == "relation" and exchange.quantity is not None)
+            or (
+                producer in ("dsl.j1.observe", "dsl.j1.observe_coordinates", "dsl.j1.derived_state")
+                and not {"complete_coverage", "contribution_partition"}
+                <= set(exchange.completed_checks)
+            )
+            or any(
+                part.role != "coordinate"
+                and part.storage_receipt.realized_row_count
+                != result.storage_receipt.realized_row_count
+                for part in result.retained_parts
+            )
+        ):
+            raise invalid("J1 Artifact exchange and receipts differ")
     if result.funnel_evidence is not None and result.row_contract.family_semantics.kind not in (
         "delta/funnel@v1",
         "attribution/funnel-loss-rate@v1",
