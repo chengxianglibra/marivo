@@ -39,6 +39,59 @@ part uses local storage authority, with independent schemas,
 cardinalities, hashes and integrity checks. Cleanup covers interrupted and failed
 publication without deleting another Run's resources.
 
+## Accepted S0 input and execution protocol (inactive)
+
+This is the accepted protocol for the
+[first-round Analysis DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive).
+It is not yet connected to production `execute()`. The current exact-binding
+and registered retained-Parquet routes above remain authoritative for methods
+not migrated to this protocol.
+
+Classification follows only the current root's transitive data dependencies.
+An explicit Materialized leaf is a fixed boundary: its historic source lineage
+is not a live dependency. Source output passed to a Python stage within this
+invocation remains source-only, not a historic Artifact input.
+
+| Classified root | Accepted execution and placement |
+| --- | --- |
+| Source-only | Each admitted top-level `execute()` evaluates the current source and gets a fresh Run/evaluation identity. A historical Artifact with the same definition cannot satisfy this call. The source stage uses an admitted Ibis implementation or registered source-preparation plus Python method. |
+| Fixed-Artifact-only | Exact receipts, method/protocol versions and input bindings define the same-Session key. A validated exact hit recovers the original Artifact without a Run. On a miss, receipt-checked retained input enters pandas; no DuckDB Parquet scan, source read, upload or re-evaluation is allowed. |
+| Mixed fixed Artifact and live source | Reject before Run admission, source connection and Artifact row read. A materialized member list followed by a new read/observe is mixed; a still-Logical list followed by the observation remains source-only. |
+
+The definition fingerprint identifies the same normalized question and explicit
+input bindings, so repeating a source-only call does not change it. Explicit
+logical node identity controls sharing only within one evaluation: the same
+node has one realization, while separately constructed lookalikes do not merge.
+No independent source queries are promised one transaction snapshot. A
+different producing Run alone does not make two retained endpoints incompatible;
+compare still owns domain, shared-member implementation binding and exact-key
+admission.
+
+The new protocol orders admission as follows:
+
+1. Perform pure graph/capability checks and classify actual data dependencies.
+2. Acquire the existing Session writer guard and reconcile an unfinished Run.
+3. Look up and validate an exact fixed-only key; a hit recovers without a Run.
+4. On a producer miss, allocate one Run ref and determine the key before
+   `SessionStore.admit(..., run_ref=...)`.
+
+A source key includes the new protocol domain, stable definition fingerprint
+and this Run ref. A fixed-only key includes the new protocol domain and a
+definition fingerprint bound to exact input receipts, binding and method
+versions, but no fresh random value. Run, descriptor, receipts, publication
+and recovery all bind the same determined key. The Store keeps its
+`(Session, execution_key)` uniqueness. Two source evaluations of one definition
+have distinct keys and immutable Artifacts,
+while one fixed-only key has at most one published result.
+
+A fixed hit performs the full recovery and integrity checks. Exact Artifact
+references recover their own producing Run, never the latest result for a
+definition. A failed second source evaluation cannot replace the first
+successful Artifact. Cancellation or uncertain publication is reconciled
+against its original Run/key/receipts; it never grants an automatic new
+identity or source replay. Existing Store v6 atomicity and writer ownership
+remain the authority.
+
 ## Atomic Store v6
 
 A new Store publishes only a complete initialized generation 6 database. The

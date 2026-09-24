@@ -312,6 +312,13 @@ amendment and a new Evidence-envelope variant.
 
 ### Bind each exact logical execution once per Session
 
+The paragraphs below specify the current `DatasetExecutionKeyV1` behavior for
+methods not migrated to the accepted, inactive
+[S0 Analysis DSL protocol](../../specs/analysis/session-state-and-runtime.md#accepted-s0-input-and-execution-protocol-inactive).
+That protocol gives each admitted live-source evaluation its own Run-bound key
+while keeping exact fixed-input hits. It does not retroactively change this v1
+binding or migrate existing Artifacts.
+
 A logical definition fingerprint alone is not an Artifact identity, but the
 runtime derives `DatasetExecutionKeyV1` from the complete canonical definition
 fingerprint and common materialization protocol version before live datasource

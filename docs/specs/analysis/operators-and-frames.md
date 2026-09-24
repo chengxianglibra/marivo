@@ -84,6 +84,62 @@ semantic approximation. The governed Metric owns q; fields, projections, retaine
 parts and cold recovery preserve the method identity. No backend or cost heuristic
 changes this choice.
 
+## Accepted S0 method rules (inactive)
+
+The [first-round DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
+accepts the following private rule obligations. The proposed public Relation
+methods are not yet callable. Each registered method supplies:
+
+```text
+InputSignatures + Parameters
+  -> OutputSignature + Pre + RequiredParts + PartTransform + Post + Transport + Eval
+```
+
+The method/quantity owner fixes value
+and Cell policy once; source Ibis and retained pandas implementations meet the
+same rule and independently prove supported types, checks and resource behavior.
+A known failed precondition rejects before business I/O; a data-dependent
+failure rejects during admitted execution, before successful publication.
+Neither becomes a Cell `Unknown` or a backend fallback.
+
+| Rule | Input → output | Pre | RequiredParts | PartTransform | Post and failure |
+| --- | --- | --- | --- | --- | --- |
+| Binding and projection | Governed source or exact Artifact binding, member domain, typed field/Metric refs, time scope and paths → bound domain and quantity | Same Session, owned refs, admitted source/path/time role and required columns | Identity/coordinate keys, selected fields and every hidden component needed by promised continuations | Project only unused physical columns; retain bound private state and provenance | Output keeps exact definition and input binding; reject absent or incompatible fields, path or state rather than infer from a displayed value |
+| Domain mapping and correspondence | Domain plus governed single-valued mapping, subject image, exact-key pair or complete coordinate-tuple union → selected, grouped or paired domain | Unique applicable mapping; required coverage and multiplicity; exact pairing where the method requires it | Member/coordinate keys, mapping and coverage facts | Transport keyed rows and parts to the selected/target domain; preserve explicit empty target groups | Default groups use the actual complete image; explicit groups retain valid empty groups; reject missing/duplicate keys, ambiguous paths or unknown coverage, never fabricate Cartesian tuples |
+| Cell and row calculation | Bound Cells plus registered predicate, difference or component finish → typed predicate or calculated Cell | Method-specific consumption, compatible quantity/unit/domain and finite numeric operands; full key pairing for first-round absolute compare | Tags, reasons, values and required endpoint/subject bindings | Preserve compatible endpoint and subject mappings; a Difference does not inherit original Metric fold authority | Preserve Defined/Null/Undefined/Unknown and distinguish absent rows; reject inadmissible operand states or failed calculation without silently dropping rows |
+| Current-row state construction | Current relation rows plus registered sum/count/mean and target groups → new RowStatistic | Current-row unit and complete selected domain; sum/mean consume only finite Defined values | Current keyed rows, Cell tags/values and target mapping | Build new sum/count support from current rows; do not reuse original contribution state or claim recoverable members from a scalar | Empty valid group gives sum/count zero and mean Undefined(empty_mean) with valid (0,0) state; reject bad values, unknown coverage or int64 overflow |
+| Original-state reduction | Observed quantity with its original state, target mapping and registered method → same quantity at coarser coordinates | Component-specific contribution partition/coverage, time order, method version and complete state | Every original component, support, null/empty and coverage part needed by that method | Merge each component's states before finish; retain permitted empty groups and transported dependencies | Ratio finishes after separate numerator/denominator merges; zero denominator is Undefined, while absent state or unproved overlap rejects |
+| Part transport | Relation, bound parts and a selection, comparison, projection or reduction → exact remaining parts and continuation set K | Ownership, receipt, keys, method version and the requested continuation's premises | All parts promised for the output K | Restrict or transform parts by explicit key/binding, not row position; remove invalid promises when a part is lost | Output K reflects actual retained authority without upgrading a declaration or pending check to evidence; reject missing/mismatched parts or binding |
+
+The first-round numeric method policy admits int64/float64 inputs; count yields
+int64, integer sum checks int64 overflow, and mean/ratio/coefficient yield
+float64. Nonfinite values fail method admission or consumption. Decimal may
+round-trip through the exchange codec but is not a first-round numeric
+algorithm input. A Defined Cell has a valid typed payload; Null is a present
+missing source value, Undefined is a method result with its reason, and Unknown
+retains its distinct uncertainty reason. A missing domain row is none of these.
+Ordinary comparison, numeric sum/mean and categorical grouping consume
+strictly; `is_defined` is total over all four tags, while `all_of`/`any_of`
+cannot short-circuit a failing operand's required check. Legal empty sum/count
+contributions produce zero; unknown coverage, missing keys and missing state
+never do.
+
+`summarize(count)` counts current rows even when their values are not Defined;
+`summarize(mean)` gives each current row one vote. `rollup()` consumes the
+original quantity's retained components and cannot change its method. An AOV
+of customer ratios 1 and 100 with order supports 100 and 1 therefore gives
+a customer mean of 50.5 but an original-state AOV of 200/101. Only the
+explicit-component ratio has that rollup authority; a decorator body
+containing division does not.
+
+Same-Entity, no-lag Spearman retains its own association method policy: exact
+complete-domain pairing precedes ordinary Null-pair exclusion, while
+Unknown/Undefined are not silently removed. Average ranks and the registered
+constant/insufficient-pair behavior apply to the complete eligible pairs.
+Its output keeps pair counts, selected method/version and coefficient state.
+The S0 rule acceptance does not qualify an adapter or a new public input
+shape; that requires S3.
+
 ## Runtime boundaries
 
 Every input belongs to the same Session. Definition identity differs from exact
