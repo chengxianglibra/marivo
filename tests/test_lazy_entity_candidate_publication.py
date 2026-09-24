@@ -10,7 +10,7 @@ import pytest
 
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.evidence._dataset_codec import finding_set_digest
-from marivo.analysis.materialization import admission, candidate_publication
+from marivo.analysis.materialization import candidate_publication
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.candidate_codec import (
     CandidateEvidenceSummary,
@@ -28,6 +28,7 @@ from marivo.analysis.operators.candidate_contracts import (
 from tests.lazy_entity_candidate_fixtures import entity_metric, setup_entity_candidate
 from tests.lazy_materialization_crash_worker import snapshot
 from tests.lazy_observation_fixtures import make_sources
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def _evidence() -> CandidateEvidenceSummary:
@@ -139,7 +140,7 @@ def test_entity_failure_rolls_back_complete_publication(
         local_attempts.append(True)
         raise AssertionError("Entity source failure attempted a local retry")
 
-    monkeypatch.setattr(admission, "execute_local", local_retry)
+    monkeypatch.setattr(runtime_patch_owner("execute_local"), "execute_local", local_retry)
 
     def fault(event: str) -> None:
         if event == point:
@@ -234,8 +235,12 @@ def test_engine_metric_checkpoint_scores_without_origin_and_cold_reuses(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Entity engine checkpoint reached origin or local computation")
 
-    monkeypatch.setattr(admission, "_build_backend_from_effective", forbidden)
-    monkeypatch.setattr(admission, "execute_local", forbidden)
+    monkeypatch.setattr(
+        runtime_patch_owner("_build_backend_from_effective"),
+        "_build_backend_from_effective",
+        forbidden,
+    )
+    monkeypatch.setattr(runtime_patch_owner("execute_local"), "execute_local", forbidden)
     monkeypatch.setattr(candidate_publication, "validate_rows", forbidden)
     result = checkpoint.discover.entity_outliers().execute()
     frame = result.to_pandas()
@@ -256,7 +261,7 @@ def test_engine_metric_checkpoint_scores_without_origin_and_cold_reuses(
     retained = cold.artifact(checkpoint.state.artifact_ref)
     assert isinstance(retained, MaterializedMetricDataset)
     before = snapshot(cold)
-    monkeypatch.setattr(admission, "place", forbidden)
+    monkeypatch.setattr(runtime_patch_owner("place"), "place", forbidden)
     assert (
         retained.discover.entity_outliers().execute().state.artifact_ref
         == result.state.artifact_ref

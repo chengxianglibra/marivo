@@ -323,7 +323,7 @@ _COLD_READ = """
 import json
 import sys
 from pathlib import Path
-from marivo.analysis.materialization import admission
+from marivo.analysis.materialization import source_preparation
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 
@@ -331,7 +331,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError("cold recovery must not perform source or compiler work")
 
 for name in ("compile_dataset", "require_profile_for_backend_type", "_effective_kwargs", "_build_backend_from_effective"):
-    setattr(admission, name, forbidden)
+    setattr(source_preparation, name, forbidden)
 runtime = DatasetRuntime.open(Path(sys.argv[1]), sys.argv[2])
 artifact = runtime.artifact(sys.argv[3])
 assert isinstance(artifact, MaterializedMetricDataset)

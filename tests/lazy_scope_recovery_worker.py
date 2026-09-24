@@ -16,7 +16,6 @@ import pyarrow.parquet as pq
 
 from marivo.analysis import time_scope
 from marivo.analysis.datasets.handles import MaterializedScanLeafHandle
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import encode_descriptor
 from marivo.analysis.observation.contracts import metric_definition, scope_payload
@@ -25,6 +24,7 @@ from marivo.refs import ref
 from marivo.semantic.ir import SemiAdditive, TimeFoldIR
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def _rows(dataset: MaterializedMetricDataset) -> list[dict[str, object]]:
@@ -155,7 +155,7 @@ def recover(project: Path, session_ref: str, references: tuple[str, str]) -> dic
             ("compile_dataset", "compiler"),
             ("read_json_source", "source_statement"),
         ):
-            stack.enter_context(patch.object(admission, name, forbidden(category)))
+            stack.enter_context(patch.object(runtime_patch_owner(name), name, forbidden(category)))
         stack.enter_context(patch.object(DatasetRuntime, "sources", forbidden("source_factory")))
         runtime = DatasetRuntime.open(project, session_ref)
         before = snapshot(runtime)

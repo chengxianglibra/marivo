@@ -8,6 +8,7 @@ import ibis.expr.types as ir
 import pyarrow as pa
 import pytest
 
+from marivo.analysis.materialization import source_stage
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.execution import ExecutionAdapter
 
@@ -18,17 +19,22 @@ _PRIVATE_COLUMNS = frozenset(
 
 def guard_private_batches(runtime: DatasetRuntime, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Assert private columns appear only in the independent part stream."""
-    original = runtime._batches
+    original = source_stage.batches
     seen: list[str] = []
 
     def guarded(
-        backend: ExecutionAdapter, expression: ir.Table, batch_rows: int, *, role: str = "primary"
+        self: DatasetRuntime,
+        backend: ExecutionAdapter,
+        expression: ir.Table,
+        batch_rows: int,
+        *,
+        role: str = "primary",
     ) -> Iterator[pa.RecordBatch]:
-        for batch in original(backend, expression, batch_rows, role=role):
+        for batch in original(self, backend, expression, batch_rows, role=role):
             if _PRIVATE_COLUMNS.intersection(batch.schema.names):
                 assert role.startswith("part.")
                 seen.append(role)
             yield batch
 
-    monkeypatch.setattr(runtime, "_batches", guarded)
+    monkeypatch.setattr(source_stage, "batches", guarded)
     return seen

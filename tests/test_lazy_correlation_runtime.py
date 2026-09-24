@@ -48,18 +48,25 @@ def test_authored_pair_order_private_transfers_and_direct_handoffs(
 
     runtime, sources, _ = setup_local(tmp_path)
     observed: list[tuple[str, ...]] = []
-    original = DatasetRuntime._batches
+    from marivo.analysis.materialization import source_stage
+
+    original = source_stage.batches
 
     def inspect(
-        self: DatasetRuntime, backend: BaseBackend, expression: ir.Table, batch_rows: int
+        self: DatasetRuntime,
+        backend: BaseBackend,
+        expression: ir.Table,
+        batch_rows: int,
+        *,
+        role: str = "primary",
     ) -> Iterator[pa.RecordBatch]:
-        for batch in original(self, backend, expression, batch_rows):
+        for batch in original(self, backend, expression, batch_rows, role=role):
             observed.append(tuple(batch.schema.names))
             assert "entity_identity" not in batch.schema.names
             assert not any(pa.types.is_struct(f.type) for f in batch.schema)
             yield batch
 
-    monkeypatch.setattr(DatasetRuntime, "_batches", inspect)
+    monkeypatch.setattr(source_stage, "batches", inspect)
     keys = ("sales.revenue", "sales.weighted_amount", "sales.mean_amount")
     association = sources.observe([ref.metric(key) for key in keys]).correlate(method=method)
     complete = association.execute()

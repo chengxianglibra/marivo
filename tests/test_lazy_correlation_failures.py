@@ -120,14 +120,20 @@ def test_corrupted_pair_boundary_fails_atomically(
     import pyarrow as pa
     from ibis.backends import BaseBackend
 
+    from marivo.analysis.materialization import source_stage
     from marivo.analysis.materialization.admission import DatasetRuntime
 
-    original = DatasetRuntime._batches
+    original = source_stage.batches
 
     def corrupt(
-        self: DatasetRuntime, backend: BaseBackend, expression: ir.Table, batch_rows: int
+        self: DatasetRuntime,
+        backend: BaseBackend,
+        expression: ir.Table,
+        batch_rows: int,
+        *,
+        role: str = "primary",
     ) -> Iterator[pa.RecordBatch]:
-        for batch in original(self, backend, expression, batch_rows):
+        for batch in original(self, backend, expression, batch_rows, role=role):
             assert "value_a" in batch.schema.names
             if fault == "missing":
                 yield batch.slice(1)
@@ -141,7 +147,7 @@ def test_corrupted_pair_boundary_fails_atomically(
                     pa.array([0] * batch.num_rows, type=pa.int64()),
                 )
 
-    monkeypatch.setattr(DatasetRuntime, "_batches", corrupt)
+    monkeypatch.setattr(source_stage, "batches", corrupt)
     runtime, sources, _ = setup_local(tmp_path)
     before = snapshot(runtime)
     with pytest.raises(MaterializationError if fault == "missing" else CorrelationError) as error:

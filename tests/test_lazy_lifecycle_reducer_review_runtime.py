@@ -14,7 +14,6 @@ from sqlglot import expressions as exp
 
 from marivo.analysis.domains.lifecycle import MaterializedLifecycleDataset
 from marivo.analysis.domains.lifecycle_reducers import in_state
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.predicates import eq
@@ -32,6 +31,7 @@ from tests.lazy_lifecycle_fixtures import (
     lifecycle_registry,
     setup_lifecycle,
 )
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -213,7 +213,7 @@ def test_high_cardinality_identity_relations_stay_native_and_private(
             "INSERT INTO finished_rows SELECT 997730041+i,881730041+i,TIMESTAMP '2026-02-01 02:00:00' FROM range(5000) t(i)"
         )
     with (
-        patch.object(admission, "execute_local", forbidden),
+        patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         h = history(sources).execute()
@@ -326,8 +326,12 @@ def test_unregistered_parquet_reader_is_rejected_before_data_work(
 
     with (
         patch.object(registry, "backend_execution", return_value=None),
-        patch.object(admission, "_build_backend_from_effective", forbidden),
-        patch.object(admission, "execute_local", forbidden),
+        patch.object(
+            runtime_patch_owner("_build_backend_from_effective"),
+            "_build_backend_from_effective",
+            forbidden,
+        ),
+        patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden),
         pytest.raises(MaterializationError),
     ):
         logical.execute()
@@ -358,7 +362,7 @@ def test_selected_membership_uses_registered_parquet_reader(
         else history(sources, population=selected)
     )
     before = snapshot(runtime)
-    with patch.object(admission, "execute_local", forbidden):
+    with patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden):
         result = logical.execute()
     assert set(result.to_pandas().entity_identity) == {(1,)}
     assert snapshot(runtime)["dataset_artifacts"] == before["dataset_artifacts"] + 1

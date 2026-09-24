@@ -9,7 +9,6 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.candidate_codec import evidence_payload
 from marivo.analysis.observation.metric import MaterializedMetricDataset
@@ -20,6 +19,7 @@ from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from tests.lazy_candidate_fixtures import candidate_input, discover, setup_candidate
 from tests.lazy_distinct_runtime_worker import frame_rows
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -60,7 +60,7 @@ def run(
                     "_build_backend_from_effective",
                     "execute_local",
                 ):
-                    guards.enter_context(patch.object(admission, name, forbidden))
+                    guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
             rebound = discover(source_rows, objective).execute()
             assert rebound.state.artifact_ref == result.state.artifact_ref
             selected = result.where(gt(result.fields.get("score"), 0))

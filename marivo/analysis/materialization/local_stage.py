@@ -232,6 +232,168 @@ def run_local_graph(
     return result
 
 
+def _source_count(backend: ExecutionAdapter, recipe: CompiledDataset, *, role: str) -> object:
+    count_sql = backend.compile(recipe.expression.aggregate(__mv_rows=recipe.expression.count()))
+    return backend.read_scalar(
+        backend.statement(
+            count_sql,
+            role=role,
+            inputs=(
+                backend.prepare(recipe.expression.aggregate(__mv_rows=recipe.expression.count())),
+            ),
+        )
+    )
+
+
+def _correlation_input(
+    self: DatasetRuntime,
+    step: SourceStep,
+    backend: ExecutionAdapter,
+    recipe: CompiledDataset,
+    run_ref: str,
+) -> tuple[LocalBoundary, LocalInputStreams]:
+    from marivo.analysis.materialization.local_execution import PairInput
+
+    root = step.dataset._root
+    if not isinstance(root, LogicalRootHandle) or not isinstance(root.payload, CorrelatePayload):
+        raise _error("implementation_registration", run_ref)
+    pair_count = _source_count(backend, recipe, role="correlation_cardinality")
+    if type(pair_count) is not int or pair_count < 0:
+        raise _error("output_validation", run_ref)
+    return (
+        LocalBoundary(step.output, PairInput(root.payload.spec, pair_count)),
+        LocalInputStreams(source_stage.batches(self, backend, recipe.expression, 1024)),
+    )
+
+
+def _distribution_input(
+    self: DatasetRuntime,
+    step: SourceStep,
+    backend: ExecutionAdapter,
+    recipe: CompiledDataset,
+    run_ref: str,
+) -> tuple[LocalBoundary, LocalInputStreams]:
+    from marivo.analysis.materialization.local_execution import CoalitionInput
+    from marivo.analysis.operators.attribution_contracts import AttributePayload
+
+    root = step.dataset._root
+    if (
+        not isinstance(root, LogicalRootHandle)
+        or not isinstance(root.payload, AttributePayload)
+        or recipe.numerical_input != "distribution_coalitions"
+    ):
+        raise _error("implementation_registration", run_ref)
+    expected_count = _source_count(backend, recipe, role="distribution_cardinality")
+    if (
+        not isinstance(expected_count, int)
+        or isinstance(expected_count, bool)
+        or expected_count < 0
+    ):
+        raise MaterializationError(
+            expected="a non-negative source-certified coalition count",
+            received="invalid coalition count",
+            repair="Narrow comparison scopes or lower top_k before retrying.",
+            stage="transfer_guard",
+            run_ref=run_ref,
+        )
+    return (
+        LocalBoundary(step.output, CoalitionInput(root.payload.spec, expected_count)),
+        LocalInputStreams(source_stage.batches(self, backend, recipe.expression, 1024)),
+    )
+
+
+def _projected_source_input(
+    self: DatasetRuntime,
+    dataset: LogicalDataset,
+    step: SourceStep,
+    backend: ExecutionAdapter,
+    recipe: CompiledDataset,
+) -> tuple[LocalBoundary, LocalInputStreams]:
+    from marivo.analysis.materialization.retained import required_part_roles
+
+    needed_roles = required_part_roles(dataset, input_dataset=step.dataset)
+    selected_specs = tuple(part for part in recipe.retained_parts if part.role in needed_roles)
+    require_projected_parts(replace(recipe, retained_parts=selected_specs))
+    names = tuple(
+        dict.fromkeys(
+            (
+                *recipe.primary_columns,
+                *(
+                    name
+                    for part in selected_specs
+                    if isinstance(part, RetainedPartSpec)
+                    for name in part.column_names
+                ),
+            )
+        )
+    )
+    projected = replace(
+        recipe,
+        expression=recipe.expression.select(*names),
+        retained_parts=selected_specs,
+    )
+    local_parts = source_local_parts(step.dataset, projected)
+    return (
+        LocalBoundary(
+            step.output,
+            StreamInput(
+                step.dataset.row_contract,
+                step.dataset.row_set_contract,
+                wide_parts=bool(local_parts),
+            ),
+            local_parts,
+        ),
+        LocalInputStreams(source_stage.batches(self, backend, projected.expression, 1024)),
+    )
+
+
+def _retained_input(
+    self: DatasetRuntime,
+    dataset: LogicalDataset,
+    step: ArtifactReadStep,
+    records: Mapping[str, ArtifactRecord],
+) -> tuple[LocalBoundary, LocalInputStreams]:
+    descriptor = records[step.dataset.state.artifact_ref.ref].descriptor
+    local_parts, part_batches = local_input_parts(
+        self, descriptor, dataset, input_dataset=step.dataset
+    )
+    selected = ArtifactInput(
+        self.store.project_root,
+        descriptor.storage_receipt,
+        step.dataset.row_contract,
+        step.dataset.row_set_contract,
+    )
+    return LocalBoundary(step.output, selected, local_parts), LocalInputStreams((), part_batches)
+
+
+def _local_inputs(
+    self: DatasetRuntime,
+    dataset: LogicalDataset,
+    physical: PhysicalStageGraph,
+    prepared: Mapping[int, tuple[ExecutionAdapter, CompiledDataset, dict[str, ir.Table]]],
+    records: Mapping[str, ArtifactRecord],
+    run_ref: str,
+) -> tuple[tuple[LocalBoundary, ...], tuple[LocalInputStreams, ...]]:
+    boundaries: list[LocalBoundary] = []
+    streams: list[LocalInputStreams] = []
+    for step in physical.steps:
+        if isinstance(step, SourceStep):
+            backend, recipe, _ = prepared[step.output]
+            if step.operation == "correlation":
+                boundary, stream = _correlation_input(self, step, backend, recipe, run_ref)
+            elif step.operation == "distribution":
+                boundary, stream = _distribution_input(self, step, backend, recipe, run_ref)
+            else:
+                boundary, stream = _projected_source_input(self, dataset, step, backend, recipe)
+        elif isinstance(step, ArtifactReadStep):
+            boundary, stream = _retained_input(self, dataset, step, records)
+        else:
+            continue
+        boundaries.append(boundary)
+        streams.append(stream)
+    return tuple(boundaries), tuple(streams)
+
+
 def execute_local_stages(
     self: DatasetRuntime,
     dataset: LogicalDataset,
@@ -242,191 +404,15 @@ def execute_local_stages(
     evidence: ExecutionEvidence,
     progress: ExecutionProgress,
 ) -> tuple[str, DatasetWriteResult[StorageReceipt]]:
-    boundaries: list[LocalBoundary] = []
-    streams: list[LocalInputStreams] = []
-    for step in physical.steps:
-        if isinstance(step, SourceStep):
-            current_backend, recipe, _tables = prepared[step.output]
-            if step.operation == "correlation":
-                from marivo.analysis.materialization.local_execution import (
-                    PairInput,
-                )
-
-                pair_root = step.dataset._root
-                if not isinstance(pair_root, LogicalRootHandle) or not isinstance(
-                    pair_root.payload, CorrelatePayload
-                ):
-                    raise _error("implementation_registration", run_ref)
-                count_sql = current_backend.compile(
-                    recipe.expression.aggregate(__mv_rows=recipe.expression.count())
-                )
-                pair_count = current_backend.read_scalar(
-                    current_backend.statement(
-                        count_sql,
-                        role="correlation_cardinality",
-                        inputs=(
-                            current_backend.prepare(
-                                recipe.expression.aggregate(__mv_rows=recipe.expression.count())
-                            ),
-                        ),
-                    )
-                )
-                if type(pair_count) is not int or pair_count < 0:
-                    raise _error("output_validation", run_ref)
-                boundaries.append(
-                    LocalBoundary(
-                        step.output,
-                        PairInput(pair_root.payload.spec, pair_count),
-                    )
-                )
-                streams.append(
-                    LocalInputStreams(
-                        source_stage.batches(
-                            self,
-                            current_backend,
-                            recipe.expression,
-                            1024,
-                        )
-                    )
-                )
-                continue
-            if step.operation == "distribution":
-                from marivo.analysis.materialization.local_execution import (
-                    CoalitionInput,
-                )
-                from marivo.analysis.operators.attribution_contracts import (
-                    AttributePayload,
-                )
-
-                preparation_root = step.dataset._root
-                if (
-                    not isinstance(preparation_root, LogicalRootHandle)
-                    or not isinstance(preparation_root.payload, AttributePayload)
-                    or recipe.numerical_input != "distribution_coalitions"
-                ):
-                    raise _error("implementation_registration", run_ref)
-                count_sql = current_backend.compile(
-                    recipe.expression.aggregate(__mv_rows=recipe.expression.count())
-                )
-                expected_count: object = current_backend.read_scalar(
-                    current_backend.statement(
-                        count_sql,
-                        role="distribution_cardinality",
-                        inputs=(
-                            current_backend.prepare(
-                                recipe.expression.aggregate(__mv_rows=recipe.expression.count())
-                            ),
-                        ),
-                    )
-                )
-                if (
-                    not isinstance(expected_count, int)
-                    or isinstance(expected_count, bool)
-                    or expected_count < 0
-                ):
-                    raise MaterializationError(
-                        expected="a non-negative source-certified coalition count",
-                        received="invalid coalition count",
-                        repair="Narrow comparison scopes or lower top_k before retrying.",
-                        stage="transfer_guard",
-                        run_ref=run_ref,
-                    )
-                boundaries.append(
-                    LocalBoundary(
-                        step.output,
-                        CoalitionInput(preparation_root.payload.spec, expected_count),
-                    )
-                )
-                streams.append(
-                    LocalInputStreams(
-                        source_stage.batches(
-                            self,
-                            current_backend,
-                            recipe.expression,
-                            1024,
-                        )
-                    )
-                )
-                continue
-            from marivo.analysis.materialization.retained import (
-                required_part_roles,
-            )
-
-            needed_roles = required_part_roles(dataset, input_dataset=step.dataset)
-            selected_specs = tuple(
-                part for part in recipe.retained_parts if part.role in needed_roles
-            )
-            require_projected_parts(replace(recipe, retained_parts=selected_specs))
-            names = tuple(
-                dict.fromkeys(
-                    (
-                        *recipe.primary_columns,
-                        *(
-                            name
-                            for part in selected_specs
-                            if isinstance(part, RetainedPartSpec)
-                            for name in part.column_names
-                        ),
-                    )
-                )
-            )
-            recipe = replace(
-                recipe,
-                expression=recipe.expression.select(*names),
-                retained_parts=selected_specs,
-            )
-            local_parts = source_local_parts(step.dataset, recipe)
-            boundaries.append(
-                LocalBoundary(
-                    step.output,
-                    StreamInput(
-                        step.dataset.row_contract,
-                        step.dataset.row_set_contract,
-                        wide_parts=bool(local_parts),
-                    ),
-                    local_parts,
-                )
-            )
-            streams.append(
-                LocalInputStreams(
-                    source_stage.batches(
-                        self,
-                        current_backend,
-                        recipe.expression,
-                        1024,
-                    )
-                )
-            )
-        elif isinstance(step, ArtifactReadStep):
-            selected_descriptor = records[step.dataset.state.artifact_ref.ref].descriptor
-            local_parts, part_batches = local_input_parts(
-                self,
-                selected_descriptor,
-                dataset,
-                input_dataset=step.dataset,
-            )
-            receipt = selected_descriptor.storage_receipt
-            selected = ArtifactInput(
-                self.store.project_root,
-                receipt,
-                step.dataset.row_contract,
-                step.dataset.row_set_contract,
-            )
-            boundaries.append(LocalBoundary(step.output, selected, local_parts))
-            streams.append(LocalInputStreams((), part_batches))
+    boundaries, streams = _local_inputs(self, dataset, physical, prepared, records, run_ref)
     progress.phase = "stage_execution"
 
     def cancel_sources() -> None:
-        for current_backend, _, _ in prepared.values():
-            current_backend.interrupt()
+        for backend, _, _ in prepared.values():
+            backend.interrupt()
 
     local_result = run_local_graph(
-        self,
-        physical,
-        tuple(boundaries),
-        tuple(streams),
-        run_ref,
-        cancel_source=cancel_sources,
+        self, physical, boundaries, streams, run_ref, cancel_source=cancel_sources
     )
     evidence.attribution_summary = (
         local_result.summaries.attribution or evidence.attribution_summary
@@ -447,7 +433,7 @@ def execute_local_stages(
     ]
     evidence.validations.append(("dataset.final_row_key_unique", 0))
     progress.phase = "storage_staging"
-    artifact_ref, storage = dataset_publication.write_output(
+    return dataset_publication.write_output(
         self,
         dataset,
         _local_output_batches(local_result.table),
@@ -455,4 +441,3 @@ def execute_local_stages(
         parts=local_output_parts(local_result),
         source_key_validation=True,
     )
-    return artifact_ref, storage

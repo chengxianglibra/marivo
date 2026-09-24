@@ -16,7 +16,6 @@ from ibis.backends.duckdb import Backend
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import SourceStep, place, source_binding
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.predicates import gt
 from marivo.datasource.backends import BuiltDatasourceBackend, EffectiveDatasourceKwargs
@@ -24,6 +23,7 @@ from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_materialization_crash_worker import snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 from tests.test_lazy_adapter_runtime_acceptance import _manifest
 
 pytestmark = pytest.mark.runtime
@@ -67,7 +67,11 @@ def test_independent_equal_argument_sources_keep_exact_registered_unary_branches
             calls.append({"path": ":memory:", "connection_identity": id(selected.con)})
             return BuiltDatasourceBackend(selected, ())
 
-        monkeypatch.setattr(admission, "_build_backend_from_effective", supplied)
+        monkeypatch.setattr(
+            runtime_patch_owner("_build_backend_from_effective"),
+            "_build_backend_from_effective",
+            supplied,
+        )
         source_results = [first_source.execute(), second_source.execute()]
         assert len(calls) == 2
         branch_evidence: list[dict[str, object]] = []

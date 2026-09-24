@@ -20,6 +20,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.installed_wheel_probe import assert_installed_origin
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 @contextmanager
@@ -376,13 +377,16 @@ def failure(kind: str) -> dict[str, object]:
 
 
 def cold(project: Path) -> dict[str, object]:
-    from marivo.analysis.materialization import admission
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("cold retained work attempted source connection")
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(admission, "_build_backend_from_effective", forbidden)
+        patch.setattr(
+            runtime_patch_owner("_build_backend_from_effective"),
+            "_build_backend_from_effective",
+            forbidden,
+        )
         return cold_retained(project)
 
 

@@ -13,7 +13,6 @@ from unittest.mock import patch
 import duckdb
 
 from marivo.analysis.domains.event import MaterializedEventDataset
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.event_codec import evidence_payload
 from marivo.analysis.observation.metric import MaterializedMetricDataset
@@ -23,6 +22,7 @@ from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_event_fixtures import make_event_registry
 from tests.lazy_event_runtime_fixtures import OCCURRENCE_CANARY, journey, setup_event
 from tests.lazy_materialization_crash_worker import record_evidence, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def assert_identity_private(
@@ -69,16 +69,20 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
         recovered = runtime.artifact(refs["journey"])
         assert isinstance(recovered, MaterializedEventDataset)
         with (
-            patch.object(admission, "place", forbidden),
-            patch.object(admission, "compile_dataset", forbidden),
-            patch.object(admission, "_build_backend_from_effective", forbidden),
+            patch.object(runtime_patch_owner("place"), "place", forbidden),
+            patch.object(runtime_patch_owner("compile_dataset"), "compile_dataset", forbidden),
+            patch.object(
+                runtime_patch_owner("_build_backend_from_effective"),
+                "_build_backend_from_effective",
+                forbidden,
+            ),
         ):
             result = logical.execute()
         assert result.state.artifact_ref == recovered.state.artifact_ref
         assert snapshot(runtime) == before
     else:
         with (
-            patch.object(admission, "execute_local", forbidden),
+            patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden),
             patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
         ):
             result = logical.execute()

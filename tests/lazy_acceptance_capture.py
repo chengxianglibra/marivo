@@ -28,10 +28,10 @@ from marivo.analysis.compiler.placement import (
 )
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.operators import registry
 from tests.lazy_materialization_crash_worker import record_evidence, statistics
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 class _Placement(Protocol):
@@ -90,7 +90,7 @@ def capture_terminal_actions(
         registrations: dict[str, object] = {}
         stages: list[dict[str, object]] = []
         place_name = "place"
-        selected_place: _Placement = getattr(admission, place_name)
+        selected_place: _Placement = getattr(runtime_patch_owner(place_name), place_name)
 
         def capture_placement(
             value: LogicalDataset,
@@ -135,7 +135,7 @@ def capture_terminal_actions(
         failure: str | None = None
         failure_detail: str | None = None
         try:
-            with patch.object(admission, "place", capture_placement):
+            with patch.object(runtime_patch_owner("place"), "place", capture_placement):
                 result = original(runtime, dataset)
             return result
         except Exception as error:

@@ -8,13 +8,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from marivo.analysis.datasets.errors import DatasetFieldSelectionError
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_retained_fixtures import setup_retained
 from tests.lazy_runtime_metric_fixtures import CUSTOMERS, expressions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, object]:
@@ -49,10 +49,10 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
             "require_profile_for_backend_type",
             "compile_dataset",
         ):
-            stack.enter_context(patch.object(admission, name, forbidden))
+            stack.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
         if mode == "cold":
             for name in ("place", "execute_local"):
-                stack.enter_context(patch.object(admission, name, forbidden))
+                stack.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
         if mode == "cold":
             from tests.lazy_execution_fixtures import make_execution_registry
 

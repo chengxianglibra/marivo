@@ -343,13 +343,9 @@ def test_raw_statement_diagnostics_keep_bindings_out_of_persisted_state_and_erro
         assert materialized.to_pandas().loc[0, "api_value"] == 12
         assert canary not in _metadata(runtime)
         assert canary not in repr(dataset) + repr(dataset._root) + repr(materialized)
-        reader_sql = next(
-            sql for kind, sql in runtime.statistics.statements if kind == "source_fence_reader"
-        )
-        assert canary in reader_sql
         statement_kinds = [kind for kind, _ in runtime.statistics.statements]
-        assert statement_kinds.count("source_fence_reader") == 1
-        assert statement_kinds.count("source_fence") == 1
+        assert all(canary not in sql for _, sql in runtime.statistics.statements)
+        assert statement_kinds.count("retained_fence") == 1
         assert statement_kinds.count("primary") == runtime.statistics.primary_queries == 1
         assert statement_kinds.count("transfer_guard") == 0
         assert statement_kinds.count("validation_batch") == 1
@@ -458,24 +454,12 @@ def test_empty_source_execution_still_commits_schema_and_scalar_zero_count(tmp_p
     assert _run_count(runtime) == 2
 
 
-def test_live_source_type_mismatch_fails_before_computation(tmp_path: Path) -> None:
-    from dataclasses import replace
-
-    from marivo.datasource.ir import TableSourceIR
-
+def test_live_unsupported_source_type_fails_before_computation(tmp_path: Path) -> None:
     runtime, _, database = _setup(tmp_path)
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("ALTER TABLE orders ALTER COLUMN amount TYPE DOUBLE[] USING [amount]")
     registry, sidecar = make_execution_registry(database)
-    entity = registry.entities["sales.orders"]
-    assert isinstance(entity.source, TableSourceIR)
-    source = replace(
-        entity.source,
-        columns=tuple((name, binding) for name, binding in entity.source.columns),
-    )
-    changed = replace(
-        registry, entities={**registry.entities, entity.semantic_id: replace(entity, source=source)}
-    )
-    changed.freeze()
-    sources = runtime.sources(semantic_registry=changed, sidecar=sidecar)
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     dataset = sources.observe(ref.metric("sales.revenue")).aggregate()
     with pytest.raises(MaterializationError) as captured:
         dataset.execute()

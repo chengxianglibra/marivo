@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
+
 if TYPE_CHECKING:
     from marivo.analysis import LogicalDeltaDataset, Session
 
@@ -176,7 +178,6 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         assert len(session.runs().items) == 1
     else:
         assert not database.exists()
-        from marivo.analysis.materialization import admission
 
         def forbidden(*args: object, **kwargs: object) -> None:
             raise AssertionError("retained execution attempted origin datasource access")
@@ -187,7 +188,7 @@ def journey(phase: str, project: Path) -> dict[str, object]:
             "_effective_kwargs",
             "require_profile_for_backend_type",
         ):
-            patch.setattr(admission, name, forbidden)
+            patch.setattr(runtime_patch_owner(name), name, forbidden)
         saved = json.loads(saved_path.read_text())
         session = mv.session.resume(saved["session"], by="id")
         count = len(session.runs().items)

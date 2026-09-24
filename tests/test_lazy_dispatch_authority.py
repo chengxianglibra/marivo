@@ -7,11 +7,11 @@ import pytest
 
 from marivo._compat import Never
 from marivo.analysis.compiler.placement import ParquetBinding, SourceBinding
-from marivo.analysis.materialization import admission
 from marivo.analysis.observation.contracts import source_owner_of
 from tests.lazy_binding_cold_worker import snapshot
 from tests.lazy_local_fixtures import REVENUE, setup_local
 from tests.lazy_observation_fixtures import make_sources
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 @pytest.mark.parametrize(
@@ -107,7 +107,7 @@ def test_exact_binding_hit_skips_dispatch_credentials_and_source_open(
         "_effective_kwargs",
         "_build_backend_from_effective",
     ):
-        monkeypatch.setattr(admission, name, forbidden)
+        monkeypatch.setattr(runtime_patch_owner(name), name, forbidden)
     monkeypatch.setattr(
         "marivo.analysis.materialization.duckdb_execution.open_native_backend", forbidden
     )

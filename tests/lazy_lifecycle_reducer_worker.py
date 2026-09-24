@@ -15,7 +15,6 @@ import duckdb
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.domains.lifecycle import MaterializedLifecycleDataset
 from marivo.analysis.domains.lifecycle_reducers import in_state
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.lifecycle_codec import evidence_payload
 from marivo.analysis.observation.population import MaterializedPopulationDataset
@@ -32,6 +31,7 @@ from tests.lazy_lifecycle_fixtures import (
     setup_lifecycle,
 )
 from tests.lazy_materialization_crash_worker import record_evidence, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def run(mode: str, project: Path, refs: dict[str, str], sink: str) -> dict[str, object]:
@@ -74,7 +74,7 @@ def run(mode: str, project: Path, refs: dict[str, str], sink: str) -> dict[str, 
             stack.enter_context(patch(name, forbidden))
         if mode == "cold":
             for name in ("place", "compile_dataset", "_build_backend_from_effective"):
-                stack.enter_context(patch.object(admission, name, forbidden))
+                stack.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
         for name, logical in (
             ("distribution", h.distribution(at=(START, END))),
             (

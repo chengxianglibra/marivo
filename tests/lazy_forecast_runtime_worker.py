@@ -10,7 +10,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.operators.forecast_contracts import drift, naive, periods, seasonal_naive
@@ -18,6 +17,7 @@ from marivo.analysis.operators.forecast_dataset import MaterializedForecastDatas
 from tests.lazy_distinct_runtime_worker import rows
 from tests.lazy_forecast_fixtures import history, setup_forecast
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -58,7 +58,7 @@ def run(mode: str, model: str, kind: str, project: Path, refs: dict[str, str]) -
                     "_build_backend_from_effective",
                     "execute_local",
                 ):
-                    guards.enter_context(patch.object(admission, name, forbidden))
+                    guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
             rebound = metric.forecast(horizon=periods(4), model=method).execute()
             assert rebound.state.artifact_ref == result.state.artifact_ref
             selected = result.rank(result.fields.get("forecast_value")).limit(2).execute()

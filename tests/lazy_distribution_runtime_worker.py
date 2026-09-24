@@ -17,7 +17,6 @@ from marivo.analysis.datasets.descriptors import (
     _row_set_contract_fingerprint,
 )
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
@@ -33,6 +32,7 @@ from tests.lazy_distribution_fixtures import (
     seed_distribution_database,
 )
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -96,7 +96,7 @@ def run(
                 "_build_backend_from_effective",
                 "execute_local",
             ):
-                guards.enter_context(patch.object(admission, name, forbidden))
+                guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
         result = logical.execute()
         selected = result.rank(result.fields.get("contribution")).limit(1).execute()
     assert isinstance(result, MaterializedAttributionDataset)

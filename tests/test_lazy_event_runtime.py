@@ -10,13 +10,13 @@ import pytest
 
 from marivo.analysis.domains.event import MaterializedEventDataset
 from marivo.analysis.event import every_start
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.event_codec import EventEvidenceSummary
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_event_runtime_fixtures import OCCURRENCE_CANARY, journey, setup_event
 from tests.lazy_event_runtime_worker import assert_identity_private
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -173,7 +173,7 @@ def test_large_identity_relation_stays_inside_the_native_engine(tmp_path: Path) 
             "INSERT INTO started_rows SELECT 981730041 + i, 881730041 + i, TIMESTAMP '2026-02-01 12:00:00' FROM range(5000) AS t(i)"
         )
     with (
-        patch.object(admission, "execute_local", forbidden),
+        patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         result = journey(sources).execute()

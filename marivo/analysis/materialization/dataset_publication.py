@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -143,35 +143,66 @@ def prepare_publication(
     *,
     policy: ReadPolicy,
 ) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
+    _validate_consumed_receipts(self, plan)
+    descriptor = _base_descriptor(self, plan, stage, evidence, progress)
+    descriptor = _lifecycle_descriptor(self, plan, stage, evidence, descriptor, policy)
     dataset = plan.dataset
-    roots = plan.roots
-    records = plan.records
-    retained_inputs = plan.retained_inputs
-    source_steps = plan.source_steps
-    physical = plan.physical
-    inherited = plan.inherited
-    contract = plan.contract
-    run = plan.run
-    artifact_ref = stage.artifact_ref
-    storage = stage.storage
+    if dataset.kind == "event":
+        return _event_descriptor(self, plan, evidence, descriptor, policy), ()
+    if dataset.kind == "population" and evidence.selection_summary is not None:
+        return _selection_descriptor(stage, evidence, descriptor), ()
+    if dataset.kind == "candidate":
+        return _candidate_publication(self, plan, stage, evidence, descriptor, policy)
+    if dataset.kind == "forecast":
+        return _forecast_publication(self, stage, evidence, descriptor, policy)
+    if dataset.kind == "association":
+        return _association_publication(self, stage, evidence, descriptor, policy)
+    if dataset.row_contract.family_semantics.kind in (
+        "delta/funnel@v1",
+        "attribution/funnel-loss-rate@v1",
+    ):
+        return _funnel_publication(self, stage, descriptor, policy)
+    if dataset.kind == "delta":
+        return _delta_publication(self, stage, descriptor, policy)
+    if dataset.kind == "attribution":
+        return _attribution_publication(self, plan, stage, evidence, descriptor, policy)
+    return descriptor, ()
+
+
+def _audit_batches(
+    self: DatasetRuntime, descriptor: ArtifactDescriptor, policy: ReadPolicy
+) -> Generator[pa.RecordBatch, None, None]:
+    from marivo.analysis.materialization.reads import payload_batches
+
+    return payload_batches(
+        self.store.project_root,
+        descriptor.storage_receipt,
+        policy=policy,
+        row=descriptor.row_contract,
+        rows=descriptor.row_set_contract,
+        audit=True,
+    )
+
+
+def _validate_consumed_receipts(self: DatasetRuntime, plan: ExecutionPlan) -> None:
     from marivo.analysis.materialization.parquet_scan import checked_local_path
     from marivo.analysis.materialization.retained import selected_parts
 
-    for reference, input_record in records.items():
+    for reference, input_record in plan.records.items():
         consumed_receipts = [input_record.descriptor.storage_receipt]
         if any(
             value.state.artifact_ref.ref == reference
-            for boundary in source_steps
+            for boundary in plan.source_steps
             for value in artifact_inputs(boundary.dataset)
         ):
             consumed_receipts.extend(
                 part.storage_receipt
                 for part in selected_parts(
                     input_record.descriptor,
-                    dataset,
+                    plan.dataset,
                     input_dataset=next(
                         value
-                        for value in retained_inputs
+                        for value in plan.retained_inputs
                         if value.state.artifact_ref.ref == reference
                     ),
                 )
@@ -179,21 +210,30 @@ def prepare_publication(
         for receipt in consumed_receipts:
             if isinstance(receipt, LocalReceipt):
                 checked_local_path(self.store.project_root, receipt)
+
+
+def _base_descriptor(
+    self: DatasetRuntime,
+    plan: ExecutionPlan,
+    stage: StageResult,
+    evidence: ExecutionEvidence,
+    progress: ExecutionProgress,
+) -> ArtifactDescriptor:
     progress.phase = "quality"
     self._event("quality")
     descriptor = make_descriptor(
-        dataset,
-        contract,
-        storage,
+        plan.dataset,
+        plan.contract,
+        stage.storage,
         tuple(evidence.validations),
-        inherited=inherited,
+        inherited=plan.inherited,
         input_descriptors=tuple(
-            records[value.state.artifact_ref.ref].descriptor for value in retained_inputs
+            plan.records[value.state.artifact_ref.ref].descriptor for value in plan.retained_inputs
         ),
     )
     temporal = {
         item.model_dump_json(): item
-        for record in records.values()
+        for record in plan.records.values()
         for item in record.descriptor.temporal_execution
     }
     for recipe in stage.recipes:
@@ -211,37 +251,38 @@ def prepare_publication(
                 ),
             )
     self._event("temporal_authority")
-    descriptor = replace(
-        descriptor, temporal_execution=tuple(temporal[key] for key in sorted(temporal))
-    )
-    findings: tuple[Finding, ...] = ()
+    return replace(descriptor, temporal_execution=tuple(temporal[key] for key in sorted(temporal)))
+
+
+def _lifecycle_descriptor(
+    self: DatasetRuntime,
+    plan: ExecutionPlan,
+    stage: StageResult,
+    evidence: ExecutionEvidence,
+    descriptor: ArtifactDescriptor,
+    policy: ReadPolicy,
+) -> ArtifactDescriptor:
+    dataset = plan.dataset
     if dataset.kind == "lifecycle" or (
         dataset.kind == "population"
         and isinstance(evidence.lifecycle_summary, LifecycleSelectionEvidence)
     ):
         if (
             isinstance(evidence.lifecycle_summary, LifecycleReducerEvidence)
-            and physical.local_steps
+            and plan.physical.local_steps
         ):
             from marivo.analysis.materialization.lifecycle_reducer_publication import (
                 summary_from_batches as lifecycle_batch_summary,
             )
-            from marivo.analysis.materialization.reads import payload_batches
 
             evidence.lifecycle_summary = lifecycle_batch_summary(
-                payload_batches(
-                    self.store.project_root,
-                    descriptor.storage_receipt,
-                    policy=policy,
-                    row=descriptor.row_contract,
-                    rows=descriptor.row_set_contract,
-                    audit=True,
-                ),
+                _audit_batches(self, descriptor, policy),
                 evidence.lifecycle_summary,
             )
         if isinstance(evidence.lifecycle_summary, LifecycleSelectionEvidence):
             evidence.lifecycle_summary = replace(
-                evidence.lifecycle_summary, row_count=storage.primary_receipt.realized_row_count
+                evidence.lifecycle_summary,
+                row_count=stage.storage.primary_receipt.realized_row_count,
             )
         from marivo.analysis.materialization.lifecycle_codec import (
             validate_descriptor as validate_lifecycle,
@@ -249,195 +290,184 @@ def prepare_publication(
 
         descriptor = replace(descriptor, lifecycle_evidence=evidence.lifecycle_summary)
         validate_lifecycle(descriptor)
-    if dataset.kind == "event":
-        from marivo.analysis.materialization.event_publication import bind_event_summary
+    return descriptor
 
-        if evidence.event_summary is None:
-            raise _error("output_validation", run.run_ref)
-        if physical.local_steps and isinstance(
-            dataset.row_contract.family_semantics,
-            (EventFunnelSemantics, EventTimeToEventSemantics),
-        ):
-            from marivo.analysis.materialization.event_reducer_publication import (
-                summary_from_batches,
-            )
-            from marivo.analysis.materialization.reads import payload_batches
 
-            evidence.event_summary = summary_from_batches(
-                dataset.row_contract.family_semantics,
-                payload_batches(
-                    self.store.project_root,
-                    descriptor.storage_receipt,
-                    policy=policy,
-                    row=descriptor.row_contract,
-                    rows=descriptor.row_set_contract,
-                    audit=True,
-                ),
-                evidence.event_summary.coverage,
-            )
-        descriptor = bind_event_summary(descriptor, evidence.event_summary)
-    elif dataset.kind == "population" and evidence.selection_summary is not None:
-        from marivo.analysis.materialization.event_reducer_publication import (
-            bind_selection_summary,
-        )
+def _event_descriptor(
+    self: DatasetRuntime,
+    plan: ExecutionPlan,
+    evidence: ExecutionEvidence,
+    descriptor: ArtifactDescriptor,
+    policy: ReadPolicy,
+) -> ArtifactDescriptor:
+    from marivo.analysis.materialization.event_publication import bind_event_summary
 
-        descriptor = bind_selection_summary(
-            descriptor,
-            replace(
-                evidence.selection_summary, row_count=storage.primary_receipt.realized_row_count
-            ),
-        )
-    elif dataset.kind == "candidate":
-        from marivo.analysis.materialization.candidate_publication import (
-            build_candidate_publication,
-        )
-        from marivo.analysis.materialization.reads import payload_batches
-
-        if evidence.candidate_summary is None:
-            raise _error("output_validation", run.run_ref)
-        descriptor, findings = build_candidate_publication(
-            descriptor,
-            None
-            if isinstance(evidence.candidate_summary.evaluation, EntityCandidateEvaluationSummary)
-            or any(f.role_id == "entity_identity" for f in dataset.schema.columns)
-            else payload_batches(
-                self.store.project_root,
-                descriptor.storage_receipt,
-                policy=policy,
-                row=descriptor.row_contract,
-                rows=descriptor.row_set_contract,
-                audit=True,
-            ),
-            artifact_ref=artifact_ref,
-            session_ref=self.session_ref,
-            definition=evidence.candidate_summary.definition,
-            evaluation=evidence.candidate_summary.evaluation,
-        )
-    elif dataset.kind == "forecast":
-        from marivo.analysis.materialization.forecast_publication import (
-            build_forecast_publication,
-        )
-        from marivo.analysis.materialization.reads import payload_batches
-
-        descriptor, findings = build_forecast_publication(
-            descriptor,
-            payload_batches(
-                self.store.project_root,
-                descriptor.storage_receipt,
-                policy=policy,
-                row=descriptor.row_contract,
-                rows=descriptor.row_set_contract,
-                audit=True,
-            ),
-            artifact_ref=artifact_ref,
-            session_ref=self.session_ref,
-            training=evidence.forecast_summary,
-        )
-    elif dataset.kind == "association":
-        from marivo.analysis.materialization.association_publication import (
-            build_association_publication,
-        )
-        from marivo.analysis.materialization.reads import payload_batches
-
-        descriptor, findings = build_association_publication(
-            descriptor,
-            payload_batches(
-                self.store.project_root,
-                descriptor.storage_receipt,
-                policy=policy,
-                row=descriptor.row_contract,
-                rows=descriptor.row_set_contract,
-                audit=True,
-            ),
-            artifact_ref=artifact_ref,
-            session_ref=self.session_ref,
-            search_summary=evidence.association_summary,
-        )
-    elif dataset.row_contract.family_semantics.kind in (
-        "delta/funnel@v1",
-        "attribution/funnel-loss-rate@v1",
+    if evidence.event_summary is None:
+        raise _error("output_validation", plan.run.run_ref)
+    if plan.physical.local_steps and isinstance(
+        plan.dataset.row_contract.family_semantics,
+        (EventFunnelSemantics, EventTimeToEventSemantics),
     ):
-        from marivo.analysis.materialization.event_comparison_publication import (
-            build_publication,
-        )
-        from marivo.analysis.materialization.reads import payload_batches
+        from marivo.analysis.materialization.event_reducer_publication import summary_from_batches
 
-        descriptor, findings = build_publication(
-            descriptor,
-            payload_batches(
-                self.store.project_root,
-                descriptor.storage_receipt,
-                policy=policy,
-                row=descriptor.row_contract,
-                rows=descriptor.row_set_contract,
-                audit=True,
-            ),
-            artifact_ref=artifact_ref,
-            session_ref=self.session_ref,
+        evidence.event_summary = summary_from_batches(
+            plan.dataset.row_contract.family_semantics,
+            _audit_batches(self, descriptor, policy),
+            evidence.event_summary.coverage,
         )
-    elif dataset.kind == "delta":
-        from marivo.analysis.materialization.comparison_publication import (
-            build_delta_publication,
-        )
-        from marivo.analysis.materialization.reads import payload_batches
+    return bind_event_summary(descriptor, evidence.event_summary)
 
-        rows = payload_batches(
-            self.store.project_root,
-            descriptor.storage_receipt,
-            policy=policy,
-            row=descriptor.row_contract,
-            rows=descriptor.row_set_contract,
-            audit=True,
-        )
-        descriptor, findings = build_delta_publication(
-            descriptor,
-            rows,
-            artifact_ref=artifact_ref,
-            session_ref=self.session_ref,
-        )
-    elif dataset.kind == "attribution":
-        from marivo.analysis.materialization.attribution_publication import (
-            build_attribution_publication,
-        )
-        from marivo.analysis.materialization.reads import payload_batches
-        from marivo.analysis.operators.attribution_contracts import AttributePayload
 
-        entity = any(field.role_id == "entity_identity" for field in dataset.schema.columns)
-        payload = dataset._root.payload if isinstance(dataset._root, LogicalRootHandle) else None
-        continuation = not isinstance(payload, AttributePayload)
-        proof_definition = next(
-            (
-                root.definition_fingerprint
-                for root in reversed(roots)
-                if isinstance(root.payload, AttributePayload)
-            ),
-            None,
-        )
-        top_k = next(
-            (
-                root.payload.spec.top_k
-                for root in reversed(roots)
-                if isinstance(root.payload, AttributePayload)
-            ),
-            None,
-        )
-        descriptor, findings = build_attribution_publication(
-            descriptor,
-            None
-            if entity or continuation
-            else payload_batches(
-                self.store.project_root,
-                descriptor.storage_receipt,
-                policy=policy,
-                row=descriptor.row_contract,
-                rows=descriptor.row_set_contract,
-                audit=True,
-            ),
-            artifact_ref=artifact_ref,
-            session_ref=self.session_ref,
-            top_k=top_k,
-            source_summary=evidence.attribution_summary,
-            continuation=continuation,
-            proof_definition_fingerprint=proof_definition,
-        )
-    return descriptor, findings
+def _selection_descriptor(
+    stage: StageResult, evidence: ExecutionEvidence, descriptor: ArtifactDescriptor
+) -> ArtifactDescriptor:
+    from marivo.analysis.materialization.event_reducer_publication import bind_selection_summary
+
+    assert evidence.selection_summary is not None
+    return bind_selection_summary(
+        descriptor,
+        replace(
+            evidence.selection_summary,
+            row_count=stage.storage.primary_receipt.realized_row_count,
+        ),
+    )
+
+
+def _candidate_publication(
+    self: DatasetRuntime,
+    plan: ExecutionPlan,
+    stage: StageResult,
+    evidence: ExecutionEvidence,
+    descriptor: ArtifactDescriptor,
+    policy: ReadPolicy,
+) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
+    from marivo.analysis.materialization.candidate_publication import build_candidate_publication
+
+    if evidence.candidate_summary is None:
+        raise _error("output_validation", plan.run.run_ref)
+    return build_candidate_publication(
+        descriptor,
+        None
+        if isinstance(evidence.candidate_summary.evaluation, EntityCandidateEvaluationSummary)
+        or any(f.role_id == "entity_identity" for f in plan.dataset.schema.columns)
+        else _audit_batches(self, descriptor, policy),
+        artifact_ref=stage.artifact_ref,
+        session_ref=self.session_ref,
+        definition=evidence.candidate_summary.definition,
+        evaluation=evidence.candidate_summary.evaluation,
+    )
+
+
+def _forecast_publication(
+    self: DatasetRuntime,
+    stage: StageResult,
+    evidence: ExecutionEvidence,
+    descriptor: ArtifactDescriptor,
+    policy: ReadPolicy,
+) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
+    from marivo.analysis.materialization.forecast_publication import build_forecast_publication
+
+    return build_forecast_publication(
+        descriptor,
+        _audit_batches(self, descriptor, policy),
+        artifact_ref=stage.artifact_ref,
+        session_ref=self.session_ref,
+        training=evidence.forecast_summary,
+    )
+
+
+def _association_publication(
+    self: DatasetRuntime,
+    stage: StageResult,
+    evidence: ExecutionEvidence,
+    descriptor: ArtifactDescriptor,
+    policy: ReadPolicy,
+) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
+    from marivo.analysis.materialization.association_publication import (
+        build_association_publication,
+    )
+
+    return build_association_publication(
+        descriptor,
+        _audit_batches(self, descriptor, policy),
+        artifact_ref=stage.artifact_ref,
+        session_ref=self.session_ref,
+        search_summary=evidence.association_summary,
+    )
+
+
+def _funnel_publication(
+    self: DatasetRuntime,
+    stage: StageResult,
+    descriptor: ArtifactDescriptor,
+    policy: ReadPolicy,
+) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
+    from marivo.analysis.materialization.event_comparison_publication import build_publication
+
+    return build_publication(
+        descriptor,
+        _audit_batches(self, descriptor, policy),
+        artifact_ref=stage.artifact_ref,
+        session_ref=self.session_ref,
+    )
+
+
+def _delta_publication(
+    self: DatasetRuntime,
+    stage: StageResult,
+    descriptor: ArtifactDescriptor,
+    policy: ReadPolicy,
+) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
+    from marivo.analysis.materialization.comparison_publication import build_delta_publication
+
+    return build_delta_publication(
+        descriptor,
+        _audit_batches(self, descriptor, policy),
+        artifact_ref=stage.artifact_ref,
+        session_ref=self.session_ref,
+    )
+
+
+def _attribution_publication(
+    self: DatasetRuntime,
+    plan: ExecutionPlan,
+    stage: StageResult,
+    evidence: ExecutionEvidence,
+    descriptor: ArtifactDescriptor,
+    policy: ReadPolicy,
+) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
+    from marivo.analysis.materialization.attribution_publication import (
+        build_attribution_publication,
+    )
+    from marivo.analysis.operators.attribution_contracts import AttributePayload
+
+    dataset = plan.dataset
+    entity = any(field.role_id == "entity_identity" for field in dataset.schema.columns)
+    payload = dataset._root.payload if isinstance(dataset._root, LogicalRootHandle) else None
+    continuation = not isinstance(payload, AttributePayload)
+    proof_definition = next(
+        (
+            root.definition_fingerprint
+            for root in reversed(plan.roots)
+            if isinstance(root.payload, AttributePayload)
+        ),
+        None,
+    )
+    top_k = next(
+        (
+            root.payload.spec.top_k
+            for root in reversed(plan.roots)
+            if isinstance(root.payload, AttributePayload)
+        ),
+        None,
+    )
+    return build_attribution_publication(
+        descriptor,
+        None if entity or continuation else _audit_batches(self, descriptor, policy),
+        artifact_ref=stage.artifact_ref,
+        session_ref=self.session_ref,
+        top_k=top_k,
+        source_summary=evidence.attribution_summary,
+        continuation=continuation,
+        proof_definition_fingerprint=proof_definition,
+    )

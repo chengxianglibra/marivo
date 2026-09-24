@@ -13,7 +13,6 @@ import duckdb
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.datasets.base import MaterializedDataset
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.population import MaterializedPopulationDataset
@@ -24,6 +23,7 @@ from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_local_fixtures import pandas_methods
 from tests.lazy_materialization_crash_worker import record_evidence, statistics, versions
 from tests.lazy_retained_fixtures import setup_retained
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 REVENUE = ref.metric("sales.revenue")
 MEAN = ref.metric("sales.mean_amount")
@@ -97,10 +97,10 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
                     "require_profile_for_backend_type",
                     "compile_dataset",
                 ):
-                    guards.enter_context(patch.object(admission, name, forbidden))
+                    guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
             if mode == "cold":
                 for name in ("place", "_build_backend_from_effective", "execute_local"):
-                    guards.enter_context(patch.object(admission, name, forbidden))
+                    guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
             for logical in definitions:
                 output = logical.execute()
                 stats = {

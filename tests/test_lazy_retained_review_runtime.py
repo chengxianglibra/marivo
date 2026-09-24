@@ -10,7 +10,6 @@ import duckdb
 import pytest
 
 from marivo.analysis.datasets.base import MaterializedDataset
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.observation.metric import MaterializedMetricDataset
@@ -20,6 +19,7 @@ from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_local_fixtures import pandas_methods
 from tests.lazy_retained_fixtures import setup_retained
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -72,7 +72,7 @@ def test_substantial_local_metric_checkpoint_folds_with_source_offline(
         pytest.fail("retained local continuation attempted source work")
 
     for name in ("_build_backend_from_effective", "_effective_kwargs", "compile_dataset"):
-        monkeypatch.setattr(admission, name, forbidden)
+        monkeypatch.setattr(runtime_patch_owner(name), name, forbidden)
     with pandas_methods("metric.where"):
         selected = checkpoint.where(gt(REVENUE, 4))
         logical = selected.aggregate()

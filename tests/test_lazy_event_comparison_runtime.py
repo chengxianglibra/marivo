@@ -258,7 +258,7 @@ def test_cold_attribution_authority_corruption_is_rejected(tmp_path: Path, corru
     before = snapshot(runtime)
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     with (
-        patch("marivo.analysis.materialization.admission.execute_local", forbidden),
+        patch("marivo.analysis.materialization.local_stage.execute_local", forbidden),
         pytest.raises(IntegrityError),
     ):
         cold.artifact(output.state.artifact_ref)

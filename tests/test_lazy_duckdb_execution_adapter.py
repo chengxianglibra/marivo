@@ -14,6 +14,7 @@ from ibis.backends.duckdb import Backend
 from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter, bind_duckdb
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution import Parameter
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 @pytest.fixture
@@ -379,7 +380,11 @@ def test_runtime_publishes_after_between_query_update_without_retry(
         return original_submit(adapter, statement)
 
     try:
-        monkeypatch.setattr(admission, "_build_backend_from_effective", open_source)
+        monkeypatch.setattr(
+            runtime_patch_owner("_build_backend_from_effective"),
+            "_build_backend_from_effective",
+            open_source,
+        )
         monkeypatch.setattr(DuckDBExecutionAdapter, "submit", submit)
         result = logical.execute()
         rows = result.to_pandas()

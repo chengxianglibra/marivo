@@ -24,7 +24,6 @@ from marivo.analysis.datasets.descriptors import (
     _row_set_contract_fingerprint,
 )
 from marivo.analysis.datasets.handles import MaterializedScanLeafHandle
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import (
     ArtifactRecord,
@@ -37,6 +36,7 @@ from marivo.analysis.observation.contracts import ObservationRuntimeOwner
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 CRASH_EXIT = 73
 CRASH_POINTS = ("output_reserved", "after_rename", "insert_artifact", "after_commit")
@@ -249,13 +249,31 @@ def recover(project: Path, session_ref: str, run_ref: str) -> None:
 
     with ExitStack() as stack:
         stack.enter_context(
-            patch.object(admission, "require_profile_for_backend_type", forbidden("profile"))
+            patch.object(
+                runtime_patch_owner("require_profile_for_backend_type"),
+                "require_profile_for_backend_type",
+                forbidden("profile"),
+            )
         )
-        stack.enter_context(patch.object(admission, "_effective_kwargs", forbidden("credential")))
         stack.enter_context(
-            patch.object(admission, "_build_backend_from_effective", forbidden("backend"))
+            patch.object(
+                runtime_patch_owner("_effective_kwargs"),
+                "_effective_kwargs",
+                forbidden("credential"),
+            )
         )
-        stack.enter_context(patch.object(admission, "compile_dataset", forbidden("compiler")))
+        stack.enter_context(
+            patch.object(
+                runtime_patch_owner("_build_backend_from_effective"),
+                "_build_backend_from_effective",
+                forbidden("backend"),
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                runtime_patch_owner("compile_dataset"), "compile_dataset", forbidden("compiler")
+            )
+        )
         stack.enter_context(patch.object(DatasetRuntime, "sources", forbidden("source_factory")))
         runtime = DatasetRuntime.open(project, session_ref)
         before = snapshot(runtime)

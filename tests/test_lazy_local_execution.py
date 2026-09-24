@@ -13,6 +13,7 @@ from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.registry import ImplementationRegistration
 from tests.lazy_local_fixtures import COUNT, REVENUE, pandas_methods, setup_local
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -184,7 +185,6 @@ def test_selected_source_failure_never_runs_replacement_pandas(
 def test_unknown_current_placement_does_not_override_an_exact_binding_hit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization import admission
 
     _, sources, _ = setup_local(tmp_path)
     logical = sources.observe(REVENUE)
@@ -193,7 +193,7 @@ def test_unknown_current_placement_does_not_override_an_exact_binding_hit(
     def unexpected(*args: object, **kwargs: object) -> None:
         raise AssertionError("binding hit must not select a new physical implementation")
 
-    monkeypatch.setattr(admission, "place", unexpected)
+    monkeypatch.setattr(runtime_patch_owner("place"), "place", unexpected)
     assert logical.execute().state.artifact_ref == retained.state.artifact_ref
 
 

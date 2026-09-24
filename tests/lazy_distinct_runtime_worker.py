@@ -22,7 +22,6 @@ from marivo.analysis.datasets.descriptors import (
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.analysis.observation.predicates import eq
@@ -41,6 +40,7 @@ from tests.lazy_distinct_fixtures import (
     seed_distinct_database,
 )
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 DAY = ref.time_dimension("sales.orders.order_time")
 
@@ -159,7 +159,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
     with ExitStack() as guards:
         guards.enter_context(patch.object(runtime.store, "artifact", _forbidden))
         for name in ("place", "compile_dataset", "_build_backend_from_effective", "execute_local"):
-            guards.enter_context(patch.object(admission, name, _forbidden))
+            guards.enter_context(patch.object(runtime_patch_owner(name), name, _forbidden))
         try:
             barrier.attribute(axes=(REGION, CHANNEL))
         except DatasetConstructionError as error:
@@ -178,7 +178,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
                 "_build_backend_from_effective",
                 "execute_local",
             ):
-                guards.enter_context(patch.object(admission, name, _forbidden))
+                guards.enter_context(patch.object(runtime_patch_owner(name), name, _forbidden))
         result = logical.execute()
         assert isinstance(result, MaterializedAttributionDataset)
         selected = result.where(eq(result.fields.get("active_axis_mask"), (True, True)))

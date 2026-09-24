@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from marivo.analysis import grain, time_scope
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import encode_descriptor
 from marivo.analysis.materialization.store import SessionStore
@@ -18,6 +17,7 @@ from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from marivo.semantic.ir import StrptimeParse, TimestampParse
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 from tests.lazy_temporal_fixtures import AXIS, temporal_fixture
 
 
@@ -87,7 +87,7 @@ def recover(project: Path, session: str, reference: str) -> dict[str, object]:
             "_build_backend_from_effective",
             "compile_dataset",
         ):
-            stack.enter_context(patch.object(admission, name, forbidden))
+            stack.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
         from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
 
         stack.enter_context(patch.object(DuckDBExecutionAdapter, "timezone", forbidden))

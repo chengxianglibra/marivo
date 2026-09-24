@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 import ibis
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.datasource.backends import BuiltDatasourceBackend, EffectiveDatasourceKwargs
 from marivo.datasource.ir import DatasourceIR
 from marivo.refs import MetricKind, Ref, ref
 from tests.lazy_execution_fixtures import make_execution_registry
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 REVENUE = ref.metric("sales.revenue")
 
@@ -48,7 +48,11 @@ def independent_sources(
             calls.append(id(selected.con))
             return BuiltDatasourceBackend(selected, ())
 
-        with patch.object(admission, "_build_backend_from_effective", supplied):
+        with patch.object(
+            runtime_patch_owner("_build_backend_from_effective"),
+            "_build_backend_from_effective",
+            supplied,
+        ):
             yield runtime, first.observe(metric), second.observe(metric), calls
     finally:
         for backend in backends:

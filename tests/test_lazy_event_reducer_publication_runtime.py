@@ -152,7 +152,7 @@ def test_cold_reducer_metadata_corruption_fails_without_origin_or_partial_output
     before = snapshot(runtime)
     cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
     with (
-        patch("marivo.analysis.materialization.admission.execute_local", forbidden),
+        patch("marivo.analysis.materialization.local_stage.execute_local", forbidden),
         pytest.raises(IntegrityError) as caught,
     ):
         cold.artifact(output.state.artifact_ref)
