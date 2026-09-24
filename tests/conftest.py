@@ -12,11 +12,19 @@ import pytest
 
 from tests.install_marivo_helpers import InstallerEnv, InstallerToolchain
 from tests.shared_fixtures import (
+    DSL_NAMES,
     FUNNEL_BASE_EVENTS,
     FUNNEL_BASE_ORDERS,
+    DslCase,
+    DslCaseFactory,
+    DslNames,
+    DslScenario,
+    analysis_dsl_project_files,
+    analysis_dsl_rows,
     authoring_evidence_template,
     lifecycle_project_files,
     sales_orders_template,
+    seed_analysis_dsl_database,
     seed_lifecycle_backend,
 )
 
@@ -36,6 +44,51 @@ def _duckdb_connect_single_thread(*args: object, **kwargs: object) -> object:
 
 
 ibis.duckdb.connect = _duckdb_connect_single_thread
+
+
+@pytest.fixture
+def analysis_dsl_case_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DslCaseFactory:
+    """Load one real DSL declaration project per isolated source and Session."""
+    import marivo.analysis.session as session_attach
+    import marivo.semantic as ms
+
+    next_index = 0
+
+    def build(
+        scenario: DslScenario,
+        *,
+        names: DslNames = DSL_NAMES,
+        revenue_unit: str = "CNY",
+    ) -> DslCase:
+        nonlocal next_index
+        next_index += 1
+        root = tmp_path / f"dsl_{next_index}"
+        root.mkdir()
+        database_path = root / "warehouse.duckdb"
+        rows = analysis_dsl_rows(scenario)
+        seed_analysis_dsl_database(
+            database_path,
+            names,
+            rows,
+            float_amount=scenario in ("j4", "j4_ties", "nonfinite"),
+        )
+        (root / "marivo.toml").write_text('[project]\nname = "analysis-dsl-fixture"\n')
+        for relative_path, source in analysis_dsl_project_files(
+            names, database_path, revenue_unit=revenue_unit
+        ).items():
+            destination = (
+                root / "models" / relative_path
+                if relative_path.startswith("datasources/")
+                else root / "models" / "semantic" / relative_path
+            )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(source)
+        catalog = ms.load(workspace_dir=root)
+        monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(root))
+        session = session_attach.get_or_create(f"dsl-{scenario}", report_timezone="UTC")
+        return DslCase(scenario, names, root, database_path, catalog, session)
+
+    return build
 
 
 @pytest.fixture(autouse=True)
