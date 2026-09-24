@@ -290,7 +290,7 @@ def read_part_batches(
     *,
     expected_schema: pa.Schema,
     policy: ReadPolicy = _DEFAULT_READ_POLICY,
-) -> Iterator[pa.RecordBatch]:
+) -> Generator[pa.RecordBatch, None, None]:
     from marivo.analysis.materialization.retained import guard_part_transfer
 
     guard_part_transfer(part)
@@ -303,7 +303,7 @@ def _read_part_batches(
     *,
     expected_schema: pa.Schema,
     policy: ReadPolicy,
-) -> Iterator[pa.RecordBatch]:
+) -> Generator[pa.RecordBatch, None, None]:
     receipt = part.storage_receipt
     if (
         receipt.schema_fingerprint

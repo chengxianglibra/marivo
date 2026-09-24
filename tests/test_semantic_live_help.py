@@ -65,6 +65,25 @@ def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges()
         assert distances[qualified] <= 4
 
 
+@pytest.mark.parametrize(
+    ("target", "callable_value"),
+    (
+        ("nulls.reject", ms.nulls.reject),
+        ("empty.zero", ms.empty.zero),
+        ("zero_denominator.error", ms.zero_denominator.error),
+    ),
+)
+def test_all_authored_value_policy_variants_have_exact_help(
+    target: str, callable_value: object
+) -> None:
+    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+
+    for query in (target, callable_value):
+        resolved = resolve_live_target(query, SEMANTIC_LIVE_SURFACE)
+        assert resolved.canonical_id == target
+
+
 def test_semantic_live_surface_rejects_cross_surface_target() -> None:
     from marivo.introspection.live.resolve import resolve_live_target
     from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE

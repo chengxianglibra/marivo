@@ -145,7 +145,9 @@ _BACKENDS = frozenset({"duckdb", "postgres", "mysql", "sqlite", "trino", "clickh
 _DOMAINS = frozenset({"entity", "group", "singleton"})
 _UNIT_POLICIES = frozenset({"preserve", "count", "ratio", "mean", "difference", "coefficient"})
 _CELL_POLICIES = frozenset({"strict", "total_is_defined", "spearman_pairs"})
-_NUMERIC_POLICIES = frozenset({"none", "int64_checked", "float64_finite", "pair_ranks"})
+_NUMERIC_POLICIES = frozenset(
+    {"none", "int64_checked", "float64_finite", "int64_or_float64", "pair_ranks"}
+)
 _PART_EFFECTS = frozenset({"preserve", "build_current", "merge_original", "transport", "discard"})
 
 
@@ -170,7 +172,9 @@ class MethodContract:
     domain_policy: Literal["same", "mapped", "new"]
     unit_policy: Literal["preserve", "count", "ratio", "mean", "difference", "coefficient"]
     cell_policy: Literal["strict", "total_is_defined", "spearman_pairs"]
-    numeric_policy: Literal["none", "int64_checked", "float64_finite", "pair_ranks"]
+    numeric_policy: Literal[
+        "none", "int64_checked", "float64_finite", "int64_or_float64", "pair_ranks"
+    ]
     capabilities: tuple[CoreCapability, ...]
     part_effect: Literal["preserve", "build_current", "merge_original", "transport", "discard"]
     required_parts: tuple[str, ...]

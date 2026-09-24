@@ -13,6 +13,34 @@ time. The method has no registered source or pandas implementation in W1, so
 the independent SQL oracle remains an oracle rather than DSL execution evidence.
 An opaque Metric body may load but cannot continue through this private path.
 
+## S1 W2 private J1 execution
+
+W2 attaches those exact J1 roots to Dataset row and row-set contracts and a
+private placement check. A selected DuckDB Ibis backend lowers the admitted
+members, Region read/strict selection, Region grouping, Revenue observation,
+Channel contribution grouping, original-state rollup, and current-row
+sum/count/mean to Ibis expressions. Ibis compiles the source expressions and
+checks; a source failure ends that route. The source adapter validates physical
+string/int64 keys, string categories, int64/float64 contribution values,
+finite floats, complete keys, Cell tags, and checked sum/count state.
+
+The private pandas route consumes an exact J1 predecessor from an exhausted,
+receipt-checked local read or a complete source result. A category read can be
+selected or grouped after a fixed receipt; a coordinate-free Revenue
+observation retains keyed sum, non-null count, and row-count parts for local
+rollup after its fixed receipt. An in-memory source result with a retained
+Channel coordinate can group that coordinate by explicit key. Persisted
+coordinate parts and successful Artifact publication/cold recovery remain W3
+work. These private calls do not activate public Analysis DSL signatures or
+claim Runtime publication.
+
+For J1 builder-backed `ms.aggregate(..., agg="sum")`, the graph fixes
+ignore-Null inputs and a Null result for complete empty contributions; the
+builder has no separate value-policy parameters. Explicit authored policy
+facts, when present on a normalized Metric, must agree with that graph before
+J1 admission. The execution route then applies the same versioned Cell and
+numeric policy on DuckDB and pandas.
+
 ## Accepted S0 Analysis DSL slice (inactive)
 
 This section accepts the first-round semantics in the

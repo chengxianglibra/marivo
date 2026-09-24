@@ -654,7 +654,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "fanout_policy must be 'block' or 'aggregate_then_join', authored on base metrics only.",
         "Fan-out is a metric-level decision, gated by measure additivity on the merge grain.",
-        "Set fanout_policy='aggregate_then_join' only on additive/semi_additive base metrics; derived metrics must keep the default.",
+        "Set fanout_policy='aggregate_then_join' only on base metrics with an admitted additive or semi-additive declaration; derived metrics must keep the default.",
     ),
     ConstraintId.METRIC_FANOUT_POLICY_DERIVED: _constraint(
         ConstraintId.METRIC_FANOUT_POLICY_DERIVED,

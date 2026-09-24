@@ -504,6 +504,10 @@ class ExchangeBinding:
         if not (
             policy == "none"
             or (policy == "int64_checked" and pa.types.is_int64(value_type))
+            or (
+                policy == "int64_or_float64"
+                and (pa.types.is_int64(value_type) or pa.types.is_float64(value_type))
+            )
             or (policy in ("float64_finite", "pair_ranks") and pa.types.is_float64(value_type))
         ):
             raise _exchange_invalid("value type is not admitted by the selected method")
