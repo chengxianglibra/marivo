@@ -534,7 +534,9 @@ $$
 这里 g 是本次的粗化映射，S 是绑定原贡献含义的状态。它成立仍需方法、贡献、时间、覆盖及
 状态前提；不自动等于对 q(u) 求和。只有在允许状态上还满足
 `finish(s₁ ⊕ s₂) = finish(s₁) + finish(s₂)` 等条件，才能直接相加显示值。
-均值和比率通常需要先合并组件再 finish；精确去重可以合并身份集合，但不能相加重叠集合的计数。
+均值和比率通常需要先合并组件再 finish；精确去重在数学上可以合并身份集合，但不能相加
+重叠集合的计数。目标接口首次接入 `count_distinct` 与分位数时不要求来源暴露这类可上卷状态，
+因此两者的观察结果都不提供 `rollup()`；需要更粗粒度时重新对目标域发起观察。
 
 #### 3.9.1 一个 additivity 参数，支持指定维度与全部维度
 
@@ -1170,8 +1172,9 @@ summarize 消费的是当前 Cell 值，不能把该 Undefined 当作零或自�
 原贡献单位。完整定义值域上三者的数值可以相同，但政策不同；不能用数值相同互换定义。
 计数一个实际域也不证明它完整覆盖目标域，来源和成员覆盖义务不因此消失。
 加权统计使用 `mv.weighted_mean(weight=StatisticalWeight)`；权重对象绑定独立 Relation、统计角色
-与域，不能把订单数、分配或抽样权重自动代入。Exact distinct、quantile 和时间折叠继续按
-各方法的 RequiredParts 准入，不按数值类型统一放行。
+与域，不能把订单数、分配或抽样权重自动代入。`count_distinct` 与分位数的目标首次接入
+只允许直接观察，不提供原量 `rollup()`；`summarize()` 仍可对其已定义的当前行值提出新的
+统计问题，但结果不能冒充原量的粗粒度值。时间折叠继续按自身的 RequiredParts 准入。
 
 ### 5.5 一个有限时间网格入口，复用现有粒度和认证窗口
 
@@ -1285,8 +1288,9 @@ RuntimeMetricExpr 不是新 Catalog 对象，也不改写原 Metric。它定义�
 | `linear(add=(...), subtract=(...), label=...)` | 有序 Metric Ref / RuntimeMetricExpr；固定 +1/-1 系数 | 同一观察绑定下的和差定义 |
 
 `agg` 保留现有封闭选项：sum、count、count_distinct、min、max、mean、median、
-`("percentile", q)`；`0 < q < 1`，不能把 bool 当作 q。是否可观察、合并或归因由各方法与
-Measure 契约确定，不因输入同为数字而放行。`fold` 沿用已有注册时间折叠参数；只有相应
+`("percentile", q)`；`0 < q < 1`，不能把 bool 当作 q。是否可观察由方法与 Measure 契约
+确定；目标首次接入的 count_distinct、median 和 percentile 一律不支持原量上卷或归因，
+不因输入同为数字而放行。`fold` 沿用已有注册时间折叠参数；只有相应
 Measure 的时间语义允许时才接受，不授权跨需要固定的轴求和。
 
 SliceValue 沿用标量、标量集合和现有有限比较操作的闭合形状；实现需把现有 SlicePredicate
@@ -1325,23 +1329,35 @@ result = defined_rates.where(defined_rates.value.gt(0)).summarize(mv.mean()).exe
 `Undefined(zero_denominator)`，不是“有定义但缺失”的 Null；后者拒绝求值。旧实现的 null
 存储不能直接成为新理论中的 Null 含义。这是一项必要的值语义调整。
 
-分位数继续用现有 `ms.quantile_metric` 选择方法，不增加 observe 的同义 method 参数：
+目标接口中，`aggregate(..., agg=("percentile", q))` 定义分位数及 q，默认要求精确结果。
+同一个量可以在本次分析中显式允许近似；公开输入只表达精确性要求，不指定 datasource
+函数、T-Digest 或其他物理算法：
 
 ```python
 p95 = mv.runtime_metric.aggregate(
     Amount, agg=("percentile", 0.95), label="P95 order amount"
 )
-exact_p95 = ms.quantile_metric(p95, method="linear_interpolation@v1")
-approx_p95 = ms.quantile_metric(p95, method="duckdb_tdigest@v1")
+exact_p95 = p95
+approx_p95 = ms.quantile_metric(p95, accuracy="approximate")
 
-by_customer = customers.observe(exact_p95, during=august, via=Buyer)
-result = by_customer.rollup().execute()
+exact_by_customer = customers.observe(exact_p95, during=august, via=Buyer)
+approx_by_customer = customers.observe(approx_p95, during=august, via=Buyer)
 ```
 
-q 属于输入 Metric/RuntimeMetricExpr；wrapper 只选择已注册实现。精确分位数上卷需要精确分布
-状态，不能对各客户的 P95 再求 P95；近似方法保留明确的近似身份、参数与充分状态。没有
-exact→approx 自动降级，也不因所有值恰好接近而把近似输出标记 exact。上述工厂和 wrapper
-全都惰性，不执行、不注册业务对象。语义 authoring 仍只在装饰器函数体中写受限 Ibis 表达式。
+q 属于输入 Metric/RuntimeMetricExpr。`accuracy="exact" | "approximate"` 是精确性要求；
+直接观察等价于 exact，显式 approximate 表示允许近似，不承诺一定使用近似算法或给出
+未定义的误差上界。精确量的数值定义仍固定为线性插值；Ibis 的某个后端函数只有满足该
+定义才能用于 exact。Marivo 在执行前按来源、类型和精确性要求选择合格的直接观察路线，
+并构造 Ibis `quantile`、`approx_quantile` 或已注册的精确计算表达式；Ibis 把选定表达式编译成
+后端 SQL。Ibis 编译成功本身不证明精确性、误差界或可上卷性；无合格路线时拒绝。
+
+首次接入不要求数据源提供精确分布或近似 sketch，也不提供分位数原量 `rollup()`、
+distribution_shapley 等依赖完整分布的续算；不能对各客户的 P95 再求 P95 当作总体 P95。
+允许近似时，计划和结果记录实际实现、参数与该实现承诺的精确性类别。不存在 exact→approx 自动降级，
+也不把恰好与精确值相等的近似结果误记为有精确保证。现有公开 API 的
+`method="duckdb_tdigest@v1"` 是当前实现契约，不作为目标 DSL 的参数。上述工厂和 wrapper
+全都惰性，不执行、不注册业务对象。
+语义 authoring 仍只在装饰器函数体中写受限 Ibis 表达式。
 
 ## 6. 比较与成员选择
 
@@ -1626,23 +1642,28 @@ where 同步限制这些视图，当前子域不再自动拥有完整分区或�
 视图的 rank 复用 §7.1，不另建归因排序入口。当前/基准视图表示**该方法分配后的侧项**，
 尤其 component_mix 不能将其误标成未经分配的分组比率。
 
-保留已有四个闭合方法和精确公式，owner 为
+现有四个闭合方法的前提和公式如下，owner 为
 [typed operators 的 Exact attribution arithmetic 与 Top-K and reconciliation](2026-09-01-lazy-analysis-typed-operators-design.md#exact-attribution-arithmetic)：
 
 | 从量定义与部件选择的方法 | 必要依据与输出 |
 | --- | --- |
 | `additive_difference@v1` | 完整可加分区或明确的可加分配；分项 current-baseline |
 | `component_mix@v1` | mean/weighted_mean/ratio 的每侧可加 N、W；侧项为 N_i / W_total，贡献为侧项之差 |
-| `distinct_membership@v1` | 每侧精确去重的 key→partition 成员关系；一个 key 按其分区数等额分配 |
-| `distribution_shapley@v1` | 分区分布与相同分位数方法；完整枚举替换 current/baseline 分区分布的联盟 |
+| `distinct_membership@v1` | 每侧精确去重的 key→partition 成员关系；一个 key 按其分区数等额分配；目标首次接入不准入 |
+| `distribution_shapley@v1` | 分区分布与同一次执行内固定的分位数实现；完整枚举替换 current/baseline 分区分布的联盟；目标首次接入不准入 |
+
+首次接入的 `count_distinct` 和分位数不携带可上卷的成员关系或完整分布；不能从展示值、
+lineage 或后端函数名推导归因许可。未来若扩展，
+须逐来源证明所需状态的提取、运输和续算后再开放对应方法。
 
 Top-K 是归因计算前对两侧共同 basis 的确定性映射，剩余项进入真实 Other；不是输出 limit。
 joint 输出完整轴元组，hierarchy 输出作者轴顺序的各个前缀；不同层级都是独立 resolution，
-不能把同一目标的多层贡献混合相加。distinct 在每个前缀重新去重和分配；distribution 在每个
-resolution 重新计算。它们不能通过对子贡献普通求和生成父贡献。
+不能把同一目标的多层贡献混合相加。若未来准入 distinct 或 distribution 方法，前者在
+每个前缀重新去重和分配，后者在每个 resolution 重新计算；不能通过对子贡献普通求和
+生成父贡献。
 
-distribution_shapley 继续至多 8 个映射后玩家，精确枚举最多 256 个联盟；不会成本过高就
-抽样排列。若输入明确采用近似分位数，每个联盟使用该固定方法，并继承其近似披露；
+未来的 distribution_shapley 仍至多 8 个映射后玩家，精确枚举最多 256 个联盟；不会成本过高就
+抽样排列。若执行选择了近似分位数，每个联盟使用该固定实现，并继承其近似披露；
 “精确枚举联盟”不把近似分位数变成精确分位数。`residual=0` 只证明数值核对，完整 scope
 及部件依据另需成立。分支重叠、未知覆盖或非法时间 fold 不由核对通过而得到许可。
 
@@ -2210,10 +2231,10 @@ source_bindings 中的物理参数不是语义 Ref；它们仍由 datasource 的
 | 日历、活动期间、累计观察 | §4 范围身份、§7.1 有序规则 | §5 的既有期间/粒度能力及累计规范图；不新增同义时间 helper |
 | 绝对/相对变化、窗口对齐、缺侧比较 | §5.1 RelativeChange、§8.2 配对设计 | §6 的 compare 及封闭变体；不把严格配对当作唯一可定义的方法 |
 | 排名、平局、分区排名、有序前缀 | §6.2 域限制及具名有序方法 | §7.1 的已有 rank/limit；删除原草案的 order_by 同义入口 |
-| 可加、组件、去重、分布与漏斗归因 | §7.3、§8.4 注册分配 | §7.2 的 attribute；由输入定义及部件确定方法，不另加 decompose |
+| 可加、组件、去重、分布与漏斗归因 | §7.3、§8.4 注册分配 | §7.2 的 attribute；首次接入的去重与分位数缺少充分状态，拒绝对应归因；不另加 decompose |
 | 异常、窗口变化与驱动维度发现 | §6/§9.3 加有限候选搜索方法 | §8.4 的已有 discover 方法；搜索空间、分数及候选单位明确 |
 | 多量相关、lag 与预测 | §7.3 方法扩展 | §8.4 的已有 correlate/forecast；独立方法义务继续由拥有者承担 |
-| 精确/近似分位数 | §5.3 状态、§6.5 方法、§9.4 数值边界 | runtime_metric 与已有 quantile_metric；方法和状态身份不能混用 |
+| 精确/近似分位数 | §5.3 状态、§6.5 方法、§9.4 数值边界 | runtime_metric 定义 q 且默认要求精确；quantile_metric 只表达是否允许近似；首次接入只支持直接观察，不承诺原量上卷 |
 | 事件匹配、漏斗、步骤耗时、流失选人 | §7.3 领域构造、§8.1 主体像 | §8.1 的 match/funnel/time_to_event 与 where→members；保留匹配/覆盖规则 |
 | 状态重放、分布、迁移、违规、停留、时点选人 | §7.1 ordered fold、§10 信息变化 | §8.3 的 replay 与领域视图；时点状态关系经 where→members 继续观察 |
 | Lazy、物化、冷恢复与合法续算 | §9.1 显式依赖、L6/T1 | §9 的同一 Runtime/Artifact；不建设第二套存储或 AST |
@@ -2279,7 +2300,8 @@ occurrence 是合法转移、哪一个触发终态违规。因此检查还要覆
 
 | 当前或前稿入口 | 本文的唯一目标路径 | 是否增加重复入口 |
 | --- | --- | --- |
-| 当前 runtime_metric / quantile_metric / discover / correlate / forecast | 保留操作名和方法；仅调整单量 Relation 必需的输入与输出形状 | 否；不另加 derive、statistics 或 model 工厂 |
+| 当前 runtime_metric / discover / correlate / forecast | 保留操作名和已定义方法；调整单量 Relation 必需的输入与输出形状 | 否；不另加 derive、statistics 或 model 工厂 |
+| 当前 quantile_metric | 分位数默认要求精确；按 §5.7 将公开参数改为 `accuracy="exact" | "approximate"`，后端方法只进入计划及结果证据 | 否；不另加 observe 的 method 参数 |
 | 当前 with_dimensions、aggregate、rollup 的轴参数 | observe(coordinates=...) 构造；group_by 指定保留坐标后 rollup | 替换后的同义入口不并存；已有量的当前行统计仍为 summarize |
 | 前稿 window、weeks、order_by | 现有 time_scope、一个 time_grid、现有 rank | 删除同义便利入口；不发布多套时间格或排序工厂 |
 | 当前粒度与范围值 | 新增 time_grid，把两者绑定为带身份与逐格窗口的域 | 只补原值无法表达的有限坐标域，不替代 grain/time_scope |
