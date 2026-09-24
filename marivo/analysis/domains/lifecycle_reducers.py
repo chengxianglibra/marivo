@@ -138,6 +138,11 @@ class LifecycleReducerPayload(_LogicalNodePayload, _token=d._CORE_TOKEN):
     captures: tuple[BoundSourceParametersV1, ...] = ()
 
     @property
+    def live_source_dependencies(self) -> tuple[str, ...]:
+        """Expose sources introduced by newly bound lifecycle axes."""
+        return tuple(dict.fromkeys(axis.dimension.entity_ref.path for axis in self.axes))
+
+    @property
     def identity_payload(self) -> CanonicalValue:
         return (
             json.dumps(asdict(self.semantics), sort_keys=True),

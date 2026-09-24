@@ -142,6 +142,11 @@ _CAPABILITIES = frozenset(
     }
 )
 _BACKENDS = frozenset({"duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse", "pandas"})
+_DOMAINS = frozenset({"entity", "group", "singleton"})
+_UNIT_POLICIES = frozenset({"preserve", "count", "ratio", "mean", "difference", "coefficient"})
+_CELL_POLICIES = frozenset({"strict", "total_is_defined", "spearman_pairs"})
+_NUMERIC_POLICIES = frozenset({"none", "int64_checked", "float64_finite", "pair_ranks"})
+_PART_EFFECTS = frozenset({"preserve", "build_current", "merge_original", "transport", "discard"})
 
 
 def _method_error(expected: str, received: str) -> DatasetRegistrationError:
@@ -196,16 +201,14 @@ class MethodContract:
         if (
             any(kind not in _METHOD_KINDS for kind in self.input_kinds)
             or not self.input_domains
-            or any(domain not in ("entity", "group", "singleton") for domain in self.input_domains)
+            or any(domain not in _DOMAINS for domain in self.input_domains)
             or self.output_kind not in _METHOD_KINDS
             or not self.capabilities
             or any(capability not in _CAPABILITIES for capability in self.capabilities)
-            or self.unit_policy
-            not in ("preserve", "count", "ratio", "mean", "difference", "coefficient")
-            or self.cell_policy not in ("strict", "total_is_defined", "spearman_pairs")
-            or self.numeric_policy not in ("none", "int64_checked", "float64_finite", "pair_ranks")
-            or self.part_effect
-            not in ("preserve", "build_current", "merge_original", "transport", "discard")
+            or self.unit_policy not in _UNIT_POLICIES
+            or self.cell_policy not in _CELL_POLICIES
+            or self.numeric_policy not in _NUMERIC_POLICIES
+            or self.part_effect not in _PART_EFFECTS
             or any(
                 not _is_stable_identifier(value)
                 for values in (self.required_parts, self.required_checks, self.continuations)
@@ -230,6 +233,33 @@ class MethodContract:
                 )
             )
             or (self.cell_policy == "total_is_defined" and self.output_kind != "predicate")
+            or (
+                self.part_effect == "build_current" and "current_row_state" not in self.capabilities
+            )
+            or (
+                self.part_effect == "merge_original"
+                and "original_state_reduction" not in self.capabilities
+            )
+            or (self.cell_policy == "spearman_pairs" and self.numeric_policy != "pair_ranks")
+            or (self.numeric_policy == "pair_ranks" and self.cell_policy != "spearman_pairs")
+            or (
+                "cell_calculation" in self.capabilities
+                and ("domain" in self.input_kinds or self.output_kind == "domain")
+            )
+            or (
+                "bind_project" in self.capabilities
+                and (
+                    self.input_kinds != ("domain",)
+                    or self.output_kind not in ("domain", "observed", "row_statistic")
+                )
+            )
+            or (
+                "domain_correspondence" in self.capabilities
+                and (
+                    any(kind != "domain" for kind in self.input_kinds)
+                    or self.output_kind != "domain"
+                )
+            )
         ):
             raise _method_error("capability-specific input, output and part effect", "invalid rule")
 
@@ -268,7 +298,7 @@ class MethodImplementation:
             )
             or not self.logical_types
             or not self.input_domains
-            or any(domain not in ("entity", "group", "singleton") for domain in self.input_domains)
+            or any(domain not in _DOMAINS for domain in self.input_domains)
             or len(set(self.input_domains)) != len(self.input_domains)
             or len(set(self.logical_types)) != len(self.logical_types)
             or len(set(self.supported_parts)) != len(self.supported_parts)
@@ -314,6 +344,7 @@ class MethodRegistration:
     def require_route(
         self, route: MethodRoute, backend: MethodBackend, domain: MethodDomain, logical_type: str
     ) -> MethodImplementation:
+        """Select one exact qualified implementation or reject the requested route."""
         for implementation in self.implementations:
             if (
                 implementation.route == route

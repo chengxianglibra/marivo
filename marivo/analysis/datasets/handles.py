@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import InitVar, dataclass, field, is_dataclass
-from typing import SupportsIndex, TypeAlias
+from typing import Generic, SupportsIndex, TypeAlias, TypeVar
 
 from marivo._compat import Never
 from marivo.analysis.datasets.descriptors import (
@@ -86,8 +86,13 @@ class _LogicalNodePayload(ABC):
 
     @property
     def live_source_dependencies(self) -> tuple[str, ...]:
-        """Return source facts owned by this node, excluding its logical inputs."""
-        return ()
+        """Require every source-owning payload to declare its own live inputs."""
+        raise DatasetConstructionError(
+            expected="an explicit live-source classification for this payload",
+            received="unclassified payload",
+            repair="Declare source facts on the source-owning payload or classify it as input-only.",
+            location="dataset.input_classification",
+        )
 
     def __repr__(self) -> str:
         return "<private logical node payload>"
@@ -201,6 +206,34 @@ class LogicalRootHandle:
 
     def __reduce_ex__(self, protocol: SupportsIndex) -> Never:
         raise _definition_error("in-process logical definition", "root serialization")
+
+
+_ImplementationT = TypeVar("_ImplementationT")
+
+
+class _RunNodeBindings(Generic[_ImplementationT]):
+    """Invocation-local implementations keyed by exact logical node identity."""
+
+    __slots__ = ("_bindings", "_session_id")
+
+    def __init__(self, session_id: str) -> None:
+        if type(session_id) is not str or not session_id:
+            raise _definition_error("one Session identity", "invalid run binding session")
+        self._session_id = session_id
+        self._bindings: dict[LogicalRootHandle, _ImplementationT] = {}
+
+    def bind(self, root: LogicalRootHandle, implementation: _ImplementationT) -> _ImplementationT:
+        """Share one implementation per explicit node within this invocation."""
+        if type(root) is not LogicalRootHandle or root.session_id != self._session_id:
+            raise _definition_error("a logical node from this Session", "foreign run binding")
+        _validate_logical_root(root)
+        if root in self._bindings:
+            existing = self._bindings[root]
+            if existing is not implementation:
+                raise _definition_error("the existing implementation for this node", "rebound node")
+            return existing
+        self._bindings[root] = implementation
+        return implementation
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)

@@ -143,6 +143,11 @@ class LifecyclePayload(_LogicalNodePayload, _token=d._CORE_TOKEN):
     captures: tuple[BoundSourceParametersV1, ...]
 
     @property
+    def live_source_dependencies(self) -> tuple[str, ...]:
+        """Expose the Event step sources read by this lifecycle replay."""
+        return tuple(dict.fromkeys(step.source.ref.path for step in self.definition.steps))
+
+    @property
     def identity_payload(self) -> CanonicalValue:
         return (
             self.definition.identity_payload(),

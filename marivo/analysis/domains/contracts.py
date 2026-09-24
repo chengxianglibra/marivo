@@ -75,6 +75,11 @@ class EventPayload(_LogicalNodePayload, _token=d._CORE_TOKEN):
     captures: tuple[BoundSourceParametersV1, ...]
 
     @property
+    def live_source_dependencies(self) -> tuple[str, ...]:
+        """Expose the Event step sources captured by this trusted definition."""
+        return tuple(dict.fromkeys(step.source.ref.path for step in self.definition.steps))
+
+    @property
     def identity_payload(self) -> CanonicalValue:
         return (
             self.definition.identity_payload(),
@@ -199,6 +204,11 @@ class EventFunnelPayload(_LogicalNodePayload, _token=d._CORE_TOKEN):
     semantics: EventFunnelSemantics
     axes: tuple[EventAxisBinding, ...] = ()
     captures: tuple[BoundSourceParametersV1, ...] = ()
+
+    @property
+    def live_source_dependencies(self) -> tuple[str, ...]:
+        """Expose sources introduced by newly bound funnel axes."""
+        return tuple(dict.fromkeys(axis.dimension.entity_ref.path for axis in self.axes))
 
     @property
     def identity_payload(self) -> CanonicalValue:

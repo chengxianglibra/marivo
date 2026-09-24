@@ -15,6 +15,7 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import (
     LogicalRootHandle,
     MaterializedScanLeafHandle,
+    _LogicalNodePayload,
     _validate_logical_root,
 )
 from marivo.analysis.domains.contracts import (
@@ -75,13 +76,7 @@ class InputClassification:
     artifact_leaves: tuple[MaterializedScanLeafHandle, ...]
 
     def __post_init__(self) -> None:
-        expected = (
-            "mixed"
-            if self.source_nodes and self.artifact_leaves
-            else "source"
-            if self.source_nodes
-            else "artifact"
-        )
+        expected = _input_kind(bool(self.source_nodes), bool(self.artifact_leaves))
         if (
             not (self.source_nodes or self.artifact_leaves)
             or self.kind != expected
@@ -96,6 +91,29 @@ class InputClassification:
                 repair="Classify the current logical root through classify_inputs().",
                 location="dataset.input_classification",
             )
+
+
+def _input_kind(has_source: bool, has_artifact: bool) -> Literal["source", "artifact", "mixed"]:
+    if has_source and has_artifact:
+        return "mixed"
+    return "source" if has_source else "artifact"
+
+
+_INPUT_ONLY_PAYLOADS = (
+    EventTimeToEventPayload,
+    EventSelectionPayload,
+    LifecycleSelectionPayload,
+    RetainedRowsPayload,
+    RetainedFoldPayload,
+    ComparePayload,
+    FunnelComparePayload,
+    FunnelAttributePayload,
+    AttributePayload,
+    CorrelatePayload,
+    ForecastPayload,
+    CandidatePayload,
+    DriverCandidatePayload,
+)
 
 
 def classify_inputs(root: LogicalRootHandle) -> InputClassification:
@@ -114,7 +132,17 @@ def classify_inputs(root: LogicalRootHandle) -> InputClassification:
             return
         for child in node.inputs:
             visit(child.root)
-        if node.payload is not None and node.payload.live_source_dependencies:
+        dependencies = (
+            ()
+            if node.payload is None
+            or (
+                type(node.payload) in _INPUT_ONLY_PAYLOADS
+                and type(node.payload).live_source_dependencies
+                is _LogicalNodePayload.live_source_dependencies
+            )
+            else node.payload.live_source_dependencies
+        )
+        if dependencies:
             sources.append(node)
         elif not node.inputs:
             raise DatasetConstructionError(
@@ -125,9 +153,7 @@ def classify_inputs(root: LogicalRootHandle) -> InputClassification:
             )
 
     visit(root)
-    kind: Literal["source", "artifact", "mixed"] = (
-        "mixed" if sources and artifacts else "source" if sources else "artifact"
-    )
+    kind = _input_kind(bool(sources), bool(artifacts))
     return InputClassification(kind, tuple(sources), tuple(artifacts))
 
 

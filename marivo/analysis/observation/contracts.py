@@ -173,7 +173,11 @@ IDENTITY_FIELD_ID = _make_field_id("identity.entity_identity@v1")
 
 @dataclass(frozen=True, slots=True)
 class ContractEvidence:
-    """Separate authored facts, graph deductions and completed runtime checks."""
+    """Separate authored facts, graph deductions and completed runtime checks.
+
+    A named premise can require both an authored assertion and an executed check;
+    equal labels across those categories do not make either one the other.
+    """
 
     declarations: tuple[str, ...]
     deductions: tuple[str, ...]
@@ -207,6 +211,7 @@ class ContractEvidence:
             )
 
     def require_completed(self, check: str) -> None:
+        """Admit only an executed check, never a declaration or queued obligation."""
         if check not in self.completed_checks:
             raise DatasetConstructionError(
                 expected=f"completed check: {check}",
@@ -216,6 +221,7 @@ class ContractEvidence:
             )
 
     def require_declared(self, fact: str) -> None:
+        """Admit only a fact supplied by the owning Semantic declaration."""
         if fact not in self.declarations:
             raise DatasetConstructionError(
                 expected=f"author declaration: {fact}",
@@ -238,6 +244,7 @@ class MetricComponentPlan:
     evidence: ContractEvidence
 
     def require_original_state_rollup(self) -> None:
+        """Require authored value and contribution policy plus checked partition."""
         self.evidence.require_declared("value_policy")
         self.evidence.require_declared("contribution_partition")
         self.evidence.require_completed("contribution_partition")
@@ -253,7 +260,15 @@ def derive_metric_components(metric: TargetMetricContract) -> MetricComponentPla
             repair="Normalize one Metric input before deriving its method contract.",
             location="dsl.metric_graph",
         )
-    root = nodes[metric.graph.roots[0]]
+    try:
+        root = nodes[metric.graph.roots[0]]
+    except KeyError as exc:
+        raise DatasetConstructionError(
+            expected="a present canonical Metric root",
+            received="missing graph root",
+            repair="Normalize a complete Metric graph before deriving component state.",
+            location="dsl.metric_graph",
+        ) from exc
     method: Literal["sum", "count", "ratio"]
     if isinstance(root, AggregateNodeV1) and root.agg in ("sum", "count"):
         method = root.agg
@@ -277,7 +292,14 @@ def derive_metric_components(metric: TargetMetricContract) -> MetricComponentPla
     def supported_component(node_id: str) -> bool:
         try:
             node = component_node(metric.graph, node_id)
-        except (KeyError, TypeError):
+        except KeyError as exc:
+            raise DatasetConstructionError(
+                expected="a present canonical Metric component",
+                received="missing component graph node",
+                repair="Normalize a complete Metric graph before deriving component state.",
+                location="dsl.metric_graph",
+            ) from exc
+        except TypeError:
             return False
         return isinstance(node, AggregateNodeV1) and node.agg in ("sum", "count")
 
