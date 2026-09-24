@@ -42,7 +42,7 @@ import marivo.datasource as md
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
-@ms.measure(entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
 def amount(orders): return orders.amount
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue", unit="USD")
@@ -85,10 +85,10 @@ import marivo.datasource as md
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
-@ms.measure(entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
 def amount(orders): return orders.amount
 
-@ms.measure(entity=orders, additivity="non_additive")
+@ms.measure(entity=orders, additivity=ms.non_additive())
 def latency(orders): return orders.latency_ms
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
@@ -128,16 +128,16 @@ wh = ms.ref.datasource("wh")
 events = ms.entity(name="events", datasource=wh, source=md.table("events"))
 
 amount = ms.measure_column(
-    name="amount", entity=events, column="amount", additivity="additive", unit="CNY"
+    name="amount", entity=events, column="amount", additivity=ms.additive_all(), unit="CNY"
 )
 duration = ms.measure_column(
-    name="duration", entity=events, column="duration", additivity="additive", unit="s"
+    name="duration", entity=events, column="duration", additivity=ms.additive_all(), unit="s"
 )
 requests = ms.measure_column(
-    name="requests", entity=events, column="requests", additivity="additive", unit="{request}"
+    name="requests", entity=events, column="requests", additivity=ms.additive_all(), unit="{request}"
 )
 opaque = ms.measure_column(
-    name="opaque", entity=events, column="opaque", additivity="additive", unit="CNY/(request)"
+    name="opaque", entity=events, column="opaque", additivity=ms.additive_all(), unit="CNY/(request)"
 )
 
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
@@ -179,7 +179,7 @@ import marivo.datasource as md
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
-@ms.measure(entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
 def amount(orders): return orders.amount
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
@@ -212,10 +212,10 @@ import marivo.datasource as md
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
-@ms.measure(entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
 def amount(orders): return orders.amount
 
-@ms.measure(entity=orders, additivity="additive", unit="{order}")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="{order}")
 def lines(orders): return orders.line_count
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
@@ -240,7 +240,7 @@ import marivo.datasource as md
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
-@ms.measure(entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
 def amount(orders): return orders.amount
 
 gross = ms.aggregate(measure=amount, agg="sum", name="gross")
@@ -265,10 +265,10 @@ import marivo.datasource as md
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
-@ms.measure(entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
 def amount(orders): return orders.amount
 
-@ms.measure(entity=orders, additivity="additive", unit="{order}")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="{order}")
 def lines(orders): return orders.line_count
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")

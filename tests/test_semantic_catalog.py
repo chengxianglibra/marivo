@@ -569,7 +569,7 @@ _DATASETS_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
     )
     def revenue(table):
         return table.amount.sum()
@@ -601,7 +601,7 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
 
     @ms.measure(
         entity=orders,
-        additivity="additive",
+        additivity=ms.additive_all(),
         unit="USD",
         ai_context=ms.ai_context(
             business_definition="Gross order amount before refunds.",
@@ -1061,7 +1061,7 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
 
                 @ms.metric(
                     entities=[orders],
-                    additivity="additive",
+                    additivity=ms.additive_all(),
                     ai_context=ms.ai_context(business_definition="All completed order amounts."),
                 )
                 def revenue(table):
@@ -1262,10 +1262,10 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
-                "@ms.metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
                 "def order_count(table):\n"
                 "    return table.order_id.nunique()\n"
                 "conversion = ms.ratio(\n"
@@ -1321,13 +1321,13 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
                     name="cache_bytes",
                     entity=queries,
                     column="cache_bytes",
-                    additivity="additive",
+                    additivity=ms.additive_all(),
                 )
                 input_bytes = ms.measure_column(
                     name="input_bytes",
                     entity=queries,
                     column="input_bytes",
-                    additivity="additive",
+                    additivity=ms.additive_all(),
                 )
                 total_cache_bytes = ms.aggregate(
                     name="total_cache_bytes", measure=cache_bytes, agg="sum"
@@ -1442,16 +1442,16 @@ def test_derived_metric_details_render_complete_expression_tree_without_public_f
                     source=md.table("orders"),
                 )
                 paid_amount = ms.measure_column(
-                    name="paid_amount", entity=orders, column="paid_amount", additivity="additive"
+                    name="paid_amount", entity=orders, column="paid_amount", additivity=ms.additive_all()
                 )
                 discount_amount = ms.measure_column(
-                    name="discount_amount", entity=orders, column="discount_amount", additivity="additive"
+                    name="discount_amount", entity=orders, column="discount_amount", additivity=ms.additive_all()
                 )
                 refund_amount = ms.measure_column(
-                    name="refund_amount", entity=orders, column="refund_amount", additivity="additive"
+                    name="refund_amount", entity=orders, column="refund_amount", additivity=ms.additive_all()
                 )
                 cost_amount = ms.measure_column(
-                    name="cost_amount", entity=orders, column="cost_amount", additivity="additive"
+                    name="cost_amount", entity=orders, column="cost_amount", additivity=ms.additive_all()
                 )
                 paid_revenue = ms.aggregate(
                     name="paid_revenue", measure=paid_amount, agg="sum"
@@ -1538,15 +1538,17 @@ def test_derived_metric_expression_tree_renders_all_leaf_variants(
                     name="state", entity=orders, column="state"
                 )
                 value = ms.measure_column(
-                    name="value", entity=orders, column="value", additivity="non_additive"
+                    name="value", entity=orders, column="value", additivity=ms.non_additive()
                 )
                 weight = ms.measure_column(
-                    name="weight", entity=orders, column="weight", additivity="additive"
+                    name="weight", entity=orders, column="weight", additivity=ms.additive_all()
                 )
 
                 @ms.measure(
                     entity=orders,
-                    additivity=ms.semi_additive(over=event_time, fold="last"),
+                    additivity=ms.additive_all(except_=(event_time,)),
+                    status_time_dimension=event_time,
+                    status_time_fold="last",
                 )
                 def snapshot_value(table):
                     return table.snapshot_value
@@ -1566,7 +1568,7 @@ def test_derived_metric_expression_tree_renders_all_leaf_variants(
                 )
                 row_count = ms.count(name="row_count", entity=orders)
 
-                @ms.metric(entities=[orders], additivity="additive")
+                @ms.metric(entities=[orders], additivity=ms.additive_all())
                 def body_total(table):
                     return table.value.sum()
 
@@ -1798,14 +1800,14 @@ def test_ms_load_returns_fresh_catalog_without_mutating_existing_catalog(
 
             @ms.metric(
                 entities=[orders],
-                additivity="additive",
+                additivity=ms.additive_all(),
             )
             def revenue(table):
                 return table.amount.sum()
 
             @ms.metric(
                 entities=[orders],
-                additivity="additive",
+                additivity=ms.additive_all(),
             )
             def profit(table):
                 return table.profit.sum()
@@ -2010,7 +2012,7 @@ def test_catalog_preview_ratio_over_filtered_weighted_means(
                     name="item_count",
                     entity=orders,
                     column="item_count",
-                    additivity="additive",
+                    additivity=ms.additive_all(),
                 )
                 status = ms.dimension_column(
                     name="status",
@@ -2018,7 +2020,7 @@ def test_catalog_preview_ratio_over_filtered_weighted_means(
                     column="status",
                 )
 
-                @ms.measure(entity=orders, additivity="non_additive")
+                @ms.measure(entity=orders, additivity=ms.non_additive())
                 def unit_price(orders):
                     return orders.amount / orders.item_count
 
@@ -2089,7 +2091,7 @@ def _write_minimal_project(tmp_path) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', )\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
@@ -2112,7 +2114,7 @@ def _write_multi_domain_project(tmp_path) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', )\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
@@ -2283,14 +2285,14 @@ def test_catalog_readiness_blocks_invalid_runtime_weighted_mean(
                 )
                 value = ms.measure_column(
                     name="value", entity=orders, column="value",
-                    additivity="non_additive",
+                    additivity=ms.non_additive(),
                     ai_context=ms.ai_context(
                         business_definition="Observed row value.", guardrails=["Same grain only."]
                     ),
                 )
                 invalid_weight = ms.measure_column(
                     name="invalid_weight", entity=orders, column="weight",
-                    additivity="non_additive",
+                    additivity=ms.non_additive(),
                     ai_context=ms.ai_context(
                         business_definition="Non-additive row weight.",
                         guardrails=["Do not aggregate."],
@@ -2340,19 +2342,19 @@ def test_catalog_readiness_blocks_cross_entity_and_cross_datasource_runtime_grap
                 )
                 order_value = ms.measure_column(
                     name="order_value", entity=orders, column="amount",
-                    additivity="non_additive"
+                    additivity=ms.non_additive()
                 )
                 shipment_weight = ms.measure_column(
                     name="shipment_weight", entity=shipments, column="weight",
-                    additivity="additive"
+                    additivity=ms.additive_all()
                 )
                 order_amount = ms.measure_column(
                     name="order_amount", entity=orders, column="amount",
-                    additivity="additive"
+                    additivity=ms.additive_all()
                 )
                 return_amount = ms.measure_column(
                     name="return_amount", entity=returns, column="amount",
-                    additivity="additive"
+                    additivity=ms.additive_all()
                 )
                 orders_total = ms.aggregate(
                     name="orders_total", measure=order_amount, agg="sum"
@@ -2584,7 +2586,7 @@ _UNIT_DATASETS_PY = (
     "\n"
     "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
     "\n"
-    "@ms.metric(entities=[orders], additivity='additive', name='revenue', "
+    "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='revenue', "
     " unit='CNY')\n"
     "def revenue(orders):\n"
     "    return orders.amount.sum()\n"

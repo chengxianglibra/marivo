@@ -113,7 +113,7 @@ def test_j1_source_and_independent_business_sql(
     assert _sql(
         case,
         """
-        SELECT COALESCE(SUM(amount), 0) FROM "order"
+        SELECT SUM(amount) FROM "order"
         WHERE ordered_at >= TIMESTAMPTZ '2026-08-01T00:00:00+00:00'
           AND ordered_at < TIMESTAMPTZ '2026-09-01T00:00:00+00:00'
         """,
@@ -121,14 +121,14 @@ def test_j1_source_and_independent_business_sql(
     assert _sql(
         case,
         """
-        SELECT c.region, COALESCE(SUM(o.amount), 0) AS revenue
+        SELECT c.region, SUM(o.amount) AS revenue
         FROM customer c LEFT JOIN "order" o
           ON o.customer_id = c.customer_id
          AND o.ordered_at >= TIMESTAMPTZ '2026-08-01T00:00:00+00:00'
          AND o.ordered_at < TIMESTAMPTZ '2026-09-01T00:00:00+00:00'
         GROUP BY c.region ORDER BY c.region
         """,
-    ) == [("east", 600), ("south", 400), ("west", 0)]
+    ) == [("east", 600), ("south", 400), ("west", None)]
     assert _sql(
         case,
         """

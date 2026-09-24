@@ -135,16 +135,21 @@ ordered_at = ms.time_dimension_column(name={n.ordered_at!r}, entity=orders,
                                       column={n.ordered_at!r}, granularity='second',
                                       parse=ms.timestamp(timezone='UTC'))
 amount = ms.measure_column(name={n.amount!r}, entity=orders,
-                           column={n.amount!r}, additivity='additive',
+                           column={n.amount!r}, additivity=ms.additive_all(),
                            unit={revenue_unit!r})
 line_amount = ms.measure_column(name={n.line_amount!r}, entity=lines,
-                                column={n.line_amount!r}, additivity='additive',
+                                column={n.line_amount!r}, additivity=ms.additive_all(),
                                 unit='CNY')
 buyer = ms.relationship(name={n.buyer!r}, from_entity=orders, to_entity=customer,
                         keys=[ms.join_on(order_customer_id, customer_id)])
 line_order = ms.relationship(name={n.line_order!r}, from_entity=lines, to_entity=orders,
                              keys=[ms.join_on(line_order_id, order_id)])
-revenue = ms.aggregate(name={n.revenue!r}, measure=amount, agg='sum')
+revenue = ms.aggregate(name={n.revenue!r}, measure=amount, agg='sum', time=ordered_at)
+@ms.metric(name='opaque_revenue', entities=[orders], time=ordered_at,
+           unit={revenue_unit!r}, additivity=ms.additive_all(),
+           nulls=ms.nulls.ignore(), empty=ms.empty.null())
+def opaque_revenue(order_rows):
+    return order_rows.{n.amount}.sum()
 order_count = ms.count(name={n.order_count!r}, entity=orders)
 line_revenue = ms.aggregate(name={n.line_revenue!r}, measure=line_amount, agg='sum')
 aov = ms.ratio(name={n.aov!r}, numerator=line_revenue, denominator=order_count)
@@ -370,8 +375,8 @@ def fiscal_analysis_project_files() -> dict[str, str]:
             "import marivo.semantic as ms\n"
             "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
             "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date', granularity='day')\n"
-            "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive', unit='USD')\n"
-            "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity='non_additive')\n"
+            "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
+            "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity=ms.non_additive())\n"
             "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
             "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
             "weighted_user = ms.weighted_mean(name='weighted_user', value=user_id, weight=amount)\n"
@@ -609,7 +614,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -788,19 +793,19 @@ def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', name='order_count', )\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='order_count', )\n"
         "def order_count(orders):\n"
         "    return orders.order_id.count()\n"
         "\n"
-        "@ms.metric(entities=[users], additivity='additive', name='user_count', )\n"
+        "@ms.metric(entities=[users], additivity=ms.additive_all(), name='user_count', )\n"
         "def user_count(users):\n"
         "    return users.user_id.count()\n"
         "\n"
-        "amount_col = ms.measure_column(name='amount_col', entity=orders, column='amount', additivity='additive', unit='USD')\n"
+        "amount_col = ms.measure_column(name='amount_col', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')\n"
         "revenue_agg = ms.aggregate(name='revenue_agg', measure=amount_col, agg='sum')\n"
         "cumulative_revenue = ms.cumulative(name='cumulative_revenue', base=revenue_agg, over=order_date)\n"
     )
@@ -912,7 +917,7 @@ event_to_order = ms.relationship(
 )
 
 @ms.metric(
-    entities=[orders], additivity="additive", name="order_count",
+    entities=[orders], additivity=ms.additive_all(), name="order_count",
     ai_context=ms.ai_context(business_definition="Distinct orders."),
 )
 def order_count(orders):

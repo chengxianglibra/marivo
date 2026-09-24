@@ -64,7 +64,7 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
         "'happened_at': 'happened_at', "
         "'amount': 'amount'}), primary_key=['id'])\n"
         f"happened_at = ms.time_dimension_column(name='happened_at', entity=events, column='happened_at', granularity='second', is_default=True{parse})\n"
-        "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive')\n"
+        "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all())\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
     )
     monkeypatch.chdir(tmp_path)

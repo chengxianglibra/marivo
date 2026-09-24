@@ -31,6 +31,12 @@ from marivo.datasource.ir import (
     source_to_dict,
 )
 from marivo.refs import RefPayloadV1, SemanticKind
+from marivo.semantic._dsl_authoring import (
+    AdditivityPolicy,
+    EmptyContributionPolicyV1,
+    NullInputPolicyV1,
+    ZeroDenominatorPolicyV1,
+)
 from marivo.semantic.time_format import normalize_strptime
 
 __all__ = [
@@ -850,6 +856,9 @@ class MeasureIR:
     location: SourceLocation
     kind: SemanticKind = SemanticKind.MEASURE
     body_ast_hash: str = ""
+    dsl_additivity: AdditivityPolicy | None = None
+    status_time_dimension: str | None = None
+    status_time_fold: TimeFoldIR | None = None
 
 
 @dataclass(frozen=True)
@@ -1026,6 +1035,13 @@ class MetricIR:
     filter: FilterIR | None = None  # tier-1 only: AND equality predicates
     unit_override: str | None = None
     weighted_mean: WeightedMeanAggregation | None = None
+    dsl_additivity: AdditivityPolicy | None = None
+    event_time_dimension: str | None = None
+    status_time_dimension: str | None = None
+    status_time_fold: TimeFoldIR | None = None
+    null_policy: NullInputPolicyV1 | None = None
+    empty_policy: EmptyContributionPolicyV1 | None = None
+    zero_denominator_policy: ZeroDenominatorPolicyV1 | None = None
 
     def __post_init__(self) -> None:
         if self.fold_override is not None and self.aggregation is None:

@@ -20,11 +20,11 @@ orders = ms.entity(
     source=md.table("orders"),
 )
 
-@ms.measure(entity=orders, additivity="additive")
+@ms.measure(entity=orders, additivity=ms.additive_all())
 def amount(order_rows):
     return order_rows.amount
 
-@ms.measure(entity=orders, additivity="additive")
+@ms.measure(entity=orders, additivity=ms.additive_all())
 def net_amount(order_rows):
     return ms.bind(amount, order_rows) * 0.9
 
@@ -36,7 +36,7 @@ def country(order_rows):
 def ordered_at(order_rows):
     return order_rows.ordered_at
 
-@ms.metric(entities=[orders], additivity="additive")
+@ms.metric(entities=[orders], additivity=ms.additive_all())
 def revenue(order_rows):
     return ms.bind(net_amount, order_rows).sum()
 """
@@ -106,10 +106,10 @@ def test_loader_rejects_field_bound_to_wrong_positional_entity(
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), source=md.table('users'))\n"
-                "@ms.measure(entity=orders, additivity='additive')\n"
+                "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
                 "def amount(order_rows):\n"
                 "    return order_rows.amount\n"
-                "@ms.metric(entities=[users], additivity='additive')\n"
+                "@ms.metric(entities=[users], additivity=ms.additive_all())\n"
                 "def revenue(user_rows):\n"
                 "    return ms.bind(amount, user_rows).sum()\n"
             ),
@@ -141,10 +141,10 @@ def test_binding_identity_ignores_names_but_tracks_ref_and_definition_changes(
                     "import marivo.datasource as md\n"
                     "import marivo.semantic as ms\n"
                     "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                    "@ms.measure(entity=orders, additivity='additive')\n"
+                    "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
                     "def amount(order_rows):\n"
                     f"    return {amount_expression}\n"
-                    "@ms.measure(entity=orders, additivity='additive')\n"
+                    "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
                     "def discount(order_rows):\n"
                     "    return order_rows.discount\n"
                     f"{metric_body}\n"
@@ -153,23 +153,23 @@ def test_binding_identity_ignores_names_but_tracks_ref_and_definition_changes(
         )
 
     original = load(
-        "@ms.metric(entities=[orders], additivity='additive')\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
         "def revenue(order_rows):\n"
         "    return ms.bind(amount, order_rows).sum()"
     )
     renamed = load(
         "amount_alias = amount\n"
-        "@ms.metric(entities=[orders], additivity='additive')\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
         "def revenue(rows):\n"
         "    return ms.bind(amount_alias, rows).sum()"
     )
     rebound = load(
-        "@ms.metric(entities=[orders], additivity='additive')\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
         "def revenue(order_rows):\n"
         "    return ms.bind(discount, order_rows).sum()"
     )
     redefined = load(
-        "@ms.metric(entities=[orders], additivity='additive')\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
         "def revenue(order_rows):\n"
         "    return ms.bind(amount, order_rows).sum()",
         amount_expression="order_rows.amount * 0.9",

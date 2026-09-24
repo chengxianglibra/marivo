@@ -9,6 +9,7 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.refs import Ref, TimeDimensionKind
+from marivo.semantic._dsl_authoring import AdditivityPolicy
 from marivo.semantic.authoring import (
     CumulativeComposition,
     GrainToDate,
@@ -56,9 +57,10 @@ def _build_event_time_axis() -> Ref[TimeDimensionKind]:
     return event_time
 
 
-def _measure(name: str, entity: str, *, additivity: str = "additive"):
+def _measure(name: str, entity: str, *, additivity: AdditivityPolicy | None = None):
+    policy = ms.additive_all() if additivity is None else additivity
     return ms.measure_column(
-        entity=ms.ref.entity(entity), name=name, column=name, additivity=additivity
+        entity=ms.ref.entity(entity), name=name, column=name, additivity=policy
     )
 
 
@@ -176,7 +178,7 @@ def test_cumulative_accepts_grain_to_date_anchor():
 def test_cumulative_accepts_trailing_anchor():
     with _session(domain="sales"):
         event_time = _build_event_time_axis()
-        uid = _measure("uid", "sales.events", additivity="non_additive")
+        uid = _measure("uid", "sales.events", additivity=ms.non_additive())
         active = ms.aggregate(name="active", measure=uid, agg="count_distinct")
         cum = ms.cumulative(
             name="rolling7_active",
@@ -288,7 +290,7 @@ orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="created_at", granularity="day")
 amount = ms.measure_column(
-    name="amount", entity=orders, column="amount", additivity="additive")
+    name="amount", entity=orders, column="amount", additivity=ms.additive_all())
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 """
 

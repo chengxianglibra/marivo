@@ -96,7 +96,7 @@ _FACT_NO_METRIC = (
 )
 
 _FACT_WITH_METRIC = _FACT_NO_METRIC + (
-    "@ms.metric(entities=[orders], additivity='additive',\n"
+    "@ms.metric(entities=[orders], additivity=ms.additive_all(),\n"
     "    )\n"
     "def revenue(table):\n    return table.amount.sum()\n"
 )
@@ -293,11 +293,11 @@ def test_detect_depth_flags_missing_unit(semantic_project_factory):
             "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
             "source=md.table('orders'))\n"
             "@ms.metric(entities=[orders], name='bare_metric', "
-            "additivity='additive', )\n"
+            "additivity=ms.additive_all(), )\n"
             "def bare_metric(orders):\n"
             "    return orders.amount.sum()\n"
             "@ms.metric(entities=[orders], name='priced_metric', "
-            "additivity='additive',  unit='CNY')\n"
+            "additivity=ms.additive_all(),  unit='CNY')\n"
             "def priced_metric(orders):\n"
             "    return orders.amount.sum()\n"
         ),
@@ -327,7 +327,7 @@ def test_detect_depth_count_metric_gets_count_hint(semantic_project_factory):
             "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
             "source=md.table('orders'))\n"
-            "@ms.measure(entity=orders, additivity='additive')\n"
+            "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
             "def amount(orders):\n"
             "    return orders.amount\n"
             "order_count = ms.aggregate(measure=amount, agg='count', name='order_count')\n"

@@ -132,8 +132,8 @@ warehouse = ms.ref.datasource("warehouse")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["order_id"])
 region = ms.dimension_column(name="region", entity=orders, column="region")
 order_date = ms.time_dimension_column(name="order_date", entity=orders, column="order_date", granularity="day", is_default=True)
-amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity="additive", unit="CNY")
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
 ```
 当前权威确定含义且模型加载后，日常分析先读取指标，再调用 `observe`：
 
@@ -530,7 +530,7 @@ amount = ms.measure_column(
     name="amount",
     entity=orders,
     column="amount",
-    additivity="additive",
+    additivity=ms.additive_all(),
     unit="CNY",
 )
 ```
@@ -564,8 +564,8 @@ linear、cumulative 和表达式构造之间选择。选定 aggregate 后，
 `marivo.help("semantic.aggregate")` 负责其精确输入、默认值、约束和 repair 路由。
 
 ```python
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
+us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", time=order_date, filter=ms.where(region="US"))
 ```
 `agg="median"` 和 `agg=("percentile", q)` 会按后端能力执行。在 Trino 上，两者都会
 编译为 `APPROX_PERCENTILE`，其中 median 使用 `q=0.5`。
@@ -649,7 +649,7 @@ Metric 对象页会识别 cumulative 构造；随后由
 `marivo.help("semantic.builders.governed_temporal")` 负责路由 anchor builders。
 
 ```python
-user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity="non_additive")
+user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity=ms.non_additive())
 active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
 cumulative_active_users = ms.cumulative(
     name="cumulative_active_users",
@@ -1019,7 +1019,11 @@ structured repair 的唯一来源。
 ```python
 @ms.metric(
     entities=[orders],
-    additivity="additive",
+    additivity=ms.additive_all(),
+    time=order_date,
+    unit="CNY",
+    nulls=ms.nulls.ignore(),
+    empty=ms.empty.null(),
     name="revenue",
     provenance=ms.from_sql(
         sql="SELECT SUM(amount) AS revenue FROM orders",
@@ -1035,10 +1039,12 @@ def revenue(table):
 可加性与时间行为决定智能体更改分析粒度或增加切分时，数值是否仍有意义。SQL 来源信息
 不会执行指标；它为 `ms.parity_check(...)` 提供参考查询，以检查已声明的语义是否与既有实现一致。
 
-- `ms.semi_additive(over, fold)` —— 用于在大多数轴上可加、但需要在某个时间轴上折叠的
-  快照/状态事实。`over` 必须是 `@ms.time_dimension(...)` 返回的状态时间
-  维度引用；`fold` 为 `"last"`、`"first"`、`"mean"`、`"max"` 或
+- `ms.additive(over=(...))`、`ms.additive_all(except_=(...))` 与
+  `ms.non_additive()` 显式声明坐标可加性。快照/状态事实在 `except_=` 中固定
+  状态时间轴，并单独声明 `status_time_dimension=`；需要折叠时用
+  `status_time_fold=` 指定 `"last"`、`"first"`、`"mean"`、`"max"` 或
   `("percentile", 0.95)`。
+- `ms.nulls.ignore()` 与 `ms.empty.null()` 显式保留聚合的 Null 输入及完整空贡献语义。
 - `ms.from_sql(sql, dialect)` —— 把 SQL 作为**仅来源信息** 附加，用于启用
   `ms.parity_check(...)`。它永远不会作为指标请求体执行。
 
@@ -1054,7 +1060,9 @@ on_hand_units = ms.measure_column(
     name="on_hand_units",
     entity=inventory_daily,
     column="on_hand_units",
-    additivity=ms.semi_additive(over=snapshot_date, fold="last"),
+    additivity=ms.additive_all(except_=(snapshot_date,)),
+    status_time_dimension=snapshot_date,
+    status_time_fold="last",
 )
 ```
 ### 关系

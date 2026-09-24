@@ -43,7 +43,7 @@ def _add_order_count_metric(tmp_path) -> None:
     )
     datasets.write_text(
         source
-        + "\n@ms.metric(entities=[orders], additivity='additive', name='order_count')\n".replace(
+        + "\n@ms.metric(entities=[orders], additivity=ms.additive_all(), name='order_count')\n".replace(
             "name='order_count')",
             (
                 "name='order_count', ai_context=ms.ai_context("

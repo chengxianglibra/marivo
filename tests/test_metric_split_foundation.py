@@ -155,7 +155,7 @@ def test_categorical_dimension_rejects_additivity():
             granularity=None,
             python_symbol="x",
             location=_loc(),
-            additivity="additive",
+            additivity=ms.additive_all(),
         )
 
 
@@ -177,25 +177,23 @@ def test_non_field_ref_rejects_binding_call():
 # ---------------------------------------------------------------------------
 
 
-def test_semi_additive_builder_normalizes_fold():
+def test_status_time_policy_keeps_fixed_axis():
     order_date = ms.ref.time_dimension("sales.orders.order_date")
-    sa = authoring.semi_additive(over=order_date, fold="last")
-    assert isinstance(sa, ir.SemiAdditive)
-    assert sa.over == "sales.orders.order_date"
-    assert sa.fold.kind == "last"
+    policy = authoring.additive_all(except_=(order_date,))
+    assert policy.exceptions == ("sales.orders.order_date",)
 
 
-def test_semi_additive_builder_percentile():
+def test_status_time_policy_is_versioned():
     t = ms.ref.time_dimension("d.e.t")
-    sa = authoring.semi_additive(over=t, fold=("percentile", 0.9))
-    assert sa.fold.kind == "percentile" and sa.fold.q == 0.9
+    policy = authoring.additive_all(except_=(t,))
+    assert policy.version == 1
 
 
 def test_semi_additive_builder_rejects_string_over():
     with pytest.raises(SemanticDecoratorError) as exc:
-        authoring.semi_additive(over="sales.orders.order_date", fold="last")  # type: ignore[arg-type]
+        authoring.additive_all(except_=("sales.orders.order_date",))  # type: ignore[arg-type]
 
-    assert "over must be Ref[time_dimension]" in str(exc.value)
+    assert "Dimension or TimeDimension refs" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +204,7 @@ def test_semi_additive_builder_rejects_string_over():
 def test_aggregate_builds_tier1_metric():
     with authoring_session(domain="sales") as sess:
         amount = sess.measure(
-            entity=ms.ref.entity("sales.orders"), name="amount", additivity="additive"
+            entity=ms.ref.entity("sales.orders"), name="amount", additivity=ms.additive_all()
         )
         rev = authoring.aggregate(measure=amount, agg="sum", name="revenue")
         m = sess.pending_metric("sales.revenue")
@@ -226,7 +224,7 @@ def test_aggregate_builds_tier1_metric():
 def test_metric_body_form_declares_additivity():
     with authoring_session(domain="sales") as sess:
 
-        @authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity="additive")
+        @authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all())
         def gmv(orders):
             return (orders.price * orders.qty).sum()
 
@@ -243,7 +241,9 @@ def test_metric_semi_additive_via_builder():
 
         @authoring.metric(
             entities=[ms.ref.entity("ops.samples")],
-            additivity=authoring.semi_additive(over=t, fold="max"),
+            additivity=authoring.additive_all(except_=(t,)),
+            status_time_dimension=t,
+            status_time_fold="max",
         )
         def peak_bw(samples):
             return samples.bw.sum()
@@ -260,7 +260,7 @@ def test_metric_semi_additive_via_builder():
 
 def _m(sess, entity, col):
     """Declare a measure dimension and return its ref."""
-    return sess.measure(entity=ms.ref.entity(entity), name=col, additivity="additive")
+    return sess.measure(entity=ms.ref.entity(entity), name=col, additivity=ms.additive_all())
 
 
 def test_ratio_constructor_is_flat_and_derived():
@@ -313,7 +313,7 @@ def test_package_exports_new_surface():
         "ratio",
         "weighted_mean",
         "linear",
-        "semi_additive",
+        "additive_all",
     ):
         assert hasattr(ms, present), f"ms.{present} missing"
 

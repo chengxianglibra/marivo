@@ -51,7 +51,7 @@ def test_cumulative_load_resolves_single_time_dimension_and_non_additive(
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
         "user_id = ms.measure_column("
-        "name='user_id', entity=orders, column='user_id', additivity='non_additive')\n"
+        "name='user_id', entity=orders, column='user_id', additivity=ms.non_additive())\n"
         "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
         "cum_active_users = ms.cumulative(name='cum_active_users', base=active_users)\n",
     )
@@ -77,7 +77,7 @@ def test_cumulative_rejects_derived_base(tmp_path: Path, monkeypatch: pytest.Mon
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
         "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity='additive')\n"
+        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
         "orders_count = ms.count(name='orders_count', entity=orders)\n"
         "aov = ms.ratio(name='aov', numerator=revenue, denominator=orders_count)\n"
@@ -106,7 +106,7 @@ def test_cumulative_rejects_unsupported_base_aggregation(
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
         "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity='additive')\n"
+        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "avg_amount = ms.aggregate(name='avg_amount', measure=amount, agg='mean')\n"
         "bad = ms.cumulative(name='bad', base=avg_amount, over=event_time)\n",
     )
@@ -135,7 +135,7 @@ def test_cumulative_omitted_over_rejects_multiple_time_dimensions(
         "paid_at = ms.time_dimension_column("
         "name='paid_at', entity=orders, column='paid_at', granularity='day')\n"
         "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity='additive')\n"
+        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
         "bad = ms.cumulative(name='bad', base=revenue)\n",
     )
@@ -163,8 +163,8 @@ def test_cumulative_rejects_tier2_body_base(
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
         "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity='additive')\n"
-        "@ms.metric(entities=[orders], additivity='additive')\n"
+        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
         "def custom_revenue(orders):\n"
         "    return (orders.amount * orders.qty).sum()\n"
         "bad = ms.cumulative(name='bad', base=custom_revenue, over=event_time)\n",
@@ -192,7 +192,7 @@ def test_cumulative_rejects_unknown_over_ref(
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
         "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity='additive')\n"
+        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
         "bogus_ref = ms.ref.time_dimension('sales.orders.nonexistent')\n"
         "bad = ms.cumulative(name='bad', base=revenue, over=bogus_ref)\n",
@@ -230,7 +230,7 @@ def test_cumulative_rejects_non_root_over_axis(
         "ship_time = ms.time_dimension_column("
         "name='ship_time', entity=shipments, column='shipped_at', granularity='day')\n"
         "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity='additive')\n"
+        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
         "bad = ms.cumulative(name='bad', base=revenue, over=ship_time)\n",
     )

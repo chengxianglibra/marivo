@@ -74,7 +74,7 @@ def test_sqlite_agent_native_authoring_journey(
                     name="amount",
                     entity=orders,
                     column="amount",
-                    additivity="additive",
+                    additivity=ms.additive_all(),
                     unit="USD",
                     ai_context=ms.ai_context(
                         business_definition="Accepted order amount in USD.",

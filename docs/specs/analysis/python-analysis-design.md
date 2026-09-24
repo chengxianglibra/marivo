@@ -1,5 +1,18 @@
 # Python Analysis Design
 
+## S1 W1 private J1 construction
+
+W1 loads the closed Semantic additivity, event-time, and value-policy declarations
+through normal authoring, then builds a private J1 Logical chain for members,
+Region read and strict selection, Region grouping, builder-backed Revenue
+observation, Channel contribution coordinates, and original-state rollup.
+Construction and field handles do not read business sources. The accepted method
+semantics require a declared directed Buyer path, a single-valued member Region,
+sum retained parts, ignore-Null and empty-Null behavior, and a declared event
+time. The method has no registered source or pandas implementation in W1, so
+the independent SQL oracle remains an oracle rather than DSL execution evidence.
+An opaque Metric body may load but cannot continue through this private path.
+
 ## Accepted S0 Analysis DSL slice (inactive)
 
 This section accepts the first-round semantics in the

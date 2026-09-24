@@ -59,11 +59,18 @@ from marivo.semantic._authoring_values import (
     from_sql,
     hour_prefix,
     join_on,
-    semi_additive,
     snapshot,
     strptime,
     timestamp,
     validity,
+)
+from marivo.semantic._dsl_authoring import (
+    additive,
+    additive_all,
+    empty,
+    non_additive,
+    nulls,
+    zero_denominator,
 )
 from marivo.semantic._expression_binding import bind
 from marivo.semantic.event import all_rows, participant, participant_role
@@ -81,6 +88,8 @@ __all__ = [
     "AggregateFoldValue",
     "GrainToDate",
     "PeriodCorrespondence",
+    "additive",
+    "additive_all",
     "aggregate",
     "ai_context",
     "all_rows",
@@ -92,6 +101,7 @@ __all__ = [
     "dimension",
     "dimension_column",
     "domain",
+    "empty",
     "entity",
     "event",
     "from_sql",
@@ -105,13 +115,14 @@ __all__ = [
     "measure_column",
     "metric",
     "model_state",
+    "non_additive",
+    "nulls",
     "participant",
     "participant_role",
     "period_calendar",
     "period_correspondence",
     "ratio",
     "relationship",
-    "semi_additive",
     "snapshot",
     "state_model",
     "strptime",
@@ -125,4 +136,5 @@ __all__ = [
     "weighted_mean",
     "where",
     "work_schedule",
+    "zero_denominator",
 ]

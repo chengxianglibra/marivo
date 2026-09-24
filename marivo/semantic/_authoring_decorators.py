@@ -42,6 +42,7 @@ from marivo.semantic._authoring_context import (
 from marivo.semantic._authoring_validation import (
     _compute_column_hash,
     _normalize_additivity,
+    _normalize_time_fold,
     _validate_relationship_keys,
     _validate_sample_interval_granularity,
     _validate_time_parse,
@@ -49,12 +50,13 @@ from marivo.semantic._authoring_validation import (
     _validate_unit,
 )
 from marivo.semantic._authoring_values import _build_ai_context
+from marivo.semantic._dsl_authoring import AdditivityPolicy
 from marivo.semantic._expression_binding import ExpressionBody, compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.event import Participant
 from marivo.semantic.ir import (
-    Additivity,
+    AggregateFoldInput,
     CsvSourceIR,
     DimensionIR,
     DimensionKind,
@@ -461,7 +463,9 @@ def measure_column(
     name: str,
     entity: Ref[EntityKind],
     column: str,
-    additivity: Additivity,
+    additivity: AdditivityPolicy,
+    status_time_dimension: Ref[TimeDimensionKind] | None = None,
+    status_time_fold: AggregateFoldInput = None,
     unit: str | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -473,8 +477,9 @@ def measure_column(
         entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
-        additivity: Whether the measure is ``"additive"``, ``"non_additive"``,
-            or ``ms.semi_additive(over=..., fold=...)``.
+        additivity: Closed policy from ``ms.additive``, ``ms.additive_all`` or ``ms.non_additive``.
+        status_time_dimension: Optional business status-time dimension.
+        status_time_fold: Fold over the status-time axis, when declared.
         unit: UCUM unit token such as ``"CNY"``, ``"USD"``, ``"%"``, or ``"1"``.
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -492,7 +497,7 @@ def measure_column(
         >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> amount = ms.measure_column(
         ...     name="amount", entity=orders, column="amount",
-        ...     additivity="additive", unit="CNY",
+        ...     additivity=ms.additive_all(), unit="CNY",
         ... )
     """
     ctx = _require_ctx()
@@ -517,17 +522,39 @@ def measure_column(
     _validate_unit(unit, semantic_id, "measure")
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
+    status_id = (
+        _require_ref_id(
+            status_time_dimension,
+            parameter="status_time_dimension",
+            expected=(SemanticKind.TIME_DIMENSION,),
+        )
+        if status_time_dimension is not None
+        else None
+    )
+    status_fold = (
+        _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
+        if status_time_fold is not None
+        else None
+    )
     ir = MeasureIR(
         semantic_id=semantic_id,
         domain=resolved_domain,
         entity=entity_id,
         name=obj_name,
         ai_context=ai_ctx,
-        additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
+        additivity=_normalize_additivity(
+            additivity,
+            semantic_id=semantic_id,
+            status_time_dimension=status_id,
+            status_time_fold=status_fold,
+        ),
         unit=unit,
         python_symbol=obj_name,
         location=location,
         body_ast_hash=_compute_column_hash(column_name),
+        dsl_additivity=additivity,
+        status_time_dimension=status_id,
+        status_time_fold=status_fold,
     )
     _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
     return ref
@@ -537,7 +564,9 @@ def measure(
     *,
     name: str | None = None,
     entity: Ref[EntityKind],
-    additivity: Additivity,
+    additivity: AdditivityPolicy,
+    status_time_dimension: Ref[TimeDimensionKind] | None = None,
+    status_time_fold: AggregateFoldInput = None,
     unit: str | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -551,8 +580,9 @@ def measure(
     Args:
         name: Measure name. Defaults to the function name.
         entity: Owning entity ref returned by ``ms.entity(...)``.
-        additivity: Whether the measure is ``"additive"``, ``"non_additive"``,
-            or ``ms.semi_additive(over=..., fold=...)``.
+        additivity: Closed coordinate-additivity policy.
+        status_time_dimension: Optional business status-time dimension.
+        status_time_fold: Fold over the status-time axis, when declared.
         unit: UCUM unit token (e.g. ``"USD"``, ``"CNY"``, ``"%"``).
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -566,7 +596,7 @@ def measure(
             body violates the AST whitelist.
 
     Example:
-        >>> @ms.measure(entity=orders, additivity="additive", unit="USD")
+        >>> @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
         ... def amount(orders_table):
         ...     return orders_table.amount
     """
@@ -601,17 +631,39 @@ def measure(
         )
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
+        status_id = (
+            _require_ref_id(
+                status_time_dimension,
+                parameter="status_time_dimension",
+                expected=(SemanticKind.TIME_DIMENSION,),
+            )
+            if status_time_dimension is not None
+            else None
+        )
+        status_fold = (
+            _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
+            if status_time_fold is not None
+            else None
+        )
         ir = MeasureIR(
             semantic_id=semantic_id,
             domain=resolved_domain,
             entity=entity_ref,
             name=obj_name,
             ai_context=ai_ctx,
-            additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
+            additivity=_normalize_additivity(
+                additivity,
+                semantic_id=semantic_id,
+                status_time_dimension=status_id,
+                status_time_fold=status_fold,
+            ),
             unit=unit,
             python_symbol=fn.__name__,
             location=location,
             body_ast_hash=expression_body.body_ast_hash,
+            dsl_additivity=additivity,
+            status_time_dimension=status_id,
+            status_time_fold=status_fold,
         )
         _push_ir(ctx, ref, ir, expression_body)
         return ref

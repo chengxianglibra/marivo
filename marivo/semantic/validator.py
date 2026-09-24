@@ -1378,6 +1378,81 @@ def _validate_measure_refs(registry: Registry) -> list[SemanticError]:
     return errors
 
 
+def _validate_dsl_declarations(registry: Registry) -> list[SemanticError]:
+    """Bind authored DSL coordinates and time roles without opening sources."""
+    from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1
+
+    errors: list[SemanticError] = []
+    declarations = (
+        *(
+            (
+                measure.semantic_id,
+                measure.entity,
+                measure.dsl_additivity,
+                None,
+                measure.status_time_dimension,
+            )
+            for measure in registry.measures.values()
+        ),
+        *(
+            (
+                metric.semantic_id,
+                metric.root_entity,
+                metric.dsl_additivity,
+                metric.event_time_dimension,
+                metric.status_time_dimension,
+            )
+            for metric in registry.metrics.values()
+        ),
+    )
+    for semantic_id, root, policy, event_time, status_time in declarations:
+        coordinates: tuple[str, ...] = ()
+        if isinstance(policy, AdditiveAllV1):
+            coordinates = policy.exceptions
+        elif isinstance(policy, AdditiveOverV1):
+            coordinates = policy.coordinates
+        for coordinate in coordinates:
+            dimension = registry.dimensions.get(coordinate)
+            if dimension is None or dimension.entity != root:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=f"{semantic_id!r} names a non-native additivity coordinate {coordinate!r}.",
+                        refs=(semantic_id, coordinate),
+                        expected=f"Dimension on {root}",
+                        received=coordinate,
+                        hint="Declare a coordinate on the computation root or revise the additivity policy.",
+                    )
+                )
+        for role, axis in (("event time", event_time), ("status time", status_time)):
+            if axis is None:
+                continue
+            dimension = registry.dimensions.get(axis)
+            if dimension is None or not dimension.is_time_dimension or dimension.entity != root:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=f"{semantic_id!r} has an invalid {role} dimension {axis!r}.",
+                        refs=(semantic_id, axis),
+                        expected=f"TimeDimension on {root}",
+                        received=axis,
+                        hint="Bind a declared TimeDimension on this contribution root.",
+                    )
+                )
+        if event_time is not None and status_time == event_time:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=f"{semantic_id!r} uses the same axis as event and status time.",
+                    refs=(semantic_id, event_time),
+                    expected="distinct business time roles",
+                    received=event_time,
+                    hint="Declare the actual event-time axis separately from the status-time axis.",
+                )
+            )
+    return errors
+
+
 def _validate_expression_bindings(
     registry: Registry,
     sidecar: CompiledExpressionSidecar,
@@ -1582,7 +1657,8 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
                         received=f"measure additivity {target.additivity!r}",
                         hint=(
                             "Remove fold= or model the measure with "
-                            "ms.semi_additive(over=<time_dimension>, fold=<fold>)."
+                            "ms.additive_all(except_=(<time_dimension>,)), "
+                            "status_time_dimension=<time_dimension>, and status_time_fold=<fold>."
                         ),
                         details={
                             "metric": metric_id,
@@ -2128,6 +2204,7 @@ def assembly_validate(
 
     # -- Validate measure entity refs -----------------------------------------
     errors.extend(_validate_measure_refs(registry))
+    errors.extend(_validate_dsl_declarations(registry))
 
     # -- Validate Event sources, fields, and directed participant paths -------
     for event_id, event_ir in registry.events.items():

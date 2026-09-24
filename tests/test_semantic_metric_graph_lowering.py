@@ -39,10 +39,10 @@ import marivo.analysis as mv
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 amount = ms.measure_column(
-    name="amount", entity=orders, column="amount", additivity="additive", unit="CNY"
+    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"
 )
 unit_price = ms.measure_column(
-    name="unit_price", entity=orders, column="amount", additivity="non_additive", unit="CNY"
+    name="unit_price", entity=orders, column="amount", additivity=ms.non_additive(), unit="CNY"
 )
 event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="event_time", granularity="day"
@@ -60,7 +60,9 @@ sample_value = ms.measure_column(
     name="sample_value",
     entity=orders,
     column="sample_value",
-    additivity=ms.semi_additive(over=sample_time, fold=("percentile", 0.95)),
+    additivity=ms.additive_all(except_=(sample_time,)),
+    status_time_dimension=sample_time,
+    status_time_fold=("percentile", 0.95),
 )
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 revenue_alias = ms.aggregate(name="revenue_alias", measure=amount, agg="sum")
@@ -170,7 +172,7 @@ events = ms.entity(
     name="events", datasource=ms.ref.datasource("wh"), source=md.table("events")
 )
 amount = ms.measure_column(
-    name="amount", entity=events, column="amount", additivity="additive"
+    name="amount", entity=events, column="amount", additivity=ms.additive_all()
 )
 bad = ms.aggregate(
     name="bad", measure=amount, agg="mean", fold=("percentile", 0.95)
@@ -308,7 +310,7 @@ score = ms.measure_column(
     name="score",
     entity=events,
     column="score",
-    additivity="additive",
+    additivity=ms.additive_all(),
 )
 total = ms.aggregate(name="total", measure=score, agg="sum")
 """

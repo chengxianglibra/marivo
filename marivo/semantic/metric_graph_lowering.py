@@ -282,6 +282,21 @@ def _entry_for(
                 ),
                 composition=_composition_value(metric.composition),
                 additivity=_additivity_value(metric.additivity),
+                dsl_additivity=metric.dsl_additivity,
+                event_time_dimension=(
+                    _ref_payload("time_dimension", metric.event_time_dimension)
+                    if metric.event_time_dimension is not None
+                    else None
+                ),
+                status_time_dimension=(
+                    _ref_payload("time_dimension", metric.status_time_dimension)
+                    if metric.status_time_dimension is not None
+                    else None
+                ),
+                status_time_fold=metric.status_time_fold,
+                null_policy=metric.null_policy,
+                empty_policy=metric.empty_policy,
+                zero_denominator_policy=metric.zero_denominator_policy,
                 root_entity_ref=(
                     _ref_payload("entity", metric.root_entity)
                     if metric.root_entity is not None
@@ -319,6 +334,13 @@ def _entry_for(
             fields=_fields(
                 entity_ref=_ref_payload("entity", measure.entity),
                 additivity=_additivity_value(measure.additivity),
+                dsl_additivity=measure.dsl_additivity,
+                status_time_dimension=(
+                    _ref_payload("time_dimension", measure.status_time_dimension)
+                    if measure.status_time_dimension is not None
+                    else None
+                ),
+                status_time_fold=measure.status_time_fold,
                 unit=measure.unit,
             ),
         )
@@ -460,6 +482,10 @@ class _DependencyCollector:
             self.collect_measure(metric.weighted_mean.weight)
         if isinstance(metric.additivity, SemiAdditive):
             self.collect_dimension(metric.additivity.over)
+        if metric.event_time_dimension is not None:
+            self.collect_dimension(metric.event_time_dimension)
+        if metric.status_time_dimension is not None:
+            self.collect_dimension(metric.status_time_dimension)
         composition = metric.composition
         if isinstance(composition, RatioComposition):
             self.collect_metric(composition.numerator)
@@ -484,6 +510,8 @@ class _DependencyCollector:
         self.collect_entity(measure.entity)
         if isinstance(measure.additivity, SemiAdditive):
             self.collect_dimension(measure.additivity.over)
+        if measure.status_time_dimension is not None:
+            self.collect_dimension(measure.status_time_dimension)
         self._collect_expression_bindings(_create_ref(SemanticKind.MEASURE, measure_id))
 
     def collect_dimension(self, dimension_id: str) -> None:
@@ -1878,6 +1906,32 @@ def _normalize_target_graph(
         cumulative=tuple(cumulative),
         source_requirements=tuple(sorted(requirements)),
         requires_source_recompute=source_recompute,
+        authoring_additivity=(
+            registry.metrics[metric_id].dsl_additivity
+            if isinstance(forest.identities[0], CatalogMetricIdentity)
+            else None
+        ),
+        event_time_dimension=(
+            _ref_payload("time_dimension", event_time)
+            if isinstance(forest.identities[0], CatalogMetricIdentity)
+            and (event_time := registry.metrics[metric_id].event_time_dimension) is not None
+            else None
+        ),
+        null_policy=(
+            registry.metrics[metric_id].null_policy
+            if isinstance(forest.identities[0], CatalogMetricIdentity)
+            else None
+        ),
+        empty_policy=(
+            registry.metrics[metric_id].empty_policy
+            if isinstance(forest.identities[0], CatalogMetricIdentity)
+            else None
+        ),
+        zero_denominator_policy=(
+            registry.metrics[metric_id].zero_denominator_policy
+            if isinstance(forest.identities[0], CatalogMetricIdentity)
+            else None
+        ),
     )
 
 

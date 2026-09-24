@@ -127,7 +127,7 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
         provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
     )
     def total_amount(table):
@@ -141,7 +141,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
         provenance=ms.from_sql(sql="SELECT 999.0 AS total_amount", dialect="duckdb"),
     )
     def total_amount(table):
@@ -155,7 +155,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity='additive',
+        additivity=ms.additive_all(),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -168,7 +168,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
         provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="postgres"),
     )
     def total_amount(table):
@@ -182,7 +182,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
         provenance=ms.from_sql(sql="SELECT SUM(amount) AS revenue FROM orders", dialect="duckdb"),
     )
     def revenue(table):
@@ -190,7 +190,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
         provenance=ms.from_sql(sql="SELECT SUM(amount) AS cost FROM orders", dialect="duckdb"),
     )
     def cost(table):
@@ -210,7 +210,7 @@ _NO_SOURCE_SQL_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -313,7 +313,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
 
         @ms.metric(
             entities=[orders],
-            additivity="additive",
+            additivity=ms.additive_all(),
             provenance=ms.from_sql(sql="SELECT 300.5 AS total_amount", dialect="duckdb"),
         )
         def total_amount(table):
@@ -394,7 +394,7 @@ def test_derived_metric_with_provenance_sql_fails_load(
 
         @ms.metric(
             entities=[orders],
-            additivity="additive",
+            additivity=ms.additive_all(),
         )
         def revenue(table):
             return table.amount.sum()
@@ -453,7 +453,7 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
         @ms.metric(
             entities=[orders_a, orders_b],
             root_entity=orders_a,
-            additivity="additive",
+            additivity=ms.additive_all(),
             provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="duckdb"),
         )
         def total_amount(table_a, table_b):
@@ -569,7 +569,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
 
         @ms.metric(
             entities=[orders],
-            additivity="additive",
+            additivity=ms.additive_all(),
             provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="duckdb"),
         )
         def revenue(table):
@@ -577,7 +577,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
 
         @ms.metric(
             entities=[orders],
-            additivity="additive",
+            additivity=ms.additive_all(),
             provenance=ms.from_sql(sql="SELECT 999.0 AS cost", dialect="duckdb"),
         )
         def cost(table):
@@ -640,7 +640,7 @@ def test_derived_propagation_verified_and_no_provenance_sql(
 
         @ms.metric(
             entities=[orders],
-            additivity="additive",
+            additivity=ms.additive_all(),
             provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="duckdb"),
         )
         def revenue(table):
@@ -648,7 +648,7 @@ def test_derived_propagation_verified_and_no_provenance_sql(
 
         @ms.metric(
             entities=[orders],
-            additivity="additive",
+            additivity=ms.additive_all(),
         )
         def cost(table):
             return table.amount.sum()

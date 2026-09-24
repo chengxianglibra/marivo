@@ -86,6 +86,11 @@ changes this choice.
 
 ## Accepted S0 method rules (inactive)
 
+S1 W1 records J1 sum observation and original-state rollup method semantics
+with retained sum, non-null-count and row-count parts and no qualified source
+or pandas implementation. Private construction may bind them; execution
+qualification remains pending.
+
 The [first-round DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
 accepts the following private rule obligations. The proposed public Relation
 methods are not yet callable. Each registered method supplies:
@@ -123,9 +128,10 @@ non-Defined tag. Exchange validation requires a null payload and one allowed
 reason for those tags; Defined requires a non-null payload and no reason.
 Ordinary comparison, numeric sum/mean and categorical grouping consume
 strictly; `is_defined` is total over all four tags, while `all_of`/`any_of`
-cannot short-circuit a failing operand's required check. Legal empty sum/count
-contributions produce zero; unknown coverage, missing keys and missing state
-never do.
+cannot short-circuit a failing operand's required check. A complete empty
+contribution follows the quantity's declared policy: J1 Revenue sum yields
+Null, while current-row sum/count yields zero. Unknown coverage, missing keys
+and missing state never establish an empty contribution.
 
 `summarize(count)` counts current rows even when their values are not Defined;
 `summarize(mean)` gives each current row one vote. `rollup()` consumes the

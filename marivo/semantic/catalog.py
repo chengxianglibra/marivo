@@ -97,6 +97,12 @@ from marivo.semantic._capabilities.catalog_members import (
     CATALOG_COLLECTION_PROPERTIES,
     CATALOG_MEMBER_CONTRACTS,
 )
+from marivo.semantic._dsl_authoring import (
+    AdditivityPolicy,
+    EmptyContributionPolicyV1,
+    NullInputPolicyV1,
+    ZeroDenominatorPolicyV1,
+)
 from marivo.semantic._metric_resolution import (
     fold_input_to_ir,
     resolve_aggregate_temporal_contract,
@@ -137,6 +143,7 @@ from marivo.semantic.ir import (
     StateModelIR,
     StrptimeParse,
     TemporalSetIR,
+    TimeFoldIR,
     TimestampParse,
     ValidityVersioningIR,
     WhereValue,
@@ -726,6 +733,9 @@ class MeasureDetails(_DetailsBase):
     entity: Ref[SemanticKindTag]
     additivity: Literal["additive", "semi_additive", "non_additive"]
     unit: str | None
+    dsl_additivity: AdditivityPolicy | None = None
+    status_time_dimension: str | None = None
+    status_time_fold: TimeFoldIR | None = None
 
     def _detail_sections(self) -> list[Section]:
         sections = _common_detail_sections(
@@ -744,6 +754,18 @@ class MeasureDetails(_DetailsBase):
         )
         if self.unit:
             sections.append(FieldSection(label="unit", value=self.unit))
+        if self.dsl_additivity is not None:
+            sections.append(
+                FieldSection(label="declared_additivity", value=repr(self.dsl_additivity))
+            )
+        if self.status_time_dimension is not None:
+            sections.append(
+                FieldSection(label="status_time_dimension", value=self.status_time_dimension)
+            )
+        if self.status_time_fold is not None:
+            sections.append(
+                FieldSection(label="status_time_fold", value=self.status_time_fold.label())
+            )
         return sections
 
 
@@ -863,6 +885,12 @@ class SimpleMetricDetails(_DetailsBase):
     measure_lineage: tuple[tuple[str, Ref[SemanticKindTag]], ...] = ()
     weighted_mean_value: Ref[SemanticKindTag] | None = None
     weighted_mean_weight: Ref[SemanticKindTag] | None = None
+    dsl_additivity: AdditivityPolicy | None = None
+    event_time_dimension: str | None = None
+    status_time_fold: TimeFoldIR | None = None
+    null_policy: NullInputPolicyV1 | None = None
+    empty_policy: EmptyContributionPolicyV1 | None = None
+    zero_denominator_policy: ZeroDenominatorPolicyV1 | None = None
 
     @property
     def metric_type(self) -> Literal["simple"]:
@@ -895,6 +923,28 @@ class SimpleMetricDetails(_DetailsBase):
                 parity_status=self.parity_status,
             )
         )
+        if self.dsl_additivity is not None:
+            sections.append(
+                FieldSection(label="declared_additivity", value=repr(self.dsl_additivity))
+            )
+        if self.event_time_dimension is not None:
+            sections.append(
+                FieldSection(label="event_time_dimension", value=self.event_time_dimension)
+            )
+        if self.status_time_fold is not None:
+            sections.append(
+                FieldSection(label="status_time_fold", value=self.status_time_fold.label())
+            )
+        if self.null_policy is not None:
+            sections.append(FieldSection(label="null_policy", value=repr(self.null_policy)))
+        if self.empty_policy is not None:
+            sections.append(FieldSection(label="empty_policy", value=repr(self.empty_policy)))
+        if self.zero_denominator_policy is not None:
+            sections.append(
+                FieldSection(
+                    label="zero_denominator_policy", value=repr(self.zero_denominator_policy)
+                )
+            )
         if self.aggregation is not None:
             sections.append(FieldSection(label="aggregation", value=self.aggregation))
         if self.measure is not None:
@@ -3530,6 +3580,9 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry, catalog: SemanticCatal
         entity=entity_ref,
         additivity=additivity_bucket(m_ir.additivity),
         unit=m_ir.unit,
+        dsl_additivity=m_ir.dsl_additivity,
+        status_time_dimension=m_ir.status_time_dimension,
+        status_time_fold=m_ir.status_time_fold,
     )
     return _object_from_details(MeasureEntry, details, catalog)
 
@@ -3878,6 +3931,12 @@ def _build_metric_object(
                 if m_ir.weighted_mean is not None
                 else None
             ),
+            dsl_additivity=m_ir.dsl_additivity,
+            event_time_dimension=m_ir.event_time_dimension,
+            status_time_fold=m_ir.status_time_fold,
+            null_policy=m_ir.null_policy,
+            empty_policy=m_ir.empty_policy,
+            zero_denominator_policy=m_ir.zero_denominator_policy,
         )
     return _object_from_details(MetricEntry, details, catalog)
 

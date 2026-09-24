@@ -32,7 +32,7 @@ instant = ms.time_dimension_column(name="instant", entity=events, column="occurr
     granularity="second", parse=ms.timestamp(timezone="UTC"), is_default=True)
 event_order = ms.relationship(name="event_order", from_entity=events, to_entity=orders,
     keys=[ms.join_on(participant_key, subject_key)])
-count_key = ms.measure_column(name="count_key", entity=events, column="event_id", additivity="additive")
+count_key = ms.measure_column(name="count_key", entity=events, column="event_id", additivity=ms.additive_all())
 event_count = ms.aggregate(name="event_count", measure=count_key, agg="count")
 @ms.event(name="created", identity=(event_key,), occurred_at=instant,
     participants=(ms.participant(name="order", path=(event_order,), cardinality="one"),))

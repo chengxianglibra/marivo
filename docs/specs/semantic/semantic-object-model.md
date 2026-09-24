@@ -1,9 +1,8 @@
 # Semantic Object Model
 
-Status: accepted target design; amended 2026-09-07 for lazy Analysis. The amended
-identity, version-selection, and coordinate-aggregation contracts below are not
-implemented by this documentation change. Current eager behavior and live Help
-remain the executable contract until the coordinated public cutover.
+Status: accepted target design; amended 2026-09-24 for S1 W1 Semantic declarations.
+The closed additivity, event-time, and value-policy authoring declarations are
+loadable. Analysis DSL execution remains inactive until the later S1 work packages.
 
 This document defines the object contracts of
 `marivo.semantic` (`ms`): the business objects a coding agent declares in Python
@@ -281,7 +280,7 @@ amount = ms.measure_column(
     name="amount",
     entity=orders,
     column="amount",
-    additivity="additive",
+    additivity=ms.additive_all(),
     unit="CNY",
 )
 ```
@@ -297,6 +296,25 @@ readability, and materialization checks.
 A **measure** is the authoritative declaration site for a row-level numeric
 fact's `additivity` and physical `unit`. Tier-1 metrics aggregate a validated
 measure; derived metrics propagate the unit via composition algebra.
+
+The public authoring values are closed, versioned constructors:
+`ms.additive(over=(Region,))` permits only the listed native coordinates,
+`ms.additive_all(except_=(SnapshotAt,))` permits all native coordinates except
+fixed axes, and `ms.non_additive()` permits no value summation. Bare strings and
+the former `ms.semi_additive(...)` authoring entry point are invalid. A status
+fact declares `status_time_dimension=` independently and may declare
+`status_time_fold=` when sampled values need a fold. The status axis must appear
+in `except_=`. A declared event time is a separate role.
+
+| Authority | W1 rule |
+| --- | --- |
+| Authored | Measure or Metric owns additivity, unit, event/status time roles, and applicable `nulls`, `empty`, or `zero_denominator` policy. |
+| Derived | Loader and normalized Metric graph record the policy version, event-time binding, retained sum components, and dependency fingerprint. A body or source value does not grant additivity. |
+| Execution check | Private J1 construction admits only a builder-backed sum with explicit event time, supported additivity and retained state; source/pandas execution and coverage proof remain W2–W4. An opaque `@ms.metric` body can load but cannot continue through this J1 path. |
+
+`ms.nulls.ignore()` and `ms.empty.null()` express an ignore-Null sum whose
+complete empty contribution is `Null`. Other policy values require a matching
+method implementation before Analysis admits execution.
 
 ### Time dimension
 
@@ -365,7 +383,7 @@ measure, load the coherent slice, then aggregate it.
 ```python
 @ms.measure(
     entity=orders,
-    additivity="additive",
+    additivity=ms.additive_all(),
     unit="CNY",
     ai_context=ms.ai_context(business_definition="Paid order amount in CNY."),
 )
@@ -373,7 +391,7 @@ def paid_amount(order_rows):
     return order_rows.filter(is_paid(order_rows)).amount
 
 
-revenue = ms.aggregate(name="revenue", measure=paid_amount, agg="sum")
+revenue = ms.aggregate(name="revenue", measure=paid_amount, agg="sum", time=order_date)
 ```
 
 `ms.aggregate(measure=..., agg=...)` supports `sum | min | max | mean | median |
@@ -410,7 +428,11 @@ metric cannot be expressed as measure + aggregate. It declares dependencies with
 ```python
 @ms.metric(
     entities=[orders],
-    additivity="additive",
+    additivity=ms.additive_all(),
+    time=order_date,
+    unit="CNY",
+    nulls=ms.nulls.ignore(),
+    empty=ms.empty.null(),
     provenance=ms.from_sql(
         sql="select sum(amount) as value from orders where pay_status=1", dialect="duckdb"
     ),
@@ -473,8 +495,8 @@ sample_ts = ms.time_dimension_column(
 
 @ms.metric(
     entities=[bw_samples],
-    additivity="semi_additive",
-    time_fold="mean",
+    additivity=ms.additive_all(except_=(sample_ts,)),
+    status_time_fold="mean",
     status_time_dimension=sample_ts,
     unit="kbit/s",
 )
@@ -483,13 +505,12 @@ def upstream_bw(bw_samples):
 ```
 
 The body expresses the spatial aggregate inside one sample point;
-`status_time_dimension` binds the as-of/status axis; `time_fold` reduces the
+`status_time_dimension` binds the as-of/status axis; `status_time_fold` reduces the
 sample series to the requested grain (P95-style folds use
-`time_fold=("percentile", 0.95)`, always recomputed from base samples). Not every
+`status_time_fold=("percentile", 0.95)`, always recomputed from base samples). Not every
 semi-additive metric is sampled: already-summarized snapshots (e.g. daily
-inventory) omit `time_fold` but must still declare `status_time_dimension`. A
-bare `additivity="semi_additive"` metric without `status_time_dimension` is
-invalid. The status axis must be a true business as-of time (`snapshot_date`,
+inventory) omit `status_time_fold` but must still declare `status_time_dimension`.
+The status axis must be fixed by its additivity policy and be a true business as-of time (`snapshot_date`,
 `as_of_date`), not a technical write time (`created_at`, `ingest_time`).
 
 Tier-1 `ms.aggregate` resolves spatial additivity and temporal folding as two

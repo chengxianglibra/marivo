@@ -2,7 +2,7 @@
 
 Date: 2026-09-24
 
-Status: proposed implementation plan；[S0 验收](2026-09-24-marivo-analysis-dsl-s0-acceptance.md)已通过，S1 尚未实施或验收。
+Status: W1 私有构造与 Semantic 声明已实施；[S0 验收](2026-09-24-marivo-analysis-dsl-s0-acceptance.md)保留当时快照，W2–W5 与 S1 总验收尚未完成。
 
 ## 目标与边界
 
@@ -10,7 +10,7 @@ Status: proposed implementation plan；[S0 验收](2026-09-24-marivo-analysis-ds
 
 输入契约以已接受但尚未激活的 [Analysis 切片](../../specs/analysis/python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)、[方法规则](../../specs/analysis/operators-and-frames.md#accepted-s0-method-rules-inactive)和 [Runtime 协议](../../specs/analysis/session-state-and-runtime.md#accepted-s0-input-and-execution-protocol-inactive)为准；公开目标语法以[接口设计](../specs/2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)为准，放置、交换和恢复义务以[架构设计](../specs/2026-09-24-marivo-analysis-dsl-architecture-design.md)为准。S0 留下的 A01、A06–A09、A12 是本阶段的主要生产接缝；[S0 独立 fixture](../../../tests/test_analysis_dsl_fixtures.py)只提供 oracle，不算 J1 的 DSL 执行证据。
 
-J1 的可观察目标是：固定夹具的总收入 1000，按地区 east=600、south=400、west=0，选出 east 成员后按订单渠道 web=450、mobile=150；无订单客户不产生渠道值。`customers.group_by(Region)` 与同绑定 `read(Region)` 后分组一致；`customers.group_by(Channel)` 因非单值属性拒绝。三次顶层执行分别读取当时的来源，不承诺跨次共同快照。
+J1 的可观察目标是：固定夹具的总收入 1000，按地区 east=600、south=400、west=Null，选出 east 成员后按订单渠道 web=450、mobile=150；无订单客户不产生渠道值。`customers.group_by(Region)` 与同绑定 `read(Region)` 后分组一致；`customers.group_by(Channel)` 因非单值属性拒绝。三次顶层执行分别读取当时的来源，不承诺跨次共同快照。
 
 S1 采用现有 Session、Dataset、registry、BatchStream、Store v6 和受控 Parquet 读取接缝，不建第二套 AST/Runtime/Store，不迁移旧 Artifact，不让未迁入方法的行为被新协议全局改写。J1 可先通过受控的内部调用链验证；若激活公开签名，则须先在 owning specs 接受确切形状并同时更新 Help、导出/类型、示例和 site latest 中英文文档。私有链通过不得写成公开 DSL 已交付。packaged skills 仍按 AGENTS.md 的单独授权规则处理，本计划不安排编辑。
 
@@ -29,6 +29,13 @@ S1 采用现有 Session、Dataset、registry、BatchStream、Store v6 和受控 
 接通 J1 所需的成员、分类 read、严格 where→members、单值 Region 分组、Revenue 观察、贡献 Channel 坐标及原状态 rollup 的有限 Logical 图。成员域与贡献坐标、定义身份与显式节点身份、观察的实际来源绑定分开；构造、字段句柄和纯计划零业务 I/O。同一显式节点在一次求值中共享实现，同形独立节点不自动合并。仅注册有真实实现和证据的方法/类型/路线；未实现的目标语言继续拒绝。
 
 **出口：**真实 J1 声明经正式加载；构造和拒绝测试证明不猜路径、不把 Channel 当客户属性、不在构造期读取来源。缺 A01 权威元数据时停止对应方法准入，而非用测试替身绕过。
+
+W1 实施记录（2026-09-24）：Measure/Metric authoring 已切换为封闭可加性构造器；
+`ms.aggregate(time=...)` 与 decorator 的时间、单位和值政策进入正式加载和规范图，
+版本化政策进入依赖与私有 Logical 定义指纹。J1 私有链完成成员、Region read 与
+`where → members`、同绑定分组、Revenue 观察、Channel 贡献坐标和原状态 rollup；
+方法规则没有来源或 pandas 实现资格。独立 SQL oracle 的 west 收入为 Null，
+它只证明夹具预期，不构成 DSL 数值执行验收。
 
 ### W2. 实现同契约的 Ibis 来源与 pandas 本地计算
 

@@ -113,7 +113,7 @@ def _catalog(
                     name="amount",
                     entity=orders,
                     column="amount",
-                    additivity="additive",
+                    additivity=ms.additive_all(),
                     unit="USD",
                 )
                 created_at = ms.time_dimension_column(
@@ -137,7 +137,7 @@ def _catalog(
                     name="revenue", measure=amount, agg="sum", unit="USD"
                 )
 
-                @ms.measure(entity=decorator_orders, additivity="additive")
+                @ms.measure(entity=decorator_orders, additivity=ms.additive_all())
                 def decorator_amount(rows):
                     return rows.amount
 
@@ -150,7 +150,7 @@ def _catalog(
                     name="amount",
                     entity=projected_orders,
                     column="amount",
-                    additivity="additive",
+                    additivity=ms.additive_all(),
                 )
                 projected_revenue = ms.aggregate(
                     name="projected_revenue",

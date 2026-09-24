@@ -19,7 +19,7 @@ _OBJECTS_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
     )
     def revenue(table):
         return table.amount.sum()

@@ -899,7 +899,7 @@ def bind(field: Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
 
     Example
     -------
-    >>> @ms.metric(entities=[orders], additivity="additive")
+    >>> @ms.metric(entities=[orders], additivity=ms.additive_all())
     ... def revenue(orders):
     ...     return ms.bind(amount, orders).sum()
 

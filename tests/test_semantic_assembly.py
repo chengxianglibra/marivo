@@ -704,7 +704,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
 
         @ms.metric(
             entities=[orders],
-            additivity='additive',
+            additivity=ms.additive_all(),
         )
         def revenue(table):
             return table.amount.sum()

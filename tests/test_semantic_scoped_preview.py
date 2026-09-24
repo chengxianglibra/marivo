@@ -79,13 +79,13 @@ def scoped_catalog(
                 order_id = ms.dimension_column(name="order_id", entity=orders, column="order_id")
                 refund_id = ms.dimension_column(name="refund_id", entity=refunds, column="refund_id")
                 occurred_at = ms.time_dimension_column(name="occurred_at", entity=orders, column="ts", granularity="hour")
-                @ms.measure(entity=orders, additivity="additive", unit="USD")
+                @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
                 def amount(orders):
                     return orders.amount
-                @ms.metric(entities=[orders], additivity="additive")
+                @ms.metric(entities=[orders], additivity=ms.additive_all())
                 def revenue(orders):
                     return orders.amount.sum()
-                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity="additive")
+                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity=ms.additive_all())
                 def net_revenue(orders, refunds):
                     return orders.amount.sum()
                 """
@@ -291,7 +291,7 @@ def test_cross_datasource_preview_fails_before_connection(
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("finance"), source=md.table("refunds"))
-                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity="additive")
+                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity=ms.additive_all())
                 def net_revenue(orders, refunds):
                     return orders.amount.sum()
                 """

@@ -125,8 +125,8 @@ order_day = ms.time_dimension_column(name="order_day", entity=orders, column="da
     granularity="day", is_default=True)
 ms.relationship(name="customer", from_entity=orders, to_entity=customers,
     keys=[ms.join_on(order_customer, customer_key)])
-amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity="additive")
-weight = ms.measure_column(name="weight", entity=orders, column="weight", additivity="additive")
+amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
+weight = ms.measure_column(name="weight", entity=orders, column="weight", additivity=ms.additive_all())
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 count = ms.aggregate(name="count", measure=amount, agg="count")
 ms.aggregate(name="mean_amount", measure=amount, agg="mean")

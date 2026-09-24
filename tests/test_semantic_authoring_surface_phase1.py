@@ -296,13 +296,13 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         def region(orders_table):
             return orders_table.region
 
-        @ms.measure(entity=orders, additivity="additive", unit="USD")
+        @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
         def amount(orders_table):
             return orders_table.amount
 
         @ms.metric(
             entities=[orders],
-            additivity="additive",
+            additivity=ms.additive_all(),
             provenance=ms.from_sql(sql="select sum(amount) from orders", dialect="duckdb"),
         )
         def revenue(orders_table):
@@ -330,7 +330,7 @@ def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
             domain=sales,
         )
         with pytest.raises(TypeError):
-            ms.dimension(entity=orders, additivity="additive")
+            ms.dimension(entity=orders, additivity=ms.additive_all())
         with pytest.raises(TypeError):
             ms.dimension(entity=orders, unit="USD")
         with pytest.raises(TypeError):
@@ -356,7 +356,7 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(entities=[orders, refunds], additivity="additive")
+            @ms.metric(entities=[orders, refunds], additivity=ms.additive_all())
             def net_revenue(orders_table, refunds_table):
                 return orders_table.amount.sum() - refunds_table.amount.sum()
 

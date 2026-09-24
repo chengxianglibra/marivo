@@ -62,7 +62,7 @@ def id(table):
 def ordered_at(table):
     return table.ordered_at
 
-@ms.measure(entity=orders, additivity="additive", unit="USD")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
 def amount(table):
     return table.amount
 
