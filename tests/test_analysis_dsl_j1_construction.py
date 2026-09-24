@@ -41,7 +41,8 @@ def test_j1_real_builder_declarations_construct_without_source_reads(
     buyer = ms.ref.relationship(f"{domain}.order_buyer")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     customers = context.members(customer)
-    assert J1_OBSERVE_SUM.implementations == J1_ROLLUP_SUM.implementations == ()
+    assert J1_OBSERVE_SUM.require_route("source", "duckdb", "entity", "int64")
+    assert J1_ROLLUP_SUM.require_route("local", "pandas", "entity", "int64")
     assert customers.domain.kind == "entity"
     assert customers.root.operator_id == "dsl.j1.members"
 
@@ -99,6 +100,37 @@ def test_j1_missing_authority_and_opaque_body_reject(
     missing_context = replace(context, registry=missing_registry)
     with pytest.raises(DatasetConstructionError, match="declared event time"):
         missing_context.members(customer).observe(revenue, during=august, via=buyer)
+
+
+@pytest.mark.parametrize(
+    ("changed", "expected"),
+    (
+        ({"dsl_additivity": ms.non_additive()}, "versioned additive-all"),
+        ({"null_policy": ms.nulls.reject()}, "authored ignore-Null"),
+        ({"empty_policy": ms.empty.zero()}, "authored empty-Null"),
+    ),
+)
+def test_j1_rejects_unsupported_declared_metric_policies(
+    analysis_dsl_case_factory: DslCaseFactory,
+    changed: dict[str, object],
+    expected: str,
+) -> None:
+    context, domain = _context(analysis_dsl_case_factory)
+    metric = ms.ref.metric(f"{domain}.revenue")
+    declaration = context.registry.metrics[metric.path]
+    altered = replace(declaration, **changed)
+    registry = replace(
+        context.registry,
+        metrics={**context.registry.metrics, metric.path: altered},
+    )
+    modified = replace(context, registry=registry)
+    members = modified.members(ms.ref.entity(f"{domain}.customer"))
+    with pytest.raises(DatasetConstructionError, match=expected):
+        members.observe(
+            metric,
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=ms.ref.relationship(f"{domain}.order_buyer"),
+        )
 
 
 def test_j1_explicit_node_identity_is_distinct_from_definition(

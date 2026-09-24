@@ -91,6 +91,16 @@ with retained sum, non-null-count and row-count parts and no qualified source
 or pandas implementation. Private construction may bind them; execution
 qualification remains pending.
 
+W2 qualifies only the private J1 DuckDB/Ibis source shapes and pandas
+continuations exercised by the J1 tests. Source observation retains a keyed
+sum, non-null count, and row count; original-state rollup merges those parts
+before finishing the Cell. `summarize("count")` counts current relation rows,
+including Null Cells. Current-row sum/mean require finite Defined Cells and
+build new row-statistic state. A complete empty current relation yields sum=0,
+count=0, and mean=Undefined(`empty_mean`). Unsupported physical types and
+backends reject before business data is read. This qualification is private;
+the remaining S0 method matrix is still an inactive target.
+
 The [first-round DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
 accepts the following private rule obligations. The proposed public Relation
 methods are not yet callable. Each registered method supplies:

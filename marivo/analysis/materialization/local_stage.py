@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import ibis.expr.types as ir
+import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.nodes import (
@@ -71,6 +72,215 @@ from marivo.analysis.operators.forecast_contracts import (
     ForecastSpecV1,
 )
 from marivo.analysis.operators.row import RowCall
+
+if TYPE_CHECKING:
+    from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
+
+
+def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1ExecutionResult:
+    """Evaluate one J1 successor over fixed, fully validated Arrow input in pandas."""
+    from marivo.analysis.compiler.placement import place_j1_local
+    from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
+    from marivo.analysis.operators.dsl_j1_values import (
+        J1ExecutionResult,
+        merge_counts,
+        merge_numbers,
+    )
+    from marivo.analysis.operators.registry import MethodDomain
+
+    place_j1_local(root, retained.root)
+    operation = root.operator_id
+    method_contract = j1_numeric_method(root)
+    if method_contract is not None:
+        input_domain: MethodDomain = (
+            "group" if "group" in retained.primary.column_names else "entity"
+        )
+        value_type = str(retained.primary.schema.field("value").type)
+        method_contract.require_route("local", "pandas", input_domain, value_type)
+        inherited_checks = set(method_contract.contract.required_checks) - {
+            "strict_current_row_cell"
+        }
+        missing = inherited_checks - set(retained.completed_checks)
+        if missing:
+            raise MaterializationError(
+                expected="completed input-bound J1 method checks",
+                received=f"missing {tuple(sorted(missing))!r}",
+                repair="Use a fully validated retained input with exact method evidence.",
+                stage="local_admission",
+            )
+    parameters = root.parameters
+    if type(parameters) is not tuple:
+        raise _error("implementation_registration")
+    frame = retained.primary.to_pandas(types_mapper=pd.ArrowDtype).copy(deep=True)
+    if operation == "dsl.j1.where":
+        if tuple(frame.columns) != ("member", "value", "cell_tag", "cell_reason"):
+            raise _error("implementation_registration")
+        if (frame["cell_tag"] != "defined").any():
+            raise MaterializationError(
+                expected="Defined categorical input Cells",
+                received="non-Defined category",
+                repair="Select only an admitted complete category relation.",
+                stage="local_execution",
+            )
+        if len(parameters) != 2 or not isinstance(parameters[1], str):
+            raise _error("implementation_registration")
+        value = parameters[1]
+        selected = frame.loc[frame["value"] == value, ["member"]].copy()
+        table = pa.Table.from_pandas(
+            selected,
+            schema=pa.schema([retained.primary.schema.field("member")]),
+            preserve_index=False,
+        )
+        return J1ExecutionResult(root, table, completed_checks=("strict_category_cell",))
+    if operation == "dsl.j1.group":
+        if len(parameters) == 2 and parameters[1] == "contribution":
+            coordinate = next((part for role, part in retained.parts if role == "coordinate"), None)
+            if coordinate is None:
+                raise MaterializationError(
+                    expected="retained keyed contribution coordinate",
+                    received="missing coordinate state",
+                    repair="Retain the original coordinate part before grouping.",
+                    stage="local_admission",
+                )
+            part_frame = coordinate.to_pandas(types_mapper=pd.ArrowDtype).copy(deep=True)
+            if part_frame["group"].isna().any():
+                raise _error("output_validation")
+            rows: list[dict[str, object]] = []
+            for key, values in part_frame.groupby("group", dropna=False, sort=True):
+                support = merge_counts(values["non_null_count"])
+                row_count = merge_counts(values["row_count"])
+                amount = merge_numbers(values["state_sum"].dropna())
+                rows.append(
+                    {
+                        "group": key,
+                        "value": amount if support else None,
+                        "cell_tag": "defined" if support else "null",
+                        "cell_reason": None if support else "empty_contribution",
+                        "state_sum": amount if support else None,
+                        "non_null_count": support,
+                        "row_count": row_count,
+                    }
+                )
+            schema = pa.schema(
+                [
+                    coordinate.schema.field("group"),
+                    retained.primary.schema.field("value"),
+                    retained.primary.schema.field("cell_tag"),
+                    retained.primary.schema.field("cell_reason"),
+                    retained.primary.schema.field("state_sum"),
+                    retained.primary.schema.field("non_null_count"),
+                    retained.primary.schema.field("row_count"),
+                ]
+            )
+            return J1ExecutionResult(root, pa.Table.from_pylist(rows, schema=schema))
+        if tuple(frame.columns) == ("member", "value", "cell_tag", "cell_reason"):
+            if (frame["cell_tag"] != "defined").any():
+                raise MaterializationError(
+                    expected="Defined group categories",
+                    received="non-Defined category",
+                    repair="Group a complete single-valued category relation.",
+                    stage="local_execution",
+                )
+            selected = frame[["value"]].drop_duplicates().rename(columns={"value": "group"})
+            schema = pa.schema([retained.primary.schema.field("value").with_name("group")])
+            return J1ExecutionResult(
+                root, pa.Table.from_pandas(selected, schema=schema, preserve_index=False)
+            )
+        raise _error("implementation_registration")
+    if operation == "dsl.j1.rollup":
+        required = {"state_sum", "non_null_count", "row_count"}
+        if not required <= set(frame.columns):
+            raise MaterializationError(
+                expected="complete original Metric state",
+                received="missing sum/count support",
+                repair="Retain every registered original component before rollup.",
+                stage="local_admission",
+            )
+        support = merge_counts(frame["non_null_count"])
+        row_count = merge_counts(frame["row_count"])
+        amount = merge_numbers(frame["state_sum"].dropna())
+        row: dict[str, object] = {
+            "value": amount if support else None,
+            "cell_tag": "defined" if support else "null",
+            "cell_reason": None if support else "empty_contribution",
+            "state_sum": amount if support else None,
+            "non_null_count": support,
+            "row_count": row_count,
+        }
+        schema = pa.schema([retained.primary.schema.field(name) for name in row])
+        return J1ExecutionResult(root, pa.Table.from_pylist([row], schema=schema))
+    if operation == "dsl.j1.summarize":
+        if not parameters or not isinstance(parameters[0], str):
+            raise _error("implementation_registration")
+        method = parameters[0]
+        count = len(frame)
+        if method in ("sum", "mean") and (frame["cell_tag"] != "defined").any():
+            raise MaterializationError(
+                expected="finite Defined current-row values",
+                received="non-Defined current row",
+                repair="Select complete Defined rows or use summarize('count').",
+                stage="local_execution",
+            )
+        if method == "count":
+            row = {
+                "value": count,
+                "cell_tag": "defined",
+                "cell_reason": None,
+                "current_count": count,
+            }
+            schema = pa.schema(
+                [
+                    pa.field("value", pa.int64()),
+                    pa.field("cell_tag", pa.string()),
+                    pa.field("cell_reason", pa.string()),
+                    pa.field("current_count", pa.int64()),
+                ]
+            )
+        elif method in ("sum", "mean"):
+            values = frame["value"].tolist()
+            amount = merge_numbers(values)
+            if method == "sum":
+                row = {
+                    "value": amount,
+                    "cell_tag": "defined",
+                    "cell_reason": None,
+                    "current_sum": amount,
+                }
+                schema = pa.schema(
+                    [
+                        pa.field("value", retained.primary.schema.field("value").type),
+                        pa.field("cell_tag", pa.string()),
+                        pa.field("cell_reason", pa.string()),
+                        pa.field("current_sum", retained.primary.schema.field("value").type),
+                    ]
+                )
+            else:
+                row = {
+                    "value": amount / count if count else None,
+                    "cell_tag": "defined" if count else "undefined",
+                    "cell_reason": None if count else "empty_mean",
+                    "current_sum": amount,
+                    "current_count": count,
+                }
+                schema = pa.schema(
+                    [
+                        pa.field("value", pa.float64()),
+                        pa.field("cell_tag", pa.string()),
+                        pa.field("cell_reason", pa.string()),
+                        pa.field("current_sum", retained.primary.schema.field("value").type),
+                        pa.field("current_count", pa.int64()),
+                    ]
+                )
+        else:
+            raise _error("implementation_registration")
+        return J1ExecutionResult(root, pa.Table.from_pylist([row], schema=schema))
+    raise MaterializationError(
+        expected="an admitted J1 retained-input method",
+        received=operation,
+        repair="Use a registered local continuation with complete fixed input state.",
+        stage="local_admission",
+    )
+
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime

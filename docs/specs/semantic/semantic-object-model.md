@@ -465,8 +465,9 @@ coordinate binding without rewriting any root.
 - `"aggregate_then_join"` reduces the unsafe side to the merge grain before the
   join. Requested dimensions keep overlapping-bucket semantics; where-filters on
   that side give semi-join membership semantics (a root row with ≥1 match counts
-  once). Requires `additivity in {additive, semi_additive}` and is rejected on
-  derived metrics.
+  once). Requires an additive or semi-additive declaration through the closed
+  `ms.additive(...)` / `ms.additive_all(...)` policy constructors and is rejected
+  on derived metrics.
 
 Overlapping buckets are not an additive partition. A root contribution of 100
 associated with two tags can appear as 100 in each tag while remaining 100 at

@@ -3,20 +3,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from marivo._temporal import TimeScope
 from marivo.analysis.datasets.descriptors import (
     AnalysisDomain,
+    DatasetField,
     DatasetFieldId,
+    DatasetRowContract,
+    DatasetRowSetContract,
     QuantityState,
-    _canonical_digest,
+    _complete_from_schema,
+    _deferred_type,
     _entity_domain,
+    _generated_identity,
     _group_domain,
+    _keyed_cardinality,
+    _make_field,
     _make_field_id,
+    _make_row_contract,
+    _make_row_set_contract,
+    _make_schema,
     _make_shape_id,
     _observed_quantity,
+    _row_contract_fingerprint,
+    _row_set_contract_fingerprint,
+    _row_statistic_quantity,
+    _singleton_cardinality,
     _singleton_domain,
     _StableIdRegistry,
+    _unknown_row_bound,
+    _unordered_ordering,
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import (
@@ -34,10 +51,14 @@ from marivo.semantic.ir import TargetDimensionContract
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
 
-_KINDS = ("members", "read", "where", "group", "observe", "rollup")
+_KINDS = ("members", "read", "where", "group", "observe", "rollup", "summarize")
 _IDS = _StableIdRegistry(
     families=frozenset({"dsl_j1"}),
     shapes=frozenset(("dsl_j1", kind, 1) for kind in _KINDS),
+    roles=frozenset({"member", "group", "value", "cell"}),
+    logical_types=frozenset({"int64", "float64", "string", "unknown"}),
+    physical_types=frozenset({"int64", "float64", "string", "unknown"}),
+    admitted_types=frozenset({"int64", "float64", "string", "unknown"}),
 )
 J1_SUM_PARTS = ("value.sum", "value.non_null_count", "value.row_count")
 
@@ -48,6 +69,163 @@ def _reject(expected: str, received: str, *, repair: str) -> DatasetConstruction
         received=received,
         repair=repair,
         location="dsl.j1",
+    )
+
+
+def _j1_contracts(
+    context: J1Context,
+    kind: str,
+    entity_path: str,
+    input_root: LogicalRootHandle | None,
+    parameters: tuple[object, ...],
+) -> tuple[DatasetRowContract, DatasetRowSetContract]:
+    entity = normalize_target_entity(context.registry, entity_path)
+    member_type = entity.identity_signature[0][1]
+    if member_type not in ("unknown", "string", "int64"):
+        raise _reject(
+            "string or int64 member identity",
+            member_type,
+            repair="Use a first-round single-column Entity identity.",
+        )
+    group_type = "string"
+    if kind == "group" or (
+        kind == "observe"
+        and input_root is not None
+        and input_root.shape_id.local_shape_id == "group"
+    ):
+        group_path = (
+            parameters[0]
+            if kind == "group"
+            else input_root.parameters[0]
+            if input_root is not None and type(input_root.parameters) is tuple
+            else None
+        )
+        if isinstance(group_path, str) and group_path in context.registry.dimensions:
+            group_type = normalize_target_dimension(context.registry, group_path).logical_type
+        if group_type not in ("unknown", "string"):
+            raise _reject(
+                "string categorical group",
+                group_type,
+                repair="Use a first-round string Dimension for grouping.",
+            )
+    if kind in ("members", "where", "read"):
+        key = "member"
+        key_id = _make_field_id("member." + entity_path + "." + entity.primary_key[0])
+        key_type = member_type
+    elif kind == "group" or (
+        kind == "observe"
+        and input_root is not None
+        and input_root.shape_id.local_shape_id == "group"
+    ):
+        key = "group"
+        path = (
+            parameters[0]
+            if kind == "group"
+            else input_root.parameters[0]
+            if input_root is not None and type(input_root.parameters) is tuple
+            else None
+        )
+        key_id = _make_field_id(
+            (
+                "contribution."
+                if kind == "group" and len(parameters) > 1 and parameters[1] == "contribution"
+                else "dimension."
+            )
+            + str(path)
+        )
+        key_type = group_type
+    elif kind == "observe":
+        key = "member"
+        key_id = _make_field_id("member." + entity_path + "." + entity.primary_key[0])
+        key_type = member_type
+    else:
+        key = None
+        key_id = None
+        key_type = None
+
+    def field(name: str, field_id: str, role: str, logical: str, nullable: bool) -> DatasetField:
+        identifier = _make_field_id(field_id)
+        return _make_field(
+            field_id=identifier,
+            name=name,
+            role_id=role,
+            identity=_generated_identity(identifier),
+            derivation_identity="dsl.j1." + field_id,
+            logical_type_id=logical,
+            physical_type_state=_deferred_type(logical, ids=_IDS),
+            nullable=nullable,
+            ids=_IDS,
+        )
+
+    columns = []
+    if key is not None and key_id is not None and key_type is not None:
+        columns.append(field(key, key_id.value, key, key_type, False))
+    if kind in ("read", "observe", "rollup", "summarize") or (
+        kind == "group"
+        and input_root is not None
+        and input_root.shape_id.local_shape_id == "observe"
+    ):
+        if kind == "read":
+            value_type = normalize_target_dimension(
+                context.registry, str(parameters[0])
+            ).logical_type
+        elif kind == "summarize" and parameters[0] == "count":
+            value_type = "int64"
+        elif kind == "summarize" and parameters[0] == "mean":
+            value_type = "float64"
+        else:
+            value_type = "unknown"
+        columns.extend(
+            (
+                field("value", "j1.value", "value", value_type, True),
+                field("cell_tag", "j1.cell_tag", "cell", "string", False),
+                field("cell_reason", "j1.cell_reason", "cell", "string", True),
+            )
+        )
+    row = _make_row_contract(
+        schema_version=1,
+        shape_id=_make_shape_id("dsl_j1", kind, 1, ids=_IDS),
+        schema=_make_schema(tuple(columns)),
+        coordinate_field_ids=(key_id,) if key_id is not None else (),
+        key_field_ids=(key_id,) if key_id is not None else (),
+        family_semantics=_complete_from_schema(),
+    )
+    rows = _make_row_set_contract(
+        schema_version=1,
+        cardinality=_keyed_cardinality(_unknown_row_bound())
+        if key_id is not None
+        else _singleton_cardinality(),
+        ordering=_unordered_ordering(),
+    )
+    return row, rows
+
+
+def j1_row_contracts(
+    context: J1Context, root: LogicalRootHandle
+) -> tuple[DatasetRowContract, DatasetRowSetContract]:
+    """Recover the complete row contract bound into an exact J1 root."""
+    kind = root.shape_id.local_shape_id
+    parameters = root.parameters
+    if type(parameters) is not tuple:
+        raise _reject("canonical J1 parameters", "invalid root", repair="Rebuild the J1 node.")
+    first = root
+    while first.inputs:
+        input_root = first.inputs[0].root
+        if not isinstance(input_root, LogicalRootHandle):
+            raise _reject(
+                "J1 logical ancestry", "materialized leaf", repair="Use the exact J1 input."
+            )
+        first = input_root
+    member_path = first.parameters[0] if type(first.parameters) is tuple else None
+    if not isinstance(member_path, str):
+        raise _reject("bound member Entity", "invalid root", repair="Rebuild the J1 node.")
+    parent = root.inputs[0].root if root.inputs else None
+    return _j1_contracts(
+        context,
+        kind,
+        member_path,
+        parent if isinstance(parent, LogicalRootHandle) else None,
+        parameters,
     )
 
 
@@ -80,12 +258,13 @@ class J1Context:
             if input_root is not None
             else ()
         )
+        row, rows = _j1_contracts(self, kind, entity, input_root, parameters)
         return _make_logical_root(
             session_id=self.session_id,
             store_id=self.store_id,
             shape_id=shape,
-            row_contract_fingerprint="rc_" + _canonical_digest((kind, entity, parameters)),
-            row_set_contract_fingerprint="rs_" + _canonical_digest((kind, entity)),
+            row_contract_fingerprint=_row_contract_fingerprint(row),
+            row_set_contract_fingerprint=_row_set_contract_fingerprint(rows),
             operator_id=f"dsl.j1.{kind}",
             inputs=inputs,
             parameters=parameters,
@@ -322,6 +501,37 @@ class J1Observed:
             self.context, self.entity, domain, quantity, root, self.metric, self.plan, ()
         )
 
+    def summarize(self, method: Literal["sum", "count", "mean"]) -> J1Statistic:
+        """Construct a new current-row statistic, distinct from Metric state."""
+        if method not in ("sum", "count", "mean"):
+            raise _reject(
+                "current-row sum, count or mean",
+                method,
+                repair="Choose one registered current-row method.",
+            )
+        parts = {"sum": ("sum",), "count": ("count",), "mean": ("sum", "count")}[method]
+        target = _singleton_domain(self.domain)
+        quantity = _row_statistic_quantity(
+            self.domain, target, self.root.definition_fingerprint, method, parts
+        )
+        root = self.context._node(
+            "summarize",
+            entity=self.entity.path,
+            input_root=self.root,
+            parameters=(method, self.root.definition_fingerprint),
+            requirements=("strict_current_row_cell@v1",) if method != "count" else (),
+        )
+        return J1Statistic(self.context, target, quantity, root, method)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J1Statistic:
+    context: J1Context
+    domain: AnalysisDomain
+    quantity: QuantityState
+    root: LogicalRootHandle
+    method: str
+
 
 def _observe(
     members: J1Members,
@@ -397,11 +607,23 @@ def _observe(
             metric.path,
             repair="Declare the supported contribution additivity on the Measure.",
         )
+    if normalized.null_policy is not None and normalized.null_policy.kind != "ignore":
+        raise _reject(
+            "authored ignore-Null input policy",
+            normalized.null_policy.kind,
+            repair="Declare nulls=ms.nulls.ignore() for this J1 sum.",
+        )
+    if normalized.empty_policy is not None and normalized.empty_policy.kind != "null":
+        raise _reject(
+            "authored empty-Null contribution policy",
+            normalized.empty_policy.kind,
+            repair="Declare empty=ms.empty.null() for this J1 sum.",
+        )
     if plan.null_rule != "ignore_null_inputs" or plan.empty_rule != "null":
         raise _reject(
-            "registered ignore-null, empty-null sum policy",
+            "sum graph compatible with ignore-Null and empty-Null policy",
             metric.path,
-            repair="Use a sum builder with the first-round value policy.",
+            repair="Use a sum graph whose structural value rules match the declared J1 policy.",
         )
     if type(coordinates) is not tuple or len(set(coordinates)) != len(coordinates):
         raise _reject(

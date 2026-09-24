@@ -9,6 +9,10 @@ from typing import Literal, TypeAlias
 from marivo.analysis.compiler.errors import DatasetCompilationError, compilation_error
 from marivo.analysis.compiler.normalize import required_entities
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
+from marivo.analysis.datasets.descriptors import (
+    _row_contract_fingerprint,
+    _row_set_contract_fingerprint,
+)
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.domains.contracts import (
     EventFunnelPayload,
@@ -35,6 +39,55 @@ from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.analysis.operators.registry import BackendRegistration, ImplementationRegistration
+
+
+def _j1_placement_error(expected: str, received: str) -> DatasetCompilationError:
+    return DatasetCompilationError(
+        expected=expected,
+        received=received,
+        repair="Use the exact constructed J1 root with its qualified DuckDB source or fixed pandas input.",
+        location="dataset.compiler.j1_placement",
+    )
+
+
+def place_j1_source(context: object, root: LogicalRootHandle, backend: str) -> None:
+    """Admit the private J1 source definition before any business query."""
+    from marivo.analysis.observation.dsl_j1 import J1Context, j1_row_contracts
+
+    if not isinstance(context, J1Context):
+        raise _j1_placement_error("one declared J1 context", type(context).__name__)
+    if backend != "duckdb":
+        raise _j1_placement_error("qualified DuckDB J1 source route", backend)
+    current = root
+    while True:
+        if current.session_id != context.session_id or current.store_id != context.store_id:
+            raise _j1_placement_error("J1 root from this Session and Store", "foreign root")
+        row, rows = j1_row_contracts(context, current)
+        if (
+            current.shape_id.family_id != "dsl_j1"
+            or _row_contract_fingerprint(row) != current.row_contract_fingerprint
+            or _row_set_contract_fingerprint(rows) != current.row_set_contract_fingerprint
+        ):
+            raise _j1_placement_error("exact J1 row definition", "definition binding differs")
+        if not current.inputs:
+            return
+        if len(current.inputs) != 1 or not isinstance(current.inputs[0].root, LogicalRootHandle):
+            raise _j1_placement_error("one exact J1 logical predecessor", current.operator_id)
+        current = current.inputs[0].root
+
+
+def place_j1_local(root: LogicalRootHandle, input_root: LogicalRootHandle) -> None:
+    """Admit only an exact retained J1 successor on the pandas route."""
+    if (
+        root.shape_id.family_id != "dsl_j1"
+        or root.operator_id
+        not in ("dsl.j1.where", "dsl.j1.group", "dsl.j1.rollup", "dsl.j1.summarize")
+        or len(root.inputs) != 1
+        or root.inputs[0].root is not input_root
+        or root.session_id != input_root.session_id
+        or root.store_id != input_root.store_id
+    ):
+        raise _j1_placement_error("exact retained J1 pandas successor", root.operator_id)
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)

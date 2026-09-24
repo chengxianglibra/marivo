@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import ExitStack
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import ibis.expr.types as ir
 import pandas as pd
@@ -52,9 +52,132 @@ from marivo.analysis.operators.driver_contracts import (
     DriverCandidateEvaluationSummary,
 )
 
+
+def run_j1_source(
+    context: J1Context,
+    root: LogicalRootHandle,
+    backend: J1IbisBackend,
+    tables: Mapping[str, ir.Table],
+) -> J1ExecutionResult:
+    """Consume one admitted J1 Ibis plan through owned Arrow readers.
+
+    The caller owns the already opened source backend. No SQL text is authored
+    here; every analysis expression and check is compiled by Ibis.
+    """
+    from marivo.analysis.compiler.dsl_j1_source import lower_j1_source
+    from marivo.analysis.compiler.placement import place_j1_source
+    from marivo.analysis.materialization.ibis_batches import IbisBatchStream
+    from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
+    from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
+    from marivo.analysis.operators.registry import MethodDomain
+
+    place_j1_source(context, root, backend.name)
+    plan = lower_j1_source(context, root, tables)
+    method = j1_numeric_method(root)
+    if method is not None:
+        input_root = root.inputs[0].root if root.inputs else None
+        domain: MethodDomain = (
+            "group"
+            if root.operator_id in ("dsl.j1.observe", "dsl.j1.summarize")
+            and isinstance(input_root, LogicalRootHandle)
+            and input_root.shape_id.local_shape_id == "group"
+            else "entity"
+        )
+        if root.operator_id == "dsl.j1.rollup" and isinstance(input_root, LogicalRootHandle):
+            previous = lower_j1_source(context, input_root, tables)
+            if "group" in previous.primary.columns:
+                raise MaterializationError(
+                    expected="entity-level original-state rollup",
+                    received="group-level rollup is not qualified in W2",
+                    repair="Roll up the admitted Entity observation.",
+                    stage="source_admission",
+                )
+        method.require_route("source", "duckdb", domain, str(plan.primary["value"].type()))
+
+    def collect(expression: ir.Table) -> pa.Table:
+        backend.compile(expression)
+        native = backend.to_pyarrow_batches(expression, chunk_size=1024)
+        stream = IbisBatchStream(native, native.schema)
+        try:
+            inferred = expression.schema().to_pyarrow()
+            required = {
+                "member",
+                "group",
+                "cell_tag",
+                "non_null_count",
+                "row_count",
+                "current_count",
+            }
+            expected = pa.schema(
+                [
+                    pa.field(field.name, field.type, nullable=field.name not in required)
+                    for field in inferred
+                ]
+            )
+            batches: list[pa.RecordBatch] = []
+            for batch in stream:
+                if batch.schema.names != expected.names:
+                    raise MaterializationError(
+                        expected="stable Ibis output fields",
+                        received="source batch fields differ",
+                        repair="Correct the source lowering or backend batch adaptation.",
+                        stage="source_transfer",
+                    )
+                for key in ("member", "group"):
+                    if key in batch.schema.names and batch.column(key).null_count:
+                        raise MaterializationError(
+                            expected="complete unique explicit keys",
+                            received="missing or duplicate key",
+                            repair="Correct the selected J1 source key declaration or rows.",
+                            stage="source_validation",
+                        )
+                try:
+                    batches.append(batch.cast(expected, safe=True))
+                except (pa.ArrowException, ValueError) as error:
+                    raise MaterializationError(
+                        expected="lossless checked Ibis output types",
+                        received="source batch type or integer range differs",
+                        repair="Use a method whose numeric type is admitted by the source adapter.",
+                        stage="source_transfer",
+                    ) from error
+            return pa.Table.from_batches(batches, schema=expected)
+        finally:
+            stream.close()
+
+    completed: list[str] = []
+    for name, expression in plan.checks:
+        result = collect(expression)
+        values = result.column("invalid").to_pylist()
+        if values != [0]:
+            raise MaterializationError(
+                expected=f"completed {name} check",
+                received=f"{name} rejected current source rows",
+                repair="Correct the source values or select a method whose Cell policy admits them.",
+                stage="source_validation",
+            )
+        completed.append(name)
+    primary = collect(plan.primary)
+    parts = tuple((role, collect(expression)) for role, expression in plan.parts)
+    return J1ExecutionResult(root, primary, parts, tuple(completed))
+
+
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.dataset_execution import ExecutionEvidence
+    from marivo.analysis.observation.dsl_j1 import J1Context
+    from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
+
+
+class J1IbisBackend(Protocol):
+    """Selected Ibis backend interface used by the private J1 source stage."""
+
+    name: str
+
+    def compile(self, expression: ir.Table) -> str: ...
+
+    def to_pyarrow_batches(
+        self, expression: ir.Table, *, chunk_size: int
+    ) -> pa.RecordBatchReader: ...
 
 
 def attribution_source_summary(
