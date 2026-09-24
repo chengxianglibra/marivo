@@ -6,14 +6,16 @@ import os
 import shutil
 import tempfile
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import duckdb
 import ibis
 
 if TYPE_CHECKING:
+    from marivo.analysis.session.core import Session
     from marivo.semantic.catalog import SemanticCatalog
 
 # ---------------------------------------------------------------------------
@@ -24,6 +26,304 @@ if TYPE_CHECKING:
 
 _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
+
+
+# The S0 DSL journeys share declarations, but each journey owns its source rows.
+DslScenario = Literal[
+    "j1",
+    "j2",
+    "j3",
+    "j3_weighting",
+    "j4",
+    "j4_ties",
+    "empty_domain",
+    "empty_group",
+    "zero_denominator",
+    "null_classification",
+    "missing_key",
+    "nonfinite",
+    "overflow",
+    "tuple_union",
+]
+
+
+@dataclass(frozen=True)
+class DslNames:
+    domain: str = "sales"
+    customer: str = "customer"
+    order: str = "order"
+    order_line: str = "order_line"
+    customer_id: str = "customer_id"
+    order_id: str = "order_id"
+    line_id: str = "line_id"
+    region: str = "region"
+    channel: str = "channel"
+    status: str = "status"
+    ordered_at: str = "ordered_at"
+    amount: str = "amount"
+    line_amount: str = "line_amount"
+    buyer: str = "order_buyer"
+    line_order: str = "line_order"
+    revenue: str = "revenue"
+    order_count: str = "order_count"
+    line_revenue: str = "line_revenue"
+    aov: str = "aov_from_lines"
+
+
+DSL_NAMES = DslNames()
+
+
+@dataclass(frozen=True)
+class DslRows:
+    customers: tuple[tuple[str | None, str | None], ...]
+    orders: tuple[tuple[str, str | None, str | None, str, str, int | float], ...]
+    lines: tuple[tuple[str, str | None, int | float], ...]
+
+
+@dataclass(frozen=True)
+class DslCase:
+    scenario: DslScenario
+    names: DslNames
+    root: Path
+    database_path: Path
+    catalog: SemanticCatalog
+    session: Session
+
+
+class DslCaseFactory(Protocol):
+    def __call__(
+        self,
+        scenario: DslScenario,
+        *,
+        names: DslNames = DSL_NAMES,
+        revenue_unit: str = "CNY",
+    ) -> DslCase: ...
+
+
+def analysis_dsl_project_files(
+    names: DslNames, database_path: Path, *, revenue_unit: str = "CNY"
+) -> dict[str, str]:
+    """Return real authoring files for the inactive DSL journeys."""
+    n = names
+    models = f"""\
+import marivo.datasource as md
+import marivo.semantic as ms
+
+warehouse = ms.ref.datasource('warehouse')
+customer = ms.entity(name={n.customer!r}, datasource=warehouse,
+                     source=md.table({n.customer!r}), primary_key=[{n.customer_id!r}])
+orders = ms.entity(name={n.order!r}, datasource=warehouse,
+                   source=md.table({n.order!r}), primary_key=[{n.order_id!r}])
+lines = ms.entity(name={n.order_line!r}, datasource=warehouse,
+                  source=md.table({n.order_line!r}), primary_key=[{n.line_id!r}])
+
+customer_id = ms.dimension_column(name={n.customer_id!r}, entity=customer,
+                                  column={n.customer_id!r})
+order_customer_id = ms.dimension_column(name={n.customer_id!r}, entity=orders,
+                                        column={n.customer_id!r})
+order_id = ms.dimension_column(name={n.order_id!r}, entity=orders,
+                               column={n.order_id!r})
+line_order_id = ms.dimension_column(name={n.order_id!r}, entity=lines,
+                                    column={n.order_id!r})
+region = ms.dimension_column(name={n.region!r}, entity=customer,
+                             column={n.region!r})
+channel = ms.dimension_column(name={n.channel!r}, entity=orders,
+                              column={n.channel!r})
+status = ms.dimension_column(name={n.status!r}, entity=orders,
+                             column={n.status!r})
+ordered_at = ms.time_dimension_column(name={n.ordered_at!r}, entity=orders,
+                                      column={n.ordered_at!r}, granularity='second',
+                                      parse=ms.timestamp(timezone='UTC'))
+amount = ms.measure_column(name={n.amount!r}, entity=orders,
+                           column={n.amount!r}, additivity='additive',
+                           unit={revenue_unit!r})
+line_amount = ms.measure_column(name={n.line_amount!r}, entity=lines,
+                                column={n.line_amount!r}, additivity='additive',
+                                unit='CNY')
+buyer = ms.relationship(name={n.buyer!r}, from_entity=orders, to_entity=customer,
+                        keys=[ms.join_on(order_customer_id, customer_id)])
+line_order = ms.relationship(name={n.line_order!r}, from_entity=lines, to_entity=orders,
+                             keys=[ms.join_on(line_order_id, order_id)])
+revenue = ms.aggregate(name={n.revenue!r}, measure=amount, agg='sum')
+order_count = ms.count(name={n.order_count!r}, entity=orders)
+line_revenue = ms.aggregate(name={n.line_revenue!r}, measure=line_amount, agg='sum')
+aov = ms.ratio(name={n.aov!r}, numerator=line_revenue, denominator=order_count)
+"""
+    return {
+        "datasources/warehouse.py": (
+            "import marivo.datasource as md\n"
+            f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+        ),
+        f"{n.domain}/_domain.py": (
+            "import marivo.semantic as ms\n"
+            f"ms.domain(name={n.domain!r}, owner='Fixture', default=True)\n"
+        ),
+        f"{n.domain}/models.py": models,
+    }
+
+
+_AUGUST = "2026-08-15T12:00:00+00:00"
+
+
+def analysis_dsl_rows(scenario: DslScenario) -> DslRows:
+    """Return source facts, without any expected analysis result."""
+    if scenario == "j1":
+        return DslRows(
+            (("A", "east"), ("B", "east"), ("C", "south"), ("D", "west")),
+            (
+                ("j1_july", "A", "web", "paid", "2026-07-31T23:59:59+00:00", 77),
+                ("j1_a", "A", "web", "paid", "2026-08-01T00:00:00+00:00", 450),
+                ("j1_b", "B", "mobile", "paid", _AUGUST, 150),
+                ("j1_c", "C", "web", "paid", "2026-08-31T23:59:59+00:00", 400),
+                ("j1_september", "A", "mobile", "paid", "2026-09-01T00:00:00+00:00", 99),
+            ),
+            (),
+        )
+    if scenario == "j2":
+        return DslRows(
+            (("A", "east"), ("B", "east"), ("C", "south"), ("D", "west")),
+            (
+                ("j2_ja", "A", "web", "paid", "2026-07-10T12:00:00+00:00", 100),
+                ("j2_jb", "B", "web", "paid", "2026-07-10T12:00:00+00:00", 100),
+                ("j2_jc", "C", "web", "paid", "2026-07-10T12:00:00+00:00", 50),
+                ("j2_aa", "A", "web", "paid", "2026-08-01T00:00:00+00:00", 60),
+                ("j2_ab", "B", "web", "paid", _AUGUST, 120),
+                ("j2_sa", "A", "web", "paid", "2026-09-01T00:00:00+00:00", 30),
+                ("j2_sb", "B", "web", "paid", "2026-09-10T12:00:00+00:00", 200),
+            ),
+            (),
+        )
+    if scenario == "j3":
+        return DslRows(
+            (("A", "east"), ("B", "east")),
+            (
+                ("j3_aw", "A", "web", "paid", _AUGUST, 0),
+                ("j3_am", "A", "mobile", "paid", _AUGUST, 0),
+                ("j3_bw1", "B", "web", "paid", _AUGUST, 0),
+                ("j3_bw2", "B", "web", "paid", _AUGUST, 0),
+            ),
+            (
+                ("j3_l1", "j3_aw", 40),
+                ("j3_l2", "j3_aw", 60),
+                ("j3_l3", "j3_bw1", 20),
+                ("j3_l4", "j3_bw2", 40),
+            ),
+        )
+    if scenario == "j3_weighting":
+        orders = (
+            *((f"j3_a_{index}", "A", "web", "paid", _AUGUST, 0) for index in range(100)),
+            ("j3_b", "B", "web", "paid", _AUGUST, 0),
+        )
+        lines = (
+            *((f"j3_line_{index}", f"j3_a_{index}", 1) for index in range(100)),
+            ("j3_line_b", "j3_b", 100),
+        )
+        return DslRows((("A", "east"), ("B", "west")), orders, lines)
+    if scenario in ("j4", "j4_ties"):
+        counts = (4, 1, 3, 2) if scenario == "j4" else (1, 1, 3, 2)
+        totals = (1.0, 2.0, 4.0, 8.0) if scenario == "j4" else (1.0, 1.0, 2.0, 3.0)
+        rank_orders = tuple(
+            (
+                f"{scenario}_{customer}_{index}",
+                customer,
+                "web",
+                "paid",
+                _AUGUST,
+                total if index == 0 else 0.0,
+            )
+            for customer, count, total in zip("ABCD", counts, totals, strict=True)
+            for index in range(count)
+        )
+        return DslRows(tuple((customer, "east") for customer in "ABCD"), rank_orders, ())
+    if scenario == "empty_domain":
+        return DslRows((), (), ())
+    if scenario in ("empty_group", "tuple_union"):
+        customers = (
+            (("A", "east"), ("B", "west")) if scenario == "empty_group" else (("A", "east"),)
+        )
+        orders = (
+            (("group_a", "A", "web", "paid", _AUGUST, 10),)
+            if scenario == "empty_group"
+            else (
+                ("tuple_web", "A", "web", "paid", _AUGUST, 0),
+                ("tuple_mobile", "A", "mobile", "cancelled", _AUGUST, 0),
+            )
+        )
+        lines = () if scenario == "empty_group" else (("tuple_line", "tuple_web", 40),)
+        return DslRows(customers, orders, lines)
+    if scenario == "zero_denominator":
+        return DslRows((("A", "east"),), (), ())
+    if scenario == "null_classification":
+        return DslRows(
+            (("A", None), ("B", "east")),
+            (("null_channel", "A", None, "paid", _AUGUST, 100),),
+            (),
+        )
+    if scenario == "missing_key":
+        return DslRows(
+            ((None, "east"), ("A", "east")),
+            (("missing_customer", None, "web", "paid", _AUGUST, 10),),
+            (("missing_order", None, 10),),
+        )
+    if scenario == "nonfinite":
+        return DslRows(
+            (("A", "east"),),
+            (
+                ("nan", "A", "web", "paid", _AUGUST, float("nan")),
+                ("infinity", "A", "web", "paid", _AUGUST, float("inf")),
+            ),
+            (),
+        )
+    if scenario == "overflow":
+        return DslRows(
+            (("A", "east"),),
+            (
+                ("maximum", "A", "web", "paid", _AUGUST, 2**63 - 1),
+                ("one_more", "A", "web", "paid", _AUGUST, 1),
+            ),
+            (),
+        )
+    raise ValueError(f"Unknown DSL fixture scenario: {scenario}")
+
+
+def seed_analysis_dsl_database(
+    path: Path, names: DslNames, rows: DslRows, *, float_amount: bool
+) -> None:
+    """Write one isolated DuckDB source file and close its only seed connection."""
+
+    def quoted(value: str) -> str:
+        return '"' + value.replace('"', '""') + '"'
+
+    n = names
+    numeric_type = "DOUBLE" if float_amount else "BIGINT"
+    conn = duckdb.connect(str(path))
+    try:
+        conn.execute("SET threads = 1")
+        conn.execute(
+            f"CREATE TABLE {quoted(n.customer)} ("
+            f"{quoted(n.customer_id)} VARCHAR, {quoted(n.region)} VARCHAR)"
+        )
+        conn.execute(
+            f"CREATE TABLE {quoted(n.order)} ("
+            f"{quoted(n.order_id)} VARCHAR, {quoted(n.customer_id)} VARCHAR, "
+            f"{quoted(n.channel)} VARCHAR, {quoted(n.status)} VARCHAR, "
+            f"{quoted(n.ordered_at)} TIMESTAMPTZ, {quoted(n.amount)} {numeric_type})"
+        )
+        conn.execute(
+            f"CREATE TABLE {quoted(n.order_line)} ("
+            f"{quoted(n.line_id)} VARCHAR, {quoted(n.order_id)} VARCHAR, "
+            f"{quoted(n.line_amount)} {numeric_type})"
+        )
+        if rows.customers:
+            conn.executemany(f"INSERT INTO {quoted(n.customer)} VALUES (?, ?)", rows.customers)
+        if rows.orders:
+            conn.executemany(
+                f"INSERT INTO {quoted(n.order)} VALUES (?, ?, ?, ?, ?, ?)", rows.orders
+            )
+        if rows.lines:
+            conn.executemany(f"INSERT INTO {quoted(n.order_line)} VALUES (?, ?, ?)", rows.lines)
+    finally:
+        conn.close()
 
 
 def rendered_help(target: object | None = None, *, owner: str | None = None) -> str:
